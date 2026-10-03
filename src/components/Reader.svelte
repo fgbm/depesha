@@ -73,6 +73,14 @@
     const me = account?.email.toLowerCase();
     return !!s && !!me && s.cc.length === 0 && s.to.length === 1 && s.to[0].email.toLowerCase() === me;
   });
+  /** "Reply all" is offered only when it reaches someone a plain reply does not. */
+  const manyRecipients = $derived.by(() => {
+    if (!msg || !account) return false;
+    const me = { name: account.display_name, email: account.email };
+    const one = reply(msg, me, false);
+    const all = reply(msg, me, true);
+    return all.to.length + all.cc.length > one.to.length + one.cc.length;
+  });
   const bulk = $derived(app.selected.size > 1);
   const bulkAccount = $derived.by(() => {
     const ids = [...app.selected];
@@ -212,6 +220,14 @@
     queueMicrotask(() => quickBox?.focus());
   }
 
+  /** "All" in the open box: the recipients change, what was typed stays. */
+  function setQuickAll(all: boolean) {
+    if (!msg || !account || !quick) return;
+    const me = { name: account.display_name, email: account.email };
+    quick = { ...quick, all, draft: withSignature(reply(msg, me, all), account.signature) };
+    quickBox?.focus();
+  }
+
   function quickDraft(q: NonNullable<typeof quick>): ComposeDraft {
     return { ...q.draft, text: quickText.trimEnd() + q.draft.text };
   }
@@ -329,10 +345,6 @@
     <div class="toolbar" data-tauri-drag-region>
       {#if isDraft}
         <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
-      {:else}
-        <button class="btn ghost" onclick={() => onReply(false)} title={t("act.replyHint")}><Reply size={16} /> {t("act.reply")}</button>
-        <button class="btn ghost" onclick={() => onReply(true)} title={t("act.replyAllHint")}><ReplyAll size={16} /><span class="lbl">{t("act.replyAll")}</span></button>
-        <button class="btn ghost" onclick={onForward} title={t("act.forwardHint")}><Forward size={16} /><span class="lbl">{t("act.forward")}</span></button>
       {/if}
       <span class="sep" data-tauri-drag-region></span>
       <button class="btn ghost" onclick={() => app.archive()} title={t("act.doneHint")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
@@ -420,6 +432,17 @@
         </div>
       </div>
 
+      <!-- Answering sits between the header and the letter, as in Yandex Mail; the toolbar keeps sorting. -->
+      {#if !isDraft}
+        <div class="acts">
+          <button class="act" onclick={() => onReply(false)} title={t("act.replyHint")}><Reply size={16} /> {t("act.reply")}</button>
+          {#if manyRecipients}
+            <button class="act" onclick={() => onReply(true)} title={t("act.replyAllHint")}><ReplyAll size={16} /> {t("act.replyAllFull")}</button>
+          {/if}
+          <button class="act" onclick={onForward} title={t("act.forwardHint")}><Forward size={16} /> {t("act.forward")}</button>
+        </div>
+      {/if}
+
       {#each banners as b (b.ext)}
         <div class="banner ext-banner" class:info={b.tone === "info"} data-ext={b.ext}>
           <Puzzle size={15} />
@@ -487,7 +510,10 @@
             <div class="quick-box">
               <div class="quick-to muted">
                 {#if quick.all}<ReplyAll size={14} />{:else}<Reply size={14} />{/if}
-                <span>{[...quick.draft.to, ...quick.draft.cc].map(addrFull).join(", ")}</span>
+                <span class="quick-who">{[...quick.draft.to, ...quick.draft.cc].map(addrFull).join(", ")}</span>
+                {#if manyRecipients}
+                  <button class="quick-all" class:on={quick.all} aria-pressed={quick.all} onclick={() => quick && setQuickAll(!quick.all)} title={t("act.replyAllHint")}>{t("act.replyAll")}</button>
+                {/if}
               </div>
               <textarea bind:this={quickBox} bind:value={quickText} onkeydown={onQuickKey} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
               <div class="quick-actions">
@@ -498,8 +524,7 @@
               </div>
             </div>
           {:else}
-            <button class="quick-btn" onclick={() => openQuick(false)}><Reply size={15} /> {t("reader.quickReply")}</button>
-            <button class="quick-btn" onclick={() => openQuick(true)}><ReplyAll size={15} /> {t("reader.quickReplyAll")}</button>
+            <button class="quick-bar" onclick={() => openQuick(false)}><Reply size={16} /> {t("act.reply")}</button>
           {/if}
         </div>
       {/if}
@@ -733,19 +758,81 @@
     margin: 0 22px 22px;
   }
 
-  .quick-btn {
+  /* One wide bar that reads as a field: a click turns it into the answer. */
+  .quick-bar {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--paper);
+    color: var(--muted);
+    text-align: left;
+  }
+
+  .quick-bar:hover {
+    color: var(--ink);
+    border-color: color-mix(in srgb, var(--ink) 22%, var(--line));
+  }
+
+  /* Reply, reply all, forward: centred on a hairline between the header and the letter. */
+  .acts {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin: 2px 22px 12px;
+  }
+
+  .acts::before,
+  .acts::after {
+    content: "";
+    flex: 1;
+    min-width: 12px;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .act {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 9px 16px;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    background: var(--paper);
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    background: none;
     color: var(--ink);
+    font-weight: 550;
+    white-space: nowrap;
   }
 
-  .quick-btn:hover {
+  .act:hover {
     background: var(--hover);
+  }
+
+  .quick-who {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .quick-all {
+    flex: none;
+    padding: 2px 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .quick-all.on {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--paper));
+    color: var(--ink);
   }
 
   .quick-box {
@@ -764,9 +851,7 @@
     gap: 6px;
     padding: 10px 14px 0;
     font-size: 13px;
-    overflow: hidden;
     white-space: nowrap;
-    text-overflow: ellipsis;
   }
 
   .quick-box textarea {

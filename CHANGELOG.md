@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Answering moved next to the letter, as in Yandex Mail: Reply, Reply all and Forward sit centred on a hairline between the header and the text, and the toolbar keeps sorting (Done, Delete, More). "Reply all" shows only when it reaches someone a plain reply does not. Below the letter one wide "Reply" bar replaces the two quick-reply buttons; in the open answer an "All" switch changes the recipients and keeps what was typed.
 - Sender pictures: a colleague's photo from the account's Exchange (`GetUserPhoto`, Exchange 2013 and later), and a company's logo published with BIMI next to mail that passed DMARC. The verdict is taken from the topmost `Authentication-Results`, the one the receiving server added; the domain must enforce DMARC (`p=quarantine` or `reject`), the logo is an HTTPS SVG of at most 32 KB shown as an image. Pictures are cached for a week, missing ones for a day; logos can be switched off in Settings → Message list. Yandex's own sender portraits are not available to other clients.
 - Exchange with Windows login (NTLM) no longer answers HTTP 411: the first, empty step of the handshake now carries `Content-Length: 0`, which IIS requires for every POST.
 - Archiving, deleting or moving several messages in a row no longer makes them flash back into the list: a message taken out stays out while the server is moving it, even when a sync or the previous action reloads the list meanwhile, and the cursor no longer jumps. It comes back only if the server refuses.
