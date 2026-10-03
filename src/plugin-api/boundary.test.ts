@@ -1,11 +1,13 @@
+/// <reference types="node" />
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // Built-in plugins may import only the plugin contract, Svelte, icons and their own
 // files. Anything else ties a plugin to the core's insides and blocks moving it to its
 // own repository.
-const ROOT = resolve(__dirname, "../../plugins");
+const ROOT = fileURLToPath(new URL("../../plugins", import.meta.url));
 const ALLOWED = [/^@depesha\/plugin-api$/, /^svelte(\/|$)/, /^@lucide\/svelte\/icons\//];
 
 function files(dir: string): string[] {
