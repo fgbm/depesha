@@ -43,6 +43,12 @@ jobs:
           # Signs the update artifacts; the app accepts nothing else (plugins.updater.pubkey).
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # OAuth clients built into the app (option_env! in depesha-core/src/oauth.rs); an unset secret leaves the provider to Settings.
+          DEPESHA_GOOGLE_CLIENT_ID: ${{ secrets.DEPESHA_GOOGLE_CLIENT_ID }}
+          DEPESHA_GOOGLE_CLIENT_SECRET: ${{ secrets.DEPESHA_GOOGLE_CLIENT_SECRET }}
+          DEPESHA_YANDEX_CLIENT_ID: ${{ secrets.DEPESHA_YANDEX_CLIENT_ID }}
+          DEPESHA_YANDEX_CLIENT_SECRET: ${{ secrets.DEPESHA_YANDEX_CLIENT_SECRET }}
+          DEPESHA_MICROSOFT_CLIENT_ID: ${{ secrets.DEPESHA_MICROSOFT_CLIENT_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Депеша ${{ github.ref_name }}"
