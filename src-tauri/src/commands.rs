@@ -598,11 +598,12 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
 /// Puts moved messages back where they were and forgets their snooze times.
 #[tauri::command]
 pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
+    let mut back = 0;
     for m in moved {
         for mid in &m.message_ids {
             state.store.snooze_remove(&m.account_id, mid)?;
         }
-        state
+        let out = state
             .worker(&m.account_id)?
             .run(Work::MoveByMessageId {
                 from: m.to,
@@ -611,8 +612,21 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
                 unseen: false,
             })
             .await?;
+        if let Output::Count(n) = out {
+            back += n;
+        }
     }
     state.emit("counters-changed", serde_json::json!({}));
+    // Nothing found where the action put it: say so instead of "undone".
+    if back == 0 {
+        return Err(CmdError::new(
+            "not-found",
+            tr!(
+                "the messages were not found where they were moved; they may have been moved again",
+                "письма не нашлись там, куда их перенесли: возможно, их уже переместили снова"
+            ),
+        ));
+    }
     Ok(())
 }
 

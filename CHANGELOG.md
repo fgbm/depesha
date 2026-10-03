@@ -6,6 +6,7 @@
 - Exchange with Windows login (NTLM) no longer answers HTTP 411: the first, empty step of the handshake now carries `Content-Length: 0`, which IIS requires for every POST.
 - Archiving, deleting or moving several messages in a row no longer makes them flash back into the list: a message taken out stays out while the server is moving it, even when a sync or the previous action reloads the list meanwhile, and the cursor no longer jumps. It comes back only if the server refuses.
 - A snoozed conversation is one row in "Snoozed" and counts once, as in the folders; plugin views are grouped like folders unless they ask otherwise ("Awaiting reply" lists each letter).
+- "z" undoes on Yandex too: the message is found where the action put it by the cache, not by the server's search, which on Yandex sees moved mail only after a delay. An undo that finds nothing says so instead of "Undone"; a snoozed message comes back unread by marking it before the move.
 - The `<title>` of an HTML message no longer shows as a line of text above it, and neither `<title>` nor `<style>` leak into previews.
 
 ## 0.5.2 — 2026-10-03

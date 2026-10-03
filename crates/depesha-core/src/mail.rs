@@ -215,16 +215,22 @@ pub async fn move_by_message_id(
         Conn::Imap(c) => {
             let mut uids = Vec::new();
             for mid in message_ids {
-                uids.extend(imap::find_by_message_id(c, from, mid).await?);
+                // The cache has the UID: the move that put the message here synced the
+                // folder. The server's search may not have it yet: Yandex indexes moved
+                // mail with a delay, and "z" right after "e" found nothing.
+                match store.find_by_message_id(account_id, from, mid)? {
+                    Some(row) => uids.push(row.uid),
+                    None => uids.extend(imap::find_by_message_id(c, from, mid).await?),
+                }
+            }
+            if uids.is_empty() {
+                return Ok(0);
+            }
+            // Flags travel with the message: unread before the move, no search after it.
+            if unseen {
+                imap::set_flag(c, from, &uids, FlagChange::Seen(false)).await?;
             }
             imap::move_messages(c, from, &uids, to).await?;
-            if unseen && !uids.is_empty() {
-                let mut moved = Vec::new();
-                for mid in message_ids {
-                    moved.extend(imap::find_by_message_id(c, to, mid).await?);
-                }
-                imap::set_flag(c, to, &moved, FlagChange::Seen(false)).await?;
-            }
             Ok(uids.len())
         }
         Conn::Ews(s) => ews::move_by_message_id(s, store, account_id, from, message_ids, to, unseen).await,
