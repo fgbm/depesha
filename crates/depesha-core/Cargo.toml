@@ -14,12 +14,15 @@ bytes = "1.12.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 futures = "0.3.34"
 hickory-resolver = "0.26.3"
+hmac = "0.13.0"
 http = "1.5.0"
 http-body-util = "0.1.5"
 hyper = { version = "1.11.1", features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder"] }
 mail-parser = "0.11.9"
+md-5 = "0.11.0"
+md4 = "0.11.0"
 ring = "0.17.14"
 roxmltree = "0.21.1"
 rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }

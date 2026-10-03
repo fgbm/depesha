@@ -34,9 +34,12 @@ fn reads_autodiscover() {
 
 #[test]
 fn explains_401() {
-    let e = unauthorized(&["Negotiate".into(), "NTLM".into()]);
-    assert!(matches!(&e, Error::HttpAuth(m) if m == "Negotiate, NTLM"), "{e:?}");
+    let e = unauthorized(&["Digest realm=\"x\"".into(), "Kerberos".into()]);
+    assert!(matches!(&e, Error::HttpAuth(m) if m == "Digest, Kerberos"), "{e:?}");
     assert_eq!(e.kind(), "auth");
+    assert_eq!(ntlm_scheme(&["Negotiate".into(), "NTLM".into()]), Some("NTLM"));
+    assert_eq!(ntlm_scheme(&["Negotiate".into()]), Some("Negotiate"));
+    assert_eq!(ntlm_scheme(&["Basic realm=\"x\"".into()]), None);
     let e = unauthorized(&["Negotiate, NTLM".into(), "Basic realm=\"mail.corp.ru\"".into()]);
     assert!(matches!(e, Error::Auth(_)));
     assert!(matches!(unauthorized(&[]), Error::Auth(_)));

@@ -7,12 +7,12 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use depesha_core::account::{Credentials, EwsConfig};
-use depesha_core::ews;
 use depesha_core::imap::{FlagChange, FolderRole, IdleOutcome};
 use depesha_core::message::Addr;
 use depesha_core::smtp::{self, Draft};
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::SyncOptions;
+use depesha_core::{ews, ntlm};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -305,6 +305,9 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
             tokio::spawn(async move {
                 let (r, mut w) = stream.into_split();
                 let mut r = BufReader::new(r);
+                // NTLM state of this connection: Negotiate and Challenge, then logged in.
+                let mut ntlm: Option<(Vec<u8>, Vec<u8>)> = None;
+                let mut ntlm_user: Option<String> = None;
                 loop {
                     let mut auth = String::new();
                     let mut len = 0usize;
@@ -330,22 +333,44 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
                     r.read_exact(&mut body).await.unwrap();
                     let expected = format!("Basic {}", BASE64.encode("CORP\\me:secret"));
                     let windows_only = mailbox.lock().unwrap().windows_only;
-                    let (status, extra, reply) = if windows_only {
-                        (
-                            "401 Unauthorized",
-                            "WWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\n",
-                            String::new(),
-                        )
+                    let windows = "WWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\n".to_owned();
+                    let token = auth.strip_prefix("NTLM ").and_then(|t| BASE64.decode(t).ok());
+                    let (status, extra, reply) = if windows_only && ntlm_user.is_some() {
+                        let text = String::from_utf8(body).unwrap();
+                        let reply = handle(&mut mailbox.lock().unwrap(), &text);
+                        ("200 OK", String::new(), reply)
+                    } else if windows_only {
+                        match (token, ntlm.take()) {
+                            (Some(t), _) if t.get(8) == Some(&1) => {
+                                let challenge = ntlm::server::challenge("CORP");
+                                let extra = format!("WWW-Authenticate: NTLM {}\r\n", BASE64.encode(&challenge));
+                                ntlm = Some((t, challenge));
+                                ("401 Unauthorized", extra, String::new())
+                            }
+                            (Some(t), Some((negotiate, challenge))) => {
+                                match ntlm::server::verify(&negotiate, &challenge, &t, "secret", None) {
+                                    Some((user, domain)) => {
+                                        assert_eq!((user.as_str(), domain.as_str()), ("me", "CORP"));
+                                        ntlm_user = Some(user);
+                                        let text = String::from_utf8(body).unwrap();
+                                        let reply = handle(&mut mailbox.lock().unwrap(), &text);
+                                        ("200 OK", String::new(), reply)
+                                    }
+                                    None => ("401 Unauthorized", windows, String::new()),
+                                }
+                            }
+                            _ => ("401 Unauthorized", windows, String::new()),
+                        }
                     } else if auth != expected {
                         (
                             "401 Unauthorized",
-                            "WWW-Authenticate: Basic realm=\"mail.corp.ru\"\r\n",
+                            "WWW-Authenticate: Basic realm=\"mail.corp.ru\"\r\n".to_owned(),
                             String::new(),
                         )
                     } else {
                         let text = String::from_utf8(body).unwrap();
                         let reply = handle(&mut mailbox.lock().unwrap(), &text);
-                        ("200 OK", "", reply)
+                        ("200 OK", String::new(), reply)
                     };
                     let head = format!(
                         "HTTP/1.1 {status}\r\n{extra}Content-Type: text/xml; charset=utf-8\r\nContent-Length: {}\r\n\r\n",
@@ -568,9 +593,14 @@ async fn ews_mailbox_round_trip() {
         .unwrap();
     assert!(matches!(outcome, IdleOutcome::Changed));
 
-    // Basic switched off on the server: the error says so.
+    // Basic switched off on the server: Windows login (NTLM) on every connection.
     mailbox.lock().unwrap().windows_only = true;
-    let e = ews::connect(&config, &creds, "me@corp.ru").await.err().unwrap();
+    let wrong = ews::connect(&config, &Credentials::new("CORP\\me", "nope"), "me@corp.ru").await;
+    let e = wrong.err().unwrap();
     assert_eq!(e.kind(), "auth");
-    assert!(e.to_string().contains("Negotiate, NTLM"), "{e}");
+    assert!(!e.to_string().contains("Basic"), "{e}");
+    let mut s = ews::connect(&config, &creds, "me@corp.ru").await.unwrap();
+    // Further requests go on the logged-in connection.
+    let folders = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
+    assert!(folders.iter().any(|f| f.name == "INBOX"));
 }

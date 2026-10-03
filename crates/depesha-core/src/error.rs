@@ -103,10 +103,10 @@ impl std::fmt::Display for Error {
             Self::Parse => tr!("the message could not be parsed", "не удалось разобрать письмо"),
             Self::Ews { code, message } => ews_text(code, message),
             Self::HttpAuth(offered) => tr!(
-                "Exchange accepts only {offered} on EWS; Depesha signs in with Basic. Ask the administrator to \
-                 enable it: Set-WebServicesVirtualDirectory -BasicAuthentication $true",
-                "Exchange принимает на EWS только {offered}, а Депеша входит через Basic. Попросите администратора \
-                 включить её: Set-WebServicesVirtualDirectory -BasicAuthentication $true"
+                "Exchange accepts only {offered} on EWS; Depesha signs in with Basic or NTLM. Ask the administrator \
+                 to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true",
+                "Exchange принимает на EWS только {offered}, а Депеша входит через Basic или NTLM. Попросите \
+                 администратора включить один из них: Set-WebServicesVirtualDirectory -WindowsAuthentication $true"
             ),
         };
         f.write_str(&text)
