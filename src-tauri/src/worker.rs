@@ -1,14 +1,16 @@
 //! Background work for one account: an operations connection that syncs and
-//! runs user actions one at a time, and a second connection waiting in IDLE.
+//! runs user actions one at a time, and a second connection waiting for changes
+//! (IMAP IDLE or EWS streaming notifications).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use depesha_core::account::Account;
-use depesha_core::imap::{self, Conn, FlagChange, FolderRole, IdleOutcome};
+use depesha_core::imap::{FlagChange, FolderRole, IdleOutcome};
+use depesha_core::mail::{self, Conn};
 use depesha_core::store::ListQuery;
-use depesha_core::sync::{self, SyncOptions};
+use depesha_core::sync::SyncOptions;
 use depesha_core::{Error, Result};
 use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
@@ -235,6 +237,11 @@ fn clone_error(e: &Error) -> Error {
         Error::NoTls => Error::NoTls,
         Error::Auth(m) => Error::Auth(m.clone()),
         Error::AuthMechanism(m) => Error::AuthMechanism(m.clone()),
+        Error::HttpAuth(m) => Error::HttpAuth(m.clone()),
+        Error::Ews { code, message } => Error::Ews {
+            code: code.clone(),
+            message: message.clone(),
+        },
         Error::ImapUnavailable => Error::ImapUnavailable,
         Error::Timeout(t) => Error::Timeout(t),
         Error::Closed => Error::Closed,
@@ -243,8 +250,7 @@ fn clone_error(e: &Error) -> Error {
 }
 
 async fn connect(state: &AppState, account: &Account) -> Result<Conn> {
-    let creds = state.credentials(account).await?;
-    imap::connect(&account.imap, &creds).await
+    state.connect(account).await
 }
 
 async fn perform(
@@ -258,7 +264,7 @@ async fn perform(
     let id = account.id.as_str();
     match work {
         Work::SyncAll => {
-            let folders = sync::sync_folder_list(conn, store, id).await?;
+            let folders = mail::sync_folder_list(conn, store, id).await?;
             state.emit("folders-changed", json!({ "account_id": id }));
             let mut order: Vec<_> = folders.iter().filter(|f| f.selectable && !f.hidden).collect();
             order.sort_by_key(|f| match f.role {
@@ -280,19 +286,19 @@ async fn perform(
             sync_one(state, account, conn, folder, *notify_new).await?;
             Ok(Output::None)
         }
-        Work::LoadBody(msg_id) => Ok(Output::Body(sync::load_body(conn, store, *msg_id).await?)),
+        Work::LoadBody(msg_id) => Ok(Output::Body(mail::load_body(conn, store, *msg_id).await?)),
         Work::SetFlag { folder, uids, change } => {
-            imap::set_flag(conn, folder, uids, *change).await?;
+            mail::set_flag(conn, store, id, folder, uids, *change).await?;
             Ok(Output::None)
         }
         Work::Move { from, uids, to } => {
-            imap::move_messages(conn, from, uids, to).await?;
+            mail::move_messages(conn, store, id, from, uids, to).await?;
             sync_one(state, account, conn, from, false).await?;
             sync_one(state, account, conn, to, false).await?;
             Ok(Output::None)
         }
         Work::Delete { folder, uids } => {
-            imap::delete_permanently(conn, folder, uids).await?;
+            mail::delete_permanently(conn, store, id, folder, uids).await?;
             sync_one(state, account, conn, folder, false).await?;
             Ok(Output::None)
         }
@@ -302,20 +308,14 @@ async fn perform(
             flags,
             message_id,
         } => {
-            let exists = match message_id {
-                Some(mid) => !imap::find_by_message_id(conn, folder, mid).await?.is_empty(),
-                None => false,
-            };
-            if !exists {
-                imap::append(conn, folder, raw, flags).await?;
-            }
+            mail::append_unless_exists(conn, store, id, folder, raw, flags, message_id.as_deref()).await?;
             sync_one(state, account, conn, folder, false).await?;
             Ok(Output::None)
         }
-        Work::Search { folder, text } => Ok(Output::Ids(sync::search_server(conn, store, id, folder, text).await?)),
+        Work::Search { folder, text } => Ok(Output::Ids(mail::search_server(conn, store, id, folder, text).await?)),
         Work::CreateFolder(name) => {
-            imap::create_folder(conn, name).await?;
-            sync::sync_folder_list(conn, store, id).await?;
+            mail::create_folder(conn, store, id, name).await?;
+            mail::sync_folder_list(conn, store, id).await?;
             state.emit("folders-changed", json!({ "account_id": id }));
             Ok(Output::None)
         }
@@ -325,24 +325,13 @@ async fn perform(
             to,
             unseen,
         } => {
-            let mut uids = Vec::new();
-            for mid in message_ids {
-                uids.extend(imap::find_by_message_id(conn, from, mid).await?);
-            }
-            imap::move_messages(conn, from, &uids, to).await?;
-            if *unseen && !uids.is_empty() {
-                let mut moved = Vec::new();
-                for mid in message_ids {
-                    moved.extend(imap::find_by_message_id(conn, to, mid).await?);
-                }
-                imap::set_flag(conn, to, &moved, FlagChange::Seen(false)).await?;
-            }
+            let n = mail::move_by_message_id(conn, store, id, from, message_ids, to, *unseen).await?;
             sync_one(state, account, conn, from, false).await?;
             sync_one(state, account, conn, to, false).await?;
-            Ok(Output::Count(uids.len()))
+            Ok(Output::Count(n))
         }
         Work::LoadOlder { folder } => {
-            let n = sync::load_older(conn, store, id, folder, 200).await?;
+            let n = mail::load_older(conn, store, id, folder, 200).await?;
             if n > 0 {
                 state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
             }
@@ -354,7 +343,7 @@ async fn perform(
 async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: &str, notify: bool) -> Result<()> {
     let id = account.id.as_str();
     let (_, before) = state.store.folder_state(id, folder)?;
-    let report = sync::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;
+    let report = mail::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;
     if report.changed() {
         state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
     }
@@ -413,7 +402,7 @@ fn notify_new_mail(state: &AppState, account: &Account, fresh: &[depesha_core::s
     state.notify(&title, &body, bulk);
 }
 
-/// Second connection that sits in IDLE on INBOX and asks the operations loop to sync.
+/// Second connection that waits for changes in INBOX and asks the operations loop to sync.
 async fn idle_loop(
     state: Arc<AppState>,
     account: Account,
@@ -450,7 +439,7 @@ async fn idle_loop(
         backoff = Duration::from_secs(5);
         loop {
             tokio::select! {
-                r = imap::wait_for_changes(conn, "INBOX", POLL_WITHOUT_IDLE) => match r {
+                r = mail::wait_for_changes(conn, &state.store, &account.id, POLL_WITHOUT_IDLE) => match r {
                     Ok((c, outcome)) => {
                         conn = c;
                         if matches!(outcome, IdleOutcome::Changed) {
@@ -459,6 +448,8 @@ async fn idle_loop(
                     }
                     Err(e) => {
                         tracing::debug!(account = %account.id, "idle dropped: {e}");
+                        // A link that breaks at once (a proxy cutting long answers) must not spin.
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                         break;
                     }
                 },

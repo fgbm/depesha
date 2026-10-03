@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use depesha_core::account::{Account, Credentials};
+use depesha_core::account::{Account, AuthMethod, Credentials};
 use depesha_core::store::Store;
+use depesha_core::{mail, oauth};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
@@ -33,6 +34,14 @@ pub struct AppState {
     /// Wakes the scheduler (snoozed mail, follow-up reminders) early.
     pub scheduler_notify: Notify,
     pub updates: crate::updater::Updates,
+    /// OAuth access tokens by account id, with their expiry; never written to disk.
+    pub tokens: Mutex<HashMap<String, (String, i64)>>,
+    /// One token refresh at a time, so two connections do not race for it.
+    pub refreshing: tokio::sync::Mutex<()>,
+    /// Finished browser sign-ins waiting for the account to be checked and saved.
+    pub grants: Mutex<HashMap<String, oauth::Grant>>,
+    /// Ends a browser sign-in in progress.
+    pub oauth_cancel: Notify,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -108,6 +117,9 @@ impl AppState {
     }
 
     pub async fn credentials(&self, account: &Account) -> Result<Credentials, depesha_core::Error> {
+        if let AuthMethod::OAuth { provider } = account.auth {
+            return self.oauth_credentials(account, provider).await;
+        }
         match secrets::get(&account.id).await {
             Ok(Some(password)) => Ok(Credentials::new(account.username.clone(), password)),
             Ok(None) => Err(depesha_core::Error::Auth(tr!(
@@ -116,6 +128,80 @@ impl AppState {
             ))),
             Err(e) => Err(depesha_core::Error::Auth(e.message)),
         }
+    }
+
+    /// A valid access token: the cached one, or a fresh one from the refresh token.
+    async fn oauth_credentials(
+        &self,
+        account: &Account,
+        provider: depesha_core::account::OAuthProvider,
+    ) -> Result<Credentials, depesha_core::Error> {
+        let now = chrono::Utc::now().timestamp();
+        let cached = |s: &Self| {
+            lock(&s.tokens)
+                .get(&account.id)
+                .filter(|(_, exp)| *exp - 120 > now)
+                .map(|(t, _)| t.clone())
+        };
+        if let Some(token) = cached(self) {
+            return Ok(Credentials::oauth(account.username.clone(), token));
+        }
+        let _guard = self.refreshing.lock().await;
+        if let Some(token) = cached(self) {
+            return Ok(Credentials::oauth(account.username.clone(), token));
+        }
+        let refresh_token = match secrets::get(&account.id).await {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                return Err(depesha_core::Error::Auth(tr!(
+                    "no saved sign-in: sign in with {} again",
+                    "вход не сохранён: войдите через {} заново",
+                    provider.title()
+                )));
+            }
+            Err(e) => return Err(depesha_core::Error::Auth(e.message)),
+        };
+        let client = self
+            .settings()
+            .oauth_client(provider)
+            .ok_or_else(|| oauth::not_configured(provider))?;
+        let tokens = oauth::refresh(provider, &client, &refresh_token).await?;
+        // Microsoft rotates refresh tokens; the new one replaces the old.
+        if !tokens.refresh_token.is_empty()
+            && tokens.refresh_token != refresh_token
+            && let Err(e) = secrets::set(&account.id, tokens.refresh_token.clone()).await
+        {
+            tracing::warn!(account = %account.id, "rotated refresh token not saved: {}", e.message);
+        }
+        lock(&self.tokens).insert(account.id.clone(), (tokens.access_token.clone(), tokens.expires_at));
+        Ok(Credentials::oauth(account.username.clone(), tokens.access_token))
+    }
+
+    /// Runs `f` with the account's credentials; an OAuth login the server refused gets
+    /// one more try with a fresh token (it may have been revoked before its expiry).
+    pub async fn with_credentials<T, F, Fut>(&self, account: &Account, f: F) -> Result<T, depesha_core::Error>
+    where
+        F: Fn(Credentials) -> Fut,
+        Fut: std::future::Future<Output = Result<T, depesha_core::Error>>,
+    {
+        let creds = self.credentials(account).await?;
+        match f(creds).await {
+            Err(e) if e.kind() == "auth" && account.auth.oauth_provider().is_some() => {
+                lock(&self.tokens).remove(&account.id);
+                let creds = self.credentials(account).await?;
+                f(creds).await
+            }
+            other => other,
+        }
+    }
+
+    pub async fn connect(&self, account: &Account) -> Result<mail::Conn, depesha_core::Error> {
+        self.with_credentials(account, |creds| async move { mail::connect(account, &creds).await })
+            .await
+    }
+
+    pub fn forget_token(&self, account_id: &str) {
+        lock(&self.tokens).remove(account_id);
     }
 
     pub fn worker(&self, id: &str) -> CmdResult<Worker> {

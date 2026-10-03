@@ -84,6 +84,10 @@ pub fn run() {
                 outbox_notify: Notify::new(),
                 scheduler_notify: Notify::new(),
                 updates: updater::Updates::new(app.package_info().version.to_string()),
+                tokens: Default::default(),
+                refreshing: Default::default(),
+                grants: Default::default(),
+                oauth_cancel: Notify::new(),
             });
             app.manage(state.clone());
             state.apply_language();
@@ -105,6 +109,10 @@ pub fn run() {
             commands::account_check,
             commands::account_save,
             commands::account_remove,
+            commands::oauth_providers,
+            commands::oauth_sign_in,
+            commands::oauth_cancel,
+            commands::exchange_detect,
             commands::folders,
             commands::messages,
             commands::search,

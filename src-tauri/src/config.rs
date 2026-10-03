@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use depesha_core::account::Account;
+use depesha_core::account::{Account, OAuthProvider};
 use depesha_core::lang::{self, Lang};
+use depesha_core::oauth::OAuthClient;
 use serde::{Deserialize, Serialize};
 
 /// Account settings without passwords; those live in the OS keyring.
@@ -29,6 +30,9 @@ pub struct Settings {
     pub updates: String,
     /// `auto` (from the system locale, default), `en` or `ru`.
     pub language: String,
+    /// `system` (light or dark as the system says, default), `paper`, `night`,
+    /// `snow` or `graphite`.
+    pub theme: String,
     /// Built-in plugins switched off, by id (`plugins/<id>`).
     #[serde(alias = "disabled_modules")]
     pub disabled_plugins: Vec<String>,
@@ -36,6 +40,8 @@ pub struct Settings {
     pub plugin_settings: std::collections::BTreeMap<String, serde_json::Value>,
     /// Installed extensions switched off, by id.
     pub disabled_extensions: Vec<String>,
+    /// The user's own OAuth clients; they win over the ones built into the app.
+    pub oauth_clients: std::collections::BTreeMap<OAuthProvider, OAuthClient>,
 }
 
 impl Default for Settings {
@@ -48,14 +54,25 @@ impl Default for Settings {
             templates: Vec::new(),
             updates: "auto".into(),
             language: "auto".into(),
+            theme: "system".into(),
             disabled_plugins: Vec::new(),
             plugin_settings: Default::default(),
             disabled_extensions: Vec::new(),
+            oauth_clients: Default::default(),
         }
     }
 }
 
 impl Settings {
+    /// The OAuth client to sign in with: the user's own, or the built-in one.
+    pub fn oauth_client(&self, provider: OAuthProvider) -> Option<OAuthClient> {
+        self.oauth_clients
+            .get(&provider)
+            .filter(|c| c.is_set())
+            .cloned()
+            .or_else(|| OAuthClient::builtin(provider))
+    }
+
     /// The interface language: the chosen one, or Russian for a Russian system locale
     /// and English otherwise.
     pub fn lang(&self) -> Lang {

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use depesha_core::imap::FolderRole;
 use depesha_core::store::Followup;
-use depesha_core::{message, smtp};
+use depesha_core::{mail, message, smtp};
 use serde_json::json;
 
 use crate::error::CmdError;
@@ -54,9 +54,12 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
             continue;
         };
         let result = async {
-            let creds = state.credentials(&account).await?;
             let msg = smtp::build(&item.draft)?;
-            smtp::send(&account.smtp, &creds, &msg).await
+            let account = &account;
+            let msg = &msg;
+            state
+                .with_credentials(account, |creds| async move { mail::send(account, &creds, msg).await })
+                .await
         }
         .await;
 
@@ -85,7 +88,9 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                     })?;
                     state.emit("counters-changed", json!({}));
                 }
+                // Exchange Web Services already put the copy into Sent Items.
                 if account.save_sent_copy
+                    && !account.is_ews()
                     && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
                     && let Ok(worker) = state.worker(&account.id)
                 {

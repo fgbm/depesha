@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use depesha_core::account::{Account, Credentials};
+use depesha_core::account::{Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
 use depesha_core::autodetect::{self, Detection};
-use depesha_core::imap::{self, FlagChange, FolderRole};
+use depesha_core::ews::{self, EwsDetection};
+use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
 use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze};
+use depesha_core::{mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -51,24 +53,50 @@ pub async fn detect(email: String) -> Detection {
     autodetect::detect(&email).await
 }
 
-/// Logs in to IMAP and SMTP with the given settings; nothing is saved.
+/// Logs in to IMAP and SMTP (or EWS) with the given settings; nothing is saved.
+/// `grant` is a browser sign-in from `oauth_sign_in` for an account not saved yet.
 #[tauri::command]
-pub async fn account_check(account: Account, password: Option<String>) -> CmdResult<()> {
-    let password = match password.filter(|p| !p.is_empty()) {
-        Some(p) => p,
-        None => secrets::get(&account.id)
-            .await?
-            .ok_or_else(|| CmdError::new("auth", tr!("enter the password", "введите пароль")))?,
+pub async fn account_check(
+    state: St<'_>,
+    account: Account,
+    password: Option<String>,
+    grant: Option<String>,
+) -> CmdResult<()> {
+    let creds = match (&account.auth, grant) {
+        (AuthMethod::OAuth { .. }, Some(grant)) => {
+            let token = state
+                .grants
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&grant)
+                .map(|g| g.tokens.access_token.clone())
+                .ok_or_else(sign_in_again)?;
+            Credentials::oauth(account.username.clone(), token)
+        }
+        (AuthMethod::OAuth { .. }, None) => state.credentials(&account).await?,
+        (AuthMethod::Password, _) => {
+            let password = match password.filter(|p| !p.is_empty()) {
+                Some(p) => p,
+                None => secrets::get(&account.id)
+                    .await?
+                    .ok_or_else(|| CmdError::new("auth", tr!("enter the password", "введите пароль")))?,
+            };
+            Credentials::new(account.username.clone(), password)
+        }
     };
-    let creds = Credentials::new(account.username.clone(), password);
-    let mut conn = imap::connect(&account.imap, &creds)
+    mail::check(&account, &creds)
         .await
-        .map_err(|e| prefix("IMAP", e))?;
-    let _ = conn.session.logout().await;
-    smtp::check(&account.smtp, &creds)
-        .await
-        .map_err(|e| prefix("SMTP", e))?;
-    Ok(())
+        .map_err(|(proto, e)| prefix(proto, e))
+}
+
+fn sign_in_again() -> CmdError {
+    CmdError::new(
+        "auth",
+        tr!(
+            "the sign-in has expired, sign in again",
+            "вход устарел, войдите ещё раз"
+        ),
+    )
 }
 
 fn prefix(proto: &str, e: depesha_core::Error) -> CmdError {
@@ -78,20 +106,40 @@ fn prefix(proto: &str, e: depesha_core::Error) -> CmdError {
 }
 
 #[tauri::command]
-pub async fn account_save(state: St<'_>, mut account: Account, password: Option<String>) -> CmdResult<Account> {
+pub async fn account_save(
+    state: St<'_>,
+    mut account: Account,
+    password: Option<String>,
+    grant: Option<String>,
+) -> CmdResult<Account> {
     if account.id.is_empty() {
         account.id = format!(
             "{}-{}",
             account.email.to_lowercase(),
             chrono::Utc::now().timestamp_millis()
         );
-        account.save_sent_copy = !account.imap.host.ends_with("gmail.com");
+        // Gmail and Exchange Web Services put sent mail into Sent themselves.
+        account.save_sent_copy = !account.imap.host.ends_with("gmail.com") && !account.is_ews();
     }
     if account.display_name.trim().is_empty() {
         account.display_name = account.email.clone();
     }
-    if let Some(p) = password.filter(|p| !p.is_empty()) {
-        secrets::set(&account.id, p).await?;
+    let grant = grant.and_then(|g| state.grants.lock().unwrap_or_else(|e| e.into_inner()).remove(&g));
+    match (&account.auth, grant) {
+        (AuthMethod::OAuth { .. }, Some(grant)) => {
+            secrets::set(&account.id, grant.tokens.refresh_token.clone()).await?;
+            state.tokens.lock().unwrap_or_else(|e| e.into_inner()).insert(
+                account.id.clone(),
+                (grant.tokens.access_token.clone(), grant.tokens.expires_at),
+            );
+        }
+        (AuthMethod::OAuth { .. }, None) => {}
+        (AuthMethod::Password, _) => {
+            state.forget_token(&account.id);
+            if let Some(p) = password.filter(|p| !p.is_empty()) {
+                secrets::set(&account.id, p).await?;
+            }
+        }
     }
     state.save_account(account.clone())?;
     let worker = worker::spawn(state.inner().clone(), account.clone());
@@ -104,8 +152,100 @@ pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
     state.set_worker(&id, None);
     state.remove_account(&id)?;
     state.store.forget_account(&id)?;
+    state.forget_token(&id);
     secrets::delete(&id).await?;
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct OAuthProviderView {
+    provider: OAuthProvider,
+    title: &'static str,
+    /// A client is built in or set by the user.
+    configured: bool,
+}
+
+#[tauri::command]
+pub fn oauth_providers(state: St<'_>) -> Vec<OAuthProviderView> {
+    let settings = state.settings();
+    OAuthProvider::ALL
+        .into_iter()
+        .map(|p| OAuthProviderView {
+            provider: p,
+            title: p.title(),
+            configured: settings.oauth_client(p).is_some(),
+        })
+        .collect()
+}
+
+/// A finished browser sign-in; `id` is passed to `account_check` and `account_save`.
+#[derive(Serialize)]
+pub struct OAuthGrantView {
+    id: String,
+    provider: OAuthProvider,
+    email: String,
+    name: Option<String>,
+    imap: ServerConfig,
+    smtp: ServerConfig,
+}
+
+/// Opens the provider's sign-in page in the browser and waits for it to come back.
+#[tauri::command]
+pub async fn oauth_sign_in(
+    state: St<'_>,
+    provider: OAuthProvider,
+    login_hint: Option<String>,
+) -> CmdResult<OAuthGrantView> {
+    let client = state
+        .settings()
+        .oauth_client(provider)
+        .ok_or_else(|| oauth::not_configured(provider))?;
+    let app = state.app.clone();
+    let open = move |url: &str| {
+        app.opener().open_url(url, None::<&str>).map_err(|e| {
+            depesha_core::Error::Protocol(tr!(
+                "could not open the browser: {e}",
+                "не удалось открыть браузер: {e}"
+            ))
+        })
+    };
+    let grant = oauth::sign_in(
+        provider,
+        &client,
+        login_hint.as_deref(),
+        open,
+        state.oauth_cancel.notified(),
+    )
+    .await?;
+    let id = format!("{}-{}", provider.as_str(), chrono::Utc::now().timestamp_millis());
+    let (imap, smtp) = provider.servers();
+    let view = OAuthGrantView {
+        id: id.clone(),
+        provider,
+        email: grant.email.clone(),
+        name: grant.name.clone(),
+        imap,
+        smtp,
+    };
+    state.grants.lock().unwrap_or_else(|e| e.into_inner()).insert(id, grant);
+    Ok(view)
+}
+
+#[tauri::command]
+pub fn oauth_cancel(state: St<'_>) {
+    state.oauth_cancel.notify_waiters();
+}
+
+/// Finds the EWS address of an Exchange mailbox (Autodiscover needs the login).
+#[tauri::command]
+pub async fn exchange_detect(
+    email: String,
+    username: String,
+    password: String,
+    server: Option<String>,
+) -> EwsDetection {
+    let creds = Credentials::new(username, password);
+    ews::discover(email.trim(), &creds, server.as_deref().filter(|s| !s.trim().is_empty())).await
 }
 
 #[tauri::command]
