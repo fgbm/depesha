@@ -111,6 +111,28 @@ CREATE TABLE IF NOT EXISTS followups (
 CREATE TABLE IF NOT EXISTS trusted_senders (
     email TEXT PRIMARY KEY
 );
+
+-- Exchange Web Services accounts: EWS folder ids behind the folder names.
+-- window_date: items received since then are all cached; 0 for the whole folder,
+-- -1 before the first sync.
+CREATE TABLE IF NOT EXISTS ews_folders (
+    account_id  TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    folder_id   TEXT NOT NULL,
+    window_date INTEGER NOT NULL DEFAULT -1,
+    PRIMARY KEY (account_id, name)
+);
+
+-- EWS item ids behind the UIDs that the cache uses for every account.
+CREATE TABLE IF NOT EXISTS ews_items (
+    account_id TEXT NOT NULL,
+    folder     TEXT NOT NULL,
+    uid        INTEGER NOT NULL,
+    item_id    TEXT NOT NULL,
+    received   INTEGER NOT NULL,
+    PRIMARY KEY (account_id, folder, uid)
+);
+CREATE INDEX IF NOT EXISTS ews_items_by_id ON ews_items (account_id, folder, item_id);
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -823,7 +845,164 @@ impl Store {
         conn.execute("DELETE FROM outbox WHERE account_id = ?1", [account_id])?;
         conn.execute("DELETE FROM snoozed WHERE account_id = ?1", [account_id])?;
         conn.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
+        conn.execute("DELETE FROM ews_folders WHERE account_id = ?1", [account_id])?;
+        conn.execute("DELETE FROM ews_items WHERE account_id = ?1", [account_id])?;
         Ok(())
+    }
+
+    /// Records the EWS id of every folder name. Returns names whose id changed (the
+    /// folder was deleted and created again): their cache no longer matches the server.
+    pub fn ews_set_folders(&self, account_id: &str, folders: &[(String, String)]) -> Result<Vec<String>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut changed = Vec::new();
+        {
+            let mut get = tx.prepare("SELECT folder_id FROM ews_folders WHERE account_id = ?1 AND name = ?2")?;
+            let mut upsert = tx.prepare(
+                "INSERT INTO ews_folders (account_id, name, folder_id) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (account_id, name) DO UPDATE SET folder_id = excluded.folder_id",
+            )?;
+            for (name, id) in folders {
+                let old: Option<String> = get.query_row(params![account_id, name], |r| r.get(0)).optional()?;
+                if old.as_ref().is_some_and(|o| o != id) {
+                    changed.push(name.clone());
+                }
+                upsert.execute(params![account_id, name, id])?;
+            }
+            let names: Vec<&str> = folders.iter().map(|(n, _)| n.as_str()).collect();
+            let existing: Vec<String> = tx
+                .prepare("SELECT name FROM ews_folders WHERE account_id = ?1")?
+                .query_map([account_id], |r| r.get(0))?
+                .collect::<Result<_, _>>()?;
+            for name in existing.iter().filter(|n| !names.contains(&n.as_str())) {
+                tx.execute(
+                    "DELETE FROM ews_folders WHERE account_id = ?1 AND name = ?2",
+                    params![account_id, name],
+                )?;
+                tx.execute(
+                    "DELETE FROM ews_items WHERE account_id = ?1 AND folder = ?2",
+                    params![account_id, name],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
+    pub fn ews_folder_id(&self, account_id: &str, name: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT folder_id FROM ews_folders WHERE account_id = ?1 AND name = ?2",
+                params![account_id, name],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn ews_window(&self, account_id: &str, name: &str) -> Result<i64> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT window_date FROM ews_folders WHERE account_id = ?1 AND name = ?2",
+                params![account_id, name],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(-1))
+    }
+
+    pub fn ews_set_window(&self, account_id: &str, name: &str, window_date: i64) -> Result<()> {
+        self.conn().execute(
+            "UPDATE ews_folders SET window_date = ?3 WHERE account_id = ?1 AND name = ?2",
+            params![account_id, name, window_date],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets the cache of a folder: messages, item ids and the synced window.
+    pub fn ews_clear_folder(&self, account_id: &str, name: &str) -> Result<()> {
+        self.clear_folder(account_id, name)?;
+        let conn = self.conn();
+        conn.execute(
+            "DELETE FROM ews_items WHERE account_id = ?1 AND folder = ?2",
+            params![account_id, name],
+        )?;
+        conn.execute(
+            "UPDATE ews_folders SET window_date = -1 WHERE account_id = ?1 AND name = ?2",
+            params![account_id, name],
+        )?;
+        conn.execute(
+            "UPDATE folders SET last_uid = 0 WHERE account_id = ?1 AND name = ?2",
+            params![account_id, name],
+        )?;
+        Ok(())
+    }
+
+    /// `(uid, item id, received)` of every cached item of the folder.
+    pub fn ews_items(&self, account_id: &str, folder: &str) -> Result<Vec<(u32, String, i64)>> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT uid, item_id, received FROM ews_items WHERE account_id = ?1 AND folder = ?2")?;
+        let rows = stmt.query_map(params![account_id, folder], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn ews_item_add(&self, account_id: &str, folder: &str, uid: u32, item_id: &str, received: i64) -> Result<()> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO ews_items (account_id, folder, uid, item_id, received) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![account_id, folder, uid, item_id, received],
+        )?;
+        Ok(())
+    }
+
+    pub fn ews_items_remove(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM ews_items WHERE account_id = ?1 AND folder = ?2 AND uid = ?3")?;
+            for uid in uids {
+                stmt.execute(params![account_id, folder, uid])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Item ids for UIDs, in the same order; unknown UIDs are skipped.
+    pub fn ews_item_ids(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT item_id FROM ews_items WHERE account_id = ?1 AND folder = ?2 AND uid = ?3")?;
+        let mut out = Vec::with_capacity(uids.len());
+        for uid in uids {
+            if let Some(id) = stmt
+                .query_row(params![account_id, folder, uid], |r| r.get(0))
+                .optional()?
+            {
+                out.push(id);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn ews_uid_of(&self, account_id: &str, folder: &str, item_id: &str) -> Result<Option<u32>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT uid FROM ews_items WHERE account_id = ?1 AND folder = ?2 AND item_id = ?3",
+                params![account_id, folder, item_id],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn ews_min_uid(&self, account_id: &str, folder: &str) -> Result<Option<u32>> {
+        Ok(self.conn().query_row(
+            "SELECT MIN(uid) FROM ews_items WHERE account_id = ?1 AND folder = ?2",
+            params![account_id, folder],
+            |r| r.get(0),
+        )?)
     }
 
     /// Queues a message to go out at `at` (now, after the undo delay, or a scheduled time).

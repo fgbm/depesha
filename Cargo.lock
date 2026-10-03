@@ -1001,12 +1001,18 @@ dependencies = [
  "ammonia",
  "async-imap",
  "base64 0.23.1",
+ "bytes",
  "chrono",
  "futures",
  "hickory-resolver",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "lettre",
  "mail-parser",
  "ring",
+ "roxmltree",
  "rusqlite",
  "rustls-platform-verifier",
  "serde",
@@ -3933,6 +3939,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

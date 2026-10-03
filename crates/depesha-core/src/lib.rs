@@ -4,9 +4,13 @@
 pub mod account;
 pub mod autodetect;
 pub mod error;
+pub mod ews;
+pub mod http;
 pub mod imap;
 pub mod lang;
+pub mod mail;
 pub mod message;
+pub mod oauth;
 pub mod query;
 pub mod smtp;
 pub mod store;

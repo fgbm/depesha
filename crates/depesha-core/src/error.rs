@@ -29,6 +29,13 @@ pub enum Error {
     Protocol(String),
     NotFound,
     Parse,
+    /// Exchange Web Services refused a request: `ResponseCode` and `MessageText`.
+    Ews {
+        code: String,
+        message: String,
+    },
+    /// The web server offers none of the login methods we speak (EWS without Basic).
+    HttpAuth(String),
 }
 
 impl std::fmt::Display for Error {
@@ -84,6 +91,13 @@ impl std::fmt::Display for Error {
             ),
             Self::NotFound => tr!("message not found", "письмо не найдено"),
             Self::Parse => tr!("the message could not be parsed", "не удалось разобрать письмо"),
+            Self::Ews { code, message } => ews_text(code, message),
+            Self::HttpAuth(offered) => tr!(
+                "Exchange accepts only {offered} on EWS; Depesha signs in with Basic. Ask the administrator to \
+                 enable it: Set-WebServicesVirtualDirectory -BasicAuthentication $true",
+                "Exchange принимает на EWS только {offered}, а Депеша входит через Basic. Попросите администратора \
+                 включить её: Set-WebServicesVirtualDirectory -BasicAuthentication $true"
+            ),
         };
         f.write_str(&text)
     }
@@ -131,6 +145,16 @@ impl Error {
         match self {
             Self::Io(_) | Self::Timeout(_) | Self::Closed => true,
             Self::Smtp { code, .. } => (400..500).contains(code),
+            Self::Ews { code, .. } => matches!(
+                code.as_str(),
+                "ErrorServerBusy"
+                    | "ErrorTimeoutExpired"
+                    | "ErrorConnectionFailed"
+                    | "ErrorInternalServerTransientError"
+                    | "ErrorMailboxStoreUnavailable"
+                    | "ErrorMailboxMoveInProgress"
+                    | "ErrorBatchProcessingStopped"
+            ),
             Self::Imap(async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost) => true,
             _ => false,
         }
@@ -141,7 +165,9 @@ impl Error {
         match self {
             Self::Certificate(_) => "certificate",
             Self::NoTls => "no-tls",
-            Self::Auth(_) | Self::AuthMechanism(_) => "auth",
+            Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) => "auth",
+            Self::Ews { code, .. } if code == "ErrorItemNotFound" => "not-found",
+            Self::Ews { code, .. } if code == "ErrorMessageSizeExceeded" => "too-large",
             Self::ImapUnavailable => "imap-unavailable",
             Self::Smtp {
                 code: 421,
@@ -168,6 +194,7 @@ fn timeout_label(what: &str) -> &str {
         "SMTP answer" => "ответ SMTP",
         "connecting to the list server" => "подключение к серверу рассылки",
         "list server answer" => "ответ сервера рассылки",
+        "HTTP answer" => "ответ HTTP",
         other => other,
     }
 }
@@ -212,6 +239,37 @@ fn io_text(e: &std::io::Error) -> String {
             )
         }
         _ => tr!("network: {text}", "сеть: {text}"),
+    }
+}
+
+fn ews_text(code: &str, message: &str) -> String {
+    use crate::lang::pick;
+    let explained = match code {
+        "ErrorServerBusy" => pick(
+            "the server is busy, will try again later",
+            "сервер занят, попробуем позже",
+        ),
+        "ErrorItemNotFound" => pick("the message is no longer on the server", "письма уже нет на сервере"),
+        "ErrorFolderNotFound" => pick("the folder is no longer on the server", "папки уже нет на сервере"),
+        "ErrorMessageSizeExceeded" => pick(
+            "the message is too large for the server",
+            "письмо слишком большое для сервера",
+        ),
+        "ErrorSendAsDenied" => pick(
+            "no right to send on behalf of this address (Send As)",
+            "нет права отправлять от имени этого адреса (Send As)",
+        ),
+        "ErrorQuotaExceeded" => pick("the mailbox is full", "ящик переполнен"),
+        "ErrorAccessDenied" => pick("access denied", "доступ запрещён"),
+        _ => "",
+    };
+    if explained.is_empty() {
+        tr!(
+            "Exchange answered {code}: {message}",
+            "Exchange ответил {code}: {message}"
+        )
+    } else {
+        tr!("{explained} (Exchange: {code})", "{explained} (Exchange: {code})")
     }
 }
 

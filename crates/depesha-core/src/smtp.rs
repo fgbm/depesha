@@ -318,6 +318,29 @@ async fn login(conn: &mut Conn, caps: &SmtpCaps, creds: &Credentials) -> Result<
         535 | 534 | 530 => Error::Auth(reply.text()),
         _ => reply.into_error(),
     };
+    // Gmail, Yandex and Microsoft all take XOAUTH2; try it even when EHLO forgets to list it.
+    if let Some(initial) = creds.xoauth2() {
+        let reply = conn
+            .command(&format!("AUTH XOAUTH2 {}", BASE64.encode(initial)))
+            .await?;
+        return match reply.code {
+            235 => Ok(()),
+            // The error comes as a base64 JSON challenge; an empty answer ends the exchange.
+            334 => {
+                let detail = BASE64
+                    .decode(reply.text().trim())
+                    .ok()
+                    .and_then(|j| crate::imap::xoauth2_error(&j));
+                let last = conn.command("").await?;
+                let mut err = auth_err(last);
+                if let (Error::Auth(m), Some(d)) = (&mut err, detail) {
+                    m.push_str(&format!(" ({d})"));
+                }
+                Err(err)
+            }
+            _ => Err(auth_err(reply)),
+        };
+    }
     if has("PLAIN") {
         let token = BASE64.encode(format!("\0{}\0{}", creds.username, creds.password()));
         let reply = conn.command(&format!("AUTH PLAIN {token}")).await?;

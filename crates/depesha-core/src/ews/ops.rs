@@ -1,0 +1,1061 @@
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use chrono::{DateTime, TimeZone, Utc};
+use roxmltree::Node;
+
+use super::{Session, child, children, desc, escape, parse, responses, single, text};
+use crate::imap::{FlagChange, Flags, Folder, FolderRole, IdleOutcome, is_non_mail};
+use crate::message::{self, Addr, Summary};
+use crate::query::SearchQuery;
+use crate::store::{NewMessage, Store};
+use crate::sync::{FolderSync, SyncOptions};
+use crate::tr;
+use crate::{Error, Result};
+
+/// The inbox gets the IMAP name, so code that looks for `INBOX` works for EWS too.
+pub const INBOX: &str = "INBOX";
+const DELIMITER: &str = "/";
+/// New mail gets UIDs counting up from here, older mail (load older, search) counting down.
+const UID_BASE: u32 = 1 << 31;
+/// Items per FindItem page: ids and flags only, so a page is small.
+const PAGE: usize = 500;
+/// Items per GetItem with headers.
+const FETCH_BATCH: usize = 50;
+
+const PR_TRANSPORT_HEADERS: &str = "0x007D";
+const PR_MESSAGE_FLAGS: &str = "0x0E07";
+const PR_LAST_VERB: &str = "0x1081";
+const PR_FLAG_STATUS: &str = "0x1090";
+
+const MSGFLAG_READ: i64 = 0x1;
+const MSGFLAG_UNSENT: i64 = 0x8;
+const VERB_REPLIED: i64 = 102;
+const VERB_REPLIED_ALL: i64 = 103;
+const FLAG_FLAGGED: i64 = 2;
+
+fn ext(tag: &str, kind: &str) -> String {
+    format!(r#"<t:ExtendedFieldURI PropertyTag="{tag}" PropertyType="{kind}"/>"#)
+}
+
+fn field(uri: &str) -> String {
+    format!(r#"<t:FieldURI FieldURI="{uri}"/>"#)
+}
+
+fn item_ids(ids: &[String]) -> String {
+    ids.iter()
+        .map(|id| format!(r#"<t:ItemId Id="{}"/>"#, escape(id)))
+        .collect()
+}
+
+fn folder_ref(id: &str) -> String {
+    format!(r#"<t:FolderId Id="{}"/>"#, escape(id))
+}
+
+fn parse_time(s: &str) -> Option<i64> {
+    DateTime::parse_from_rfc3339(s.trim()).ok().map(|d| d.timestamp())
+}
+
+fn iso(t: i64) -> String {
+    Utc.timestamp_opt(t, 0)
+        .single()
+        .unwrap_or_default()
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
+}
+
+/// Extended MAPI properties of an item by tag number.
+fn ext_props(item: Node<'_, '_>) -> HashMap<u32, String> {
+    children(item, "ExtendedProperty")
+        .filter_map(|p| {
+            let tag = child(p, "ExtendedFieldURI")?.attribute("PropertyTag")?;
+            let tag = u32::from_str_radix(tag.trim().trim_start_matches("0x").trim_start_matches("0X"), 16).ok()?;
+            Some((tag, text(p, "Value").unwrap_or_default().to_owned()))
+        })
+        .collect()
+}
+
+fn tag(t: &str) -> u32 {
+    u32::from_str_radix(t.trim_start_matches("0x"), 16).expect("constant tag")
+}
+
+fn flags_of(props: &HashMap<u32, String>) -> Flags {
+    let int = |t: &str| props.get(&tag(t)).and_then(|v| v.trim().parse::<i64>().ok());
+    let msg = int(PR_MESSAGE_FLAGS).unwrap_or(MSGFLAG_READ);
+    Flags {
+        seen: msg & MSGFLAG_READ != 0,
+        draft: msg & MSGFLAG_UNSENT != 0,
+        flagged: int(PR_FLAG_STATUS) == Some(FLAG_FLAGGED),
+        answered: matches!(int(PR_LAST_VERB), Some(VERB_REPLIED | VERB_REPLIED_ALL)),
+        deleted: false,
+    }
+}
+
+/// Item elements of a FindItem/GetItem answer: `Message`, `MeetingRequest`, `PostItem`...
+fn items<'a, 'i>(n: Node<'a, 'i>) -> Vec<Node<'a, 'i>> {
+    match child(n, "RootFolder")
+        .and_then(|r| child(r, "Items"))
+        .or_else(|| child(n, "Items"))
+    {
+        Some(list) => list.children().filter(Node::is_element).collect(),
+        None => Vec::new(),
+    }
+}
+
+fn item_id(item: Node<'_, '_>) -> Option<String> {
+    child(item, "ItemId")?.attribute("Id").map(str::to_owned)
+}
+
+// Folders
+
+#[derive(Debug)]
+struct RawFolder {
+    id: String,
+    parent: String,
+    name: String,
+    class: String,
+}
+
+/// The mailbox's mail folders with IMAP-like names, and the EWS id of each.
+pub async fn list_folders(s: &mut Session) -> Result<Vec<(Folder, String)>> {
+    const WELL_KNOWN: [&str; 7] = [
+        "msgfolderroot",
+        "inbox",
+        "sentitems",
+        "drafts",
+        "deleteditems",
+        "junkemail",
+        "outbox",
+    ];
+    let body = format!(
+        "<m:GetFolder><m:FolderShape><t:BaseShape>IdOnly</t:BaseShape></m:FolderShape><m:FolderIds>{}</m:FolderIds></m:GetFolder>",
+        WELL_KNOWN
+            .iter()
+            .map(|id| format!(r#"<t:DistinguishedFolderId Id="{id}"/>"#))
+            .collect::<String>()
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    let mut known: HashMap<&str, String> = HashMap::new();
+    for (name, r) in WELL_KNOWN.iter().zip(responses(&doc)) {
+        if let Ok(n) = r
+            && let Some(id) = desc(n, "FolderId").and_then(|f| f.attribute("Id"))
+        {
+            known.insert(name, id.to_owned());
+        }
+    }
+    let root = known
+        .get("msgfolderroot")
+        .cloned()
+        .ok_or_else(|| Error::Protocol(tr!("the mailbox has no folder root", "у ящика нет корня папок")))?;
+
+    let mut raw = Vec::new();
+    let mut offset = 0;
+    loop {
+        let body = format!(
+            r#"<m:FindFolder Traversal="Deep"><m:FolderShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}</t:AdditionalProperties></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned="1000" Offset="{offset}" BasePoint="Beginning"/><m:ParentFolderIds>{}</m:ParentFolderIds></m:FindFolder>"#,
+            field("folder:ParentFolderId"),
+            field("folder:DisplayName"),
+            field("folder:FolderClass"),
+            folder_ref(&root)
+        );
+        let text_ = s.call(&body).await?;
+        let doc = parse(&text_)?;
+        let resp = single(&doc)?;
+        let Some(root_folder) = child(resp, "RootFolder") else {
+            break;
+        };
+        let before = raw.len();
+        if let Some(list) = child(root_folder, "Folders") {
+            for f in list.children().filter(Node::is_element) {
+                let (Some(id), Some(parent)) = (
+                    child(f, "FolderId").and_then(|n| n.attribute("Id")),
+                    child(f, "ParentFolderId").and_then(|n| n.attribute("Id")),
+                ) else {
+                    continue;
+                };
+                raw.push(RawFolder {
+                    id: id.to_owned(),
+                    parent: parent.to_owned(),
+                    name: text(f, "DisplayName").unwrap_or_default().to_owned(),
+                    class: text(f, "FolderClass").unwrap_or_default().to_owned(),
+                });
+            }
+        }
+        offset = raw.len();
+        if root_folder.attribute("IncludesLastItemInRange") != Some("false") || raw.len() == before {
+            break;
+        }
+    }
+    Ok(build_folders(&raw, &root, &known))
+}
+
+/// Turns the flat EWS list into named folders with roles; non-mail ones are hidden.
+fn build_folders(raw: &[RawFolder], root: &str, known: &HashMap<&str, String>) -> Vec<(Folder, String)> {
+    let by_id: HashMap<&str, &RawFolder> = raw.iter().map(|f| (f.id.as_str(), f)).collect();
+    let inbox = known.get("inbox").map(String::as_str);
+    let outbox = known.get("outbox").map(String::as_str);
+    let role_of_id = |id: &str| -> Option<FolderRole> {
+        let well = known.iter().find(|(_, v)| v.as_str() == id).map(|(k, _)| *k)?;
+        Some(match well {
+            "inbox" => FolderRole::Inbox,
+            "sentitems" => FolderRole::Sent,
+            "drafts" => FolderRole::Drafts,
+            "deleteditems" => FolderRole::Trash,
+            "junkemail" => FolderRole::Junk,
+            _ => return None,
+        })
+    };
+    // Ancestors from the folder up to the root, the folder first.
+    let chain = |id: &str| -> Option<Vec<&RawFolder>> {
+        let mut out = Vec::new();
+        let mut cur = id;
+        while cur != root {
+            let f = by_id.get(cur)?;
+            out.push(*f);
+            if out.len() > 32 {
+                return None;
+            }
+            cur = &f.parent;
+        }
+        Some(out)
+    };
+    let mut folders: Vec<(Folder, String)> = Vec::new();
+    for f in raw {
+        let Some(chain) = chain(&f.id) else { continue };
+        let mut parts: Vec<String> = Vec::new();
+        for a in chain.iter().rev() {
+            if Some(a.id.as_str()) == inbox {
+                parts.clear();
+                parts.push(INBOX.to_owned());
+            } else {
+                // The delimiter cannot appear inside a name.
+                parts.push(a.name.replace(DELIMITER, "\u{2215}"));
+            }
+        }
+        let name = parts.join(DELIMITER);
+        let not_mail = |a: &RawFolder| {
+            (!a.class.is_empty() && !a.class.starts_with("IPF.Note"))
+                || Some(a.id.as_str()) == outbox
+                || (a.parent == root && role_of_id(&a.id).is_none() && is_non_mail(&a.name))
+        };
+        let hidden = chain.iter().any(|a| not_mail(a));
+        folders.push((
+            Folder {
+                display_name: name.clone(),
+                name,
+                delimiter: Some(DELIMITER.into()),
+                role: role_of_id(&f.id),
+                selectable: true,
+                hidden,
+            },
+            f.id.clone(),
+        ));
+    }
+    // Archive and Snoozed have no well-known id: guess them by name at the top level.
+    let mut taken: HashSet<FolderRole> = folders.iter().filter_map(|(f, _)| f.role).collect();
+    for (f, _) in &mut folders {
+        if f.role.is_none()
+            && !f.hidden
+            && !f.name.contains(DELIMITER)
+            && let Some(role) =
+                FolderRole::guess(&f.name).filter(|r| matches!(r, FolderRole::Archive | FolderRole::Snoozed))
+            && taken.insert(role)
+        {
+            f.role = Some(role);
+        }
+    }
+    folders
+}
+
+pub async fn sync_folder_list(s: &mut Session, store: &Store, account_id: &str) -> Result<Vec<Folder>> {
+    let list = list_folders(s).await?;
+    let folders: Vec<Folder> = list.iter().map(|(f, _)| f.clone()).collect();
+    store.replace_folders(account_id, &folders)?;
+    let ids: Vec<(String, String)> = list.into_iter().map(|(f, id)| (f.name, id)).collect();
+    for name in store.ews_set_folders(account_id, &ids)? {
+        store.ews_clear_folder(account_id, &name)?;
+    }
+    Ok(folders)
+}
+
+fn folder_id(store: &Store, account_id: &str, folder: &str) -> Result<String> {
+    store.ews_folder_id(account_id, folder)?.ok_or_else(|| Error::Ews {
+        code: "ErrorFolderNotFound".into(),
+        message: folder.to_owned(),
+    })
+}
+
+// Items
+
+#[derive(Debug, Clone)]
+struct Scanned {
+    id: String,
+    received: i64,
+    flags: Flags,
+}
+
+struct Page {
+    items: Vec<Scanned>,
+    last: bool,
+}
+
+fn scan_shape() -> String {
+    format!(
+        "<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}</t:AdditionalProperties></m:ItemShape>",
+        field("item:DateTimeReceived"),
+        ext(PR_MESSAGE_FLAGS, "Integer"),
+        ext(PR_FLAG_STATUS, "Integer"),
+        ext(PR_LAST_VERB, "Integer"),
+    )
+}
+
+/// Newest first; `restriction` and `query` narrow the list.
+async fn find_page(
+    s: &mut Session,
+    folder_id: &str,
+    offset: usize,
+    max: usize,
+    restriction: Option<&str>,
+    query: Option<&str>,
+) -> Result<Page> {
+    let body = format!(
+        r#"<m:FindItem Traversal="Shallow">{}<m:IndexedPageItemView MaxEntriesReturned="{max}" Offset="{offset}" BasePoint="Beginning"/>{}<m:SortOrder><t:FieldOrder Order="Descending">{}</t:FieldOrder></m:SortOrder><m:ParentFolderIds>{}</m:ParentFolderIds>{}</m:FindItem>"#,
+        scan_shape(),
+        restriction
+            .map(|r| format!("<m:Restriction>{r}</m:Restriction>"))
+            .unwrap_or_default(),
+        field("item:DateTimeReceived"),
+        folder_ref(folder_id),
+        query
+            .map(|q| format!("<m:QueryString>{}</m:QueryString>", escape(q)))
+            .unwrap_or_default(),
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    let resp = single(&doc)?;
+    let last = child(resp, "RootFolder").and_then(|r| r.attribute("IncludesLastItemInRange")) != Some("false");
+    let items = items(resp)
+        .into_iter()
+        .filter_map(|it| {
+            Some(Scanned {
+                id: item_id(it)?,
+                received: text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0),
+                flags: flags_of(&ext_props(it)),
+            })
+        })
+        .collect();
+    Ok(Page { items, last })
+}
+
+/// Headers of items for the cache, built from the transport headers when the
+/// item has them (received mail) and from its properties otherwise.
+struct Fetched {
+    id: String,
+    received: i64,
+    size: u32,
+    flags: Flags,
+    summary: Summary,
+}
+
+async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
+    let mut out = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(FETCH_BATCH) {
+        let props = [
+            "item:Subject",
+            "item:DateTimeReceived",
+            "item:DateTimeSent",
+            "item:Size",
+            "item:HasAttachments",
+            "item:InReplyTo",
+            "message:From",
+            "message:ToRecipients",
+            "message:CcRecipients",
+            "message:ReplyTo",
+            "message:InternetMessageId",
+            "message:References",
+        ];
+        let body = format!(
+            "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}</t:AdditionalProperties></m:ItemShape><m:ItemIds>{}</m:ItemIds></m:GetItem>",
+            props.iter().map(|p| field(p)).collect::<String>(),
+            ext(PR_TRANSPORT_HEADERS, "String"),
+            ext(PR_MESSAGE_FLAGS, "Integer"),
+            ext(PR_FLAG_STATUS, "Integer"),
+            ext(PR_LAST_VERB, "Integer"),
+            item_ids(chunk),
+        );
+        let text_ = s.call(&body).await?;
+        let doc = parse(&text_)?;
+        for r in responses(&doc) {
+            let resp = match r {
+                Ok(n) => n,
+                // Deleted between listing and fetching: the next sync drops it.
+                Err(Error::Ews { code, .. }) if code == "ErrorItemNotFound" => continue,
+                Err(e) => return Err(e),
+            };
+            for it in items(resp) {
+                if let Some(f) = fetched(it) {
+                    out.push(f);
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn fetched(it: Node<'_, '_>) -> Option<Fetched> {
+    let id = item_id(it)?;
+    let props = ext_props(it);
+    let received = text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0);
+    let headers = props
+        .get(&tag(PR_TRANSPORT_HEADERS))
+        .filter(|h| h.contains(':'))
+        .cloned()
+        .unwrap_or_else(|| synth_headers(it));
+    let mut summary = message::parse_summary(headers.as_bytes());
+    // The item knows its attachments better than a header block does.
+    summary.has_attachments = text(it, "HasAttachments") == Some("true");
+    if summary.subject.is_empty() {
+        summary.subject = text(it, "Subject").unwrap_or_default().to_owned();
+    }
+    if summary.date.is_none() {
+        summary.date = text(it, "DateTimeSent").and_then(parse_time);
+    }
+    Some(Fetched {
+        id,
+        received,
+        size: text(it, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
+        flags: flags_of(&props),
+        summary,
+    })
+}
+
+fn mailbox(n: Node<'_, '_>) -> Option<Addr> {
+    let mb = if n.tag_name().name() == "Mailbox" {
+        n
+    } else {
+        child(n, "Mailbox")?
+    };
+    let name = text(mb, "Name").map(str::to_owned).filter(|s| !s.is_empty());
+    let email = text(mb, "EmailAddress").unwrap_or_default().to_owned();
+    if email.is_empty() && name.is_none() {
+        return None;
+    }
+    Some(Addr { name, email })
+}
+
+fn mailboxes(it: Node<'_, '_>, name: &str) -> Vec<Addr> {
+    child(it, name)
+        .map(|list| children(list, "Mailbox").filter_map(mailbox).collect())
+        .unwrap_or_default()
+}
+
+fn addr_header(a: &Addr) -> String {
+    match &a.name {
+        Some(n) => format!("\"{}\" <{}>", n.replace(['\\', '"'], ""), a.email),
+        None => format!("<{}>", a.email),
+    }
+}
+
+/// An RFC 5322 header block from item properties, for items without transport
+/// headers (sent mail, drafts). UTF-8 as is: the parser accepts it.
+fn synth_headers(it: Node<'_, '_>) -> String {
+    let mut h = String::new();
+    let one_line = |s: &str| s.replace(['\r', '\n'], " ");
+    if let Some(from) = child(it, "From").and_then(mailbox) {
+        h.push_str(&format!("From: {}\r\n", addr_header(&from)));
+    }
+    for (header, field) in [("To", "ToRecipients"), ("Cc", "CcRecipients"), ("Reply-To", "ReplyTo")] {
+        let list = mailboxes(it, field);
+        if !list.is_empty() {
+            h.push_str(&format!(
+                "{header}: {}\r\n",
+                list.iter().map(addr_header).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+    if let Some(s) = text(it, "Subject") {
+        h.push_str(&format!("Subject: {}\r\n", one_line(s)));
+    }
+    if let Some(t) = text(it, "DateTimeSent").and_then(parse_time)
+        && let Some(d) = Utc.timestamp_opt(t, 0).single()
+    {
+        h.push_str(&format!("Date: {}\r\n", d.to_rfc2822()));
+    }
+    for (header, field) in [
+        ("Message-ID", "InternetMessageId"),
+        ("In-Reply-To", "InReplyTo"),
+        ("References", "References"),
+    ] {
+        if let Some(v) = text(it, field).filter(|v| !v.trim().is_empty()) {
+            h.push_str(&format!("{header}: {}\r\n", one_line(v)));
+        }
+    }
+    h.push_str("\r\n");
+    h
+}
+
+/// Caches items under the given UIDs.
+async fn add_items(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    uids: &HashMap<String, u32>,
+) -> Result<usize> {
+    let ids: Vec<String> = uids.keys().cloned().collect();
+    let mut added = 0;
+    for f in fetch(s, &ids).await? {
+        let Some(&uid) = uids.get(&f.id) else { continue };
+        let msg = NewMessage {
+            uid,
+            summary: &f.summary,
+            fallback_date: f.received,
+            size: f.size,
+            flags: f.flags,
+        };
+        store.insert_message(account_id, folder, &msg)?;
+        store.ews_item_add(account_id, folder, uid, &f.id, f.received)?;
+        added += 1;
+    }
+    Ok(added)
+}
+
+/// UIDs for items found outside the synced window: below every UID in use.
+fn low_uids(store: &Store, account_id: &str, folder: &str, ids: &[String]) -> Result<(HashMap<String, u32>, Vec<u32>)> {
+    let mut next = store
+        .ews_min_uid(account_id, folder)?
+        .unwrap_or(UID_BASE)
+        .saturating_sub(1);
+    let mut fresh = HashMap::new();
+    let mut all = Vec::with_capacity(ids.len());
+    for id in ids {
+        match store.ews_uid_of(account_id, folder, id)? {
+            Some(uid) => all.push(uid),
+            None => {
+                fresh.insert(id.clone(), next);
+                all.push(next);
+                next = next.saturating_sub(1);
+            }
+        }
+    }
+    Ok((fresh, all))
+}
+
+/// Brings the cached window of a folder in line with the server: new items,
+/// changed flags, deleted items. The first sync takes the newest `initial_limit`.
+pub async fn sync_folder(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    opts: SyncOptions,
+) -> Result<FolderSync> {
+    let fid = folder_id(store, account_id, folder)?;
+    let window = store.ews_window(account_id, folder)?;
+    let mapped = store.ews_items(account_id, folder)?;
+    let known: HashMap<&str, u32> = mapped.iter().map(|(uid, id, _)| (id.as_str(), *uid)).collect();
+
+    let mut seen: Vec<Scanned> = Vec::new();
+    let mut complete = false;
+    loop {
+        let page = find_page(s, &fid, seen.len(), PAGE, None, None).await?;
+        let n = page.items.len();
+        let oldest = page.items.last().map(|i| i.received);
+        seen.extend(page.items);
+        if page.last || n == 0 {
+            complete = true;
+            break;
+        }
+        if window < 0 && seen.len() >= opts.initial_limit {
+            break;
+        }
+        if window >= 0 && oldest.is_some_and(|o| o < window) {
+            break;
+        }
+    }
+    if window < 0 && seen.len() > opts.initial_limit {
+        seen.truncate(opts.initial_limit);
+        complete = false;
+    }
+    let new_window = if complete {
+        0
+    } else if window < 0 {
+        seen.last().map(|i| i.received).unwrap_or(0)
+    } else {
+        window
+    };
+
+    let mut report = FolderSync::default();
+    let flags: Vec<(u32, Flags)> = seen
+        .iter()
+        .filter_map(|i| known.get(i.id.as_str()).map(|uid| (*uid, i.flags)))
+        .collect();
+    report.updated = store.update_flags(account_id, folder, &flags)?;
+
+    let seen_ids: HashSet<&str> = seen.iter().map(|i| i.id.as_str()).collect();
+    let gone: Vec<u32> = mapped
+        .iter()
+        .filter(|(_, id, received)| *received >= new_window && !seen_ids.contains(id.as_str()))
+        .map(|(uid, _, _)| *uid)
+        .collect();
+    report.removed = store.remove_uids(account_id, folder, &gone)?;
+    store.ews_items_remove(account_id, folder, &gone)?;
+
+    let mut fresh: Vec<&Scanned> = seen
+        .iter()
+        .filter(|i| i.received >= new_window && !known.contains_key(i.id.as_str()))
+        .collect();
+    fresh.sort_by_key(|i| i.received);
+    let (_, last_uid) = store.folder_state(account_id, folder)?;
+    let mut next = if last_uid == 0 { UID_BASE } else { last_uid + 1 };
+    let mut uids = HashMap::new();
+    for i in fresh {
+        uids.insert(i.id.clone(), next);
+        next += 1;
+    }
+    report.added = add_items(s, store, account_id, folder, &uids).await?;
+    store.set_folder_state(account_id, folder, 1, next - 1)?;
+    store.ews_set_window(account_id, folder, new_window)?;
+    Ok(report)
+}
+
+/// Extends the window `count` items into the past; returns how many it grew by.
+pub async fn load_older(s: &mut Session, store: &Store, account_id: &str, folder: &str, count: usize) -> Result<usize> {
+    let window = store.ews_window(account_id, folder)?;
+    if window <= 0 {
+        return Ok(0);
+    }
+    let fid = folder_id(store, account_id, folder)?;
+    let restriction = format!(
+        r#"<t:IsLessThan>{}<t:FieldURIOrConstant><t:Constant Value="{}"/></t:FieldURIOrConstant></t:IsLessThan>"#,
+        field("item:DateTimeReceived"),
+        iso(window)
+    );
+    let page = find_page(s, &fid, 0, count, Some(&restriction), None).await?;
+    let ids: Vec<String> = page.items.iter().map(|i| i.id.clone()).collect();
+    let (fresh, _) = low_uids(store, account_id, folder, &ids)?;
+    add_items(s, store, account_id, folder, &fresh).await?;
+    let new_window = if page.last {
+        0
+    } else {
+        page.items.last().map(|i| i.received).unwrap_or(0)
+    };
+    store.ews_set_window(account_id, folder, new_window)?;
+    Ok(page.items.len())
+}
+
+/// The raw message (MIME) of a cached item.
+pub async fn fetch_raw(s: &mut Session, store: &Store, account_id: &str, folder: &str, uid: u32) -> Result<Vec<u8>> {
+    let id = store
+        .ews_item_ids(account_id, folder, &[uid])?
+        .pop()
+        .ok_or(Error::NotFound)?;
+    let body = format!(
+        "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:IncludeMimeContent>true</t:IncludeMimeContent></m:ItemShape><m:ItemIds>{}</m:ItemIds></m:GetItem>",
+        item_ids(&[id])
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    let resp = single(&doc).map_err(|e| match e {
+        Error::Ews { code, .. } if code == "ErrorItemNotFound" => Error::NotFound,
+        e => e,
+    })?;
+    let mime = desc(resp, "MimeContent")
+        .and_then(|n| n.text())
+        .ok_or(Error::NotFound)?;
+    let clean: String = mime.chars().filter(|c| !c.is_whitespace()).collect();
+    BASE64.decode(clean).map_err(|_| Error::Parse)
+}
+
+pub async fn set_flag(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    uids: &[u32],
+    change: FlagChange,
+) -> Result<()> {
+    let ids = store.ews_item_ids(account_id, folder, uids)?;
+    update_flag(s, &ids, change).await
+}
+
+async fn update_flag(s: &mut Session, ids: &[String], change: FlagChange) -> Result<()> {
+    let update = match change {
+        FlagChange::Seen(v) => format!(
+            "<t:SetItemField>{}<t:Message><t:IsRead>{v}</t:IsRead></t:Message></t:SetItemField>",
+            field("message:IsRead")
+        ),
+        FlagChange::Flagged(v) => format!(
+            "<t:SetItemField>{}<t:Message><t:Flag><t:FlagStatus>{}</t:FlagStatus></t:Flag></t:Message></t:SetItemField>",
+            field("item:Flag"),
+            if v { "Flagged" } else { "NotFlagged" }
+        ),
+        FlagChange::Answered(true) => format!(
+            "<t:SetItemField>{e}<t:Message><t:ExtendedProperty>{e}<t:Value>{VERB_REPLIED}</t:Value></t:ExtendedProperty></t:Message></t:SetItemField>",
+            e = ext(PR_LAST_VERB, "Integer")
+        ),
+        FlagChange::Answered(false) => format!(
+            "<t:DeleteItemField>{}</t:DeleteItemField>",
+            ext(PR_LAST_VERB, "Integer")
+        ),
+    };
+    for chunk in ids.chunks(100) {
+        let changes: String = chunk
+            .iter()
+            .map(|id| {
+                format!(
+                    r#"<t:ItemChange><t:ItemId Id="{}"/><t:Updates>{update}</t:Updates></t:ItemChange>"#,
+                    escape(id)
+                )
+            })
+            .collect();
+        let body = format!(
+            r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AlwaysOverwrite" SuppressReadReceipts="true"><m:ItemChanges>{changes}</m:ItemChanges></m:UpdateItem>"#
+        );
+        let text_ = s.call(&body).await?;
+        check_all(&text_)?;
+    }
+    Ok(())
+}
+
+/// Fails on the first error other than a vanished item.
+fn check_all(text_: &str) -> Result<()> {
+    let doc = parse(text_)?;
+    for r in responses(&doc) {
+        match r {
+            Ok(_) => {}
+            Err(Error::Ews { code, .. }) if code == "ErrorItemNotFound" => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+/// Moves items; returns the ids they got in the target folder.
+async fn move_ids(s: &mut Session, ids: &[String], to_id: &str) -> Result<Vec<String>> {
+    let mut moved = Vec::new();
+    for chunk in ids.chunks(100) {
+        let body = format!(
+            "<m:MoveItem><m:ToFolderId>{}</m:ToFolderId><m:ItemIds>{}</m:ItemIds></m:MoveItem>",
+            folder_ref(to_id),
+            item_ids(chunk)
+        );
+        let text_ = s.call(&body).await?;
+        let doc = parse(&text_)?;
+        for r in responses(&doc) {
+            match r {
+                Ok(n) => moved.extend(items(n).into_iter().filter_map(item_id)),
+                Err(Error::Ews { code, .. }) if code == "ErrorItemNotFound" => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(moved)
+}
+
+pub async fn move_messages(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    from: &str,
+    uids: &[u32],
+    to: &str,
+) -> Result<()> {
+    let ids = store.ews_item_ids(account_id, from, uids)?;
+    let to_id = folder_id(store, account_id, to)?;
+    move_ids(s, &ids, &to_id).await?;
+    Ok(())
+}
+
+/// Deletes for good, as Outlook does from Deleted Items (recoverable by the admin).
+pub async fn delete_permanently(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    uids: &[u32],
+) -> Result<()> {
+    let ids = store.ews_item_ids(account_id, folder, uids)?;
+    for chunk in ids.chunks(100) {
+        let body = format!(
+            r#"<m:DeleteItem DeleteType="SoftDelete"><m:ItemIds>{}</m:ItemIds></m:DeleteItem>"#,
+            item_ids(chunk)
+        );
+        let text_ = s.call(&body).await?;
+        check_all(&text_)?;
+    }
+    Ok(())
+}
+
+/// Ids of items with this Message-ID in the folder.
+async fn find_by_message_id(s: &mut Session, folder_id: &str, message_id: &str) -> Result<Vec<String>> {
+    let bare = message_id.trim().trim_matches(['<', '>']);
+    let mut found = Vec::new();
+    // Exchange keeps the angle brackets; match both spellings to be safe.
+    for value in [format!("<{bare}>"), bare.to_owned()] {
+        let restriction = format!(
+            r#"<t:IsEqualTo>{}<t:FieldURIOrConstant><t:Constant Value="{}"/></t:FieldURIOrConstant></t:IsEqualTo>"#,
+            field("message:InternetMessageId"),
+            escape(&value)
+        );
+        let page = find_page(s, folder_id, 0, 50, Some(&restriction), None).await?;
+        found.extend(page.items.into_iter().map(|i| i.id));
+        if !found.is_empty() {
+            break;
+        }
+    }
+    Ok(found)
+}
+
+/// Puts a message into a folder unless one with the same Message-ID is there.
+pub async fn append_unless_exists(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    raw: &[u8],
+    flags: &str,
+    message_id: Option<&str>,
+) -> Result<()> {
+    let fid = folder_id(store, account_id, folder)?;
+    if let Some(mid) = message_id
+        && !find_by_message_id(s, &fid, mid).await?.is_empty()
+    {
+        return Ok(());
+    }
+    let seen = flags.contains("\\Seen");
+    let msg_flags = if flags.contains("\\Draft") { MSGFLAG_UNSENT } else { 0 } | if seen { MSGFLAG_READ } else { 0 };
+    let body = format!(
+        r#"<m:CreateItem MessageDisposition="SaveOnly"><m:SavedItemFolderId>{}</m:SavedItemFolderId><m:Items><t:Message><t:MimeContent CharacterSet="UTF-8">{}</t:MimeContent><t:ExtendedProperty>{}<t:Value>{msg_flags}</t:Value></t:ExtendedProperty><t:IsRead>{seen}</t:IsRead></t:Message></m:Items></m:CreateItem>"#,
+        folder_ref(&fid),
+        BASE64.encode(raw),
+        ext(PR_MESSAGE_FLAGS, "Integer"),
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    single(&doc)?;
+    Ok(())
+}
+
+/// Moves messages found by Message-ID; `unseen` marks them unread there. Returns how many moved.
+pub async fn move_by_message_id(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    from: &str,
+    message_ids: &[String],
+    to: &str,
+    unseen: bool,
+) -> Result<usize> {
+    let from_id = folder_id(store, account_id, from)?;
+    let to_id = folder_id(store, account_id, to)?;
+    let mut ids = Vec::new();
+    for mid in message_ids {
+        ids.extend(find_by_message_id(s, &from_id, mid).await?);
+    }
+    let moved = move_ids(s, &ids, &to_id).await?;
+    if unseen && !moved.is_empty() {
+        update_flag(s, &moved, FlagChange::Seen(false)).await?;
+    }
+    Ok(ids.len())
+}
+
+/// Creates a folder by its IMAP-like name (`Archive`, `INBOX/Projects`); an existing one is fine.
+pub async fn create_folder(s: &mut Session, store: &Store, account_id: &str, name: &str) -> Result<()> {
+    let (parent, leaf) = match name.rsplit_once(DELIMITER) {
+        Some((p, l)) => (folder_ref(&folder_id(store, account_id, p)?), l),
+        None => (r#"<t:DistinguishedFolderId Id="msgfolderroot"/>"#.to_owned(), name),
+    };
+    let body = format!(
+        "<m:CreateFolder><m:ParentFolderId>{parent}</m:ParentFolderId><m:Folders><t:Folder><t:FolderClass>IPF.Note</t:FolderClass><t:DisplayName>{}</t:DisplayName></t:Folder></m:Folders></m:CreateFolder>",
+        escape(leaf)
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    match single(&doc) {
+        Ok(_) => Ok(()),
+        Err(Error::Ews { code, .. }) if code == "ErrorFolderExists" => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Sends a message and keeps a copy in Sent Items (the server does it, not us).
+/// Returns the RFC 822 bytes. Bcc recipients travel outside the MIME, which has none.
+pub async fn send(s: &mut Session, message: &lettre::Message) -> Result<Vec<u8>> {
+    let raw = message.formatted();
+    let summary = message::parse_summary(&raw);
+    let visible: HashSet<String> = summary
+        .to
+        .iter()
+        .chain(&summary.cc)
+        .map(|a| a.email.to_ascii_lowercase())
+        .collect();
+    let bcc: Vec<String> = message
+        .envelope()
+        .to()
+        .iter()
+        .map(|a| a.to_string())
+        .filter(|a| !visible.contains(&a.to_ascii_lowercase()))
+        .collect();
+    let bcc_xml = if bcc.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<t:BccRecipients>{}</t:BccRecipients>",
+            bcc.iter()
+                .map(|a| format!("<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>", escape(a)))
+                .collect::<String>()
+        )
+    };
+    let body = format!(
+        r#"<m:CreateItem MessageDisposition="SendAndSaveCopy"><m:SavedItemFolderId><t:DistinguishedFolderId Id="sentitems"/></m:SavedItemFolderId><m:Items><t:Message><t:MimeContent CharacterSet="UTF-8">{}</t:MimeContent>{bcc_xml}</t:Message></m:Items></m:CreateItem>"#,
+        BASE64.encode(&raw)
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    single(&doc)?;
+    Ok(raw)
+}
+
+/// Advanced Query Syntax for FindItem's QueryString (Exchange 2013 and later).
+pub fn aqs(q: &SearchQuery) -> String {
+    let quote = |v: &str| format!("\"{}\"", v.replace('"', ""));
+    let mut parts: Vec<String> = q.words.iter().map(|w| quote(w)).collect();
+    parts.extend(q.from.iter().map(|v| format!("from:{}", quote(v))));
+    parts.extend(q.to.iter().map(|v| format!("to:{}", quote(v))));
+    parts.extend(q.subject.iter().map(|v| format!("subject:{}", quote(v))));
+    if q.has_attachment {
+        parts.push("hasattachment:true".into());
+    }
+    if q.unread {
+        parts.push("isread:false".into());
+    }
+    let day = |t: i64| {
+        Utc.timestamp_opt(t, 0)
+            .single()
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_default()
+    };
+    if let Some(t) = q.after {
+        parts.push(format!("received>={}", day(t)));
+    }
+    if let Some(t) = q.before {
+        parts.push(format!("received<{}", day(t)));
+    }
+    parts.join(" ")
+}
+
+/// Searches the folder on the server and caches what it finds. Returns row ids, newest first.
+pub async fn search_server(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    text_: &str,
+) -> Result<Vec<i64>> {
+    let q = SearchQuery::parse(text_);
+    let query = aqs(&q);
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let fid = folder_id(store, account_id, folder)?;
+    let page = find_page(s, &fid, 0, 300, None, Some(&query)).await?;
+    let found: Vec<&Scanned> = page.items.iter().filter(|i| !q.flagged || i.flags.flagged).collect();
+    let ids: Vec<String> = found.iter().map(|i| i.id.clone()).collect();
+    let (fresh, uids) = low_uids(store, account_id, folder, &ids)?;
+    add_items(s, store, account_id, folder, &fresh).await?;
+    let mut rows = Vec::with_capacity(uids.len());
+    for uid in uids {
+        if let Some(row) = store.find_by_uid(account_id, folder, uid)?
+            && (!q.has_attachment || row.has_attachments)
+        {
+            rows.push(row.id);
+        }
+    }
+    Ok(rows)
+}
+
+/// Waits for changes in the inbox with a streaming subscription; without one
+/// (old server, blocked by a proxy) just waits `poll` and reports a change.
+pub async fn wait_for_changes(s: &mut Session, store: &Store, account_id: &str, poll: Duration) -> Result<IdleOutcome> {
+    // The folder list comes with the first sync of the other connection.
+    let Some(fid) = store.ews_folder_id(account_id, INBOX)? else {
+        tokio::time::sleep(poll.min(Duration::from_secs(15))).await;
+        return Ok(IdleOutcome::Timeout);
+    };
+    let events = [
+        "NewMailEvent",
+        "CreatedEvent",
+        "DeletedEvent",
+        "ModifiedEvent",
+        "MovedEvent",
+        "CopiedEvent",
+    ];
+    let subscribe = format!(
+        "<m:Subscribe><m:StreamingSubscriptionRequest><t:FolderIds>{}</t:FolderIds><t:EventTypes>{}</t:EventTypes></m:StreamingSubscriptionRequest></m:Subscribe>",
+        folder_ref(&fid),
+        events
+            .iter()
+            .map(|e| format!("<t:EventType>{e}</t:EventType>"))
+            .collect::<String>()
+    );
+    let subscription = match s.call(&subscribe).await {
+        Ok(text_) => {
+            let doc = parse(&text_)?;
+            match single(&doc) {
+                Ok(n) => text(n, "SubscriptionId").map(str::to_owned),
+                Err(e @ Error::Ews { .. }) if !e.is_transient() => None,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(e @ Error::Ews { .. }) if !e.is_transient() => None,
+        Err(e) => return Err(e),
+    };
+    let Some(subscription) = subscription else {
+        tokio::time::sleep(poll).await;
+        return Ok(IdleOutcome::Changed);
+    };
+
+    let request = format!(
+        "<m:GetStreamingEvents><m:SubscriptionIds><t:SubscriptionId>{}</t:SubscriptionId></m:SubscriptionIds><m:ConnectionTimeout>{}</m:ConnectionTimeout></m:GetStreamingEvents>",
+        escape(&subscription),
+        crate::imap::IDLE_RENEW.as_secs() / 60
+    );
+    let (_conn, mut stream) = s.stream(&request).await?;
+    if stream.status != 200 {
+        tokio::time::sleep(poll).await;
+        return Ok(IdleOutcome::Changed);
+    }
+    let mut seen = String::new();
+    let outcome = loop {
+        // Exchange sends keep-alive notifications every minute or so; silence means a dead link.
+        let chunk = tokio::time::timeout(Duration::from_secs(5 * 60), stream.next())
+            .await
+            .map_err(|_| Error::Timeout("HTTP answer"))??;
+        let Some(chunk) = chunk else { break IdleOutcome::Timeout };
+        seen.push_str(&String::from_utf8_lossy(&chunk));
+        if events.iter().any(|e| seen.contains(&format!("{e}>"))) {
+            break IdleOutcome::Changed;
+        }
+        if seen.contains("ResponseClass=\"Error\"") {
+            break IdleOutcome::Timeout;
+        }
+        // Keep only the tail: an event name may be split across chunks.
+        if seen.len() > 8192 {
+            let cut = seen.len() - 256;
+            let cut = (cut..seen.len())
+                .find(|i| seen.is_char_boundary(*i))
+                .unwrap_or(seen.len());
+            seen.drain(..cut);
+        }
+    };
+    let unsubscribe = format!(
+        "<m:Unsubscribe><m:SubscriptionId>{}</m:SubscriptionId></m:Unsubscribe>",
+        escape(&subscription)
+    );
+    let _ = s.call(&unsubscribe).await;
+    Ok(outcome)
+}

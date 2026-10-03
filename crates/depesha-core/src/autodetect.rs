@@ -140,14 +140,16 @@ fn by_mx(email: &str, mx: &[String]) -> Option<Detection> {
     } else if host.ends_with("google.com") || host.ends_with("googlemail.com") {
         "gmail.com"
     } else if host.ends_with("protection.outlook.com") {
+        let (imap, smtp) = account::known_provider("outlook.com")?;
         return Some(Detection {
+            imap: Some(imap),
+            smtp: Some(smtp),
             username: email.to_owned(),
             source: "MX: Microsoft 365".into(),
             notes: vec![tr!(
-                "Microsoft 365 requires OAuth2 sign-in, which this version does not support",
-                "Microsoft 365 требует вход через OAuth2, в этой версии он не поддерживается"
+                "Microsoft 365 accepts only sign-in through the browser: go back and use «Sign in with Microsoft»",
+                "Microsoft 365 принимает только вход через браузер: вернитесь и нажмите «Войти через Microsoft»"
             )],
-            ..Default::default()
         });
     } else {
         return None;

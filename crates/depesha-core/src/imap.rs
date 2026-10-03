@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_imap::Client;
@@ -42,10 +43,26 @@ pub struct Conn {
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
     let client = open(server).await?;
-    let mut session = client
-        .login(&creds.username, creds.password())
-        .await
-        .map_err(|(err, _)| login_error(err))?;
+    let mut session = match creds.xoauth2() {
+        Some(initial) => {
+            let detail = Arc::new(Mutex::new(None));
+            let auth = XOAuth2 {
+                initial: Some(initial),
+                detail: detail.clone(),
+            };
+            client.authenticate("XOAUTH2", auth).await.map_err(|(err, _)| {
+                let detail = detail.lock().unwrap_or_else(|e| e.into_inner()).take();
+                match (login_error(err), detail) {
+                    (Error::Auth(m), Some(d)) => Error::Auth(format!("{m} ({d})")),
+                    (e, _) => e,
+                }
+            })?
+        }
+        None => client
+            .login(&creds.username, creds.password())
+            .await
+            .map_err(|(err, _)| login_error(err))?,
+    };
 
     let caps = session.capabilities().await.map_err(login_error)?;
     let caps = Caps {
@@ -97,6 +114,37 @@ async fn open(server: &ServerConfig) -> Result<Client<Box<dyn Io>>> {
     Ok(client)
 }
 
+/// SASL XOAUTH2. A refused token comes back as a continuation with a JSON error,
+/// which the client must answer with an empty line before the server says NO.
+struct XOAuth2 {
+    initial: Option<String>,
+    detail: Arc<Mutex<Option<String>>>,
+}
+
+impl async_imap::Authenticator for XOAuth2 {
+    type Response = String;
+
+    fn process(&mut self, challenge: &[u8]) -> String {
+        match self.initial.take() {
+            Some(initial) => initial,
+            None => {
+                *self.detail.lock().unwrap_or_else(|e| e.into_inner()) = xoauth2_error(challenge);
+                String::new()
+            }
+        }
+    }
+}
+
+/// `{"status":"401","schemes":"Bearer","scope":"https://mail.google.com/"}` -> `401`.
+pub(crate) fn xoauth2_error(challenge: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(challenge).ok()?;
+    let status = v.get("status")?;
+    Some(match status {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    })
+}
+
 fn login_error(err: async_imap::error::Error) -> Error {
     use async_imap::error::Error as E;
     match err {
@@ -132,7 +180,7 @@ async fn read_greeting<T: Io>(client: &mut Client<T>) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FolderRole {
     Inbox,
@@ -172,7 +220,7 @@ impl FolderRole {
     }
 
     /// Fallback for servers without SPECIAL-USE (RFC 6154), Exchange included.
-    fn guess(leaf: &str) -> Option<Self> {
+    pub(crate) fn guess(leaf: &str) -> Option<Self> {
         Some(match leaf.to_lowercase().as_str() {
             "inbox" | "входящие" => Self::Inbox,
             "sent" | "sent items" | "sent messages" | "sent mail" | "отправленные" | "отправленные элементы" => {
@@ -198,7 +246,7 @@ impl FolderRole {
 }
 
 /// Exchange shows calendars, contacts and other non-mail stores as IMAP folders.
-fn is_non_mail(leaf: &str) -> bool {
+pub(crate) fn is_non_mail(leaf: &str) -> bool {
     matches!(
         leaf.to_lowercase().as_str(),
         "calendar"
