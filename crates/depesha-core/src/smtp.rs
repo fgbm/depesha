@@ -1,6 +1,7 @@
 //! Message building (lettre) and our own SMTP submission client: we need the
 //! EHLO capabilities, certificate pinning and the exact server replies.
 
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use base64::Engine;
@@ -200,6 +201,8 @@ impl Reply {
 
 struct Conn {
     stream: BufStream<Box<dyn Io>>,
+    /// How we introduce ourselves in EHLO.
+    name: String,
 }
 
 impl Conn {
@@ -243,7 +246,15 @@ impl Conn {
     }
 
     async fn ehlo(&mut self) -> Result<SmtpCaps> {
-        let reply = self.expect(&format!("EHLO {}", local_name()), &[250]).await?;
+        let reply = self.command(&format!("EHLO {}", self.name)).await?;
+        // Some servers refuse a client by its EHLO name; that is not a policy on the message.
+        if reply.code != 250 {
+            return Err(Error::SmtpHello {
+                name: self.name.clone(),
+                code: reply.code,
+                message: reply.text(),
+            });
+        }
         let mut caps = SmtpCaps::default();
         for line in reply.lines.iter().skip(1) {
             let mut words = line.split_whitespace();
@@ -259,17 +270,33 @@ impl Conn {
     }
 }
 
-fn local_name() -> String {
-    // The name is checked by nobody, but a non-ASCII hostname breaks EHLO on some servers.
-    hostname()
-        .filter(|h| !h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'))
-        .unwrap_or_else(|| "localhost".into())
+/// The EHLO name: the host's full domain name, otherwise our address as a literal,
+/// as Thunderbird does. Never `localhost`: sendmail answers it with
+/// "550 5.7.1 Sender unknown", and Windows has no /etc/hostname to read.
+fn ehlo_name(hostname: Option<&str>, local: Option<SocketAddr>) -> String {
+    if let Some(h) = hostname.map(str::trim)
+        && h.contains('.')
+        && !h.starts_with('.')
+        && !h.ends_with('.')
+        && !h.to_ascii_lowercase().starts_with("localhost")
+        && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        return h.to_owned();
+    }
+    match local.map(|a| a.ip()) {
+        Some(IpAddr::V4(ip)) => format!("[{ip}]"),
+        Some(IpAddr::V6(ip)) => match ip.to_ipv4_mapped() {
+            Some(v4) => format!("[{v4}]"),
+            None => format!("[IPv6:{ip}]"),
+        },
+        None => "[127.0.0.1]".into(),
+    }
 }
 
 fn hostname() -> Option<String> {
     std::fs::read_to_string("/etc/hostname")
         .ok()
-        .map(|s| s.trim().to_owned())
+        .or_else(|| std::env::var("HOSTNAME").ok())
 }
 
 /// Connects, upgrades to TLS as configured and logs in when credentials are given.
@@ -278,12 +305,14 @@ async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Con
         .await
         .map_err(|_| Error::Timeout("connecting"))??;
     let pinned = server.trusted_cert.as_deref();
+    let name = ehlo_name(hostname().as_deref(), tcp.local_addr().ok());
     let stream: Box<dyn Io> = match server.security {
         Security::Tls => Box::new(tls::wrap(&server.host, pinned, tcp).await?),
         Security::StartTls | Security::Plain => Box::new(tcp),
     };
     let mut conn = Conn {
         stream: BufStream::new(stream),
+        name,
     };
     let greeting = timeout(CONNECT_TIMEOUT, conn.reply())
         .await
@@ -302,6 +331,7 @@ async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Con
         let secured: Box<dyn Io> = Box::new(tls::wrap(&server.host, pinned, plain).await?);
         conn = Conn {
             stream: BufStream::new(secured),
+            name: conn.name,
         };
         caps = conn.ehlo().await?;
     }
@@ -497,6 +527,56 @@ mod tests {
     fn stuffs_dots() {
         assert_eq!(dot_stuff(b".a\r\nb\r\n.\r\n"), b"..a\r\nb\r\n..\r\n.\r\n");
         assert_eq!(dot_stuff(b"x"), b"x\r\n.\r\n");
+    }
+
+    #[test]
+    fn ehlo_name_is_never_localhost() {
+        let v4: SocketAddr = "192.168.1.10:51000".parse().unwrap();
+        let v6: SocketAddr = "[2001:db8::5]:51000".parse().unwrap();
+        let mapped: SocketAddr = "[::ffff:10.0.0.7]:51000".parse().unwrap();
+        assert_eq!(
+            ehlo_name(Some("ws1.corp.example.org\n"), Some(v4)),
+            "ws1.corp.example.org"
+        );
+        // Windows and bare Linux names have no domain: the address literal goes instead.
+        assert_eq!(ehlo_name(Some("DESKTOP-ABC123"), Some(v4)), "[192.168.1.10]");
+        assert_eq!(ehlo_name(None, Some(v4)), "[192.168.1.10]");
+        assert_eq!(ehlo_name(Some("localhost.localdomain"), Some(v4)), "[192.168.1.10]");
+        assert_eq!(ehlo_name(Some("ноут.дом"), Some(v4)), "[192.168.1.10]");
+        assert_eq!(ehlo_name(None, Some(v6)), "[IPv6:2001:db8::5]");
+        assert_eq!(ehlo_name(None, Some(mapped)), "[10.0.0.7]");
+        assert_eq!(ehlo_name(None, None), "[127.0.0.1]");
+    }
+
+    #[tokio::test]
+    async fn refused_ehlo_is_explained_as_greeting() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let mut s = BufReader::new(sock);
+            s.get_mut().write_all(b"220 mx ESMTP\r\n").await.unwrap();
+            let mut line = String::new();
+            s.read_line(&mut line).await.unwrap();
+            s.get_mut().write_all(b"550 5.7.1 Sender unknown\r\n").await.unwrap();
+            line
+        });
+        let cfg = ServerConfig {
+            host: "127.0.0.1".into(),
+            port,
+            security: Security::Plain,
+            trusted_cert: None,
+        };
+        let err = check(&cfg, &Credentials::new("u", "p")).await.unwrap_err();
+        let ehlo = server.await.unwrap();
+        let want = ehlo_name(hostname().as_deref(), Some(([127, 0, 0, 1], 0).into()));
+        assert_eq!(ehlo.trim_end(), format!("EHLO {want}"));
+        assert!(
+            matches!(&err, Error::SmtpHello { code: 550, name, .. } if *name == want),
+            "{err:?}"
+        );
+        assert!(!err.to_string().contains("policy"), "{err}");
     }
 
     #[test]

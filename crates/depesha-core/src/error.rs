@@ -19,6 +19,12 @@ pub enum Error {
         enhanced: Option<String>,
         message: String,
     },
+    /// The SMTP server refused our EHLO: it judges the client by the name it gives.
+    SmtpHello {
+        name: String,
+        code: u16,
+        message: String,
+    },
     TooLarge {
         size: usize,
         limit: u64,
@@ -78,6 +84,10 @@ impl std::fmt::Display for Error {
                 enhanced,
                 message,
             } => smtp_text(*code, enhanced.as_deref(), message),
+            Self::SmtpHello { name, code, message } => tr!(
+                "the server did not accept the client's greeting (EHLO {name}), before any login: {code} {message}",
+                "сервер не принял приветствие клиента (EHLO {name}) ещё до входа: {code} {message}"
+            ),
             Self::TooLarge { size, limit } => tr!(
                 "the message is {size} bytes, over the server's limit of {limit} bytes",
                 "письмо {size} байт больше лимита сервера {limit} байт"
@@ -144,7 +154,7 @@ impl Error {
     pub fn is_transient(&self) -> bool {
         match self {
             Self::Io(_) | Self::Timeout(_) | Self::Closed => true,
-            Self::Smtp { code, .. } => (400..500).contains(code),
+            Self::Smtp { code, .. } | Self::SmtpHello { code, .. } => (400..500).contains(code),
             Self::Ews { code, .. } => matches!(
                 code.as_str(),
                 "ErrorServerBusy"
