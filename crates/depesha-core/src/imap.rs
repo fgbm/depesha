@@ -11,6 +11,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
+pub use crate::query::Criterion;
 use crate::{Error, Result, tls, utf7};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -139,6 +140,8 @@ pub enum FolderRole {
     Trash,
     Junk,
     Archive,
+    /// Not in RFC 6154: where Depesha keeps snoozed mail until it is due.
+    Snoozed,
 }
 
 impl FolderRole {
@@ -150,6 +153,7 @@ impl FolderRole {
             Self::Trash => "trash",
             Self::Junk => "junk",
             Self::Archive => "archive",
+            Self::Snoozed => "snoozed",
         }
     }
 
@@ -161,6 +165,7 @@ impl FolderRole {
             "trash" => Self::Trash,
             "junk" => Self::Junk,
             "archive" => Self::Archive,
+            "snoozed" => Self::Snoozed,
             _ => return None,
         })
     }
@@ -185,6 +190,7 @@ impl FolderRole {
                 Self::Junk
             }
             "archive" | "archives" | "архив" => Self::Archive,
+            "snoozed" | "отложенные" => Self::Snoozed,
             _ => return None,
         })
     }
@@ -466,39 +472,63 @@ macro_rules! next_response {
 }
 
 /// Server-side search in one folder (IMAP `SEARCH TEXT`): subject, addresses and body,
-/// including mail that is not in the local cache. Non-ASCII text must travel as a
-/// literal (RFC 3501): LITERAL+ when the server offers it, a synchronizing literal otherwise.
+/// including mail that is not in the local cache.
 pub async fn search_text(conn: &mut Conn, folder: &str, text: &str) -> Result<Vec<u32>> {
-    use async_imap::imap_proto::Response;
-
-    conn.session.examine(folder).await?;
     let text = text.trim().replace(['\r', '\n'], " ");
     if text.is_empty() {
         return Ok(Vec::new());
     }
-    if text.is_ascii() {
-        let quoted = text.replace(['\\', '"'], "");
-        let mut uids: Vec<u32> = conn
-            .session
-            .uid_search(format!("TEXT \"{quoted}\""))
-            .await?
-            .into_iter()
-            .collect();
-        uids.sort_unstable();
-        return Ok(uids);
+    search(
+        conn,
+        folder,
+        &[Criterion {
+            key: "TEXT",
+            value: Some(text),
+        }],
+    )
+    .await
+}
+
+/// `UID SEARCH` with any keys. Non-ASCII values must travel as literals (RFC 3501):
+/// inline with LITERAL+, otherwise each waits for the server's continuation.
+pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Result<Vec<u32>> {
+    use async_imap::imap_proto::Response;
+    use tokio::io::AsyncWriteExt;
+
+    conn.session.examine(folder).await?;
+    if criteria.is_empty() {
+        return Ok(Vec::new());
+    }
+    let utf8 = criteria
+        .iter()
+        .any(|c| c.value.as_deref().is_some_and(|v| !v.is_ascii()));
+    let mut line = String::from(if utf8 { "UID SEARCH CHARSET UTF-8" } else { "UID SEARCH" });
+    // (text before a synchronizing literal, the literal) pairs; `line` is what follows the last one.
+    let mut segments: Vec<(String, String)> = Vec::new();
+    for c in criteria {
+        line.push(' ');
+        line.push_str(c.key);
+        let Some(value) = &c.value else { continue };
+        let value = value.replace(['\r', '\n'], " ");
+        if value.is_ascii() {
+            line.push_str(&format!(" \"{}\"", value.replace(['\\', '"'], "")));
+        } else if conn.caps.literal_plus {
+            line.push_str(&format!(" {{{}+}}\r\n{value}", value.len()));
+        } else {
+            line.push_str(&format!(" {{{}}}", value.len()));
+            segments.push((std::mem::take(&mut line), value));
+        }
+    }
+    if segments.is_empty() {
+        let id = conn.session.run_command(line).await?;
+        return read_search(conn, id).await;
     }
 
-    let len = text.len();
-    let id = if conn.caps.literal_plus {
-        // The literal follows the command line right away; run_command adds the final CRLF.
-        conn.session
-            .run_command(format!("UID SEARCH CHARSET UTF-8 TEXT {{{len}+}}\r\n{text}"))
-            .await?
-    } else {
-        let id = conn
-            .session
-            .run_command(format!("UID SEARCH CHARSET UTF-8 TEXT {{{len}}}"))
-            .await?;
+    let mut parts = segments.into_iter();
+    let (first, mut literal) = parts.next().expect("one segment at least");
+    let id = conn.session.run_command(first).await?;
+    loop {
+        // Wait for "+ go ahead" before every synchronizing literal.
         loop {
             let resp = next_response!(conn);
             match resp.parsed() {
@@ -509,14 +539,33 @@ pub async fn search_text(conn: &mut Conn, folder: &str, text: &str) -> Result<Ve
                 _ => {}
             }
         }
-        use tokio::io::AsyncWriteExt;
         let stream = conn.session.get_mut();
-        stream.write_all(text.as_bytes()).await?;
-        stream.write_all(b"\r\n").await?;
-        stream.flush().await?;
-        id
-    };
+        stream.write_all(literal.as_bytes()).await?;
+        match parts.next() {
+            Some((text, next)) => {
+                stream.write_all(text.as_bytes()).await?;
+                stream.write_all(b"\r\n").await?;
+                stream.flush().await?;
+                literal = next;
+            }
+            None => {
+                stream.write_all(line.as_bytes()).await?;
+                stream.write_all(b"\r\n").await?;
+                stream.flush().await?;
+                break;
+            }
+        }
+    }
     read_search(conn, id).await
+}
+
+/// Creates a folder; one that already exists is fine.
+pub async fn create_folder(conn: &mut Conn, name: &str) -> Result<()> {
+    match conn.session.create(utf7::encode(name)).await {
+        Ok(()) => Ok(()),
+        Err(async_imap::error::Error::No(m)) if m.to_ascii_lowercase().contains("exist") => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 async fn read_search(conn: &mut Conn, id: async_imap::imap_proto::RequestId) -> Result<Vec<u32>> {

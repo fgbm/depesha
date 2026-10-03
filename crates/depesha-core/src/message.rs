@@ -32,6 +32,44 @@ pub struct Summary {
     pub reply_to: Vec<Addr>,
     pub date: Option<i64>,
     pub has_attachments: bool,
+    /// Written by a program, not a person: a mailing list, newsletter or notification.
+    #[serde(default)]
+    pub bulk: bool,
+    #[serde(default)]
+    pub unsubscribe: Option<Unsubscribe>,
+    /// Exchange's `Thread-Index`: links a conversation when `References` is missing.
+    #[serde(default)]
+    pub thread_index: Option<String>,
+}
+
+/// Ways to leave a mailing list, from `List-Unsubscribe` (RFC 2369, RFC 8058).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unsubscribe {
+    /// HTTPS address that unsubscribes on a POST without visiting a page (RFC 8058).
+    pub one_click: Option<String>,
+    pub http: Option<String>,
+    pub mailto: Option<String>,
+}
+
+impl Summary {
+    /// Key that groups a conversation: the first message's Message-ID when the
+    /// references know it, Exchange's thread index otherwise.
+    pub fn thread_key(&self) -> Option<String> {
+        if let Some(root) = self.references.first().filter(|r| !r.is_empty()) {
+            return Some(root.clone());
+        }
+        if let Some(parent) = self.in_reply_to.as_ref().filter(|r| !r.is_empty()) {
+            return Some(parent.clone());
+        }
+        if let Some(index) = &self.thread_index {
+            // The first 22 bytes identify the conversation; 28 base64 characters cover 21 of them.
+            let index = index.trim();
+            if index.len() >= 28 && self.message_id.is_none() {
+                return Some(format!("ti:{}", &index[..28]));
+            }
+        }
+        self.message_id.clone().filter(|m| !m.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,6 +227,49 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
     (clean, remote.load(Ordering::Relaxed))
 }
 
+/// A header as one line: unfolded and trimmed.
+fn raw_header(msg: &Message<'_>, name: &str) -> Option<String> {
+    let v = msg.header_raw(name)?;
+    let v = v.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!v.is_empty()).then_some(v)
+}
+
+/// Parses `List-Unsubscribe: <mailto:...>, <https://...>` and `List-Unsubscribe-Post`.
+pub fn parse_unsubscribe(header: &str, post: Option<&str>) -> Option<Unsubscribe> {
+    let mut out = Unsubscribe::default();
+    for item in header.split(',') {
+        let item = item.trim().trim_start_matches('<').trim_end_matches('>').trim();
+        let lower = item.to_ascii_lowercase();
+        if lower.starts_with("mailto:") {
+            out.mailto.get_or_insert_with(|| item.to_owned());
+        } else if lower.starts_with("https://") || lower.starts_with("http://") {
+            out.http.get_or_insert_with(|| item.to_owned());
+        }
+    }
+    let one_click = post.is_some_and(|p| p.replace(' ', "").eq_ignore_ascii_case("List-Unsubscribe=One-Click"));
+    if one_click
+        && out
+            .http
+            .as_deref()
+            .is_some_and(|u| u.to_ascii_lowercase().starts_with("https://"))
+    {
+        out.one_click = out.http.clone();
+    }
+    (out.http.is_some() || out.mailto.is_some()).then_some(out)
+}
+
+fn is_bulk(msg: &Message<'_>) -> bool {
+    if raw_header(msg, "List-Id").is_some() || raw_header(msg, "List-Unsubscribe").is_some() {
+        return true;
+    }
+    let precedence = raw_header(msg, "Precedence").unwrap_or_default().to_ascii_lowercase();
+    if matches!(precedence.as_str(), "bulk" | "list" | "junk") {
+        return true;
+    }
+    // RFC 3834: anything but "no" is a machine (notifications, out-of-office replies).
+    raw_header(msg, "Auto-Submitted").is_some_and(|v| !v.eq_ignore_ascii_case("no"))
+}
+
 fn summary_of(msg: &Message<'_>) -> Summary {
     let has_attachments = msg.attachment_count() > 0
         || msg.root_part().content_type().is_some_and(|ct| {
@@ -213,6 +294,10 @@ fn summary_of(msg: &Message<'_>) -> Summary {
         reply_to: msg.reply_to().map(addrs).unwrap_or_default(),
         date: msg.date().map(|d| d.to_timestamp()),
         has_attachments,
+        bulk: is_bulk(msg),
+        unsubscribe: raw_header(msg, "List-Unsubscribe")
+            .and_then(|h| parse_unsubscribe(&h, raw_header(msg, "List-Unsubscribe-Post").as_deref())),
+        thread_index: raw_header(msg, "Thread-Index"),
     }
 }
 
@@ -385,6 +470,39 @@ Content-Transfer-Encoding: base64\r\n\
         // Text attachments are saved re-encoded to UTF-8, so any editor opens them.
         assert_eq!(String::from_utf8(bytes).unwrap(), "Привет из KOI8-R");
         assert!(index_text(raw).contains("пятницы"));
+    }
+
+    #[test]
+    fn recognises_mailing_lists_and_unsubscribe() {
+        let raw = b"From: News <news@shop.example>\r\nTo: me@example.org\r\nSubject: Sale\r\n\
+List-Unsubscribe: <mailto:unsub@shop.example?subject=stop>,\r\n <https://shop.example/u/123>\r\n\
+List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
+        let s = parse_summary(raw);
+        assert!(s.bulk);
+        let u = s.unsubscribe.unwrap();
+        assert_eq!(u.mailto.as_deref(), Some("mailto:unsub@shop.example?subject=stop"));
+        assert_eq!(u.one_click.as_deref(), Some("https://shop.example/u/123"));
+
+        // Plain http is never one-click; a person's letter is not bulk.
+        let u = parse_unsubscribe("<http://x.example/u>", Some("List-Unsubscribe=One-Click")).unwrap();
+        assert!(u.one_click.is_none());
+        assert!(!parse_summary(MAIL).bulk);
+        let auto = b"From: a@b.c\r\nAuto-Submitted: auto-generated\r\nSubject: x\r\n\r\nx";
+        assert!(parse_summary(auto).bulk);
+        let human = b"From: a@b.c\r\nAuto-Submitted: no\r\nSubject: x\r\n\r\nx";
+        assert!(!parse_summary(human).bulk);
+    }
+
+    #[test]
+    fn thread_key_finds_the_root() {
+        let root = b"Message-ID: <a@x>\r\nSubject: q\r\n\r\nx";
+        let reply = b"Message-ID: <b@x>\r\nIn-Reply-To: <a@x>\r\nSubject: Re: q\r\n\r\nx";
+        let deep = b"Message-ID: <c@x>\r\nIn-Reply-To: <b@x>\r\nReferences: <a@x> <b@x>\r\nSubject: Re: q\r\n\r\nx";
+        let keys: Vec<_> = [&root[..], &reply[..], &deep[..]]
+            .iter()
+            .map(|r| parse_summary(r).thread_key())
+            .collect();
+        assert_eq!(keys, vec![Some("a@x".to_owned()); 3]);
     }
 
     #[test]

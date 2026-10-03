@@ -3,9 +3,17 @@
   import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Paperclip from "@lucide/svelte/icons/paperclip";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { isDirty, swapSignature } from "../lib/compose";
   import { size } from "../lib/format";
+  import { sendLaterPresets } from "../lib/later";
+  import { preflight, type Warning } from "../lib/preflight";
   import AddressInput from "./AddressInput.svelte";
+  import Popover from "./Popover.svelte";
+  import LaterMenu from "./LaterMenu.svelte";
 
   const c = app.compose!;
   let showCc = $state(c.draft.cc.length > 0 || c.draft.bcc.length > 0);
@@ -17,6 +25,23 @@
   let body = $state<HTMLTextAreaElement | null>(null);
 
   const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0));
+  let laterOpen = $state(false);
+  let templatesOpen = $state(false);
+  /** Remind if nobody answers within this many days; 0 for no reminder. */
+  let remindDays = $state(0);
+  /** Warnings the user has to look at before the message goes; null when not checked yet. */
+  let warnings = $state<Warning[] | null>(null);
+  let pendingAt: number | null = null;
+
+  function insertTemplate(text: string) {
+    templatesOpen = false;
+    const at = body ? body.selectionStart : 0;
+    c.draft.text = c.draft.text.slice(0, at) + text + c.draft.text.slice(at);
+    queueMicrotask(() => {
+      body?.focus();
+      body?.setSelectionRange(at + text.length, at + text.length);
+    });
+  }
 
   // Entering the body of a fresh message puts the caret above the signature, once.
   let placed = false;
@@ -62,8 +87,10 @@
     return ok.every(Boolean);
   }
 
-  async function send() {
+  /** `at`: scheduled time; `force`: the warnings were seen and accepted. */
+  async function send(at: number | null = null, force = false) {
     error = "";
+    laterOpen = false;
     if (!commitAll()) {
       error = "Проверьте адреса: некоторые не похожи на почтовые.";
       return;
@@ -72,15 +99,19 @@
       error = "Укажите хотя бы одного получателя.";
       return;
     }
-    if (!c.draft.subject.trim()) {
-      const ok = await ask("Отправить письмо без темы?", { title: "Депеша", okLabel: "Отправить", cancelLabel: "Отмена" });
-      if (!ok) return;
+    if (!force) {
+      const found = preflight(c.draft, app.account(c.account_id)?.email ?? "");
+      if (found.length) {
+        warnings = found;
+        pendingAt = at;
+        return;
+      }
     }
+    warnings = null;
     busy = true;
     try {
-      await api.send(c.account_id, $state.snapshot(c.draft), c.draft_id);
+      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at, remindDays || null);
       app.compose = null;
-      app.toast("Письмо в очереди на отправку");
     } catch (e) {
       error = (e as { message: string }).message;
     } finally {
@@ -132,7 +163,7 @@
   function onKey(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
-      send();
+      send(null, warnings !== null);
     } else if (e.key === "Escape") {
       e.preventDefault();
       close();
@@ -173,7 +204,7 @@
     {#if c.draft.attachments.length}
       <div class="files">
         {#each c.draft.attachments as a, i (i)}
-          <span class="file">📎 {a.name} <span class="muted">{size(a.size)}</span>
+          <span class="file"><Paperclip size={12} /> {a.name} <span class="muted">{size(a.size)}</span>
             <button onclick={() => c.draft.attachments.splice(i, 1)} aria-label="Убрать">×</button></span>
         {/each}
         <span class="muted total" class:danger-text={total > 25 * 1024 * 1024}>
@@ -184,10 +215,45 @@
 
     {#if error}<div class="error danger-text selectable">{error}</div>{/if}
 
+    {#if warnings}
+      <div class="warnings" role="alert">
+        <TriangleAlert size={18} />
+        <div class="list">
+          {#each warnings as w (w.kind)}<div>{w.text}</div>{/each}
+        </div>
+        <button class="btn" onclick={() => (warnings = null)}>Исправить</button>
+        <button class="btn primary" onclick={() => send(pendingAt, true)}>Отправить всё равно</button>
+      </div>
+    {/if}
+
     <footer>
-      <button class="btn primary" onclick={send} disabled={busy}>Отправить <kbd>Ctrl+Enter</kbd></button>
-      <button class="btn" onclick={attach} disabled={busy}>📎 Прикрепить</button>
-      <span class="muted hint">или перетащите файлы в окно</span>
+      <span class="split-btn anchor">
+        <button class="btn primary main" onclick={() => send()} disabled={busy}>Отправить <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn primary more" onclick={() => (laterOpen = !laterOpen)} disabled={busy} title="Отправить позже" aria-label="Отправить позже">
+          <ChevronDown size={15} />
+        </button>
+        <Popover bind:open={laterOpen} align="left">
+          <LaterMenu title="Отправить позже" presets={sendLaterPresets()} action="Запланировать" onPick={(at) => send(at)} />
+        </Popover>
+      </span>
+      <select class="input remind" bind:value={remindDays} title="Напомнить, если не ответят">
+        <option value={0}>Без напоминания</option>
+        <option value={1}>Напомнить через день без ответа</option>
+        <option value={3}>Напомнить через 3 дня без ответа</option>
+        <option value={7}>Напомнить через неделю без ответа</option>
+      </select>
+      <button class="btn" onclick={attach} disabled={busy} title="Прикрепить файлы или перетащить их в окно"><Paperclip size={15} /> Файлы</button>
+      {#if app.settings.templates.length}
+        <span class="anchor">
+          <button class="btn" onclick={() => (templatesOpen = !templatesOpen)}><FileText size={15} /> Шаблоны</button>
+          <Popover bind:open={templatesOpen} align="left">
+            <div class="mt">Вставить шаблон</div>
+            {#each app.settings.templates as t, i (i)}
+              <button class="mi" onclick={() => insertTemplate(t.text)}>{t.name}</button>
+            {/each}
+          </Popover>
+        </span>
+      {/if}
       <span class="spacer"></span>
       <button class="btn ghost" onclick={async () => { if (await saveDraft()) { app.compose = null; app.toast("Черновик сохранён"); } }} disabled={busy}>Сохранить черновик</button>
       <button class="btn ghost" onclick={discard} disabled={busy}>Удалить</button>
@@ -308,8 +374,48 @@
     color: var(--accent-ink);
   }
 
-  .hint {
-    font-size: 12px;
+  .anchor {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .split-btn .main {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .split-btn .more {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid rgb(255 255 255 / 25%);
+    padding: 5px 6px;
+  }
+
+  .remind {
+    max-width: 230px;
+    font-size: 13px;
+  }
+
+  .warnings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 18px 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warn) 12%, var(--paper));
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--paper));
+    color: var(--ink);
+  }
+
+  .warnings :global(svg) {
+    color: var(--warn);
+    flex: none;
+  }
+
+  .warnings .list {
+    flex: 1;
+    line-height: 1.45;
   }
 
   .spacer {

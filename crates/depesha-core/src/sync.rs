@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::imap::{self, Conn, Flags, Folder};
 use crate::message;
+use crate::query::{self, SearchQuery};
 use crate::store::{NewMessage, Store};
 use crate::{Error, Result};
 
@@ -185,8 +186,8 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
     Ok(added)
 }
 
-/// Searches the folder on the server and brings found messages missing from the cache
-/// into it. Returns local row ids of the matches, newest first.
+/// Searches the folder on the server (operators included, see `query`) and brings
+/// found messages missing from the cache into it. Returns local row ids, newest first.
 pub async fn search_server(
     conn: &mut Conn,
     store: &Store,
@@ -194,7 +195,8 @@ pub async fn search_server(
     folder: &str,
     text: &str,
 ) -> Result<Vec<i64>> {
-    let mut uids = imap::search_text(conn, folder, text).await?;
+    let q = SearchQuery::parse(text);
+    let mut uids = imap::search(conn, folder, &query::imap_criteria(&q)).await?;
     // Old mail first is useless in a result list: keep the newest matches.
     if uids.len() > 300 {
         uids.drain(..uids.len() - 300);
@@ -204,7 +206,9 @@ pub async fn search_server(
     fetch_headers(conn, store, account_id, folder, &missing).await?;
     let mut ids = Vec::with_capacity(uids.len());
     for uid in uids.iter().rev() {
-        if let Some(row) = store.find_by_uid(account_id, folder, *uid)? {
+        if let Some(row) = store.find_by_uid(account_id, folder, *uid)?
+            && (!q.has_attachment || row.has_attachments)
+        {
             ids.push(row.id);
         }
     }

@@ -8,7 +8,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, Settings};
 use crate::error::{CmdError, CmdResult};
 use crate::secrets;
 use crate::worker::Worker;
@@ -29,6 +29,8 @@ pub struct AppState {
     pub workers: Mutex<HashMap<String, Worker>>,
     pub statuses: Mutex<HashMap<String, AccountStatus>>,
     pub outbox_notify: Notify,
+    /// Wakes the scheduler (snoozed mail, follow-up reminders) early.
+    pub scheduler_notify: Notify,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -36,6 +38,33 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl AppState {
+    pub fn settings(&self) -> Settings {
+        lock(&self.config).settings.clone()
+    }
+
+    pub fn save_settings(&self, settings: Settings) -> CmdResult<()> {
+        let mut config = lock(&self.config);
+        config.settings = settings;
+        config::save(&self.config_path, &config)?;
+        Ok(())
+    }
+
+    /// Shows a desktop notification unless the settings or a test run say otherwise.
+    pub fn notify(&self, title: &str, body: &str, bulk: bool) {
+        use tauri_plugin_notification::NotificationExt;
+        if !self.settings().may_notify(bulk) {
+            return;
+        }
+        // Automated tests run on a virtual display but share the user's notification daemon.
+        if std::env::var_os("DEPESHA_NO_NOTIFICATIONS").is_some() {
+            tracing::debug!("notification suppressed: {title}");
+            return;
+        }
+        if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
+            tracing::debug!("notification failed: {e}");
+        }
+    }
+
     pub fn accounts(&self) -> Vec<Account> {
         lock(&self.config).accounts.clone()
     }

@@ -31,6 +31,8 @@ const env = {
   XDG_CACHE_HOME: join(profile, "cache"),
   WEBKIT_DISABLE_COMPOSITING_MODE: "1",
   DEPESHA_NO_NOTIFICATIONS: "1",
+  // E2E_DARK=1: the whole run in the dark theme, for its screenshots.
+  ...(process.env.E2E_DARK ? { GTK_THEME: "Adwaita:dark" } : {}),
 };
 
 const results = [];
@@ -89,6 +91,44 @@ async function setSelect(css, value) {
     css,
     value,
   );
+}
+
+/** Calls a backend command the way the GUI does. */
+async function invoke(cmd, args = {}) {
+  const r = await d.req("POST", d.s("/execute/async"), {
+    script:
+      "const done = arguments[arguments.length - 1]; window.__TAURI_INTERNALS__.invoke(arguments[0], arguments[1]).then((v) => done({ ok: v ?? null }), (e) => done({ err: String(e?.message ?? e) }));",
+    args: [cmd, args],
+  });
+  if (r.err) throw new Error(`${cmd}: ${r.err}`);
+  return r.ok;
+}
+
+async function idOf(subject) {
+  const rows = await invoke("messages", { query: { role: "inbox", limit: 2000 } });
+  const row = rows.find((m) => m.subject.includes(subject));
+  if (!row) throw new Error(`нет письма «${subject}» в кэше`);
+  return row.id;
+}
+
+/** A key press as the window sees it (shortcuts listen on window). */
+async function press(key, mods = {}) {
+  await d.exec("window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: arguments[0], bubbles: true }, arguments[1])))", key, mods);
+}
+
+async function newMessage(to, subject, text) {
+  await d.button("Написать");
+  await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
+  await d.type((await d.findAll(".modal.compose .box input"))[0], to);
+  await setInput(".modal.compose .subject", subject);
+  await d.exec(
+    "const t = document.querySelector('.modal.compose textarea'); t.focus(); t.setSelectionRange(0, 0); document.execCommand('insertText', false, arguments[0]);",
+    text,
+  );
+}
+
+async function composeClosed() {
+  await d.until("compose closed", async () => (await d.findAll(".modal.compose")).length === 0, 15000);
 }
 
 async function sidebarText() {
@@ -194,10 +234,11 @@ try {
     for (let i = 0; i < 40; i++) {
       await d.exec("const v = document.querySelector('.viewport'); v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll'));");
       await new Promise((r) => setTimeout(r, 300));
-      if ((await count()).startsWith("623")) break;
+      if ((await count()).startsWith("625")) break;
     }
+    // 620 + 3 single letters + a conversation of three (one row) + a newsletter.
     const final = await count();
-    if (!final.startsWith("623")) throw new Error(`после прокрутки: ${final}`);
+    if (!final.startsWith("625")) throw new Error(`после прокрутки: ${final}`);
     // The list is virtual: only rows near the viewport exist, so scroll to the end again.
     await d.exec("const v = document.querySelector('.viewport'); v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll'));");
     await rowBySubject("Массовое письмо 000", 5000);
@@ -420,6 +461,138 @@ try {
     await d.until("draft on server", async () => helper("count", "Drafts", `Черновик ${stamp}`) === "1", 15000);
     const flags = helper("flags", "Drafts", `Черновик ${stamp}`);
     if (!flags.includes("\\Draft")) throw new Error(`флаги черновика: ${flags}`);
+  });
+
+  await step("8", "цепочка: три письма — одна строка, в письме видна вся переписка", async () => {
+    await d.button("Все входящие");
+    const threadRow = () =>
+      d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes('Бюджет на ноябрь')).map(r => r.querySelector('.count')?.innerText.trim() ?? '1')`);
+    await d.until("one row with 3", async () => JSON.stringify(await threadRow()) === '["3"]', 15000);
+    await openBySubject("Бюджет на ноябрь");
+    await d.until("conversation strip", async () => (await d.findAll(".conversation .conv")).length === 3);
+    const t = await textOf(".conversation");
+    if (!t.includes("Мария Соколова")) throw new Error(`цепочка: ${t}`);
+    await screenshot("conversation");
+  });
+
+  await step("9", "люди и рассылки отдельно; отписка письмом", async () => {
+    await d.button("Рассылки");
+    await rowBySubject("Скидки недели");
+    if ((await textOf(".list")).includes("Счёт за октябрь")) throw new Error("письмо от человека среди рассылок");
+    await d.button("Люди");
+    await d.until("people only", async () => {
+      const t = await textOf(".list");
+      return t.includes("Счёт за октябрь") && !t.includes("Скидки недели");
+    });
+    await d.exec("document.querySelector('.split button').click()");
+    await openBySubject("Скидки недели");
+    await d.click(await d.find(".reader .chip"));
+    await d.click(await d.find(".reader .banner .btn.primary"));
+    await d.until("unsubscribe request delivered", async () => helper("count", "INBOX", "unsubscribe-weekly") === "1", 40000);
+  });
+
+  await step("1", "«Готово» (e) убирает в архив, z возвращает", async () => {
+    await openBySubject("Счёт на оплату");
+    await press("e");
+    await d.until("archived on server", async () => helper("count", "Архив", "Счёт на оплату") === "1", 20000);
+    if (helper("count", "INBOX", "Счёт на оплату") !== "0") throw new Error("осталось во входящих");
+    await d.until("archive folder created", async () => (await sidebarText()).includes("Архив"));
+    // Right away, while the action may still be finishing: "z" must wait for it.
+    await press("z");
+    try {
+      await d.until("back in inbox", async () => helper("count", "INBOX", "Счёт на оплату") === "1" && helper("count", "Архив", "Счёт на оплату") === "0", 20000);
+    } catch (e) {
+      throw new Error(`${e.message}; уведомления: ${await textOf(".toasts")}`);
+    }
+  });
+
+  await step("2", "«Отложить»: письмо ждёт в «Отложенных» и возвращается непрочитанным", async () => {
+    await d.button("Все входящие");
+    await openBySubject("Скидки недели");
+    await press("h");
+    await d.until("snooze menu", async () => (await textOf(".reader .pop")).includes("Завтра утром"));
+    await screenshot("snooze-menu");
+    await press("Escape");
+    // The offered times are hours away; the same command with a time 5 seconds ahead.
+    await invoke("snooze", { ids: [await idOf("Скидки недели")], until: Math.floor(Date.now() / 1000) + 5 });
+    await d.until("in Snoozed on server", async () => helper("count", "Отложенные", "Скидки недели") === "1", 20000);
+    await d.until("back unread", async () =>
+      helper("count", "INBOX", "Скидки недели") === "1" && !helper("flags", "INBOX", "Скидки недели").includes("\\Seen"), 45000, 1000);
+  });
+
+  await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
+    const subj = `Отмена ${stamp}`;
+    await newMessage("carol@local.test", subj, "Договор во вложении.");
+    await d.click(await d.find(".modal.compose .split-btn .main"));
+    await d.until("attachment warning", async () => (await textOf(".modal.compose .warnings")).includes("вложение"));
+    await screenshot("preflight");
+    await d.click(await d.find(".modal.compose .warnings .btn.primary"));
+    await composeClosed();
+    await d.click(await d.until("undo toast", () => d.xpath("//div[contains(@class,'toast')][contains(., 'Отправляется')]//button[contains(@class,'act')]")));
+    await d.until("compose is back", async () => (await d.findAll(".modal.compose")).length === 1);
+    const back = await d.exec("return document.querySelector('.modal.compose .subject').value");
+    if (back !== subj) throw new Error(`вернулось: ${back}`);
+    await new Promise((r) => setTimeout(r, 12000));
+    if (helper("count", "INBOX", subj) !== "0") throw new Error("письмо ушло, хотя отправку отменили");
+    // Closing keeps it as a draft.
+    await d.click(await d.find(".modal.compose header button"));
+    await composeClosed();
+  });
+
+  await step("5.9", "«Отправить позже»: письмо ждёт в «Исходящих» своего времени", async () => {
+    const subj = `Позже ${stamp}`;
+    await newMessage("carol@local.test", subj, "Утром.");
+    await d.click(await d.find(".modal.compose .split-btn .more"));
+    await d.click(await d.until("preset", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Завтра утром')]")));
+    await composeClosed();
+    await d.button("Исходящие");
+    await d.until("scheduled", async () => {
+      const t = await textOf(".outbox");
+      return t.includes(subj) && t.includes("Запланировано: отправится завтра");
+    });
+    await screenshot("outbox-scheduled");
+    await d.click(await d.xpath(`//div[contains(@class,'item')][contains(., ${JSON.stringify(subj)})]//button[contains(., 'Отправить сейчас')]`));
+    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
+  });
+
+  await step("5.10", "«Ждут ответа»: напоминание снимается, когда приходит ответ", async () => {
+    const subj = `Вопрос ${stamp}`;
+    await newMessage("carol@local.test", subj, "Когда будет готово?");
+    await setSelect(".modal.compose .remind", "3");
+    await d.click(await d.find(".modal.compose .split-btn .main"));
+    await composeClosed();
+    await d.until("waiting in sidebar", async () => (await sidebarText()).includes("Ждут ответа"), 60000, 1000);
+    await d.button("Ждут ответа");
+    await rowBySubject(subj, 20000);
+    await screenshot("followups");
+    helper("reply", "Sent", subj);
+    await d.until("resolved", async () => !(await sidebarText()).includes("Ждут ответа"), 60000, 1000);
+  });
+
+  await step("7.7", "палитра команд (Ctrl+K) и шаблоны ответов", async () => {
+    await press("k", { ctrlKey: true });
+    await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+    await d.type(await d.find(".palette .q"), "настр");
+    await d.type(await d.find(".palette .q"), "\uE007");
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.button("Добавить шаблон");
+    await setInput(".prefs .tpl input", "Получил");
+    await setInput(".prefs .tpl textarea", "Спасибо, получил.");
+    await d.click(await d.find(".prefs footer .btn.primary"));
+    await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
+    await d.button("Шаблоны");
+    await d.click(await d.until("template", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Получил')]")));
+    const text = await d.exec("return document.querySelector('.modal.compose textarea').value");
+    if (!text.includes("Спасибо, получил.")) throw new Error(JSON.stringify(text));
+    await d.click(await d.find(".modal.compose header button"));
+    await composeClosed();
+    await press("k", { ctrlKey: true });
+    await d.type(await d.find(".palette .q"), "перейти отлож");
+    await d.type(await d.find(".palette .q"), "\uE007");
+    await d.until("snoozed view", async () => (await textOf(".list h2")).trim() === "Отложенные");
+    await d.button("Все входящие");
   });
 
   await step("1.4, 2.2", "второй ящик по TLS: недоверенный сертификат принимается по отпечатку в мастере", async () => {

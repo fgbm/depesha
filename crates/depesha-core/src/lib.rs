@@ -6,10 +6,12 @@ pub mod autodetect;
 pub mod error;
 pub mod imap;
 pub mod message;
+pub mod query;
 pub mod smtp;
 pub mod store;
 pub mod sync;
 pub mod tls;
+pub mod unsubscribe;
 pub mod utf7;
 
 pub use error::{Error, Result};

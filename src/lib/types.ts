@@ -52,7 +52,7 @@ export interface Detection {
   notes: string[];
 }
 
-export type FolderRole = "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive";
+export type FolderRole = "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "snoozed";
 
 export interface FolderInfo {
   account_id: string;
@@ -96,6 +96,18 @@ export interface MessageRow {
   size: number;
   flags: Flags;
   has_attachments: boolean;
+  thread: string;
+  bulk: boolean;
+  /** Messages of the conversation in this list; 1 when the list is not grouped. */
+  thread_count: number;
+  snoozed_until: number | null;
+  followup_due: number | null;
+}
+
+export interface Unsubscribe {
+  one_click: string | null;
+  http: string | null;
+  mailto: string | null;
 }
 
 export interface Summary {
@@ -109,6 +121,8 @@ export interface Summary {
   reply_to: Addr[];
   date: number | null;
   has_attachments: boolean;
+  bulk: boolean;
+  unsubscribe: Unsubscribe | null;
 }
 
 export interface AttachmentInfo {
@@ -140,6 +154,10 @@ export interface ListQuery {
   role?: FolderRole | null;
   unread_only?: boolean;
   flagged_only?: boolean;
+  bulk?: boolean | null;
+  threads?: boolean;
+  snoozed_only?: boolean;
+  followups_only?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -174,4 +192,34 @@ export interface OutboxItem {
   next_attempt: number;
   last_error: string | null;
   failed: boolean;
+  created: number;
+  followup_secs: number;
 }
+
+export interface Template {
+  name: string;
+  text: string;
+}
+
+export interface Settings {
+  undo_send_secs: number;
+  notify: "people" | "all" | "none";
+  dnd_until: number;
+  threads: boolean;
+  templates: Template[];
+}
+
+/** A move the backend did; handed back to undo it. */
+export interface Moved {
+  account_id: string;
+  from: string;
+  to: string;
+  message_ids: string[];
+}
+
+export interface Counters {
+  snoozed: number;
+  followups: number;
+}
+
+export type Unsubscribed = { kind: "done" } | { kind: "mail-sent"; to: string } | { kind: "link"; url: string };

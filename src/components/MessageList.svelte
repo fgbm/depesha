@@ -1,18 +1,37 @@
 <script lang="ts">
-  import { app } from "../lib/store.svelte";
+  import Flag from "@lucide/svelte/icons/flag";
+  import Paperclip from "@lucide/svelte/icons/paperclip";
+  import Reply from "@lucide/svelte/icons/reply";
+  import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+  import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
+  import { app, type Split } from "../lib/store.svelte";
   import { addrName, listDate, pluralRu } from "../lib/format";
+  import { when } from "../lib/later";
   import type { MessageRow } from "../lib/types";
 
   let { searchInput = $bindable() }: { searchInput: HTMLInputElement | null } = $props();
 
   const ROLE_TITLE = {
     inbox: "Входящие",
+    snoozed: "Отложенные",
     drafts: "Черновики",
     sent: "Отправленные",
     archive: "Архив",
     junk: "Спам",
     trash: "Корзина",
   } as const;
+
+  const SPLITS: { value: Split; label: string }[] = [
+    { value: "all", label: "Все" },
+    { value: "people", label: "Люди" },
+    { value: "bulk", label: "Рассылки" },
+  ];
+
+  /** Account colour stripe in lists that mix accounts. */
+  const PALETTE = ["#3f7cc4", "#c77d1a", "#4a9a6a", "#9b59b6", "#c0504d", "#2a9d9b"];
+  function accountColor(id: string): string {
+    return PALETTE[Math.max(0, app.accounts.findIndex((a) => a.id === id)) % PALETTE.length];
+  }
 
   const ROW = 64;
   const OVERSCAN = 8;
@@ -30,6 +49,8 @@
   const title = $derived.by(() => {
     const v = app.view;
     if (v.kind === "search") return "Поиск";
+    if (v.kind === "snoozed") return "Отложенные";
+    if (v.kind === "followups") return "Ждут ответа";
     if (v.kind === "unified") return v.unread ? "Непрочитанные" : v.flagged ? "С флагом" : "Все входящие";
     if (v.kind === "folder") {
       const f = app.folder(v.account_id, v.folder);
@@ -43,6 +64,7 @@
   const showAccount = $derived(app.accounts.length > 1 && app.view.kind !== "folder");
   const isSentLike = $derived.by(() => {
     const v = app.view;
+    if (v.kind === "followups") return true;
     if (v.kind !== "folder") return false;
     const role = app.folder(v.account_id, v.folder)?.role;
     return role === "sent" || role === "drafts";
@@ -113,6 +135,15 @@
       />
       {#if searchText}<button class="btn ghost clear" onclick={clearSearch} aria-label="Очистить">×</button>{/if}
     </div>
+    {#if app.splittable()}
+      <div class="split" role="tablist">
+        {#each SPLITS as sp (sp.value)}
+          <button role="tab" aria-selected={app.split === sp.value} class:on={app.split === sp.value} onclick={() => app.setSplit(sp.value)}>
+            {sp.label}
+          </button>
+        {/each}
+      </div>
+    {/if}
     <div class="title">
       <h2>{title}</h2>
       <span class="muted">
@@ -143,6 +174,13 @@
       <div class="empty muted">
         {#if app.view.kind === "search"}
           Ничего не найдено. Ищутся тема, адреса и текст уже открытых писем.
+          <div class="ops">Можно уточнить: <code>от:</code> <code>кому:</code> <code>тема:</code> <code>есть:вложение</code> <code>is:unread</code> <code>после:2026-09-01</code> <code>в:архив</code></div>
+        {:else if app.view.kind === "snoozed"}
+          Отложенных писем нет. Нажмите <kbd>h</kbd> на письме, чтобы оно вернулось позже.
+        {:else if app.view.kind === "followups"}
+          Никто не должен вам ответ. При отправке можно попросить напомнить, если не ответят.
+        {:else if app.split === "people" && app.splittable()}
+          Писем от людей нет.
         {:else if app.accounts.length === 0}
           Добавьте почтовый ящик, чтобы начать.
         {:else}
@@ -158,6 +196,7 @@
           class:selected={app.selected.has(m.id)}
           class:opened={app.opened?.row.id === m.id}
           style:top="{(start + i) * ROW}px"
+          style:--acct={showAccount ? accountColor(m.account_id) : "transparent"}
           role="option"
           aria-selected={app.selected.has(m.id)}
           tabindex="-1"
@@ -166,17 +205,20 @@
         >
           <div class="line1">
             <span class="from">{who(m)}</span>
-            {#if m.flags.flagged}<span class="flag" title="С флагом">⚑</span>{/if}
-            {#if m.has_attachments}<span class="clip" title="Есть вложения">📎</span>{/if}
+            {#if m.thread_count > 1}<span class="count" title="Писем в цепочке">{m.thread_count}</span>{/if}
+            {#if m.flags.flagged}<span class="flag" title="С флагом"><Flag size={13} /></span>{/if}
+            {#if m.has_attachments}<span class="clip" title="Есть вложения"><Paperclip size={13} /></span>{/if}
             <span class="date">{listDate(m.date)}</span>
           </div>
           <div class="line2">
-            {#if m.flags.answered}<span class="answered" title="Отвечено">↩</span>{/if}
+            {#if m.flags.answered}<span class="answered" title="Отвечено"><Reply size={13} /></span>{/if}
             <span class="subject">{m.subject || "(без темы)"}</span>
+            {#if m.snoozed_until}
+              <span class="tag" title="Вернётся во входящие"><AlarmClock size={12} /> {when(m.snoozed_until)}</span>
+            {:else if m.followup_due}
+              <span class="tag" class:due={m.followup_due * 1000 < Date.now()} title="Ждёте ответа"><MessageSquareReply size={12} /> {when(m.followup_due)}</span>
+            {/if}
           </div>
-          {#if showAccount}
-            <div class="acct muted">{app.account(m.account_id)?.display_name ?? ""}</div>
-          {/if}
         </div>
       {/each}
     </div>
@@ -212,6 +254,32 @@
     right: 2px;
     top: 2px;
     padding: 3px 8px;
+  }
+
+  .split {
+    display: flex;
+    gap: 2px;
+    margin-top: 10px;
+    background: var(--paper-2);
+    border-radius: 7px;
+    padding: 2px;
+  }
+
+  .split button {
+    flex: 1;
+    border: none;
+    background: none;
+    border-radius: 5px;
+    padding: 3px 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .split button.on {
+    background: var(--selected);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
   }
 
   .title {
@@ -273,6 +341,7 @@
     border-bottom: 1px solid var(--line);
     cursor: default;
     overflow: hidden;
+    box-shadow: inset 3px 0 0 var(--acct, transparent);
   }
 
   .row:hover {
@@ -339,19 +408,50 @@
 
   .flag {
     color: var(--accent);
+    display: inline-flex;
   }
 
   .clip,
   .answered {
-    font-size: 12px;
     color: var(--muted);
+    display: inline-flex;
   }
 
-  .acct {
-    position: absolute;
-    right: 14px;
-    bottom: 6px;
+  .count {
     font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 5px;
+    line-height: 15px;
+  }
+
+  .tag {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .tag.due {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .ops {
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.9;
+  }
+
+  .ops code {
+    background: var(--paper-2);
+    border-radius: 4px;
+    padding: 1px 4px;
   }
 
   .empty {

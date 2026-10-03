@@ -100,6 +100,43 @@ async fn fifty_thousand_messages() {
         rows.len()
     );
 
+    let threads = ListQuery {
+        limit: 200,
+        threads: true,
+        ..Default::default()
+    };
+    let t = Instant::now();
+    let rows = store.list(&threads).unwrap();
+    let grouped = t.elapsed();
+    println!(
+        "conversations page: {:.1} ms ({} rows)",
+        grouped.as_secs_f64() * 1000.0,
+        rows.len()
+    );
+    assert!(grouped.as_millis() < 500, "grouped list must stay interactive");
+    let t = Instant::now();
+    let rows = store
+        .list(&ListQuery {
+            offset: 40_000,
+            ..threads
+        })
+        .unwrap();
+    println!(
+        "conversations, offset 40000: {:.1} ms ({} rows)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        rows.len()
+    );
+
+    let t = Instant::now();
+    let found = store
+        .search("от:отправитель тема:счёт после:2026-01-01", None, 300)
+        .unwrap();
+    println!(
+        "search with operators: {:.1} ms ({} hits)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        found.len()
+    );
+
     let t = Instant::now();
     let found = store.search("счёт 42", None, 300).unwrap();
     let search = t.elapsed();

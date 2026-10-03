@@ -2,44 +2,17 @@
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { addrFull, shortDateTime } from "../lib/format";
-  import type { AttachmentSource, ComposeDraft } from "../lib/types";
+  import { when } from "../lib/later";
 
   async function retry(id: number) {
     await api.outboxRetry(id).catch((e) => app.fail(e));
   }
 
-  /** Takes the message out of the queue and opens it for editing. */
-  async function edit(id: number) {
-    try {
-      const back = await api.outboxCancel(id);
-      if (!back) return;
-      const attachments: AttachmentSource[] = [];
-      for (const [name, , data] of back.attachments) {
-        const path = await api.tempAttachment(name, data);
-        attachments.push({ kind: "file", path, name, size: Math.floor((data.length * 3) / 4) });
-      }
-      const d = back.draft;
-      const draft: ComposeDraft = {
-        from: d.from,
-        to: d.to,
-        cc: d.cc,
-        bcc: d.bcc,
-        subject: d.subject,
-        text: d.text,
-        in_reply_to: d.in_reply_to,
-        references: d.references,
-        attachments,
-      };
-      app.compose = { account_id: back.account_id, draft, draft_id: null };
-    } catch (e) {
-      app.fail(e);
-    }
-  }
 </script>
 
 <div class="outbox">
   <h2>Исходящие</h2>
-  <p class="muted">Письма ждут отправки. Временные ошибки (нет сети, лимит сервера) повторяются сами.</p>
+  <p class="muted">Письма ждут отправки: запланированные — своего времени, остальные уходят сами. Временные ошибки (нет сети, лимит сервера) повторяются автоматически.</p>
   {#if app.outbox.length === 0}
     <p class="muted">Очередь пуста.</p>
   {/if}
@@ -54,6 +27,8 @@
         <div class="muted small">
           {#if item.failed}
             Не отправлено, нужна ваша проверка
+          {:else if item.attempts === 0 && item.next_attempt - item.created > 60}
+            Запланировано: отправится {when(item.next_attempt)}
           {:else if item.attempts > 0}
             Попытка {item.attempts + 1} около {shortDateTime(item.next_attempt)}
           {:else}
@@ -63,7 +38,7 @@
       </div>
       <div class="actions">
         <button class="btn" onclick={() => retry(item.id)}>Отправить сейчас</button>
-        <button class="btn ghost" onclick={() => edit(item.id)}>Изменить</button>
+        <button class="btn ghost" onclick={() => app.reopenOutbox(item.id)}>Изменить</button>
       </div>
     </div>
   {/each}

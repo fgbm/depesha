@@ -11,7 +11,6 @@ use depesha_core::store::ListQuery;
 use depesha_core::sync::{self, SyncOptions};
 use depesha_core::{Error, Result};
 use serde_json::json;
-use tauri_plugin_notification::NotificationExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -54,6 +53,16 @@ pub enum Work {
     Search {
         folder: String,
         text: String,
+    },
+    /// Creates a folder and refreshes the folder list.
+    CreateFolder(String),
+    /// Moves messages found by Message-ID: UIDs change on every move, so undo and
+    /// returning snoozed mail cannot rely on them. `unseen` marks them unread there.
+    MoveByMessageId {
+        from: String,
+        message_ids: Vec<String>,
+        to: String,
+        unseen: bool,
     },
 }
 
@@ -303,6 +312,34 @@ async fn perform(
             Ok(Output::None)
         }
         Work::Search { folder, text } => Ok(Output::Ids(sync::search_server(conn, store, id, folder, text).await?)),
+        Work::CreateFolder(name) => {
+            imap::create_folder(conn, name).await?;
+            sync::sync_folder_list(conn, store, id).await?;
+            state.emit("folders-changed", json!({ "account_id": id }));
+            Ok(Output::None)
+        }
+        Work::MoveByMessageId {
+            from,
+            message_ids,
+            to,
+            unseen,
+        } => {
+            let mut uids = Vec::new();
+            for mid in message_ids {
+                uids.extend(imap::find_by_message_id(conn, from, mid).await?);
+            }
+            imap::move_messages(conn, from, &uids, to).await?;
+            if *unseen && !uids.is_empty() {
+                let mut moved = Vec::new();
+                for mid in message_ids {
+                    moved.extend(imap::find_by_message_id(conn, to, mid).await?);
+                }
+                imap::set_flag(conn, to, &moved, FlagChange::Seen(false)).await?;
+            }
+            sync_one(state, account, conn, from, false).await?;
+            sync_one(state, account, conn, to, false).await?;
+            Ok(Output::Count(uids.len()))
+        }
         Work::LoadOlder { folder } => {
             let n = sync::load_older(conn, store, id, folder, 200).await?;
             if n > 0 {
@@ -339,7 +376,11 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
 }
 
 fn notify_new_mail(state: &AppState, account: &Account, fresh: &[depesha_core::store::MessageRow]) {
-    let (title, body) = match fresh {
+    // Newsletters and robots stay silent by default (settings: notify).
+    let people: Vec<_> = fresh.iter().filter(|m| !m.bulk).collect();
+    let bulk = people.is_empty();
+    let shown: Vec<_> = if bulk { fresh.iter().collect() } else { people };
+    let (title, body) = match shown.as_slice() {
         [] => return,
         [m] => (
             m.from
@@ -354,14 +395,7 @@ fn notify_new_mail(state: &AppState, account: &Account, fresh: &[depesha_core::s
         ),
         many => (format!("{} новых писем", many.len()), account.email.clone()),
     };
-    // Automated tests run on a virtual display but share the user's notification daemon.
-    if std::env::var_os("DEPESHA_NO_NOTIFICATIONS").is_some() {
-        tracing::debug!("notification suppressed: {title}");
-        return;
-    }
-    if let Err(e) = state.app.notification().builder().title(title).body(body).show() {
-        tracing::debug!("notification failed: {e}");
-    }
+    state.notify(&title, &body, bulk);
 }
 
 /// Second connection that sits in IDLE on INBOX and asks the operations loop to sync.

@@ -81,3 +81,30 @@ export function pluralRu(n: number, one: string, few: string, many: string): str
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
 }
+
+/** A stable, readable colour per address, so senders are told apart at a glance. */
+export function avatarColor(email: string): string {
+  let h = 0;
+  for (const ch of email.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} 42% 40%)`;
+}
+
+/** Initials: two letters of the name, or the first of the address. */
+export function initials(a: Addr | null | undefined): string {
+  const name = a?.name?.trim();
+  if (name) {
+    const parts = name.split(/\s+/).filter((p) => /\p{L}/u.test(p));
+    return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+  }
+  return (a?.email?.[0] ?? "?").toUpperCase();
+}
+
+/** Every word of the query starts a word of the label (palette search). */
+export function matches(label: string, query: string): boolean {
+  const words = label.toLowerCase().split(/[^\p{L}\d]+/u).filter(Boolean);
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((q) => words.some((w) => w.startsWith(q)));
+}

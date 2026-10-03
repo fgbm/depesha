@@ -44,7 +44,9 @@ for i in range(n):
 
 # Dovecot 2.4 keeps Maildir mailboxes in GUID-named directories, so files are not dropped
 # in place: the ready Maildir is imported with doveadm, which takes seconds.
-src = f"/srv/vmail/import-{user}"
+src = f"/srv/vmail/import-{user}-{int(time.time())}"
+# The image keeps /srv/vmail in a volume that survives container recreation: start clean.
+subprocess.run(["docker", "exec", container, "doveadm", "expunge", "-u", user, "mailbox", "INBOX", "all"], stderr=subprocess.DEVNULL)
 subprocess.run(["docker", "cp", "-a", os.path.join(root, user, "mail"), f"{container}:{src}"], check=True)
 subprocess.run(["docker", "exec", container, "doveadm", "import", "-u", user, f"maildir:{src}", "", "all"], check=True, stderr=subprocess.DEVNULL)
 shutil.rmtree(root)

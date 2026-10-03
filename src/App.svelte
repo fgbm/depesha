@@ -10,6 +10,8 @@
   import Compose from "./components/Compose.svelte";
   import Wizard from "./components/Wizard.svelte";
   import Outbox from "./components/Outbox.svelte";
+  import Palette from "./components/Palette.svelte";
+  import Preferences from "./components/Preferences.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -88,7 +90,12 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (app.compose || app.wizard) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && !app.compose && !app.wizard) {
+      e.preventDefault();
+      app.paletteOpen = !app.paletteOpen;
+      return;
+    }
+    if (app.compose || app.wizard || app.paletteOpen || app.settingsOpen) return;
     const t = e.target as HTMLElement;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) {
       if (e.key === "Escape") t.blur();
@@ -106,6 +113,12 @@
       c: () => newMessage(),
       Delete: () => app.remove(),
       "#": () => app.remove(),
+      e: () => app.archive(),
+      h: () => {
+        if (app.opened) app.snoozeOpen = true;
+      },
+      "!": () => app.spam(),
+      z: () => app.undo(),
       u: () => app.opened && app.flag("seen", !app.opened.row.flags.seen),
       s: () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
       "/": () => searchInput?.focus(),
@@ -141,11 +154,20 @@
 {#if app.wizard}
   <Wizard />
 {/if}
+{#if app.paletteOpen}
+  <Palette onCompose={newMessage} onReply={replyTo} onForward={forwardIt} onSearch={() => searchInput?.focus()} />
+{/if}
+{#if app.settingsOpen}
+  <Preferences />
+{/if}
 
 <div class="toasts" aria-live="polite">
   {#each app.toasts as t (t.id)}
     <div class="toast" class:error={t.error}>
       <span class="selectable">{t.text}</span>
+      {#if t.action}
+        <button class="btn ghost act" onclick={() => { app.dismiss(t.id); t.action?.run(); }}>{t.action.label}</button>
+      {/if}
       <button class="btn ghost close" onclick={() => app.dismiss(t.id)} aria-label="Закрыть">×</button>
     </div>
   {/each}
@@ -185,7 +207,7 @@
 
   .toast {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
     background: var(--side);
     color: var(--side-ink);
@@ -197,6 +219,13 @@
 
   .toast.error {
     border-left: 4px solid var(--accent);
+  }
+
+  .toast .act {
+    color: #f3c27a;
+    font-weight: 600;
+    padding: 0 6px;
+    white-space: nowrap;
   }
 
   .toast .close {

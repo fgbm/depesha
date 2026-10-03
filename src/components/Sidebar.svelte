@@ -1,26 +1,74 @@
 <script lang="ts">
+  import type { Component } from "svelte";
+  import Inbox from "@lucide/svelte/icons/inbox";
+  import Send from "@lucide/svelte/icons/send";
+  import FilePen from "@lucide/svelte/icons/file-pen";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
+  import Trash from "@lucide/svelte/icons/trash-2";
+  import Folder from "@lucide/svelte/icons/folder";
+  import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+  import Mails from "@lucide/svelte/icons/mails";
+  import Mail from "@lucide/svelte/icons/mail";
+  import Flag from "@lucide/svelte/icons/flag";
+  import Hourglass from "@lucide/svelte/icons/hourglass";
+  import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
+  import Bell from "@lucide/svelte/icons/bell";
+  import BellOff from "@lucide/svelte/icons/bell-off";
+  import Settings from "@lucide/svelte/icons/settings";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Plus from "@lucide/svelte/icons/plus";
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
+  import { when } from "../lib/later";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
   let { onCompose }: { onCompose: () => void } = $props();
 
   const ROLE_LABEL: Record<FolderRole, string> = {
     inbox: "Входящие",
+    snoozed: "Отложенные",
     drafts: "Черновики",
     sent: "Отправленные",
     archive: "Архив",
     junk: "Спам",
     trash: "Корзина",
   };
-  const ROLE_ICON: Record<FolderRole, string> = {
-    inbox: "📥",
-    drafts: "📝",
-    sent: "📤",
-    archive: "🗄",
-    junk: "⚠",
-    trash: "🗑",
+  const ROLE_ICON: Record<FolderRole, Component> = {
+    inbox: Inbox,
+    snoozed: AlarmClock,
+    drafts: FilePen,
+    sent: Send,
+    archive: Archive,
+    junk: ShieldAlert,
+    trash: Trash,
   };
+
+  const SMART: { view: View; label: string; icon: Component }[] = [
+    { view: { kind: "unified", role: "inbox" }, label: "Все входящие", icon: Mails },
+    { view: { kind: "unified", role: "inbox", unread: true }, label: "Непрочитанные", icon: Mail },
+    { view: { kind: "unified", role: "inbox", flagged: true }, label: "С флагом", icon: Flag },
+  ];
+
+  let dndMenu = $state(false);
+  const dnd = $derived(app.settings.dnd_until > Date.now() / 1000);
+
+  function setDnd(until: number) {
+    dndMenu = false;
+    app.saveSettings({ ...app.settings, dnd_until: until });
+  }
+
+  function dndOptions(): { label: string; until: number }[] {
+    const now = Date.now() / 1000;
+    const morning = new Date();
+    morning.setDate(morning.getDate() + (morning.getHours() >= 9 ? 1 : 0));
+    morning.setHours(9, 0, 0, 0);
+    return [
+      { label: "На час", until: Math.floor(now + 3600) },
+      { label: "До утра", until: Math.floor(morning.getTime() / 1000) },
+      { label: "Пока не включу", until: 4_102_444_800 },
+    ];
+  }
 
   let collapsed = $state<Record<string, boolean>>({});
   let menuFor = $state<string | null>(null);
@@ -52,7 +100,7 @@
     if (c.kind === "unified" && v.kind === "unified")
       return c.role === v.role && !!c.unread === !!v.unread && !!c.flagged === !!v.flagged;
     if (c.kind === "folder" && v.kind === "folder") return c.account_id === v.account_id && c.folder === v.folder;
-    return c.kind === "outbox";
+    return true;
   }
 
   function statusText(acc: AccountView): string {
@@ -81,20 +129,34 @@
     <span>Депеша</span>
   </div>
 
-  <button class="btn primary compose-btn" onclick={onCompose}>✎ Написать</button>
+  <button class="btn primary compose-btn" onclick={onCompose} title="Написать (c)"><Pencil size={15} /> Написать</button>
 
   <div class="scroll">
     <div class="group">
-      {#each [{ kind: "unified", role: "inbox" }, { kind: "unified", role: "inbox", unread: true }, { kind: "unified", role: "inbox", flagged: true }] as v, i}
-        <button class="item" class:active={isActive(v as View)} onclick={() => app.setView(v as View)}>
-          <span class="icon">{["📥", "●", "⚑"][i]}</span>
-          <span class="name">{["Все входящие", "Непрочитанные", "С флагом"][i]}</span>
+      {#each SMART as s, i (s.label)}
+        <button class="item" class:active={isActive(s.view)} onclick={() => app.setView(s.view)}>
+          <span class="icon"><s.icon size={16} /></span>
+          <span class="name">{s.label}</span>
           {#if i === 0 && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
         </button>
       {/each}
+      {#if app.counters.snoozed > 0}
+        <button class="item" class:active={isActive({ kind: "snoozed" })} onclick={() => app.setView({ kind: "snoozed" })}>
+          <span class="icon"><AlarmClock size={16} /></span>
+          <span class="name">Отложенные</span>
+          <span class="count quiet">{app.counters.snoozed}</span>
+        </button>
+      {/if}
+      {#if app.counters.followups > 0}
+        <button class="item" class:active={isActive({ kind: "followups" })} onclick={() => app.setView({ kind: "followups" })}>
+          <span class="icon"><MessageSquareReply size={16} /></span>
+          <span class="name">Ждут ответа</span>
+          <span class="count quiet">{app.counters.followups}</span>
+        </button>
+      {/if}
       {#if app.outbox.length > 0}
         <button class="item" class:active={isActive({ kind: "outbox" })} onclick={() => app.setView({ kind: "outbox" })}>
-          <span class="icon">⏳</span>
+          <span class="icon"><Hourglass size={16} /></span>
           <span class="name">Исходящие</span>
           <span class="count" class:alert={outboxFailed}>{app.outbox.length}</span>
         </button>
@@ -126,6 +188,7 @@
         {#if !collapsed[acc.id]}
           {#each foldersOf(acc) as f (f.name)}
             {@const v = { kind: "folder", account_id: acc.id, folder: f.name } as View}
+            {@const Icon = f.role ? ROLE_ICON[f.role] : Folder}
             <button
               class="item"
               class:active={isActive(v)}
@@ -135,7 +198,7 @@
               onclick={() => app.setView(v)}
               title={f.display_name}
             >
-              <span class="icon">{f.role ? ROLE_ICON[f.role] : "📁"}</span>
+              <span class="icon"><Icon size={16} /></span>
               <span class="name">{label(f)}</span>
               {#if f.unread > 0 && f.role !== "sent" && f.role !== "trash" && f.role !== "drafts"}
                 <span class="count">{f.unread}</span>
@@ -147,7 +210,28 @@
     {/each}
   </div>
 
-  <button class="btn ghost add" onclick={() => (app.wizard = { account: null })}>＋ Добавить ящик</button>
+  <div class="foot">
+    <button class="btn ghost add" onclick={() => (app.wizard = { account: null })}><Plus size={15} /> Добавить ящик</button>
+    <span class="spacer"></span>
+    <div class="dnd-wrap">
+      <button
+        class="foot-btn"
+        class:on={dnd}
+        onclick={() => (dnd ? setDnd(0) : (dndMenu = !dndMenu))}
+        title={dnd ? `Не беспокоить до ${when(app.settings.dnd_until)}. Нажмите, чтобы выключить` : "Не беспокоить"}
+        aria-label="Не беспокоить"
+      >
+        {#if dnd}<BellOff size={16} />{:else}<Bell size={16} />{/if}
+      </button>
+      {#if dndMenu}
+        <div class="menu up">
+          <div class="menu-title">Не беспокоить</div>
+          {#each dndOptions() as o (o.label)}<button onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
+        </div>
+      {/if}
+    </div>
+    <button class="foot-btn" onclick={() => (app.settingsOpen = true)} title="Настройки" aria-label="Настройки"><Settings size={16} /></button>
+  </div>
 </nav>
 
 <style>
@@ -173,6 +257,10 @@
     margin: 8px 14px 10px;
     justify-content: center;
     padding: 8px;
+  }
+
+  .compose-btn :global(svg) {
+    flex: none;
   }
 
   .scroll {
@@ -218,9 +306,13 @@
 
   .icon {
     width: 18px;
-    text-align: center;
-    font-size: 13px;
-    opacity: 0.85;
+    display: inline-flex;
+    justify-content: center;
+    opacity: 0.8;
+  }
+
+  .item.active .icon {
+    opacity: 1;
   }
 
   .name {
@@ -242,6 +334,11 @@
 
   .count.alert {
     background: var(--accent);
+  }
+
+  .count.quiet {
+    font-weight: 500;
+    color: var(--side-muted);
   }
 
   .account {
@@ -352,10 +449,56 @@
     color: #fff;
   }
 
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px 10px;
+    border-top: 1px solid rgb(255 255 255 / 6%);
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  .foot-btn {
+    background: none;
+    border: none;
+    color: var(--side-muted);
+    padding: 6px;
+    border-radius: 6px;
+    display: inline-flex;
+  }
+
+  .foot-btn:hover {
+    background: var(--side-2);
+    color: var(--side-ink);
+  }
+
+  .foot-btn.on {
+    color: #e0a030;
+  }
+
+  .dnd-wrap {
+    position: relative;
+  }
+
+  .menu.up {
+    top: auto;
+    bottom: 34px;
+    right: -40px;
+  }
+
+  .menu-title {
+    padding: 6px 10px 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
   .add {
     color: var(--side-muted);
-    margin: 6px 10px 12px;
     justify-content: flex-start;
+    padding: 5px 8px;
   }
 
   .add:hover {

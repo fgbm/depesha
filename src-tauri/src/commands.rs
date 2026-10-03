@@ -9,11 +9,12 @@ use depesha_core::autodetect::{self, Detection};
 use depesha_core::imap::{self, FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
-use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem};
+use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::config::Settings;
 use crate::error::{CmdError, CmdResult};
 use crate::secrets;
 use crate::state::{AccountStatus, AppState};
@@ -205,13 +206,64 @@ pub async fn message_open(state: St<'_>, id: i64, allow_remote: bool) -> CmdResu
 
 /// Groups message ids by (account, folder) for server operations.
 fn group(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String), Vec<u32>>> {
-    let mut groups: BTreeMap<(String, String), Vec<u32>> = BTreeMap::new();
+    Ok(group_rows(state, ids)?
+        .into_iter()
+        .map(|(k, rows)| (k, rows.iter().map(|r| r.uid).collect()))
+        .collect())
+}
+
+fn group_rows(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String), Vec<MessageRow>>> {
+    let mut groups: BTreeMap<(String, String), Vec<MessageRow>> = BTreeMap::new();
     for id in ids {
         if let Some(r) = state.store.get(*id)? {
-            groups.entry((r.account_id, r.folder)).or_default().push(r.uid);
+            groups
+                .entry((r.account_id.clone(), r.folder.clone()))
+                .or_default()
+                .push(r);
         }
     }
     Ok(groups)
+}
+
+/// What a move did, so it can be undone. Messages are found again by Message-ID.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Moved {
+    account_id: String,
+    from: String,
+    to: String,
+    message_ids: Vec<String>,
+}
+
+async fn move_group(state: &AppState, account_id: &str, from: &str, rows: &[MessageRow], to: &str) -> CmdResult<Moved> {
+    state
+        .worker(account_id)?
+        .run(Work::Move {
+            from: from.to_owned(),
+            uids: rows.iter().map(|r| r.uid).collect(),
+            to: to.to_owned(),
+        })
+        .await?;
+    Ok(Moved {
+        account_id: account_id.to_owned(),
+        from: from.to_owned(),
+        to: to.to_owned(),
+        message_ids: rows.iter().filter_map(|r| r.message_id.clone()).collect(),
+    })
+}
+
+/// The folder with this role, created under `name` when the server has none.
+async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name: &str) -> CmdResult<String> {
+    if let Some(f) = state.store.folder_by_role(account_id, role)? {
+        return Ok(f);
+    }
+    state
+        .worker(account_id)?
+        .run(Work::CreateFolder(name.to_owned()))
+        .await?;
+    state
+        .store
+        .folder_by_role(account_id, role)?
+        .ok_or_else(|| CmdError::new("not-found", format!("не удалось создать папку «{name}» на сервере")))
 }
 
 #[tauri::command]
@@ -245,38 +297,214 @@ pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdRe
 }
 
 #[tauri::command]
-pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResult<()> {
-    for ((account_id, folder), uids) in group(&state, &ids)? {
-        if folder == to {
-            continue;
+pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
+        if folder != to {
+            done.push(move_group(&state, &account_id, &folder, &rows, &to).await?);
+        }
+    }
+    Ok(done)
+}
+
+/// "Done": out of the inbox into the archive, which is created if missing.
+#[tauri::command]
+pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
+        let archive = role_folder(&state, &account_id, FolderRole::Archive, "Архив").await?;
+        if folder != archive {
+            done.push(move_group(&state, &account_id, &folder, &rows, &archive).await?);
+        }
+    }
+    Ok(done)
+}
+
+/// Spam: into the junk folder; the server's filters learn from it on most systems.
+#[tauri::command]
+pub async fn mark_spam(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
+        let junk = role_folder(&state, &account_id, FolderRole::Junk, "Спам").await?;
+        if folder != junk {
+            done.push(move_group(&state, &account_id, &folder, &rows, &junk).await?);
+        }
+    }
+    Ok(done)
+}
+
+/// To the trash; from the trash (or without one) for good, which cannot be undone.
+#[tauri::command]
+pub async fn delete_messages(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
+        match state.store.folder_by_role(&account_id, FolderRole::Trash)? {
+            Some(trash) if trash != folder => done.push(move_group(&state, &account_id, &folder, &rows, &trash).await?),
+            _ => {
+                let uids = rows.iter().map(|r| r.uid).collect();
+                state.worker(&account_id)?.run(Work::Delete { folder, uids }).await?;
+            }
+        }
+    }
+    Ok(done)
+}
+
+/// Snoozes mail until `until`: it waits in the server's Snoozed folder (visible in
+/// other clients too) and comes back unread. Messages without Message-ID cannot be tracked.
+#[tauri::command]
+pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
+        let rows: Vec<MessageRow> = rows.into_iter().filter(|r| r.message_id.is_some()).collect();
+        if rows.is_empty() {
+            return Err(CmdError::new("other", "у письма нет Message-ID, отложить его нельзя"));
+        }
+        let snoozed = role_folder(&state, &account_id, FolderRole::Snoozed, "Отложенные").await?;
+        // Snoozing again from the Snoozed folder keeps the original destination.
+        for r in &rows {
+            let mid = r.message_id.clone().unwrap_or_default();
+            let return_to = state
+                .store
+                .snooze_remove(&account_id, &mid)?
+                .map(|s| s.return_to)
+                .unwrap_or_else(|| folder.clone());
+            state.store.snooze_add(&Snooze {
+                account_id: account_id.clone(),
+                message_id: mid,
+                folder: snoozed.clone(),
+                return_to: if return_to == snoozed {
+                    folder.clone()
+                } else {
+                    return_to
+                },
+                until,
+                subject: r.subject.clone(),
+            })?;
+        }
+        if folder != snoozed {
+            done.push(move_group(&state, &account_id, &folder, &rows, &snoozed).await?);
+        }
+    }
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(done)
+}
+
+/// Puts moved messages back where they were and forgets their snooze times.
+#[tauri::command]
+pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
+    for m in moved {
+        for mid in &m.message_ids {
+            state.store.snooze_remove(&m.account_id, mid)?;
         }
         state
-            .worker(&account_id)?
-            .run(Work::Move {
-                from: folder,
-                uids,
-                to: to.clone(),
+            .worker(&m.account_id)?
+            .run(Work::MoveByMessageId {
+                from: m.to,
+                message_ids: m.message_ids,
+                to: m.from,
+                unseen: false,
             })
             .await?;
     }
+    state.emit("counters-changed", serde_json::json!({}));
     Ok(())
 }
 
-/// To the trash; from the trash (or without one) for good.
+/// The whole conversation of a message, oldest first.
 #[tauri::command]
-pub async fn delete_messages(state: St<'_>, ids: Vec<i64>) -> CmdResult<()> {
-    for ((account_id, folder), uids) in group(&state, &ids)? {
-        let trash = state.store.folder_by_role(&account_id, FolderRole::Trash)?;
-        let work = match trash {
-            Some(trash) if trash != folder => Work::Move {
-                from: folder,
-                uids,
-                to: trash,
-            },
-            _ => Work::Delete { folder, uids },
-        };
-        state.worker(&account_id)?.run(work).await?;
+pub fn thread(state: St<'_>, id: i64) -> CmdResult<Vec<MessageRow>> {
+    let r = row(&state, id)?;
+    Ok(state.store.thread(&r.account_id, &r.thread)?)
+}
+
+#[derive(Serialize)]
+pub struct Counters {
+    snoozed: u32,
+    followups: u32,
+}
+
+#[tauri::command]
+pub fn counters(state: St<'_>) -> CmdResult<Counters> {
+    Ok(Counters {
+        snoozed: state.store.snoozed_count()?,
+        followups: state.store.followups_count()?,
+    })
+}
+
+#[tauri::command]
+pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<()> {
+    let r = row(&state, id)?;
+    if let Some(mid) = &r.message_id {
+        state.store.followup_remove(&r.account_id, mid)?;
     }
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Unsubscribed {
+    /// The sender's server confirmed the one-click request.
+    Done,
+    /// A request went out by mail through the outbox.
+    MailSent { to: String },
+    /// Only a web page is offered; the user decides whether to open it.
+    Link { url: String },
+}
+
+/// Leaves a mailing list the way its sender offers: one click (RFC 8058) first,
+/// then a request by mail, then the web page.
+#[tauri::command]
+pub async fn unsubscribe(state: St<'_>, id: i64) -> CmdResult<Unsubscribed> {
+    let r = row(&state, id)?;
+    let Some(u) = state.store.unsubscribe_of(id)? else {
+        return Err(CmdError::new("not-found", "отправитель не указал, как отписаться"));
+    };
+    if let Some(url) = &u.one_click {
+        match depesha_core::unsubscribe::one_click(url).await {
+            Ok(_) => return Ok(Unsubscribed::Done),
+            Err(e) if u.mailto.is_none() => return Err(e.into()),
+            Err(e) => tracing::info!("one-click unsubscribe failed, trying mail: {e}"),
+        }
+    }
+    if let Some((to, subject, text)) = u.mailto.as_deref().and_then(depesha_core::unsubscribe::mailto) {
+        let account = state.account(&r.account_id)?;
+        let draft = Draft {
+            from: Some(Addr {
+                name: Some(account.display_name.clone()).filter(|n| !n.is_empty()),
+                email: account.email.clone(),
+            }),
+            to: vec![Addr {
+                name: None,
+                email: to.clone(),
+            }],
+            subject,
+            text,
+            ..Default::default()
+        };
+        smtp::build(&draft)?;
+        let now = chrono::Utc::now().timestamp();
+        state.store.outbox_add(&account.id, &draft, now, now, 0)?;
+        state.outbox_notify.notify_one();
+        state.emit("outbox-changed", serde_json::json!({}));
+        return Ok(Unsubscribed::MailSent { to });
+    }
+    match u.http {
+        Some(url) => Ok(Unsubscribed::Link { url }),
+        None => Err(CmdError::new("not-found", "отправитель не указал, как отписаться")),
+    }
+}
+
+#[tauri::command]
+pub fn settings_get(state: St<'_>) -> Settings {
+    state.settings()
+}
+
+#[tauri::command]
+pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
+    state.save_settings(settings)?;
+    state.emit("settings-changed", serde_json::json!({}));
     Ok(())
 }
 
@@ -535,26 +763,38 @@ fn mime_for(name: &str) -> &'static str {
     }
 }
 
-/// Queues the message; the outbox task sends it. `discard_draft` removes the server draft it came from.
+#[derive(Serialize)]
+pub struct Queued {
+    id: i64,
+    /// When the message leaves: after the undo delay or at the scheduled time.
+    at: i64,
+}
+
+/// Queues the message; the outbox task sends it at `at` (scheduled send) or after
+/// the undo delay from the settings. `followup_days` asks for a reminder when no
+/// answer comes. `discard_draft` removes the server draft it came from.
 #[tauri::command]
 pub async fn send(
     state: St<'_>,
     account_id: String,
     draft: ComposeDraft,
     discard_draft: Option<i64>,
-) -> CmdResult<i64> {
+    at: Option<i64>,
+    followup_days: Option<u32>,
+) -> CmdResult<Queued> {
     let account = state.account(&account_id)?;
     let draft = resolve(&state, draft).await?;
     smtp::build(&draft)?; // validate addresses now, not in the background
-    let id = state
-        .store
-        .outbox_add(&account.id, &draft, chrono::Utc::now().timestamp())?;
+    let now = chrono::Utc::now().timestamp();
+    let at = at.unwrap_or(now + i64::from(state.settings().undo_send_secs));
+    let followup = i64::from(followup_days.unwrap_or(0)) * 86_400;
+    let id = state.store.outbox_add(&account.id, &draft, now, at, followup)?;
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {
         let _ = discard(&state, d).await;
     }
-    Ok(id)
+    Ok(Queued { id, at: at.max(now) })
 }
 
 async fn discard(state: &AppState, id: i64) -> CmdResult<()> {

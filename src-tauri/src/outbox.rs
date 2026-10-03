@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use depesha_core::imap::FolderRole;
+use depesha_core::store::Followup;
 use depesha_core::{message, smtp};
 use serde_json::json;
 
@@ -15,9 +16,19 @@ use crate::worker::Work;
 
 pub async fn run(state: Arc<AppState>) {
     loop {
+        // Wake exactly when the next message is due: the undo window and scheduled
+        // sending are measured in seconds.
+        let now = chrono::Utc::now().timestamp();
+        let next = state
+            .store
+            .outbox()
+            .ok()
+            .and_then(|items| items.iter().filter(|i| !i.failed).map(|i| i.next_attempt).min())
+            .map(|t| (t - now).clamp(0, 15) as u64)
+            .unwrap_or(15);
         tokio::select! {
             _ = state.outbox_notify.notified() => {}
-            _ = tokio::time::sleep(Duration::from_secs(15)) => {}
+            _ = tokio::time::sleep(Duration::from_secs(next)) => {}
         }
         if let Err(e) = round(&state).await {
             tracing::error!("outbox: {}", e.message);
@@ -49,6 +60,27 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
             Ok(raw) => {
                 state.store.outbox_remove(item.id)?;
                 state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
+                if item.followup_secs > 0
+                    && let Some(message_id) = message::parse_summary(&raw).message_id
+                {
+                    let sent = chrono::Utc::now().timestamp();
+                    let recipients: Vec<String> = item
+                        .draft
+                        .to
+                        .iter()
+                        .chain(&item.draft.cc)
+                        .map(|a| a.email.clone())
+                        .collect();
+                    state.store.followup_add(&Followup {
+                        account_id: account.id.clone(),
+                        message_id,
+                        subject: item.draft.subject.clone(),
+                        recipients: recipients.join(", "),
+                        sent,
+                        due: sent + item.followup_secs,
+                    })?;
+                    state.emit("counters-changed", json!({}));
+                }
                 if account.save_sent_copy
                     && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
                     && let Ok(worker) = state.worker(&account.id)

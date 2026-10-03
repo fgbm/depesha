@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod error;
 mod outbox;
+mod scheduler;
 mod secrets;
 mod state;
 mod worker;
@@ -69,6 +70,7 @@ pub fn run() {
                 workers: Mutex::new(HashMap::new()),
                 statuses: Mutex::new(HashMap::new()),
                 outbox_notify: Notify::new(),
+                scheduler_notify: Notify::new(),
             });
             app.manage(state.clone());
 
@@ -77,6 +79,7 @@ pub fn run() {
                     let w = worker::spawn(state.clone(), account.clone());
                     state.set_worker(&account.id, Some(w));
                 }
+                tauri::async_runtime::spawn(scheduler::run(state.clone()));
                 outbox::run(state).await;
             });
             Ok(())
@@ -95,6 +98,16 @@ pub fn run() {
             commands::set_flag,
             commands::move_messages,
             commands::delete_messages,
+            commands::archive,
+            commands::mark_spam,
+            commands::snooze,
+            commands::undo,
+            commands::thread,
+            commands::counters,
+            commands::followup_cancel,
+            commands::unsubscribe,
+            commands::settings_get,
+            commands::settings_set,
             commands::load_older,
             commands::sync_now,
             commands::trust_sender,

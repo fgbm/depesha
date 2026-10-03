@@ -1,29 +1,40 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, asError } from "./api";
+import { when } from "./later";
 import type {
   Account,
   AccountStatus,
   AccountView,
+  AttachmentSource,
   CmdError,
   ComposeDraft,
+  Counters,
   FolderInfo,
   FolderRole,
   ListQuery,
   MessageRow,
+  Moved,
   OpenedMessage,
   OutboxItem,
+  Settings,
 } from "./types";
 
 export type View =
   | { kind: "unified"; role: FolderRole; unread?: boolean; flagged?: boolean }
   | { kind: "folder"; account_id: string; folder: string }
   | { kind: "search"; text: string }
+  | { kind: "snoozed" }
+  | { kind: "followups" }
   | { kind: "outbox" };
+
+/** Inbox split: everything, mail from people, or lists and notifications. */
+export type Split = "all" | "people" | "bulk";
 
 export interface Toast {
   id: number;
   text: string;
   error: boolean;
+  action?: { label: string; run: () => void };
 }
 
 export interface ComposeState {
@@ -61,13 +72,24 @@ class AppStore {
   serverSearching = $state(false);
   serverRows = $state<MessageRow[] | null>(null);
   wizard = $state<WizardState | null>(null);
+  settings = $state<Settings>({ undo_send_secs: 10, notify: "people", dnd_until: 0, threads: true, templates: [] });
+  counters = $state<Counters>({ snoozed: 0, followups: 0 });
+  split = $state<Split>((localStorage.getItem("depesha.split") as Split) ?? "all");
+  /** The opened message's conversation, oldest first; empty for a lone message. */
+  conversation = $state<MessageRow[]>([]);
+  paletteOpen = $state(false);
+  /** The snooze menu of the reader, opened by "h" too. */
+  snoozeOpen = $state(false);
+  settingsOpen = $state(false);
+  /** The last move that can be taken back with "z". */
+  lastUndo = $state<{ moved: Moved[]; text: string } | null>(null);
 
   private toastSeq = 0;
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private openSeq = 0;
 
   async init() {
-    await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox()]);
+    await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox(), this.loadSettings(), this.loadCounters()]);
     await this.reload();
     if (this.accounts.length === 0) this.wizard = { account: null };
 
@@ -86,12 +108,60 @@ class AppStore {
       this.toast(`Письмо не отправлено: ${e.payload.error.message}. Оно в «Исходящих».`, true),
     );
     await listen<{ message: string }>("app-error", (e) => this.toast(e.payload.message, true));
+    await listen("counters-changed", () => {
+      this.loadCounters();
+      if (this.view.kind === "snoozed" || this.view.kind === "followups") this.scheduleReload();
+    });
+    await listen("settings-changed", () => this.loadSettings());
   }
 
-  toast(text: string, error = false) {
+  toast(text: string, error = false, action?: Toast["action"], ms?: number) {
     const id = ++this.toastSeq;
-    this.toasts.push({ id, text, error });
-    setTimeout(() => this.dismiss(id), error ? 12000 : 4000);
+    this.toasts.push({ id, text, error, action });
+    setTimeout(() => this.dismiss(id), ms ?? (error ? 12000 : action ? 8000 : 4000));
+  }
+
+  async loadSettings() {
+    try {
+      this.settings = await api.settings();
+    } catch (e) {
+      this.fail(e);
+    }
+  }
+
+  async saveSettings(next: Settings) {
+    const threadsChanged = next.threads !== this.settings.threads;
+    this.settings = next;
+    try {
+      await api.saveSettings($state.snapshot(next));
+    } catch (e) {
+      this.fail(e, "Настройки не сохранены");
+    }
+    if (threadsChanged) this.reload();
+  }
+
+  async loadCounters() {
+    try {
+      this.counters = await api.counters();
+    } catch {
+      // Counters are decoration; the list itself reports real errors.
+    }
+  }
+
+  setSplit(split: Split) {
+    this.split = split;
+    localStorage.setItem("depesha.split", split);
+    this.messages = [];
+    this.exhausted = false;
+    this.reload();
+  }
+
+  /** Inbox-like lists can be split into people and robots. */
+  splittable(): boolean {
+    const v = this.view;
+    if (v.kind === "unified") return v.role === "inbox";
+    if (v.kind === "folder") return this.folder(v.account_id, v.folder)?.role === "inbox";
+    return false;
   }
 
   dismiss(id: number) {
@@ -144,14 +214,21 @@ class AppStore {
     const v = this.view;
     if (v.kind === "folder") return v.account_id === accountId && v.folder === folder;
     if (v.kind === "unified") return this.folder(accountId, folder)?.role === v.role || folder === "INBOX";
-    return v.kind === "search";
+    return v.kind === "search" || v.kind === "snoozed" || v.kind === "followups";
   }
 
   private query(offset: number): ListQuery | null {
     const v = this.view;
-    if (v.kind === "folder") return { account_id: v.account_id, folder: v.folder, limit: PAGE, offset };
+    const bulk = this.splittable() && this.split !== "all" ? this.split === "bulk" : null;
+    const threads = this.settings.threads;
+    if (v.kind === "folder") {
+      const drafts = this.folder(v.account_id, v.folder)?.role === "drafts";
+      return { account_id: v.account_id, folder: v.folder, bulk, threads: threads && !drafts, limit: PAGE, offset };
+    }
     if (v.kind === "unified")
-      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, limit: PAGE, offset };
+      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, bulk, threads, limit: PAGE, offset };
+    if (v.kind === "snoozed") return { snoozed_only: true, limit: PAGE, offset };
+    if (v.kind === "followups") return { followups_only: true, limit: PAGE, offset };
     return null;
   }
 
@@ -172,6 +249,7 @@ class AppStore {
       } else if (v.kind === "outbox") {
         this.messages = [];
         this.exhausted = true;
+        return;
       } else {
         const want = Math.max(PAGE, this.messages.length);
         const q = this.query(0)!;
@@ -245,6 +323,7 @@ class AppStore {
 
   async setView(v: View) {
     this.view = v;
+    this.conversation = [];
     this.serverRows = null;
     this.messages = [];
     this.selected = new Set();
@@ -287,15 +366,18 @@ class AppStore {
     try {
       const msg = await api.open(id, allowRemote);
       if (seq !== this.openSeq) return;
+      const epoch = this.flagEpoch;
       const wasUnread = !msg.row.flags.seen;
       msg.row.flags.seen = true;
       this.opened = msg;
+      this.conversation = [];
       // Marked read on the server only after it was shown.
       if (wasUnread) {
         api.setFlag([id], { flag: "seen", value: true }).catch((e) => this.fail(e));
         const row = this.messages.find((m) => m.id === id);
         if (row) row.flags.seen = true;
       }
+      this.loadConversation(id, seq, epoch, msg.row.folder);
     } catch (e) {
       if (seq === this.openSeq) {
         this.opened = null;
@@ -303,6 +385,29 @@ class AppStore {
       }
     } finally {
       if (seq === this.openSeq) this.opening = false;
+    }
+  }
+
+  /** Bumped by every flag change the user makes; late automatic marks yield to it. */
+  private flagEpoch = 0;
+
+  private async loadConversation(id: number, seq: number, epoch: number, folder: string) {
+    const conversation = await api.thread(id).catch(() => [] as MessageRow[]);
+    if (seq !== this.openSeq) return;
+    // One entry per letter: a copy in this folder wins over the one in Sent.
+    const shown = new Map<string, MessageRow>();
+    for (const m of conversation) {
+      const key = m.message_id ?? `#${m.id}`;
+      const prev = shown.get(key);
+      if (!prev || m.id === id || (prev.id !== id && m.folder === folder)) shown.set(key, m);
+    }
+    const unique = [...shown.values()].sort((a, b) => a.date - b.date || a.id - b.id);
+    this.conversation = unique.length > 1 ? unique : [];
+    // Reading a conversation reads all of it, unless the user changed flags meanwhile.
+    const unread = conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
+    if (unread.length && epoch === this.flagEpoch) {
+      api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.fail(e));
+      for (const m of this.messages) if (unread.includes(m.id)) m.flags.seen = true;
     }
   }
 
@@ -319,37 +424,142 @@ class AppStore {
     return this.opened ? [this.opened.row.id] : [];
   }
 
-  async remove(ids = this.selectedIds()) {
-    if (!ids.length) return;
-    const index = this.messages.findIndex((m) => m.id === ids[0]);
+  /** Takes rows out of the list and opens the next one: triage keeps going. */
+  private takeOut(ids: number[]) {
+    const index = this.messages.findIndex((m) => ids.includes(m.id));
     this.messages = this.messages.filter((m) => !ids.includes(m.id));
     this.opened = null;
+    this.conversation = [];
     this.selected = new Set();
-    const next = this.messages[Math.min(index, this.messages.length - 1)];
-    if (next) this.select(next.id);
+    const next = this.messages[Math.min(Math.max(index, 0), this.messages.length - 1)];
+    if (next && index >= 0) this.select(next.id);
+  }
+
+  /** The ids an action applies to: in a grouped list a row stands for its whole conversation. */
+  private async withConversation(ids: number[]): Promise<number[]> {
+    if (!this.settings.threads) return ids;
+    const out = new Set(ids);
+    for (const id of ids) {
+      const row = this.messages.find((m) => m.id === id) ?? this.opened?.row;
+      if (!row || row.thread_count <= 1) continue;
+      for (const m of await api.thread(id)) {
+        // Only messages of the same folder: my replies stay in Sent.
+        if (m.folder === row.folder && m.account_id === row.account_id) out.add(m.id);
+      }
+    }
+    return [...out];
+  }
+
+  /** The action still talking to the server; "z" pressed meanwhile waits for it. */
+  private pending: Promise<void> | null = null;
+
+  private async act(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
+    if (!ids.length) return;
+    const p = this.doAct(text, ids, run, failText);
+    this.pending = p;
+    await p;
+    if (this.pending === p) this.pending = null;
+  }
+
+  private async doAct(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
+    // "z" always means the latest action, never an older one.
+    this.lastUndo = null;
+    const all = await this.withConversation(ids);
+    this.takeOut(ids);
     try {
-      await api.remove(ids);
+      const moved = (await run(all)).filter((m) => m.message_ids.length);
+      if (moved.length) {
+        this.lastUndo = { moved, text };
+        this.toast(text, false, { label: "Отменить", run: () => this.undo() });
+      }
     } catch (e) {
-      this.fail(e, "Не удалось удалить");
+      this.fail(e, failText);
     }
     this.reload();
   }
 
-  async moveTo(folder: string, ids = this.selectedIds()) {
-    if (!ids.length) return;
-    this.messages = this.messages.filter((m) => !ids.includes(m.id));
-    this.opened = null;
-    this.selected = new Set();
+  remove(ids = this.selectedIds()) {
+    return this.act(ids.length > 1 ? `Удалено писем: ${ids.length}` : "Удалено", ids, api.remove, "Не удалось удалить");
+  }
+
+  moveTo(folder: string, ids = this.selectedIds()) {
+    const name = this.folders.find((f) => f.name === folder)?.display_name ?? folder;
+    return this.act(`Перемещено в «${name}»`, ids, (all) => api.move(all, folder), "Не удалось переместить");
+  }
+
+  /** "Done": out of the inbox, into the archive. */
+  archive(ids = this.selectedIds()) {
+    return this.act(ids.length > 1 ? `В архиве: ${ids.length}` : "В архиве", ids, api.archive, "Не удалось убрать в архив");
+  }
+
+  spam(ids = this.selectedIds()) {
+    return this.act("Отмечено как спам", ids, api.spam, "Не удалось отметить как спам");
+  }
+
+  snooze(until: number, ids = this.selectedIds()) {
+    return this.act(`Отложено: вернётся ${when(until)}`, ids, (all) => api.snooze(all, until), "Не удалось отложить");
+  }
+
+  async undo() {
+    if (!this.lastUndo && this.pending) await this.pending;
+    const u = this.lastUndo;
+    if (!u) return;
+    this.lastUndo = null;
     try {
-      await api.move(ids, folder);
+      await api.undo(u.moved);
+      this.toast("Отменено");
     } catch (e) {
-      this.fail(e, "Не удалось переместить");
+      this.fail(e, "Отменить не удалось");
     }
     this.reload();
+  }
+
+  /** Queues the composition; it leaves after the undo delay or at `at`. */
+  async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupDays: number | null) {
+    const queued = await api.send(accountId, draft, draftId, at, followupDays);
+    const undo = { label: "Отменить", run: () => this.reopenOutbox(queued.id) };
+    const secs = Math.round(queued.at - Date.now() / 1000);
+    if (at) this.toast(`Отправится ${when(queued.at)}. Письмо ждёт в «Исходящих».`, false, undo, 10000);
+    else if (secs > 0) this.toast(`Отправляется… ещё ${secs} с можно отменить`, false, undo, secs * 1000);
+  }
+
+  /** Takes a queued message back into the composer. */
+  async reopenOutbox(id: number) {
+    try {
+      const back = await api.outboxCancel(id);
+      if (!back) {
+        this.toast("Письмо уже отправлено", true);
+        return;
+      }
+      const attachments: AttachmentSource[] = [];
+      for (const [name, , data] of back.attachments) {
+        const path = await api.tempAttachment(name, data);
+        attachments.push({ kind: "file", path, name, size: Math.floor((data.length * 3) / 4) });
+      }
+      const d = back.draft;
+      this.compose = {
+        account_id: back.account_id,
+        draft: {
+          from: d.from,
+          to: d.to,
+          cc: d.cc,
+          bcc: d.bcc,
+          subject: d.subject,
+          text: d.text,
+          in_reply_to: d.in_reply_to,
+          references: d.references,
+          attachments,
+        },
+        draft_id: null,
+      };
+    } catch (e) {
+      this.fail(e);
+    }
   }
 
   async flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) {
     if (!ids.length) return;
+    this.flagEpoch++;
     for (const m of this.messages) if (ids.includes(m.id)) m.flags[change] = value;
     if (this.opened && ids.includes(this.opened.row.id)) this.opened.row.flags[change] = value;
     try {

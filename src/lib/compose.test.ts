@@ -17,12 +17,15 @@ function msg(over: Partial<OpenedMessage["view"]["summary"]> = {}): OpenedMessag
     reply_to: [],
     date: 1790000000,
     has_attachments: true,
+    bulk: false,
+    unsubscribe: null,
     ...over,
   };
   return {
     row: { id: 7, account_id: "a", folder: "INBOX", uid: 1, message_id: summary.message_id, in_reply_to: null, references: [],
       subject: summary.subject, from: summary.from, to: summary.to, cc: summary.cc, reply_to: [], date: 1790000000, size: 1,
-      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false }, has_attachments: true },
+      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false }, has_attachments: true,
+      thread: "m1@example.org", bulk: false, thread_count: 1, snoozed_until: null, followup_due: null },
     view: {
       summary,
       text: "Добрый день!\n> старая цитата",

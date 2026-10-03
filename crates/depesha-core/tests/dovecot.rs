@@ -4,6 +4,7 @@
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
 use depesha_core::imap::{self, Conn, FlagChange, FolderRole, IdleOutcome};
+use depesha_core::query::{self, SearchQuery};
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::{self, SyncOptions};
 use depesha_core::{Error, utf7};
@@ -198,6 +199,76 @@ async fn server_search_finds_uncached_mail_in_russian() {
     assert_eq!(ids.len(), 40, "ASCII query path");
     // The session is still in sync after the hand-written literal exchange.
     conn.session.noop().await.unwrap();
+    conn.session.logout().await.unwrap();
+}
+
+#[tokio::test]
+async fn search_operators_and_snoozed_folder() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("ops").await;
+    let from_ivan = "From: =?utf-8?B?0JjQstCw0L0g0J/QtdGC0YDQvtCy?= <ivan@example.org>\r\nTo: me@example.org\r\n\
+         Subject: =?utf-8?B?0JDQutGCINGB0LLQtdGA0LrQuA==?=\r\nMessage-ID: <act@example.org>\r\n\
+         Date: Fri, 2 Oct 2026 10:00:00 +0300\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nx\r\n";
+    imap::append(&mut conn, "INBOX", from_ivan.as_bytes(), "")
+        .await
+        .unwrap();
+    imap::append(&mut conn, "INBOX", &mail("Акт приёмки", 1), "")
+        .await
+        .unwrap();
+    imap::append(&mut conn, "INBOX", &mail("Другое", 2), "").await.unwrap();
+
+    // Two Cyrillic values: two literals in one command, both ways of sending them.
+    let q = SearchQuery::parse("от:Иван тема:акт");
+    for literal_plus in [true, false] {
+        conn.caps.literal_plus = literal_plus;
+        let uids = imap::search(&mut conn, "INBOX", &query::imap_criteria(&q))
+            .await
+            .unwrap();
+        assert_eq!(uids.len(), 1, "literal_plus={literal_plus}");
+    }
+    let q = SearchQuery::parse("тема:акт is:unread");
+    assert_eq!(
+        imap::search(&mut conn, "INBOX", &query::imap_criteria(&q))
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    conn.session.noop().await.unwrap();
+
+    // The Snoozed folder is created once and recognised by name.
+    imap::create_folder(&mut conn, "Отложенные").await.unwrap();
+    imap::create_folder(&mut conn, "Отложенные").await.unwrap();
+    let folders = imap::list_folders(&mut conn).await.unwrap();
+    let snoozed = folders
+        .iter()
+        .find(|f| f.role == Some(FolderRole::Snoozed))
+        .expect("snoozed role");
+    assert_eq!(snoozed.display_name, "Отложенные");
+
+    // There and back by Message-ID, as undo and snooze do.
+    let uids = imap::find_by_message_id(&mut conn, "INBOX", "<act@example.org>")
+        .await
+        .unwrap();
+    imap::move_messages(&mut conn, "INBOX", &uids, &snoozed.name)
+        .await
+        .unwrap();
+    let back = imap::find_by_message_id(&mut conn, &snoozed.name, "act@example.org")
+        .await
+        .unwrap();
+    assert_eq!(back.len(), 1);
+    imap::move_messages(&mut conn, &snoozed.name, &back, "INBOX")
+        .await
+        .unwrap();
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "INBOX", "act@example.org")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     conn.session.logout().await.unwrap();
 }
 

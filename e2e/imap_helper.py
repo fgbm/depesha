@@ -30,14 +30,15 @@ def append(c, folder, raw, flags="", when=None):
     assert typ == "OK", data
 
 
-def msg(subject, body, sender="Иван Петров <ivan@example.org>", when=None, extra=""):
+def msg(subject, body, sender="Иван Петров <ivan@example.org>", when=None, extra="", mid=None):
     date = email.utils.formatdate(when or time.time(), localtime=True)
+    mid = mid or f"{abs(hash(subject + str(when)))}@example.org"
     subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
     frm_name, frm_addr = sender.split(" <")
     frm = "=?utf-8?B?" + base64.b64encode(frm_name.encode()).decode() + "?= <" + frm_addr
     return (
         f"From: {frm}\r\nTo: {ME}\r\nSubject: {subj}\r\nDate: {date}\r\n"
-        f"Message-ID: <{abs(hash(subject + str(when)))}@example.org>\r\nMIME-Version: 1.0\r\n{extra}"
+        f"Message-ID: <{mid}>\r\nMIME-Version: 1.0\r\n{extra}"
         f"Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
         + base64.encodebytes(body.encode()).decode().replace("\n", "\r\n")
     ).encode()
@@ -92,6 +93,28 @@ def seed():
     append(c, "INBOX", CP1251, "", now - 7200)
     append(c, "INBOX", HTML, "", now - 3600)
     append(c, "INBOX", msg("Счёт за октябрь", "Оплатить до пятницы, реквизиты во вложении.", when=now - 600), "", now - 600)
+    # A conversation of three letters (References), read long ago.
+    root = "budget-1@example.org"
+    append(c, "INBOX", msg("Бюджет на ноябрь", "Предлагаю обсудить.", when=now - 5400, mid=root), "(\\Seen)", now - 5400)
+    append(c, "INBOX", msg("Re: Бюджет на ноябрь", "Согласен.", sender="Мария Соколова <maria@example.org>", when=now - 5000,
+                           mid="budget-2@example.org", extra=f"In-Reply-To: <{root}>\r\nReferences: <{root}>\r\n"), "(\\Seen)", now - 5000)
+    append(c, "INBOX", msg("Re: Бюджет на ноябрь", "Тогда в пятницу.", when=now - 4800, mid="budget-3@example.org",
+                           extra=f"In-Reply-To: <budget-2@example.org>\r\nReferences: <{root}> <budget-2@example.org>\r\n"), "(\\Seen)", now - 4800)
+    # A newsletter: bulk, unsubscribes by mail (to carol herself, so the test can see the request).
+    append(c, "INBOX", msg("Скидки недели", "Только сегодня.", sender="Магазин <news@shop.example>", when=now - 4000,
+                           extra="List-Id: <weekly.shop.example>\r\n"
+                                 "List-Unsubscribe: <mailto:carol@local.test?subject=unsubscribe-weekly>\r\n"), "", now - 4000)
+    c.logout()
+
+
+def reply(folder, subject):
+    """Answers the message from `folder` into INBOX, as the other side would."""
+    c = conn()
+    uids = find(c, folder, subject)
+    typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+    mid = data[0][1].decode().split(":", 1)[1].strip()
+    append(c, "INBOX", msg(f"Re: {subject}", "Отвечаю.", sender="Ответчик <answer@example.org>",
+                           extra=f"In-Reply-To: {mid}\r\nReferences: {mid}\r\n"))
     c.logout()
 
 
@@ -126,6 +149,10 @@ def main():
     cmd = sys.argv[1]
     if cmd == "seed":
         seed()
+        return
+    if cmd == "reply":
+        reply(sys.argv[2], sys.argv[3])
+        print("ok")
         return
     folder, subject = sys.argv[2], sys.argv[3]
     c = conn()

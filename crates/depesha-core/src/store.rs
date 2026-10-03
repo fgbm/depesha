@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::Result;
 use crate::imap::{Flags, Folder, FolderRole};
-use crate::message::{Addr, Summary};
+use crate::message::{Addr, Summary, Unsubscribe};
+use crate::query::SearchQuery;
 use crate::smtp::Draft;
 
 const SCHEMA: &str = r#"
@@ -47,6 +48,9 @@ CREATE TABLE IF NOT EXISTS messages (
     flagged         INTEGER NOT NULL,
     draft           INTEGER NOT NULL,
     has_attachments INTEGER NOT NULL,
+    thread          TEXT NOT NULL DEFAULT '',
+    bulk            INTEGER NOT NULL DEFAULT 0,
+    unsubscribe     TEXT,
     UNIQUE (account_id, folder, uid),
     FOREIGN KEY (account_id, folder) REFERENCES folders (account_id, name) ON DELETE CASCADE
 );
@@ -76,7 +80,31 @@ CREATE TABLE IF NOT EXISTS outbox (
     next_attempt  INTEGER NOT NULL,
     last_error    TEXT,
     failed        INTEGER NOT NULL DEFAULT 0,
-    created       INTEGER NOT NULL
+    created       INTEGER NOT NULL,
+    followup_secs INTEGER NOT NULL DEFAULT 0
+);
+
+-- Snoozed mail waits in the server's Snoozed folder; this says when and where it returns.
+CREATE TABLE IF NOT EXISTS snoozed (
+    account_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    folder     TEXT NOT NULL,
+    return_to  TEXT NOT NULL,
+    until      INTEGER NOT NULL,
+    subject    TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (account_id, message_id)
+);
+
+-- Sent mail the user expects an answer to.
+CREATE TABLE IF NOT EXISTS followups (
+    account_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    subject    TEXT NOT NULL,
+    recipients TEXT NOT NULL,
+    sent       INTEGER NOT NULL,
+    due        INTEGER NOT NULL,
+    notified   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account_id, message_id)
 );
 
 -- Senders whose remote images are always shown.
@@ -95,6 +123,30 @@ pub struct OutboxItem {
     pub last_error: Option<String>,
     /// Permanent failure: waits for the user, not retried automatically.
     pub failed: bool,
+    pub created: i64,
+    /// Remind about a missing answer this long after sending; 0 for no reminder.
+    pub followup_secs: i64,
+}
+
+/// A snoozed message that is due to come back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Snooze {
+    pub account_id: String,
+    pub message_id: String,
+    pub folder: String,
+    pub return_to: String,
+    pub until: i64,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Followup {
+    pub account_id: String,
+    pub message_id: String,
+    pub subject: String,
+    pub recipients: String,
+    pub sent: i64,
+    pub due: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +176,13 @@ pub struct MessageRow {
     pub size: u32,
     pub flags: Flags,
     pub has_attachments: bool,
+    pub thread: String,
+    pub bulk: bool,
+    /// Messages of the conversation in this list; 1 when the list is not grouped.
+    pub thread_count: u32,
+    pub snoozed_until: Option<i64>,
+    /// The sender waits for an answer to this message until then.
+    pub followup_due: Option<i64>,
 }
 
 /// Which messages to show. An empty query is the unified inbox of all accounts.
@@ -137,6 +196,14 @@ pub struct ListQuery {
     pub role: Option<FolderRole>,
     pub unread_only: bool,
     pub flagged_only: bool,
+    /// Only mail from people (`false`) or only lists and notifications (`true`).
+    pub bulk: Option<bool>,
+    /// One row per conversation: its newest message, with the count.
+    pub threads: bool,
+    /// Snoozed mail of every account, wherever it waits.
+    pub snoozed_only: bool,
+    /// Sent mail still waiting for an answer.
+    pub followups_only: bool,
     pub limit: u32,
     pub offset: u32,
 }
@@ -167,13 +234,27 @@ impl Store {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
-        // Databases created before the column existed.
-        let has_oldest: bool = conn
-            .prepare("SELECT 1 FROM pragma_table_info('folders') WHERE name = 'oldest_uid'")?
-            .exists([])?;
-        if !has_oldest {
-            conn.execute_batch("ALTER TABLE folders ADD COLUMN oldest_uid INTEGER NOT NULL DEFAULT 0")?;
+        // Databases created by older versions.
+        for (table, column, decl) in [
+            ("folders", "oldest_uid", "INTEGER NOT NULL DEFAULT 0"),
+            ("messages", "thread", "TEXT NOT NULL DEFAULT ''"),
+            ("messages", "bulk", "INTEGER NOT NULL DEFAULT 0"),
+            ("messages", "unsubscribe", "TEXT"),
+            ("outbox", "followup_secs", "INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let exists = conn
+                .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?
+                .exists([column])?;
+            if !exists {
+                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+            }
         }
+        // Old rows had no thread: each is its own conversation until resynced.
+        conn.execute_batch(
+            "UPDATE messages SET thread = COALESCE(message_id, folder || '/' || uid) WHERE thread = '';
+             CREATE INDEX IF NOT EXISTS messages_by_thread ON messages (account_id, thread);
+             CREATE INDEX IF NOT EXISTS messages_by_message_id ON messages (account_id, message_id);",
+        )?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -230,8 +311,8 @@ impl Store {
              WHERE ?1 IS NULL OR f.account_id = ?1
              GROUP BY f.account_id, f.name
              ORDER BY f.account_id,
-                CASE f.role WHEN 'inbox' THEN 0 WHEN 'drafts' THEN 1 WHEN 'sent' THEN 2 WHEN 'archive' THEN 3
-                            WHEN 'junk' THEN 4 WHEN 'trash' THEN 5 ELSE 6 END,
+                CASE f.role WHEN 'inbox' THEN 0 WHEN 'snoozed' THEN 1 WHEN 'drafts' THEN 2 WHEN 'sent' THEN 3
+                            WHEN 'archive' THEN 4 WHEN 'junk' THEN 5 WHEN 'trash' THEN 6 ELSE 7 END,
                 f.display_name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([account_id], |r| {
@@ -339,8 +420,9 @@ impl Store {
         let json = |v: &Vec<Addr>| serde_json::to_string(v).unwrap_or_else(|_| "[]".into());
         let id: i64 = tx.query_row(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
-                to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
+                thread, bulk, unsubscribe)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft
@@ -364,6 +446,9 @@ impl Store {
                 flags.flagged,
                 flags.draft,
                 summary.has_attachments,
+                summary.thread_key().unwrap_or_else(|| format!("{folder}/{uid}")),
+                summary.bulk,
+                summary.unsubscribe.as_ref().and_then(|u| serde_json::to_string(u).ok()),
             ],
             |r| r.get(0),
         )?;
@@ -411,38 +496,108 @@ impl Store {
     }
 
     pub fn list(&self, q: &ListQuery) -> Result<Vec<MessageRow>> {
-        let mut sql = format!(
-            "SELECT {COLUMNS} FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder WHERE 1"
-        );
+        let mut cond = String::from("1");
         let mut args: Vec<rusqlite::types::Value> = Vec::new();
         if let Some(account) = &q.account_id {
-            sql.push_str(" AND m.account_id = ?");
+            cond.push_str(" AND m.account_id = ?");
             args.push(account.clone().into());
         }
-        match (&q.folder, q.role) {
-            (Some(folder), _) => {
-                sql.push_str(" AND m.folder = ?");
-                args.push(folder.clone().into());
-            }
-            (None, role) => {
-                sql.push_str(" AND f.role = ?");
-                args.push(role.unwrap_or(FolderRole::Inbox).as_str().to_owned().into());
+        if q.snoozed_only {
+            cond.push_str(" AND EXISTS (SELECT 1 FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id)");
+        } else if q.followups_only {
+            cond.push_str(
+                " AND f.role = 'sent' AND EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)",
+            );
+        } else {
+            match (&q.folder, q.role) {
+                (Some(folder), _) => {
+                    cond.push_str(" AND m.folder = ?");
+                    args.push(folder.clone().into());
+                }
+                (None, role) => {
+                    cond.push_str(" AND f.role = ?");
+                    args.push(role.unwrap_or(FolderRole::Inbox).as_str().to_owned().into());
+                }
             }
         }
         if q.unread_only {
-            sql.push_str(" AND m.seen = 0");
+            cond.push_str(" AND m.seen = 0");
         }
         if q.flagged_only {
-            sql.push_str(" AND m.flagged = 1");
+            cond.push_str(" AND m.flagged = 1");
         }
-        sql.push_str(" ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?");
+        if let Some(bulk) = q.bulk {
+            cond.push_str(if bulk { " AND m.bulk = 1" } else { " AND m.bulk = 0" });
+        }
         args.push(i64::from(if q.limit == 0 { 100 } else { q.limit }).into());
         args.push(i64::from(q.offset).into());
 
+        let from = "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
         let conn = self.conn();
+        if !q.threads {
+            let sql =
+                format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?");
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params_from_iter(args), message_row)?;
+            return Ok(rows.collect::<Result<_, _>>()?);
+        }
+        // The newest message stands for its conversation: SQLite takes bare columns
+        // from the row that holds the MAX, as long as it is the only MIN/MAX in the
+        // query (hence SUM for flags). The row is unread or flagged when any message is.
+        let sql = format!(
+            "WITH g AS (
+                SELECT m.id AS id, MAX(m.date) AS newest, COUNT(*) AS n, SUM(m.seen = 0) AS unread,
+                       SUM(m.flagged) AS flagged
+                FROM {from} WHERE {cond} GROUP BY m.account_id, m.thread
+             )
+             SELECT {COLUMNS}, g.n, g.unread, g.flagged FROM g JOIN messages m ON m.id = g.id
+             ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
+        );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_from_iter(args), message_row)?;
+        let rows = stmt.query_map(params_from_iter(args), |r| {
+            let mut row = message_row(r)?;
+            row.thread_count = r.get(COLUMN_COUNT)?;
+            row.flags.seen = r.get::<_, i64>(COLUMN_COUNT + 1)? == 0;
+            row.flags.flagged = r.get::<_, i64>(COLUMN_COUNT + 2)? > 0;
+            Ok(row)
+        })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The whole conversation, oldest first, from every folder but the trash and spam.
+    pub fn thread(&self, account_id: &str, thread: &str) -> Result<Vec<MessageRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+             WHERE m.account_id = ?1 AND m.thread = ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk')
+             ORDER BY m.date, m.id"
+        ))?;
+        // A letter to oneself sits in Inbox and Sent with one Message-ID: both are
+        // returned, actions need every copy; the GUI shows one.
+        let rows = stmt.query_map(params![account_id, thread], message_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn unsubscribe_of(&self, id: i64) -> Result<Option<Unsubscribe>> {
+        let json: Option<String> = self
+            .conn()
+            .query_row("SELECT unsubscribe FROM messages WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?
+            .flatten();
+        Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+    }
+
+    pub fn find_by_message_id(&self, account_id: &str, folder: &str, message_id: &str) -> Result<Option<MessageRow>> {
+        Ok(self
+            .conn()
+            .query_row(
+                &format!(
+                    "SELECT {COLUMNS} FROM messages m WHERE m.account_id = ?1 AND m.folder = ?2 AND m.message_id = ?3"
+                ),
+                params![account_id, folder, message_id.trim_matches(['<', '>'])],
+                message_row,
+            )
+            .optional()?)
     }
 
     pub fn get(&self, id: i64) -> Result<Option<MessageRow>> {
@@ -486,36 +641,198 @@ impl Store {
         Ok(())
     }
 
-    /// Full-text search over subject, addresses and the bodies already downloaded.
+    /// Search over subject, addresses and the bodies already downloaded, with
+    /// operators (see `query`). Trash and spam only with `in:`.
     pub fn search(&self, text: &str, account_id: Option<&str>, limit: u32) -> Result<Vec<MessageRow>> {
-        let Some(query) = fts_query(text) else {
+        let q = SearchQuery::parse(text);
+        let mut terms: Vec<String> = Vec::new();
+        let mut column = |col: Option<&str>, value: &str| {
+            for w in value.split_whitespace() {
+                let w = w.replace('"', "");
+                if w.is_empty() {
+                    continue;
+                }
+                terms.push(match col {
+                    Some(c) => format!("{c} : \"{w}\"*"),
+                    None => format!("\"{w}\"*"),
+                });
+            }
+        };
+        q.words.iter().for_each(|w| column(None, w));
+        q.from.iter().for_each(|w| column(Some("sender"), w));
+        q.to.iter().for_each(|w| column(Some("recipients"), w));
+        q.subject.iter().for_each(|w| column(Some("subject"), w));
+
+        let mut cond = String::from("(?1 IS NULL OR m.account_id = ?1)");
+        let mut args: Vec<rusqlite::types::Value> = vec![account_id.map(str::to_owned).into()];
+        let mut filtered = false;
+        if q.has_attachment {
+            cond.push_str(" AND m.has_attachments = 1");
+            filtered = true;
+        }
+        if q.unread {
+            cond.push_str(" AND m.seen = 0");
+            filtered = true;
+        }
+        if q.flagged {
+            cond.push_str(" AND m.flagged = 1");
+            filtered = true;
+        }
+        if let Some(t) = q.after {
+            args.push(t.into());
+            cond.push_str(&format!(" AND m.date >= ?{}", args.len()));
+            filtered = true;
+        }
+        if let Some(t) = q.before {
+            args.push(t.into());
+            cond.push_str(&format!(" AND m.date < ?{}", args.len()));
+            filtered = true;
+        }
+        match &q.folder {
+            Some(folder) => {
+                args.push(folder.clone().into());
+                let n = args.len();
+                let role = role_word(folder).map(FolderRole::as_str).unwrap_or("");
+                args.push(role.to_owned().into());
+                cond.push_str(&format!(
+                    " AND (f.name = ?{n} COLLATE NOCASE OR f.display_name = ?{n} COLLATE NOCASE OR f.role = ?{})",
+                    n + 1
+                ));
+                filtered = true;
+            }
+            None => cond.push_str(" AND COALESCE(f.role, '') NOT IN ('trash', 'junk')"),
+        }
+        if terms.is_empty() && !filtered {
             return Ok(Vec::new());
+        }
+        args.push(i64::from(if limit == 0 { 100 } else { limit }).into());
+        let limit_arg = args.len();
+        let join = "JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
+        let sql = if terms.is_empty() {
+            format!("SELECT {COLUMNS} FROM messages m {join} WHERE {cond} ORDER BY m.date DESC LIMIT ?{limit_arg}")
+        } else {
+            args.push(terms.join(" ").into());
+            format!(
+                "SELECT {COLUMNS} FROM search s JOIN messages m ON m.id = s.rowid {join}
+                 WHERE search MATCH ?{} AND {cond} ORDER BY m.date DESC LIMIT ?{limit_arg}",
+                args.len()
+            )
         };
         let conn = self.conn();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM search s JOIN messages m ON m.id = s.rowid
-             WHERE search MATCH ?1 AND (?2 IS NULL OR m.account_id = ?2)
-             ORDER BY m.date DESC LIMIT ?3"
-        ))?;
-        let rows = stmt.query_map(
-            params![query, account_id, if limit == 0 { 100 } else { limit }],
-            message_row,
-        )?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(args), message_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn snooze_add(&self, s: &Snooze) -> Result<()> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO snoozed (account_id, message_id, folder, return_to, until, subject)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![s.account_id, s.message_id, s.folder, s.return_to, s.until, s.subject],
+        )?;
+        Ok(())
+    }
+
+    pub fn snooze_remove(&self, account_id: &str, message_id: &str) -> Result<Option<Snooze>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "DELETE FROM snoozed WHERE account_id = ?1 AND message_id = ?2
+                 RETURNING account_id, message_id, folder, return_to, until, subject",
+                params![account_id, message_id],
+                snooze_row,
+            )
+            .optional()?)
+    }
+
+    pub fn snoozes_due(&self, now: i64) -> Result<Vec<Snooze>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT account_id, message_id, folder, return_to, until, subject FROM snoozed WHERE until <= ?1 ORDER BY until",
+        )?;
+        let rows = stmt.query_map([now], snooze_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn snoozed_count(&self) -> Result<u32> {
+        Ok(self
+            .conn()
+            .query_row("SELECT COUNT(*) FROM snoozed", [], |r| r.get(0))?)
+    }
+
+    pub fn followup_add(&self, f: &Followup) -> Result<()> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO followups (account_id, message_id, subject, recipients, sent, due)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![f.account_id, f.message_id, f.subject, f.recipients, f.sent, f.due],
+        )?;
+        Ok(())
+    }
+
+    pub fn followup_remove(&self, account_id: &str, message_id: &str) -> Result<()> {
+        self.conn().execute(
+            "DELETE FROM followups WHERE account_id = ?1 AND message_id = ?2",
+            params![account_id, message_id.trim_matches(['<', '>'])],
+        )?;
+        Ok(())
+    }
+
+    /// Drops reminders that got an answer: a message outside Sent and Drafts that
+    /// replies to the sent one. Returns how many were resolved.
+    pub fn followups_resolve(&self) -> Result<usize> {
+        Ok(self.conn().execute(
+            "DELETE FROM followups WHERE EXISTS (
+                SELECT 1 FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+                WHERE m.account_id = followups.account_id
+                  AND COALESCE(f.role, '') NOT IN ('sent', 'drafts')
+                  AND (m.in_reply_to = followups.message_id
+                       OR m.refs LIKE '%\"' || followups.message_id || '\"%'))",
+            [],
+        )?)
+    }
+
+    /// Reminders due now that were not announced yet; marks them announced.
+    pub fn followups_due(&self, now: i64) -> Result<Vec<Followup>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "UPDATE followups SET notified = 1 WHERE due <= ?1 AND notified = 0
+             RETURNING account_id, message_id, subject, recipients, sent, due",
+        )?;
+        let rows = stmt.query_map([now], |r| {
+            Ok(Followup {
+                account_id: r.get(0)?,
+                message_id: r.get(1)?,
+                subject: r.get(2)?,
+                recipients: r.get(3)?,
+                sent: r.get(4)?,
+                due: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn followups_count(&self) -> Result<u32> {
+        Ok(self
+            .conn()
+            .query_row("SELECT COUNT(*) FROM followups", [], |r| r.get(0))?)
     }
 
     pub fn forget_account(&self, account_id: &str) -> Result<()> {
         let conn = self.conn();
         conn.execute("DELETE FROM folders WHERE account_id = ?1", [account_id])?;
         conn.execute("DELETE FROM outbox WHERE account_id = ?1", [account_id])?;
+        conn.execute("DELETE FROM snoozed WHERE account_id = ?1", [account_id])?;
+        conn.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
         Ok(())
     }
 
-    pub fn outbox_add(&self, account_id: &str, draft: &Draft, now: i64) -> Result<i64> {
+    /// Queues a message to go out at `at` (now, after the undo delay, or a scheduled time).
+    pub fn outbox_add(&self, account_id: &str, draft: &Draft, now: i64, at: i64, followup_secs: i64) -> Result<i64> {
         let json = serde_json::to_string(draft).map_err(|e| crate::Error::Compose(e.to_string()))?;
         Ok(self.conn().query_row(
-            "INSERT INTO outbox (account_id, draft, next_attempt, created) VALUES (?1, ?2, ?3, ?3) RETURNING id",
-            params![account_id, json, now],
+            "INSERT INTO outbox (account_id, draft, next_attempt, created, followup_secs)
+             VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
+            params![account_id, json, at.max(now), now, followup_secs],
             |r| r.get(0),
         )?)
     }
@@ -523,7 +840,8 @@ impl Store {
     pub fn outbox(&self) -> Result<Vec<OutboxItem>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed FROM outbox ORDER BY id",
+            "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, created, followup_secs
+             FROM outbox ORDER BY next_attempt, id",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(OutboxItem {
@@ -534,6 +852,8 @@ impl Store {
                 next_attempt: r.get(4)?,
                 last_error: r.get(5)?,
                 failed: r.get(6)?,
+                created: r.get(7)?,
+                followup_secs: r.get(8)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -609,7 +929,35 @@ impl Store {
 
 const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_reply_to, m.refs, m.subject,
     m.from_addr, m.to_addrs, m.cc_addrs, m.reply_to, m.date, m.size,
-    m.seen, m.answered, m.flagged, m.draft, m.has_attachments";
+    m.seen, m.answered, m.flagged, m.draft, m.has_attachments, m.thread, m.bulk,
+    (SELECT s.until FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id),
+    (SELECT fu.due FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)";
+const COLUMN_COUNT: usize = 23;
+
+fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
+    Ok(Snooze {
+        account_id: r.get(0)?,
+        message_id: r.get(1)?,
+        folder: r.get(2)?,
+        return_to: r.get(3)?,
+        until: r.get(4)?,
+        subject: r.get(5)?,
+    })
+}
+
+/// `in:` accepts role words in both languages.
+fn role_word(word: &str) -> Option<FolderRole> {
+    Some(match word.to_lowercase().as_str() {
+        "inbox" | "входящие" => FolderRole::Inbox,
+        "sent" | "отправленные" => FolderRole::Sent,
+        "drafts" | "черновики" => FolderRole::Drafts,
+        "archive" | "архив" => FolderRole::Archive,
+        "trash" | "корзина" => FolderRole::Trash,
+        "spam" | "junk" | "спам" => FolderRole::Junk,
+        "snoozed" | "отложенные" => FolderRole::Snoozed,
+        _ => return None,
+    })
+}
 
 fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
     let addrs = |i: usize| -> rusqlite::Result<Vec<Addr>> {
@@ -640,6 +988,11 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
             deleted: false,
         },
         has_attachments: r.get(18)?,
+        thread: r.get(19)?,
+        bulk: r.get(20)?,
+        thread_count: 1,
+        snoozed_until: r.get(21)?,
+        followup_due: r.get(22)?,
     })
 }
 
@@ -648,17 +1001,6 @@ fn addr_text(a: &Addr) -> String {
         Some(name) => format!("{name} {}", a.email),
         None => a.email.clone(),
     }
-}
-
-/// Turns user input into a safe FTS5 query: every word is a quoted prefix term.
-fn fts_query(text: &str) -> Option<String> {
-    let terms: Vec<String> = text
-        .split_whitespace()
-        .map(|w| w.replace('"', ""))
-        .filter(|w| !w.is_empty())
-        .map(|w| format!("\"{w}\"*"))
-        .collect();
-    (!terms.is_empty()).then(|| terms.join(" "))
 }
 
 #[cfg(test)]
@@ -791,5 +1133,183 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    fn with_ids(subject: &str, date: i64, id: &str, parent: Option<&str>) -> Summary {
+        Summary {
+            message_id: Some(id.into()),
+            in_reply_to: parent.map(Into::into),
+            references: parent.map(|p| vec![p.to_owned()]).unwrap_or_default(),
+            ..summary(subject, date)
+        }
+    }
+
+    fn put(store: &Store, folder: &str, uid: u32, s: &Summary, seen: bool) -> i64 {
+        let msg = NewMessage {
+            uid,
+            summary: s,
+            fallback_date: 0,
+            size: 1,
+            flags: Flags {
+                seen,
+                ..Default::default()
+            },
+        };
+        store.insert_message("a", folder, &msg).unwrap()
+    }
+
+    fn mailbox() -> Store {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .replace_folders(
+                "a",
+                &[
+                    folder("INBOX", Some(FolderRole::Inbox)),
+                    folder("Sent", Some(FolderRole::Sent)),
+                    folder("Trash", Some(FolderRole::Trash)),
+                ],
+            )
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn conversations_group_into_one_row() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &with_ids("Договор", 100, "a@x", None), true);
+        put(
+            &store,
+            "Sent",
+            1,
+            &with_ids("Re: Договор", 200, "b@x", Some("a@x")),
+            true,
+        );
+        put(
+            &store,
+            "INBOX",
+            2,
+            &with_ids("Re: Договор", 300, "c@x", Some("a@x")),
+            false,
+        );
+        put(&store, "INBOX", 3, &summary("Другое", 250), true);
+
+        let q = ListQuery {
+            threads: true,
+            ..Default::default()
+        };
+        let rows = store.list(&q).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            (rows[0].subject.as_str(), rows[0].thread_count, rows[0].flags.seen),
+            ("Re: Договор", 2, false)
+        );
+        assert_eq!(rows[1].thread_count, 1);
+
+        // The conversation view includes my answer from Sent, oldest first.
+        let conv = store.thread("a", &rows[0].thread).unwrap();
+        assert_eq!(conv.iter().map(|m| m.date).collect::<Vec<_>>(), [100, 200, 300]);
+    }
+
+    #[test]
+    fn search_operators() {
+        let store = mailbox();
+        let mut bill = with_ids("Счёт на оплату", 100, "a@x", None);
+        bill.has_attachments = true;
+        put(&store, "INBOX", 1, &bill, false);
+        let mut other = with_ids("Отчёт", 200, "b@x", None);
+        other.from = Some(Addr {
+            name: Some("Мария".into()),
+            email: "maria@example.org".into(),
+        });
+        put(&store, "INBOX", 2, &other, true);
+        put(&store, "Trash", 1, &with_ids("Счёт старый", 50, "c@x", None), true);
+
+        let subjects = |q: &str| -> Vec<String> {
+            store
+                .search(q, None, 0)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.subject)
+                .collect()
+        };
+        assert_eq!(subjects("from:maria"), ["Отчёт"]);
+        assert_eq!(subjects("от:петров"), ["Счёт на оплату"]);
+        assert_eq!(subjects("есть:вложение"), ["Счёт на оплату"]);
+        assert_eq!(subjects("is:unread"), ["Счёт на оплату"]);
+        assert_eq!(subjects("тема:отчёт"), ["Отчёт"]);
+        // The trash is searched only when asked for.
+        assert_eq!(subjects("счёт"), ["Счёт на оплату"]);
+        assert_eq!(subjects("счёт in:корзина"), ["Счёт старый"]);
+        assert_eq!(subjects("after:1970-01-01 before:1970-01-02").len(), 2);
+    }
+
+    #[test]
+    fn followup_is_resolved_by_an_answer() {
+        let store = mailbox();
+        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
+        store
+            .followup_add(&Followup {
+                account_id: "a".into(),
+                message_id: "q@x".into(),
+                subject: "Вопрос".into(),
+                recipients: "ivan@example.org".into(),
+                sent: 100,
+                due: 500,
+            })
+            .unwrap();
+        let waiting = ListQuery {
+            followups_only: true,
+            ..Default::default()
+        };
+        assert_eq!(store.list(&waiting).unwrap()[0].followup_due, Some(500));
+        assert!(store.followups_due(400).unwrap().is_empty());
+        assert_eq!(store.followups_due(600).unwrap().len(), 1);
+        assert!(store.followups_due(700).unwrap().is_empty(), "announced once");
+
+        // My own follow-up in Sent is not an answer.
+        put(
+            &store,
+            "Sent",
+            2,
+            &with_ids("Re: Вопрос", 150, "q2@x", Some("q@x")),
+            true,
+        );
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+        put(
+            &store,
+            "INBOX",
+            1,
+            &with_ids("Re: Вопрос", 200, "r@x", Some("q@x")),
+            false,
+        );
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert!(store.list(&waiting).unwrap().is_empty());
+    }
+
+    #[test]
+    fn snoozed_mail_is_listed_with_its_time() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &with_ids("Позже", 100, "s@x", None), true);
+        store
+            .snooze_add(&Snooze {
+                account_id: "a".into(),
+                message_id: "s@x".into(),
+                folder: "INBOX".into(),
+                return_to: "INBOX".into(),
+                until: 1000,
+                subject: "Позже".into(),
+            })
+            .unwrap();
+        let rows = store
+            .list(&ListQuery {
+                snoozed_only: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(rows[0].snoozed_until, Some(1000));
+        assert!(store.snoozes_due(999).unwrap().is_empty());
+        assert_eq!(store.snoozes_due(1000).unwrap().len(), 1);
+        assert!(store.snooze_remove("a", "s@x").unwrap().is_some());
+        assert_eq!(store.snoozed_count().unwrap(), 0);
     }
 }
