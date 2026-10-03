@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { api, asError } from "./api";
 import { when } from "./later";
@@ -89,6 +90,12 @@ class AppStore {
   opened = $state<OpenedMessage | null>(null);
   openError = $state<CmdError | null>(null);
   opening = $state(false);
+  /** The list row of the message being opened: its header shows at once, before the body arrives. */
+  openingRow = $state<MessageRow | null>(null);
+  /** User actions still talking to the server; the list shows a progress line meanwhile. */
+  busy = $state(0);
+  /** The app's version, shown quietly in the sidebar. */
+  version = $state("");
   allowRemote = $state(false);
   outbox = $state<OutboxItem[]>([]);
   toasts = $state<Toast[]>([]);
@@ -135,6 +142,7 @@ class AppStore {
   private openSeq = 0;
 
   async init() {
+    getVersion().then((v) => (this.version = v), () => {});
     await this.loadLanguage();
     await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox(), this.loadSettings()]);
     this.view = this.home();
@@ -441,7 +449,7 @@ class AppStore {
     if (v.kind !== "search" || this.serverSearching) return;
     this.serverSearching = true;
     try {
-      const rows = await api.serverSearch(v.text);
+      const rows = await this.track(api.serverSearch(v.text));
       if (this.view !== v) return;
       this.serverRows = rows;
       this.messages = this.merge(this.messages, rows);
@@ -466,7 +474,7 @@ class AppStore {
         this.exhausted = rows.length < PAGE;
       } else if (v.kind === "folder") {
         // The cache ran out: fetch older headers from the server.
-        const n = await api.loadOlder(v.account_id, v.folder);
+        const n = await this.track(api.loadOlder(v.account_id, v.folder));
         if (n > 0 && this.view === v) {
           this.exhausted = false;
           const rows = await api.messages(this.query(this.messages.length)!);
@@ -492,8 +500,9 @@ class AppStore {
     this.opened = null;
     this.openError = null;
     this.exhausted = false;
+    // The list shows the cache at once; fresh mail from the server follows, with the progress line.
+    if (v.kind === "folder") this.track(api.syncNow(v.account_id, v.folder)).catch(() => {});
     await this.reload();
-    if (v.kind === "folder") api.syncNow(v.account_id, v.folder).catch(() => {});
   }
 
   async select(id: number, mode: "single" | "toggle" | "range" = "single") {
@@ -523,6 +532,7 @@ class AppStore {
   async open(id: number, allowRemote = false) {
     const seq = ++this.openSeq;
     this.opening = true;
+    this.openingRow = this.messages.find((m) => m.id === id) ?? this.conversation.find((m) => m.id === id) ?? null;
     this.openError = null;
     this.allowRemote = allowRemote;
     try {
@@ -548,7 +558,10 @@ class AppStore {
         this.openError = asError(e);
       }
     } finally {
-      if (seq === this.openSeq) this.opening = false;
+      if (seq === this.openSeq) {
+        this.opening = false;
+        this.openingRow = null;
+      }
     }
   }
 
@@ -618,10 +631,20 @@ class AppStore {
   /** The action still talking to the server; "z" pressed meanwhile waits for it. */
   private pending: Promise<void> | null = null;
 
+  /** Runs a user action that waits for the server, with the progress line shown meanwhile. */
+  async track<T>(p: Promise<T>): Promise<T> {
+    this.busy++;
+    try {
+      return await p;
+    } finally {
+      this.busy--;
+    }
+  }
+
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. */
   async perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
     if (!ids.length) return;
-    const p = this.doAct(text, ids, run, failText);
+    const p = this.track(this.doAct(text, ids, run, failText));
     this.pending = p;
     await p;
     if (this.pending === p) this.pending = null;
@@ -727,7 +750,7 @@ class AppStore {
     for (const m of this.messages) if (ids.includes(m.id)) m.flags[change] = value;
     if (this.opened && ids.includes(this.opened.row.id)) this.opened.row.flags[change] = value;
     try {
-      await api.setFlag(ids, { flag: change, value });
+      await this.track(api.setFlag(ids, { flag: change, value }));
     } catch (e) {
       this.fail(e);
     }

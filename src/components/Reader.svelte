@@ -20,7 +20,7 @@
   import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
-  import { accountLabel, addrFull, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
+  import { accountLabel, addrFull, addrName, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
   import { emptyDraft, fromDraft, reply, withSignature } from "../lib/compose";
   import { t, tn } from "../lib/i18n.svelte";
   import Puzzle from "@lucide/svelte/icons/puzzle";
@@ -35,6 +35,26 @@
   let { onReply, onForward }: { onReply: (all: boolean) => void; onForward: () => void } = $props();
 
   const msg = $derived(app.opened);
+
+  /**
+   * Opening another message: after a blink (cached mail opens faster than that) its
+   * header from the list shows at once with a progress line; a slow server is said so.
+   */
+  let waited = $state<0 | 1 | 2 | 3>(0);
+  $effect(() => {
+    if (!app.opening) {
+      waited = 0;
+      return;
+    }
+    waited = 0;
+    const timers = [
+      setTimeout(() => (waited = 1), 120),
+      setTimeout(() => (waited = 2), 3000),
+      setTimeout(() => (waited = 3), 15000),
+    ];
+    return () => timers.forEach(clearTimeout);
+  });
+  const showOpening = $derived(app.opening && waited > 0 && (!msg || app.openingRow?.id !== msg.row.id));
   const account = $derived(msg ? app.account(msg.row.account_id) : undefined);
   const folders = $derived(
     msg ? app.folders.filter((f) => f.account_id === msg.row.account_id && f.selectable && !f.hidden && f.name !== msg.row.folder) : [],
@@ -74,7 +94,7 @@
   async function openAttachment(a: AttachmentInfo) {
     if (!msg) return;
     try {
-      await api.attachmentOpen(msg.row.id, a.index);
+      await app.track(api.attachmentOpen(msg.row.id, a.index));
     } catch (e) {
       app.fail(e);
     }
@@ -85,7 +105,7 @@
     const path = await save({ defaultPath: a.name, title: t("file.saveTitle") });
     if (!path) return;
     try {
-      await api.attachmentSave(msg.row.id, a.index, path);
+      await app.track(api.attachmentSave(msg.row.id, a.index, path));
       app.toast(t("file.saved", { name: a.name }));
     } catch (e) {
       app.fail(e);
@@ -97,7 +117,7 @@
     const dir = await openDialog({ directory: true, title: t("file.saveAllTitle") });
     if (!dir || Array.isArray(dir)) return;
     try {
-      const n = await api.attachmentsSaveAll(msg.row.id, dir);
+      const n = await app.track(api.attachmentsSaveAll(msg.row.id, dir));
       app.toast(tn("file.savedAll", n));
     } catch (e) {
       app.fail(e);
@@ -282,6 +302,24 @@
         <button class="btn" onclick={() => app.open([...app.selected][0])}>{t("retry")}</button>
       {/if}
     </div>
+  {:else if showOpening || (app.opening && !msg)}
+    {@const r = app.openingRow}
+    <div class="opening" aria-busy="true" aria-live="polite">
+      <div class="progress" role="progressbar" aria-label={t("reader.loading")}><span></span></div>
+      {#if r}
+        <div class="head">
+          <p class="title">{r.subject || t("noSubject")}</p>
+          <div class="muted">{addrName(r.from) || t("list.noSender")} · {longDate(r.date)}</div>
+        </div>
+      {/if}
+      <div class="skeleton" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      {#if waited >= 2}
+        <div class="slow muted">
+          {waited === 3 ? t("reader.stuck") : t("reader.downloading")}
+          {#if waited === 3 && r}<button class="btn" onclick={() => app.open(r.id)}>{t("retry")}</button>{/if}
+        </div>
+      {/if}
+    </div>
   {:else if msg}
     <div class="toolbar" data-tauri-drag-region>
       {#if isDraft}
@@ -456,8 +494,6 @@
         </div>
       {/if}
     </div>
-  {:else if app.opening}
-    <div class="center muted">{t("reader.loading")}</div>
   {:else}
     <!-- One way in instead of a wall of keys: the palette lists every command with its key. -->
     <div class="center muted">
@@ -477,6 +513,87 @@
     min-width: 0;
     min-height: 0;
     background: var(--paper-2);
+  }
+
+  .opening {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* The same place and size as the opened message's title: nothing jumps when it arrives. */
+  .opening .title {
+    margin: 0 0 12px;
+    font-size: 20px;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  /* An indeterminate line: work is going on, its length is unknown. */
+  .progress {
+    height: 2px;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  .progress span {
+    display: block;
+    width: 30%;
+    height: 100%;
+    background: var(--accent);
+    animation: slide 1.1s ease-in-out infinite;
+  }
+
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
+  }
+
+  .skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 22px;
+  }
+
+  .skeleton i {
+    height: 10px;
+    border-radius: 5px;
+    background: var(--hover);
+  }
+
+  .skeleton i:nth-child(1) {
+    width: 72%;
+  }
+
+  .skeleton i:nth-child(2) {
+    width: 90%;
+  }
+
+  .skeleton i:nth-child(3) {
+    width: 64%;
+  }
+
+  .skeleton i:nth-child(4) {
+    width: 40%;
+  }
+
+  .slow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 22px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress span {
+      animation-duration: 3s;
+    }
   }
 
   .center {

@@ -134,6 +134,7 @@
   <div class="brand" data-tauri-drag-region>
     <img src="/icon.png" alt="" width="26" height="26" />
     <span>{t("app.name")}</span>
+    {#if app.version}<span class="version" title={t("app.version", { version: app.version })}>{app.version}</span>{/if}
   </div>
 
   <button class="btn primary compose-btn" onclick={onCompose} title={t("compose.newHint")}><Pencil size={15} /> {t("compose.new")}</button>
@@ -271,6 +272,18 @@
     font-weight: 700;
     font-size: 17px;
     letter-spacing: 0.02em;
+  }
+
+  /* Service information: there when looked for, never competing with the mail. */
+  .version {
+    align-self: flex-end;
+    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--side-muted);
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
   }
 
   /* Drag the window by the logo and name too: the drag region only counts direct hits on itself. */

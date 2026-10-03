@@ -129,6 +129,8 @@
 
 <!-- The number of messages says little at a glance: it stays in the title's tooltip. -->
 <section class="list" data-count={count}>
+  <!-- Work on the server after a click (move, flag, search) shows here, so a click never looks ignored. -->
+  {#if app.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
   <header data-tauri-drag-region class:scrolled={scrollTop > 0}>
     <div class="search">
       <input
@@ -181,6 +183,8 @@
           {pluginView.empty()}
         {:else if app.accounts.length === 0}
           {t("empty.noAccounts")}
+        {:else if app.busy > 0}
+          {t("loading")}
         {:else}
           {t("empty.list")}
         {/if}
@@ -228,7 +232,44 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    position: relative;
     background: var(--paper);
+  }
+
+  /* Shows only when the server takes longer than a blink. */
+  .busy {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    overflow: hidden;
+    z-index: 2;
+    opacity: 0;
+    animation: show 0s 0.15s forwards;
+  }
+
+  .busy span {
+    display: block;
+    width: 30%;
+    height: 100%;
+    background: var(--accent);
+    animation: slide 1.1s ease-in-out infinite;
+  }
+
+  @keyframes show {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
   }
 
   /* The header gets its line only once rows slide under it. */
