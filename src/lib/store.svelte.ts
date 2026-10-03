@@ -130,6 +130,8 @@ class AppStore {
   conversation = $state<MessageRow[]>([]);
   settingsOpen = $state(false);
   pluginsOpen = $state(false);
+  /** The page Preferences open on; back to the first one when they close. */
+  settingsPage = $state("general");
   /** The mailbox manager: order, names and colours. */
   accountsOpen = $state(false);
   tasksOpen = $state(false);

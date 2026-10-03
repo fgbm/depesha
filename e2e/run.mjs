@@ -718,6 +718,12 @@ try {
     await d.type(await d.find(".palette .q"), "настр");
     await d.type(await d.find(".palette .q"), "\uE007");
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await screenshot("settings-general");
+    await d.click(await d.find(".prefs .tab[data-page='mail']"));
+    await d.until("mail page", async () => (await textOf(".prefs .pane h2")) === "Почта");
+    await screenshot("settings-mail");
+    // A plugin's settings are a page of their own, under "Plugins".
+    await d.click(await d.xpath("//div[contains(@class,'prefs')]//button[contains(@class,'tab')][contains(., 'Шаблоны ответов')]"));
     await d.button("Добавить шаблон");
     await setInput(".prefs .tpl input", "Получил");
     await setInput(".prefs .tpl textarea", "Спасибо, получил.");

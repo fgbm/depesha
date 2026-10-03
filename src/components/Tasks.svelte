@@ -77,6 +77,7 @@
 
   function openSettings() {
     app.tasksOpen = false;
+    app.settingsPage = "offline";
     app.settingsOpen = true;
   }
 </script>
