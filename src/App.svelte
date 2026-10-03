@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { app } from "./lib/store.svelte";
-  import { emptyDraft, forward, reply, withSignature } from "./lib/compose";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -11,8 +10,11 @@
   import Compose from "./components/Compose.svelte";
   import Wizard from "./components/Wizard.svelte";
   import Outbox from "./components/Outbox.svelte";
-  import Palette from "./components/Palette.svelte";
   import Preferences from "./components/Preferences.svelte";
+  import Plugins from "./components/Plugins.svelte";
+  import WindowControls from "./components/WindowControls.svelte";
+  import { host } from "./plugin-host/host.svelte";
+  import { registry } from "./plugin-host/registry.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -59,77 +61,69 @@
     };
   });
 
-  function newMessage() {
-    const acc = app.defaultAccount();
-    if (!acc) {
-      app.wizard = { account: null };
-      return;
-    }
-    const draft = withSignature(emptyDraft({ name: acc.display_name, email: acc.email }), acc.signature);
-    app.compose = { account_id: acc.id, draft, draft_id: null };
+  /** "Mod+k", "h", "Delete": how plugins name keys. */
+  function keyName(e: KeyboardEvent): string {
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    return (e.ctrlKey || e.metaKey ? "Mod+" : "") + (e.altKey ? "Alt+" : "") + key;
   }
 
-  function replyTo(all: boolean) {
-    const msg = app.opened;
-    if (!msg) return;
-    const acc = app.account(msg.row.account_id);
-    if (!acc) return;
-    app.compose = {
-      account_id: acc.id,
-      draft: withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all), acc.signature),
-      draft_id: null,
-    };
-  }
-
-  function forwardIt() {
-    const msg = app.opened;
-    if (!msg) return;
-    const acc = app.account(msg.row.account_id);
-    if (!acc) return;
-    const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }), acc.signature);
-    app.compose = { account_id: acc.id, draft, draft_id: null };
+  function pluginKey(name: string): (() => void) | undefined {
+    return registry.items("keybindings").find((b) => b.key === name && (!b.when || b.when()))?.run;
   }
 
   function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && !app.compose && !app.wizard) {
-      e.preventDefault();
-      app.paletteOpen = !app.paletteOpen;
+    if (app.compose || app.wizard) return;
+    const name = keyName(e);
+    // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box).
+    if (name.startsWith("Mod+")) {
+      const run = pluginKey(name);
+      if (run) {
+        e.preventDefault();
+        run();
+      }
       return;
     }
-    if (app.compose || app.wizard || app.paletteOpen || app.settingsOpen) return;
+    if (app.settingsOpen || app.pluginsOpen) return;
     const t = e.target as HTMLElement;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) {
       if (e.key === "Escape") t.blur();
       return;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.altKey) return;
     const actions: Record<string, () => void> = {
       j: () => app.move(1),
       ArrowDown: () => app.move(1),
       k: () => app.move(-1),
       ArrowUp: () => app.move(-1),
-      r: () => replyTo(false),
-      a: () => replyTo(true),
-      f: () => forwardIt(),
-      c: () => newMessage(),
+      r: () => app.replyTo(false),
+      a: () => app.replyTo(true),
+      f: () => app.forwardOpened(),
+      c: () => app.newMessage(),
       Delete: () => app.remove(),
       "#": () => app.remove(),
       e: () => app.archive(),
-      h: () => {
-        if (app.opened) app.snoozeOpen = true;
-      },
       "!": () => app.spam(),
       z: () => app.undo(),
       u: () => app.opened && app.flag("seen", !app.opened.row.flags.seen),
       s: () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
       "/": () => searchInput?.focus(),
     };
-    const action = actions[e.key];
+    const action = actions[e.key] ?? pluginKey(name);
     if (action) {
       e.preventDefault();
       action();
     }
   }
+
+  // Built-in plugins follow the settings: switched on and off at once.
+  $effect(() => {
+    void app.settings.disabled_plugins;
+    host.sync();
+  });
+
+  $effect(() => {
+    app.focusSearch = () => searchInput?.focus();
+  });
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -138,14 +132,14 @@
   class="layout"
   style:grid-template-columns={app.view.kind === "outbox" ? `${side}px 1fr` : `${side}px 4px ${list}px 4px 1fr`}
 >
-  <Sidebar onCompose={newMessage} />
+  <Sidebar onCompose={() => app.newMessage()} />
   {#if app.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
   {:else}
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
     <MessageList bind:searchInput />
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
-    <Reader onReply={replyTo} onForward={forwardIt} />
+    <Reader onReply={(all) => app.replyTo(all)} onForward={() => app.forwardOpened()} />
   {/if}
 </div>
 
@@ -155,12 +149,17 @@
 {#if app.wizard}
   <Wizard />
 {/if}
-{#if app.paletteOpen}
-  <Palette onCompose={newMessage} onReply={replyTo} onForward={forwardIt} onSearch={() => searchInput?.focus()} />
-{/if}
 {#if app.settingsOpen}
   <Preferences />
 {/if}
+{#if app.pluginsOpen}
+  <Plugins />
+{/if}
+{#each registry.lists.overlays as o (o)}
+  <o.item.component {...o.item.props ?? {}} />
+{/each}
+
+<WindowControls />
 
 <div class="toasts" aria-live="polite">
   {#each app.toasts as toast (toast.id)}
@@ -195,6 +194,7 @@
     overflow: auto;
   }
 
+  /* Under dialogs (their z-index is higher): a toast never covers a dialog's buttons. */
   .toasts {
     position: fixed;
     right: 16px;
@@ -202,7 +202,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    z-index: 100;
+    z-index: 40;
     max-width: 440px;
   }
 

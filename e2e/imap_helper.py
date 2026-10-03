@@ -154,6 +154,12 @@ def main():
         reply(sys.argv[2], sys.argv[3])
         print("ok")
         return
+    if cmd == "deliver":
+        c = conn()
+        append(c, "INBOX", msg(sys.argv[2], "Новое письмо для правил.", sender="Пётр Сидоров <petr@example.org>"))
+        c.logout()
+        print("ok")
+        return
     folder, subject = sys.argv[2], sys.argv[3]
     c = conn()
     c._encoding = "utf-8"

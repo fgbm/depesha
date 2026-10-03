@@ -21,11 +21,13 @@
   import { api } from "../lib/api";
   import { addrFull, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
   import { emptyDraft, fromDraft, withSignature } from "../lib/compose";
-  import { snoozePresets, when } from "../lib/later";
   import { t, tn } from "../lib/i18n.svelte";
+  import Puzzle from "@lucide/svelte/icons/puzzle";
+  import { extensions, fromRow } from "../lib/extensions.svelte";
+  import { registry } from "../plugin-host/registry.svelte";
+  import type { Banner as PluginBanner } from "../plugin-api";
   import MailFrame from "./MailFrame.svelte";
   import Popover from "./Popover.svelte";
-  import LaterMenu from "./LaterMenu.svelte";
   import type { Addr, AttachmentInfo } from "../lib/types";
 
   let { onReply, onForward }: { onReply: (all: boolean) => void; onForward: () => void } = $props();
@@ -96,13 +98,21 @@
   }
 
   let moreOpen = $state(false);
-  let bulkSnooze = $state(false);
   let moveOpen = $state(false);
+  const banners = $derived(msg ? extensions.banners.filter((b) => b.messageId === msg.row.id) : []);
+  const messageCommands = $derived(msg ? extensions.commands().filter((c) => c.message) : []);
+  const pluginBanners = $derived(msg ? registry.collect<PluginBanner, typeof msg>("banners", msg) : []);
+  const pluginActions = $derived(
+    msg ? registry.items("messageActions").filter((a) => { try { return !a.when || a.when(msg); } catch { return false; } }) : [],
+  );
 
-  function snoozeTo(until: number) {
-    app.snoozeOpen = false;
-    bulkSnooze = false;
-    app.snooze(until);
+  function extMessage() {
+    return msg ? fromRow(msg.row, account?.email ?? "", msg.view.text) : null;
+  }
+
+  function bannerAction(extId: string, actionId: string) {
+    const ext = extensions.enabled().find((e) => e.id === extId);
+    if (ext) extensions.command(ext, actionId, extMessage());
   }
 
   /** Every letter of this sender, wherever it lies. */
@@ -111,28 +121,6 @@
     if (email) app.setView({ kind: "search", text: `from:${email}` });
   }
 
-  let confirmUnsub = $state(false);
-  const listName = $derived(msg?.view.summary.from?.name ?? msg?.view.summary.from?.email ?? t("unsub.listFallback"));
-
-  async function unsubscribe() {
-    if (!msg) return;
-    confirmUnsub = false;
-    const who = listName;
-    try {
-      const r = await api.unsubscribe(msg.row.id);
-      if (r.kind === "done") app.toast(t("unsub.done", { who }));
-      else if (r.kind === "mail-sent") app.toast(t("unsub.mailSent", { to: r.to }));
-      else link(r.url);
-    } catch (e) {
-      app.fail(e, t("unsub.failed"));
-    }
-  }
-
-  async function stopWaiting() {
-    if (!msg) return;
-    await api.followupCancel(msg.row.id).catch((e) => app.fail(e));
-    msg.row.followup_due = null;
-  }
 
   async function trustSender() {
     const email = msg?.view.summary.from?.email;
@@ -161,12 +149,7 @@
       <h3>{t("bulk.selected", { n: app.selected.size })}</h3>
       <div class="actions">
         <button class="btn" onclick={() => app.archive()}><Archive size={15} /> {t("act.done")}</button>
-        <span class="anchor">
-          <button class="btn" onclick={() => (bulkSnooze = !bulkSnooze)}><AlarmClock size={15} /> {t("act.snooze")}</button>
-          <Popover bind:open={bulkSnooze} align="left">
-            <LaterMenu title={t("snooze.menuTitle")} presets={snoozePresets()} action={t("act.snooze")} onPick={snoozeTo} />
-          </Popover>
-        </span>
+        {#each registry.lists.bulkToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
         <button class="btn" onclick={() => app.flag("seen", true)}>{t("act.read")}</button>
         <button class="btn" onclick={() => app.flag("seen", false)}>{t("act.unread")}</button>
         <button class="btn" onclick={() => app.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
@@ -187,7 +170,7 @@
       {/if}
     </div>
   {:else if msg}
-    <div class="toolbar">
+    <div class="toolbar" data-tauri-drag-region>
       {#if isDraft}
         <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
       {:else}
@@ -195,16 +178,9 @@
         <button class="btn" onclick={() => onReply(true)} title={t("act.replyAllHint")}><ReplyAll size={15} /><span class="lbl">{t("act.replyAll")}</span></button>
         <button class="btn" onclick={onForward} title={t("act.forwardHint")}><Forward size={15} /><span class="lbl">{t("act.forward")}</span></button>
       {/if}
-      <span class="sep"></span>
+      <span class="sep" data-tauri-drag-region></span>
       <button class="btn ghost" onclick={() => app.archive()} title={t("act.doneHint")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
-      <span class="anchor">
-        <button class="btn ghost" onclick={() => (app.snoozeOpen = !app.snoozeOpen)} title={t("act.snoozeHint")}>
-          <AlarmClock size={16} /><span class="lbl2">{t("act.snooze")}</span>
-        </button>
-        <Popover bind:open={app.snoozeOpen}>
-          <LaterMenu title={t("snooze.menuTitle")} presets={snoozePresets()} action={t("act.snooze")} onPick={snoozeTo} />
-        </Popover>
-      </span>
+      {#each registry.lists.readerToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
       <button class="btn ghost icon" onclick={() => app.remove()} title={t("act.deleteHint")} aria-label={t("act.delete")}><Trash size={16} /></button>
       <span class="anchor">
         <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
@@ -220,9 +196,12 @@
           {/if}
           <hr />
           <button class="mi" onclick={() => { moreOpen = false; app.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
-          {#if msg.view.summary.unsubscribe}
-            <button class="mi" onclick={() => { moreOpen = false; confirmUnsub = true; }}><ListX size={15} /> {t("unsub.action")}</button>
-          {/if}
+          {#each messageCommands as c (c.ext.id + c.id)}
+            <button class="mi ext-cmd" onclick={() => { moreOpen = false; extensions.command(c.ext, c.id, extMessage()); }}><Puzzle size={15} /> {c.title}</button>
+          {/each}
+          {#each pluginActions as a (a.id)}
+            <button class="mi" onclick={() => { moreOpen = false; a.run(msg); }}>{#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.hint}<span class="hint">{a.hint}</span>{/if}</button>
+          {/each}
         </Popover>
         <Popover bind:open={moveOpen}>
           <div class="mt">{t("act.moveTitle")}</div>
@@ -263,9 +242,7 @@
                 {msg.view.summary.from?.name ?? msg.view.summary.from?.email ?? t("list.noSender")}
               </button>
               {#if msg.view.summary.from?.name}<span class="muted">&lt;{msg.view.summary.from.email}&gt;</span>{/if}
-              {#if msg.view.summary.unsubscribe}
-                <button class="chip" onclick={() => (confirmUnsub = true)} title={t("unsub.hint")}><ListX size={13} /> {t("unsub.action")}</button>
-              {/if}
+              {#each registry.lists.readerHeader as h (h)}<h.item.component {...h.item.props ?? {}} />{/each}
             </div>
             {#if msg.view.summary.to.length}<div class="muted small">{t("compose.fwd.to")}: {list(msg.view.summary.to)}</div>{/if}
             {#if msg.view.summary.cc.length}<div class="muted small">{t("compose.fwd.cc")}: {list(msg.view.summary.cc)}</div>{/if}
@@ -277,24 +254,20 @@
         </div>
       </div>
 
-      {#if confirmUnsub}
-        <div class="banner info">
-          <ListX size={15} />
-          <span>{t("unsub.confirm", { name: listName })}</span>
-          <button class="btn primary" onclick={unsubscribe}>{t("unsub.action")}</button>
-          <button class="btn ghost" onclick={() => (confirmUnsub = false)}>{t("cancel")}</button>
+      {#each banners as b (b.ext)}
+        <div class="banner ext-banner" class:info={b.tone === "info"} data-ext={b.ext}>
+          <Puzzle size={15} />
+          <span><b>{b.name}:</b> {b.text}</span>
+          {#each b.actions as a (a.id)}<button class="btn ghost" onclick={() => bannerAction(b.ext, a.id)}>{a.title}</button>{/each}
         </div>
-      {/if}
-      {#if msg.row.snoozed_until}
-        <div class="banner info"><AlarmClock size={15} /><span>{t("reader.snoozed", { when: when(msg.row.snoozed_until) })}</span></div>
-      {/if}
-      {#if msg.row.followup_due}
-        <div class="banner info">
-          <MessageSquareReply size={15} />
-          <span>{t("reader.followup", { when: when(msg.row.followup_due) })}</span>
-          <button class="btn ghost" onclick={stopWaiting}>{t("reader.stopWaiting")}</button>
+      {/each}
+      {#each pluginBanners as b, i (i)}
+        <div class="banner" class:info={b.tone !== "warn"}>
+          {#if b.icon}<b.icon size={15} />{/if}
+          <span>{b.text}</span>
+          {#each b.actions ?? [] as a (a.title)}<button class="btn" class:primary={a.primary} class:ghost={!a.primary} onclick={a.run}>{a.title}</button>{/each}
         </div>
-      {/if}
+      {/each}
       {#if showRemoteBanner}
         <div class="banner">
           <span>{t("reader.remoteHidden")}</span>
@@ -340,7 +313,7 @@
       <div class="hint">
         <p>{t("reader.choose")}</p>
         <p class="small">
-          <kbd>j</kbd>/<kbd>k</kbd> — {t("keys.nextPrev")}, <kbd>e</kbd> — {t("keys.done")}, <kbd>h</kbd> — {t("keys.snooze")}, <kbd>r</kbd> — {t("keys.reply")},
+          <kbd>j</kbd>/<kbd>k</kbd> — {t("keys.nextPrev")}, <kbd>e</kbd> — {t("keys.done")}, <kbd>r</kbd> — {t("keys.reply")},
           <kbd>c</kbd> — {t("keys.compose")}, <kbd>/</kbd> — {t("keys.search")}, <kbd>z</kbd> — {t("keys.undo")}, <kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}
         </p>
       </div>
@@ -385,7 +358,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 8px 12px;
+    /* The right edge stays clear for the window controls (WindowControls.svelte). */
+    padding: 8px 144px 8px 12px;
     border-bottom: 1px solid var(--line);
     background: var(--paper);
     flex-wrap: wrap;
@@ -397,14 +371,15 @@
   }
 
   /* A narrow reader keeps one toolbar row: secondary labels go, tooltips stay. */
+  /* Plugins' toolbar buttons use the same classes, hence :global. */
   @container (max-width: 720px) {
-    .toolbar .lbl {
+    .toolbar :global(.lbl) {
       display: none;
     }
   }
 
   @container (max-width: 520px) {
-    .toolbar .lbl2 {
+    .toolbar :global(.lbl2) {
       display: none;
     }
   }
@@ -499,24 +474,7 @@
     text-decoration: underline;
   }
 
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: 6px;
-    border: 1px solid var(--line);
-    background: var(--paper);
-    border-radius: 10px;
-    padding: 0 8px;
-    font-size: 12px;
-    color: var(--muted);
-    vertical-align: 1px;
-  }
 
-  .chip:hover {
-    color: var(--ink);
-    border-color: var(--muted);
-  }
 
   .banner.info {
     background: color-mix(in srgb, var(--link) 9%, var(--paper));

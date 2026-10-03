@@ -1,7 +1,6 @@
 // Checks before sending: the mistakes people regret a second after "Send".
 
-import { t, tn } from "./i18n.svelte";
-import type { ComposeDraft } from "./types";
+import type { ComposeDraft } from "@depesha/plugin-api";
 
 /** Mail providers where a shared domain says nothing about being colleagues. */
 const PUBLIC = new Set([
@@ -27,15 +26,19 @@ function domain(email: string): string {
   return email.split("@").pop()?.toLowerCase().trim() ?? "";
 }
 
+/** What is wrong; the plugin words it in the interface language. */
 export interface Warning {
   kind: "attachment" | "external" | "many" | "subject";
-  text: string;
+  /** Recipients, for "many". */
+  n: number;
+  /** Outside domains, for "external". */
+  domains?: string;
 }
 
 export function preflight(d: ComposeDraft, myEmail: string): Warning[] {
   const out: Warning[] = [];
   if (d.attachments.length === 0 && MENTIONS_FILE.test(ownText(d.text))) {
-    out.push({ kind: "attachment", text: t("preflight.attachment") });
+    out.push({ kind: "attachment", n: 0 });
   }
   const all = [...d.to, ...d.cc, ...d.bcc];
   const mine = domain(myEmail);
@@ -44,10 +47,10 @@ export function preflight(d: ComposeDraft, myEmail: string): Warning[] {
     const outside = [...new Set(all.map((a) => domain(a.email)).filter((x) => x && x !== mine))];
     // Colleagues and outsiders on one letter is how internal talk leaks.
     if (inside.length > 0 && outside.length > 0) {
-      out.push({ kind: "external", text: t("preflight.external", { domains: outside.join(", ") }) });
+      out.push({ kind: "external", n: 0, domains: outside.join(", ") });
     }
   }
-  if (all.length > 10) out.push({ kind: "many", text: tn("preflight.many", all.length) });
-  if (!d.subject.trim()) out.push({ kind: "subject", text: t("preflight.subject") });
+  if (all.length > 10) out.push({ kind: "many", n: all.length });
+  if (!d.subject.trim()) out.push({ kind: "subject", n: 0 });
   return out;
 }

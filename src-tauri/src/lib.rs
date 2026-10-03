@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod error;
+mod extensions;
 mod outbox;
 mod scheduler;
 mod secrets;
@@ -50,6 +51,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Sandbox pages of extensions: their own origin and CSP, no Tauri bridge in them.
+        .register_uri_scheme_protocol("ext", |ctx, request| {
+            let app = ctx.app_handle();
+            let disabled = app
+                .try_state::<Arc<AppState>>()
+                .map(|s| s.settings().disabled_extensions)
+                .unwrap_or_default();
+            extensions::serve(app, request.uri().path(), &disabled)
+        })
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let config_dir = app.path().app_config_dir()?;
@@ -114,6 +124,12 @@ pub fn run() {
             commands::settings_get,
             commands::settings_set,
             commands::language,
+            commands::extensions,
+            commands::messages_by_id,
+            commands::extension_install,
+            commands::extension_remove,
+            commands::extension_storage_get,
+            commands::extension_storage_set,
             commands::update_status,
             commands::update_check,
             commands::update_install,

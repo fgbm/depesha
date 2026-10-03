@@ -1,0 +1,7 @@
+{
+  "id": "test.hang",
+  "name": { "en": "Endless loop" },
+  "version": "1.0.0",
+  "permissions": ["messages.read"],
+  "hooks": ["messageOpen"]
+}

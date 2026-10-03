@@ -2,22 +2,23 @@
   import Flag from "@lucide/svelte/icons/flag";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Reply from "@lucide/svelte/icons/reply";
-  import AlarmClock from "@lucide/svelte/icons/alarm-clock";
-  import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
-  import { app, type Split } from "../lib/store.svelte";
+  import { app } from "../lib/store.svelte";
+  import { registry } from "../plugin-host/registry.svelte";
+  import type { RowTag } from "../plugin-api";
   import { addrName, listDate, roleLabel } from "../lib/format";
   import { i18n, t, tn } from "../lib/i18n.svelte";
-  import { when } from "../lib/later";
   import type { MessageRow } from "../lib/types";
 
   let { searchInput = $bindable() }: { searchInput: HTMLInputElement | null } = $props();
 
 
-  const SPLITS = $derived<{ value: Split; label: string }[]>([
-    { value: "all", label: t("split.all") },
-    { value: "people", label: t("split.people") },
-    { value: "bulk", label: t("split.bulk") },
-  ]);
+  /** List tabs of a plugin (People / Newsletters) above inbox lists. */
+  const tabs = $derived(app.inboxLike() ? registry.items("listTabs")[0] : undefined);
+  const pluginView = $derived(app.view.kind === "plugin" ? registry.view(app.view.id) : undefined);
+
+  function tagsOf(m: MessageRow): RowTag[] {
+    return registry.collect<RowTag, MessageRow>("rowTags", m).slice(0, 1);
+  }
 
   /** Account colour stripe in lists that mix accounts. */
   const PALETTE = ["#3f7cc4", "#c77d1a", "#4a9a6a", "#9b59b6", "#c0504d", "#2a9d9b"];
@@ -41,8 +42,7 @@
   const title = $derived.by(() => {
     const v = app.view;
     if (v.kind === "search") return t("search.title");
-    if (v.kind === "snoozed") return t("role.snoozed");
-    if (v.kind === "followups") return t("nav.followups");
+    if (v.kind === "plugin") return pluginView?.title() ?? "";
     if (v.kind === "unified") return v.unread ? t("nav.unread") : v.flagged ? t("nav.flagged") : t("nav.allInboxes");
     if (v.kind === "folder") {
       const f = app.folder(v.account_id, v.folder);
@@ -56,7 +56,7 @@
   const showAccount = $derived(app.accounts.length > 1 && app.view.kind !== "folder");
   const isSentLike = $derived.by(() => {
     const v = app.view;
-    if (v.kind === "followups") return true;
+    if (v.kind === "plugin") return !!pluginView?.showRecipients;
     if (v.kind !== "folder") return false;
     const role = app.folder(v.account_id, v.folder)?.role;
     return role === "sent" || role === "drafts";
@@ -115,7 +115,7 @@
 </script>
 
 <section class="list">
-  <header>
+  <header data-tauri-drag-region>
     <div class="search">
       <input
         class="input"
@@ -127,11 +127,11 @@
       />
       {#if searchText}<button class="btn ghost clear" onclick={clearSearch} aria-label={t("clear")}>×</button>{/if}
     </div>
-    {#if app.splittable()}
+    {#if tabs}
       <div class="split" role="tablist">
-        {#each SPLITS as sp (sp.value)}
-          <button role="tab" aria-selected={app.split === sp.value} class:on={app.split === sp.value} onclick={() => app.setSplit(sp.value)}>
-            {sp.label}
+        {#each tabs.tabs() as sp (sp.id)}
+          <button role="tab" aria-selected={tabs.current() === sp.id} class:on={tabs.current() === sp.id} onclick={() => tabs.select(sp.id)}>
+            {sp.title}
           </button>
         {/each}
       </div>
@@ -170,12 +170,8 @@
             {t("search.refine")}
             {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "после:2026-09-01", "в:архив"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "after:2026-09-01", "in:archive"]) as op (op)}<code>{op}</code>{" "}{/each}
           </div>
-        {:else if app.view.kind === "snoozed"}
-          {t("empty.snoozed.before")} <kbd>h</kbd> {t("empty.snoozed.after")}
-        {:else if app.view.kind === "followups"}
-          {t("empty.followups")}
-        {:else if app.split === "people" && app.splittable()}
-          {t("empty.people")}
+        {:else if pluginView}
+          {pluginView.empty()}
         {:else if app.accounts.length === 0}
           {t("empty.noAccounts")}
         {:else}
@@ -208,11 +204,9 @@
           <div class="line2">
             {#if m.flags.answered}<span class="answered" title={t("list.answered")}><Reply size={13} /></span>{/if}
             <span class="subject">{m.subject || t("noSubject")}</span>
-            {#if m.snoozed_until}
-              <span class="tag" title={t("list.snoozedTag")}><AlarmClock size={12} /> {when(m.snoozed_until)}</span>
-            {:else if m.followup_due}
-              <span class="tag" class:due={m.followup_due * 1000 < Date.now()} title={t("list.followupTag")}><MessageSquareReply size={12} /> {when(m.followup_due)}</span>
-            {/if}
+            {#each tagsOf(m) as tag, ti (ti)}
+              <span class="tag" class:due={tag.alert} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
+            {/each}
           </div>
         </div>
       {/each}

@@ -7,7 +7,8 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": { "@depesha/plugin-api": ["./src/plugin-api/index.ts"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "plugins/**/*.ts", "plugins/**/*.svelte", "vite.config.ts"]
 }

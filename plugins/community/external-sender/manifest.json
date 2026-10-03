@@ -1,0 +1,12 @@
+{
+  "id": "examples.external-sender",
+  "name": { "en": "External sender", "ru": "Внешний отправитель" },
+  "description": {
+    "en": "Marks mail from outside your organisation, like Outlook's External tag.",
+    "ru": "Отмечает письма не из вашей организации, как метка External в Outlook."
+  },
+  "version": "1.0.0",
+  "author": "Depesha",
+  "permissions": ["messages.read"],
+  "hooks": ["messageOpen"]
+}

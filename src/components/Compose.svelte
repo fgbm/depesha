@@ -9,12 +9,12 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { isDirty, swapSignature } from "../lib/compose";
   import { size } from "../lib/format";
-  import { sendLaterPresets } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
-  import { preflight, type Warning } from "../lib/preflight";
+  import { extensions } from "../lib/extensions.svelte";
   import AddressInput from "./AddressInput.svelte";
   import Popover from "./Popover.svelte";
-  import LaterMenu from "./LaterMenu.svelte";
+  import { registry } from "../plugin-host/registry.svelte";
+  import type { ComposeContext } from "../plugin-api";
 
   const c = app.compose!;
   let showCc = $state(c.draft.cc.length > 0 || c.draft.bcc.length > 0);
@@ -26,16 +26,26 @@
   let body = $state<HTMLTextAreaElement | null>(null);
 
   const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0));
-  let laterOpen = $state(false);
-  let templatesOpen = $state(false);
-  /** Remind if nobody answers within this many days; 0 for no reminder. */
-  let remindDays = $state(0);
   /** Warnings the user has to look at before the message goes; null when not checked yet. */
-  let warnings = $state<Warning[] | null>(null);
+  let warnings = $state<string[] | null>(null);
   let pendingAt: number | null = null;
 
-  function insertTemplate(text: string) {
-    templatesOpen = false;
+  /** What plugins see of this window; they set the send options. */
+  const options = $state<ComposeContext["options"]>({ at: null, followupDays: null });
+  const composeCtx: ComposeContext = {
+    get draft() {
+      return c.draft;
+    },
+    accountEmail: () => app.account(c.account_id)?.email ?? "",
+    insertText,
+    options,
+    send: (at) => send(at ?? null),
+  };
+  const controls = $derived(
+    [...registry.items("composeControls")].sort((a, b) => (a.order ?? 50) - (b.order ?? 50)),
+  );
+
+  function insertText(text: string) {
     const at = body ? body.selectionStart : 0;
     c.draft.text = c.draft.text.slice(0, at) + text + c.draft.text.slice(at);
     queueMicrotask(() => {
@@ -91,7 +101,6 @@
   /** `at`: scheduled time; `force`: the warnings were seen and accepted. */
   async function send(at: number | null = null, force = false) {
     error = "";
-    laterOpen = false;
     if (!commitAll()) {
       error = t("compose.badAddresses");
       return;
@@ -101,7 +110,19 @@
       return;
     }
     if (!force) {
-      const found = preflight(c.draft, app.account(c.account_id)?.email ?? "");
+      const email = app.account(c.account_id)?.email ?? "";
+      const draft = $state.snapshot(c.draft);
+      const found: string[] = [];
+      for (const check of registry.items("sendChecks")) {
+        try {
+          found.push(...check(draft, email));
+        } catch (err) {
+          console.error("send check failed:", err);
+        }
+      }
+      busy = true;
+      found.push(...(await extensions.beforeSend(draft, email)));
+      busy = false;
       if (found.length) {
         warnings = found;
         pendingAt = at;
@@ -111,7 +132,7 @@
     warnings = null;
     busy = true;
     try {
-      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at, remindDays || null);
+      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupDays);
       app.compose = null;
     } catch (e) {
       error = (e as { message: string }).message;
@@ -220,7 +241,7 @@
       <div class="warnings" role="alert">
         <TriangleAlert size={18} />
         <div class="list">
-          {#each warnings as w (w.kind)}<div>{w.text}</div>{/each}
+          {#each warnings as w, i (i)}<div>{w}</div>{/each}
         </div>
         <button class="btn" onclick={() => (warnings = null)}>{t("compose.fix")}</button>
         <button class="btn primary" onclick={() => send(pendingAt, true)}>{t("compose.sendAnyway")}</button>
@@ -230,31 +251,10 @@
     <footer>
       <span class="split-btn anchor">
         <button class="btn primary main" onclick={() => send()} disabled={busy}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
-        <button class="btn primary more" onclick={() => (laterOpen = !laterOpen)} disabled={busy} title={t("compose.sendLater")} aria-label={t("compose.sendLater")}>
-          <ChevronDown size={15} />
-        </button>
-        <Popover bind:open={laterOpen} align="left">
-          <LaterMenu title={t("compose.sendLater")} presets={sendLaterPresets()} action={t("compose.schedule")} onPick={(at) => send(at)} />
-        </Popover>
+        {#each controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       </span>
-      <select class="input remind" bind:value={remindDays} title={t("compose.remindHint")}>
-        <option value={0}>{t("compose.remind0")}</option>
-        <option value={1}>{t("compose.remind1")}</option>
-        <option value={3}>{t("compose.remind3")}</option>
-        <option value={7}>{t("compose.remind7")}</option>
-      </select>
       <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")}><Paperclip size={15} /> {t("compose.files")}</button>
-      {#if app.settings.templates.length}
-        <span class="anchor">
-          <button class="btn" onclick={() => (templatesOpen = !templatesOpen)}><FileText size={15} /> {t("compose.templates")}</button>
-          <Popover bind:open={templatesOpen} align="left">
-            <div class="mt">{t("compose.insertTemplate")}</div>
-            {#each app.settings.templates as t, i (i)}
-              <button class="mi" onclick={() => insertTemplate(t.text)}>{t.name}</button>
-            {/each}
-          </Popover>
-        </span>
-      {/if}
+      {#each controls.filter((x) => x.slot !== "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       <span class="spacer"></span>
       <button class="btn ghost" onclick={async () => { if (await saveDraft()) { app.compose = null; app.toast(t("compose.draftSaved")); } }} disabled={busy}>{t("compose.saveDraft")}</button>
       <button class="btn ghost" onclick={discard} disabled={busy}>{t("act.delete")}</button>
@@ -385,17 +385,7 @@
     border-bottom-right-radius: 0;
   }
 
-  .split-btn .more {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    border-left: 1px solid rgb(255 255 255 / 25%);
-    padding: 5px 6px;
-  }
 
-  .remind {
-    max-width: 230px;
-    font-size: 13px;
-  }
 
   .warnings {
     display: flex;

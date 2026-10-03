@@ -4,7 +4,6 @@ import { en } from "./locales/en";
 import { ru } from "./locales/ru";
 import { forward, reply, swapSignature, withSignature, emptyDraft } from "./compose";
 import { snoozePresets, when } from "./later";
-import { preflight } from "./preflight";
 import { size } from "./format";
 import type { OpenedMessage } from "./types";
 
@@ -57,14 +56,6 @@ describe("English mail text", () => {
     const swapped = swapSignature(r.text, "", "Jane");
     expect(swapped.indexOf("-- \nJane")).toBeLessThan(swapped.indexOf("wrote:"));
     expect(withSignature(emptyDraft(me), "J").text).toBe("\n\n-- \nJ");
-  });
-
-  it("checks before sending, ignoring the English quote", () => {
-    const d = { ...reply(msg(), me, false), text: "Thanks!" + reply(msg(), me, false).text };
-    expect(preflight(d, me.email)).toEqual([]);
-    expect(preflight({ ...d, text: "The file is attached." }, me.email).map((w) => w.text)).toEqual([
-      "The text mentions an attachment, but no files are attached.",
-    ]);
   });
 
   it("names times and sizes in English", () => {

@@ -12,12 +12,12 @@
   import Mail from "@lucide/svelte/icons/mail";
   import Flag from "@lucide/svelte/icons/flag";
   import Hourglass from "@lucide/svelte/icons/hourglass";
-  import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
   import Bell from "@lucide/svelte/icons/bell";
   import BellOff from "@lucide/svelte/icons/bell-off";
   import Settings from "@lucide/svelte/icons/settings";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
+  import Puzzle from "@lucide/svelte/icons/puzzle";
   import Download from "@lucide/svelte/icons/download";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import { app, type View } from "../lib/store.svelte";
@@ -25,6 +25,7 @@
   import { when } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
   import { roleLabel } from "../lib/format";
+  import { registry } from "../plugin-host/registry.svelte";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
   let { onCompose }: { onCompose: () => void } = $props();
@@ -95,6 +96,7 @@
     if (c.kind === "unified" && v.kind === "unified")
       return c.role === v.role && !!c.unread === !!v.unread && !!c.flagged === !!v.flagged;
     if (c.kind === "folder" && v.kind === "folder") return c.account_id === v.account_id && c.folder === v.folder;
+    if (c.kind === "plugin" && v.kind === "plugin") return c.id === v.id;
     return true;
   }
 
@@ -119,7 +121,7 @@
 </script>
 
 <nav class="side">
-  <div class="brand">
+  <div class="brand" data-tauri-drag-region>
     <img src="/icon.png" alt="" width="26" height="26" />
     <span>{t("app.name")}</span>
   </div>
@@ -135,20 +137,16 @@
           {#if i === 0 && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
         </button>
       {/each}
-      {#if app.counters.snoozed > 0}
-        <button class="item" class:active={isActive({ kind: "snoozed" })} onclick={() => app.setView({ kind: "snoozed" })}>
-          <span class="icon"><AlarmClock size={16} /></span>
-          <span class="name">{t("role.snoozed")}</span>
-          <span class="count quiet">{app.counters.snoozed}</span>
-        </button>
-      {/if}
-      {#if app.counters.followups > 0}
-        <button class="item" class:active={isActive({ kind: "followups" })} onclick={() => app.setView({ kind: "followups" })}>
-          <span class="icon"><MessageSquareReply size={16} /></span>
-          <span class="name">{t("nav.followups")}</span>
-          <span class="count quiet">{app.counters.followups}</span>
-        </button>
-      {/if}
+      {#each registry.items("views") as pv (pv.id)}
+        {@const n = pv.count()}
+        {#if n > 0}
+          <button class="item" class:active={isActive({ kind: "plugin", id: pv.id })} onclick={() => app.setView({ kind: "plugin", id: pv.id })}>
+            <span class="icon"><pv.icon size={16} /></span>
+            <span class="name">{pv.title()}</span>
+            <span class="count quiet">{n}</span>
+          </button>
+        {/if}
+      {/each}
       {#if app.outbox.length > 0}
         <button class="item" class:active={isActive({ kind: "outbox" })} onclick={() => app.setView({ kind: "outbox" })}>
           <span class="icon"><Hourglass size={16} /></span>
@@ -240,6 +238,7 @@
         </div>
       {/if}
     </div>
+    <button class="foot-btn" onclick={() => (app.pluginsOpen = true)} title={t("ext.title")} aria-label={t("ext.title")}><Puzzle size={16} /></button>
     <button class="foot-btn" onclick={() => (app.settingsOpen = true)} title={t("settings.title")} aria-label={t("settings.title")}><Settings size={16} /></button>
   </div>
 </nav>
@@ -261,6 +260,11 @@
     font-weight: 700;
     font-size: 17px;
     letter-spacing: 0.02em;
+  }
+
+  /* Drag the window by the logo and name too: the drag region only counts direct hits on itself. */
+  .brand > :global(*) {
+    pointer-events: none;
   }
 
   .compose-btn {

@@ -29,6 +29,13 @@ pub struct Settings {
     pub updates: String,
     /// `auto` (from the system locale, default), `en` or `ru`.
     pub language: String,
+    /// Built-in plugins switched off, by id (`plugins/<id>`).
+    #[serde(alias = "disabled_modules")]
+    pub disabled_plugins: Vec<String>,
+    /// Settings of built-in plugins, by plugin id; each plugin owns its object.
+    pub plugin_settings: std::collections::BTreeMap<String, serde_json::Value>,
+    /// Installed extensions switched off, by id.
+    pub disabled_extensions: Vec<String>,
 }
 
 impl Default for Settings {
@@ -41,6 +48,9 @@ impl Default for Settings {
             templates: Vec::new(),
             updates: "auto".into(),
             language: "auto".into(),
+            disabled_plugins: Vec::new(),
+            plugin_settings: Default::default(),
+            disabled_extensions: Vec::new(),
         }
     }
 }
@@ -78,13 +88,21 @@ pub struct Template {
 }
 
 pub fn load(path: &Path) -> Config {
-    match std::fs::read_to_string(path) {
+    let mut config = match std::fs::read_to_string(path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_else(|err| {
             tracing::error!(%err, "accounts.json is broken, starting without accounts");
             Config::default()
         }),
         Err(_) => Config::default(),
+    };
+    // Templates moved into the templates plugin (0.5.0).
+    let s = &mut config.settings;
+    if !s.templates.is_empty() && !s.plugin_settings.contains_key("templates") {
+        let list = std::mem::take(&mut s.templates);
+        s.plugin_settings
+            .insert("templates".into(), serde_json::json!({ "list": list }));
     }
+    config
 }
 
 /// Writes through a temporary file so a crash never leaves half a config.

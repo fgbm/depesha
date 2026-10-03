@@ -1,7 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { api, asError } from "./api";
 import { when } from "./later";
 import { i18n, t, tn } from "./i18n.svelte";
+import { extensions, listenForMail, textOf, type MailAction } from "./extensions.svelte";
+import { registry } from "../plugin-host/registry.svelte";
+import { emptyDraft, forward, reply, withSignature } from "./compose";
 import type {
   Account,
   AccountStatus,
@@ -9,7 +13,6 @@ import type {
   AttachmentSource,
   CmdError,
   ComposeDraft,
-  Counters,
   FolderInfo,
   FolderRole,
   ListQuery,
@@ -25,12 +28,9 @@ export type View =
   | { kind: "unified"; role: FolderRole; unread?: boolean; flagged?: boolean }
   | { kind: "folder"; account_id: string; folder: string }
   | { kind: "search"; text: string }
-  | { kind: "snoozed" }
-  | { kind: "followups" }
+  /** A list contributed by a plugin (`ui.view`). */
+  | { kind: "plugin"; id: string }
   | { kind: "outbox" };
-
-/** Inbox split: everything, mail from people, or lists and notifications. */
-export type Split = "all" | "people" | "bulk";
 
 export interface Toast {
   id: number;
@@ -74,16 +74,23 @@ class AppStore {
   serverSearching = $state(false);
   serverRows = $state<MessageRow[] | null>(null);
   wizard = $state<WizardState | null>(null);
-  settings = $state<Settings>({ undo_send_secs: 10, notify: "people", dnd_until: 0, threads: true, templates: [], updates: "auto", language: "auto" });
+  settings = $state<Settings>({
+    undo_send_secs: 10,
+    notify: "people",
+    dnd_until: 0,
+    threads: true,
+    templates: [],
+    updates: "auto",
+    language: "auto",
+    disabled_plugins: [],
+    plugin_settings: {},
+    disabled_extensions: [],
+  });
   update = $state<UpdateStatus | null>(null);
-  counters = $state<Counters>({ snoozed: 0, followups: 0 });
-  split = $state<Split>((localStorage.getItem("depesha.split") as Split) ?? "all");
   /** The opened message's conversation, oldest first; empty for a lone message. */
   conversation = $state<MessageRow[]>([]);
-  paletteOpen = $state(false);
-  /** The snooze menu of the reader, opened by "h" too. */
-  snoozeOpen = $state(false);
   settingsOpen = $state(false);
+  pluginsOpen = $state(false);
   /** The last move that can be taken back with "z". */
   lastUndo = $state<{ moved: Moved[]; text: string } | null>(null);
 
@@ -93,7 +100,7 @@ class AppStore {
 
   async init() {
     await this.loadLanguage();
-    await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox(), this.loadSettings(), this.loadCounters()]);
+    await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox(), this.loadSettings()]);
     await this.reload();
     if (this.accounts.length === 0) this.wizard = { account: null };
 
@@ -112,11 +119,18 @@ class AppStore {
       this.toast(t("toast.sendFailed", { error: e.payload.error.message }), true),
     );
     await listen<{ message: string }>("app-error", (e) => this.toast(e.payload.message, true));
-    await listen("counters-changed", () => {
-      this.loadCounters();
-      if (this.view.kind === "snoozed" || this.view.kind === "followups") this.scheduleReload();
+    await listen("settings-changed", async () => {
+      await this.loadSettings();
+      await extensions.load();
     });
-    await listen("settings-changed", () => this.loadSettings());
+    extensions.toast = (text, error) => this.toast(text, error);
+    await listen<{ id: string }>("extensions-changed", (e) => {
+      // A reinstalled extension starts with its new code.
+      extensions.stop(e.payload.id);
+      extensions.load();
+    });
+    await extensions.load();
+    await listenForMail((ids) => this.applyRules(ids));
     await listen<UpdateStatus>("update-status", (e) => (this.update = e.payload));
     this.update = await api.updateStatus().catch(() => null);
   }
@@ -178,24 +192,55 @@ class AppStore {
     api.updateRestart().catch((e) => this.fail(e));
   }
 
-  async loadCounters() {
-    try {
-      this.counters = await api.counters();
-    } catch {
-      // Counters are decoration; the list itself reports real errors.
-    }
-  }
 
-  setSplit(split: Split) {
-    this.split = split;
-    localStorage.setItem("depesha.split", split);
-    this.messages = [];
-    this.exhausted = false;
+  /** Mail rules of extensions on newly arrived mail. */
+  private async applyRules(ids: number[]) {
+    if (!extensions.enabled().some((e) => e.hooks.includes("newMail"))) return;
+    const rows = await api.messagesById(ids).catch(() => [] as MessageRow[]);
+    if (!rows.length) return;
+    const results = await extensions.newMail(rows, (id) => this.account(id)?.email ?? "");
+    for (const { ext, actions } of results) {
+      let done = 0;
+      for (const a of actions) {
+        try {
+          await this.applyMailAction(a, rows.find((r) => r.id === a.id)!);
+          done++;
+        } catch (e) {
+          this.fail(e, textOf(ext.name));
+        }
+      }
+      if (done) this.toast(tn("ext.ruleApplied", done, { name: textOf(ext.name) }));
+    }
     this.reload();
   }
 
-  /** Inbox-like lists can be split into people and robots. */
-  splittable(): boolean {
+  private async applyMailAction(a: MailAction, row: MessageRow) {
+    const ids = [a.id];
+    switch (a.do) {
+      case "archive":
+        return void (await api.archive(ids));
+      case "read":
+      case "unread":
+        return api.setFlag(ids, { flag: "seen", value: a.do === "read" });
+      case "flag":
+        return api.setFlag(ids, { flag: "flagged", value: true });
+      case "delete":
+        return void (await api.remove(ids));
+      case "spam":
+        return void (await api.spam(ids));
+      case "move": {
+        const want = a.folder.toLowerCase();
+        const f = this.folders.find(
+          (x) => x.account_id === row.account_id && (x.name.toLowerCase() === want || x.display_name.toLowerCase() === want),
+        );
+        if (!f) throw new Error(t("ext.noFolder", { folder: a.folder }));
+        return void (await api.move(ids, f.name));
+      }
+    }
+  }
+
+  /** Inbox lists: where plugins' list tabs apply. */
+  inboxLike(): boolean {
     const v = this.view;
     if (v.kind === "unified") return v.role === "inbox";
     if (v.kind === "folder") return this.folder(v.account_id, v.folder)?.role === "inbox";
@@ -252,21 +297,24 @@ class AppStore {
     const v = this.view;
     if (v.kind === "folder") return v.account_id === accountId && v.folder === folder;
     if (v.kind === "unified") return this.folder(accountId, folder)?.role === v.role || folder === "INBOX";
-    return v.kind === "search" || v.kind === "snoozed" || v.kind === "followups";
+    return v.kind === "search" || v.kind === "plugin";
   }
 
   private query(offset: number): ListQuery | null {
     const v = this.view;
-    const bulk = this.splittable() && this.split !== "all" ? this.split === "bulk" : null;
+    // Plugins' list tabs (People / Newsletters) narrow inbox lists.
+    const tabs = this.inboxLike() ? (registry.items("listTabs")[0]?.query() ?? {}) : {};
     const threads = this.settings.threads;
     if (v.kind === "folder") {
       const drafts = this.folder(v.account_id, v.folder)?.role === "drafts";
-      return { account_id: v.account_id, folder: v.folder, bulk, threads: threads && !drafts, limit: PAGE, offset };
+      return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts, ...tabs, limit: PAGE, offset };
     }
     if (v.kind === "unified")
-      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, bulk, threads, limit: PAGE, offset };
-    if (v.kind === "snoozed") return { snoozed_only: true, limit: PAGE, offset };
-    if (v.kind === "followups") return { followups_only: true, limit: PAGE, offset };
+      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, threads, ...tabs, limit: PAGE, offset };
+    if (v.kind === "plugin") {
+      const pv = registry.view(v.id);
+      return pv ? { ...pv.query(), limit: PAGE, offset } : null;
+    }
     return null;
   }
 
@@ -290,7 +338,13 @@ class AppStore {
         return;
       } else {
         const want = Math.max(PAGE, this.messages.length);
-        const q = this.query(0)!;
+        const q = this.query(0);
+        if (!q) {
+          // A plugin view whose plugin was switched off.
+          this.messages = [];
+          this.exhausted = true;
+          return;
+        }
         q.limit = want;
         const rows = await api.messages(q);
         // The user may have switched views while this was loading.
@@ -335,9 +389,10 @@ class AppStore {
     const v = this.view;
     this.loadingMore = true;
     try {
-      if (v.kind === "search" || v.kind === "outbox") return;
+      const q = this.query(this.messages.length);
+      if (!q) return;
       if (!this.exhausted) {
-        const rows = await api.messages(this.query(this.messages.length)!);
+        const rows = await api.messages(q);
         if (this.view !== v) return;
         this.messages = [...this.messages, ...rows];
         this.exhausted = rows.length < PAGE;
@@ -416,6 +471,7 @@ class AppStore {
         if (row) row.flags.seen = true;
       }
       this.loadConversation(id, seq, epoch, msg.row.folder);
+      extensions.messageOpen(msg, this.account(msg.row.account_id)?.email ?? "");
     } catch (e) {
       if (seq === this.openSeq) {
         this.opened = null;
@@ -491,7 +547,8 @@ class AppStore {
   /** The action still talking to the server; "z" pressed meanwhile waits for it. */
   private pending: Promise<void> | null = null;
 
-  private async act(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
+  /** Takes messages out of the list and runs `run`; the moves it returns can be undone. */
+  async perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
     if (!ids.length) return;
     const p = this.doAct(text, ids, run, failText);
     this.pending = p;
@@ -517,25 +574,21 @@ class AppStore {
   }
 
   remove(ids = this.selectedIds()) {
-    return this.act(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"));
+    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"));
   }
 
   moveTo(folder: string, ids = this.selectedIds()) {
     const name = this.folders.find((f) => f.name === folder)?.display_name ?? folder;
-    return this.act(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
+    return this.perform(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
   }
 
   /** "Done": out of the inbox, into the archive. */
   archive(ids = this.selectedIds()) {
-    return this.act(tn("done.archived", ids.length), ids, api.archive, t("err.archive"));
+    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"));
   }
 
   spam(ids = this.selectedIds()) {
-    return this.act(t("done.spam"), ids, api.spam, t("err.spam"));
-  }
-
-  snooze(until: number, ids = this.selectedIds()) {
-    return this.act(t("done.snoozed", { when: when(until) }), ids, (all) => api.snooze(all, until), t("err.snooze"));
+    return this.perform(t("done.spam"), ids, api.spam, t("err.spam"));
   }
 
   async undo() {
@@ -605,6 +658,41 @@ class AppStore {
     } catch (e) {
       this.fail(e);
     }
+  }
+
+  /** Focuses the search box; set by the window that owns it. */
+  focusSearch: () => void = () => {};
+
+  /** Opens a web link after confirming the real address with the user. */
+  async openLink(href: string) {
+    const ok = await ask(`${t("link.open")}\n\n${href}`, { title: t("app.name"), okLabel: t("link.openButton"), cancelLabel: t("cancel") });
+    if (ok) api.openLink(href).catch((e) => this.fail(e));
+  }
+
+  newMessage() {
+    const acc = this.defaultAccount();
+    if (!acc) {
+      this.wizard = { account: null };
+      return;
+    }
+    const draft = withSignature(emptyDraft({ name: acc.display_name, email: acc.email }), acc.signature);
+    this.compose = { account_id: acc.id, draft, draft_id: null };
+  }
+
+  replyTo(all: boolean) {
+    const msg = this.opened;
+    const acc = msg && this.account(msg.row.account_id);
+    if (!msg || !acc) return;
+    const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all), acc.signature);
+    this.compose = { account_id: acc.id, draft, draft_id: null };
+  }
+
+  forwardOpened() {
+    const msg = this.opened;
+    const acc = msg && this.account(msg.row.account_id);
+    if (!msg || !acc) return;
+    const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }), acc.signature);
+    this.compose = { account_id: acc.id, draft, draft_id: null };
   }
 
   defaultAccount(): AccountView | undefined {

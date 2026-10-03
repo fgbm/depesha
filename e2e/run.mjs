@@ -620,6 +620,89 @@ try {
     await d.until("Russian again", async () => (await sidebarText()).includes("Все входящие"), 10000);
   });
 
+  const openModules = async () => {
+    await press("k", { ctrlKey: true });
+    await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+    await d.type(await d.find(".palette .q"), "плагины");
+    await d.type(await d.find(".palette .q"), "\uE007");
+    await d.until("plugins", async () => (await d.findAll(".modal.plugins")).length === 1);
+  };
+  const closeModules = async () => {
+    await d.click(await d.find(".modal.plugins footer .btn.primary"));
+    await d.until("plugins closed", async () => (await d.findAll(".modal.plugins")).length === 0);
+  };
+  const install = (name, dir = "plugins/community") => invoke("extension_install", { path: join(root, dir, name) });
+
+  await step("10.1", "плагины: выключенный плагин уносит свои кнопки, клавиши и разделы", async () => {
+    await d.button("Все входящие");
+    await openModules();
+    await screenshot("plugins");
+    await d.click(await d.find(".modal.plugins input[data-plugin=snooze]"));
+    await closeModules();
+    await openBySubject("Счёт за октябрь");
+    await d.until("no snooze button", async () => !(await textOf(".reader .toolbar")).includes("Отложить"));
+    await press("h");
+    await new Promise((r) => setTimeout(r, 300));
+    if ((await d.findAll(".reader .pop")).length) throw new Error("клавиша h работает при выключенном плагине");
+    await openModules();
+    await d.click(await d.find(".modal.plugins input[data-plugin=snooze]"));
+    await closeModules();
+    await d.until("snooze back", async () => (await textOf(".reader .toolbar")).includes("Отложить"));
+  });
+
+  await step("10.2", "расширения: плашка над письмом и команда для письма", async () => {
+    await install("external-sender");
+    await install("reading-time");
+    await openBySubject("Бюджет на ноябрь");
+    await openBySubject("Счёт за октябрь");
+    await d.until("external banner", async () => (await textOf(".reader .ext-banner")).includes("извне"), 10000);
+    await screenshot("extension-banner");
+    await d.click(await d.find(".reader button[aria-label='Ещё']"));
+    await d.click(await d.until("ext command", () => d.find(".reader .mi.ext-cmd")));
+    await d.until("reading time toast", async () => (await textOf(".toasts")).includes("слов"), 10000);
+  });
+
+  await step("10.3", "расширение-правило раскладывает новую почту", async () => {
+    await install("mail-rules");
+    const subj = `Задача [в работу] ${stamp}`;
+    helper("deliver", subj);
+    await d.until("moved by the rule", async () => helper("count", "Работа", subj) === "1", 60000, 1000);
+    if (helper("count", "INBOX", subj) !== "0") throw new Error("осталось во входящих");
+    await press("k", { ctrlKey: true });
+    await d.type(await d.find(".palette .q"), "правила стат");
+    await d.type(await d.find(".palette .q"), "\uE007");
+    await d.until("stats from storage", async () => (await textOf(".toasts")).includes("правила обработали писем: 1"), 10000);
+  });
+
+  await step("10.4", "песочница: расширение без прав не достаёт ни до приложения, ни до сети", async () => {
+    await install("probe", "e2e/fixtures/extensions");
+    await press("k", { ctrlKey: true });
+    await d.type(await d.find(".palette .q"), "проверка песоч");
+    await d.type(await d.find(".palette .q"), "\uE007");
+    const result = await d.until("probe result", async () => {
+      const t = await textOf(".toasts");
+      return t.includes("sandbox holds") || t.includes("LEAK") ? t : null;
+    }, 20000);
+    if (!result.includes("sandbox holds 6/6")) throw new Error(result);
+  });
+
+  await step("10.5", "зависшее расширение не тормозит окно и снимается по таймауту", async () => {
+    await install("hang", "e2e/fixtures/extensions");
+    await openBySubject("Счёт за октябрь");
+    const before = await textOf(".reader h1");
+    const started = Date.now();
+    await press("j");
+    await d.until("next message while the extension loops", async () => (await textOf(".reader h1")) !== before, 5000);
+    console.log(`    следующее письмо открылось через ${Date.now() - started} мс, пока расширение крутит цикл`);
+    await new Promise((r) => setTimeout(r, 2500));
+    await openModules();
+    await d.until("timeout recorded", async () => /таймаутов: [1-9]/.test(await textOf(".modal.plugins [data-ext='test.hang']")), 10000);
+    await closeModules();
+    for (const id of ["test.hang", "test.probe", "examples.mail-rules", "examples.reading-time", "examples.external-sender"]) {
+      await invoke("extension_remove", { id });
+    }
+  });
+
   await step("1.4, 2.2", "второй ящик по TLS: недоверенный сертификат принимается по отпечатку в мастере", async () => {
     await d.button("Добавить ящик");
     await d.until("wizard", async () => (await d.findAll(".wizard")).length === 1);

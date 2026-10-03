@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-10-03
+
+Plugins, the way Obsidian does it: the core does mail, everything else is a plugin.
+
+- The core: accounts, sync, the list and conversations, the reader, compose, search, the outbox, settings.
+- Built-in plugins, each in its own folder under `plugins/` and switched on and off in the new Plugins window: command palette, snooze, waiting for reply, people and newsletters, send later, reply templates, check before sending. A plugin that is off takes its buttons, keys, sidebar entries, list tabs and checks with it; the backend keeps working, so snoozed mail still returns.
+- `@depesha/plugin-api`: the one contract built-in plugins import; `src/plugin-api/boundary.test.ts` fails on any other import from the app.
+- Community plugins: `manifest.json` with permissions (`messages.read`, `messages.modify`, `storage`, `network:<host>`) and hooks (`messageOpen`, `newMail`, `beforeSend`), plus commands. Each runs in a Web Worker inside a sandboxed `ext://` frame with its own CSP, starts when first needed and is stopped after a timeout; the Plugins window shows its run time, calls, errors and timeouts. Examples in `plugins/community`.
+- Settings: `disabled_plugins` and per-plugin `plugin_settings`; reply templates move there from the old `templates` field on first start.
+- Toasts stay under dialogs and no longer cover their buttons.
+- The end-to-end run grows to 45 steps: switching a plugin off, banners and commands of community plugins, a mail rule, six escape attempts from the sandbox, a plugin stuck in an endless loop.
+
 ## 0.4.0 — 2026-10-03
 
 - English and Russian. The language follows the system locale (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`; Russian for `ru*`, English otherwise) and can be set in Settings; switching applies at once, without a restart.

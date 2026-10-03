@@ -1,0 +1,6 @@
+{
+  "id": "test.probe",
+  "name": { "en": "Sandbox probe" },
+  "version": "1.0.0",
+  "contributes": { "commands": [{ "id": "probe", "title": { "en": "Sandbox probe", "ru": "Проверка песочницы" } }] }
+}

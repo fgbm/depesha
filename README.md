@@ -31,6 +31,12 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 <p align="center"><img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"> <img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"></p>
 <p align="center"><img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"> <img src="docs/screenshots/certificate.png" width="420" alt="Trusting a certificate by fingerprint"></p>
 
+## Plugins
+
+Like Obsidian, Depesha keeps the core small: accounts, sync, the list, the reader, compose, search and the outbox. Everything else on the list above — snooze, waiting for reply, people and newsletters, send later, templates, the check before sending, the command palette — is a built-in plugin you can switch off in **Plugins**; its buttons, keys, sidebar entries and checks go with it.
+
+Community plugins are plain JavaScript with a manifest of permissions (`messages.read`, `messages.modify`, `storage`, `network:<host>`). Each runs in a Web Worker inside a sandboxed frame with no way to the app, starts only when one of its hooks is needed, and is stopped if it does not answer in time, so a broken plugin cannot freeze the window. Examples and the full contract are in [plugins/README.md](plugins/README.md).
+
 ## Security
 
 - Passwords live only in the OS keyring (Secret Service, Keychain, Credential Manager). They never touch files or logs.
@@ -62,7 +68,7 @@ Every update is signed in the release pipeline, and the app checks the signature
 | Server | How |
 | --- | --- |
 | Dovecot 2.4 | integration tests: STARTTLS, MOVE, fallbacks without MOVE/UIDPLUS, IDLE, server search with Russian operators, the Snoozed folder |
-| GreenMail | integration tests and a 39-step end-to-end GUI run, every feature above included |
+| GreenMail | integration tests and a 45-step end-to-end GUI run, every feature above included |
 | Exchange 2019 (behaviour) | a scripted SMTP server with Exchange replies; Russian Exchange folder layout |
 | 50 000-message mailbox | first sync 0.4 s, re-sync 0.2–0.4 s, full header load 18 s, a page of conversations 80 ms, search 4–17 ms |
 
@@ -86,7 +92,8 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
 
 - `crates/depesha-core` — the engine, no GUI. IMAP (`async-imap`); its own SMTP client (EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE, Exchange status codes); SQLite cache with FTS5; MIME parsing (`mail-parser`); TLS (`rustls`, platform verifier, fingerprint pinning); settings discovery.
 - `src-tauri` — the app. Each account runs two IMAP connections (operations and IDLE), and an outbox task sends mail.
-- `src` — the Svelte 5 interface.
+- `src` — the Svelte 5 interface; `src/plugin-api` is the contract plugins see, `src/plugin-host` runs them.
+- `plugins` — built-in plugins, one folder each, and examples of community plugins in `plugins/community`.
 
 ## Development
 

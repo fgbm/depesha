@@ -371,6 +371,11 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
             .into_iter()
             .filter(|m| m.uid > before)
             .collect();
+        // Extensions with mail rules see new mail before the notification.
+        state.emit(
+            "mail-arrived",
+            json!({ "ids": fresh.iter().map(|m| m.id).collect::<Vec<_>>() }),
+        );
         notify_new_mail(state, account, &fresh);
     }
     Ok(())

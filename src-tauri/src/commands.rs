@@ -1003,3 +1003,52 @@ pub async fn update_install(state: St<'_>) -> CmdResult<crate::updater::UpdateSt
 pub fn update_restart(state: St<'_>) {
     crate::updater::restart(&state)
 }
+
+#[tauri::command]
+pub fn extensions(app: tauri::AppHandle, state: St<'_>) -> CmdResult<Vec<crate::extensions::Installed>> {
+    crate::extensions::list(&app, &state.settings().disabled_extensions)
+}
+
+#[tauri::command]
+pub fn extension_install(app: tauri::AppHandle, state: St<'_>, path: String) -> CmdResult<crate::extensions::Manifest> {
+    let m = crate::extensions::install(&app, std::path::Path::new(&path))?;
+    state.emit("extensions-changed", serde_json::json!({ "id": m.id }));
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn extension_remove(app: tauri::AppHandle, state: St<'_>, id: String) -> CmdResult<()> {
+    crate::extensions::remove(&app, &id)?;
+    let mut settings = state.settings();
+    settings.disabled_extensions.retain(|d| d != &id);
+    state.save_settings(settings)?;
+    state.emit("extensions-changed", serde_json::json!({ "id": id }));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn extension_storage_get(app: tauri::AppHandle, id: String, key: String) -> CmdResult<serde_json::Value> {
+    crate::extensions::storage_get(&app, &id, &key)
+}
+
+#[tauri::command]
+pub fn extension_storage_set(
+    app: tauri::AppHandle,
+    id: String,
+    key: String,
+    value: serde_json::Value,
+) -> CmdResult<()> {
+    crate::extensions::storage_set(&app, &id, &key, value)
+}
+
+/// Cached rows by id, for extensions that look at new mail.
+#[tauri::command]
+pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>> {
+    let mut out = Vec::new();
+    for id in ids {
+        if let Some(r) = state.store.get(id)? {
+            out.push(r);
+        }
+    }
+    Ok(out)
+}

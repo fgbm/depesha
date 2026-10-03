@@ -209,6 +209,34 @@ export interface Settings {
   templates: Template[];
   updates: "auto" | "notify" | "off";
   language: "auto" | "en" | "ru";
+  disabled_plugins: string[];
+  plugin_settings: Record<string, Record<string, unknown>>;
+  disabled_extensions: string[];
+}
+
+/** Text in the interface languages; English is required. */
+export interface ExtText {
+  en: string;
+  ru?: string | null;
+}
+
+export interface ExtCommand {
+  id: string;
+  title: ExtText;
+  message: boolean;
+}
+
+export interface Extension {
+  id: string;
+  name: ExtText;
+  description: ExtText | null;
+  version: string;
+  author: string | null;
+  main: string;
+  permissions: string[];
+  hooks: string[];
+  contributes: { commands: ExtCommand[] };
+  enabled: boolean;
 }
 
 export interface UpdateStatus {

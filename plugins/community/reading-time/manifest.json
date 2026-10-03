@@ -1,0 +1,11 @@
+{
+  "id": "examples.reading-time",
+  "name": { "en": "Reading time", "ru": "Время чтения" },
+  "description": { "en": "How long the open message takes to read.", "ru": "Сколько времени займёт чтение открытого письма." },
+  "version": "1.0.0",
+  "author": "Depesha",
+  "permissions": ["messages.read"],
+  "contributes": {
+    "commands": [{ "id": "estimate", "title": { "en": "How long to read", "ru": "Сколько читать" }, "message": true }]
+  }
+}

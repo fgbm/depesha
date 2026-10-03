@@ -6,6 +6,7 @@ import type {
   CmdError,
   ComposeDraft,
   Counters,
+  Extension,
   Moved,
   Settings,
   Unsubscribed,
@@ -25,7 +26,7 @@ export function asError(e: unknown): CmdError {
   return { kind: "other", message: String(e) };
 }
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
     return await invoke<T>(cmd, args);
   } catch (e) {
@@ -68,6 +69,12 @@ export const api = {
   unsubscribe: (id: number) => call<Unsubscribed>("unsubscribe", { id }),
   settings: () => call<Settings>("settings_get"),
   language: () => call<"en" | "ru">("language"),
+  extensions: () => call<Extension[]>("extensions"),
+  extensionInstall: (path: string) => call<Extension>("extension_install", { path }),
+  extensionRemove: (id: string) => call<void>("extension_remove", { id }),
+  extensionStorageGet: (id: string, key: string) => call<unknown>("extension_storage_get", { id, key }),
+  extensionStorageSet: (id: string, key: string, value: unknown) => call<void>("extension_storage_set", { id, key, value }),
+  messagesById: (ids: number[]) => call<MessageRow[]>("messages_by_id", { ids }),
   saveSettings: (settings: Settings) => call<void>("settings_set", { settings }),
   updateStatus: () => call<UpdateStatus>("update_status"),
   updateCheck: () => call<UpdateStatus>("update_check"),

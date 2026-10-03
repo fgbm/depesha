@@ -1,0 +1,85 @@
+// Commands of the core: what any command UI (the palette plugin, menus) can offer.
+// Plugins add their own through `ui.command`; the host merges both lists.
+
+import type { Command } from "../plugin-api";
+import { registry } from "../plugin-host/registry.svelte";
+import { api } from "./api";
+import { extensions, fromRow } from "./extensions.svelte";
+import { roleLabel } from "./format";
+import { t } from "./i18n.svelte";
+import { app, type View } from "./store.svelte";
+
+const go = (v: View) => () => app.setView(v);
+
+export function coreCommands(): Command[] {
+  const msg = app.opened;
+  const target = app.selectedIds();
+  const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), hint: () => "c", run: () => app.newMessage() }];
+  if (msg) {
+    list.push(
+      { id: "core.reply", title: () => t("act.reply"), hint: () => "r", run: () => app.replyTo(false) },
+      { id: "core.reply-all", title: () => t("cmd.replyAll"), hint: () => "a", run: () => app.replyTo(true) },
+      { id: "core.forward", title: () => t("act.forward"), hint: () => "f", run: () => app.forwardOpened() },
+    );
+  }
+  if (target.length) {
+    list.push(
+      { id: "core.archive", title: () => t("cmd.done"), hint: () => "e", run: () => app.archive() },
+      { id: "core.delete", title: () => t("act.delete"), hint: () => "Delete", run: () => app.remove() },
+      { id: "core.spam", title: () => t("act.spam"), hint: () => "!", run: () => app.spam() },
+      { id: "core.flag", title: () => t("cmd.flag"), hint: () => "s", run: () => msg && app.flag("flagged", !msg.row.flags.flagged) },
+      { id: "core.unread", title: () => t("act.markUnread"), hint: () => "u", run: () => app.flag("seen", false) },
+    );
+    const account = msg?.row.account_id ?? app.messages.find((m) => m.id === target[0])?.account_id;
+    for (const f of app.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
+      const folder = f.role ? roleLabel(f.role) : f.display_name;
+      list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.moveTo(f.name) });
+    }
+  }
+  for (const c of extensions.commands()) {
+    if (c.message && !msg) continue;
+    const message = c.message && msg ? fromRow(msg.row, app.account(msg.row.account_id)?.email ?? "", msg.view.text) : null;
+    list.push({ id: `ext.${c.ext.id}.${c.id}`, title: () => c.title, run: () => extensions.command(c.ext, c.id, message) });
+  }
+  const undo = app.lastUndo;
+  if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), hint: () => "z", run: () => app.undo() });
+
+  const where = (s: string) => () => t("cmd.go", { where: s.toLowerCase() });
+  list.push(
+    { id: "core.search", title: () => t("cmd.search"), hint: () => "/", run: () => app.focusSearch() },
+    { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) },
+    { id: "core.go.unread", title: where(t("nav.unread")), run: go({ kind: "unified", role: "inbox", unread: true }) },
+    { id: "core.go.flagged", title: where(t("nav.flagged")), run: go({ kind: "unified", role: "inbox", flagged: true }) },
+  );
+  for (const v of registry.items("views")) {
+    list.push({ id: `core.go.${v.id}`, title: where(v.title()), run: go({ kind: "plugin", id: v.id }) });
+  }
+  list.push({ id: "core.go.outbox", title: where(t("nav.outbox")), run: go({ kind: "outbox" }) });
+
+  const many = app.accounts.length > 1;
+  for (const f of app.folders.filter((f) => f.selectable && !f.hidden)) {
+    const acc = app.account(f.account_id);
+    const name = f.role ? roleLabel(f.role) : f.display_name;
+    const suffix = many && acc ? ` · ${acc.display_name || acc.email}` : "";
+    list.push({
+      id: `core.open.${f.account_id}.${f.name}`,
+      title: () => t("cmd.openFolder", { folder: name }) + suffix,
+      run: go({ kind: "folder", account_id: f.account_id, folder: f.name }),
+    });
+  }
+  const dnd = app.settings.dnd_until > Date.now() / 1000;
+  list.push(
+    dnd
+      ? { id: "core.dnd", title: () => t("cmd.dndOff"), run: () => app.saveSettings({ ...app.settings, dnd_until: 0 }) }
+      : {
+          id: "core.dnd",
+          title: () => t("cmd.dndHour"),
+          run: () => app.saveSettings({ ...app.settings, dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
+        },
+    { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.fail(e)) },
+    { id: "core.settings", title: () => t("settings.title"), run: () => (app.settingsOpen = true) },
+    { id: "core.plugins", title: () => t("cmd.plugins"), run: () => (app.pluginsOpen = true) },
+    { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => (app.wizard = { account: null }) },
+  );
+  return list;
+}

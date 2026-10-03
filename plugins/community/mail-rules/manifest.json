@@ -1,0 +1,15 @@
+{
+  "id": "examples.mail-rules",
+  "name": { "en": "Mail rules", "ru": "Правила для почты" },
+  "description": {
+    "en": "Sorts new mail by subject or sender. The rules are at the top of main.js.",
+    "ru": "Раскладывает новую почту по теме или отправителю. Правила — в начале main.js."
+  },
+  "version": "1.0.0",
+  "author": "Depesha",
+  "permissions": ["messages.read", "messages.modify", "storage"],
+  "hooks": ["newMail"],
+  "contributes": {
+    "commands": [{ "id": "stats", "title": { "en": "Mail rules: statistics", "ru": "Правила для почты: статистика" } }]
+  }
+}

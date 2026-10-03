@@ -1,15 +1,15 @@
 <script lang="ts">
-  import Trash from "@lucide/svelte/icons/trash-2";
-  import Plus from "@lucide/svelte/icons/plus";
   import { app } from "../lib/store.svelte";
+  import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
   import type { Settings } from "../lib/types";
 
   let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
 
+  /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    draft.templates = draft.templates.filter((t) => t.name.trim() || t.text.trim());
-    await app.saveSettings($state.snapshot(draft));
+    const { language, notify, undo_send_secs, threads, updates } = $state.snapshot(draft);
+    await app.saveSettings({ ...$state.snapshot(app.settings), language, notify, undo_send_secs, threads, updates });
     app.settingsOpen = false;
   }
 
@@ -51,10 +51,6 @@
         </label>
       </section>
 
-      <section>
-        <h4>{t("settings.list")}</h4>
-        <label class="radio"><input type="checkbox" bind:checked={draft.threads} /> {t("settings.threads")}</label>
-      </section>
 
       <section>
         <h4>{t("settings.updates")}</h4>
@@ -77,19 +73,16 @@
       </section>
 
       <section>
-        <h4>{t("settings.templates")}</h4>
-        <p class="muted small">{t("settings.templatesNote")}</p>
-        {#each draft.templates as tpl, i (i)}
-          <div class="tpl">
-            <div class="tpl-head">
-              <input class="input" bind:value={tpl.name} placeholder={t("settings.templateName")} />
-              <button class="btn ghost" onclick={() => draft.templates.splice(i, 1)} aria-label={t("settings.templateDelete")}><Trash size={15} /></button>
-            </div>
-            <textarea class="input" rows="3" bind:value={tpl.text} placeholder={t("settings.templateText")}></textarea>
-          </div>
-        {/each}
-        <button class="btn" onclick={() => draft.templates.push({ name: "", text: "" })}><Plus size={15} /> {t("settings.templateAdd")}</button>
+        <h4>{t("settings.list")}</h4>
+        <label class="radio"><input type="checkbox" bind:checked={draft.threads} /> {t("settings.threads")}</label>
       </section>
+
+      {#each registry.lists.settingsSections as sec (sec)}
+        <section>
+          <h4>{sec.item.title()}</h4>
+          <sec.item.component {...sec.item.props} />
+        </section>
+      {/each}
     </div>
     <footer>
       <span class="spacer"></span>
@@ -160,26 +153,9 @@
     line-height: 1.4;
   }
 
-  .tpl {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 10px;
-  }
 
-  .tpl-head {
-    display: flex;
-    gap: 6px;
-  }
 
-  .tpl-head .input {
-    flex: 1;
-  }
 
-  textarea {
-    resize: vertical;
-    font: inherit;
-  }
 
   footer {
     display: flex;
