@@ -23,7 +23,8 @@ export default {
       title: () => ctx.t(S.view),
       icon: MessageSquareReply,
       count: () => followups.count,
-      query: () => ({ followups_only: true }),
+      // Each sent letter waits for its own answer: not grouped.
+      query: () => ({ followups_only: true, threads: false }),
       showRecipients: true,
       empty: () => ctx.t(S.empty),
     });

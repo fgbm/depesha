@@ -644,6 +644,25 @@ try {
       helper("count", "INBOX", "Скидки недели") === "1" && !helper("flags", "INBOX", "Скидки недели").includes("\\Seen"), 45000, 1000);
   });
 
+  await step("2.3", "«Отложить» цепочку: в «Отложенных» одна строка и единица в счётчике", async () => {
+    const subj = `Цепочка ${stamp}`;
+    helper("deliver", subj);
+    helper("reply", "INBOX", subj);
+    await d.button("Входящие");
+    await d.until("thread of two", async () =>
+      (await d.exec(`return [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]))?.querySelector('.count')?.innerText.trim() ?? ''`, subj)) === "2", 30000);
+    await openBySubject(subj);
+    await press("h");
+    await d.click(await d.until("snooze preset", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Завтра утром')]")));
+    await d.until("both in Snoozed on server", async () => helper("count", "Отложенные", subj) === "2", 20000);
+    await d.button("Отложенные");
+    await rowBySubject(subj, 10000);
+    const rows = await d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes(arguments[0])).length`, subj);
+    if (rows !== 1) throw new Error(`строк цепочки в «Отложенных»: ${rows}`);
+    const badge = await d.exec(`return [...document.querySelectorAll('nav.side .item')].find(b => b.innerText.includes('Отложенные'))?.querySelector('.count')?.innerText.trim()`);
+    if (badge !== "1") throw new Error(`счётчик «Отложенных»: ${badge}`);
+  });
+
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");
@@ -652,7 +671,7 @@ try {
     await screenshot("preflight");
     await d.click(await d.find(".compose .warnings .btn.primary"));
     await composeClosed();
-    await d.click(await d.until("undo toast", () => d.xpath("//div[contains(@class,'toast')][contains(., 'Отправляется')]//button[contains(@class,'act')]")));
+    await d.click(await d.until("undo toast", () => d.xpath("//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Отправляется')]//button[contains(@class,'act')]")));
     await d.until("compose is back", async () => (await d.findAll(".compose")).length === 1);
     const back = await d.exec("return document.querySelector('.compose .subject').value");
     if (back !== subj) throw new Error(`вернулось: ${back}`);

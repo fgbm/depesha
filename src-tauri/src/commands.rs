@@ -632,7 +632,7 @@ pub struct Counters {
 #[tauri::command]
 pub fn counters(state: St<'_>) -> CmdResult<Counters> {
     Ok(Counters {
-        snoozed: state.store.snoozed_count()?,
+        snoozed: state.store.snoozed_count(state.settings().threads)?,
         followups: state.store.followups_count()?,
     })
 }

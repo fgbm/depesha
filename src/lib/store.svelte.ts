@@ -390,7 +390,8 @@ class AppStore {
     }
     if (v.kind === "plugin") {
       const pv = registry.view(v.id);
-      return pv ? { ...pv.query(), limit: PAGE, offset } : null;
+      // Grouped like folders unless the view says otherwise.
+      return pv ? { threads, ...pv.query(), limit: PAGE, offset } : null;
     }
     return null;
   }

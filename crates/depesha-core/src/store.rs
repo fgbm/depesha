@@ -935,10 +935,15 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    pub fn snoozed_count(&self) -> Result<u32> {
-        Ok(self
-            .conn()
-            .query_row("SELECT COUNT(*) FROM snoozed", [], |r| r.get(0))?)
+    /// Snoozed messages, or conversations with `threads`: a snoozed conversation is one.
+    pub fn snoozed_count(&self, threads: bool) -> Result<u32> {
+        let sql = if threads {
+            "SELECT COUNT(DISTINCT s.account_id || char(0) || COALESCE(m.thread, '#' || s.message_id))
+             FROM snoozed s LEFT JOIN messages m ON m.account_id = s.account_id AND m.message_id = s.message_id"
+        } else {
+            "SELECT COUNT(*) FROM snoozed"
+        };
+        Ok(self.conn().query_row(sql, [], |r| r.get(0))?)
     }
 
     pub fn followup_add(&self, f: &Followup) -> Result<()> {
@@ -1773,6 +1778,7 @@ mod tests {
                     folder("INBOX", Some(FolderRole::Inbox)),
                     folder("Sent", Some(FolderRole::Sent)),
                     folder("Trash", Some(FolderRole::Trash)),
+                    folder("Snoozed", None),
                 ],
             )
             .unwrap();
@@ -2048,6 +2054,47 @@ mod tests {
         assert!(store.snoozes_due(999).unwrap().is_empty());
         assert_eq!(store.snoozes_due(1000).unwrap().len(), 1);
         assert!(store.snooze_remove("a", "s@x").unwrap().is_some());
-        assert_eq!(store.snoozed_count().unwrap(), 0);
+        assert_eq!(store.snoozed_count(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_snoozed_conversation_is_one_row_and_counts_once() {
+        let store = mailbox();
+        put(&store, "Snoozed", 1, &with_ids("Вопрос", 100, "q@x", None), true);
+        put(
+            &store,
+            "Snoozed",
+            2,
+            &with_ids("Re: Вопрос", 200, "r@x", Some("q@x")),
+            true,
+        );
+        for id in ["q@x", "r@x"] {
+            store
+                .snooze_add(&Snooze {
+                    account_id: "a".into(),
+                    message_id: id.into(),
+                    folder: "Snoozed".into(),
+                    return_to: "INBOX".into(),
+                    until: 1000,
+                    subject: "Вопрос".into(),
+                })
+                .unwrap();
+        }
+        let list = |threads| {
+            store
+                .list(&ListQuery {
+                    snoozed_only: true,
+                    threads,
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+        assert_eq!(list(false).len(), 2);
+        let grouped = list(true);
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped[0].subject, "Re: Вопрос");
+        assert_eq!(grouped[0].snoozed_until, Some(1000));
+        assert_eq!(store.snoozed_count(true).unwrap(), 1);
+        assert_eq!(store.snoozed_count(false).unwrap(), 2);
     }
 }
