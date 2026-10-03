@@ -3,3 +3,4 @@ node_modules/
 dist/
 e2e/screens/
 src-tauri/gen/
+.openchamber/
