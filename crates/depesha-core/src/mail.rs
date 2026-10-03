@@ -186,6 +186,14 @@ pub async fn search_server(
     }
 }
 
+/// The photo of a colleague from Exchange; IMAP servers have none.
+pub async fn user_photo(conn: &mut Conn, email: &str) -> Result<Option<Vec<u8>>> {
+    match conn {
+        Conn::Imap(_) => Ok(None),
+        Conn::Ews(s) => ews::user_photo(s, email).await,
+    }
+}
+
 pub async fn create_folder(conn: &mut Conn, store: &Store, account_id: &str, name: &str) -> Result<()> {
     match conn {
         Conn::Imap(c) => imap::create_folder(c, name).await,

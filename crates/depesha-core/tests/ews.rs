@@ -290,6 +290,24 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
             mb.created.push(body.to_owned());
             wrap("CreateItem", &ok("CreateItem", "<m:Items/>"))
         }
+        // Its answer is no ResponseMessages list: one GetUserPhotoResponse.
+        "GetUserPhoto" => {
+            let email = find(&doc, "Email").and_then(|n| n.text()).unwrap_or_default();
+            let (class, inner) = if email == "boss@corp.ru" {
+                (
+                    "Success",
+                    format!(
+                        "<m:HasChanged>true</m:HasChanged><m:PictureData>{}</m:PictureData>",
+                        BASE64.encode(b"\xff\xd8\xffphoto")
+                    ),
+                )
+            } else {
+                ("Error", "<m:ResponseCode>ErrorItemNotFound</m:ResponseCode>".to_owned())
+            };
+            envelope(&format!(
+                r#"<m:GetUserPhotoResponse ResponseClass="{class}" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">{inner}</m:GetUserPhotoResponse>"#
+            ))
+        }
         "Subscribe" => wrap("Subscribe", &err("Subscribe", "ErrorInvalidSubscriptionRequest")),
         other => panic!("unexpected EWS operation {other}"),
     }
@@ -603,4 +621,9 @@ async fn ews_mailbox_round_trip() {
     // Further requests go on the logged-in connection.
     let folders = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
     assert!(folders.iter().any(|f| f.name == "INBOX"));
+
+    // Colleagues' photos; strangers have none.
+    let photo = ews::user_photo(&mut s, "boss@corp.ru").await.unwrap();
+    assert_eq!(photo.as_deref(), Some(&b"\xff\xd8\xffphoto"[..]));
+    assert_eq!(ews::user_photo(&mut s, "stranger@example.com").await.unwrap(), None);
 }

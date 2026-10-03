@@ -47,6 +47,9 @@ pub struct Settings {
     pub offline: String,
     /// Offline download takes messages with attachments too.
     pub offline_attachments: bool,
+    /// Brand logos published with BIMI next to mail that passed DMARC: a DNS
+    /// lookup and a download from the brand's site, once a week per domain.
+    pub sender_logos: bool,
 }
 
 impl Default for Settings {
@@ -66,6 +69,7 @@ impl Default for Settings {
             oauth_clients: Default::default(),
             offline: "30".into(),
             offline_attachments: false,
+            sender_logos: true,
         }
     }
 }

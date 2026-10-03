@@ -122,6 +122,7 @@ class AppStore {
     oauth_clients: {},
     offline: "30",
     offline_attachments: false,
+    sender_logos: true,
   });
   update = $state<UpdateStatus | null>(null);
   /** The opened message's conversation, oldest first; empty for a lone message. */

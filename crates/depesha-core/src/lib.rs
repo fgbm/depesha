@@ -3,6 +3,7 @@
 
 pub mod account;
 pub mod autodetect;
+pub mod avatar;
 pub mod error;
 pub mod ews;
 pub mod http;

@@ -11,7 +11,7 @@ use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
 use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze};
-use depesha_core::{mail, oauth};
+use depesha_core::{avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -833,6 +833,61 @@ pub async fn sync_now(state: St<'_>, account_id: Option<String>, folder: Option<
         state.worker(&id)?.run(work).await?;
     }
     Ok(())
+}
+
+/// Pictures are looked for again after a week, missing ones after a day.
+const AVATAR_TTL: i64 = 7 * 86_400;
+const AVATAR_MISS_TTL: i64 = 86_400;
+
+/// The picture of a sender as a `data:` URI: the colleague's photo from the
+/// account's Exchange, otherwise, for mail that passed DMARC, the brand's BIMI logo.
+#[tauri::command]
+pub async fn avatar(
+    state: St<'_>,
+    account_id: String,
+    email: String,
+    authenticated: bool,
+) -> CmdResult<Option<String>> {
+    let email = email.trim().to_ascii_lowercase();
+    let Some((_, domain)) = email.rsplit_once('@') else {
+        return Ok(None);
+    };
+    let now = chrono::Utc::now().timestamp();
+    let fresh = |c: &(Option<String>, i64)| now - c.1 < if c.0.is_some() { AVATAR_TTL } else { AVATAR_MISS_TTL };
+
+    if state.account(&account_id)?.is_ews() {
+        let key = format!("photo:{account_id}:{email}");
+        let uri = match state.store.avatar(&key)?.filter(fresh) {
+            Some((uri, _)) => uri,
+            None => match state.worker(&account_id)?.run(Work::UserPhoto(email.clone())).await {
+                Ok(Output::Body(bytes)) => {
+                    let uri = avatar::data_uri(&bytes);
+                    state.store.set_avatar(&key, Some(&uri), now)?;
+                    Some(uri)
+                }
+                Ok(_) => {
+                    state.store.set_avatar(&key, None, now)?;
+                    None
+                }
+                // Offline or a busy server: initials now, another try next time.
+                Err(_) => None,
+            },
+        };
+        if uri.is_some() {
+            return Ok(uri);
+        }
+    }
+
+    if !authenticated || !state.settings().sender_logos {
+        return Ok(None);
+    }
+    let key = format!("bimi:{domain}");
+    if let Some((uri, _)) = state.store.avatar(&key)?.filter(fresh) {
+        return Ok(uri);
+    }
+    let uri = avatar::bimi_logo(domain).await;
+    state.store.set_avatar(&key, uri.as_deref(), now)?;
+    Ok(uri)
 }
 
 #[tauri::command]

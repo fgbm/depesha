@@ -227,6 +227,8 @@ export const en = {
   "settings.offlineYear": "the last year",
   "settings.packageNote": "A deb/rpm package updates only when you say so: installing needs the administrator password.",
   "settings.seconds": { one: "{n} second", other: "{n} seconds" },
+  "settings.senderLogos": "Company logos next to their mail",
+  "settings.senderLogosNote": "Logos the company publishes itself (BIMI), only on mail that passed the sender check (DMARC): a fake gets no logo. They are downloaded from the company's site once a week. Colleagues' photos come from your Exchange server regardless.",
   "settings.sending": "Sending",
   "settings.signedNote": "Every update is signed with the project key; Depesha refuses unsigned or altered ones.",
   "settings.theme.graphite": "Graphite",

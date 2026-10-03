@@ -37,7 +37,8 @@
 
   /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments } = $state.snapshot(draft);
+    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos } =
+      $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
       language,
@@ -48,6 +49,7 @@
       theme,
       offline,
       offline_attachments,
+      sender_logos,
       oauth_clients: oauthClients(),
     });
     app.settingsOpen = false;
@@ -135,6 +137,8 @@
       <section>
         <h4>{t("settings.list")}</h4>
         <label class="radio"><input type="checkbox" bind:checked={draft.threads} /> {t("settings.threads")}</label>
+        <label class="radio"><input type="checkbox" bind:checked={draft.sender_logos} /> {t("settings.senderLogos")}</label>
+        <p class="muted small">{t("settings.senderLogosNote")}</p>
       </section>
 
       <section>

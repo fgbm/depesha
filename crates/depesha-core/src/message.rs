@@ -146,6 +146,9 @@ pub struct MessageView {
     pub html: Option<String>,
     /// The message references remote images or styles (tracking pixels included).
     pub has_remote_content: bool,
+    /// The receiving server says the message passed DMARC for its From domain:
+    /// a brand logo may stand next to it.
+    pub authenticated: bool,
     pub attachments: Vec<AttachmentInfo>,
 }
 
@@ -180,11 +183,20 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     };
     let text = msg.body_text(0).map(Cow::into_owned);
 
+    let summary = summary_of(&msg);
+    let from_domain = summary
+        .from
+        .as_ref()
+        .and_then(|a| a.email.rsplit_once('@'))
+        .map(|(_, d)| d);
+    let authenticated = from_domain
+        .is_some_and(|d| crate::avatar::dmarc_passed(topmost_header(&msg, "Authentication-Results").as_deref(), d));
     Ok(MessageView {
-        summary: summary_of(&msg),
+        summary,
         text,
         html,
         has_remote_content,
+        authenticated,
         attachments,
     })
 }
@@ -287,6 +299,21 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
 
     let clean = builder.clean(html).to_string();
     (clean, remote.load(Ordering::Relaxed))
+}
+
+/// The first occurrence of a header, unfolded: the one the last server added.
+/// `header_raw` gives the last one, which for trace headers is the sender's own.
+fn topmost_header(msg: &Message<'_>, name: &str) -> Option<String> {
+    let h = msg
+        .headers()
+        .iter()
+        .find(|h| h.name.as_str().eq_ignore_ascii_case(name))?;
+    let raw = msg.raw_message().get(h.offset_start as usize..h.offset_end as usize)?;
+    let v = String::from_utf8_lossy(raw)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!v.is_empty()).then_some(v)
 }
 
 /// A header as one line: unfolded and trimmed.
@@ -482,6 +509,24 @@ JVBERi0xLjQK\r\n\
 
         let allowed = parse_view(MAIL, true).unwrap();
         assert!(allowed.html.unwrap().contains("tracker.example"));
+    }
+
+    #[test]
+    fn trusts_the_receiving_servers_dmarc_verdict_only() {
+        let mail = |results: &str| {
+            format!("{results}From: Ozon <news@ozon.ru>\r\nTo: me@example.com\r\nSubject: Hi\r\n\r\nText\r\n")
+        };
+        let ours = "Authentication-Results: mx.example.com; dmarc=pass header.from=ozon.ru\r\n";
+        let forged = "Authentication-Results: evil; dmarc=pass header.from=ozon.ru\r\n";
+        let failed = "Authentication-Results: mx.example.com; dmarc=fail header.from=ozon.ru\r\n";
+        assert!(parse_view(mail(ours).as_bytes(), false).unwrap().authenticated);
+        // Our server's verdict on top, the sender's own claim under it.
+        assert!(
+            !parse_view(mail(&format!("{failed}{forged}")).as_bytes(), false)
+                .unwrap()
+                .authenticated
+        );
+        assert!(!parse_view(mail("").as_bytes(), false).unwrap().authenticated);
     }
 
     #[test]

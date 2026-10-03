@@ -114,6 +114,14 @@ CREATE TABLE IF NOT EXISTS trusted_senders (
     email TEXT PRIMARY KEY
 );
 
+-- Sender pictures, found or not: `photo:<account>:<email>` from Exchange,
+-- `bimi:<domain>` for brand logos. uri is NULL when there is none to show.
+CREATE TABLE IF NOT EXISTS avatars (
+    key     TEXT PRIMARY KEY,
+    uri     TEXT,
+    fetched INTEGER NOT NULL
+);
+
 -- Exchange Web Services accounts: EWS folder ids behind the folder names.
 -- window_date: items received since then are all cached; 0 for the whole folder,
 -- -1 before the first sync.
@@ -1229,6 +1237,24 @@ impl Store {
             })
             .optional()?
             .is_some())
+    }
+
+    /// A cached sender picture: `Some((uri, fetched))`, uri `None` when there was none.
+    pub fn avatar(&self, key: &str) -> Result<Option<(Option<String>, i64)>> {
+        Ok(self
+            .conn()
+            .query_row("SELECT uri, fetched FROM avatars WHERE key = ?1", [key], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?)
+    }
+
+    pub fn set_avatar(&self, key: &str, uri: Option<&str>, fetched: i64) -> Result<()> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO avatars (key, uri, fetched) VALUES (?1, ?2, ?3)",
+            params![key, uri, fetched],
+        )?;
+        Ok(())
     }
 
     /// Distinct addresses from cached mail for recipient completion, most frequent first.

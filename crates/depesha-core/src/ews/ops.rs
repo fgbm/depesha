@@ -863,6 +863,32 @@ pub async fn move_by_message_id(
     Ok(ids.len())
 }
 
+/// The photo a colleague set in the organization (Exchange 2013 and later), 96×96.
+/// `None` for people outside it, without a photo, or on an older server.
+pub async fn user_photo(s: &mut Session, email: &str) -> Result<Option<Vec<u8>>> {
+    let body = format!(
+        "<m:GetUserPhoto><m:Email>{}</m:Email><m:SizeRequested>HR96x96</m:SizeRequested></m:GetUserPhoto>",
+        escape(email)
+    );
+    let xml = match s.call(&body).await {
+        Ok(xml) => xml,
+        Err(e) if e.is_transient() => return Err(e),
+        // Not found, no photo, a server without the operation: nothing to show.
+        Err(_) => return Ok(None),
+    };
+    let doc = parse(&xml)?;
+    let Some(resp) = desc(doc.root(), "GetUserPhotoResponse") else {
+        return Ok(None);
+    };
+    if resp.attribute("ResponseClass") == Some("Error") {
+        return Ok(None);
+    }
+    Ok(desc(resp, "PictureData")
+        .and_then(|n| n.text())
+        .and_then(|t| BASE64.decode(t.trim()).ok())
+        .filter(|b| !b.is_empty()))
+}
+
 /// Creates a folder by its IMAP-like name (`Archive`, `INBOX/Projects`); an existing one is fine.
 pub async fn create_folder(s: &mut Session, store: &Store, account_id: &str, name: &str) -> Result<()> {
     let (parent, leaf) = match name.rsplit_once(DELIMITER) {

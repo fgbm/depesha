@@ -63,6 +63,8 @@ pub enum Work {
     },
     /// Creates a folder and refreshes the folder list.
     CreateFolder(String),
+    /// A colleague's photo from Exchange: `Body` with the picture, `None` without one.
+    UserPhoto(String),
     /// Downloads one batch of messages for offline reading; queues the next batch itself.
     Prefetch,
     /// Moves messages found by Message-ID: UIDs change on every move, so undo and
@@ -351,6 +353,10 @@ async fn perform(
             Ok(Output::None)
         }
         Work::Search { folder, text } => Ok(Output::Ids(mail::search_server(conn, store, id, folder, text).await?)),
+        Work::UserPhoto(email) => Ok(match mail::user_photo(conn, email).await? {
+            Some(bytes) => Output::Body(bytes),
+            None => Output::None,
+        }),
         Work::CreateFolder(name) => {
             mail::create_folder(conn, store, id, name).await?;
             mail::sync_folder_list(conn, store, id).await?;

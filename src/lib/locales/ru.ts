@@ -220,6 +220,8 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "settings.offlineYear": "за последний год",
   "settings.packageNote": "Пакет deb/rpm обновляется только по вашей команде: для установки нужен пароль администратора.",
   "settings.seconds": { one: "{n} секунду", few: "{n} секунды", many: "{n} секунд", other: "{n} секунды" },
+  "settings.senderLogos": "Логотипы компаний рядом с их письмами",
+  "settings.senderLogosNote": "Логотипы, которые компания публикует сама (BIMI), и только у писем, прошедших проверку отправителя (DMARC): подделка останется без логотипа. Скачиваются с сайта компании раз в неделю. Фото коллег приходят с вашего сервера Exchange в любом случае.",
   "settings.sending": "Отправка",
   "settings.signedNote": "Каждое обновление подписано ключом проекта; неподписанное или изменённое Депеша не установит.",
   "settings.theme.graphite": "Графит",

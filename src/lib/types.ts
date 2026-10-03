@@ -187,6 +187,8 @@ export interface MessageView {
   text: string | null;
   html: string | null;
   has_remote_content: boolean;
+  /** The receiving server says it passed DMARC for its From domain: a brand logo may show. */
+  authenticated: boolean;
   attachments: AttachmentInfo[];
 }
 
@@ -270,6 +272,8 @@ export interface Settings {
   /** Mail kept whole for offline reading: off, the last N days, or all. */
   offline: "off" | "30" | "90" | "365" | "all";
   offline_attachments: boolean;
+  /** Brand logos (BIMI) next to mail that passed DMARC. */
+  sender_logos: boolean;
 }
 
 /** Background work shown in the tasks window. */

@@ -31,10 +31,15 @@
   import Popover from "./Popover.svelte";
   import type { Addr, AttachmentInfo, ComposeDraft, MessageRow } from "../lib/types";
   import { untrack } from "svelte";
+  import { avatarOf } from "../lib/avatars.svelte";
 
   let { onReply, onForward }: { onReply: (all: boolean) => void; onForward: () => void } = $props();
 
   const msg = $derived(app.opened);
+  /** The sender's photo from Exchange, or a brand logo when the message passed DMARC. */
+  const picture = $derived(
+    msg ? avatarOf(msg.row.account_id, msg.view.summary.from?.email, msg.view.authenticated && app.settings.sender_logos) : null,
+  );
 
   /**
    * Opening another message: after a blink (cached mail opens faster than that) its
@@ -367,8 +372,11 @@
 
     <div class="scroll">
       {#snippet card(m: MessageRow)}
+        {@const pic = avatarOf(m.account_id, m.from?.email, false)}
         <button class="card" class:unread={!m.flags.seen} onclick={() => app.open(m.id)}>
-          <span class="mini" style:background={avatarColor(m.from?.email ?? "")}>{initials(m.from)}</span>
+          <span class="mini" class:pic style:background={pic ? null : avatarColor(m.from?.email ?? "")}>
+            {#if pic}<img src={pic} alt="" />{:else}{initials(m.from)}{/if}
+          </span>
           <span class="who">{isMine(m) ? t("list.me") : (m.from?.name ?? m.from?.email ?? "")}</span>
           {#if roleOf(m) === "drafts"}<span class="draft-tag">{t("conv.draft")}</span>
           {:else if roleOf(m) === "sent" && !isMine(m)}<span class="muted">· {t("conv.youReplied")}</span>{/if}
@@ -391,7 +399,9 @@
       <div class="head selectable">
         <h1>{msg.view.summary.subject || t("noSubject")}</h1>
         <div class="from">
-          <span class="avatar" style:background={avatarColor(msg.view.summary.from?.email ?? "")}>{initials(msg.view.summary.from)}</span>
+          <span class="avatar" class:pic={picture} style:background={picture ? null : avatarColor(msg.view.summary.from?.email ?? "")}>
+            {#if picture}<img src={picture} alt="" />{:else}{initials(msg.view.summary.from)}{/if}
+          </span>
           <div class="who">
             <div>
               <button class="sender" onclick={fromSender} title={t("reader.fromSender")}>
@@ -844,6 +854,21 @@
     display: flex;
     gap: 12px;
     align-items: flex-start;
+  }
+
+  /* A photo or a logo fills the circle; logos are drawn for a white ground. */
+  .mini.pic,
+  .avatar.pic {
+    background: #fff;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  .pic img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 
   .avatar {
