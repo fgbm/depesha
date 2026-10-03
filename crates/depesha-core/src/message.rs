@@ -218,8 +218,13 @@ pub fn index_text(raw: &[u8]) -> String {
     msg.body_html(0).map(|h| strip_tags(&h)).unwrap_or_default()
 }
 
+/// Elements whose text is not part of the message: dropped with their content, not
+/// unwrapped. A newsletter's `<title>` would otherwise stand above it as a line of text.
+const HIDDEN_TAGS: [&str; 4] = ["script", "style", "title", "template"];
+
 fn strip_tags(html: &str) -> String {
     ammonia::Builder::empty()
+        .clean_content_tags(HIDDEN_TAGS.into())
         .clean(html)
         .to_string()
         .replace("&nbsp;", " ")
@@ -251,6 +256,7 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
             "dir",
         ])
         .add_url_schemes(["cid", "data"])
+        .clean_content_tags(HIDDEN_TAGS.into())
         .link_rel(Some("noopener noreferrer"));
 
     let flag = remote.clone();
@@ -476,6 +482,16 @@ JVBERi0xLjQK\r\n\
 
         let allowed = parse_view(MAIL, true).unwrap();
         assert!(allowed.html.unwrap().contains("tracker.example"));
+    }
+
+    #[test]
+    fn drops_title_and_styles_with_their_text() {
+        let html = "<html><head><title>Call Reports Email</title><style>p{color:red}</style></head><body><p>Отчёт готов</p></body></html>";
+        let (clean, _) = sanitize_html(html, &HashMap::new(), false);
+        assert!(!clean.contains("Call Reports"), "{clean}");
+        assert!(clean.contains("Отчёт готов"), "{clean}");
+        let text = strip_tags(html);
+        assert_eq!(text.trim(), "Отчёт готов");
     }
 
     #[test]
