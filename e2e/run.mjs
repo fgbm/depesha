@@ -585,6 +585,36 @@ try {
     await d.until("unsubscribe request delivered", async () => helper("count", "INBOX", "unsubscribe-weekly") === "1", 40000);
   });
 
+  await step("1.4", "«Готово» подряд: убранные письма не возвращаются в список, пока сервер их переносит", async () => {
+    const subjects = ["Массовое письмо 605", "Массовое письмо 604", "Массовое письмо 603"];
+    await openBySubject(subjects[0]);
+    // Every change of the list is recorded: a letter must not come back once gone.
+    await d.exec(`
+      window.__rows = [];
+      const list = document.querySelector('.rows') ?? document.querySelector('.list');
+      const snap = () => window.__rows.push([...document.querySelectorAll('.row .subject')].map((s) => s.innerText.trim()));
+      snap();
+      window.__rowsObserver = new MutationObserver(snap);
+      window.__rowsObserver.observe(list, { childList: true, subtree: true, characterData: true });`);
+    for (const subj of subjects) {
+      await d.until(`${subj} open`, async () => (await textOf(".reader h1")).includes(subj), 10000);
+      await press("e");
+    }
+    for (const subj of subjects) {
+      await d.until(`${subj} archived`, async () => helper("count", "Архив", subj) === "1", 30000);
+    }
+    // Syncs after the moves reload the list too.
+    await new Promise((r) => setTimeout(r, 2000));
+    const snaps = await d.exec("window.__rowsObserver.disconnect(); return window.__rows;");
+    for (const subj of subjects) {
+      const seen = snaps.map((rows) => rows.includes(subj));
+      const gone = seen.indexOf(false);
+      if (gone < 0) throw new Error(`«${subj}» не ушло из списка`);
+      const back = seen.indexOf(true, gone);
+      if (back >= 0) throw new Error(`«${subj}» вернулось в список после ухода (снимок ${back} из ${snaps.length})`);
+    }
+  });
+
   await step("1", "«Готово» (e) убирает в архив, z возвращает", async () => {
     await openBySubject("Счёт на оплату");
     await press("e");

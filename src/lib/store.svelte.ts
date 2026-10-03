@@ -407,14 +407,14 @@ class AppStore {
       if (v.kind === "search") {
         const local = v.text.trim() ? await api.search(v.text) : [];
         if (this.view !== v) return;
-        this.messages = this.merge(local, this.serverRows ?? []);
+        this.messages = this.visible(this.merge(local, this.serverRows ?? []));
         this.exhausted = true;
       } else if (v.kind === "outbox") {
         this.messages = [];
         this.exhausted = true;
         return;
       } else {
-        const want = Math.max(PAGE, this.messages.length);
+        const want = Math.max(PAGE, this.messages.length + this.leaving.size);
         const q = this.query(0);
         if (!q) {
           // A plugin view whose plugin was switched off.
@@ -426,7 +426,7 @@ class AppStore {
         const rows = await api.messages(q);
         // The user may have switched views while this was loading.
         if (this.view !== v) return;
-        this.messages = rows;
+        this.messages = this.visible(rows);
         this.exhausted = rows.length < want;
       }
       // Drop selections of rows that disappeared (moved, deleted elsewhere).
@@ -453,7 +453,7 @@ class AppStore {
       const rows = await this.track(api.serverSearch(v.text));
       if (this.view !== v) return;
       this.serverRows = rows;
-      this.messages = this.merge(this.messages, rows);
+      this.messages = this.visible(this.merge(this.messages, rows));
     } catch (e) {
       this.fail(e, t("search.server"));
     } finally {
@@ -471,7 +471,7 @@ class AppStore {
       if (!this.exhausted) {
         const rows = await api.messages(q);
         if (this.view !== v) return;
-        this.messages = [...this.messages, ...rows];
+        this.messages = this.append(rows);
         this.exhausted = rows.length < PAGE;
       } else if (v.kind === "folder") {
         // The cache ran out: fetch older headers from the server.
@@ -480,7 +480,7 @@ class AppStore {
           this.exhausted = false;
           const rows = await api.messages(this.query(this.messages.length)!);
           if (this.view !== v) return;
-          this.messages = [...this.messages, ...rows];
+          this.messages = this.append(rows);
           this.exhausted = rows.length < PAGE;
         }
       }
@@ -632,6 +632,24 @@ class AppStore {
   /** The action still talking to the server; "z" pressed meanwhile waits for it. */
   private pending: Promise<void> | null = null;
 
+  /**
+   * Rows taken out by actions still on their way to the server. The cache keeps
+   * them in their folder until the server has moved them, and a reload meanwhile
+   * (a sync, the end of the previous action) must not bring them back for a moment.
+   */
+  private leaving = new Set<number>();
+
+  /** Rows as the list shows them: without the ones on their way out. */
+  private visible(rows: MessageRow[]): MessageRow[] {
+    return this.leaving.size ? rows.filter((m) => !this.leaving.has(m.id)) : rows;
+  }
+
+  /** Appends a page: the cache's offsets count the hidden rows, so one may come twice. */
+  private append(rows: MessageRow[]): MessageRow[] {
+    const have = new Set(this.messages.map((m) => m.id));
+    return [...this.messages, ...this.visible(rows).filter((m) => !have.has(m.id))];
+  }
+
   /** Runs a user action that waits for the server, with the progress line shown meanwhile. */
   async track<T>(p: Promise<T>): Promise<T> {
     this.busy++;
@@ -655,6 +673,8 @@ class AppStore {
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
     const all = await this.withConversation(ids);
+    const hidden = [...new Set([...ids, ...all])];
+    for (const id of hidden) this.leaving.add(id);
     this.takeOut(ids);
     try {
       const moved = (await run(all)).filter((m) => m.message_ids.length);
@@ -664,6 +684,9 @@ class AppStore {
       }
     } catch (e) {
       this.fail(e, failText);
+    } finally {
+      // Moved: the cache no longer has them here. Refused: they come back with the error.
+      for (const id of hidden) this.leaving.delete(id);
     }
     this.reload();
   }
