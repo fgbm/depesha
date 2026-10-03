@@ -1,7 +1,8 @@
 //! Finds IMAP and SMTP settings from an email address, the way Thunderbird does:
 //! known providers, autoconfig XML, DNS (MX, SRV), then probing usual host names.
 
-use std::time::Duration;
+use std::net::IpAddr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hickory_resolver::TokioResolver;
 use hickory_resolver::proto::rr::RData;
@@ -50,23 +51,33 @@ pub async fn detect(email: &str) -> Detection {
     }
 
     if let Some(found) = autoconfig(email, &domain).await {
-        return found;
+        if found.smtp.is_some() {
+            return found;
+        }
+        // No usable outgoing server in it: keep the incoming one and look for the rest below.
+        d = found;
     }
 
     let mx = mx_hosts(&domain).await;
-    if let Some(found) = by_mx(email, &mx) {
+    if d.imap.is_none()
+        && let Some(found) = by_mx(email, &mx)
+    {
         return found;
     }
 
     let (srv_imap, srv_smtp) = srv(&domain).await;
-    if srv_imap.is_some() {
+    if d.source.is_empty() && srv_imap.is_some() {
         d.source = "DNS SRV".into();
     }
-    d.imap = srv_imap;
-    d.smtp = srv_smtp;
+    if d.imap.is_none() {
+        d.imap = srv_imap;
+    }
+    if d.smtp.is_none() {
+        d.smtp = srv_smtp;
+    }
 
     if d.imap.is_none() || d.smtp.is_none() {
-        let (imap, smtp, notes) = probe_hosts(&domain, &mx, d.imap.is_none(), d.smtp.is_none()).await;
+        let (imap, smtp, notes) = probe_hosts(&domain, &mx, d.imap.as_ref(), d.smtp.is_none()).await;
         if d.imap.is_none() {
             d.imap = imap;
         }
@@ -93,10 +104,29 @@ async fn autoconfig(email: &str, domain: &str) -> Option<Detection> {
         ),
         ("autoconfig.thunderbird.net".to_owned(), format!("/v1.1/{domain}")),
     ];
+    let resolver = resolver();
     for (host, path) in urls {
         if let Some(xml) = https_get(&host, &path).await
             && let Some(mut d) = parse_autoconfig(&xml, email)
         {
+            // Hosting panels serve templates like smtp.%EMAILDOMAIN% whether such a host exists or not.
+            if let Some(resolver) = &resolver {
+                if let Some(imap) = &d.imap
+                    && addresses(resolver, &imap.host).await.is_empty()
+                {
+                    continue;
+                }
+                if let Some(smtp) = &d.smtp
+                    && addresses(resolver, &smtp.host).await.is_empty()
+                {
+                    d.notes.push(tr!(
+                        "{} from autoconfig does not exist",
+                        "{} из autoconfig не существует",
+                        smtp.host
+                    ));
+                    d.smtp = None;
+                }
+            }
             d.source = format!("autoconfig ({host})");
             return Some(d);
         }
@@ -104,11 +134,23 @@ async fn autoconfig(email: &str, domain: &str) -> Option<Detection> {
     None
 }
 
-async fn mx_hosts(domain: &str) -> Vec<String> {
-    let Ok(builder) = TokioResolver::builder_tokio() else {
+fn resolver() -> Option<TokioResolver> {
+    TokioResolver::builder_tokio().ok()?.build().ok()
+}
+
+/// Sorted addresses of a host; empty when it does not resolve.
+async fn addresses(resolver: &TokioResolver, host: &str) -> Vec<IpAddr> {
+    let Ok(Ok(lookup)) = timeout(STEP_TIMEOUT, resolver.lookup_ip(host)).await else {
         return Vec::new();
     };
-    let Ok(resolver) = builder.build() else {
+    let mut ips: Vec<IpAddr> = lookup.iter().collect();
+    ips.sort();
+    ips.dedup();
+    ips
+}
+
+async fn mx_hosts(domain: &str) -> Vec<String> {
+    let Some(resolver) = resolver() else {
         return Vec::new();
     };
     let Ok(Ok(lookup)) = timeout(STEP_TIMEOUT, resolver.mx_lookup(domain)).await else {
@@ -165,10 +207,7 @@ fn by_mx(email: &str, mx: &[String]) -> Option<Detection> {
 }
 
 async fn srv(domain: &str) -> (Option<ServerConfig>, Option<ServerConfig>) {
-    let Ok(builder) = TokioResolver::builder_tokio() else {
-        return (None, None);
-    };
-    let Ok(resolver) = builder.build() else {
+    let Some(resolver) = resolver() else {
         return (None, None);
     };
     let lookup = |name: String, security: Security| {
@@ -202,25 +241,28 @@ async fn srv(domain: &str) -> (Option<ServerConfig>, Option<ServerConfig>) {
     (imap, smtp)
 }
 
-/// Tries `mail.`, `imap.`/`smtp.` and the bare domain on standard ports in parallel.
+/// Tries `mail.`, `imap.`/`smtp.`, the bare domain and the MX hosts on standard ports in parallel.
+/// `known_imap` is an incoming server found earlier: it is not probed again, and the outgoing
+/// server is looked for on the same host first.
 async fn probe_hosts(
     domain: &str,
     mx: &[String],
-    want_imap: bool,
+    known_imap: Option<&ServerConfig>,
     want_smtp: bool,
 ) -> (Option<ServerConfig>, Option<ServerConfig>, Vec<String>) {
+    let guessed = real_guesses(domain, &["mail", "imap", "smtp"]).await;
     let hosts = |service: &str| {
-        let mut hosts = vec![
-            format!("mail.{domain}"),
-            format!("{service}.{domain}"),
-            domain.to_owned(),
-        ];
+        let mut hosts: Vec<String> = [format!("mail.{domain}"), format!("{service}.{domain}")]
+            .into_iter()
+            .filter(|h| guessed.contains(h))
+            .collect();
+        hosts.push(domain.to_owned());
         // Small companies often read mail on the same host that receives it.
         hosts.extend(mx.iter().take(2).filter(|h| h.ends_with(domain)).cloned());
-        hosts.dedup();
-        hosts
+        hosts.extend(known_imap.map(|s| s.host.clone()));
+        unique(hosts)
     };
-    let imap_candidates: Vec<ServerConfig> = if want_imap {
+    let imap_candidates: Vec<ServerConfig> = if known_imap.is_none() {
         hosts("imap")
             .into_iter()
             .flat_map(|h| {
@@ -250,43 +292,88 @@ async fn probe_hosts(
     let imap_results = futures::future::join_all(
         imap_candidates
             .iter()
-            .map(|s| async move { timeout(STEP_TIMEOUT, imap::probe(s)).await }),
+            .map(|s| async move { timeout(STEP_TIMEOUT, imap::probe(s)).await.ok() }),
     );
     let smtp_results = futures::future::join_all(
         smtp_candidates
             .iter()
-            .map(|s| async move { timeout(STEP_TIMEOUT, smtp::probe(s)).await.map(|r| r.map(|_| ())) }),
+            .map(|s| async move { timeout(STEP_TIMEOUT, smtp::probe(s)).await.ok().map(|r| r.map(|_| ())) }),
     );
     let (imap_results, smtp_results) = tokio::join!(imap_results, smtp_results);
 
     let mut notes = Vec::new();
-    let pick = |candidates: &[ServerConfig],
-                results: Vec<Result<crate::Result<()>, tokio::time::error::Elapsed>>,
-                notes: &mut Vec<String>| {
-        let mut chosen = None;
-        for (server, result) in candidates.iter().zip(results) {
-            match result {
-                Ok(Ok(())) => {
-                    if chosen.is_none() {
-                        chosen = Some(server.clone());
-                    }
-                }
-                // The server is there; the certificate question comes up when checking the login.
-                Ok(Err(Error::Certificate(p))) => {
-                    notes.push(format!("{}:{} — {}", server.host, server.port, p.reason));
-                    if chosen.is_none() {
-                        chosen = Some(server.clone());
-                    }
-                }
-                Ok(Err(e @ Error::NoTls)) => notes.push(format!("{}:{} — {e}", server.host, server.port)),
-                _ => {}
-            }
-        }
-        chosen
-    };
-    let imap = pick(&imap_candidates, imap_results, &mut notes);
-    let smtp = pick(&smtp_candidates, smtp_results, &mut notes);
+    let imap = pick(&imap_candidates, imap_results, None, &mut notes);
+    // Mail is usually sent through the same server it is read from.
+    let same_host = imap.as_ref().or(known_imap).map(|s| s.host.clone());
+    let smtp = pick(&smtp_candidates, smtp_results, same_host.as_deref(), &mut notes);
     (imap, smtp, notes)
+}
+
+/// Which of `prefix.domain` really exist. With a wildcard record every such name resolves,
+/// usually to the web hosting rather than the mail server; those that resolve exactly like
+/// a made-up name are dropped.
+async fn real_guesses(domain: &str, prefixes: &[&str]) -> Vec<String> {
+    let names: Vec<String> = prefixes.iter().map(|p| format!("{p}.{domain}")).collect();
+    let Some(resolver) = resolver() else {
+        return names;
+    };
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or_default();
+    let wildcard = addresses(&resolver, &format!("depesha-{nonce:x}.{domain}")).await;
+    if wildcard.is_empty() {
+        return names;
+    }
+    let found = futures::future::join_all(names.iter().map(|n| addresses(&resolver, n))).await;
+    names
+        .into_iter()
+        .zip(found)
+        .filter(|(_, ips)| *ips != wildcard)
+        .map(|(n, _)| n)
+        .collect()
+}
+
+fn unique(hosts: Vec<String>) -> Vec<String> {
+    let mut seen = Vec::with_capacity(hosts.len());
+    for h in hosts {
+        if !seen.contains(&h) {
+            seen.push(h);
+        }
+    }
+    seen
+}
+
+/// The first server that answered with a valid certificate; failing that, the first one with
+/// an untrusted certificate (the user decides about it when the login is checked). Within each
+/// group a server on `prefer` goes first. `None` in `results` is a timeout.
+fn pick(
+    candidates: &[ServerConfig],
+    results: Vec<Option<crate::Result<()>>>,
+    prefer: Option<&str>,
+    notes: &mut Vec<String>,
+) -> Option<ServerConfig> {
+    let mut valid = Vec::new();
+    let mut untrusted = Vec::new();
+    for (server, result) in candidates.iter().zip(results) {
+        match result {
+            Some(Ok(())) => valid.push(server),
+            Some(Err(Error::Certificate(p))) => {
+                notes.push(format!("{}:{} — {}", server.host, server.port, p.reason));
+                untrusted.push(server);
+            }
+            Some(Err(e @ Error::NoTls)) => notes.push(format!("{}:{} — {e}", server.host, server.port)),
+            _ => {}
+        }
+    }
+    let first = |group: &[&ServerConfig]| {
+        group
+            .iter()
+            .find(|s| Some(s.host.as_str()) == prefer)
+            .or_else(|| group.first())
+            .map(|s| (*s).clone())
+    };
+    first(&valid).or_else(|| first(&untrusted))
 }
 
 /// Minimal HTTPS GET over our own TLS stack (HTTP/1.0, so no chunked bodies).
@@ -374,6 +461,75 @@ mod tests {
             Some(ServerConfig::new("smtp.example.org", 587, Security::StartTls))
         );
         assert_eq!(d.username, "ivan");
+    }
+
+    fn untrusted(host: &str) -> crate::Result<()> {
+        Err(Error::Certificate(Box::new(crate::tls::CertProblem {
+            host: host.into(),
+            reason: "name mismatch".into(),
+            sha256: String::new(),
+            subject: String::new(),
+            issuer: String::new(),
+            not_after: None,
+        })))
+    }
+
+    #[test]
+    fn a_valid_certificate_beats_the_candidate_order() {
+        // smtp.example.org is a wildcard landing on the web hosting with somebody else's certificate.
+        let candidates = [
+            ServerConfig::new("smtp.example.org", 587, Security::StartTls),
+            ServerConfig::new("mx.example.org", 587, Security::StartTls),
+        ];
+        let mut notes = Vec::new();
+        let chosen = pick(
+            &candidates,
+            vec![Some(untrusted("smtp.example.org")), Some(Ok(()))],
+            None,
+            &mut notes,
+        );
+        assert_eq!(chosen.unwrap().host, "mx.example.org");
+        assert_eq!(notes.len(), 1);
+
+        // With nothing better, an untrusted certificate still counts: the user decides later.
+        let chosen = pick(
+            &candidates,
+            vec![Some(untrusted("smtp.example.org")), None],
+            None,
+            &mut notes,
+        );
+        assert_eq!(chosen.unwrap().host, "smtp.example.org");
+    }
+
+    #[test]
+    fn outgoing_prefers_the_incoming_host() {
+        let candidates = [
+            ServerConfig::new("mail.example.org", 587, Security::StartTls),
+            ServerConfig::new("mx.example.org", 587, Security::StartTls),
+            ServerConfig::new("mx.example.org", 465, Security::Tls),
+        ];
+        let results = || vec![Some(Ok(())), Some(Ok(())), Some(Ok(()))];
+        let mut notes = Vec::new();
+        let chosen = pick(&candidates, results(), Some("mx.example.org"), &mut notes).unwrap();
+        assert_eq!((chosen.host.as_str(), chosen.port), ("mx.example.org", 587));
+        assert_eq!(
+            pick(&candidates, results(), None, &mut notes).unwrap().host,
+            "mail.example.org"
+        );
+        // A preferred host with a bad certificate does not beat a valid one elsewhere.
+        let mixed = vec![Some(Ok(())), Some(untrusted("mx.example.org")), None];
+        assert_eq!(
+            pick(&candidates, mixed, Some("mx.example.org"), &mut notes)
+                .unwrap()
+                .host,
+            "mail.example.org"
+        );
+    }
+
+    #[test]
+    fn unique_keeps_the_first_occurrence() {
+        let hosts = ["a", "b", "a", "c", "b"].map(String::from).to_vec();
+        assert_eq!(unique(hosts), ["a", "b", "c"]);
     }
 
     #[tokio::test]
