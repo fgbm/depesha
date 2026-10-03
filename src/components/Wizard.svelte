@@ -511,9 +511,14 @@
     width: 200px;
   }
 
+  /* Capped so the resize handle never slides under the footer; longer text scrolls inside. */
   .sig {
     resize: vertical;
     font: inherit;
+    line-height: 1.4;
+    /* 3 to 8 lines plus padding and border */
+    min-height: calc(4.2em + 14px);
+    max-height: calc(11.2em + 14px);
   }
 
   .check {
