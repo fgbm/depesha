@@ -457,6 +457,25 @@ pub async fn fetch_raw(conn: &mut Conn, folder: &str, uid: u32) -> Result<Vec<u8
         .ok_or(Error::NotFound)
 }
 
+/// Several whole messages of a folder in one FETCH; PEEK leaves them unread.
+/// Messages gone from the server are simply missing from the answer.
+pub async fn fetch_raw_many(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<Vec<(u32, Vec<u8>)>> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    conn.session.examine(folder).await?;
+    let fetches: Vec<_> = conn
+        .session
+        .uid_fetch(uid_set(uids), "(UID BODY.PEEK[])")
+        .await?
+        .try_collect()
+        .await?;
+    Ok(fetches
+        .iter()
+        .filter_map(|f| Some((f.uid?, f.body()?.to_vec())))
+        .collect())
+}
+
 /// Moves messages. Without MOVE (RFC 6851): COPY, then \Deleted, then
 /// UID EXPUNGE. Without UIDPLUS the originals keep \Deleted: a plain EXPUNGE
 /// would also wipe messages another client marked deleted.

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Account,
+  AccountSync,
   AccountView,
   Addr,
   CmdError,
@@ -9,6 +10,7 @@ import type {
   Extension,
   Moved,
   Settings,
+  Task,
   Unsubscribed,
   UpdateStatus,
   Detection,
@@ -95,6 +97,12 @@ export const api = {
   loadOlder: (accountId: string, folder: string) => call<number>("load_older", { accountId, folder }),
   syncNow: (accountId?: string, folder?: string) =>
     call<void>("sync_now", { accountId: accountId ?? null, folder: folder ?? null }),
+  syncOverview: () => call<AccountSync[]>("sync_overview"),
+  folderCreate: (accountId: string, parent: string | null, name: string) =>
+    call<void>("folder_create", { accountId, parent, name }),
+  offlinePause: (accountId: string, paused: boolean) => call<void>("offline_pause", { accountId, paused }),
+  tasks: () => call<Task[]>("tasks_list"),
+  taskDismiss: (key: string) => call<void>("task_dismiss", { key }),
   trustSender: (email: string) => call<void>("trust_sender", { email }),
   addresses: (prefix: string) => call<Addr[]>("addresses", { prefix }),
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),

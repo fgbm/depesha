@@ -364,6 +364,21 @@ try {
     }
   });
 
+  await step("3.11", "офлайн: письма за 30 дней скачиваются сами, ход виден в «Фоновых задачах»", async () => {
+    const overview = () => invoke("sync_overview");
+    await d.until("offline download done", async () => {
+      const [o] = await overview();
+      return o && o.offline_total > 0 && o.offline_done === o.offline_total;
+    }, 60000);
+    await d.click(await d.find("button[aria-label='Фоновые задачи']"));
+    await d.until("tasks window", async () => (await textOf(".modal.tasks")).includes("Офлайн: скачано"));
+    const text = await textOf(".modal.tasks");
+    if (!text.includes("Синхронизирован")) throw new Error(text);
+    await screenshot("tasks");
+    await d.button("Закрыть");
+    await d.until("tasks closed", async () => (await d.findAll(".modal.tasks")).length === 0);
+  });
+
   await step("6.3", "«Непрочитанные»: прочитанное письмо остаётся в списке до смены вида", async () => {
     await d.button("Непрочитанные");
     await openBySubject("Массовое письмо 619");

@@ -267,6 +267,31 @@ export interface Settings {
   plugin_settings: Record<string, Record<string, unknown>>;
   disabled_extensions: string[];
   oauth_clients: Partial<Record<OAuthProvider, OAuthClient>>;
+  /** Mail kept whole for offline reading: off, the last N days, or all. */
+  offline: "off" | "30" | "90" | "365" | "all";
+  offline_attachments: boolean;
+}
+
+/** Background work shown in the tasks window. */
+export interface Task {
+  key: string;
+  kind: "sync" | "prefetch" | "older" | "search" | "send";
+  account_id?: string;
+  label: string;
+  done: number;
+  /** 0 when unknown. */
+  total: number;
+  state: "running" | "failed";
+  error?: CmdError;
+  started: number;
+}
+
+export interface AccountSync {
+  account_id: string;
+  last_sync: number | null;
+  offline_done: number;
+  offline_total: number;
+  paused: boolean;
 }
 
 /** Text in the interface languages; English is required. */

@@ -21,6 +21,7 @@ import type {
   OpenedMessage,
   OutboxItem,
   Settings,
+  Task,
   UpdateStatus,
 } from "./types";
 
@@ -112,12 +113,17 @@ class AppStore {
     plugin_settings: {},
     disabled_extensions: [],
     oauth_clients: {},
+    offline: "30",
+    offline_attachments: false,
   });
   update = $state<UpdateStatus | null>(null);
   /** The opened message's conversation, oldest first; empty for a lone message. */
   conversation = $state<MessageRow[]>([]);
   settingsOpen = $state(false);
   pluginsOpen = $state(false);
+  tasksOpen = $state(false);
+  /** Background work: running, and failed until dismissed. */
+  tasks = $state<Task[]>([]);
   /** The last move that can be taken back with "z". */
   lastUndo = $state<{ moved: Moved[]; text: string } | null>(null);
 
@@ -148,6 +154,8 @@ class AppStore {
       if (a) a.status = e.payload.status;
     });
     await listen("outbox-changed", () => this.loadOutbox());
+    await listen<Task[]>("tasks-changed", (e) => (this.tasks = e.payload));
+    this.tasks = await api.tasks().catch(() => []);
     await listen<{ subject: string }>("sent", (e) => this.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") })));
     await listen<{ error: CmdError }>("send-failed", (e) =>
       this.toast(t("toast.sendFailed", { error: e.payload.error.message }), true),

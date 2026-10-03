@@ -37,7 +37,7 @@
 
   /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    const { language, notify, undo_send_secs, threads, updates, theme } = $state.snapshot(draft);
+    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments } = $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
       language,
@@ -46,6 +46,8 @@
       threads,
       updates,
       theme,
+      offline,
+      offline_attachments,
       oauth_clients: oauthClients(),
     });
     app.settingsOpen = false;
@@ -133,6 +135,28 @@
       <section>
         <h4>{t("settings.list")}</h4>
         <label class="radio"><input type="checkbox" bind:checked={draft.threads} /> {t("settings.threads")}</label>
+      </section>
+
+      <section>
+        <h4>{t("settings.offline")}</h4>
+        <div class="row">
+          {t("settings.offlineKeep")}
+          <Select
+            label={t("settings.offlineKeep")}
+            bind:value={draft.offline}
+            options={[
+              { value: "off", label: t("settings.offlineOff") },
+              { value: "30", label: tn("settings.offlineDays", 30) },
+              { value: "90", label: tn("settings.offlineDays", 90) },
+              { value: "365", label: t("settings.offlineYear") },
+              { value: "all", label: t("settings.offlineAll") },
+            ]}
+          />
+        </div>
+        <label class="radio" class:disabled={draft.offline === "off"}>
+          <input type="checkbox" bind:checked={draft.offline_attachments} disabled={draft.offline === "off"} /> {t("settings.offlineAttachments")}
+        </label>
+        <p class="muted small">{t("settings.offlineNote")}</p>
       </section>
 
       <section>

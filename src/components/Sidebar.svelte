@@ -22,6 +22,7 @@
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import Activity from "@lucide/svelte/icons/activity";
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { when } from "../lib/later";
@@ -122,6 +123,11 @@
   }
 
   const outboxFailed = $derived(app.outbox.some((o) => o.failed));
+  const tasksRunning = $derived(app.tasks.filter((x) => x.state === "running").length);
+  const tasksFailed = $derived(app.tasks.some((x) => x.state === "failed"));
+  const tasksTitle = $derived(
+    tasksFailed ? t("tasks.hintFailed") : tasksRunning ? t("tasks.hintRunning", { n: tasksRunning }) : t("tasks.title"),
+  );
 </script>
 
 <nav class="side">
@@ -240,6 +246,10 @@
         {#each dndOptions() as o (o.label)}<button class="mi" onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
       </Popover>
     </div>
+    <button class="foot-btn tasks-btn" class:busy={tasksRunning > 0} class:failed={tasksFailed} onclick={() => (app.tasksOpen = true)} title={tasksTitle} aria-label={t("tasks.title")}>
+      <span class="idle"><Activity size={16} /></span>
+      {#if tasksRunning > 0}<span class="spin"><RotateCw size={16} /></span>{/if}
+    </button>
     <button class="foot-btn" onclick={() => (app.pluginsOpen = true)} title={t("ext.title")} aria-label={t("ext.title")}><Puzzle size={16} /></button>
   </div>
 </nav>
@@ -509,6 +519,64 @@
 
   .dnd-wrap {
     position: relative;
+  }
+
+  .tasks-btn {
+    position: relative;
+  }
+
+  /* Short syncs (a folder in a blink) do not make the button flicker: it spins only after a moment. */
+  .tasks-btn .idle {
+    display: inline-flex;
+  }
+
+  .tasks-btn.busy .idle {
+    animation: vanish 0s 0.6s forwards;
+  }
+
+  .tasks-btn.busy .spin {
+    position: absolute;
+    inset: 6px;
+    display: inline-flex;
+    opacity: 0;
+    animation:
+      appear 0s 0.6s forwards,
+      spin 1.2s linear infinite;
+  }
+
+  @keyframes vanish {
+    to {
+      opacity: 0;
+    }
+  }
+
+  .tasks-btn.failed::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  @keyframes appear {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tasks-btn.busy .spin {
+      animation: appear 0s 0.6s forwards;
+    }
   }
 
   .settings {

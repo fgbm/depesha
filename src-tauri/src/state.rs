@@ -42,6 +42,8 @@ pub struct AppState {
     pub grants: Mutex<HashMap<String, oauth::Grant>>,
     /// Ends a browser sign-in in progress.
     pub oauth_cancel: Notify,
+    /// Background work the user sees in the tasks window.
+    pub tasks: crate::tasks::Tasks,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

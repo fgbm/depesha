@@ -42,6 +42,11 @@ pub struct Settings {
     pub disabled_extensions: Vec<String>,
     /// The user's own OAuth clients; they win over the ones built into the app.
     pub oauth_clients: std::collections::BTreeMap<OAuthProvider, OAuthClient>,
+    /// Mail downloaded whole for reading without a network and for searching its
+    /// text: `off`, the last `30` (default), `90` or `365` days, or `all`.
+    pub offline: String,
+    /// Offline download takes messages with attachments too.
+    pub offline_attachments: bool,
 }
 
 impl Default for Settings {
@@ -59,6 +64,8 @@ impl Default for Settings {
             plugin_settings: Default::default(),
             disabled_extensions: Vec::new(),
             oauth_clients: Default::default(),
+            offline: "30".into(),
+            offline_attachments: false,
         }
     }
 }
@@ -82,6 +89,18 @@ impl Settings {
             _ => sys_locale::get_locale()
                 .map(|l| lang::from_locale(&l))
                 .unwrap_or(Lang::En),
+        }
+    }
+
+    /// Since when mail is kept for offline reading, Unix time; `None` when it is off.
+    pub fn offline_since(&self) -> Option<i64> {
+        match self.offline.as_str() {
+            "off" => None,
+            "all" => Some(0),
+            days => {
+                let days: i64 = days.parse().unwrap_or(30);
+                Some(chrono::Utc::now().timestamp() - days * 86_400)
+            }
         }
     }
 

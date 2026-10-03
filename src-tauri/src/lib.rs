@@ -6,6 +6,7 @@ mod outbox;
 mod scheduler;
 mod secrets;
 mod state;
+mod tasks;
 mod updater;
 mod worker;
 
@@ -88,6 +89,7 @@ pub fn run() {
                 refreshing: Default::default(),
                 grants: Default::default(),
                 oauth_cancel: Notify::new(),
+                tasks: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();
@@ -144,6 +146,10 @@ pub fn run() {
             commands::update_restart,
             commands::load_older,
             commands::sync_now,
+            commands::sync_overview,
+            commands::offline_pause,
+            commands::tasks_list,
+            commands::task_dismiss,
             commands::trust_sender,
             commands::addresses,
             commands::attachment_save,

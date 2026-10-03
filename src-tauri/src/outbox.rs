@@ -53,6 +53,20 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
             )?;
             continue;
         };
+        let key = format!("send:{}", item.id);
+        let subject = if item.draft.subject.is_empty() {
+            depesha_core::lang::pick("(no subject)", "(без темы)").to_owned()
+        } else {
+            item.draft.subject.clone()
+        };
+        state.task(
+            &key,
+            "send",
+            Some(&item.account_id),
+            tr!("Sending «{subject}»", "Отправка «{subject}»"),
+            0,
+            0,
+        );
         let result = async {
             let msg = smtp::build(&item.draft)?;
             let account = &account;
@@ -65,6 +79,7 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
 
         match result {
             Ok(raw) => {
+                state.task_done(&key);
                 state.store.outbox_remove(item.id)?;
                 state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
                 if item.followup_secs > 0
@@ -118,8 +133,13 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                     .store
                     .outbox_retry_later(item.id, now + delay, &e.to_string(), !transient)?;
                 blocked.insert(item.account_id.clone());
-                if !transient {
-                    state.emit("send-failed", json!({ "id": item.id, "error": CmdError::from(e) }));
+                // A retry later is the outbox's business; a refusal waits for the user.
+                if transient {
+                    state.task_done(&key);
+                } else {
+                    let err = CmdError::from(e);
+                    state.task_failed(&key, err.clone());
+                    state.emit("send-failed", json!({ "id": item.id, "error": err }));
                 }
             }
         }

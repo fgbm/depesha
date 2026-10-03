@@ -95,6 +95,14 @@ async fn send_sync_read_flag_move() {
     assert!(!row.flags.seen);
     assert!(row.has_attachments);
 
+    // Offline download in batches: a UID gone from the server is simply missing.
+    let batch = imap::fetch_raw_many(&mut conn, "INBOX", &[row.uid, 999_999])
+        .await
+        .unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].0, row.uid);
+    assert_eq!(message::parse_summary(&batch[0].1).subject, subject);
+
     // Body: downloaded once, indexed, \Seen untouched by BODY.PEEK.
     let raw = sync::load_body(&mut conn, &store, row.id).await.unwrap();
     let view = message::parse_view(&raw, false).unwrap();

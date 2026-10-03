@@ -19,8 +19,12 @@ use tokio::task::JoinHandle;
 use crate::error::CmdError;
 use crate::state::{AccountStatus, AppState};
 use depesha_core::lang::pick;
+use depesha_core::tr;
 
 const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
+/// Messages downloaded for offline reading per round: user actions wait for a
+/// round at most, they are queued between rounds.
+const PREFETCH_BATCH: u32 = 25;
 const POLL_WITHOUT_IDLE: Duration = Duration::from_secs(120);
 
 #[derive(Debug)]
@@ -59,6 +63,8 @@ pub enum Work {
     },
     /// Creates a folder and refreshes the folder list.
     CreateFolder(String),
+    /// Downloads one batch of messages for offline reading; queues the next batch itself.
+    Prefetch,
     /// Moves messages found by Message-ID: UIDs change on every move, so undo and
     /// returning snoozed mail cannot rely on them. `unseen` marks them unread there.
     MoveByMessageId {
@@ -116,7 +122,7 @@ fn needs_user(e: &Error) -> bool {
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (tx, rx) = mpsc::channel(64);
     let paused = Arc::new(AtomicBool::new(false));
-    let ops = tokio::spawn(ops_loop(state.clone(), account.clone(), rx, paused.clone()));
+    let ops = tokio::spawn(ops_loop(state.clone(), account.clone(), rx, tx.clone(), paused.clone()));
     let idle = tokio::spawn(idle_loop(state, account, tx.clone(), paused.clone()));
     let worker = Worker {
         tx,
@@ -131,6 +137,7 @@ async fn ops_loop(
     state: Arc<AppState>,
     account: Account,
     mut rx: mpsc::Receiver<(Work, Option<Reply>)>,
+    tx: mpsc::Sender<(Work, Option<Reply>)>,
     paused: Arc<AtomicBool>,
 ) {
     let mut conn: Option<Conn> = None;
@@ -193,9 +200,17 @@ async fn ops_loop(
         }
 
         match &result {
-            Ok(_) => {
-                if matches!(work, Work::SyncAll) {
-                    notify_new = true;
+            Ok(out) => {
+                match (&work, out) {
+                    // Fresh headers: download their text for offline reading.
+                    (Work::SyncAll, _) => {
+                        notify_new = true;
+                        let _ = tx.try_send((Work::Prefetch, None));
+                    }
+                    (Work::Prefetch, Output::Count(n)) if *n > 0 => {
+                        let _ = tx.try_send((Work::Prefetch, None));
+                    }
+                    _ => {}
                 }
                 if state.status(&account.id).is_none_or(|s| s.state != "online") {
                     state.set_status(
@@ -209,11 +224,19 @@ async fn ops_loop(
             }
             Err(e) => {
                 tracing::warn!(account = %account.id, kind = e.kind(), "operation failed: {e}");
+                match work {
+                    Work::SyncAll => state.task_failed(&format!("sync:{}", account.id), CmdError::from(clone_error(e))),
+                    Work::Prefetch => {
+                        state.task_failed(&format!("prefetch:{}", account.id), CmdError::from(clone_error(e)))
+                    }
+                    _ => {}
+                }
                 let fatal = needs_user(e);
                 paused.store(fatal, Ordering::Relaxed);
                 let status = if fatal { "paused" } else { "error" };
-                // Errors of a single message action go to the caller, not to the account status.
-                if reply.is_none() || conn.is_none() {
+                // Errors of a single message action go to the caller, not to the account status;
+                // a message the offline download could not take shows in its task.
+                if (reply.is_none() && !matches!(work, Work::Prefetch)) || conn.is_none() {
                     state.set_status(
                         &account.id,
                         AccountStatus {
@@ -264,6 +287,8 @@ async fn perform(
     let id = account.id.as_str();
     match work {
         Work::SyncAll => {
+            let key = format!("sync:{id}");
+            state.task(&key, "sync", Some(id), tr!("Syncing", "Синхронизация"), 0, 0);
             let folders = mail::sync_folder_list(conn, store, id).await?;
             state.emit("folders-changed", json!({ "account_id": id }));
             let mut order: Vec<_> = folders.iter().filter(|f| f.selectable && !f.hidden).collect();
@@ -272,7 +297,17 @@ async fn perform(
                 Some(_) => 1,
                 None => 2,
             });
-            for f in order {
+            let total = order.len() as u64;
+            for (i, f) in order.into_iter().enumerate() {
+                let name = &f.display_name;
+                state.task(
+                    &key,
+                    "sync",
+                    Some(id),
+                    tr!("Syncing: {name}", "Синхронизация: {name}"),
+                    i as u64,
+                    total,
+                );
                 match sync_one(state, account, conn, &f.name, *notify_new).await {
                     Ok(()) => {}
                     Err(e) if e.is_transient() => return Err(e),
@@ -280,8 +315,11 @@ async fn perform(
                     Err(e) => tracing::warn!(account = %id, folder = %f.display_name, "folder sync failed: {e}"),
                 }
             }
+            state.task_done(&key);
+            state.mark_synced(id);
             Ok(Output::None)
         }
+        Work::Prefetch => prefetch(state, conn, id).await,
         Work::SyncFolder(folder) => {
             sync_one(state, account, conn, folder, *notify_new).await?;
             Ok(Output::None)
@@ -338,6 +376,52 @@ async fn perform(
             Ok(Output::Count(n))
         }
     }
+}
+
+/// One batch of the offline download. `Count` is what the next batch may still
+/// find: 0 when everything is downloaded, paused or switched off.
+async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result<Output> {
+    let key = format!("prefetch:{account_id}");
+    let settings = state.settings();
+    let since = match settings.offline_since() {
+        Some(since) if !state.prefetch_paused(account_id) => since,
+        _ => {
+            state.task_done(&key);
+            return Ok(Output::Count(0));
+        }
+    };
+    let files = settings.offline_attachments;
+    let store = &state.store;
+    let batch = store.bodies_missing(account_id, since, files, PREFETCH_BATCH)?;
+    if batch.is_empty() {
+        state.task_done(&key);
+        return Ok(Output::Count(0));
+    }
+    let label = || tr!("Downloading mail for offline reading", "Скачивание писем для офлайна");
+    let (done, total) = store.offline_progress(account_id, since, files)?;
+    state.task(&key, "prefetch", Some(account_id), label(), done, total);
+
+    let mut by_folder: Vec<(String, Vec<(i64, u32)>)> = Vec::new();
+    for (id, folder, uid) in &batch {
+        match by_folder.iter_mut().find(|(f, _)| f == folder) {
+            Some((_, list)) => list.push((*id, *uid)),
+            None => by_folder.push((folder.clone(), vec![(*id, *uid)])),
+        }
+    }
+    let mut saved = 0;
+    for (folder, messages) in &by_folder {
+        saved += mail::prefetch_bodies(conn, store, folder, messages).await?;
+    }
+    let last = saved == 0 || batch.len() < PREFETCH_BATCH as usize;
+    if last {
+        state.task_done(&key);
+    } else {
+        let (done, total) = store.offline_progress(account_id, since, files)?;
+        state.task(&key, "prefetch", Some(account_id), label(), done, total);
+    }
+    // The cache got text to search in.
+    state.emit("offline-progress", json!({ "account_id": account_id }));
+    Ok(Output::Count(if last { 0 } else { saved }))
 }
 
 async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: &str, notify: bool) -> Result<()> {

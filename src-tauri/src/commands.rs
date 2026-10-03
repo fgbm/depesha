@@ -150,6 +150,7 @@ pub async fn account_save(
 #[tauri::command]
 pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
     state.set_worker(&id, None);
+    state.tasks_forget_account(&id);
     state.remove_account(&id)?;
     state.store.forget_account(&id)?;
     state.forget_token(&id);
@@ -267,6 +268,17 @@ pub fn search(state: St<'_>, text: String, account_id: Option<String>) -> CmdRes
 /// Finds mail older than the local cache window. Errors of single folders are skipped.
 #[tauri::command]
 pub async fn server_search(state: St<'_>, text: String, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
+    let label = tr!("Search on the server: «{text}»", "Поиск на сервере: «{text}»");
+    state.task("search", "search", account_id.as_deref(), label, 0, 0);
+    let result = search_servers(&state, &text, account_id).await;
+    match &result {
+        Ok(_) => state.task_done("search"),
+        Err(e) => state.task_failed("search", e.clone()),
+    }
+    result
+}
+
+async fn search_servers(state: &AppState, text: &str, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
     let accounts = match account_id {
         Some(id) => vec![state.account(&id)?],
         None => state.accounts(),
@@ -282,7 +294,7 @@ pub async fn server_search(state: St<'_>, text: String, account_id: Option<Strin
             match worker
                 .run(Work::Search {
                     folder,
-                    text: text.clone(),
+                    text: text.to_owned(),
                 })
                 .await
             {
@@ -679,18 +691,97 @@ pub fn settings_get(state: St<'_>) -> Settings {
 
 #[tauri::command]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
+    let before = state.settings();
+    let offline_changed =
+        before.offline != settings.offline || before.offline_attachments != settings.offline_attachments;
     state.save_settings(settings)?;
     state.apply_language();
     state.emit("settings-changed", serde_json::json!({}));
+    // A wider offline window starts downloading at once.
+    if offline_changed {
+        for account in state.accounts() {
+            if let Ok(w) = state.worker(&account.id) {
+                w.kick(Work::Prefetch);
+            }
+        }
+    }
     Ok(())
 }
 
 #[tauri::command]
 pub async fn load_older(state: St<'_>, account_id: String, folder: String) -> CmdResult<usize> {
-    match state.worker(&account_id)?.run(Work::LoadOlder { folder }).await? {
-        Output::Count(n) => Ok(n),
-        _ => Ok(0),
+    let key = format!("older:{account_id}:{folder}");
+    let name = state
+        .store
+        .folders(Some(&account_id))?
+        .into_iter()
+        .find(|f| f.folder.name == folder)
+        .map(|f| f.folder.display_name)
+        .unwrap_or_else(|| folder.clone());
+    let label = tr!("Loading older mail: {name}", "Загрузка старых писем: {name}");
+    state.task(&key, "older", Some(&account_id), label, 0, 0);
+    match state.worker(&account_id)?.run(Work::LoadOlder { folder }).await {
+        Ok(out) => {
+            state.task_done(&key);
+            Ok(match out {
+                Output::Count(n) => n,
+                _ => 0,
+            })
+        }
+        Err(e) => {
+            let e = CmdError::from(e);
+            state.task_failed(&key, e.clone());
+            Err(e)
+        }
     }
+}
+
+#[tauri::command]
+pub fn tasks_list(state: St<'_>) -> Vec<crate::tasks::Task> {
+    state.tasks_list()
+}
+
+#[tauri::command]
+pub fn task_dismiss(state: St<'_>, key: String) {
+    state.task_dismiss(&key);
+}
+
+/// Per account: the last full sync and how much of the offline window is downloaded.
+#[tauri::command]
+pub fn sync_overview(state: St<'_>) -> CmdResult<Vec<crate::tasks::AccountSync>> {
+    let settings = state.settings();
+    let since = settings.offline_since();
+    state
+        .accounts()
+        .into_iter()
+        .map(|a| {
+            let (offline_done, offline_total) = match since {
+                Some(since) => state
+                    .store
+                    .offline_progress(&a.id, since, settings.offline_attachments)?,
+                None => (0, 0),
+            };
+            Ok(crate::tasks::AccountSync {
+                last_sync: state.last_sync(&a.id),
+                paused: state.prefetch_paused(&a.id),
+                account_id: a.id,
+                offline_done,
+                offline_total,
+            })
+        })
+        .collect()
+}
+
+/// Pauses or resumes the offline download of an account.
+#[tauri::command]
+pub fn offline_pause(state: St<'_>, account_id: String, paused: bool) -> CmdResult<()> {
+    state.set_prefetch_paused(&account_id, paused);
+    if paused {
+        state.task_done(&format!("prefetch:{account_id}"));
+    } else {
+        state.worker(&account_id)?.kick(Work::Prefetch);
+    }
+    Ok(())
 }
 
 #[tauri::command]

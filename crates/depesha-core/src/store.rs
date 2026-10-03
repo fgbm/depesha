@@ -218,6 +218,12 @@ pub struct MessageRow {
     pub followup_due: Option<i64>,
 }
 
+/// Largest message downloaded for offline reading with attachments, bytes.
+const OFFLINE_MAX_SIZE: u32 = 25 * 1024 * 1024;
+/// Largest message without attachments downloaded for offline reading: bigger ones
+/// carry files the server did not mark as attachments.
+const OFFLINE_MAX_TEXT: u32 = 2 * 1024 * 1024;
+
 /// Which messages to show. An empty query is the unified inbox of all accounts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -745,6 +751,55 @@ impl Store {
             .conn()
             .query_row("SELECT raw FROM bodies WHERE message_id = ?1", [id], |r| r.get(0))
             .optional()?)
+    }
+
+    /// Messages to keep for offline reading: newer than `since`, outside Trash and
+    /// Spam, without attachments unless `attachments`. The condition joins `m` and `f`.
+    fn offline_cond(attachments: bool) -> String {
+        let files = if attachments {
+            format!("m.size <= {OFFLINE_MAX_SIZE}")
+        } else {
+            format!("m.has_attachments = 0 AND m.size <= {OFFLINE_MAX_TEXT}")
+        };
+        format!("m.account_id = ?1 AND m.date >= ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk') AND {files}")
+    }
+
+    /// Offline messages whose text is not downloaded yet, newest first: `(id, folder, uid)`.
+    pub fn bodies_missing(
+        &self,
+        account_id: &str,
+        since: i64,
+        attachments: bool,
+        limit: u32,
+    ) -> Result<Vec<(i64, String, u32)>> {
+        let sql = format!(
+            "SELECT m.id, m.folder, m.uid FROM messages m
+             JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+             WHERE {} AND NOT EXISTS (SELECT 1 FROM bodies b WHERE b.message_id = m.id)
+             ORDER BY m.date DESC LIMIT ?3",
+            Self::offline_cond(attachments)
+        );
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![account_id, since, limit], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Offline messages with their text downloaded, and all of them.
+    pub fn offline_progress(&self, account_id: &str, since: i64, attachments: bool) -> Result<(u64, u64)> {
+        let sql = format!(
+            "SELECT COUNT(b.message_id), COUNT(*) FROM messages m
+             JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+             LEFT JOIN bodies b ON b.message_id = m.id
+             WHERE {}",
+            Self::offline_cond(attachments)
+        );
+        let (done, total): (i64, i64) = self
+            .conn()
+            .query_row(&sql, params![account_id, since], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok((done as u64, total as u64))
     }
 
     pub fn save_body(&self, id: i64, raw: &[u8], text: &str) -> Result<()> {
@@ -1648,6 +1703,39 @@ mod tests {
             },
         };
         store.insert_message("a", folder, &msg).unwrap()
+    }
+
+    #[test]
+    fn offline_window_picks_recent_text_mail() {
+        let store = mailbox();
+        let old = put(&store, "INBOX", 1, &summary("Старое", 100), true);
+        let fresh = put(&store, "INBOX", 2, &summary("Свежее", 1_000), true);
+        let sent = put(&store, "Sent", 3, &summary("Ответ", 1_100), true);
+        put(&store, "Trash", 4, &summary("Удалённое", 1_200), true);
+        let files = Summary {
+            has_attachments: true,
+            ..summary("С файлом", 1_300)
+        };
+        let with_files = put(&store, "INBOX", 5, &files, true);
+
+        let ids = |attachments| -> Vec<i64> {
+            store
+                .bodies_missing("a", 500, attachments, 10)
+                .unwrap()
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect()
+        };
+        // Newest first; the old one, Trash and (by default) attachments stay out.
+        assert_eq!(ids(false), [sent, fresh]);
+        assert_eq!(ids(true), [with_files, sent, fresh]);
+        assert_eq!(store.offline_progress("a", 500, false).unwrap(), (0, 2));
+
+        store.save_body(fresh, b"raw", "text").unwrap();
+        assert_eq!(ids(false), [sent]);
+        assert_eq!(store.offline_progress("a", 500, false).unwrap(), (1, 2));
+        assert_eq!(store.offline_progress("a", 0, false).unwrap(), (1, 3));
+        assert!(!ids(false).contains(&old));
     }
 
     fn mailbox() -> Store {

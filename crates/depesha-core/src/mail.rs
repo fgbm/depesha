@@ -80,6 +80,33 @@ pub async fn load_body(conn: &mut Conn, store: &Store, id: i64) -> Result<Vec<u8
     }
 }
 
+/// Downloads messages of one folder for offline reading: `(id, uid)` pairs.
+/// Returns how many were saved; messages gone from the server are skipped.
+pub async fn prefetch_bodies(conn: &mut Conn, store: &Store, folder: &str, messages: &[(i64, u32)]) -> Result<usize> {
+    let mut saved = 0;
+    match conn {
+        Conn::Imap(c) => {
+            let uids: Vec<u32> = messages.iter().map(|&(_, uid)| uid).collect();
+            for (uid, raw) in imap::fetch_raw_many(c, folder, &uids).await? {
+                if let Some(&(id, _)) = messages.iter().find(|&&(_, u)| u == uid) {
+                    store.save_body(id, &raw, &message::index_text(&raw))?;
+                    saved += 1;
+                }
+            }
+        }
+        Conn::Ews(_) => {
+            for &(id, _) in messages {
+                match load_body(conn, store, id).await {
+                    Ok(_) => saved += 1,
+                    Err(Error::NotFound) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+    }
+    Ok(saved)
+}
+
 pub async fn set_flag(
     conn: &mut Conn,
     store: &Store,
