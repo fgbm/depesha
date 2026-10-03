@@ -16,10 +16,11 @@ tauri-build = { version = "2.7.1", features = [] }
 [dependencies]
 base64 = "0.23.1"
 chrono = "0.4.45"
-depesha-core = { version = "0.3.0", path = "../crates/depesha-core" }
+depesha-core = { version = "0.4.0", path = "../crates/depesha-core" }
 keyring = "4.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sys-locale = "0.3.2"
 tauri = { version = "2.12.1", features = [] }
 tauri-plugin-dialog = "2.8.1"
 tauri-plugin-notification = "2.5.1"

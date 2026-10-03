@@ -141,7 +141,11 @@ async fn rate_limit_is_transient() {
         .unwrap_err();
     assert_eq!(err.kind(), "rate-limited");
     assert!(err.is_transient());
+    // Worded for the user in either language, at display time.
+    depesha_core::lang::pin(depesha_core::lang::Lang::Ru);
     assert!(err.to_string().contains("5 писем в минуту"), "{err}");
+    depesha_core::lang::pin(depesha_core::lang::Lang::En);
+    assert!(err.to_string().contains("5 messages a minute"), "{err}");
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, asError } from "./api";
 import { when } from "./later";
+import { i18n, t, tn } from "./i18n.svelte";
 import type {
   Account,
   AccountStatus,
@@ -73,7 +74,7 @@ class AppStore {
   serverSearching = $state(false);
   serverRows = $state<MessageRow[] | null>(null);
   wizard = $state<WizardState | null>(null);
-  settings = $state<Settings>({ undo_send_secs: 10, notify: "people", dnd_until: 0, threads: true, templates: [], updates: "auto" });
+  settings = $state<Settings>({ undo_send_secs: 10, notify: "people", dnd_until: 0, threads: true, templates: [], updates: "auto", language: "auto" });
   update = $state<UpdateStatus | null>(null);
   counters = $state<Counters>({ snoozed: 0, followups: 0 });
   split = $state<Split>((localStorage.getItem("depesha.split") as Split) ?? "all");
@@ -91,6 +92,7 @@ class AppStore {
   private openSeq = 0;
 
   async init() {
+    await this.loadLanguage();
     await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox(), this.loadSettings(), this.loadCounters()]);
     await this.reload();
     if (this.accounts.length === 0) this.wizard = { account: null };
@@ -105,9 +107,9 @@ class AppStore {
       if (a) a.status = e.payload.status;
     });
     await listen("outbox-changed", () => this.loadOutbox());
-    await listen<{ subject: string }>("sent", (e) => this.toast(`Отправлено: ${e.payload.subject || "(без темы)"}`));
+    await listen<{ subject: string }>("sent", (e) => this.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") })));
     await listen<{ error: CmdError }>("send-failed", (e) =>
-      this.toast(`Письмо не отправлено: ${e.payload.error.message}. Оно в «Исходящих».`, true),
+      this.toast(t("toast.sendFailed", { error: e.payload.error.message }), true),
     );
     await listen<{ message: string }>("app-error", (e) => this.toast(e.payload.message, true));
     await listen("counters-changed", () => {
@@ -125,6 +127,16 @@ class AppStore {
     setTimeout(() => this.dismiss(id), ms ?? (error ? 12000 : action ? 8000 : 4000));
   }
 
+  /** The language resolved by the backend: the setting, or the system locale. */
+  async loadLanguage() {
+    try {
+      i18n.lang = await api.language();
+      document.documentElement.lang = i18n.lang;
+    } catch {
+      // Stays English.
+    }
+  }
+
   async loadSettings() {
     try {
       this.settings = await api.settings();
@@ -139,15 +151,16 @@ class AppStore {
     try {
       await api.saveSettings($state.snapshot(next));
     } catch (e) {
-      this.fail(e, "Настройки не сохранены");
+      this.fail(e, t("err.settings"));
     }
+    await this.loadLanguage();
     if (threadsChanged) this.reload();
   }
 
   async checkUpdates() {
     try {
       this.update = await api.updateCheck();
-      if (this.update.state === "idle") this.toast(`Установлена последняя версия, ${this.update.current}`);
+      if (this.update.state === "idle") this.toast(t("update.latest", { version: this.update.current }));
     } catch (e) {
       this.fail(e);
     }
@@ -157,7 +170,7 @@ class AppStore {
     try {
       this.update = await api.updateInstall();
     } catch (e) {
-      this.fail(e, "Обновление");
+      this.fail(e, t("update.title"));
     }
   }
 
@@ -311,7 +324,7 @@ class AppStore {
       this.serverRows = rows;
       this.messages = this.merge(this.messages, rows);
     } catch (e) {
-      this.fail(e, "Поиск на сервере");
+      this.fail(e, t("search.server"));
     } finally {
       this.serverSearching = false;
     }
@@ -495,7 +508,7 @@ class AppStore {
       const moved = (await run(all)).filter((m) => m.message_ids.length);
       if (moved.length) {
         this.lastUndo = { moved, text };
-        this.toast(text, false, { label: "Отменить", run: () => this.undo() });
+        this.toast(text, false, { label: t("undo"), run: () => this.undo() });
       }
     } catch (e) {
       this.fail(e, failText);
@@ -504,25 +517,25 @@ class AppStore {
   }
 
   remove(ids = this.selectedIds()) {
-    return this.act(ids.length > 1 ? `Удалено писем: ${ids.length}` : "Удалено", ids, api.remove, "Не удалось удалить");
+    return this.act(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"));
   }
 
   moveTo(folder: string, ids = this.selectedIds()) {
     const name = this.folders.find((f) => f.name === folder)?.display_name ?? folder;
-    return this.act(`Перемещено в «${name}»`, ids, (all) => api.move(all, folder), "Не удалось переместить");
+    return this.act(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
   }
 
   /** "Done": out of the inbox, into the archive. */
   archive(ids = this.selectedIds()) {
-    return this.act(ids.length > 1 ? `В архиве: ${ids.length}` : "В архиве", ids, api.archive, "Не удалось убрать в архив");
+    return this.act(tn("done.archived", ids.length), ids, api.archive, t("err.archive"));
   }
 
   spam(ids = this.selectedIds()) {
-    return this.act("Отмечено как спам", ids, api.spam, "Не удалось отметить как спам");
+    return this.act(t("done.spam"), ids, api.spam, t("err.spam"));
   }
 
   snooze(until: number, ids = this.selectedIds()) {
-    return this.act(`Отложено: вернётся ${when(until)}`, ids, (all) => api.snooze(all, until), "Не удалось отложить");
+    return this.act(t("done.snoozed", { when: when(until) }), ids, (all) => api.snooze(all, until), t("err.snooze"));
   }
 
   async undo() {
@@ -532,9 +545,9 @@ class AppStore {
     this.lastUndo = null;
     try {
       await api.undo(u.moved);
-      this.toast("Отменено");
+      this.toast(t("done.undone"));
     } catch (e) {
-      this.fail(e, "Отменить не удалось");
+      this.fail(e, t("err.undo"));
     }
     this.reload();
   }
@@ -542,10 +555,10 @@ class AppStore {
   /** Queues the composition; it leaves after the undo delay or at `at`. */
   async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupDays: number | null) {
     const queued = await api.send(accountId, draft, draftId, at, followupDays);
-    const undo = { label: "Отменить", run: () => this.reopenOutbox(queued.id) };
+    const undo = { label: t("undo"), run: () => this.reopenOutbox(queued.id) };
     const secs = Math.round(queued.at - Date.now() / 1000);
-    if (at) this.toast(`Отправится ${when(queued.at)}. Письмо ждёт в «Исходящих».`, false, undo, 10000);
-    else if (secs > 0) this.toast(`Отправляется… ещё ${secs} с можно отменить`, false, undo, secs * 1000);
+    if (at) this.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);
+    else if (secs > 0) this.toast(tn("toast.sending", secs), false, undo, secs * 1000);
   }
 
   /** Takes a queued message back into the composer. */
@@ -553,7 +566,7 @@ class AppStore {
     try {
       const back = await api.outboxCancel(id);
       if (!back) {
-        this.toast("Письмо уже отправлено", true);
+        this.toast(t("toast.alreadySent"), true);
         return;
       }
       const attachments: AttachmentSource[] = [];

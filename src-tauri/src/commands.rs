@@ -19,6 +19,8 @@ use crate::error::{CmdError, CmdResult};
 use crate::secrets;
 use crate::state::{AccountStatus, AppState};
 use crate::worker::{self, Output, Work};
+use depesha_core::lang::pick;
+use depesha_core::tr;
 
 type St<'a> = State<'a, Arc<AppState>>;
 
@@ -56,7 +58,7 @@ pub async fn account_check(account: Account, password: Option<String>) -> CmdRes
         Some(p) => p,
         None => secrets::get(&account.id)
             .await?
-            .ok_or_else(|| CmdError::new("auth", "введите пароль"))?,
+            .ok_or_else(|| CmdError::new("auth", tr!("enter the password", "введите пароль")))?,
     };
     let creds = Credentials::new(account.username.clone(), password);
     let mut conn = imap::connect(&account.imap, &creds)
@@ -179,15 +181,20 @@ async fn raw_of(state: &AppState, row: &MessageRow) -> CmdResult<Vec<u8>> {
     }
     match state.worker(&row.account_id)?.run(Work::LoadBody(row.id)).await? {
         Output::Body(raw) => Ok(raw),
-        _ => Err(CmdError::new("other", "сервер не вернул письмо")),
+        _ => Err(CmdError::new(
+            "other",
+            tr!("the server did not return the message", "сервер не вернул письмо"),
+        )),
     }
 }
 
 fn row(state: &AppState, id: i64) -> CmdResult<MessageRow> {
-    state
-        .store
-        .get(id)?
-        .ok_or_else(|| CmdError::new("not-found", "письмо уже удалено или перемещено"))
+    state.store.get(id)?.ok_or_else(|| {
+        CmdError::new(
+            "not-found",
+            tr!("the message was deleted or moved", "письмо уже удалено или перемещено"),
+        )
+    })
 }
 
 #[tauri::command]
@@ -260,10 +267,15 @@ async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name:
         .worker(account_id)?
         .run(Work::CreateFolder(name.to_owned()))
         .await?;
-    state
-        .store
-        .folder_by_role(account_id, role)?
-        .ok_or_else(|| CmdError::new("not-found", format!("не удалось создать папку «{name}» на сервере")))
+    state.store.folder_by_role(account_id, role)?.ok_or_else(|| {
+        CmdError::new(
+            "not-found",
+            tr!(
+                "could not create the folder “{name}” on the server",
+                "не удалось создать папку «{name}» на сервере"
+            ),
+        )
+    })
 }
 
 #[tauri::command]
@@ -312,7 +324,7 @@ pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResul
 pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
     for ((account_id, folder), rows) in group_rows(&state, &ids)? {
-        let archive = role_folder(&state, &account_id, FolderRole::Archive, "Архив").await?;
+        let archive = role_folder(&state, &account_id, FolderRole::Archive, pick("Archive", "Архив")).await?;
         if folder != archive {
             done.push(move_group(&state, &account_id, &folder, &rows, &archive).await?);
         }
@@ -325,7 +337,7 @@ pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
 pub async fn mark_spam(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
     for ((account_id, folder), rows) in group_rows(&state, &ids)? {
-        let junk = role_folder(&state, &account_id, FolderRole::Junk, "Спам").await?;
+        let junk = role_folder(&state, &account_id, FolderRole::Junk, pick("Junk", "Спам")).await?;
         if folder != junk {
             done.push(move_group(&state, &account_id, &folder, &rows, &junk).await?);
         }
@@ -357,9 +369,15 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
     for ((account_id, folder), rows) in group_rows(&state, &ids)? {
         let rows: Vec<MessageRow> = rows.into_iter().filter(|r| r.message_id.is_some()).collect();
         if rows.is_empty() {
-            return Err(CmdError::new("other", "у письма нет Message-ID, отложить его нельзя"));
+            return Err(CmdError::new(
+                "other",
+                tr!(
+                    "the message has no Message-ID and cannot be snoozed",
+                    "у письма нет Message-ID, отложить его нельзя"
+                ),
+            ));
         }
-        let snoozed = role_folder(&state, &account_id, FolderRole::Snoozed, "Отложенные").await?;
+        let snoozed = role_folder(&state, &account_id, FolderRole::Snoozed, pick("Snoozed", "Отложенные")).await?;
         // Snoozing again from the Snoozed folder keeps the original destination.
         for r in &rows {
             let mid = r.message_id.clone().unwrap_or_default();
@@ -459,7 +477,13 @@ pub enum Unsubscribed {
 pub async fn unsubscribe(state: St<'_>, id: i64) -> CmdResult<Unsubscribed> {
     let r = row(&state, id)?;
     let Some(u) = state.store.unsubscribe_of(id)? else {
-        return Err(CmdError::new("not-found", "отправитель не указал, как отписаться"));
+        return Err(CmdError::new(
+            "not-found",
+            tr!(
+                "the sender gave no way to unsubscribe",
+                "отправитель не указал, как отписаться"
+            ),
+        ));
     };
     if let Some(url) = &u.one_click {
         match depesha_core::unsubscribe::one_click(url).await {
@@ -492,8 +516,20 @@ pub async fn unsubscribe(state: St<'_>, id: i64) -> CmdResult<Unsubscribed> {
     }
     match u.http {
         Some(url) => Ok(Unsubscribed::Link { url }),
-        None => Err(CmdError::new("not-found", "отправитель не указал, как отписаться")),
+        None => Err(CmdError::new(
+            "not-found",
+            tr!(
+                "the sender gave no way to unsubscribe",
+                "отправитель не указал, как отписаться"
+            ),
+        )),
     }
+}
+
+/// The language the interface is shown in, resolved from the settings and the locale.
+#[tauri::command]
+pub fn language(state: St<'_>) -> depesha_core::lang::Lang {
+    state.settings().lang()
 }
 
 #[tauri::command]
@@ -504,6 +540,7 @@ pub fn settings_get(state: St<'_>) -> Settings {
 #[tauri::command]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     state.save_settings(settings)?;
+    state.apply_language();
     state.emit("settings-changed", serde_json::json!({}));
     Ok(())
 }
@@ -590,7 +627,10 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
     if DANGEROUS.contains(&ext.as_str()) {
         return Err(CmdError::new(
             "dangerous",
-            format!("«{name}» — исполняемый файл. Открывать его из письма опасно; сохраните его, если уверены"),
+            tr!(
+                "“{name}” is a program. Opening it from mail is dangerous; save it if you are sure",
+                "«{name}» — исполняемый файл. Открывать его из письма опасно; сохраните его, если уверены"
+            ),
         ));
     }
     let dir = app
@@ -604,7 +644,12 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
     tokio::fs::write(&path, bytes).await?;
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
-        .map_err(|e| CmdError::new("io", format!("не удалось открыть файл: {e}")))
+        .map_err(|e| {
+            CmdError::new(
+                "io",
+                tr!("could not open the file: {e}", "не удалось открыть файл: {e}"),
+            )
+        })
 }
 
 fn safe_name(name: &str) -> String {
@@ -646,7 +691,10 @@ fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
 pub fn open_link(app: tauri::AppHandle, url: String) -> CmdResult<()> {
     let lower = url.trim().to_ascii_lowercase();
     if !(lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("mailto:")) {
-        return Err(CmdError::new("dangerous", "такие ссылки не открываются"));
+        return Err(CmdError::new(
+            "dangerous",
+            tr!("links of this kind are not opened", "такие ссылки не открываются"),
+        ));
     }
     app.opener()
         .open_url(url.trim(), None::<&str>)
@@ -716,7 +764,10 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
     if total > MAX_ATTACHMENTS {
         return Err(CmdError::new(
             "too-large",
-            "вложения больше 50 МБ — почтовые серверы такое не примут",
+            tr!(
+                "attachments over 50 MB: mail servers will not accept them",
+                "вложения больше 50 МБ — почтовые серверы такое не примут"
+            ),
         ));
     }
     Ok(Draft {
@@ -814,7 +865,10 @@ async fn discard(state: &AppState, id: i64) -> CmdResult<()> {
 pub async fn draft_save(state: St<'_>, account_id: String, draft: ComposeDraft, replace: Option<i64>) -> CmdResult<()> {
     let account = state.account(&account_id)?;
     let Some(folder) = state.store.folder_by_role(&account.id, FolderRole::Drafts)? else {
-        return Err(CmdError::new("not-found", "на сервере нет папки «Черновики»"));
+        return Err(CmdError::new(
+            "not-found",
+            tr!("the server has no Drafts folder", "на сервере нет папки «Черновики»"),
+        ));
     };
     let mut draft = resolve(&state, draft).await?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {

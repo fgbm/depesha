@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
-  import { matches } from "../lib/format";
+  import { matches, roleLabel } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { snoozePresets } from "../lib/later";
 
   let {
@@ -22,72 +23,63 @@
   let active = $state(0);
   let input = $state<HTMLInputElement | null>(null);
 
-  const ROLE: Record<string, string> = {
-    inbox: "Входящие",
-    snoozed: "Отложенные",
-    drafts: "Черновики",
-    sent: "Отправленные",
-    archive: "Архив",
-    junk: "Спам",
-    trash: "Корзина",
-  };
 
   function go(v: View): () => void {
     return () => app.setView(v);
   }
 
   const commands = $derived.by(() => {
-    const list: Command[] = [{ label: "Написать письмо", hint: "c", run: onCompose }];
+    const list: Command[] = [{ label: t("cmd.compose"), hint: "c", run: onCompose }];
     const target = app.selectedIds();
     const msg = app.opened;
     if (msg) {
       list.push(
-        { label: "Ответить", hint: "r", run: () => onReply(false) },
-        { label: "Ответить всем", hint: "a", run: () => onReply(true) },
-        { label: "Переслать", hint: "f", run: onForward },
+        { label: t("act.reply"), hint: "r", run: () => onReply(false) },
+        { label: t("cmd.replyAll"), hint: "a", run: () => onReply(true) },
+        { label: t("act.forward"), hint: "f", run: onForward },
       );
     }
     if (target.length) {
-      list.push({ label: "Готово: убрать в архив", hint: "e", run: () => app.archive() });
-      for (const p of snoozePresets()) list.push({ label: `Отложить: ${p.label.toLowerCase()}`, hint: p.hint, run: () => app.snooze(p.at) });
+      list.push({ label: t("cmd.done"), hint: "e", run: () => app.archive() });
+      for (const p of snoozePresets()) list.push({ label: t("cmd.snooze", { when: p.label.toLowerCase() }), hint: p.hint, run: () => app.snooze(p.at) });
       list.push(
-        { label: "Удалить", hint: "Delete", run: () => app.remove() },
-        { label: "Это спам", hint: "!", run: () => app.spam() },
-        { label: "Поставить или снять флаг", hint: "s", run: () => msg && app.flag("flagged", !msg.row.flags.flagged) },
-        { label: "Отметить непрочитанным", hint: "u", run: () => app.flag("seen", false) },
+        { label: t("act.delete"), hint: "Delete", run: () => app.remove() },
+        { label: t("act.spam"), hint: "!", run: () => app.spam() },
+        { label: t("cmd.flag"), hint: "s", run: () => msg && app.flag("flagged", !msg.row.flags.flagged) },
+        { label: t("act.markUnread"), hint: "u", run: () => app.flag("seen", false) },
       );
       const account = msg?.row.account_id ?? app.messages.find((m) => m.id === target[0])?.account_id;
       for (const f of app.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
-        list.push({ label: `Переместить в «${f.role ? ROLE[f.role] : f.display_name}»`, run: () => app.moveTo(f.name) });
+        list.push({ label: t("cmd.moveTo", { folder: f.role ? roleLabel(f.role) : f.display_name }), run: () => app.moveTo(f.name) });
       }
     }
-    if (app.lastUndo) list.push({ label: `Отменить: ${app.lastUndo.text}`, hint: "z", run: () => app.undo() });
+    if (app.lastUndo) list.push({ label: t("cmd.undo", { what: app.lastUndo.text }), hint: "z", run: () => app.undo() });
     list.push(
-      { label: "Найти в почте", hint: "/", run: onSearch },
-      { label: "Перейти: все входящие", run: go({ kind: "unified", role: "inbox" }) },
-      { label: "Перейти: непрочитанные", run: go({ kind: "unified", role: "inbox", unread: true }) },
-      { label: "Перейти: с флагом", run: go({ kind: "unified", role: "inbox", flagged: true }) },
-      { label: "Перейти: отложенные", run: go({ kind: "snoozed" }) },
-      { label: "Перейти: ждут ответа", run: go({ kind: "followups" }) },
-      { label: "Перейти: исходящие", run: go({ kind: "outbox" }) },
+      { label: t("cmd.search"), hint: "/", run: onSearch },
+      { label: t("cmd.go", { where: t("nav.allInboxes").toLowerCase() }), run: go({ kind: "unified", role: "inbox" }) },
+      { label: t("cmd.go", { where: t("nav.unread").toLowerCase() }), run: go({ kind: "unified", role: "inbox", unread: true }) },
+      { label: t("cmd.go", { where: t("nav.flagged").toLowerCase() }), run: go({ kind: "unified", role: "inbox", flagged: true }) },
+      { label: t("cmd.go", { where: t("role.snoozed").toLowerCase() }), run: go({ kind: "snoozed" }) },
+      { label: t("cmd.go", { where: t("nav.followups").toLowerCase() }), run: go({ kind: "followups" }) },
+      { label: t("cmd.go", { where: t("nav.outbox").toLowerCase() }), run: go({ kind: "outbox" }) },
     );
     const many = app.accounts.length > 1;
     for (const f of app.folders.filter((f) => f.selectable && !f.hidden)) {
       const acc = app.account(f.account_id);
-      const name = f.role ? ROLE[f.role] : f.display_name;
+      const name = f.role ? roleLabel(f.role) : f.display_name;
       list.push({
-        label: `Открыть папку «${name}»${many && acc ? ` · ${acc.display_name || acc.email}` : ""}`,
+        label: t("cmd.openFolder", { folder: name }) + (many && acc ? ` · ${acc.display_name || acc.email}` : ""),
         run: go({ kind: "folder", account_id: f.account_id, folder: f.name }),
       });
     }
     const dnd = app.settings.dnd_until > Date.now() / 1000;
     list.push(
       dnd
-        ? { label: "Выключить «Не беспокоить»", run: () => app.saveSettings({ ...app.settings, dnd_until: 0 }) }
-        : { label: "Не беспокоить час", run: () => app.saveSettings({ ...app.settings, dnd_until: Math.floor(Date.now() / 1000) + 3600 }) },
-      { label: "Проверить почту сейчас", run: () => api.syncNow().catch((e) => app.fail(e)) },
-      { label: "Настройки", run: () => (app.settingsOpen = true) },
-      { label: "Добавить почтовый ящик", run: () => (app.wizard = { account: null }) },
+        ? { label: t("cmd.dndOff"), run: () => app.saveSettings({ ...app.settings, dnd_until: 0 }) }
+        : { label: t("cmd.dndHour"), run: () => app.saveSettings({ ...app.settings, dnd_until: Math.floor(Date.now() / 1000) + 3600 }) },
+      { label: t("cmd.sync"), run: () => api.syncNow().catch((e) => app.fail(e)) },
+      { label: t("settings.title"), run: () => (app.settingsOpen = true) },
+      { label: t("cmd.addAccount"), run: () => (app.wizard = { account: null }) },
     );
     return list;
   });
@@ -125,8 +117,8 @@
 </script>
 
 <div class="backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && (app.paletteOpen = false)}>
-  <div class="palette" role="dialog" aria-label="Команды">
-    <input class="q" bind:this={input} bind:value={query} onkeydown={onKey} placeholder="Что сделать? Например: «отл завт» или «пер архив»" />
+  <div class="palette" role="dialog" aria-label={t("cmd.title")}>
+    <input class="q" bind:this={input} bind:value={query} onkeydown={onKey} placeholder={t("cmd.placeholder")} />
     <div class="items" role="listbox">
       {#each shown as c, i (c.label)}
         <button class="item" class:active={i === active} role="option" aria-selected={i === active} onpointermove={() => (active = i)} onclick={() => run(c)}>
@@ -134,7 +126,7 @@
           {#if c.hint}<span class="hint">{c.hint}</span>{/if}
         </button>
       {:else}
-        <div class="none muted">Нет такой команды</div>
+        <div class="none muted">{t("cmd.none")}</div>
       {/each}
     </div>
   </div>

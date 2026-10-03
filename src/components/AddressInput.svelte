@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   import { api } from "../lib/api";
   import { addrFull, parseAddr } from "../lib/format";
   import type { Addr } from "../lib/types";
@@ -88,7 +89,7 @@
     {#each value as a, i (a.email)}
       <span class="chip" title={a.email}>
         {addrFull(a)}
-        <button onclick={() => value.splice(i, 1)} aria-label="Убрать">×</button>
+        <button onclick={() => value.splice(i, 1)} aria-label={t("remove")}>×</button>
       </span>
     {/each}
     <!-- svelte-ignore a11y_autofocus -->

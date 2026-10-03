@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — 2026-10-03
+
+- English and Russian. The language follows the system locale (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`; Russian for `ru*`, English otherwise) and can be set in Settings; switching applies at once, without a restart.
+- Translated: the interface, error messages from the mail engine, notifications, date formats, plural forms, reply and forward headers, the names of folders Depesha creates (Archive, Spam, Snoozed). Replies quote in the interface language; quotes and reply prefixes in either language are recognised.
+
 ## 0.3.0 — 2026-10-03
 
 - Self-updating, modelled on OpenCode's `autoupdate`: `auto` (default), `notify` or `off` in Settings; a check at start and every six hours, "Check now" in Settings.

@@ -1,32 +1,46 @@
-import type { Addr } from "./types";
+import { i18n, locale, t, tn } from "./i18n.svelte";
+import type { Addr, FolderRole } from "./types";
 
-const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" });
-const dayMonth = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" });
-const full = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
-const long = new Intl.DateTimeFormat("ru-RU", {
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+/** "Inbox" / "Входящие" for a folder with a known role. */
+export function roleLabel(role: FolderRole): string {
+  return t(`role.${role}`);
+}
+
+type Formats = Record<"time" | "dayMonth" | "full" | "long", Intl.DateTimeFormat>;
+const cache = new Map<string, Formats>();
+
+/** Date formats of the interface language, built once per language. */
+function f(): Formats {
+  const loc = locale();
+  let v = cache.get(loc);
+  if (!v) {
+    v = {
+      time: new Intl.DateTimeFormat(loc, { hour: "2-digit", minute: "2-digit" }),
+      dayMonth: new Intl.DateTimeFormat(loc, { day: "numeric", month: "short" }),
+      full: new Intl.DateTimeFormat(loc, { day: "2-digit", month: "2-digit", year: "numeric" }),
+      long: new Intl.DateTimeFormat(loc, { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+    };
+    cache.set(loc, v);
+  }
+  return v;
+}
 
 /** Compact date for the list: time today, day and month this year, full date otherwise. */
 export function listDate(unix: number, now = new Date()): string {
   const d = new Date(unix * 1000);
-  if (d.toDateString() === now.toDateString()) return time.format(d);
-  if (d.getFullYear() === now.getFullYear()) return dayMonth.format(d).replace(".", "");
-  return full.format(d);
+  if (d.toDateString() === now.toDateString()) return f().time.format(d);
+  if (d.getFullYear() === now.getFullYear()) return f().dayMonth.format(d).replace(".", "");
+  return f().full.format(d);
 }
 
 export function longDate(unix: number | null): string {
-  return unix ? long.format(new Date(unix * 1000)) : "";
+  return unix ? f().long.format(new Date(unix * 1000)) : "";
 }
 
 export function shortDateTime(unix: number | null): string {
   if (!unix) return "";
   const d = new Date(unix * 1000);
-  return `${full.format(d)} ${time.format(d)}`;
+  return `${f().full.format(d)} ${f().time.format(d)}`;
 }
 
 export function addrName(a: Addr | null | undefined): string {
@@ -39,9 +53,11 @@ export function addrFull(a: Addr): string {
 }
 
 export function size(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
-  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
+  const ru = i18n.lang === "ru";
+  if (bytes < 1024) return `${bytes} ${ru ? "Б" : "B"}`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ${ru ? "КБ" : "KB"}`;
+  const mb = (bytes / 1024 / 1024).toFixed(1);
+  return ru ? `${mb.replace(".", ",")} МБ` : `${mb} MB`;
 }
 
 const EMAIL = /^[^\s@<>()",;]+@[^\s@<>()",;]+\.[^\s@<>()",;]+$/;
@@ -80,6 +96,11 @@ export function pluralRu(n: number, one: string, few: string, many: string): str
   if (m10 === 1 && m100 !== 11) return one;
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
+}
+
+/** "3 messages" / "3 письма". */
+export function messagesCount(n: number): string {
+  return tn("count.messages", n);
 }
 
 /** A stable, readable colour per address, so senders are told apart at a glance. */

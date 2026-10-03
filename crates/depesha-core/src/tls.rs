@@ -9,6 +9,7 @@ use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVe
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio_rustls::rustls::{self, CertificateError, ClientConfig, DigitallySignedStruct, SignatureScheme};
 
+use crate::lang::pick;
 use crate::{Error, Result};
 
 /// Why the server certificate was rejected, with what the user needs to
@@ -95,18 +96,23 @@ impl ServerCertVerifier for Verifier {
 fn describe(host: &str, cert: &CertificateDer<'_>, sha256: String, err: &rustls::Error) -> CertProblem {
     let reason = match err {
         rustls::Error::InvalidCertificate(e) => match e {
-            CertificateError::Expired | CertificateError::ExpiredContext { .. } => "срок действия сертификата истёк",
-            CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => {
-                "сертификат ещё не действует (проверьте часы компьютера)"
+            CertificateError::Expired | CertificateError::ExpiredContext { .. } => {
+                pick("the certificate has expired", "срок действия сертификата истёк")
             }
-            CertificateError::UnknownIssuer => {
-                "сертификат выдан неизвестным центром: самоподписанный или внутренний центр сертификации"
-            }
-            CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => {
-                "сертификат выдан для другого имени сервера"
-            }
-            CertificateError::Revoked => "сертификат отозван",
-            _ => "сертификат не прошёл проверку",
+            CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => pick(
+                "the certificate is not valid yet (check the computer's clock)",
+                "сертификат ещё не действует (проверьте часы компьютера)",
+            ),
+            CertificateError::UnknownIssuer => pick(
+                "issued by an unknown authority: self-signed or an internal certificate authority",
+                "сертификат выдан неизвестным центром: самоподписанный или внутренний центр сертификации",
+            ),
+            CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => pick(
+                "issued for a different server name",
+                "сертификат выдан для другого имени сервера",
+            ),
+            CertificateError::Revoked => pick("the certificate is revoked", "сертификат отозван"),
+            _ => pick("the certificate failed verification", "сертификат не прошёл проверку"),
         }
         .to_owned(),
         other => other.to_string(),

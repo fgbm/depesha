@@ -16,6 +16,7 @@ use tokio::task::JoinHandle;
 
 use crate::error::CmdError;
 use crate::state::{AccountStatus, AppState};
+use depesha_core::lang::pick;
 
 const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
 const POLL_WITHOUT_IDLE: Duration = Duration::from_secs(120);
@@ -375,6 +376,15 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
     Ok(())
 }
 
+fn new_messages(n: usize) -> String {
+    let ru = match (n % 10, n % 100) {
+        (1, r) if r != 11 => "новое письмо",
+        (2..=4, r) if !(12..=14).contains(&r) => "новых письма",
+        _ => "новых писем",
+    };
+    depesha_core::tr!("{n} new messages", "{n} {ru}")
+}
+
 fn notify_new_mail(state: &AppState, account: &Account, fresh: &[depesha_core::store::MessageRow]) {
     // Newsletters and robots stay silent by default (settings: notify).
     let people: Vec<_> = fresh.iter().filter(|m| !m.bulk).collect();
@@ -388,12 +398,12 @@ fn notify_new_mail(state: &AppState, account: &Account, fresh: &[depesha_core::s
                 .map(|a| a.name.clone().unwrap_or_else(|| a.email.clone()))
                 .unwrap_or_default(),
             if m.subject.is_empty() {
-                "(без темы)".to_owned()
+                pick("(no subject)", "(без темы)").to_owned()
             } else {
                 m.subject.clone()
             },
         ),
-        many => (format!("{} новых писем", many.len()), account.email.clone()),
+        many => (new_messages(many.len()), account.email.clone()),
     };
     state.notify(&title, &body, bulk);
 }

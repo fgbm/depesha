@@ -11,6 +11,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{self, Security, ServerConfig};
+use crate::tr;
 use crate::{Error, imap, smtp, tls};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(6);
@@ -32,7 +33,7 @@ pub async fn detect(email: &str) -> Detection {
     let email = email.trim();
     let Some(domain) = account::domain_of(email).map(str::to_ascii_lowercase) else {
         return Detection {
-            notes: vec!["адрес без домена".into()],
+            notes: vec![tr!("the address has no domain", "адрес без домена")],
             ..Default::default()
         };
     };
@@ -44,7 +45,7 @@ pub async fn detect(email: &str) -> Detection {
     if let Some((imap, smtp)) = account::known_provider(&domain) {
         d.imap = Some(imap);
         d.smtp = Some(smtp);
-        d.source = "известный провайдер".into();
+        d.source = tr!("known provider", "известный провайдер");
         return d;
     }
 
@@ -74,7 +75,7 @@ pub async fn detect(email: &str) -> Detection {
         }
         d.notes.extend(notes);
         if d.source.is_empty() && (d.imap.is_some() || d.smtp.is_some()) {
-            d.source = "перебор адресов сервера".into();
+            d.source = tr!("probing server names", "перебор адресов сервера");
         }
     }
     d
@@ -142,7 +143,10 @@ fn by_mx(email: &str, mx: &[String]) -> Option<Detection> {
         return Some(Detection {
             username: email.to_owned(),
             source: "MX: Microsoft 365".into(),
-            notes: vec!["Microsoft 365 требует вход через OAuth2, в этой версии он не поддерживается".into()],
+            notes: vec![tr!(
+                "Microsoft 365 requires OAuth2 sign-in, which this version does not support",
+                "Microsoft 365 требует вход через OAuth2, в этой версии он не поддерживается"
+            )],
             ..Default::default()
         });
     } else {
@@ -372,8 +376,11 @@ mod tests {
 
     #[tokio::test]
     async fn known_provider_needs_no_network() {
+        crate::lang::pin(crate::lang::Lang::Ru);
         let d = detect("someone@yandex.ru").await;
         assert_eq!(d.imap.unwrap().host, "imap.yandex.ru");
         assert_eq!(d.source, "известный провайдер");
+        crate::lang::pin(crate::lang::Lang::En);
+        assert_eq!(detect("someone@yandex.ru").await.source, "known provider");
     }
 }

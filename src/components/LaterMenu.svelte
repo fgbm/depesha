@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fromLocalInput, toLocalInput, type Preset } from "../lib/later";
+  import { t } from "../lib/i18n.svelte";
 
   let {
     title,
@@ -18,7 +19,7 @@
 {/each}
 <hr />
 <div class="custom">
-  <input class="input" type="datetime-local" bind:value={custom} aria-label="Своё время" />
+  <input class="input" type="datetime-local" bind:value={custom} aria-label={t("later.custom")} />
   <button class="btn" disabled={!customAt || customAt * 1000 <= Date.now()} onclick={() => customAt && onPick(customAt)}>{action}</button>
 </div>
 

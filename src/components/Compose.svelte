@@ -10,6 +10,7 @@
   import { isDirty, swapSignature } from "../lib/compose";
   import { size } from "../lib/format";
   import { sendLaterPresets } from "../lib/later";
+  import { t } from "../lib/i18n.svelte";
   import { preflight, type Warning } from "../lib/preflight";
   import AddressInput from "./AddressInput.svelte";
   import Popover from "./Popover.svelte";
@@ -70,7 +71,7 @@
   }
 
   async function attach() {
-    const picked = await openDialog({ multiple: true, title: "Прикрепить файлы" });
+    const picked = await openDialog({ multiple: true, title: t("compose.attachTitle") });
     if (!picked) return;
     for (const path of Array.isArray(picked) ? picked : [picked]) {
       try {
@@ -92,11 +93,11 @@
     error = "";
     laterOpen = false;
     if (!commitAll()) {
-      error = "Проверьте адреса: некоторые не похожи на почтовые.";
+      error = t("compose.badAddresses");
       return;
     }
     if (c.draft.to.length + c.draft.cc.length + c.draft.bcc.length === 0) {
-      error = "Укажите хотя бы одного получателя.";
+      error = t("compose.noRecipients");
       return;
     }
     if (!force) {
@@ -127,7 +128,7 @@
       await api.draftSave(c.account_id, $state.snapshot(c.draft), c.draft_id);
       return true;
     } catch (e) {
-      error = `Черновик не сохранён: ${(e as { message: string }).message}`;
+      error = t("compose.draftNotSaved", { error: (e as { message: string }).message });
       return false;
     } finally {
       busy = false;
@@ -138,15 +139,15 @@
     if (busy) return;
     if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
       if (!(await saveDraft())) {
-        const drop = await ask("Черновик не удалось сохранить на сервере. Закрыть и потерять письмо?", {
-          title: "Депеша",
+        const drop = await ask(t("compose.closeAnyway"), {
+          title: t("app.name"),
           kind: "warning",
-          okLabel: "Закрыть",
-          cancelLabel: "Вернуться",
+          okLabel: t("close"),
+          cancelLabel: t("compose.goBack"),
         });
         if (!drop) return;
       } else {
-        app.toast("Черновик сохранён");
+        app.toast(t("compose.draftSaved"));
       }
     }
     app.compose = null;
@@ -154,7 +155,7 @@
 
   async function discard() {
     if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
-      const ok = await ask("Удалить это письмо без сохранения?", { title: "Депеша", kind: "warning", okLabel: "Удалить", cancelLabel: "Отмена" });
+      const ok = await ask(t("compose.discardConfirm"), { title: t("app.name"), kind: "warning", okLabel: t("act.delete"), cancelLabel: t("cancel") });
       if (!ok) return;
     }
     app.compose = null;
@@ -172,43 +173,43 @@
 </script>
 
 <div class="modal-backdrop" role="presentation">
-  <div class="modal compose" role="dialog" aria-label="Новое письмо" tabindex="-1" onkeydown={onKey}>
+  <div class="modal compose" role="dialog" aria-label={t("compose.newMessage")} tabindex="-1" onkeydown={onKey}>
     <header>
-      <h3>{c.draft.subject.trim() || "Новое письмо"}</h3>
-      <button class="btn ghost" onclick={close} title="Закрыть (Esc), черновик сохранится">×</button>
+      <h3>{c.draft.subject.trim() || t("compose.newMessage")}</h3>
+      <button class="btn ghost" onclick={close} title={t("compose.closeHint")}>×</button>
     </header>
 
     <div class="fields">
       <div class="row">
-        <span class="label">От</span>
+        <span class="label">{t("compose.fwd.from")}</span>
         <select class="input from" value={c.account_id} onchange={(e) => setAccount(e.currentTarget.value)}>
           {#each app.accounts as a (a.id)}
             <option value={a.id}>{a.display_name ? `${a.display_name} <${a.email}>` : a.email}</option>
           {/each}
         </select>
-        {#if !showCc}<button class="btn ghost small" onclick={() => (showCc = true)}>Копия</button>{/if}
+        {#if !showCc}<button class="btn ghost small" onclick={() => (showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
       </div>
-      <AddressInput label="Кому" bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} />
+      <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} />
       {#if showCc}
-        <AddressInput label="Копия" bind:value={c.draft.cc} bind:this={ccInput} />
-        <AddressInput label="Скрытая" bind:value={c.draft.bcc} bind:this={bccInput} />
+        <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={ccInput} />
+        <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={bccInput} />
       {/if}
       <div class="row">
-        <span class="label">Тема</span>
+        <span class="label">{t("compose.fwd.subject")}</span>
         <input class="subject" bind:value={c.draft.subject} />
       </div>
     </div>
 
-    <textarea bind:this={body} bind:value={c.draft.text} onfocus={onBodyFocus} spellcheck="true" placeholder="Текст письма"></textarea>
+    <textarea bind:this={body} bind:value={c.draft.text} onfocus={onBodyFocus} spellcheck="true" placeholder={t("compose.bodyPlaceholder")}></textarea>
 
     {#if c.draft.attachments.length}
       <div class="files">
         {#each c.draft.attachments as a, i (i)}
           <span class="file"><Paperclip size={12} /> {a.name} <span class="muted">{size(a.size)}</span>
-            <button onclick={() => c.draft.attachments.splice(i, 1)} aria-label="Убрать">×</button></span>
+            <button onclick={() => c.draft.attachments.splice(i, 1)} aria-label={t("remove")}>×</button></span>
         {/each}
         <span class="muted total" class:danger-text={total > 25 * 1024 * 1024}>
-          всего {size(total)}{total > 25 * 1024 * 1024 ? " — многие серверы не примут больше 25 МБ" : ""}
+          {t("compose.total", { size: size(total) })}{total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
         </span>
       </div>
     {/if}
@@ -221,33 +222,33 @@
         <div class="list">
           {#each warnings as w (w.kind)}<div>{w.text}</div>{/each}
         </div>
-        <button class="btn" onclick={() => (warnings = null)}>Исправить</button>
-        <button class="btn primary" onclick={() => send(pendingAt, true)}>Отправить всё равно</button>
+        <button class="btn" onclick={() => (warnings = null)}>{t("compose.fix")}</button>
+        <button class="btn primary" onclick={() => send(pendingAt, true)}>{t("compose.sendAnyway")}</button>
       </div>
     {/if}
 
     <footer>
       <span class="split-btn anchor">
-        <button class="btn primary main" onclick={() => send()} disabled={busy}>Отправить <kbd>Ctrl+Enter</kbd></button>
-        <button class="btn primary more" onclick={() => (laterOpen = !laterOpen)} disabled={busy} title="Отправить позже" aria-label="Отправить позже">
+        <button class="btn primary main" onclick={() => send()} disabled={busy}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn primary more" onclick={() => (laterOpen = !laterOpen)} disabled={busy} title={t("compose.sendLater")} aria-label={t("compose.sendLater")}>
           <ChevronDown size={15} />
         </button>
         <Popover bind:open={laterOpen} align="left">
-          <LaterMenu title="Отправить позже" presets={sendLaterPresets()} action="Запланировать" onPick={(at) => send(at)} />
+          <LaterMenu title={t("compose.sendLater")} presets={sendLaterPresets()} action={t("compose.schedule")} onPick={(at) => send(at)} />
         </Popover>
       </span>
-      <select class="input remind" bind:value={remindDays} title="Напомнить, если не ответят">
-        <option value={0}>Без напоминания</option>
-        <option value={1}>Напомнить через день без ответа</option>
-        <option value={3}>Напомнить через 3 дня без ответа</option>
-        <option value={7}>Напомнить через неделю без ответа</option>
+      <select class="input remind" bind:value={remindDays} title={t("compose.remindHint")}>
+        <option value={0}>{t("compose.remind0")}</option>
+        <option value={1}>{t("compose.remind1")}</option>
+        <option value={3}>{t("compose.remind3")}</option>
+        <option value={7}>{t("compose.remind7")}</option>
       </select>
-      <button class="btn" onclick={attach} disabled={busy} title="Прикрепить файлы или перетащить их в окно"><Paperclip size={15} /> Файлы</button>
+      <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")}><Paperclip size={15} /> {t("compose.files")}</button>
       {#if app.settings.templates.length}
         <span class="anchor">
-          <button class="btn" onclick={() => (templatesOpen = !templatesOpen)}><FileText size={15} /> Шаблоны</button>
+          <button class="btn" onclick={() => (templatesOpen = !templatesOpen)}><FileText size={15} /> {t("compose.templates")}</button>
           <Popover bind:open={templatesOpen} align="left">
-            <div class="mt">Вставить шаблон</div>
+            <div class="mt">{t("compose.insertTemplate")}</div>
             {#each app.settings.templates as t, i (i)}
               <button class="mi" onclick={() => insertTemplate(t.text)}>{t.name}</button>
             {/each}
@@ -255,8 +256,8 @@
         </span>
       {/if}
       <span class="spacer"></span>
-      <button class="btn ghost" onclick={async () => { if (await saveDraft()) { app.compose = null; app.toast("Черновик сохранён"); } }} disabled={busy}>Сохранить черновик</button>
-      <button class="btn ghost" onclick={discard} disabled={busy}>Удалить</button>
+      <button class="btn ghost" onclick={async () => { if (await saveDraft()) { app.compose = null; app.toast(t("compose.draftSaved")); } }} disabled={busy}>{t("compose.saveDraft")}</button>
+      <button class="btn ghost" onclick={discard} disabled={busy}>{t("act.delete")}</button>
     </footer>
   </div>
 </div>

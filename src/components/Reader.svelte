@@ -22,6 +22,7 @@
   import { addrFull, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
   import { emptyDraft, fromDraft, withSignature } from "../lib/compose";
   import { snoozePresets, when } from "../lib/later";
+  import { t, tn } from "../lib/i18n.svelte";
   import MailFrame from "./MailFrame.svelte";
   import Popover from "./Popover.svelte";
   import LaterMenu from "./LaterMenu.svelte";
@@ -57,7 +58,7 @@
       app.compose = { account_id: acc.id, draft: withSignature(draft, acc.signature), draft_id: null };
       return;
     }
-    const ok = await ask(`Открыть ссылку в браузере?\n\n${href}`, { title: "Депеша", okLabel: "Открыть", cancelLabel: "Отмена" });
+    const ok = await ask(`${t("link.open")}\n\n${href}`, { title: t("app.name"), okLabel: t("link.openButton"), cancelLabel: t("cancel") });
     if (ok) api.openLink(href).catch((e) => app.fail(e));
   }
 
@@ -72,11 +73,11 @@
 
   async function saveAttachment(a: AttachmentInfo) {
     if (!msg) return;
-    const path = await save({ defaultPath: a.name, title: "Сохранить вложение" });
+    const path = await save({ defaultPath: a.name, title: t("file.saveTitle") });
     if (!path) return;
     try {
       await api.attachmentSave(msg.row.id, a.index, path);
-      app.toast(`Сохранено: ${a.name}`);
+      app.toast(t("file.saved", { name: a.name }));
     } catch (e) {
       app.fail(e);
     }
@@ -84,11 +85,11 @@
 
   async function saveAll() {
     if (!msg) return;
-    const dir = await openDialog({ directory: true, title: "Куда сохранить вложения" });
+    const dir = await openDialog({ directory: true, title: t("file.saveAllTitle") });
     if (!dir || Array.isArray(dir)) return;
     try {
       const n = await api.attachmentsSaveAll(msg.row.id, dir);
-      app.toast(`Сохранено вложений: ${n}`);
+      app.toast(tn("file.savedAll", n));
     } catch (e) {
       app.fail(e);
     }
@@ -111,7 +112,7 @@
   }
 
   let confirmUnsub = $state(false);
-  const listName = $derived(msg?.view.summary.from?.name ?? msg?.view.summary.from?.email ?? "рассылки");
+  const listName = $derived(msg?.view.summary.from?.name ?? msg?.view.summary.from?.email ?? t("unsub.listFallback"));
 
   async function unsubscribe() {
     if (!msg) return;
@@ -119,11 +120,11 @@
     const who = listName;
     try {
       const r = await api.unsubscribe(msg.row.id);
-      if (r.kind === "done") app.toast(`Вы отписаны от «${who}».`);
-      else if (r.kind === "mail-sent") app.toast(`Запрос на отписку отправлен на ${r.to}.`);
+      if (r.kind === "done") app.toast(t("unsub.done", { who }));
+      else if (r.kind === "mail-sent") app.toast(t("unsub.mailSent", { to: r.to }));
       else link(r.url);
     } catch (e) {
-      app.fail(e, "Отписаться не удалось");
+      app.fail(e, t("unsub.failed"));
     }
   }
 
@@ -157,22 +158,22 @@
 <section class="reader">
   {#if bulk}
     <div class="center">
-      <h3>Выбрано писем: {app.selected.size}</h3>
+      <h3>{t("bulk.selected", { n: app.selected.size })}</h3>
       <div class="actions">
-        <button class="btn" onclick={() => app.archive()}><Archive size={15} /> Готово</button>
+        <button class="btn" onclick={() => app.archive()}><Archive size={15} /> {t("act.done")}</button>
         <span class="anchor">
-          <button class="btn" onclick={() => (bulkSnooze = !bulkSnooze)}><AlarmClock size={15} /> Отложить</button>
+          <button class="btn" onclick={() => (bulkSnooze = !bulkSnooze)}><AlarmClock size={15} /> {t("act.snooze")}</button>
           <Popover bind:open={bulkSnooze} align="left">
-            <LaterMenu title="Вернуть во входящие" presets={snoozePresets()} action="Отложить" onPick={snoozeTo} />
+            <LaterMenu title={t("snooze.menuTitle")} presets={snoozePresets()} action={t("act.snooze")} onPick={snoozeTo} />
           </Popover>
         </span>
-        <button class="btn" onclick={() => app.flag("seen", true)}>Прочитано</button>
-        <button class="btn" onclick={() => app.flag("seen", false)}>Не прочитано</button>
-        <button class="btn" onclick={() => app.flag("flagged", true)}><Flag size={15} /> Флаг</button>
-        <button class="btn" onclick={() => app.remove()}><Trash size={15} /> Удалить</button>
+        <button class="btn" onclick={() => app.flag("seen", true)}>{t("act.read")}</button>
+        <button class="btn" onclick={() => app.flag("seen", false)}>{t("act.unread")}</button>
+        <button class="btn" onclick={() => app.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
+        <button class="btn" onclick={() => app.remove()}><Trash size={15} /> {t("act.delete")}</button>
         {#if bulkFolders.length}
           <select class="input" onchange={(e) => { const v = e.currentTarget.value; e.currentTarget.value = ""; if (v) app.moveTo(v); }}>
-            <option value="">В папку…</option>
+            <option value="">{t("act.toFolder")}</option>
             {#each bulkFolders as f (f.name)}<option value={f.name}>{f.display_name}</option>{/each}
           </select>
         {/if}
@@ -182,49 +183,49 @@
     <div class="center">
       <p class="danger-text">{app.openError.message}</p>
       {#if app.opened === null && app.selected.size === 1}
-        <button class="btn" onclick={() => app.open([...app.selected][0])}>Повторить</button>
+        <button class="btn" onclick={() => app.open([...app.selected][0])}>{t("retry")}</button>
       {/if}
     </div>
   {:else if msg}
     <div class="toolbar">
       {#if isDraft}
-        <button class="btn primary" onclick={editDraft}><Pencil size={15} /> Продолжить черновик</button>
+        <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
       {:else}
-        <button class="btn" onclick={() => onReply(false)} title="Ответить (r)"><Reply size={15} /> Ответить</button>
-        <button class="btn" onclick={() => onReply(true)} title="Ответить всем (a)"><ReplyAll size={15} /><span class="lbl">Всем</span></button>
-        <button class="btn" onclick={onForward} title="Переслать (f)"><Forward size={15} /><span class="lbl">Переслать</span></button>
+        <button class="btn" onclick={() => onReply(false)} title={t("act.replyHint")}><Reply size={15} /> {t("act.reply")}</button>
+        <button class="btn" onclick={() => onReply(true)} title={t("act.replyAllHint")}><ReplyAll size={15} /><span class="lbl">{t("act.replyAll")}</span></button>
+        <button class="btn" onclick={onForward} title={t("act.forwardHint")}><Forward size={15} /><span class="lbl">{t("act.forward")}</span></button>
       {/if}
       <span class="sep"></span>
-      <button class="btn ghost" onclick={() => app.archive()} title="Готово: убрать в архив (e)"><Archive size={16} /><span class="lbl2">Готово</span></button>
+      <button class="btn ghost" onclick={() => app.archive()} title={t("act.doneHint")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
       <span class="anchor">
-        <button class="btn ghost" onclick={() => (app.snoozeOpen = !app.snoozeOpen)} title="Отложить: вернётся во входящие позже (h)">
-          <AlarmClock size={16} /><span class="lbl2">Отложить</span>
+        <button class="btn ghost" onclick={() => (app.snoozeOpen = !app.snoozeOpen)} title={t("act.snoozeHint")}>
+          <AlarmClock size={16} /><span class="lbl2">{t("act.snooze")}</span>
         </button>
         <Popover bind:open={app.snoozeOpen}>
-          <LaterMenu title="Вернуть во входящие" presets={snoozePresets()} action="Отложить" onPick={snoozeTo} />
+          <LaterMenu title={t("snooze.menuTitle")} presets={snoozePresets()} action={t("act.snooze")} onPick={snoozeTo} />
         </Popover>
       </span>
-      <button class="btn ghost icon" onclick={() => app.remove()} title="Удалить (Delete)" aria-label="Удалить"><Trash size={16} /></button>
+      <button class="btn ghost icon" onclick={() => app.remove()} title={t("act.deleteHint")} aria-label={t("act.delete")}><Trash size={16} /></button>
       <span class="anchor">
-        <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title="Ещё" aria-label="Ещё"><Ellipsis size={16} /></button>
+        <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
         <Popover bind:open={moreOpen}>
           <button class="mi" onclick={() => { moreOpen = false; app.flag("flagged", !msg.row.flags.flagged); }}>
-            <Flag size={15} /> {msg.row.flags.flagged ? "Снять флаг" : "Поставить флаг"}<span class="hint">s</span>
+            <Flag size={15} /> {msg.row.flags.flagged ? t("act.unflag") : t("act.setFlag")}<span class="hint">s</span>
           </button>
           <button class="mi" onclick={() => { moreOpen = false; app.flag("seen", !msg.row.flags.seen); }}>
-            {#if msg.row.flags.seen}<Mail size={15} /> Отметить непрочитанным{:else}<MailOpen size={15} /> Отметить прочитанным{/if}<span class="hint">u</span>
+            {#if msg.row.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}<span class="hint">u</span>
           </button>
           {#if folders.length}
-            <button class="mi" onclick={() => { moreOpen = false; moveOpen = true; }}><Folder size={15} /> Переместить в папку…</button>
+            <button class="mi" onclick={() => { moreOpen = false; moveOpen = true; }}><Folder size={15} /> {t("act.moveTo")}</button>
           {/if}
           <hr />
-          <button class="mi" onclick={() => { moreOpen = false; app.spam(); }}><ShieldAlert size={15} /> Это спам<span class="hint">!</span></button>
+          <button class="mi" onclick={() => { moreOpen = false; app.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
           {#if msg.view.summary.unsubscribe}
-            <button class="mi" onclick={() => { moreOpen = false; confirmUnsub = true; }}><ListX size={15} /> Отписаться</button>
+            <button class="mi" onclick={() => { moreOpen = false; confirmUnsub = true; }}><ListX size={15} /> {t("unsub.action")}</button>
           {/if}
         </Popover>
         <Popover bind:open={moveOpen}>
-          <div class="mt">Переместить в папку</div>
+          <div class="mt">{t("act.moveTitle")}</div>
           <div class="folder-list">
             {#each folders as f (f.name)}
               <button class="mi" onclick={() => { moveOpen = false; app.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
@@ -236,15 +237,15 @@
 
     <div class="scroll">
       {#if app.conversation.length > 1}
-        <div class="conversation" aria-label="Цепочка писем">
+        <div class="conversation" aria-label={t("conv.label")}>
           {#each app.conversation as m (m.id)}
             {#if m.id === msg.row.id}
-              <div class="conv current"><span class="dot"></span>{m.from?.name ?? m.from?.email ?? ""}<span class="muted">· открыто</span></div>
+              <div class="conv current"><span class="dot"></span>{m.from?.name ?? m.from?.email ?? ""}<span class="muted">· {t("conv.opened")}</span></div>
             {:else}
               <button class="conv" class:unread={!m.flags.seen} onclick={() => app.open(m.id)}>
                 <span class="mini" style:background={avatarColor(m.from?.email ?? "")}>{initials(m.from)}</span>
                 <span class="who">{m.from?.name ?? m.from?.email ?? ""}</span>
-                {#if app.folder(m.account_id, m.folder)?.role === "sent"}<span class="muted">· вы ответили</span>{/if}
+                {#if app.folder(m.account_id, m.folder)?.role === "sent"}<span class="muted">· {t("conv.youReplied")}</span>{/if}
                 <span class="when muted">{listDate(m.date)}</span>
               </button>
             {/if}
@@ -253,21 +254,21 @@
       {/if}
 
       <div class="head selectable">
-        <h1>{msg.view.summary.subject || "(без темы)"}</h1>
+        <h1>{msg.view.summary.subject || t("noSubject")}</h1>
         <div class="from">
           <span class="avatar" style:background={avatarColor(msg.view.summary.from?.email ?? "")}>{initials(msg.view.summary.from)}</span>
           <div class="who">
             <div>
-              <button class="sender" onclick={fromSender} title="Все письма от этого отправителя">
-                {msg.view.summary.from?.name ?? msg.view.summary.from?.email ?? "(без отправителя)"}
+              <button class="sender" onclick={fromSender} title={t("reader.fromSender")}>
+                {msg.view.summary.from?.name ?? msg.view.summary.from?.email ?? t("list.noSender")}
               </button>
               {#if msg.view.summary.from?.name}<span class="muted">&lt;{msg.view.summary.from.email}&gt;</span>{/if}
               {#if msg.view.summary.unsubscribe}
-                <button class="chip" onclick={() => (confirmUnsub = true)} title="Больше не получать эту рассылку"><ListX size={13} /> Отписаться</button>
+                <button class="chip" onclick={() => (confirmUnsub = true)} title={t("unsub.hint")}><ListX size={13} /> {t("unsub.action")}</button>
               {/if}
             </div>
-            {#if msg.view.summary.to.length}<div class="muted small">Кому: {list(msg.view.summary.to)}</div>{/if}
-            {#if msg.view.summary.cc.length}<div class="muted small">Копия: {list(msg.view.summary.cc)}</div>{/if}
+            {#if msg.view.summary.to.length}<div class="muted small">{t("compose.fwd.to")}: {list(msg.view.summary.to)}</div>{/if}
+            {#if msg.view.summary.cc.length}<div class="muted small">{t("compose.fwd.cc")}: {list(msg.view.summary.cc)}</div>{/if}
           </div>
           <div class="date muted small">
             {longDate(msg.view.summary.date ?? msg.row.date)}
@@ -279,27 +280,27 @@
       {#if confirmUnsub}
         <div class="banner info">
           <ListX size={15} />
-          <span>Больше не получать письма «{listName}»? Депеша отпишется тем способом, который указал отправитель.</span>
-          <button class="btn primary" onclick={unsubscribe}>Отписаться</button>
-          <button class="btn ghost" onclick={() => (confirmUnsub = false)}>Отмена</button>
+          <span>{t("unsub.confirm", { name: listName })}</span>
+          <button class="btn primary" onclick={unsubscribe}>{t("unsub.action")}</button>
+          <button class="btn ghost" onclick={() => (confirmUnsub = false)}>{t("cancel")}</button>
         </div>
       {/if}
       {#if msg.row.snoozed_until}
-        <div class="banner info"><AlarmClock size={15} /><span>Отложено: вернётся во входящие {when(msg.row.snoozed_until)}.</span></div>
+        <div class="banner info"><AlarmClock size={15} /><span>{t("reader.snoozed", { when: when(msg.row.snoozed_until) })}</span></div>
       {/if}
       {#if msg.row.followup_due}
         <div class="banner info">
           <MessageSquareReply size={15} />
-          <span>Вы ждёте ответа. Напомню {when(msg.row.followup_due)}, если его не будет.</span>
-          <button class="btn ghost" onclick={stopWaiting}>Не ждать</button>
+          <span>{t("reader.followup", { when: when(msg.row.followup_due) })}</span>
+          <button class="btn ghost" onclick={stopWaiting}>{t("reader.stopWaiting")}</button>
         </div>
       {/if}
       {#if showRemoteBanner}
         <div class="banner">
-          <span>Внешние картинки скрыты: по ним отправитель узнаёт, что вы открыли письмо.</span>
-          <button class="btn" onclick={() => app.open(msg.row.id, true)}>Показать</button>
+          <span>{t("reader.remoteHidden")}</span>
+          <button class="btn" onclick={() => app.open(msg.row.id, true)}>{t("reader.show")}</button>
           {#if msg.view.summary.from}
-            <button class="btn ghost" onclick={trustSender}>Всегда для {msg.view.summary.from.email}</button>
+            <button class="btn ghost" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
           {/if}
         </div>
       {/if}
@@ -308,12 +309,12 @@
         <div class="files">
           {#each files as a (a.index)}
             <div class="file">
-              <button class="file-name" onclick={() => openAttachment(a)} title="Открыть"><Paperclip size={13} /> {a.name}</button>
+              <button class="file-name" onclick={() => openAttachment(a)} title={t("file.open")}><Paperclip size={13} /> {a.name}</button>
               <span class="muted small">{size(a.size)}</span>
-              <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title="Сохранить" aria-label="Сохранить"><Download size={14} /></button>
+              <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title={t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
             </div>
           {/each}
-          {#if files.length > 1}<button class="btn ghost small-btn" onclick={saveAll}>Сохранить все</button>{/if}
+          {#if files.length > 1}<button class="btn ghost small-btn" onclick={saveAll}>{t("file.saveAll")}</button>{/if}
         </div>
       {/if}
 
@@ -333,14 +334,14 @@
       </div>
     </div>
   {:else if app.opening}
-    <div class="center muted">Загрузка письма…</div>
+    <div class="center muted">{t("reader.loading")}</div>
   {:else}
     <div class="center muted">
       <div class="hint">
-        <p>Выберите письмо</p>
+        <p>{t("reader.choose")}</p>
         <p class="small">
-          <kbd>j</kbd>/<kbd>k</kbd> — следующее/предыдущее, <kbd>e</kbd> — готово, <kbd>h</kbd> — отложить, <kbd>r</kbd> — ответить,
-          <kbd>c</kbd> — написать, <kbd>/</kbd> — поиск, <kbd>z</kbd> — отменить, <kbd>Ctrl</kbd>+<kbd>K</kbd> — все команды
+          <kbd>j</kbd>/<kbd>k</kbd> — {t("keys.nextPrev")}, <kbd>e</kbd> — {t("keys.done")}, <kbd>h</kbd> — {t("keys.snooze")}, <kbd>r</kbd> — {t("keys.reply")},
+          <kbd>c</kbd> — {t("keys.compose")}, <kbd>/</kbd> — {t("keys.search")}, <kbd>z</kbd> — {t("keys.undo")}, <kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}
         </p>
       </div>
     </div>

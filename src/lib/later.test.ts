@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { i18n } from "./i18n.svelte";
 import { sendLaterPresets, snoozePresets, when } from "./later";
 import { ownText, preflight } from "./preflight";
 import { avatarColor, matches } from "./format";
 import { emptyDraft } from "./compose";
 
 const me = { name: "Иван", email: "ivan@corp.example" };
+
+// These tests check the Russian wording; English has its own tests in i18n.test.ts.
+beforeEach(() => {
+  i18n.lang = "ru";
+});
 
 describe("snooze presets", () => {
   it("offers the evening only before it starts, and Monday morning", () => {

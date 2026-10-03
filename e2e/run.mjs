@@ -31,6 +31,8 @@ const env = {
   XDG_CACHE_HOME: join(profile, "cache"),
   WEBKIT_DISABLE_COMPOSITING_MODE: "1",
   DEPESHA_NO_NOTIFICATIONS: "1",
+  // The scenario reads Russian text; the language follows the locale (LANGUAGE wins).
+  LANGUAGE: "ru",
   // E2E_DARK=1: the whole run in the dark theme, for its screenshots.
   ...(process.env.E2E_DARK ? { GTK_THEME: "Adwaita:dark" } : {}),
 };
@@ -593,6 +595,29 @@ try {
     await d.type(await d.find(".palette .q"), "\uE007");
     await d.until("snoozed view", async () => (await textOf(".list h2")).trim() === "Отложенные");
     await d.button("Все входящие");
+  });
+
+  await step("7.8", "язык: английский включается в настройках сразу, без перезапуска", async () => {
+    const setLanguage = async (search, value) => {
+      await press("k", { ctrlKey: true });
+      await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+      await d.type(await d.find(".palette .q"), search);
+      await d.type(await d.find(".palette .q"), "\uE007");
+      await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+      await d.click(await d.find(`.prefs input[name][value="${value}"], .prefs input[type=radio][value="${value}"]`));
+      await d.click(await d.find(".prefs footer .btn.primary"));
+      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+    };
+    await d.button("Все входящие");
+    await setLanguage("настр", "en");
+    await d.until("English sidebar", async () => (await sidebarText()).includes("All inboxes"), 10000);
+    if (!(await textOf(".list h2")).includes("All inboxes")) throw new Error(`заголовок: ${await textOf(".list h2")}`);
+    if (!(await textOf(".list .search input") || (await d.exec("return document.querySelector('.list .search input').placeholder"))).includes("Search")) {
+      throw new Error("поле поиска не переведено");
+    }
+    await screenshot("english");
+    await setLanguage("sett", "ru");
+    await d.until("Russian again", async () => (await sidebarText()).includes("Все входящие"), 10000);
   });
 
   await step("1.4, 2.2", "второй ящик по TLS: недоверенный сертификат принимается по отпечатку в мастере", async () => {

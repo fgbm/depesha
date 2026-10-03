@@ -4,6 +4,7 @@
   import { app } from "./lib/store.svelte";
   import { emptyDraft, forward, reply, withSignature } from "./lib/compose";
   import { api } from "./lib/api";
+  import { t } from "./lib/i18n.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import MessageList from "./components/MessageList.svelte";
   import Reader from "./components/Reader.svelte";
@@ -40,7 +41,7 @@
   }
 
   onMount(() => {
-    app.init().catch((e) => app.fail(e, "Запуск"));
+    app.init().catch((e) => app.fail(e, t("startup")));
     // Files dropped on the window become attachments of the open composition.
     const unlisten = getCurrentWebview().onDragDropEvent(async (e) => {
       if (e.payload.type !== "drop" || !app.compose) return;
@@ -162,13 +163,13 @@
 {/if}
 
 <div class="toasts" aria-live="polite">
-  {#each app.toasts as t (t.id)}
-    <div class="toast" class:error={t.error}>
-      <span class="selectable">{t.text}</span>
-      {#if t.action}
-        <button class="btn ghost act" onclick={() => { app.dismiss(t.id); t.action?.run(); }}>{t.action.label}</button>
+  {#each app.toasts as toast (toast.id)}
+    <div class="toast" class:error={toast.error}>
+      <span class="selectable">{toast.text}</span>
+      {#if toast.action}
+        <button class="btn ghost act" onclick={() => { app.dismiss(toast.id); toast.action?.run(); }}>{toast.action.label}</button>
       {/if}
-      <button class="btn ghost close" onclick={() => app.dismiss(t.id)} aria-label="Закрыть">×</button>
+      <button class="btn ghost close" onclick={() => app.dismiss(toast.id)} aria-label={t("close")}>×</button>
     </div>
   {/each}
 </div>

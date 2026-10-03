@@ -67,6 +67,7 @@ export const api = {
   followupCancel: (id: number) => call<void>("followup_cancel", { id }),
   unsubscribe: (id: number) => call<Unsubscribed>("unsubscribe", { id }),
   settings: () => call<Settings>("settings_get"),
+  language: () => call<"en" | "ru">("language"),
   saveSettings: (settings: Settings) => call<void>("settings_set", { settings }),
   updateStatus: () => call<UpdateStatus>("update_status"),
   updateCheck: () => call<UpdateStatus>("update_check"),

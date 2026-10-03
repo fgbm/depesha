@@ -16,6 +16,7 @@ use tokio::time::timeout;
 use crate::account::{Credentials, Security, ServerConfig};
 use crate::imap::Io;
 use crate::message::Addr;
+use crate::tr;
 use crate::{Error, Result, tls};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -64,7 +65,7 @@ fn mailbox(a: &Addr) -> Result<Mailbox> {
         .email
         .trim()
         .parse()
-        .map_err(|_| Error::Compose(format!("неверный адрес: {}", a.email)))?;
+        .map_err(|_| Error::Compose(tr!("invalid address: {}", "неверный адрес: {}", a.email)))?;
     Ok(Mailbox::new(a.name.clone().filter(|n| !n.trim().is_empty()), email))
 }
 
@@ -86,9 +87,9 @@ pub fn build(draft: &Draft) -> Result<Message> {
     let from = draft
         .from
         .as_ref()
-        .ok_or_else(|| Error::Compose("не указан отправитель".into()))?;
+        .ok_or_else(|| Error::Compose(tr!("no sender", "не указан отправитель")))?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
-        return Err(Error::Compose("нет ни одного получателя".into()));
+        return Err(Error::Compose(tr!("no recipients", "нет ни одного получателя")));
     }
     let domain = from
         .email
@@ -208,7 +209,7 @@ impl Conn {
             let mut line = String::new();
             let n = timeout(REPLY_TIMEOUT, self.stream.read_line(&mut line))
                 .await
-                .map_err(|_| Error::Timeout("ответ SMTP"))??;
+                .map_err(|_| Error::Timeout("SMTP answer"))??;
             if n == 0 {
                 return Err(Error::Closed);
             }
@@ -275,7 +276,7 @@ fn hostname() -> Option<String> {
 async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Conn, SmtpCaps)> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
-        .map_err(|_| Error::Timeout("подключение"))??;
+        .map_err(|_| Error::Timeout("connecting"))??;
     let pinned = server.trusted_cert.as_deref();
     let stream: Box<dyn Io> = match server.security {
         Security::Tls => Box::new(tls::wrap(&server.host, pinned, tcp).await?),
@@ -286,7 +287,7 @@ async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Con
     };
     let greeting = timeout(CONNECT_TIMEOUT, conn.reply())
         .await
-        .map_err(|_| Error::Timeout("приветствие сервера"))??;
+        .map_err(|_| Error::Timeout("server greeting"))??;
     if greeting.code != 220 {
         return Err(greeting.into_error());
     }
@@ -342,7 +343,7 @@ async fn login(conn: &mut Conn, caps: &SmtpCaps, creds: &Credentials) -> Result<
         return Ok(());
     }
     if caps.auth.is_empty() {
-        Err(Error::AuthMechanism("ничего".into()))
+        Err(Error::AuthMechanism(tr!("nothing", "ничего")))
     } else {
         Err(Error::AuthMechanism(caps.auth.join(" ")))
     }

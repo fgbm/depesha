@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../lib/i18n.svelte";
   // Renders sanitized message HTML in a sandboxed iframe: no scripts, no network
   // except images the user allowed, links go through onLink.
   let {
@@ -41,7 +42,7 @@ a{color:#1f5fa8}
 </script>
 
 <div class="wrap">
-  <iframe bind:this={frame} title="Письмо" sandbox="allow-same-origin" {srcdoc} onload={attach}></iframe>
+  <iframe bind:this={frame} title={t("reader.message")} sandbox="allow-same-origin" {srcdoc} onload={attach}></iframe>
   {#if hover}<div class="status" title={hover}>{hover}</div>{/if}
 </div>
 

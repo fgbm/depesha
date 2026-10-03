@@ -5,6 +5,7 @@ pub mod account;
 pub mod autodetect;
 pub mod error;
 pub mod imap;
+pub mod lang;
 pub mod message;
 pub mod query;
 pub mod smtp;

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use depesha_core::account::Account;
+use depesha_core::lang::{self, Lang};
 use serde::{Deserialize, Serialize};
 
 /// Account settings without passwords; those live in the OS keyring.
@@ -26,6 +27,8 @@ pub struct Settings {
     pub templates: Vec<Template>,
     /// `auto` (default), `notify` or `off`, like OpenCode's `autoupdate`.
     pub updates: String,
+    /// `auto` (from the system locale, default), `en` or `ru`.
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -37,11 +40,24 @@ impl Default for Settings {
             threads: true,
             templates: Vec::new(),
             updates: "auto".into(),
+            language: "auto".into(),
         }
     }
 }
 
 impl Settings {
+    /// The interface language: the chosen one, or Russian for a Russian system locale
+    /// and English otherwise.
+    pub fn lang(&self) -> Lang {
+        match self.language.as_str() {
+            "ru" => Lang::Ru,
+            "en" => Lang::En,
+            _ => sys_locale::get_locale()
+                .map(|l| lang::from_locale(&l))
+                .unwrap_or(Lang::En),
+        }
+    }
+
     /// Whether a notification about this kind of mail may be shown now.
     pub fn may_notify(&self, bulk: bool) -> bool {
         if self.dnd_until > chrono::Utc::now().timestamp() {

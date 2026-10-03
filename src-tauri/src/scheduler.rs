@@ -7,6 +7,7 @@ use serde_json::json;
 
 use crate::state::AppState;
 use crate::worker::{Output, Work};
+use depesha_core::lang::pick;
 
 const TICK: Duration = Duration::from_secs(10);
 
@@ -42,11 +43,15 @@ async fn round(state: &AppState) -> depesha_core::Result<()> {
             Ok(_) => {
                 state.store.snooze_remove(&s.account_id, &s.message_id)?;
                 let subject = if s.subject.is_empty() {
-                    "(без темы)"
+                    pick("(no subject)", "(без темы)")
                 } else {
                     s.subject.as_str()
                 };
-                state.notify("Вернулось отложенное письмо", subject, false);
+                state.notify(
+                    pick("A snoozed message is back", "Вернулось отложенное письмо"),
+                    subject,
+                    false,
+                );
             }
             // Offline or the account is paused: try again on the next tick.
             Err(e) => tracing::debug!(account = %s.account_id, "snooze return failed: {e}"),
@@ -59,11 +64,15 @@ async fn round(state: &AppState) -> depesha_core::Result<()> {
     }
     for f in state.store.followups_due(now)? {
         let subject = if f.subject.is_empty() {
-            "(без темы)"
+            pick("(no subject)", "(без темы)")
         } else {
             f.subject.as_str()
         };
-        state.notify("Нет ответа", &format!("{subject} — {}", f.recipients), false);
+        state.notify(
+            pick("No answer yet", "Нет ответа"),
+            &format!("{subject} — {}", f.recipients),
+            false,
+        );
         state.emit("counters-changed", json!({}));
     }
     Ok(())

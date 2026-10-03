@@ -14,6 +14,8 @@ use tauri::utils::platform::bundle_type;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::state::AppState;
+use depesha_core::lang::pick;
+use depesha_core::tr;
 
 const FIRST_CHECK: Duration = Duration::from_secs(20);
 const EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -151,7 +153,13 @@ async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .check()
         .await
-        .map_err(|e| format!("Не удалось проверить обновления: {}", reason(&e)))?;
+        .map_err(|e| {
+            tr!(
+                "Could not check for updates: {}",
+                "Не удалось проверить обновления: {}",
+                reason(&e)
+            )
+        })?;
     let Some(update) = update else {
         set(state, |s| {
             s.state = "idle";
@@ -174,8 +182,11 @@ async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
         download(state).await?;
     } else if !manual {
         state.notify(
-            "Доступна новая версия Депеши",
-            &format!("Версия {version}. Установить можно в настройках."),
+            pick("A new version of Depesha is available", "Доступна новая версия Депеши"),
+            &tr!(
+                "Version {version}. Install it in Settings.",
+                "Версия {version}. Установить можно в настройках."
+            ),
             false,
         );
     }
@@ -185,23 +196,30 @@ async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
 /// Downloads the announced update; installs it where that is silent.
 async fn download(state: &AppState) -> Result<(), String> {
     let Some(update) = lock(&state.updates.update).clone() else {
-        return Err("нет обновления для установки".into());
+        return Err(tr!("no update to install", "нет обновления для установки"));
     };
     set(state, |s| s.state = "downloading");
     // `download` verifies the signature against the built-in public key.
-    let bytes = update
-        .download(|_, _| {}, || {})
-        .await
-        .map_err(|e| format!("Обновление не установлено: {}", reason(&e)))?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| {
+        tr!(
+            "The update was not installed: {}",
+            "Обновление не установлено: {}",
+            reason(&e)
+        )
+    })?;
     match install_kind() {
         Install::Installer => {
             *lock(&state.updates.staged) = Some(bytes);
             set(state, |s| s.state = "ready");
         }
         _ => {
-            update
-                .install(&bytes)
-                .map_err(|e| format!("Обновление не установлено: {}", reason(&e)))?;
+            update.install(&bytes).map_err(|e| {
+                tr!(
+                    "The update was not installed: {}",
+                    "Обновление не установлено: {}",
+                    reason(&e)
+                )
+            })?;
             tracing::info!(version = %update.version, "update installed");
             set(state, |s| s.state = "installed");
         }
@@ -212,12 +230,20 @@ async fn download(state: &AppState) -> Result<(), String> {
 /// The plugin's errors in words the user can act on.
 fn reason(e: &tauri_plugin_updater::Error) -> String {
     use tauri_plugin_updater::Error as E;
-    const SIGNATURE: &str = "подпись не совпала, файл мог быть изменён по дороге; установка отменена";
+    let signature = || {
+        tr!(
+            "the signature does not match, the file may have been altered on the way; nothing was installed",
+            "подпись не совпала, файл мог быть изменён по дороге; установка отменена"
+        )
+    };
     match e {
-        E::ReleaseNotFound => "на сервере обновлений нет сведений о новой версии".into(),
-        E::Minisign(_) | E::SignatureUtf8(_) | E::Base64(_) => SIGNATURE.into(),
-        E::Reqwest(_) | E::Network(_) => "нет связи с сервером обновлений".into(),
-        other if other.to_string().contains("signature") => SIGNATURE.into(),
+        E::ReleaseNotFound => tr!(
+            "the update server has no release information",
+            "на сервере обновлений нет сведений о новой версии"
+        ),
+        E::Minisign(_) | E::SignatureUtf8(_) | E::Base64(_) => signature(),
+        E::Reqwest(_) | E::Network(_) => tr!("no connection to the update server", "нет связи с сервером обновлений"),
+        other if other.to_string().contains("signature") => signature(),
         other => other.to_string(),
     }
 }

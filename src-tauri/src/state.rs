@@ -12,6 +12,7 @@ use crate::config::{self, Config, Settings};
 use crate::error::{CmdError, CmdResult};
 use crate::secrets;
 use crate::worker::Worker;
+use depesha_core::tr;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AccountStatus {
@@ -41,6 +42,16 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl AppState {
     pub fn settings(&self) -> Settings {
         lock(&self.config).settings.clone()
+    }
+
+    /// Applies the interface language to the core's messages and the window title.
+    pub fn apply_language(&self) {
+        use tauri::Manager;
+        let lang = self.settings().lang();
+        depesha_core::lang::set(lang);
+        if let Some(w) = self.app.get_webview_window("main") {
+            let _ = w.set_title(depesha_core::lang::pick("Depesha", "Депеша"));
+        }
     }
 
     pub fn save_settings(&self, settings: Settings) -> CmdResult<()> {
@@ -76,7 +87,7 @@ impl AppState {
             .iter()
             .find(|a| a.id == id)
             .cloned()
-            .ok_or_else(|| CmdError::new("not-found", "учётная запись не найдена"))
+            .ok_or_else(|| CmdError::new("not-found", tr!("account not found", "учётная запись не найдена")))
     }
 
     pub fn save_account(&self, account: Account) -> CmdResult<()> {
@@ -99,18 +110,21 @@ impl AppState {
     pub async fn credentials(&self, account: &Account) -> Result<Credentials, depesha_core::Error> {
         match secrets::get(&account.id).await {
             Ok(Some(password)) => Ok(Credentials::new(account.username.clone(), password)),
-            Ok(None) => Err(depesha_core::Error::Auth(
-                "пароль не сохранён, введите его в настройках ящика".into(),
-            )),
+            Ok(None) => Err(depesha_core::Error::Auth(tr!(
+                "no saved password: enter it in the account settings",
+                "пароль не сохранён, введите его в настройках ящика"
+            ))),
             Err(e) => Err(depesha_core::Error::Auth(e.message)),
         }
     }
 
     pub fn worker(&self, id: &str) -> CmdResult<Worker> {
-        lock(&self.workers)
-            .get(id)
-            .cloned()
-            .ok_or_else(|| CmdError::new("not-found", "учётная запись не запущена"))
+        lock(&self.workers).get(id).cloned().ok_or_else(|| {
+            CmdError::new(
+                "not-found",
+                tr!("the account is not running", "учётная запись не запущена"),
+            )
+        })
     }
 
     pub fn set_worker(&self, id: &str, worker: Option<Worker>) {

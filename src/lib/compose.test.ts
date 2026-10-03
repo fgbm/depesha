@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { i18n } from "./i18n.svelte";
 import { emptyDraft, forward, isDirty, forwardSubject, reply, replySubject, swapSignature, withSignature } from "./compose";
 import { linkify, parseAddr, pluralRu } from "./format";
 import type { OpenedMessage } from "./types";
@@ -39,6 +40,11 @@ function msg(over: Partial<OpenedMessage["view"]["summary"]> = {}): OpenedMessag
     trusted_sender: false,
   };
 }
+
+// These tests check the Russian wording; English has its own tests in i18n.test.ts.
+beforeEach(() => {
+  i18n.lang = "ru";
+});
 
 describe("subjects", () => {
   it("adds prefixes once", () => {

@@ -1,11 +1,13 @@
 //! Passwords in the OS keyring: Secret Service on Linux, Keychain, Credential Manager.
 
 use crate::error::{CmdError, CmdResult};
+use depesha_core::tr;
 
 const SERVICE: &str = "ru.depesha.mail";
 
 fn entry(account_id: &str) -> CmdResult<keyring::Entry> {
-    keyring::Entry::new(SERVICE, account_id).map_err(|e| CmdError::new("keyring", format!("связка ключей: {e}")))
+    keyring::Entry::new(SERVICE, account_id)
+        .map_err(|e| CmdError::new("keyring", tr!("keyring: {e}", "связка ключей: {e}")))
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
@@ -19,7 +21,10 @@ pub async fn get(account_id: &str) -> CmdResult<Option<String>> {
     blocking(move || match entry(&id)?.get_password() {
         Ok(p) => Ok(Some(p)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(CmdError::new("keyring", format!("связка ключей недоступна: {e}"))),
+        Err(e) => Err(CmdError::new(
+            "keyring",
+            tr!("the keyring is unavailable: {e}", "связка ключей недоступна: {e}"),
+        )),
     })
     .await
 }
@@ -27,9 +32,15 @@ pub async fn get(account_id: &str) -> CmdResult<Option<String>> {
 pub async fn set(account_id: &str, password: String) -> CmdResult<()> {
     let id = account_id.to_owned();
     blocking(move || {
-        entry(&id)?
-            .set_password(&password)
-            .map_err(|e| CmdError::new("keyring", format!("не удалось сохранить пароль в связку ключей: {e}")))
+        entry(&id)?.set_password(&password).map_err(|e| {
+            CmdError::new(
+                "keyring",
+                tr!(
+                    "could not save the password to the keyring: {e}",
+                    "не удалось сохранить пароль в связку ключей: {e}"
+                ),
+            )
+        })
     })
     .await
 }

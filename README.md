@@ -4,9 +4,9 @@
 
 <p align="center">A fast, private desktop mail client for any IMAP/SMTP server — built for Exchange 2019 as much as for Gmail.<br>Rust · Tauri 2 · Svelte 5. <a href="README.ru.md">Читать по-русски</a>.</p>
 
-<p align="center"><img src="docs/screenshots/main.png" width="860" alt="Depesha main window"></p>
+<p align="center"><img src="docs/screenshots/english.png" width="860" alt="Depesha main window"></p>
 
-> The interface is in Russian for now; English is on the roadmap.
+> English and Russian. The language follows your system and can be changed in Settings.
 
 ## Why
 
@@ -25,6 +25,7 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 - **Find anything.** Full-text search that understands Russian, operators (`from:` `to:` `subject:` `has:attachment` `is:unread` `before:` `after:` `in:`, with Russian synonyms), server-side search for mail older than the cache, "all mail from this sender" in one click.
 - **Keyboard and command palette.** `Ctrl+K` runs any action or opens any folder by a few letters of its name.
 - **Any server.** Multiple accounts and a unified inbox; settings discovery (known providers, autoconfig, MX, SRV); IMAP IDLE with reconnects; Exchange quirks handled: Russian folder names, hidden calendars and contacts, the 5-messages-per-minute limit.
+- **English and Russian.** The interface, error messages, dates and quote headers follow the system language; Settings switch it on the fly.
 - **Everyday tools.** Reply, reply all, forward with attachments, signatures, templates, address completion, bulk actions, offline reading, light and dark theme.
 
 <p align="center"><img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"> <img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"></p>

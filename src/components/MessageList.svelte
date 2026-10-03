@@ -5,27 +5,19 @@
   import AlarmClock from "@lucide/svelte/icons/alarm-clock";
   import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
   import { app, type Split } from "../lib/store.svelte";
-  import { addrName, listDate, pluralRu } from "../lib/format";
+  import { addrName, listDate, roleLabel } from "../lib/format";
+  import { i18n, t, tn } from "../lib/i18n.svelte";
   import { when } from "../lib/later";
   import type { MessageRow } from "../lib/types";
 
   let { searchInput = $bindable() }: { searchInput: HTMLInputElement | null } = $props();
 
-  const ROLE_TITLE = {
-    inbox: "Входящие",
-    snoozed: "Отложенные",
-    drafts: "Черновики",
-    sent: "Отправленные",
-    archive: "Архив",
-    junk: "Спам",
-    trash: "Корзина",
-  } as const;
 
-  const SPLITS: { value: Split; label: string }[] = [
-    { value: "all", label: "Все" },
-    { value: "people", label: "Люди" },
-    { value: "bulk", label: "Рассылки" },
-  ];
+  const SPLITS = $derived<{ value: Split; label: string }[]>([
+    { value: "all", label: t("split.all") },
+    { value: "people", label: t("split.people") },
+    { value: "bulk", label: t("split.bulk") },
+  ]);
 
   /** Account colour stripe in lists that mix accounts. */
   const PALETTE = ["#3f7cc4", "#c77d1a", "#4a9a6a", "#9b59b6", "#c0504d", "#2a9d9b"];
@@ -48,14 +40,14 @@
 
   const title = $derived.by(() => {
     const v = app.view;
-    if (v.kind === "search") return "Поиск";
-    if (v.kind === "snoozed") return "Отложенные";
-    if (v.kind === "followups") return "Ждут ответа";
-    if (v.kind === "unified") return v.unread ? "Непрочитанные" : v.flagged ? "С флагом" : "Все входящие";
+    if (v.kind === "search") return t("search.title");
+    if (v.kind === "snoozed") return t("role.snoozed");
+    if (v.kind === "followups") return t("nav.followups");
+    if (v.kind === "unified") return v.unread ? t("nav.unread") : v.flagged ? t("nav.flagged") : t("nav.allInboxes");
     if (v.kind === "folder") {
       const f = app.folder(v.account_id, v.folder);
       const acc = app.account(v.account_id);
-      const name = f?.role ? ROLE_TITLE[f.role] : (f?.display_name ?? v.folder);
+      const name = f?.role ? roleLabel(f.role) : (f?.display_name ?? v.folder);
       return `${name}${app.accounts.length > 1 && acc ? ` · ${acc.display_name || acc.email}` : ""}`;
     }
     return "";
@@ -95,8 +87,8 @@
   }
 
   function who(m: MessageRow): string {
-    if (isSentLike) return m.to.length ? `Кому: ${m.to.map(addrName).join(", ")}` : "(нет получателей)";
-    return addrName(m.from) || "(без отправителя)";
+    if (isSentLike) return m.to.length ? t("list.to", { who: m.to.map(addrName).join(", ") }) : t("list.noRecipients");
+    return addrName(m.from) || t("list.noSender");
   }
 
   // Keep the opened message visible when moving with the keyboard.
@@ -127,13 +119,13 @@
     <div class="search">
       <input
         class="input"
-        placeholder="Поиск по почте  /"
+        placeholder={t("search.placeholder")}
         bind:this={searchInput}
         bind:value={searchText}
         oninput={onSearch}
         onkeydown={(e) => e.key === "Escape" && clearSearch()}
       />
-      {#if searchText}<button class="btn ghost clear" onclick={clearSearch} aria-label="Очистить">×</button>{/if}
+      {#if searchText}<button class="btn ghost clear" onclick={clearSearch} aria-label={t("clear")}>×</button>{/if}
     </div>
     {#if app.splittable()}
       <div class="split" role="tablist">
@@ -148,9 +140,9 @@
       <h2>{title}</h2>
       <span class="muted">
         {#if app.selected.size > 1}
-          выбрано {app.selected.size}
+          {t("list.selected", { n: app.selected.size })}
         {:else}
-          {app.messages.length}{app.exhausted ? "" : "+"} {pluralRu(app.messages.length, "письмо", "письма", "писем")}
+          {tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` })}
         {/if}
       </span>
     </div>
@@ -159,12 +151,12 @@
   {#if app.view.kind === "search" && app.view.text.trim()}
     <div class="server">
       {#if app.serverSearching}
-        <span class="muted">Ищем на серверах…</span>
+        <span class="muted">{t("search.serverRunning")}</span>
       {:else if app.serverRows}
-        <span class="muted">На серверах найдено: {app.serverRows.length}</span>
+        <span class="muted">{t("search.serverFound", { n: app.serverRows.length })}</span>
       {:else}
-        <span class="muted">Здесь только загруженные письма.</span>
-        <button class="btn ghost small" onclick={() => app.searchServer()}>Искать на сервере</button>
+        <span class="muted">{t("search.localOnly")}</span>
+        <button class="btn ghost small" onclick={() => app.searchServer()}>{t("search.onServer")}</button>
       {/if}
     </div>
   {/if}
@@ -173,18 +165,21 @@
     {#if app.messages.length === 0}
       <div class="empty muted">
         {#if app.view.kind === "search"}
-          Ничего не найдено. Ищутся тема, адреса и текст уже открытых писем.
-          <div class="ops">Можно уточнить: <code>от:</code> <code>кому:</code> <code>тема:</code> <code>есть:вложение</code> <code>is:unread</code> <code>после:2026-09-01</code> <code>в:архив</code></div>
+          {t("search.nothing")}
+          <div class="ops">
+            {t("search.refine")}
+            {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "после:2026-09-01", "в:архив"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "after:2026-09-01", "in:archive"]) as op (op)}<code>{op}</code>{" "}{/each}
+          </div>
         {:else if app.view.kind === "snoozed"}
-          Отложенных писем нет. Нажмите <kbd>h</kbd> на письме, чтобы оно вернулось позже.
+          {t("empty.snoozed.before")} <kbd>h</kbd> {t("empty.snoozed.after")}
         {:else if app.view.kind === "followups"}
-          Никто не должен вам ответ. При отправке можно попросить напомнить, если не ответят.
+          {t("empty.followups")}
         {:else if app.split === "people" && app.splittable()}
-          Писем от людей нет.
+          {t("empty.people")}
         {:else if app.accounts.length === 0}
-          Добавьте почтовый ящик, чтобы начать.
+          {t("empty.noAccounts")}
         {:else}
-          Писем нет
+          {t("empty.list")}
         {/if}
       </div>
     {/if}
@@ -205,24 +200,24 @@
         >
           <div class="line1">
             <span class="from">{who(m)}</span>
-            {#if m.thread_count > 1}<span class="count" title="Писем в цепочке">{m.thread_count}</span>{/if}
-            {#if m.flags.flagged}<span class="flag" title="С флагом"><Flag size={13} /></span>{/if}
-            {#if m.has_attachments}<span class="clip" title="Есть вложения"><Paperclip size={13} /></span>{/if}
+            {#if m.thread_count > 1}<span class="count" title={t("list.inThread")}>{m.thread_count}</span>{/if}
+            {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
+            {#if m.has_attachments}<span class="clip" title={t("list.hasFiles")}><Paperclip size={13} /></span>{/if}
             <span class="date">{listDate(m.date)}</span>
           </div>
           <div class="line2">
-            {#if m.flags.answered}<span class="answered" title="Отвечено"><Reply size={13} /></span>{/if}
-            <span class="subject">{m.subject || "(без темы)"}</span>
+            {#if m.flags.answered}<span class="answered" title={t("list.answered")}><Reply size={13} /></span>{/if}
+            <span class="subject">{m.subject || t("noSubject")}</span>
             {#if m.snoozed_until}
-              <span class="tag" title="Вернётся во входящие"><AlarmClock size={12} /> {when(m.snoozed_until)}</span>
+              <span class="tag" title={t("list.snoozedTag")}><AlarmClock size={12} /> {when(m.snoozed_until)}</span>
             {:else if m.followup_due}
-              <span class="tag" class:due={m.followup_due * 1000 < Date.now()} title="Ждёте ответа"><MessageSquareReply size={12} /> {when(m.followup_due)}</span>
+              <span class="tag" class:due={m.followup_due * 1000 < Date.now()} title={t("list.followupTag")}><MessageSquareReply size={12} /> {when(m.followup_due)}</span>
             {/if}
           </div>
         </div>
       {/each}
     </div>
-    {#if app.loadingMore}<div class="more muted">Загрузка…</div>{/if}
+    {#if app.loadingMore}<div class="more muted">{t("loading")}</div>{/if}
   </div>
 </section>
 

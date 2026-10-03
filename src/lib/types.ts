@@ -208,6 +208,7 @@ export interface Settings {
   threads: boolean;
   templates: Template[];
   updates: "auto" | "notify" | "off";
+  language: "auto" | "en" | "ru";
 }
 
 export interface UpdateStatus {

@@ -23,19 +23,12 @@
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { when } from "../lib/later";
+  import { t } from "../lib/i18n.svelte";
+  import { roleLabel } from "../lib/format";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
   let { onCompose }: { onCompose: () => void } = $props();
 
-  const ROLE_LABEL: Record<FolderRole, string> = {
-    inbox: "Входящие",
-    snoozed: "Отложенные",
-    drafts: "Черновики",
-    sent: "Отправленные",
-    archive: "Архив",
-    junk: "Спам",
-    trash: "Корзина",
-  };
   const ROLE_ICON: Record<FolderRole, Component> = {
     inbox: Inbox,
     snoozed: AlarmClock,
@@ -46,11 +39,11 @@
     trash: Trash,
   };
 
-  const SMART: { view: View; label: string; icon: Component }[] = [
-    { view: { kind: "unified", role: "inbox" }, label: "Все входящие", icon: Mails },
-    { view: { kind: "unified", role: "inbox", unread: true }, label: "Непрочитанные", icon: Mail },
-    { view: { kind: "unified", role: "inbox", flagged: true }, label: "С флагом", icon: Flag },
-  ];
+  const SMART = $derived<{ view: View; label: string; icon: Component }[]>([
+    { view: { kind: "unified", role: "inbox" }, label: t("nav.allInboxes"), icon: Mails },
+    { view: { kind: "unified", role: "inbox", unread: true }, label: t("nav.unread"), icon: Mail },
+    { view: { kind: "unified", role: "inbox", flagged: true }, label: t("nav.flagged"), icon: Flag },
+  ]);
 
   let dndMenu = $state(false);
   const dnd = $derived(app.settings.dnd_until > Date.now() / 1000);
@@ -66,9 +59,9 @@
     morning.setDate(morning.getDate() + (morning.getHours() >= 9 ? 1 : 0));
     morning.setHours(9, 0, 0, 0);
     return [
-      { label: "На час", until: Math.floor(now + 3600) },
-      { label: "До утра", until: Math.floor(morning.getTime() / 1000) },
-      { label: "Пока не включу", until: 4_102_444_800 },
+      { label: t("dnd.hour"), until: Math.floor(now + 3600) },
+      { label: t("dnd.morning"), until: Math.floor(morning.getTime() / 1000) },
+      { label: t("dnd.forever"), until: 4_102_444_800 },
     ];
   }
 
@@ -91,7 +84,7 @@
   }
 
   function label(f: FolderInfo): string {
-    if (f.role) return ROLE_LABEL[f.role];
+    if (f.role) return roleLabel(f.role);
     if (!f.delimiter) return f.display_name;
     return f.display_name.split(f.delimiter).pop() ?? f.display_name;
   }
@@ -107,10 +100,10 @@
 
   function statusText(acc: AccountView): string {
     const s = acc.status;
-    if (!s) return "Подключение…";
-    if (s.state === "online") return "В сети";
-    if (s.state === "connecting") return "Подключение…";
-    return s.error?.message ?? "Ошибка";
+    if (!s) return t("status.connecting");
+    if (s.state === "online") return t("status.online");
+    if (s.state === "connecting") return t("status.connecting");
+    return s.error?.message ?? t("status.error");
   }
 
   async function refresh(acc: AccountView) {
@@ -128,10 +121,10 @@
 <nav class="side">
   <div class="brand">
     <img src="/icon.png" alt="" width="26" height="26" />
-    <span>Депеша</span>
+    <span>{t("app.name")}</span>
   </div>
 
-  <button class="btn primary compose-btn" onclick={onCompose} title="Написать (c)"><Pencil size={15} /> Написать</button>
+  <button class="btn primary compose-btn" onclick={onCompose} title={t("compose.newHint")}><Pencil size={15} /> {t("compose.new")}</button>
 
   <div class="scroll">
     <div class="group">
@@ -145,21 +138,21 @@
       {#if app.counters.snoozed > 0}
         <button class="item" class:active={isActive({ kind: "snoozed" })} onclick={() => app.setView({ kind: "snoozed" })}>
           <span class="icon"><AlarmClock size={16} /></span>
-          <span class="name">Отложенные</span>
+          <span class="name">{t("role.snoozed")}</span>
           <span class="count quiet">{app.counters.snoozed}</span>
         </button>
       {/if}
       {#if app.counters.followups > 0}
         <button class="item" class:active={isActive({ kind: "followups" })} onclick={() => app.setView({ kind: "followups" })}>
           <span class="icon"><MessageSquareReply size={16} /></span>
-          <span class="name">Ждут ответа</span>
+          <span class="name">{t("nav.followups")}</span>
           <span class="count quiet">{app.counters.followups}</span>
         </button>
       {/if}
       {#if app.outbox.length > 0}
         <button class="item" class:active={isActive({ kind: "outbox" })} onclick={() => app.setView({ kind: "outbox" })}>
           <span class="icon"><Hourglass size={16} /></span>
-          <span class="name">Исходящие</span>
+          <span class="name">{t("nav.outbox")}</span>
           <span class="count" class:alert={outboxFailed}>{app.outbox.length}</span>
         </button>
       {/if}
@@ -173,18 +166,18 @@
             <span class="name">{acc.display_name || acc.email}</span>
             <span class="chev">{collapsed[acc.id] ? "▸" : "▾"}</span>
           </button>
-          <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} aria-label="Меню ящика">⋯</button>
+          <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} aria-label={t("account.menu")}>⋯</button>
           {#if menuFor === acc.id}
             <div class="menu">
-              <button onclick={() => refresh(acc)}>Обновить</button>
-              <button onclick={() => { menuFor = null; app.wizard = { account: acc }; }}>Настройки…</button>
+              <button onclick={() => refresh(acc)}>{t("account.refresh")}</button>
+              <button onclick={() => { menuFor = null; app.wizard = { account: acc }; }}>{t("account.settings")}</button>
             </div>
           {/if}
         </div>
         {#if acc.status && (acc.status.state === "error" || acc.status.state === "paused")}
           <button class="problem" onclick={() => (acc.status?.state === "paused" ? (app.wizard = { account: acc }) : refresh(acc))}>
             {statusText(acc)}
-            <span class="fix">{acc.status.state === "paused" ? "Исправить…" : "Повторить"}</span>
+            <span class="fix">{acc.status.state === "paused" ? t("account.fix") : t("retry")}</span>
           </button>
         {/if}
         {#if !collapsed[acc.id]}
@@ -216,38 +209,38 @@
     {@const u = app.update}
     <div class="update">
       {#if u.state === "installed" || u.state === "ready"}
-        <span>Версия {u.version} готова</span>
-        <button class="btn primary" onclick={() => app.restartForUpdate()}><RotateCw size={14} /> Перезапустить</button>
+        <span>{t("update.ready", { version: u.version ?? "" })}</span>
+        <button class="btn primary" onclick={() => app.restartForUpdate()}><RotateCw size={14} /> {t("update.restart")}</button>
       {:else if u.state === "downloading"}
-        <span>Загружается версия {u.version}…</span>
+        <span>{t("update.downloading", { version: u.version ?? "" })}</span>
       {:else}
-        <span>Доступна версия {u.version}</span>
-        <button class="btn primary" onclick={() => app.installUpdate()}><Download size={14} /> Установить</button>
+        <span>{t("update.available", { version: u.version ?? "" })}</span>
+        <button class="btn primary" onclick={() => app.installUpdate()}><Download size={14} /> {t("update.install")}</button>
       {/if}
     </div>
   {/if}
 
   <div class="foot">
-    <button class="btn ghost add" onclick={() => (app.wizard = { account: null })}><Plus size={15} /> Добавить ящик</button>
+    <button class="btn ghost add" onclick={() => (app.wizard = { account: null })}><Plus size={15} /> {t("account.add")}</button>
     <span class="spacer"></span>
     <div class="dnd-wrap">
       <button
         class="foot-btn"
         class:on={dnd}
         onclick={() => (dnd ? setDnd(0) : (dndMenu = !dndMenu))}
-        title={dnd ? `Не беспокоить до ${when(app.settings.dnd_until)}. Нажмите, чтобы выключить` : "Не беспокоить"}
-        aria-label="Не беспокоить"
+        title={dnd ? t("dnd.until", { when: when(app.settings.dnd_until) }) : t("dnd.title")}
+        aria-label={t("dnd.title")}
       >
         {#if dnd}<BellOff size={16} />{:else}<Bell size={16} />{/if}
       </button>
       {#if dndMenu}
         <div class="menu up">
-          <div class="menu-title">Не беспокоить</div>
+          <div class="menu-title">{t("dnd.title")}</div>
           {#each dndOptions() as o (o.label)}<button onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
         </div>
       {/if}
     </div>
-    <button class="foot-btn" onclick={() => (app.settingsOpen = true)} title="Настройки" aria-label="Настройки"><Settings size={16} /></button>
+    <button class="foot-btn" onclick={() => (app.settingsOpen = true)} title={t("settings.title")} aria-label={t("settings.title")}><Settings size={16} /></button>
   </div>
 </nav>
 

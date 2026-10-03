@@ -13,6 +13,7 @@ use serde_json::json;
 use crate::error::CmdError;
 use crate::state::AppState;
 use crate::worker::Work;
+use depesha_core::tr;
 
 pub async fn run(state: Arc<AppState>) {
     loop {
@@ -44,9 +45,12 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
             continue;
         }
         let Ok(account) = state.account(&item.account_id) else {
-            state
-                .store
-                .outbox_retry_later(item.id, now, "учётная запись удалена", true)?;
+            state.store.outbox_retry_later(
+                item.id,
+                now,
+                &tr!("the account was removed", "учётная запись удалена"),
+                true,
+            )?;
             continue;
         };
         let result = async {
@@ -94,7 +98,7 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                     };
                     if let Err(e) = worker.run(work).await {
                         tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
-                        state.emit("app-error", json!({ "message": format!("письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
+                        state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
                     }
                 }
             }

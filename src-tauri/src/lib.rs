@@ -76,6 +76,7 @@ pub fn run() {
                 updates: updater::Updates::new(app.package_info().version.to_string()),
             });
             app.manage(state.clone());
+            state.apply_language();
 
             tauri::async_runtime::spawn(async move {
                 for account in state.accounts() {
@@ -112,6 +113,7 @@ pub fn run() {
             commands::unsubscribe,
             commands::settings_get,
             commands::settings_set,
+            commands::language,
             commands::update_status,
             commands::update_check,
             commands::update_install,

@@ -12,6 +12,7 @@ use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
 pub use crate::query::Criterion;
+use crate::tr;
 use crate::{Error, Result, tls, utf7};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -68,7 +69,7 @@ pub async fn probe(server: &ServerConfig) -> Result<()> {
 async fn open(server: &ServerConfig) -> Result<Client<Box<dyn Io>>> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
-        .map_err(|_| Error::Timeout("подключение"))??;
+        .map_err(|_| Error::Timeout("connecting"))??;
     let pinned = server.trusted_cert.as_deref();
 
     let stream: Box<dyn Io> = match server.security {
@@ -126,7 +127,7 @@ pub(crate) fn server_text(raw: &str) -> String {
 async fn read_greeting<T: Io>(client: &mut Client<T>) -> Result<()> {
     timeout(CONNECT_TIMEOUT, client.read_response())
         .await
-        .map_err(|_| Error::Timeout("приветствие сервера"))??
+        .map_err(|_| Error::Timeout("server greeting"))??
         .ok_or(Error::Closed)?;
     Ok(())
 }
@@ -466,7 +467,7 @@ macro_rules! next_response {
     ($conn:expr) => {
         timeout(Duration::from_secs(120), $conn.session.read_response())
             .await
-            .map_err(|_| Error::Timeout("ответ на поиск"))??
+            .map_err(|_| Error::Timeout("search answer"))??
             .ok_or(Error::Closed)?
     };
 }
@@ -589,7 +590,8 @@ async fn read_search(conn: &mut Conn, id: async_imap::imap_proto::RequestId) -> 
 }
 
 fn search_refused(info: &str) -> Error {
-    Error::Protocol(format!(
+    Error::Protocol(tr!(
+        "the server could not search for non-Latin text (no CHARSET UTF-8 support): {info}",
         "сервер не выполнил поиск по-русски (нет поддержки CHARSET UTF-8): {info}"
     ))
 }

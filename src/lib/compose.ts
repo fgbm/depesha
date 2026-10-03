@@ -1,6 +1,7 @@
 // Building replies and forwards from an opened message. Pure functions, covered by compose.test.ts.
 
 import { addrFull, shortDateTime } from "./format";
+import { t } from "./i18n.svelte";
 import type { Addr, AttachmentSource, ComposeDraft, OpenedMessage } from "./types";
 
 export function emptyDraft(from: Addr | null): ComposeDraft {
@@ -34,7 +35,7 @@ function uniq(list: Addr[], exclude: Addr[]): Addr[] {
 function quoted(msg: OpenedMessage): string {
   const s = msg.view.summary;
   const who = s.from ? addrFull(s.from) : "";
-  const header = `${shortDateTime(s.date ?? msg.row.date)}, ${who} пишет:`;
+  const header = t("compose.wrote", { date: shortDateTime(s.date ?? msg.row.date), who });
   const body = (msg.view.text ?? "").replace(/\r\n/g, "\n").trimEnd();
   return `\n\n${header}\n${body
     .split("\n")
@@ -76,12 +77,12 @@ export function forward(msg: OpenedMessage, me: Addr): ComposeDraft {
   const lines = [
     "",
     "",
-    "-------- Пересылаемое сообщение --------",
-    `Тема: ${s.subject}`,
-    `Дата: ${shortDateTime(s.date ?? msg.row.date)}`,
-    s.from ? `От: ${addrFull(s.from)}` : "",
-    s.to.length ? `Кому: ${s.to.map(addrFull).join(", ")}` : "",
-    s.cc.length ? `Копия: ${s.cc.map(addrFull).join(", ")}` : "",
+    t("compose.fwd.header"),
+    `${t("compose.fwd.subject")}: ${s.subject}`,
+    `${t("compose.fwd.date")}: ${shortDateTime(s.date ?? msg.row.date)}`,
+    s.from ? `${t("compose.fwd.from")}: ${addrFull(s.from)}` : "",
+    s.to.length ? `${t("compose.fwd.to")}: ${s.to.map(addrFull).join(", ")}` : "",
+    s.cc.length ? `${t("compose.fwd.cc")}: ${s.cc.map(addrFull).join(", ")}` : "",
     "",
     (msg.view.text ?? "").replace(/\r\n/g, "\n").trimEnd(),
     "",
@@ -137,6 +138,6 @@ export function swapSignature(text: string, from: string | undefined, to: string
   const newBlock = sigBlock(to);
   if (oldBlock && text.includes(oldBlock)) return text.replace(oldBlock, newBlock);
   if (!newBlock) return text;
-  const quote = text.search(/\n\n[^\n]*(пишет:|-------- Пересылаемое сообщение)/);
+  const quote = text.search(/\n\n[^\n]*(пишет:|wrote:|-------- Пересылаемое сообщение|-------- Forwarded message)/);
   return quote >= 0 ? text.slice(0, quote) + newBlock + text.slice(quote) : text + newBlock;
 }

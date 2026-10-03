@@ -1,4 +1,5 @@
 use depesha_core::tls::CertProblem;
+use depesha_core::tr;
 use serde::Serialize;
 
 /// Error as the GUI sees it: a kind to branch on, a Russian message to show,
@@ -37,7 +38,7 @@ impl From<depesha_core::Error> for CmdError {
 
 impl From<std::io::Error> for CmdError {
     fn from(err: std::io::Error) -> Self {
-        Self::new("io", format!("файл: {err}"))
+        Self::new("io", tr!("file: {err}", "файл: {err}"))
     }
 }
 

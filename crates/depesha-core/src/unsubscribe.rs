@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
+use crate::tr;
 use crate::{Error, Result, tls};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -18,7 +19,12 @@ fn split_url(url: &str) -> Result<(String, u16, String)> {
         .trim()
         .strip_prefix("https://")
         .or_else(|| url.trim().strip_prefix("HTTPS://"))
-        .ok_or_else(|| Error::Protocol("отписка в один клик возможна только по https".into()))?;
+        .ok_or_else(|| {
+            Error::Protocol(tr!(
+                "one-click unsubscribe works only over https",
+                "отписка в один клик возможна только по https"
+            ))
+        })?;
     let (authority, path) = match rest.find(['/', '?']) {
         Some(i) if rest[i..].starts_with('/') => (&rest[..i], rest[i..].to_owned()),
         Some(i) => (&rest[..i], format!("/{}", &rest[i..])),
@@ -48,23 +54,30 @@ pub async fn one_click(url: &str) -> Result<u16> {
     let (host, port, path) = split_url(url)?;
     let tcp = timeout(TIMEOUT, TcpStream::connect((host.as_str(), port)))
         .await
-        .map_err(|_| Error::Timeout("подключение к серверу рассылки"))??;
+        .map_err(|_| Error::Timeout("connecting to the list server"))??;
     let mut stream = tls::wrap(&host, None, tcp).await?;
     stream.write_all(request(&host, &path).as_bytes()).await?;
     stream.flush().await?;
     let mut line = String::new();
     timeout(TIMEOUT, BufReader::new(stream).read_line(&mut line))
         .await
-        .map_err(|_| Error::Timeout("ответ сервера рассылки"))??;
+        .map_err(|_| Error::Timeout("list server answer"))??;
     let status: u16 = line
         .split_whitespace()
         .nth(1)
         .and_then(|c| c.parse().ok())
-        .ok_or_else(|| Error::Protocol(format!("сервер рассылки ответил непонятно: {}", line.trim())))?;
+        .ok_or_else(|| {
+            Error::Protocol(tr!(
+                "unexpected answer from the list server: {}",
+                "сервер рассылки ответил непонятно: {}",
+                line.trim()
+            ))
+        })?;
     if (200..400).contains(&status) {
         Ok(status)
     } else {
-        Err(Error::Protocol(format!(
+        Err(Error::Protocol(tr!(
+            "the list server refused to unsubscribe: HTTP {status}",
             "сервер рассылки отказал в отписке: HTTP {status}"
         )))
     }
