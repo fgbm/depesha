@@ -12,6 +12,8 @@
 - Accounts get a name of their own ("Work", "Personal") shown in the sidebar, the list and the From menu; the sender name recipients see is a separate field. Accounts without one show the address, as before.
 - Recipient suggestions ignore case in any alphabet: "иван" finds "Иван". SQLite folds only ASCII, so the store registers its own `fold()`.
 - Shortcuts work after a click into the message text: keys pressed inside the message frame are passed on to the app; plain arrows still scroll the message.
+- One kind of drop-down everywhere. Menus are placed in window coordinates and open upwards when there is no room below, so the "Send later" menu at the bottom of the compose window is no longer cut off. The account and "Do not disturb" menus in the sidebar use the same menu and close on a click outside and on Escape. System `<select>` lists (From, encryption in the wizard, undo send, follow-up reminder) are replaced by `Select`, a list drawn like the menus with arrow keys; plugins get it from `@depesha/plugin-api`. Moving several messages to a folder is a menu too.
+- Confirmations (discard a message, remove an account, connect without encryption, open a link) are the app's own dialog instead of the system message box: Escape cancels, a destructive question focuses "Cancel", and a link's address is shown apart from the question.
 
 ## 0.5.0 — 2026-10-03
 

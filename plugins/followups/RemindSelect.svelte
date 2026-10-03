@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ComposeContext, PluginContext, Text } from "@depesha/plugin-api";
+  import { Select, type ComposeContext, type PluginContext, type Text } from "@depesha/plugin-api";
   import { S } from "./strings";
 
   let { compose, ctx }: { compose: ComposeContext; ctx: PluginContext } = $props();
@@ -11,15 +11,21 @@
   });
 </script>
 
-<select class="input remind" bind:value={days} title={say(S.remindHint)}>
-  <option value={0}>{say(S.remind0)}</option>
-  <option value={1}>{say(S.remind1)}</option>
-  <option value={3}>{say(S.remind3)}</option>
-  <option value={7}>{say(S.remind7)}</option>
-</select>
+<Select
+  class="remind"
+  bind:value={days}
+  title={say(S.remindHint)}
+  label={say(S.remindHint)}
+  options={[
+    { value: 0, label: say(S.remind0) },
+    { value: 1, label: say(S.remind1) },
+    { value: 3, label: say(S.remind3) },
+    { value: 7, label: say(S.remind7) },
+  ]}
+/>
 
 <style>
-  .remind {
+  :global(.select.remind) {
     max-width: 230px;
     font-size: 13px;
   }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -12,7 +12,7 @@
   import { t } from "../lib/i18n.svelte";
   import { extensions } from "../lib/extensions.svelte";
   import AddressInput from "./AddressInput.svelte";
-  import Popover from "./Popover.svelte";
+  import Select from "./Select.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { ComposeContext } from "../plugin-api";
 
@@ -160,12 +160,7 @@
     if (busy) return;
     if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
       if (!(await saveDraft())) {
-        const drop = await ask(t("compose.closeAnyway"), {
-          title: t("app.name"),
-          kind: "warning",
-          okLabel: t("close"),
-          cancelLabel: t("compose.goBack"),
-        });
+        const drop = await app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
         if (!drop) return;
       } else {
         app.toast(t("compose.draftSaved"));
@@ -176,7 +171,7 @@
 
   async function discard() {
     if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
-      const ok = await ask(t("compose.discardConfirm"), { title: t("app.name"), kind: "warning", okLabel: t("act.delete"), cancelLabel: t("cancel") });
+      const ok = await app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true });
       if (!ok) return;
     }
     app.compose = null;
@@ -203,11 +198,16 @@
     <div class="fields">
       <div class="row">
         <span class="label">{t("compose.fwd.from")}</span>
-        <select class="input from" value={c.account_id} onchange={(e) => setAccount(e.currentTarget.value)}>
-          {#each app.accounts as a (a.id)}
-            <option value={a.id}>{a.label?.trim() ? `${accountLabel(a)} — ` : ""}{a.display_name ? `${a.display_name} <${a.email}>` : a.email}</option>
-          {/each}
-        </select>
+        <Select
+          class="from"
+          label={t("compose.fwd.from")}
+          value={c.account_id}
+          options={app.accounts.map((a) => ({
+            value: a.id,
+            label: (a.label?.trim() ? `${accountLabel(a)} — ` : "") + (a.display_name ? `${a.display_name} <${a.email}>` : a.email),
+          }))}
+          onchange={setAccount}
+        />
         {#if !showCc}<button class="btn ghost small" onclick={() => (showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
       </div>
       <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} />
@@ -301,10 +301,17 @@
     flex: none;
   }
 
-  .from {
+  .row :global(.from) {
     flex: 1;
-    border: none;
+  }
+
+  .row :global(.from .trigger) {
+    border-color: transparent;
     padding-left: 0;
+  }
+
+  .row :global(.from .trigger:focus) {
+    box-shadow: none;
   }
 
   .subject {

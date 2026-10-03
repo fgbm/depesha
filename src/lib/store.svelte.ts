@@ -1,5 +1,4 @@
 import { listen } from "@tauri-apps/api/event";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { api, asError } from "./api";
 import { when } from "./later";
 import { applyTheme } from "./theme";
@@ -40,6 +39,18 @@ export interface Toast {
   action?: { label: string; run: () => void };
 }
 
+export interface Confirmation {
+  title?: string;
+  text: string;
+  /** Shown apart from the text, in monospace: a link's real address. */
+  detail?: string;
+  okLabel: string;
+  cancelLabel?: string;
+  /** The action loses something: the safe button gets the focus. */
+  danger?: boolean;
+  resolve: (ok: boolean) => void;
+}
+
 export interface ComposeState {
   account_id: string;
   draft: ComposeDraft;
@@ -70,6 +81,8 @@ class AppStore {
   allowRemote = $state(false);
   outbox = $state<OutboxItem[]>([]);
   toasts = $state<Toast[]>([]);
+  /** The question the app waits an answer to (`confirm`), drawn above every dialog. */
+  confirmation = $state<Confirmation | null>(null);
   compose = $state<ComposeState | null>(null);
   /** Server-side search: running, and rows it found (kept across list reloads). */
   serverSearching = $state(false);
@@ -259,6 +272,20 @@ class AppStore {
     if (v.kind === "unified") return v.role === "inbox";
     if (v.kind === "folder") return this.folder(v.account_id, v.folder)?.role === "inbox";
     return false;
+  }
+
+  /** Asks in the app's own dialog; true when the user agreed. */
+  confirm(q: Omit<Confirmation, "resolve">): Promise<boolean> {
+    this.confirmation?.resolve(false);
+    return new Promise((resolve) => {
+      this.confirmation = {
+        ...q,
+        resolve: (ok) => {
+          this.confirmation = null;
+          resolve(ok);
+        },
+      };
+    });
   }
 
   dismiss(id: number) {
@@ -679,7 +706,7 @@ class AppStore {
 
   /** Opens a web link after confirming the real address with the user. */
   async openLink(href: string) {
-    const ok = await ask(`${t("link.open")}\n\n${href}`, { title: t("app.name"), okLabel: t("link.openButton"), cancelLabel: t("cancel") });
+    const ok = await this.confirm({ text: t("link.open"), detail: href, okLabel: t("link.openButton") });
     if (ok) api.openLink(href).catch((e) => this.fail(e));
   }
 

@@ -87,12 +87,10 @@ async function setInput(css, value) {
   await d.type(el, String(value));
 }
 
+/** Picks in the app's own drop-down list (Select.svelte) the way a user does. */
 async function setSelect(css, value) {
-  await d.exec(
-    `const s = document.querySelector(arguments[0]); s.value = arguments[1]; s.dispatchEvent(new Event('change', {bubbles: true}));`,
-    css,
-    value,
-  );
+  await d.click(await d.find(`${css} .trigger`));
+  await d.click(await d.until(`option ${value}`, () => d.find(`${css} [role=option][data-value="${value}"]`).catch(() => null)));
 }
 
 /** Calls a backend command the way the GUI does. */
@@ -167,8 +165,8 @@ try {
     await setInput(".wizard input[placeholder^='адрес или']", "carol");
     const hosts = await d.findAll(".wizard fieldset .host input");
     const ports = await d.findAll(".wizard fieldset .port input");
-    await setSelect(".wizard fieldset:nth-of-type(1) select", "plain");
-    await setSelect(".wizard fieldset:nth-of-type(2) select", "plain");
+    await setSelect(".wizard fieldset:nth-of-type(1) .select", "plain");
+    await setSelect(".wizard fieldset:nth-of-type(2) .select", "plain");
     for (const [i, [host, port]] of [["127.0.0.1", 3143], ["127.0.0.1", 3025]].entries()) {
       await d.clear(hosts[i]);
       await d.type(hosts[i], host);
@@ -714,8 +712,8 @@ try {
     await d.button("Далее");
     await d.until("settings step", async () => (await d.bodyText()).includes("Входящая почта (IMAP)"), 30000);
     await setInput(".wizard input[placeholder^='адрес или']", "bob");
-    await setSelect(".wizard fieldset:nth-of-type(1) select", "tls");
-    await setSelect(".wizard fieldset:nth-of-type(2) select", "tls");
+    await setSelect(".wizard fieldset:nth-of-type(1) .select", "tls");
+    await setSelect(".wizard fieldset:nth-of-type(2) .select", "tls");
     const hosts = await d.findAll(".wizard fieldset .host input");
     const ports = await d.findAll(".wizard fieldset .port input");
     for (const [i, port] of [3993, 3465].entries()) {
@@ -736,7 +734,7 @@ try {
       if (r === "smtp") await d.button("Доверять этому сертификату");
     });
     await d.until("wizard closed", async () => (await d.findAll(".wizard")).length === 0, 20000);
-    await d.until("second account in sidebar", async () => (await sidebarText()).toUpperCase().includes("БОБ"), 20000);
+    await d.until("second account in sidebar", async () => (await sidebarText()).includes("bob@local.test"), 20000);
   });
 
   await step("4.1", "общий входящий собирает письма обоих ящиков", async () => {

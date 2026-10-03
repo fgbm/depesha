@@ -179,7 +179,8 @@
     background: var(--paper);
     border: 1px solid var(--line);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+    /* Drawn like Popover.svelte: one look for every drop-down. */
+    box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
     display: flex;
     flex-direction: column;
     min-width: 320px;

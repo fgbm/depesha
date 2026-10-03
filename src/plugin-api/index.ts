@@ -9,6 +9,7 @@ import type { ComposeDraft, FolderInfo, ListQuery, MessageRow, Moved, OpenedMess
 export type { ComposeDraft, FolderInfo, ListQuery, MessageRow, Moved, OpenedMessage };
 export { default as Popover } from "../components/Popover.svelte";
 export { default as LaterMenu } from "../components/LaterMenu.svelte";
+export { default as Select } from "../components/Select.svelte";
 export { sendLaterPresets, snoozePresets, when, type Preset } from "../lib/later";
 export { addrName, listDate, matches, size } from "../lib/format";
 

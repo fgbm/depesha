@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ask, open as openDialog, save } from "@tauri-apps/plugin-dialog";
+  import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import Forward from "@lucide/svelte/icons/forward";
@@ -67,8 +67,7 @@
       app.compose = { account_id: acc.id, draft: withSignature(draft, acc.signature), draft_id: null };
       return;
     }
-    const ok = await ask(`${t("link.open")}\n\n${href}`, { title: t("app.name"), okLabel: t("link.openButton"), cancelLabel: t("cancel") });
-    if (ok) api.openLink(href).catch((e) => app.fail(e));
+    await app.openLink(href);
   }
 
   async function openAttachment(a: AttachmentInfo) {
@@ -106,6 +105,7 @@
 
   let moreOpen = $state(false);
   let moveOpen = $state(false);
+  let bulkMoveOpen = $state(false);
   const banners = $derived(msg ? extensions.banners.filter((b) => b.messageId === msg.row.id) : []);
   const messageCommands = $derived(msg ? extensions.commands().filter((c) => c.message) : []);
   const pluginBanners = $derived(msg ? registry.collect<PluginBanner, typeof msg>("banners", msg) : []);
@@ -162,10 +162,17 @@
         <button class="btn" onclick={() => app.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
         <button class="btn" onclick={() => app.remove()}><Trash size={15} /> {t("act.delete")}</button>
         {#if bulkFolders.length}
-          <select class="input" onchange={(e) => { const v = e.currentTarget.value; e.currentTarget.value = ""; if (v) app.moveTo(v); }}>
-            <option value="">{t("act.toFolder")}</option>
-            {#each bulkFolders as f (f.name)}<option value={f.name}>{f.display_name}</option>{/each}
-          </select>
+          <span class="anchor">
+            <button class="btn" onclick={() => (bulkMoveOpen = !bulkMoveOpen)}><Folder size={15} /> {t("act.toFolder")}</button>
+            <Popover bind:open={bulkMoveOpen} align="left">
+              <div class="mt">{t("act.moveTitle")}</div>
+              <div class="folder-list">
+                {#each bulkFolders as f (f.name)}
+                  <button class="mi" onclick={() => { bulkMoveOpen = false; app.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
+                {/each}
+              </div>
+            </Popover>
+          </span>
         {/if}
       </div>
     </div>

@@ -3,6 +3,7 @@
   import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
   import { applyTheme, THEMES } from "../lib/theme";
+  import Select from "./Select.svelte";
   import type { OAuthClient, OAuthProvider, Settings } from "../lib/types";
 
   let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
@@ -98,13 +99,14 @@
 
       <section>
         <h4>{t("settings.sending")}</h4>
-        <label class="row">
+        <div class="row">
           {t("settings.undoSend")}
-          <select class="input" bind:value={draft.undo_send_secs}>
-            <option value={0}>{t("settings.noWait")}</option>
-            {#each [5, 10, 20, 30] as secs (secs)}<option value={secs}>{tn("settings.seconds", secs)}</option>{/each}
-          </select>
-        </label>
+          <Select
+            label={t("settings.undoSend")}
+            bind:value={draft.undo_send_secs}
+            options={[{ value: 0, label: t("settings.noWait") }, ...[5, 10, 20, 30].map((secs) => ({ value: secs, label: tn("settings.seconds", secs) }))]}
+          />
+        </div>
       </section>
 
 

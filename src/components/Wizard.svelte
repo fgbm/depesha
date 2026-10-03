@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { ask } from "@tauri-apps/plugin-dialog";
   import { app } from "../lib/store.svelte";
+  import Select from "./Select.svelte";
   import { api, asError } from "../lib/api";
   import { longDate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -235,10 +235,7 @@
   }
 
   async function allowPlain() {
-    const ok = await ask(
-      t("wizard.plainWarning"),
-      { title: t("wizard.plainTitle"), kind: "warning", okLabel: t("wizard.plainAllow"), cancelLabel: t("cancel") },
-    );
+    const ok = await app.confirm({ title: t("wizard.plainTitle"), text: t("wizard.plainWarning"), okLabel: t("wizard.plainAllow"), danger: true });
     if (!ok) return;
     const target = errorProto === "SMTP" ? smtp : imap;
     target.security = "plain";
@@ -247,12 +244,7 @@
 
   async function removeAccount() {
     if (!existing) return;
-    const ok = await ask(t("wizard.removeConfirm", { email: existing.email }), {
-      title: t("app.name"),
-      kind: "warning",
-      okLabel: t("act.delete"),
-      cancelLabel: t("cancel"),
-    });
+    const ok = await app.confirm({ text: t("wizard.removeConfirm", { email: existing.email }), okLabel: t("act.delete"), danger: true });
     if (!ok) return;
     try {
       await api.accountRemove(existing.id);
@@ -355,13 +347,19 @@
             <div class="server">
               <label class="field host"><span>{t("wizard.server")}</span><input class="input" bind:value={s.host} /></label>
               <label class="field port"><span>{t("wizard.port")}</span><input class="input" type="number" bind:value={s.port} /></label>
-              <label class="field sec"><span>{t("wizard.security")}</span>
-                <select class="input" value={s.security} onchange={(e) => setSecurity(key as "imap" | "smtp", e.currentTarget.value as Security)}>
-                  <option value="tls">SSL/TLS</option>
-                  <option value="starttls">STARTTLS</option>
-                  <option value="plain">{t("wizard.noEncryption")}</option>
-                </select>
-              </label>
+              <div class="field sec"><span>{t("wizard.security")}</span>
+                <Select
+                  class="security"
+                  label={t("wizard.security")}
+                  value={s.security}
+                  options={[
+                    { value: "tls" as Security, label: "SSL/TLS" },
+                    { value: "starttls" as Security, label: "STARTTLS" },
+                    { value: "plain" as Security, label: t("wizard.noEncryption") },
+                  ]}
+                  onchange={(v) => setSecurity(key as "imap" | "smtp", v)}
+                />
+              </div>
             </div>
             {#if s.security === "plain"}<p class="note">⚠ {t("wizard.plainNote")}</p>{/if}
             {#if s.trusted_cert}<p class="muted small">{t("wizard.trusted")} {fingerprint(s.trusted_cert).slice(0, 23)}…

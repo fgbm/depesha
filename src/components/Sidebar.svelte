@@ -28,6 +28,7 @@
   import { t } from "../lib/i18n.svelte";
   import { accountLabel, roleLabel } from "../lib/format";
   import { registry } from "../plugin-host/registry.svelte";
+  import Popover from "./Popover.svelte";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
   let { onCompose }: { onCompose: () => void } = $props();
@@ -168,14 +169,12 @@
             <span class="chev"><ChevronRight size={13} /></span>
           </button>
           <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
-          {#if menuFor === acc.id}
-            <div class="menu">
-              <button onclick={() => refresh(acc)}>{t("account.refresh")}</button>
-              <button onclick={() => { menuFor = null; app.wizard = { account: acc }; }}>{t("account.settings")}</button>
-              <hr />
-              <button onclick={() => { menuFor = null; app.wizard = { account: null }; }}><Plus size={14} /> {t("account.add")}</button>
-            </div>
-          {/if}
+          <Popover bind:open={() => menuFor === acc.id, (v) => (menuFor = v ? acc.id : null)}>
+            <button class="mi" onclick={() => refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>
+            <button class="mi" onclick={() => { menuFor = null; app.wizard = { account: acc }; }}><Settings size={15} /> {t("account.settings")}</button>
+            <hr />
+            <button class="mi" onclick={() => { menuFor = null; app.wizard = { account: null }; }}><Plus size={15} /> {t("account.add")}</button>
+          </Popover>
         </div>
         {#if acc.status && (acc.status.state === "error" || acc.status.state === "paused")}
           <button class="problem" onclick={() => (acc.status?.state === "paused" ? (app.wizard = { account: acc }) : refresh(acc))}>
@@ -236,12 +235,10 @@
       >
         {#if dnd}<BellOff size={16} />{:else}<Bell size={16} />{/if}
       </button>
-      {#if dndMenu}
-        <div class="menu up">
-          <div class="menu-title">{t("dnd.title")}</div>
-          {#each dndOptions() as o (o.label)}<button onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
-        </div>
-      {/if}
+      <Popover bind:open={dndMenu} align="left">
+        <div class="mt">{t("dnd.title")}</div>
+        {#each dndOptions() as o (o.label)}<button class="mi" onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
+      </Popover>
     </div>
     <button class="foot-btn" onclick={() => (app.pluginsOpen = true)} title={t("ext.title")} aria-label={t("ext.title")}><Puzzle size={16} /></button>
   </div>
@@ -425,43 +422,6 @@
     color: var(--side-ink);
   }
 
-  .menu {
-    position: absolute;
-    right: 8px;
-    top: 28px;
-    background: var(--paper);
-    color: var(--ink);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    padding: 4px;
-    min-width: 150px;
-  }
-
-  .menu button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
-    text-align: left;
-    padding: 6px 10px;
-    border-radius: 5px;
-  }
-
-  .menu hr {
-    width: 100%;
-    margin: 4px 0;
-    border: none;
-    border-top: 1px solid var(--line);
-  }
-
-  .menu button:hover {
-    background: var(--hover);
-  }
-
   .dot {
     width: 8px;
     height: 8px;
@@ -549,18 +509,6 @@
 
   .dnd-wrap {
     position: relative;
-  }
-
-  .menu.up {
-    top: auto;
-    bottom: 34px;
-    right: -40px;
-  }
-
-  .menu-title {
-    padding: 6px 10px 4px;
-    font-size: 12px;
-    color: var(--muted);
   }
 
   .settings {

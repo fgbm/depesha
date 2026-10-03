@@ -13,6 +13,7 @@
   import Preferences from "./components/Preferences.svelte";
   import Plugins from "./components/Plugins.svelte";
   import WindowControls from "./components/WindowControls.svelte";
+  import Confirm from "./components/Confirm.svelte";
   import { host } from "./plugin-host/host.svelte";
   import { registry } from "./plugin-host/registry.svelte";
 
@@ -158,6 +159,10 @@
 {#each registry.lists.overlays as o (o)}
   <o.item.component {...o.item.props ?? {}} />
 {/each}
+
+{#if app.confirmation}
+  {#key app.confirmation}<Confirm q={app.confirmation} />{/key}
+{/if}
 
 <WindowControls />
 
