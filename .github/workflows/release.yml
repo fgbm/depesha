@@ -51,3 +51,23 @@ jobs:
           # latest.json: what installed copies check (releases/latest/download/latest.json).
           uploadUpdaterJson: true
           args: ${{ matrix.args }}
+
+  # The draft above collects the files of all four builds; installed copies see the
+  # release (latest.json) only once it is published, so it is published only when every
+  # build succeeded. A failed build leaves the draft for a look by hand.
+  publish:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The previous tag and the commits since it.
+          fetch-depth: 0
+      - name: Release notes from CHANGELOG.md and the commits
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --draft=false --latest
