@@ -5,6 +5,7 @@ mod outbox;
 mod scheduler;
 mod secrets;
 mod state;
+mod updater;
 mod worker;
 
 use std::collections::HashMap;
@@ -48,6 +49,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let config_dir = app.path().app_config_dir()?;
@@ -71,6 +73,7 @@ pub fn run() {
                 statuses: Mutex::new(HashMap::new()),
                 outbox_notify: Notify::new(),
                 scheduler_notify: Notify::new(),
+                updates: updater::Updates::new(app.package_info().version.to_string()),
             });
             app.manage(state.clone());
 
@@ -80,6 +83,7 @@ pub fn run() {
                     state.set_worker(&account.id, Some(w));
                 }
                 tauri::async_runtime::spawn(scheduler::run(state.clone()));
+                tauri::async_runtime::spawn(updater::run(state.clone()));
                 outbox::run(state).await;
             });
             Ok(())
@@ -108,6 +112,10 @@ pub fn run() {
             commands::unsubscribe,
             commands::settings_get,
             commands::settings_set,
+            commands::update_status,
+            commands::update_check,
+            commands::update_install,
+            commands::update_restart,
             commands::load_older,
             commands::sync_now,
             commands::trust_sender,
@@ -124,6 +132,14 @@ pub fn run() {
             commands::temp_attachment,
             commands::file_info,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Depesha");
+        .build(tauri::generate_context!())
+        .expect("error while running Depesha")
+        .run(|app, event| {
+            // A Windows update downloaded in the background installs when the app quits.
+            if let tauri::RunEvent::Exit = event
+                && let Some(state) = app.try_state::<Arc<AppState>>()
+            {
+                updater::apply_staged(&state);
+            }
+        });
 }

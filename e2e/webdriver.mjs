@@ -54,14 +54,17 @@ export class Driver {
   }
 
   async click(el) {
+    await this.reveal(el);
     await this.req("POST", this.s(`/element/${el}/click`), {});
   }
 
   async type(el, text) {
+    await this.reveal(el);
     await this.req("POST", this.s(`/element/${el}/value`), { text });
   }
 
   async clear(el) {
+    await this.reveal(el);
     await this.req("POST", this.s(`/element/${el}/clear`), {});
   }
 
@@ -99,6 +102,11 @@ export class Driver {
       this.xpath(`//button[contains(normalize-space(.), ${JSON.stringify(label)})]`),
     timeoutMs);
     await this.click(el);
+  }
+
+  /** WebKitWebDriver does not scroll nested scroll containers (modals) by itself. */
+  async reveal(el) {
+    await this.exec("arguments[0].scrollIntoView({ block: 'nearest' })", { [ELEMENT]: el }).catch(() => {});
   }
 
   /** Text of the whole page body. */

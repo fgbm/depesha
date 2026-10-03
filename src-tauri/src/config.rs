@@ -24,6 +24,8 @@ pub struct Settings {
     /// Group the list into conversations.
     pub threads: bool,
     pub templates: Vec<Template>,
+    /// `auto` (default), `notify` or `off`, like OpenCode's `autoupdate`.
+    pub updates: String,
 }
 
 impl Default for Settings {
@@ -34,6 +36,7 @@ impl Default for Settings {
             dnd_until: 0,
             threads: true,
             templates: Vec::new(),
+            updates: "auto".into(),
         }
     }
 }

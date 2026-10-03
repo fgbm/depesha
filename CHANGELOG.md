@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-10-03
+
+- Self-updating, modelled on OpenCode's `autoupdate`: `auto` (default), `notify` or `off` in Settings; a check at start and every six hours, "Check now" in Settings.
+- AppImage and macOS update in the background and offer a restart; Windows downloads in the background and installs on restart or exit; deb and rpm notify and install on click (pkexec).
+- Updates are signed in the release workflow and verified against the public key built into the app; a tampered update is refused (`scripts/test-update.py`).
+
 ## 0.2.0 — 2026-10-03
 
 Mail as people actually use it; the research and the choices are in `docs/ux.md`.

@@ -927,3 +927,25 @@ pub async fn file_info(path: String) -> CmdResult<FileInfo> {
         .unwrap_or_default();
     Ok(FileInfo { name, size: meta.len() })
 }
+
+#[tauri::command]
+pub fn update_status(state: St<'_>) -> crate::updater::UpdateStatus {
+    state.updates.status()
+}
+
+#[tauri::command]
+pub async fn update_check(state: St<'_>) -> CmdResult<crate::updater::UpdateStatus> {
+    Ok(crate::updater::check(&state, true).await)
+}
+
+#[tauri::command]
+pub async fn update_install(state: St<'_>) -> CmdResult<crate::updater::UpdateStatus> {
+    crate::updater::install(&state)
+        .await
+        .map_err(|e| CmdError::new("update", e))
+}
+
+#[tauri::command]
+pub fn update_restart(state: St<'_>) {
+    crate::updater::restart(&state)
+}

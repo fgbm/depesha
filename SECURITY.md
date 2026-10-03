@@ -8,6 +8,12 @@ Please report vulnerabilities privately through GitHub's **Security → Report a
 
 You can expect an acknowledgement within a week. A fix ships in a patch release, and the advisory is published together with it.
 
+## Updates
+
+Releases are built and signed by GitHub Actions in this repository. The update signing key is stored only as an Actions secret and offline with the maintainer; its public half is in `src-tauri/tauri.conf.json` and is compiled into the app. The app installs an update only when its minisign signature matches that key, whatever server the file came from.
+
+If you suspect the key is compromised, report it as a vulnerability: the fix is a release with a new key that every user installs by hand.
+
 ## Scope
 
 In scope: escaping the message sandbox (script execution, network requests the user did not allow), credential exposure (files, logs, IPC), TLS verification bypass, and attachment handling that leads to code execution.

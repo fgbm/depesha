@@ -112,7 +112,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cargo test -p depesha-core --lib
-      - run: npx tauri build
+      # Packages only; update artifacts need the signing key, which only releases get.
+      - run: npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v7
         with:
           name: bundles-${{ matrix.os }}

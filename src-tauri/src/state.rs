@@ -31,6 +31,7 @@ pub struct AppState {
     pub outbox_notify: Notify,
     /// Wakes the scheduler (snoozed mail, follow-up reminders) early.
     pub scheduler_notify: Notify,
+    pub updates: crate::updater::Updates,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

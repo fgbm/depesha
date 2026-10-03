@@ -46,6 +46,16 @@ Grab a build from [Releases](../../releases): `.deb`, `.rpm` and AppImage for Li
 
 On Linux you need a Secret Service provider (GNOME Keyring, KWallet or KeePassXC), which most desktops already run.
 
+## Updates
+
+Like OpenCode's `autoupdate`, Depesha checks for a new version at start and every six hours, with three modes in Settings: install automatically (default), only notify, or never check.
+
+- **AppImage and macOS** install in the background; the new version runs after a restart, offered by a button in the sidebar.
+- **Windows** downloads in the background and installs when you restart or quit (the installer closes the app).
+- **deb and rpm** only notify: installing needs the administrator password, so it happens on your click.
+
+Every update is signed in the release pipeline, and the app checks the signature against the public key it was built with: an unsigned or modified file is refused and the installed copy stays untouched (`scripts/test-update.py` checks both cases). Versions before 0.3.0 have no updater: install 0.3.0 once by hand.
+
 ## Tested against
 
 | Server | How |

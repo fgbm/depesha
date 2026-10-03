@@ -17,6 +17,7 @@ import type {
   OpenedMessage,
   OutboxItem,
   Settings,
+  UpdateStatus,
 } from "./types";
 
 export type View =
@@ -72,7 +73,8 @@ class AppStore {
   serverSearching = $state(false);
   serverRows = $state<MessageRow[] | null>(null);
   wizard = $state<WizardState | null>(null);
-  settings = $state<Settings>({ undo_send_secs: 10, notify: "people", dnd_until: 0, threads: true, templates: [] });
+  settings = $state<Settings>({ undo_send_secs: 10, notify: "people", dnd_until: 0, threads: true, templates: [], updates: "auto" });
+  update = $state<UpdateStatus | null>(null);
   counters = $state<Counters>({ snoozed: 0, followups: 0 });
   split = $state<Split>((localStorage.getItem("depesha.split") as Split) ?? "all");
   /** The opened message's conversation, oldest first; empty for a lone message. */
@@ -113,6 +115,8 @@ class AppStore {
       if (this.view.kind === "snoozed" || this.view.kind === "followups") this.scheduleReload();
     });
     await listen("settings-changed", () => this.loadSettings());
+    await listen<UpdateStatus>("update-status", (e) => (this.update = e.payload));
+    this.update = await api.updateStatus().catch(() => null);
   }
 
   toast(text: string, error = false, action?: Toast["action"], ms?: number) {
@@ -138,6 +142,27 @@ class AppStore {
       this.fail(e, "Настройки не сохранены");
     }
     if (threadsChanged) this.reload();
+  }
+
+  async checkUpdates() {
+    try {
+      this.update = await api.updateCheck();
+      if (this.update.state === "idle") this.toast(`Установлена последняя версия, ${this.update.current}`);
+    } catch (e) {
+      this.fail(e);
+    }
+  }
+
+  async installUpdate() {
+    try {
+      this.update = await api.updateInstall();
+    } catch (e) {
+      this.fail(e, "Обновление");
+    }
+  }
+
+  restartForUpdate() {
+    api.updateRestart().catch((e) => this.fail(e));
   }
 
   async loadCounters() {

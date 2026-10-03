@@ -207,6 +207,16 @@ export interface Settings {
   dnd_until: number;
   threads: boolean;
   templates: Template[];
+  updates: "auto" | "notify" | "off";
+}
+
+export interface UpdateStatus {
+  current: string;
+  state: "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error";
+  version: string | null;
+  notes: string | null;
+  error: string | null;
+  install: "in-place" | "installer" | "package" | "unsupported";
 }
 
 /** A move the backend did; handed back to undo it. */

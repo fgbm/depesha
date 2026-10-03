@@ -52,6 +52,26 @@
       </section>
 
       <section>
+        <h4>Обновления</h4>
+        <label class="radio"><input type="radio" bind:group={draft.updates} value="auto" /> Устанавливать автоматически <span class="muted">— новая версия начнёт работать после перезапуска</span></label>
+        <label class="radio"><input type="radio" bind:group={draft.updates} value="notify" /> Только сообщать о новой версии</label>
+        <label class="radio"><input type="radio" bind:group={draft.updates} value="off" /> Не проверять</label>
+        <div class="row update-row">
+          <div class="muted small status">
+            <div>Установлена версия {app.update?.current ?? "—"}.</div>
+            {#if app.update?.state === "checking"}<div>Проверяю…</div>
+            {:else if app.update?.state === "error"}<div class="danger-text">{app.update.error}</div>
+            {:else if app.update?.version}<div>Доступна версия {app.update.version}.</div>
+            {/if}
+            {#if app.update?.install === "package"}<div>Пакет deb/rpm обновляется только по вашей команде: для установки нужен пароль администратора.</div>{/if}
+            {#if app.update?.install === "unsupported"}<div>Эта копия запущена не из установленного пакета и сама не обновляется.</div>{/if}
+          </div>
+          <button class="btn" onclick={() => app.checkUpdates()} disabled={app.update?.state === "checking"}>Проверить сейчас</button>
+        </div>
+        <p class="muted small">Каждое обновление подписано ключом проекта; неподписанное или изменённое Депеша не установит.</p>
+      </section>
+
+      <section>
         <h4>Шаблоны ответов</h4>
         <p class="muted small">Готовые тексты для типовых писем. Вставляются кнопкой «Шаблоны» в окне письма.</p>
         {#each draft.templates as t, i (i)}
@@ -120,6 +140,19 @@
 
   .small {
     font-size: 12px;
+  }
+
+  .update-row {
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-top: 6px;
+  }
+
+  .status {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    line-height: 1.4;
   }
 
   .tpl {

@@ -18,6 +18,8 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
+  import Download from "@lucide/svelte/icons/download";
+  import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { when } from "../lib/later";
@@ -209,6 +211,21 @@
       </div>
     {/each}
   </div>
+
+  {#if app.update && ["available", "downloading", "ready", "installed"].includes(app.update.state)}
+    {@const u = app.update}
+    <div class="update">
+      {#if u.state === "installed" || u.state === "ready"}
+        <span>Версия {u.version} готова</span>
+        <button class="btn primary" onclick={() => app.restartForUpdate()}><RotateCw size={14} /> Перезапустить</button>
+      {:else if u.state === "downloading"}
+        <span>Загружается версия {u.version}…</span>
+      {:else}
+        <span>Доступна версия {u.version}</span>
+        <button class="btn primary" onclick={() => app.installUpdate()}><Download size={14} /> Установить</button>
+      {/if}
+    </div>
+  {/if}
 
   <div class="foot">
     <button class="btn ghost add" onclick={() => (app.wizard = { account: null })}><Plus size={15} /> Добавить ящик</button>
@@ -447,6 +464,23 @@
     margin-top: 3px;
     font-weight: 600;
     color: #fff;
+  }
+
+  .update {
+    margin: 0 10px 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--side-2);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .update .btn {
+    justify-content: center;
+    padding: 4px 8px;
+    font-size: 12px;
   }
 
   .foot {

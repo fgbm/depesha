@@ -9,6 +9,7 @@ import type {
   Moved,
   Settings,
   Unsubscribed,
+  UpdateStatus,
   Detection,
   FlagChange,
   FolderInfo,
@@ -67,6 +68,10 @@ export const api = {
   unsubscribe: (id: number) => call<Unsubscribed>("unsubscribe", { id }),
   settings: () => call<Settings>("settings_get"),
   saveSettings: (settings: Settings) => call<void>("settings_set", { settings }),
+  updateStatus: () => call<UpdateStatus>("update_status"),
+  updateCheck: () => call<UpdateStatus>("update_check"),
+  updateInstall: () => call<UpdateStatus>("update_install"),
+  updateRestart: () => call<void>("update_restart"),
   loadOlder: (accountId: string, folder: string) => call<number>("load_older", { accountId, folder }),
   syncNow: (accountId?: string, folder?: string) =>
     call<void>("sync_now", { accountId: accountId ?? null, folder: folder ?? null }),
