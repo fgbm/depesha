@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 — 2026-10-03
+
+Sign-in with Google, Yandex and Microsoft, Exchange over EWS, accounts with names of their own, a new icon, and one look for menus, lists and confirmations.
 
 - Sign in with Google, Yandex and Microsoft (Outlook.com, Microsoft 365): OAuth 2.0 with PKCE in the system browser, the answer comes to `http://127.0.0.1:47851–47853/oauth/callback`. IMAP and SMTP log in with SASL XOAUTH2; the refresh token lives in the keyring, access tokens only in memory and are refreshed before they expire or after the server refuses one. A revoked sign-in pauses the account and the wizard offers "Sign in again".
 - OAuth clients are built in from `DEPESHA_*_CLIENT_ID`/`_SECRET` at build time; Settings has "Your own OAuth clients" for builds without them.

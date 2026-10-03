@@ -16,7 +16,7 @@ tauri-build = { version = "2.7.1", features = [] }
 [dependencies]
 base64 = "0.23.1"
 chrono = "0.4.45"
-depesha-core = { version = "0.5.0", path = "../crates/depesha-core" }
+depesha-core = { version = "0.5.1", path = "../crates/depesha-core" }
 keyring = "4.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
