@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.2 — 2026-10-03
 
-Conversations that hold together, and a composer that steps aside.
+Conversations that hold together, a composer that steps aside, offline reading with a background tasks window, context menus for messages and folders, Windows login to Exchange, and a visible response to every click.
 
 - Answers join their conversation even without `References`: a new message takes the conversation of any cached message it names (`References`, `In-Reply-To`) or that names it, so Outlook's answers that carry only `In-Reply-To`, and answers that arrive before their original, no longer start conversations of their own. Exchange's `Thread-Index` counts even when the message has a Message-ID. An answer with no headers at all (phones) joins a letter with the same subject without "Re:"/"Отв:"/"AW:" when each side wrote to the other within 30 days. Conversations found to be one are merged. The cache is linked again once on the first start (`PRAGMA user_version` 1).
 - A grouped row counts my answers from Sent, shows the date of the newest letter and moves up when I answer, names who wrote ("Ivan, me, Maria") and marks a started answer with a red "Draft".
