@@ -1,14 +1,19 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import FileText from "@lucide/svelte/icons/file-text";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import Minus from "@lucide/svelte/icons/minus";
+  import Maximize from "@lucide/svelte/icons/maximize-2";
+  import Minimize from "@lucide/svelte/icons/minimize-2";
+  import X from "@lucide/svelte/icons/x";
+  import Trash from "@lucide/svelte/icons/trash-2";
+  import { app, type ComposeWindow } from "../lib/store.svelte";
   import { isDirty, swapSignature } from "../lib/compose";
-  import { accountLabel, size } from "../lib/format";
+  import { accountLabel, listDate, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { extensions } from "../lib/extensions.svelte";
   import AddressInput from "./AddressInput.svelte";
@@ -16,8 +21,9 @@
   import { registry } from "../plugin-host/registry.svelte";
   import type { ComposeContext } from "../plugin-api";
 
-  const c = app.compose!;
-  let showCc = $state(c.draft.cc.length > 0 || c.draft.bcc.length > 0);
+  let { c }: { c: ComposeWindow } = $props();
+  // A window keeps its composition for life (keyed by id in App.svelte).
+  let showCc = $state(untrack(() => c.draft.cc.length > 0 || c.draft.bcc.length > 0));
   let busy = $state(false);
   let error = $state("");
   let toInput = $state<AddressInput | null>(null);
@@ -132,8 +138,11 @@
     warnings = null;
     busy = true;
     try {
+      // The saved draft goes away once the letter is sent: the latest copy must be known.
+      cancelAutosave();
+      await saving;
       await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupDays);
-      app.compose = null;
+      app.closeCompose(c.id);
     } catch (e) {
       error = (e as { message: string }).message;
     } finally {
@@ -141,60 +150,132 @@
     }
   }
 
+  // Drafts save themselves a moment after typing stops, as in Gmail and Yandex Mail:
+  // closing or folding the window never loses the letter.
+  const AUTOSAVE_MS = 3000;
+  /** The content as it was last saved; the opening content counts as saved unless it is kept nowhere. */
+  let lastSaved = untrack(() => (c.unsaved ? "" : JSON.stringify($state.snapshot(c.draft))));
+  let saving: Promise<boolean> | null = null;
+  let savingNow = $state(false);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelAutosave() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  $effect(() => {
+    const now = JSON.stringify($state.snapshot(c.draft));
+    cancelAutosave();
+    if (now !== lastSaved) timer = setTimeout(() => saveDraft(), AUTOSAVE_MS);
+  });
+  onDestroy(cancelAutosave);
+
+  /** Saves the draft on the server unless nothing changed; one save at a time. */
   async function saveDraft(): Promise<boolean> {
-    commitAll();
-    busy = true;
-    error = "";
-    try {
-      await api.draftSave(c.account_id, $state.snapshot(c.draft), c.draft_id);
-      return true;
-    } catch (e) {
-      error = t("compose.draftNotSaved", { error: (e as { message: string }).message });
-      return false;
-    } finally {
-      busy = false;
-    }
+    cancelAutosave();
+    while (saving) await saving;
+    const draft = $state.snapshot(c.draft);
+    const text = JSON.stringify(draft);
+    if (text === lastSaved) return true;
+    if (!isDirty(draft, app.account(c.account_id)?.signature) && c.draft_id === null) return true;
+    savingNow = true;
+    saving = (async () => {
+      try {
+        c.draft_id = await api.draftSave(c.account_id, draft, c.draft_id);
+        lastSaved = text;
+        c.unsaved = false;
+        c.savedAt = Date.now();
+        error = "";
+        return true;
+      } catch (e) {
+        error = t("compose.draftNotSaved", { error: (e as { message: string }).message });
+        return false;
+      } finally {
+        saving = null;
+        savingNow = false;
+      }
+    })();
+    return saving;
   }
 
   async function close() {
     if (busy) return;
-    if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
-      if (!(await saveDraft())) {
-        const drop = await app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
-        if (!drop) return;
-      } else {
-        app.toast(t("compose.draftSaved"));
-      }
+    commitAll();
+    const changed = JSON.stringify($state.snapshot(c.draft)) !== lastSaved;
+    if (changed && !(await saveDraft())) {
+      const drop = await app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
+      if (!drop) return;
     }
-    app.compose = null;
+    if (c.draft_id !== null) app.toast(t("compose.draftSaved"));
+    app.closeCompose(c.id);
   }
 
   async function discard() {
+    if (busy) return;
     if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
       const ok = await app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true });
       if (!ok) return;
     }
-    app.compose = null;
+    cancelAutosave();
+    await saving;
+    if (c.draft_id !== null) api.draftDiscard(c.draft_id).catch((e) => app.fail(e));
+    app.closeCompose(c.id);
   }
+
+  function minimize() {
+    commitAll();
+    c.mode = "min";
+    saveDraft();
+  }
+
+  function toggleMax() {
+    if (c.mode === "max") c.mode = "open";
+    else app.showCompose(c.id, "max");
+  }
+
+  const savedText = $derived(c.savedAt ? t("compose.savedAt", { time: listDate(Math.floor(c.savedAt / 1000)) }) : "");
 
   function onKey(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
       send(null, warnings !== null);
     } else if (e.key === "Escape") {
+      // Gmail's way: Esc leaves full screen, then folds the window; the draft stays.
       e.preventDefault();
-      close();
+      if (c.mode === "max") c.mode = "open";
+      else minimize();
     }
   }
 </script>
 
-<div class="modal-backdrop" role="presentation">
-  <div class="modal compose" role="dialog" aria-label={t("compose.newMessage")} tabindex="-1" onkeydown={onKey}>
-    <header>
-      <h3>{c.draft.subject.trim() || t("compose.newMessage")}</h3>
-      <button class="btn ghost" onclick={close} title={t("compose.closeHint")}>×</button>
-    </header>
+{#if c.mode === "max"}
+  <div class="backdrop" role="presentation" onclick={() => (c.mode = "open")}></div>
+{/if}
+<div
+  class="compose"
+  class:min={c.mode === "min"}
+  class:max={c.mode === "max"}
+  role="dialog"
+  aria-label={c.draft.subject.trim() || t("compose.newMessage")}
+  tabindex="-1"
+  onkeydown={onKey}
+>
+  <header>
+    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : minimize())} title={c.mode === "min" ? "" : t("compose.minimize")}>
+      {c.draft.subject.trim() || t("compose.newMessage")}
+    </button>
+    {#if c.mode !== "min"}<span class="saved" aria-live="polite">{savingNow ? t("compose.saving") : savedText}</span>{/if}
+    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : minimize())} title={c.mode === "min" ? t("compose.restore") : t("compose.minimize")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
+      <Minus size={15} />
+    </button>
+    <button class="hb" onclick={toggleMax} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>
+      {#if c.mode === "max"}<Minimize size={14} />{:else}<Maximize size={14} />{/if}
+    </button>
+    <button class="hb" onclick={close} title={t("compose.closeHint")} aria-label={t("close")}><X size={15} /></button>
+  </header>
 
+  <div class="panel" hidden={c.mode === "min"}>
     <div class="fields">
       <div class="row">
         <span class="label">{t("compose.fwd.from")}</span>
@@ -256,35 +337,112 @@
       <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")}><Paperclip size={15} /> {t("compose.files")}</button>
       {#each controls.filter((x) => x.slot !== "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       <span class="spacer"></span>
-      <button class="btn ghost" onclick={async () => { if (await saveDraft()) { app.compose = null; app.toast(t("compose.draftSaved")); } }} disabled={busy}>{t("compose.saveDraft")}</button>
-      <button class="btn ghost" onclick={discard} disabled={busy}>{t("act.delete")}</button>
+      <button class="btn ghost icon" onclick={discard} disabled={busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
     </footer>
   </div>
 </div>
 
 <style>
   .compose {
-    width: min(860px, calc(100vw - 40px));
-    height: min(720px, calc(100vh - 40px));
+    display: flex;
+    flex-direction: column;
+    width: min(640px, calc(100vw - 32px));
+    height: min(640px, calc(100vh - 56px));
+    background: var(--paper);
+    border-radius: 10px 10px 0 0;
+    box-shadow: 0 8px 40px rgb(0 0 0 / 28%), 0 0 0 1px rgb(0 0 0 / 6%);
+    overflow: hidden;
   }
 
+  .compose.min {
+    width: 280px;
+    height: auto;
+  }
+
+  .compose.max {
+    position: fixed;
+    inset: 32px max(32px, calc((100vw - 1040px) / 2));
+    width: auto;
+    height: auto;
+    border-radius: 12px;
+    z-index: 1;
+  }
+
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgb(10 14 20 / 45%);
+  }
+
+  .panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  /* The dark bar of Gmail's composer: folded windows are told apart by it. */
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px 6px 18px;
+    gap: 2px;
+    padding: 4px 6px 4px 4px;
+    background: var(--side);
+    color: var(--side-ink);
+    flex: none;
   }
 
-  h3 {
-    margin: 0;
-    font-size: 15px;
+  .title {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 14px;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  .hb {
+    border: none;
+    background: none;
+    color: var(--side-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+
+  .hb:hover {
+    background: rgb(255 255 255 / 12%);
+    color: var(--side-ink);
+  }
+
+  .saved {
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--side-muted);
+    padding: 0 6px;
+  }
+
+  .icon {
+    min-width: 32px;
+    justify-content: center;
+  }
+
   .fields {
-    padding: 0 18px;
+    padding: 4px 18px 0;
   }
 
   .row {

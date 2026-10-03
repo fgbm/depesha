@@ -104,7 +104,8 @@ export const api = {
   send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupDays: number | null) =>
     call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupDays }),
   draftSave: (accountId: string, draft: ComposeDraft, replace: number | null) =>
-    call<void>("draft_save", { accountId, draft: wireDraft(draft), replace }),
+    call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
+  draftDiscard: (id: number) => call<void>("draft_discard", { id }),
   outbox: () => call<OutboxItem[]>("outbox"),
   outboxRetry: (id: number) => call<void>("outbox_retry", { id }),
   outboxCancel: (id: number) =>

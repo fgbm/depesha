@@ -152,6 +152,7 @@ pub fn run() {
             commands::open_link,
             commands::send,
             commands::draft_save,
+            commands::draft_discard,
             commands::outbox,
             commands::outbox_retry,
             commands::outbox_cancel,

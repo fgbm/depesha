@@ -54,8 +54,18 @@ export interface Confirmation {
 export interface ComposeState {
   account_id: string;
   draft: ComposeDraft;
-  /** Server draft this composition came from; removed after sending. */
+  /** Server draft this composition came from or was last saved as; removed after sending. */
   draft_id: number | null;
+  /** The content is kept nowhere yet (typed in a quick reply, taken back from the outbox): save it. */
+  unsaved?: boolean;
+}
+
+/** A composition window: docked in the corner, minimized to a bar, or full screen. */
+export interface ComposeWindow extends ComposeState {
+  id: number;
+  mode: "open" | "min" | "max";
+  /** When the draft was last saved on the server, ms. */
+  savedAt: number | null;
 }
 
 export interface WizardState {
@@ -83,7 +93,8 @@ class AppStore {
   toasts = $state<Toast[]>([]);
   /** The question the app waits an answer to (`confirm`), drawn above every dialog. */
   confirmation = $state<Confirmation | null>(null);
-  compose = $state<ComposeState | null>(null);
+  /** Compositions in progress, oldest first; at most one is unfolded. */
+  composes = $state<ComposeWindow[]>([]);
   /** Server-side search: running, and rows it found (kept across list reloads). */
   serverSearching = $state(false);
   serverRows = $state<MessageRow[] | null>(null);
@@ -111,6 +122,7 @@ class AppStore {
   lastUndo = $state<{ moved: Moved[]; text: string } | null>(null);
 
   private toastSeq = 0;
+  private composeSeq = 0;
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private openSeq = 0;
 
@@ -122,7 +134,10 @@ class AppStore {
     if (this.accounts.length === 0) this.wizard = { account: null };
 
     await listen<{ account_id: string; folder: string }>("mail-changed", (e) => {
-      if (this.viewIncludes(e.payload.account_id, e.payload.folder)) this.scheduleReload();
+      // My answers and drafts change how conversations look in every grouped list.
+      const role = this.folder(e.payload.account_id, e.payload.folder)?.role;
+      const threadPart = this.settings.threads && (role === "sent" || role === "drafts");
+      if (threadPart || this.viewIncludes(e.payload.account_id, e.payload.folder)) this.scheduleReload();
       this.scheduleFolders();
     });
     await listen("folders-changed", () => this.scheduleFolders());
@@ -669,7 +684,7 @@ class AppStore {
         attachments.push({ kind: "file", path, name, size: Math.floor((data.length * 3) / 4) });
       }
       const d = back.draft;
-      this.compose = {
+      this.openCompose({
         account_id: back.account_id,
         draft: {
           from: d.from,
@@ -683,7 +698,8 @@ class AppStore {
           attachments,
         },
         draft_id: null,
-      };
+        unsaved: true,
+      });
     } catch (e) {
       this.fail(e);
     }
@@ -717,15 +733,18 @@ class AppStore {
       return;
     }
     const draft = withSignature(emptyDraft({ name: acc.display_name, email: acc.email }), acc.signature);
-    this.compose = { account_id: acc.id, draft, draft_id: null };
+    this.openCompose({ account_id: acc.id, draft, draft_id: null });
   }
 
   replyTo(all: boolean) {
     const msg = this.opened;
     const acc = msg && this.account(msg.row.account_id);
     if (!msg || !acc) return;
+    // An answer already being written to this letter comes back instead of a second one.
+    const same = this.composes.find((c) => c.draft.in_reply_to && c.draft.in_reply_to === msg.view.summary.message_id);
+    if (same) return this.showCompose(same.id);
     const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all), acc.signature);
-    this.compose = { account_id: acc.id, draft, draft_id: null };
+    this.openCompose({ account_id: acc.id, draft, draft_id: null });
   }
 
   forwardOpened() {
@@ -733,7 +752,35 @@ class AppStore {
     const acc = msg && this.account(msg.row.account_id);
     if (!msg || !acc) return;
     const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }), acc.signature);
-    this.compose = { account_id: acc.id, draft, draft_id: null };
+    this.openCompose({ account_id: acc.id, draft, draft_id: null });
+  }
+
+  /** Opens a composition window; the others fold into bars, as in Gmail. */
+  openCompose(c: ComposeState, mode: ComposeWindow["mode"] = "open"): number {
+    // A saved draft opened again goes to its window.
+    const open = c.draft_id !== null ? this.composes.find((w) => w.draft_id === c.draft_id) : undefined;
+    if (open) {
+      this.showCompose(open.id);
+      return open.id;
+    }
+    const id = ++this.composeSeq;
+    for (const w of this.composes) if (w.mode !== "min") w.mode = "min";
+    this.composes.push({ ...c, id, mode, savedAt: null });
+    return id;
+  }
+
+  /** Unfolds a window and folds the rest. */
+  showCompose(id: number, mode: "open" | "max" = "open") {
+    for (const w of this.composes) w.mode = w.id === id ? (w.mode === "max" ? "max" : mode) : "min";
+  }
+
+  closeCompose(id: number) {
+    this.composes = this.composes.filter((w) => w.id !== id);
+  }
+
+  /** The window that takes dropped files: the unfolded one, else the newest. */
+  activeCompose(): ComposeWindow | undefined {
+    return this.composes.find((w) => w.mode !== "min") ?? this.composes.at(-1);
   }
 
   defaultAccount(): AccountView | undefined {

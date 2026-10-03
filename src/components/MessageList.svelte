@@ -7,7 +7,7 @@
   import type { RowTag } from "../plugin-api";
   import { accountLabel, addrName, listDate, roleLabel } from "../lib/format";
   import { i18n, t, tn } from "../lib/i18n.svelte";
-  import type { MessageRow } from "../lib/types";
+  import type { Addr, MessageRow } from "../lib/types";
 
   let { searchInput = $bindable() }: { searchInput: HTMLInputElement | null } = $props();
 
@@ -90,7 +90,18 @@
 
   function who(m: MessageRow): string {
     if (isSentLike) return m.to.length ? t("list.to", { who: m.to.map(addrName).join(", ") }) : t("list.noRecipients");
+    // A conversation names everyone who wrote, me as "me": "Ivan, me", as in Gmail.
+    if (m.thread_senders?.length > 1) {
+      const mine = new Set(app.accounts.map((a) => a.email.toLowerCase()));
+      const names = m.thread_senders.map((a) => (mine.has(a.email.toLowerCase()) ? t("list.me") : firstName(a)));
+      return names.length > 3 ? `${names[0]} … ${names.slice(-2).join(", ")}` : names.join(", ");
+    }
     return addrName(m.from) || t("list.noSender");
+  }
+
+  function firstName(a: Addr): string {
+    const name = a.name?.trim();
+    return name ? name.split(/\s+/)[0] : a.email.split("@")[0];
   }
 
   // Keep the opened message visible when moving with the keyboard.
@@ -193,9 +204,10 @@
           <div class="line1">
             <span class="from">{who(m)}</span>
             {#if m.thread_count > 1}<span class="count" title={t("list.inThread")}>{m.thread_count}</span>{/if}
+            {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
             {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
             {#if m.has_attachments}<span class="clip" title={t("list.hasFiles")}><Paperclip size={13} /></span>{/if}
-            <span class="date">{listDate(m.date)}</span>
+            <span class="date">{listDate(m.thread_date || m.date)}</span>
           </div>
           <div class="line2">
             {#if m.flags.answered}<span class="answered" title={t("list.answered")}><Reply size={13} /></span>{/if}
@@ -423,6 +435,14 @@
     border-radius: 8px;
     padding: 0 5px;
     line-height: 15px;
+  }
+
+  /* Gmail's red "Draft": an answer was started and waits. */
+  .draft {
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .tag {

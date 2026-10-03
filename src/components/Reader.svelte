@@ -21,7 +21,7 @@
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { accountLabel, addrFull, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
-  import { emptyDraft, fromDraft, withSignature } from "../lib/compose";
+  import { emptyDraft, fromDraft, reply, withSignature } from "../lib/compose";
   import { t, tn } from "../lib/i18n.svelte";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import { extensions, fromRow } from "../lib/extensions.svelte";
@@ -29,7 +29,8 @@
   import type { Banner as PluginBanner } from "../plugin-api";
   import MailFrame from "./MailFrame.svelte";
   import Popover from "./Popover.svelte";
-  import type { Addr, AttachmentInfo } from "../lib/types";
+  import type { Addr, AttachmentInfo, ComposeDraft, MessageRow } from "../lib/types";
+  import { untrack } from "svelte";
 
   let { onReply, onForward }: { onReply: (all: boolean) => void; onForward: () => void } = $props();
 
@@ -64,7 +65,7 @@
       draft.to = to ? to.split(",").map((email) => ({ name: null, email: email.trim() })) : [];
       const subject = new URLSearchParams(href.split("?")[1] ?? "").get("subject");
       if (subject) draft.subject = subject;
-      app.compose = { account_id: acc.id, draft: withSignature(draft, acc.signature), draft_id: null };
+      app.openCompose({ account_id: acc.id, draft: withSignature(draft, acc.signature), draft_id: null });
       return;
     }
     await app.openLink(href);
@@ -138,16 +139,114 @@
 
   function editDraft() {
     if (!msg || !account) return;
-    app.compose = {
+    app.openCompose({
       account_id: account.id,
       draft: fromDraft(msg, { name: account.display_name, email: account.email }),
       draft_id: msg.row.id,
-    };
+    });
   }
 
   function list(addrs: Addr[]): string {
     return addrs.map(addrFull).join(", ");
   }
+
+  // The conversation reads top to bottom around the opened letter, as in Gmail:
+  // earlier letters fold into cards above it, later ones below, the middle of a
+  // long conversation into "N more".
+  const at = $derived(msg ? app.conversation.findIndex((m) => m.id === msg.row.id) : -1);
+  const before = $derived(at > 0 ? app.conversation.slice(0, at) : []);
+  const after = $derived(at >= 0 ? app.conversation.slice(at + 1) : []);
+  let showAll = $state(false);
+  $effect(() => {
+    void msg?.view.summary.message_id;
+    showAll = false;
+  });
+  const folded = $derived(!showAll && before.length > 3 ? before.length - 2 : 0);
+
+  function isMine(m: MessageRow): boolean {
+    const mine = app.accounts.map((a) => a.email.toLowerCase());
+    return !!m.from && mine.includes(m.from.email.toLowerCase());
+  }
+
+  function roleOf(m: MessageRow) {
+    return app.folder(m.account_id, m.folder)?.role;
+  }
+
+  // Quick reply under the conversation: write without leaving it, unfold into a window when it grows.
+  /** The answer being typed: built from the letter when the box opened. */
+  let quick = $state<{ account_id: string; email: string; draft: ComposeDraft; all: boolean; to: number } | null>(null);
+  let quickText = $state("");
+  let quickBox = $state<HTMLTextAreaElement | null>(null);
+  let quickBusy = $state(false);
+
+  function openQuick(all: boolean) {
+    if (!msg || !account) return;
+    const me = { name: account.display_name, email: account.email };
+    const draft = withSignature(reply(msg, me, all), account.signature);
+    quick = { account_id: account.id, email: account.email, draft, all, to: msg.row.id };
+    queueMicrotask(() => quickBox?.focus());
+  }
+
+  function quickDraft(q: NonNullable<typeof quick>): ComposeDraft {
+    return { ...q.draft, text: quickText.trimEnd() + q.draft.text };
+  }
+
+  /** Moves what was typed into a composition window; nothing typed is lost. */
+  function quickToWindow(mode: "open" | "min" = "open") {
+    if (quick) app.openCompose({ account_id: quick.account_id, draft: quickDraft(quick), draft_id: null, unsaved: true }, mode);
+    quick = null;
+    quickText = "";
+  }
+
+  async function quickSend() {
+    const q = quick;
+    if (!q || !quickText.trim() || quickBusy) return;
+    const draft = quickDraft(q);
+    quickBusy = true;
+    try {
+      const found: string[] = [];
+      for (const check of registry.items("sendChecks")) {
+        try {
+          found.push(...check(draft, q.email));
+        } catch (err) {
+          console.error("send check failed:", err);
+        }
+      }
+      found.push(...(await extensions.beforeSend(draft, q.email)));
+      // Warnings are read and answered in the full window.
+      if (found.length) return quickToWindow();
+      await app.send(q.account_id, draft, null, null, null);
+      quick = null;
+      quickText = "";
+    } catch (e) {
+      app.fail(e);
+    } finally {
+      quickBusy = false;
+    }
+  }
+
+  function onQuickKey(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      quickSend();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (quickText.trim()) quickToWindow("min");
+      else quick = null;
+    }
+  }
+
+  // Another letter opened with an answer half-written: it waits folded in the corner.
+  $effect(() => {
+    const id = msg?.row.id;
+    untrack(() => {
+      if (!quick || quick.to === id) return;
+      if (quickText.trim()) quickToWindow("min");
+      quick = null;
+      quickText = "";
+    });
+  });
 </script>
 
 <section class="reader">
@@ -229,20 +328,25 @@
     </div>
 
     <div class="scroll">
-      {#if app.conversation.length > 1}
-        <div class="conversation" aria-label={t("conv.label")}>
-          {#each app.conversation as m (m.id)}
-            {#if m.id === msg.row.id}
-              <div class="conv current"><span class="dot"></span>{m.from?.name ?? m.from?.email ?? ""}<span class="muted">· {t("conv.opened")}</span></div>
-            {:else}
-              <button class="conv" class:unread={!m.flags.seen} onclick={() => app.open(m.id)}>
-                <span class="mini" style:background={avatarColor(m.from?.email ?? "")}>{initials(m.from)}</span>
-                <span class="who">{m.from?.name ?? m.from?.email ?? ""}</span>
-                {#if app.folder(m.account_id, m.folder)?.role === "sent"}<span class="muted">· {t("conv.youReplied")}</span>{/if}
-                <span class="when muted">{listDate(m.date)}</span>
-              </button>
-            {/if}
-          {/each}
+      {#snippet card(m: MessageRow)}
+        <button class="card" class:unread={!m.flags.seen} onclick={() => app.open(m.id)}>
+          <span class="mini" style:background={avatarColor(m.from?.email ?? "")}>{initials(m.from)}</span>
+          <span class="who">{isMine(m) ? t("list.me") : (m.from?.name ?? m.from?.email ?? "")}</span>
+          {#if roleOf(m) === "drafts"}<span class="draft-tag">{t("conv.draft")}</span>
+          {:else if roleOf(m) === "sent" && !isMine(m)}<span class="muted">· {t("conv.youReplied")}</span>{/if}
+          <span class="when muted">{listDate(m.date)}</span>
+        </button>
+      {/snippet}
+
+      {#if before.length}
+        <div class="thread" aria-label={t("conv.label")}>
+          {#if folded}
+            {@render card(before[0])}
+            <button class="card more" onclick={() => (showAll = true)}><span class="more-line"></span>{tn("conv.more", folded)}<span class="more-line"></span></button>
+            {#each before.slice(-1) as m (m.id)}{@render card(m)}{/each}
+          {:else}
+            {#each before as m (m.id)}{@render card(m)}{/each}
+          {/if}
         </div>
       {/if}
 
@@ -322,6 +426,35 @@
           </div>
         {/if}
       </div>
+
+      {#if after.length}
+        <div class="thread after" aria-label={t("conv.label")}>
+          {#each after as m (m.id)}{@render card(m)}{/each}
+        </div>
+      {/if}
+
+      {#if !isDraft}
+        <div class="quick">
+          {#if quick}
+            <div class="quick-box">
+              <div class="quick-to muted">
+                {#if quick.all}<ReplyAll size={14} />{:else}<Reply size={14} />{/if}
+                <span>{[...quick.draft.to, ...quick.draft.cc].map(addrFull).join(", ")}</span>
+              </div>
+              <textarea bind:this={quickBox} bind:value={quickText} onkeydown={onQuickKey} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
+              <div class="quick-actions">
+                <button class="btn primary" onclick={quickSend} disabled={quickBusy || !quickText.trim()}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+                <button class="btn ghost" onclick={() => quickToWindow()}>{t("reader.toWindow")}</button>
+                <span class="sep"></span>
+                <button class="btn ghost icon" onclick={() => { quick = null; quickText = ""; }} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
+              </div>
+            </div>
+          {:else}
+            <button class="quick-btn" onclick={() => openQuick(false)}><Reply size={15} /> {t("reader.quickReply")}</button>
+            <button class="quick-btn" onclick={() => openQuick(true)}><ReplyAll size={15} /> {t("reader.quickReplyAll")}</button>
+          {/if}
+        </div>
+      {/if}
     </div>
   {:else if app.opening}
     <div class="center muted">{t("reader.loading")}</div>
@@ -405,7 +538,8 @@
     overflow-y: auto;
   }
 
-  .conversation {
+  /* Folded letters of the conversation: one line each, the opened letter between them. */
+  .thread {
     margin: 12px 22px 0;
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -413,12 +547,16 @@
     overflow: hidden;
   }
 
-  .conv {
+  .thread.after {
+    margin: 0 22px 12px;
+  }
+
+  .card {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 10px;
+    padding: 9px 12px;
     border: none;
     border-bottom: 1px solid var(--line);
     background: none;
@@ -426,40 +564,105 @@
     font-size: 13px;
   }
 
-  .conv:last-child {
+  .card:last-child {
     border-bottom: none;
   }
 
-  .conv:hover {
+  .card:hover {
     background: var(--hover);
   }
 
-  .conv.current {
-    background: var(--paper-2);
-    font-weight: 600;
-  }
-
-  .conv.unread .who {
+  .card.unread .who {
     font-weight: 650;
   }
 
-  .conv .dot {
-    width: 20px;
-    display: inline-flex;
-    justify-content: center;
-  }
-
-  .conv .dot::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
-  }
-
-  .conv .when {
+  .card .when {
     margin-left: auto;
     font-size: 12px;
+  }
+
+  .card.more {
+    justify-content: center;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+
+  .more-line {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .draft-tag {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .quick {
+    display: flex;
+    gap: 8px;
+    margin: 0 22px 22px;
+  }
+
+  .quick-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--paper);
+    color: var(--ink);
+  }
+
+  .quick-btn:hover {
+    background: var(--hover);
+  }
+
+  .quick-box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--paper);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 6%);
+  }
+
+  .quick-to {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px 0;
+    font-size: 13px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .quick-box textarea {
+    border: none;
+    outline: none;
+    resize: vertical;
+    min-height: 96px;
+    padding: 10px 14px;
+    background: transparent;
+    line-height: 1.55;
+    user-select: text;
+  }
+
+  .quick-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 10px 14px;
+  }
+
+  .quick-actions kbd {
+    border-color: rgb(255 255 255 / 40%);
+    color: var(--accent-ink);
   }
 
   .mini {

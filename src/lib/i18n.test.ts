@@ -19,7 +19,7 @@ function msg(): OpenedMessage {
     row: { id: 1, account_id: "a", folder: "INBOX", uid: 1, message_id: "m1@x", in_reply_to: null, references: [],
       subject: "Budget", from: summary.from, to: [me], cc: [], reply_to: [], date: 1790000000, size: 1,
       flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false }, has_attachments: false,
-      thread: "m1@x", bulk: false, thread_count: 1, snoozed_until: null, followup_due: null },
+      thread: "m1@x", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null },
     view: { summary, text: "Numbers attached.", html: null, has_remote_content: false, attachments: [] },
     trusted_sender: false,
   };

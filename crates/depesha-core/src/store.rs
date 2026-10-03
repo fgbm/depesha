@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
@@ -201,8 +202,17 @@ pub struct MessageRow {
     pub has_attachments: bool,
     pub thread: String,
     pub bulk: bool,
-    /// Messages of the conversation in this list; 1 when the list is not grouped.
+    /// Letters of the conversation, my answers in Sent included; 1 when the list is not grouped.
     pub thread_count: u32,
+    /// The newest letter of the conversation, mine included; the row's own date otherwise.
+    #[serde(default)]
+    pub thread_date: i64,
+    /// Who wrote in the conversation, in order of first appearance; empty when not grouped.
+    #[serde(default)]
+    pub thread_senders: Vec<Addr>,
+    /// An answer is being written: the conversation has a saved draft.
+    #[serde(default)]
+    pub thread_draft: bool,
     pub snoozed_until: Option<i64>,
     /// The sender waits for an answer to this message until then.
     pub followup_due: Option<i64>,
@@ -271,6 +281,7 @@ impl Store {
             ("messages", "bulk", "INTEGER NOT NULL DEFAULT 0"),
             ("messages", "unsubscribe", "TEXT"),
             ("outbox", "followup_secs", "INTEGER NOT NULL DEFAULT 0"),
+            ("messages", "topic", "TEXT NOT NULL DEFAULT ''"),
         ] {
             let exists = conn
                 .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?
@@ -283,8 +294,20 @@ impl Store {
         conn.execute_batch(
             "UPDATE messages SET thread = COALESCE(message_id, folder || '/' || uid) WHERE thread = '';
              CREATE INDEX IF NOT EXISTS messages_by_thread ON messages (account_id, thread);
-             CREATE INDEX IF NOT EXISTS messages_by_message_id ON messages (account_id, message_id);",
+             CREATE INDEX IF NOT EXISTS messages_by_message_id ON messages (account_id, message_id);
+             CREATE INDEX IF NOT EXISTS messages_by_parent ON messages (account_id, in_reply_to);
+             CREATE INDEX IF NOT EXISTS messages_by_topic ON messages (account_id, topic, date);",
         )?;
+        let mut conn = conn;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < 1 {
+            // Threads were keyed by the headers of each message alone and split apart
+            // when a client dropped References: link them again, once.
+            let tx = conn.transaction()?;
+            rethread(&tx)?;
+            tx.execute_batch("PRAGMA user_version = 1")?;
+            tx.commit()?;
+        }
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -448,11 +471,15 @@ impl Store {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let json = |v: &Vec<Addr>| serde_json::to_string(v).unwrap_or_else(|_| "[]".into());
+        let date = summary.date.unwrap_or(fallback_date);
+        let links = Links::of(summary, date);
+        let fallback = summary.thread_key().unwrap_or_else(|| format!("{folder}/{uid}"));
+        let thread = link_thread(&tx, account_id, &links, fallback)?;
         let id: i64 = tx.query_row(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
                 to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+                thread, bulk, unsubscribe, topic)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft
@@ -469,16 +496,17 @@ impl Store {
                 json(&summary.to),
                 json(&summary.cc),
                 json(&summary.reply_to),
-                summary.date.unwrap_or(fallback_date),
+                date,
                 size,
                 flags.seen,
                 flags.answered,
                 flags.flagged,
                 flags.draft,
                 summary.has_attachments,
-                summary.thread_key().unwrap_or_else(|| format!("{folder}/{uid}")),
+                thread,
                 summary.bulk,
                 summary.unsubscribe.as_ref().and_then(|u| serde_json::to_string(u).ok()),
+                links.topic,
             ],
             |r| r.get(0),
         )?;
@@ -574,24 +602,70 @@ impl Store {
         // The newest message stands for its conversation: SQLite takes bare columns
         // from the row that holds the MAX, as long as it is the only MIN/MAX in the
         // query (hence SUM for flags). The row is unread or flagged when any message is.
+        // The conversation moves up when I answer, as in Gmail: my answer in Sent counts.
         let sql = format!(
             "WITH g AS (
-                SELECT m.id AS id, MAX(m.date) AS newest, COUNT(*) AS n, SUM(m.seen = 0) AS unread,
-                       SUM(m.flagged) AS flagged
+                SELECT m.id AS id, MAX(m.date) AS newest, SUM(m.seen = 0) AS unread, SUM(m.flagged) AS flagged
                 FROM {from} WHERE {cond} GROUP BY m.account_id, m.thread
              )
-             SELECT {COLUMNS}, g.n, g.unread, g.flagged FROM g JOIN messages m ON m.id = g.id
-             ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
+             SELECT {COLUMNS}, g.unread, g.flagged,
+                MAX(m.date, COALESCE((SELECT MAX(x.date) FROM messages x
+                    JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+                    WHERE x.account_id = m.account_id AND x.thread = m.thread
+                      AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')), 0)) AS last
+             FROM g JOIN messages m ON m.id = g.id
+             ORDER BY last DESC, m.id DESC LIMIT ? OFFSET ?"
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), |r| {
             let mut row = message_row(r)?;
-            row.thread_count = r.get(COLUMN_COUNT)?;
-            row.flags.seen = r.get::<_, i64>(COLUMN_COUNT + 1)? == 0;
-            row.flags.flagged = r.get::<_, i64>(COLUMN_COUNT + 2)? > 0;
+            row.flags.seen = r.get::<_, i64>(COLUMN_COUNT)? == 0;
+            row.flags.flagged = r.get::<_, i64>(COLUMN_COUNT + 1)? > 0;
+            row.thread_date = r.get(COLUMN_COUNT + 2)?;
             Ok(row)
         })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        let mut rows: Vec<MessageRow> = rows.collect::<Result<_, _>>()?;
+        drop(stmt);
+        let mut letters = conn.prepare_cached(
+            "SELECT m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts'
+             FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+             WHERE m.account_id = ?1 AND m.thread = ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk')
+             ORDER BY m.date, m.id",
+        )?;
+        for row in &mut rows {
+            let mut seen = HashSet::new();
+            let (mut count, mut draft) = (0, false);
+            let mut senders: Vec<Addr> = Vec::new();
+            let found = letters.query_map(params![row.account_id, row.thread], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, bool>(3)?,
+                ))
+            })?;
+            for letter in found {
+                let (id, mid, from, is_draft) = letter?;
+                if is_draft {
+                    draft = true;
+                    continue;
+                }
+                // A letter to oneself sits in Inbox and in Sent: one letter.
+                if !seen.insert(mid.unwrap_or_else(|| format!("#{id}"))) {
+                    continue;
+                }
+                count += 1;
+                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok())
+                    && !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email))
+                {
+                    senders.push(a);
+                }
+            }
+            row.thread_count = count.max(1);
+            row.thread_senders = senders;
+            row.thread_draft = draft;
+        }
+        Ok(rows)
     }
 
     /// The whole conversation, oldest first, from every folder but the trash and spam.
@@ -1118,6 +1192,176 @@ impl Store {
     }
 }
 
+/// Answers matched by subject alone are looked for this close to the original.
+const TOPIC_WINDOW: i64 = 30 * 86_400;
+
+/// What ties a message to the rest of its conversation.
+struct Links {
+    message_id: Option<String>,
+    /// References and In-Reply-To: the messages this one answers.
+    parents: Vec<String>,
+    topic: String,
+    is_reply: bool,
+    from: Option<String>,
+    /// Sender and recipients, lower-cased.
+    people: Vec<String>,
+    date: i64,
+}
+
+impl Links {
+    fn of(s: &Summary, date: i64) -> Self {
+        let mut parents: Vec<String> = s.references.iter().filter(|r| !r.is_empty()).cloned().collect();
+        if let Some(p) = s.in_reply_to.as_ref().filter(|p| !p.is_empty() && !parents.contains(p)) {
+            parents.push(p.clone());
+        }
+        Self {
+            message_id: s.message_id.clone().filter(|m| !m.is_empty()),
+            parents,
+            topic: crate::message::topic(&s.subject),
+            is_reply: s.is_reply(),
+            from: s.from.as_ref().map(|a| a.email.to_lowercase()),
+            people: people(s.from.as_ref(), &s.to, &s.cc),
+            date,
+        }
+    }
+}
+
+fn people(from: Option<&Addr>, to: &[Addr], cc: &[Addr]) -> Vec<String> {
+    from.into_iter()
+        .chain(to)
+        .chain(cc)
+        .map(|a| a.email.to_lowercase())
+        .collect()
+}
+
+/// The conversation of a new message: the one of any cached message it answers or
+/// that answers it, else an earlier letter with the same subject between the same
+/// people (Outlook and phones often send answers without References). Conversations
+/// the message turns out to join are merged into one.
+fn link_thread(conn: &Connection, account_id: &str, l: &Links, fallback: String) -> Result<String> {
+    let mut found: Vec<String> = Vec::new();
+    fn add(found: &mut Vec<String>, t: String) {
+        if !t.is_empty() && !found.contains(&t) {
+            found.push(t);
+        }
+    }
+    {
+        let mut by_id = conn
+            .prepare_cached("SELECT thread FROM messages WHERE account_id = ?1 AND message_id = ?2 AND thread != ''")?;
+        // Nearest parent first: its conversation is the one the others merge into.
+        for p in l.parents.iter().rev().chain(&l.message_id) {
+            for t in by_id.query_map(params![account_id, p], |r| r.get(0))? {
+                add(&mut found, t?);
+            }
+        }
+        if let Some(mid) = &l.message_id {
+            // Answers that arrived before this message.
+            let mut children = conn.prepare_cached(
+                "SELECT thread FROM messages WHERE account_id = ?1 AND in_reply_to = ?2 AND thread != ''",
+            )?;
+            for t in children.query_map(params![account_id, mid], |r| r.get(0))? {
+                add(&mut found, t?);
+            }
+        }
+    }
+    if found.is_empty()
+        && l.is_reply
+        && !l.topic.is_empty()
+        && let Some(from) = &l.from
+    {
+        let mut same = conn.prepare_cached(
+            "SELECT thread, from_addr, to_addrs, cc_addrs FROM messages
+             WHERE account_id = ?1 AND topic = ?2 AND date BETWEEN ?3 AND ?4 AND thread != ''
+             ORDER BY ABS(date - ?5) LIMIT 20",
+        )?;
+        let rows = same.query_map(
+            params![
+                account_id,
+                l.topic,
+                l.date - TOPIC_WINDOW,
+                l.date + TOPIC_WINDOW,
+                l.date
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            },
+        )?;
+        for row in rows {
+            let (thread, f, to, cc) = row?;
+            let f: Option<Addr> = f.and_then(|s| serde_json::from_str(&s).ok());
+            let to: Vec<Addr> = serde_json::from_str(&to).unwrap_or_default();
+            let cc: Vec<Addr> = serde_json::from_str(&cc).unwrap_or_default();
+            // An answer goes between the same people: each side wrote to the other.
+            let theirs = people(f.as_ref(), &to, &cc);
+            let their_from = f.map(|a| a.email.to_lowercase());
+            if theirs.contains(from) && their_from.is_some_and(|tf| l.people.contains(&tf)) {
+                add(&mut found, thread);
+                break;
+            }
+        }
+    }
+    let Some(thread) = found.first().cloned() else {
+        return Ok(fallback);
+    };
+    let mut merge = conn.prepare_cached("UPDATE messages SET thread = ?3 WHERE account_id = ?1 AND thread = ?2")?;
+    for other in &found[1..] {
+        merge.execute(params![account_id, other, thread])?;
+    }
+    Ok(thread)
+}
+
+/// Links every cached message again, oldest first, as if it had just arrived.
+fn rethread(conn: &Connection) -> Result<()> {
+    struct Old {
+        id: i64,
+        account_id: String,
+        summary: Summary,
+        date: i64,
+        thread: String,
+    }
+    let old: Vec<Old> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, account_id, message_id, in_reply_to, refs, subject, from_addr, to_addrs, cc_addrs, date, thread
+             FROM messages ORDER BY date, id",
+        )?;
+        stmt.query_map([], |r| {
+            Ok(Old {
+                id: r.get(0)?,
+                account_id: r.get(1)?,
+                summary: Summary {
+                    message_id: r.get(2)?,
+                    in_reply_to: r.get(3)?,
+                    references: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+                    subject: r.get(5)?,
+                    from: r
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                    to: serde_json::from_str(&r.get::<_, String>(7)?).unwrap_or_default(),
+                    cc: serde_json::from_str(&r.get::<_, String>(8)?).unwrap_or_default(),
+                    ..Default::default()
+                },
+                date: r.get(9)?,
+                thread: r.get(10)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?
+    };
+    conn.execute("UPDATE messages SET thread = ''", [])?;
+    let mut set = conn.prepare("UPDATE messages SET thread = ?2, topic = ?3 WHERE id = ?1")?;
+    for m in old {
+        let links = Links::of(&m.summary, m.date);
+        // The key stored before knew Exchange's thread index, which the cache does not keep.
+        let thread = link_thread(conn, &m.account_id, &links, m.thread)?;
+        set.execute(params![m.id, thread, links.topic])?;
+    }
+    Ok(())
+}
+
 const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_reply_to, m.refs, m.subject,
     m.from_addr, m.to_addrs, m.cc_addrs, m.reply_to, m.date, m.size,
     m.seen, m.answered, m.flagged, m.draft, m.has_attachments, m.thread, m.bulk,
@@ -1182,6 +1426,9 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         thread: r.get(19)?,
         bulk: r.get(20)?,
         thread_count: 1,
+        thread_date: r.get(12)?,
+        thread_senders: Vec::new(),
+        thread_draft: false,
         snoozed_until: r.get(21)?,
         followup_due: r.get(22)?,
     })
@@ -1413,15 +1660,147 @@ mod tests {
         };
         let rows = store.list(&q).unwrap();
         assert_eq!(rows.len(), 2);
+        // My answer from Sent counts as a letter of the conversation.
         assert_eq!(
             (rows[0].subject.as_str(), rows[0].thread_count, rows[0].flags.seen),
-            ("Re: Договор", 2, false)
+            ("Re: Договор", 3, false)
         );
         assert_eq!(rows[1].thread_count, 1);
 
         // The conversation view includes my answer from Sent, oldest first.
         let conv = store.thread("a", &rows[0].thread).unwrap();
         assert_eq!(conv.iter().map(|m| m.date).collect::<Vec<_>>(), [100, 200, 300]);
+    }
+
+    fn from_to(mut s: Summary, from: &str, to: &str) -> Summary {
+        s.from = Some(Addr {
+            name: None,
+            email: from.into(),
+        });
+        s.to = vec![Addr {
+            name: None,
+            email: to.into(),
+        }];
+        s
+    }
+
+    fn thread_of(store: &Store, id: i64) -> String {
+        store.get(id).unwrap().unwrap().thread
+    }
+
+    #[test]
+    fn answers_without_references_join_the_conversation() {
+        let store = mailbox();
+        let a = put(&store, "INBOX", 1, &with_ids("Договор", 100, "a@x", None), true);
+        // Outlook: only In-Reply-To, the parent's id, no References.
+        let mut b = with_ids("RE: Договор", 200, "b@x", None);
+        b.in_reply_to = Some("a@x".into());
+        let b = put(&store, "Sent", 1, &b, true);
+        let mut c = with_ids("RE: Договор", 300, "c@x", None);
+        c.in_reply_to = Some("b@x".into());
+        let c = put(&store, "INBOX", 2, &c, true);
+        assert_eq!(thread_of(&store, b), thread_of(&store, a));
+        assert_eq!(thread_of(&store, c), thread_of(&store, a));
+    }
+
+    #[test]
+    fn an_answer_that_came_first_is_joined_by_its_original() {
+        let store = mailbox();
+        let mut c = with_ids("Re: План", 300, "c@x", None);
+        c.in_reply_to = Some("b@x".into());
+        let c = put(&store, "INBOX", 1, &c, true);
+        let a = put(&store, "INBOX", 2, &with_ids("План", 100, "a@x", None), true);
+        let b = put(&store, "Sent", 1, &with_ids("Re: План", 200, "b@x", Some("a@x")), true);
+        assert_eq!(thread_of(&store, a), thread_of(&store, b));
+        assert_eq!(thread_of(&store, c), thread_of(&store, a));
+    }
+
+    #[test]
+    fn answers_without_headers_match_by_subject_between_the_same_people() {
+        let store = mailbox();
+        let a = put(
+            &store,
+            "INBOX",
+            1,
+            &from_to(with_ids("Счёт", 100, "a@x", None), "ivan@x", "me@x"),
+            true,
+        );
+        // My answer from a phone that sets no In-Reply-To.
+        let b = put(
+            &store,
+            "Sent",
+            1,
+            &from_to(with_ids("Re: счёт ", 200, "b@x", None), "me@x", "ivan@x"),
+            true,
+        );
+        // Someone else with the same subject is another conversation.
+        let c = put(
+            &store,
+            "INBOX",
+            2,
+            &from_to(with_ids("Re: Счёт", 300, "c@x", None), "petr@x", "me@x"),
+            true,
+        );
+        // So is the same subject a year later.
+        let d = put(
+            &store,
+            "INBOX",
+            3,
+            &from_to(with_ids("Re: Счёт", 100 + 365 * 86_400, "d@x", None), "ivan@x", "me@x"),
+            true,
+        );
+        assert_eq!(thread_of(&store, b), thread_of(&store, a));
+        assert_ne!(thread_of(&store, c), thread_of(&store, a));
+        assert_ne!(thread_of(&store, d), thread_of(&store, a));
+    }
+
+    #[test]
+    fn grouped_rows_tell_who_wrote_and_when_last() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &from_to(with_ids("Отпуск", 100, "a@x", None), "ivan@x", "me@x"),
+            true,
+        );
+        put(
+            &store,
+            "Sent",
+            1,
+            &from_to(with_ids("Re: Отпуск", 500, "b@x", Some("a@x")), "me@x", "ivan@x"),
+            true,
+        );
+        put(&store, "INBOX", 2, &summary("Другое", 300), true);
+        let rows = store
+            .list(&ListQuery {
+                threads: true,
+                ..Default::default()
+            })
+            .unwrap();
+        // My answer at 500 moves the conversation above the letter of 300.
+        assert_eq!(rows[0].subject, "Отпуск");
+        assert_eq!((rows[0].date, rows[0].thread_date), (100, 500));
+        let who: Vec<_> = rows[0].thread_senders.iter().map(|a| a.email.as_str()).collect();
+        assert_eq!(who, ["ivan@x", "me@x"]);
+    }
+
+    #[test]
+    fn old_caches_are_linked_again() {
+        let store = mailbox();
+        let a = put(&store, "INBOX", 1, &with_ids("Смета", 100, "a@x", None), true);
+        let mut b = with_ids("RE: Смета", 200, "b@x", None);
+        b.in_reply_to = Some("a@x".into());
+        let b = put(&store, "INBOX", 2, &b, true);
+        // As an older version stored them: each message keyed by its own headers.
+        let mut conn = store.conn();
+        conn.execute("UPDATE messages SET thread = message_id, topic = ''", [])
+            .unwrap();
+        let tx = conn.transaction().unwrap();
+        rethread(&tx).unwrap();
+        tx.commit().unwrap();
+        drop(conn);
+        assert_eq!(thread_of(&store, b), thread_of(&store, a));
     }
 
     #[test]

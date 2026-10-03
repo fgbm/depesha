@@ -47,11 +47,12 @@
     app.init().catch((e) => app.fail(e, t("startup")));
     // Files dropped on the window become attachments of the open composition.
     const unlisten = getCurrentWebview().onDragDropEvent(async (e) => {
-      if (e.payload.type !== "drop" || !app.compose) return;
+      const c = app.activeCompose();
+      if (e.payload.type !== "drop" || !c) return;
       for (const path of e.payload.paths) {
         try {
           const info = await api.fileInfo(path);
-          app.compose.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
+          c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
         } catch (err) {
           app.fail(err);
         }
@@ -73,7 +74,9 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (app.compose || app.wizard) return;
+    if (app.wizard) return;
+    // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
+    if ((e.target as HTMLElement | null)?.closest?.(".compose")) return;
     const name = keyName(e);
     // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box).
     if (name.startsWith("Mod+")) {
@@ -144,9 +147,24 @@
   {/if}
 </div>
 
-{#if app.compose}
-  <Compose />
-{/if}
+<!-- Compositions dock in the corner and leave the mail usable, as in Gmail and Yandex Mail. -->
+<!-- Toasts sit left of the windows: they never cover a window's Send button. -->
+<div class="dock">
+  <div class="toasts" aria-live="polite">
+    {#each app.toasts as toast (toast.id)}
+      <div class="toast" class:error={toast.error}>
+        <span class="selectable">{toast.text}</span>
+        {#if toast.action}
+          <button class="btn ghost act" onclick={() => { app.dismiss(toast.id); toast.action?.run(); }}>{toast.action.label}</button>
+        {/if}
+        <button class="btn ghost close" onclick={() => app.dismiss(toast.id)} aria-label={t("close")}>×</button>
+      </div>
+    {/each}
+  </div>
+  {#each app.composes as c (c.id)}
+    <Compose {c} />
+  {/each}
+</div>
 {#if app.wizard}
   <Wizard />
 {/if}
@@ -166,17 +184,6 @@
 
 <WindowControls />
 
-<div class="toasts" aria-live="polite">
-  {#each app.toasts as toast (toast.id)}
-    <div class="toast" class:error={toast.error}>
-      <span class="selectable">{toast.text}</span>
-      {#if toast.action}
-        <button class="btn ghost act" onclick={() => { app.dismiss(toast.id); toast.action?.run(); }}>{toast.action.label}</button>
-      {/if}
-      <button class="btn ghost close" onclick={() => app.dismiss(toast.id)} aria-label={t("close")}>×</button>
-    </div>
-  {/each}
-</div>
 
 <style>
   .layout {
@@ -209,15 +216,29 @@
     overflow: auto;
   }
 
-  /* Under dialogs (their z-index is higher): a toast never covers a dialog's buttons. */
-  .toasts {
+  /* Newest on the right; a full-screen window leaves the dock (position: fixed). */
+  .dock {
     position: fixed;
     right: 16px;
-    bottom: 16px;
+    bottom: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    z-index: 30;
+    pointer-events: none;
+  }
+
+  .dock > :global(*) {
+    pointer-events: auto;
+  }
+
+  /* In the dock, under dialogs (their z-index is higher): a toast covers neither
+     a dialog's buttons nor a composition window. */
+  .toasts {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    z-index: 40;
+    margin-bottom: 16px;
     max-width: 440px;
   }
 

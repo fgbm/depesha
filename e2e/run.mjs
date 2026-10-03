@@ -118,17 +118,17 @@ async function press(key, mods = {}) {
 
 async function newMessage(to, subject, text) {
   await d.button("Написать");
-  await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
-  await d.type((await d.findAll(".modal.compose .box input"))[0], to);
-  await setInput(".modal.compose .subject", subject);
+  await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+  await d.type((await d.findAll(".compose .box input"))[0], to);
+  await setInput(".compose .subject", subject);
   await d.exec(
-    "const t = document.querySelector('.modal.compose textarea'); t.focus(); t.setSelectionRange(0, 0); document.execCommand('insertText', false, arguments[0]);",
+    "const t = document.querySelector('.compose textarea'); t.focus(); t.setSelectionRange(0, 0); document.execCommand('insertText', false, arguments[0]);",
     text,
   );
 }
 
 async function composeClosed() {
-  await d.until("compose closed", async () => (await d.findAll(".modal.compose")).length === 0, 15000);
+  await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
 }
 
 async function sidebarText() {
@@ -329,9 +329,12 @@ try {
     await d.type(body, "k");
     await d.until("back", async () => (await textOf(".reader h1")) === before);
     await d.type(body, "c");
-    await d.until("compose by key", async () => (await d.findAll(".modal.compose")).length === 1);
-    await d.type(await d.find(".modal.compose textarea"), "");
-    await d.until("compose closed by Esc", async () => (await d.findAll(".modal.compose")).length === 0);
+    await d.until("compose by key", async () => (await d.findAll(".compose")).length === 1);
+    await d.type(await d.find(".compose textarea"), "");
+    // Esc folds the window into a bar, as in Gmail; the cross closes it.
+    await d.until("compose folded by Esc", async () => (await d.findAll(".compose.min")).length === 1);
+    await d.click(await d.find(".compose header button:last-child"));
+    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0);
   });
 
   await step("6.3", "групповые действия: три письма отмечаются непрочитанными", async () => {
@@ -361,30 +364,30 @@ try {
     await d.button("Проверить и сохранить");
     await d.until("saved", async () => (await d.findAll(".wizard")).length === 0, 20000);
     await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
-    const text = await d.exec("return document.querySelector('.modal.compose textarea').value");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    const text = await d.exec("return document.querySelector('.compose textarea').value");
     if (!text.includes("-- \nС уважением,\nКэрол")) throw new Error(JSON.stringify(text));
     // Only the signature was typed: closing must neither ask nor save a draft.
-    await d.click(await d.find(".modal.compose header button"));
-    await d.until("compose closed", async () => (await d.findAll(".modal.compose")).length === 0, 10000);
+    await d.click(await d.find(".compose header button:last-child"));
+    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 10000);
   });
 
   let sentAt = 0;
   await step("5.1", "новое письмо уходит через очередь", async () => {
     await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
-    const to = (await d.findAll(".modal.compose .box input"))[0];
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    const to = (await d.findAll(".compose .box input"))[0];
     await d.type(to, "carol@local.test");
-    await setInput(".modal.compose .subject", subject);
+    await setInput(".compose .subject", subject);
     // WebDriver always types at the end of a field; a user types above the signature.
     await d.exec(
-      "const t = document.querySelector('.modal.compose textarea'); t.focus(); t.setSelectionRange(0, 0); document.execCommand('insertText', false, arguments[0]);",
+      "const t = document.querySelector('.compose textarea'); t.focus(); t.setSelectionRange(0, 0); document.execCommand('insertText', false, arguments[0]);",
       "Тестовое письмо из Депеши.\nВторая строка.",
     );
     await screenshot("compose");
     await d.button("Отправить");
     sentAt = Date.now();
-    await d.until("compose closed", async () => (await d.findAll(".modal.compose")).length === 0);
+    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0);
     await d.until("sent toast", async () => (await d.bodyText()).includes(`Отправлено: ${subject}`), 30000);
   });
 
@@ -404,13 +407,13 @@ try {
   await step("5.1", "ответ: тема, цитата, цепочка", async () => {
     await openBySubject(subject);
     await d.button("Ответить");
-    await d.until("reply compose", async () => (await d.findAll(".modal.compose")).length === 1);
-    const subj = await d.exec("return document.querySelector('.modal.compose .subject').value");
+    await d.until("reply compose", async () => (await d.findAll(".compose")).length === 1);
+    const subj = await d.exec("return document.querySelector('.compose .subject').value");
     if (subj !== `Re: ${subject}`) throw new Error(`тема: ${subj}`);
-    const body = await d.exec("return document.querySelector('.modal.compose textarea').value");
+    const body = await d.exec("return document.querySelector('.compose textarea').value");
     if (!body.includes("пишет:") || !body.includes("> Тестовое письмо")) throw new Error(`цитата: ${body}`);
-    await d.exec("const t = document.querySelector('.modal.compose textarea'); t.focus(); t.setSelectionRange(0, 0);");
-    await d.type(await d.find(".modal.compose textarea"), "Ответ получен.");
+    await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); t.setSelectionRange(0, 0);");
+    await d.type(await d.find(".compose textarea"), "Ответ получен.");
     await d.button("Отправить");
     await rowBySubject(`Re: ${subject}`, 60000);
     const irt = helper("header", "INBOX", `Re: ${subject}`, "In-Reply-To");
@@ -453,11 +456,11 @@ try {
 
   await step("5.5", "закрытие окна написания сохраняет черновик на сервере", async () => {
     await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
-    await setInput(".modal.compose .subject", `Черновик ${stamp}`);
-    await d.type(await d.find(".modal.compose textarea"), "Недописанное письмо");
-    await d.click(await d.find(".modal.compose header button"));
-    await d.until("compose closed", async () => (await d.findAll(".modal.compose")).length === 0, 15000);
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await setInput(".compose .subject", `Черновик ${stamp}`);
+    await d.type(await d.find(".compose textarea"), "Недописанное письмо");
+    await d.click(await d.find(".compose header button:last-child"));
+    await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
     await d.until("draft on server", async () => helper("count", "Drafts", `Черновик ${stamp}`) === "1", 15000);
     const flags = helper("flags", "Drafts", `Черновик ${stamp}`);
     if (!flags.includes("\\Draft")) throw new Error(`флаги черновика: ${flags}`);
@@ -469,8 +472,9 @@ try {
       d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes('Бюджет на ноябрь')).map(r => r.querySelector('.count')?.innerText.trim() ?? '1')`);
     await d.until("one row with 3", async () => JSON.stringify(await threadRow()) === '["3"]', 15000);
     await openBySubject("Бюджет на ноябрь");
-    await d.until("conversation strip", async () => (await d.findAll(".conversation .conv")).length === 3);
-    const t = await textOf(".conversation");
+    // The newest letter is opened; the two before it fold into cards above.
+    await d.until("conversation cards", async () => (await d.findAll(".thread .card")).length === 2);
+    const t = await textOf(".thread");
     if (!t.includes("Мария Соколова")) throw new Error(`цепочка: ${t}`);
     await screenshot("conversation");
   });
@@ -523,26 +527,26 @@ try {
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");
-    await d.click(await d.find(".modal.compose .split-btn .main"));
-    await d.until("attachment warning", async () => (await textOf(".modal.compose .warnings")).includes("вложение"));
+    await d.click(await d.find(".compose .split-btn .main"));
+    await d.until("attachment warning", async () => (await textOf(".compose .warnings")).includes("вложение"));
     await screenshot("preflight");
-    await d.click(await d.find(".modal.compose .warnings .btn.primary"));
+    await d.click(await d.find(".compose .warnings .btn.primary"));
     await composeClosed();
     await d.click(await d.until("undo toast", () => d.xpath("//div[contains(@class,'toast')][contains(., 'Отправляется')]//button[contains(@class,'act')]")));
-    await d.until("compose is back", async () => (await d.findAll(".modal.compose")).length === 1);
-    const back = await d.exec("return document.querySelector('.modal.compose .subject').value");
+    await d.until("compose is back", async () => (await d.findAll(".compose")).length === 1);
+    const back = await d.exec("return document.querySelector('.compose .subject').value");
     if (back !== subj) throw new Error(`вернулось: ${back}`);
     await new Promise((r) => setTimeout(r, 12000));
     if (helper("count", "INBOX", subj) !== "0") throw new Error("письмо ушло, хотя отправку отменили");
     // Closing keeps it as a draft.
-    await d.click(await d.find(".modal.compose header button"));
+    await d.click(await d.find(".compose header button:last-child"));
     await composeClosed();
   });
 
   await step("5.9", "«Отправить позже»: письмо ждёт в «Исходящих» своего времени", async () => {
     const subj = `Позже ${stamp}`;
     await newMessage("carol@local.test", subj, "Утром.");
-    await d.click(await d.find(".modal.compose .split-btn .more"));
+    await d.click(await d.find(".compose .split-btn .more"));
     await d.click(await d.until("preset", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Завтра утром')]")));
     await composeClosed();
     await d.button("Исходящие");
@@ -558,8 +562,8 @@ try {
   await step("5.10", "«Ждут ответа»: напоминание снимается, когда приходит ответ", async () => {
     const subj = `Вопрос ${stamp}`;
     await newMessage("carol@local.test", subj, "Когда будет готово?");
-    await setSelect(".modal.compose .remind", "3");
-    await d.click(await d.find(".modal.compose .split-btn .main"));
+    await setSelect(".compose .remind", "3");
+    await d.click(await d.find(".compose .split-btn .main"));
     await composeClosed();
     await d.until("waiting in sidebar", async () => (await sidebarText()).includes("Ждут ответа"), 60000, 1000);
     await d.button("Ждут ответа");
@@ -581,12 +585,12 @@ try {
     await d.click(await d.find(".prefs footer .btn.primary"));
     await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
     await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
     await d.button("Шаблоны");
     await d.click(await d.until("template", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Получил')]")));
-    const text = await d.exec("return document.querySelector('.modal.compose textarea').value");
+    const text = await d.exec("return document.querySelector('.compose textarea').value");
     if (!text.includes("Спасибо, получил.")) throw new Error(JSON.stringify(text));
-    await d.click(await d.find(".modal.compose header button"));
+    await d.click(await d.find(".compose header button:last-child"));
     await composeClosed();
     await press("k", { ctrlKey: true });
     await d.type(await d.find(".palette .q"), "перейти отлож");
@@ -740,10 +744,10 @@ try {
   await step("4.1", "общий входящий собирает письма обоих ящиков", async () => {
     const bobSubject = `Для Боба ${stamp}`;
     await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
-    await d.type((await d.findAll(".modal.compose .box input"))[0], "bob@local.test");
-    await setInput(".modal.compose .subject", bobSubject);
-    await d.type(await d.find(".modal.compose textarea"), "Проверка общего входящего");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.type((await d.findAll(".compose .box input"))[0], "bob@local.test");
+    await setInput(".compose .subject", bobSubject);
+    await d.type(await d.find(".compose textarea"), "Проверка общего входящего");
     await d.button("Отправить");
     await d.button("Все входящие");
     await rowBySubject(bobSubject, 60000);
@@ -768,10 +772,10 @@ try {
     await openBySubject("Счёт за октябрь");
     if (!(await textOf(".reader")).includes("Оплатить до пятницы")) throw new Error("кэш письма недоступен");
     await d.button("Написать");
-    await d.until("compose", async () => (await d.findAll(".modal.compose")).length === 1);
-    await d.type((await d.findAll(".modal.compose .box input"))[0], "carol@local.test");
-    await setInput(".modal.compose .subject", offlineSubject);
-    await d.type(await d.find(".modal.compose textarea"), "Отправлено, когда сеть вернулась");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
+    await setInput(".compose .subject", offlineSubject);
+    await d.type(await d.find(".compose textarea"), "Отправлено, когда сеть вернулась");
     await d.button("Отправить");
     await d.until("outbox in sidebar", async () => (await sidebarText()).includes("Исходящие"), 20000);
     await d.button("Исходящие");

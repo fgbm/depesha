@@ -140,8 +140,14 @@ export interface MessageRow {
   has_attachments: boolean;
   thread: string;
   bulk: boolean;
-  /** Messages of the conversation in this list; 1 when the list is not grouped. */
+  /** Letters of the conversation, my answers in Sent included; 1 when the list is not grouped. */
   thread_count: number;
+  /** The newest letter of the conversation, mine included; the row's own date otherwise. */
+  thread_date: number;
+  /** Who wrote in the conversation, in order of first appearance; empty when not grouped. */
+  thread_senders: Addr[];
+  /** The conversation has a saved draft of an answer. */
+  thread_draft: boolean;
   snoozed_until: number | null;
   followup_due: number | null;
 }

@@ -52,24 +52,80 @@ pub struct Unsubscribe {
 }
 
 impl Summary {
-    /// Key that groups a conversation: the first message's Message-ID when the
-    /// references know it, Exchange's thread index otherwise.
+    /// Key for a conversation none of whose messages is cached yet: the first
+    /// message's Message-ID when the references know it, Exchange's thread index
+    /// when they do not. The cache links known messages first (`Store::insert_message`).
     pub fn thread_key(&self) -> Option<String> {
         if let Some(root) = self.references.first().filter(|r| !r.is_empty()) {
             return Some(root.clone());
         }
-        if let Some(parent) = self.in_reply_to.as_ref().filter(|r| !r.is_empty()) {
-            return Some(parent.clone());
-        }
         if let Some(index) = &self.thread_index {
             // The first 22 bytes identify the conversation; 28 base64 characters cover 21 of them.
+            // Outlook keeps them in every answer, even when it drops References.
             let index = index.trim();
-            if index.len() >= 28 && self.message_id.is_none() {
+            if index.len() >= 28 {
                 return Some(format!("ti:{}", &index[..28]));
             }
         }
+        if let Some(parent) = self.in_reply_to.as_ref().filter(|r| !r.is_empty()) {
+            return Some(parent.clone());
+        }
         self.message_id.clone().filter(|m| !m.is_empty())
     }
+
+    /// Answers and forwards: their subject has a prefix or they name the parent.
+    pub fn is_reply(&self) -> bool {
+        self.in_reply_to.as_deref().is_some_and(|r| !r.is_empty()) || strip_prefixes(&self.subject).1
+    }
+}
+
+/// Subject without "Re:", "Fwd:", "Отв:" and the like, folded: answers match the original.
+pub fn topic(subject: &str) -> String {
+    let rest = strip_prefixes(subject).0;
+    rest.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// The subject without its reply and forward prefixes, and whether there were any.
+fn strip_prefixes(subject: &str) -> (&str, bool) {
+    const PREFIXES: [&str; 13] = [
+        "re",
+        "fwd",
+        "fw",
+        "aw",
+        "wg",
+        "sv",
+        "vs",
+        "tr",
+        "ответ",
+        "отв",
+        "пересл",
+        "пер",
+        "rif",
+    ];
+    let mut s = subject.trim_start();
+    let mut found = false;
+    loop {
+        let lower = s.to_lowercase();
+        let Some(word) = PREFIXES.iter().find(|p| lower.starts_with(*p)) else {
+            break;
+        };
+        // Lower-casing keeps the length of these prefixes: the byte index fits `s`.
+        let mut rest = s[word.len()..].trim_start();
+        // "Re[2]:", "RE(3):"
+        if let Some(inner) = rest.strip_prefix(['[', '(']) {
+            let digits = inner.trim_start_matches(|c: char| c.is_ascii_digit());
+            match digits.strip_prefix([']', ')']) {
+                Some(after) if digits.len() < inner.len() => rest = after.trim_start(),
+                _ => break,
+            }
+        }
+        let Some(after) = rest.strip_prefix([':', '：']) else {
+            break;
+        };
+        s = after.trim_start();
+        found = true;
+    }
+    (s, found)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -503,6 +559,32 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
             .map(|r| parse_summary(r).thread_key())
             .collect();
         assert_eq!(keys, vec![Some("a@x".to_owned()); 3]);
+    }
+
+    #[test]
+    fn topic_drops_reply_prefixes() {
+        for s in [
+            "Счёт",
+            "Re: Счёт",
+            "RE: re:  счёт",
+            "Отв: Счёт",
+            "Re[2]: Счёт",
+            "FW: Re: Счёт",
+            "AW:Счёт",
+        ] {
+            assert_eq!(topic(s), "счёт", "{s}");
+        }
+        assert_eq!(topic("Report: May"), "report: may");
+        assert_eq!(topic("Перенос встречи"), "перенос встречи");
+        assert!(!strip_prefixes("Перенос: среда").1);
+        assert!(strip_prefixes("Пересл: среда").1);
+    }
+
+    #[test]
+    fn outlook_answers_keep_the_thread_index() {
+        let root = b"Message-ID: <a@x>\r\nThread-Index: AdlBcDEFGHIJKLMNOPQRSTUVWXYZab==\r\nSubject: q\r\n\r\nx";
+        let reply = b"Message-ID: <b@x>\r\nIn-Reply-To: <a@x>\r\nThread-Index: AdlBcDEFGHIJKLMNOPQRSTUVWXYZabCDEFGH\r\nSubject: RE: q\r\n\r\nx";
+        assert_eq!(parse_summary(root).thread_key(), parse_summary(reply).thread_key());
     }
 
     #[test]

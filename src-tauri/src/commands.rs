@@ -1000,9 +1000,21 @@ async fn discard(state: &AppState, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
-/// Saves the draft into the server's Drafts folder, replacing the previous version.
+/// Deletes a saved draft for good: the user threw the composition away.
 #[tauri::command]
-pub async fn draft_save(state: St<'_>, account_id: String, draft: ComposeDraft, replace: Option<i64>) -> CmdResult<()> {
+pub async fn draft_discard(state: St<'_>, id: i64) -> CmdResult<()> {
+    discard(&state, id).await
+}
+
+/// Saves the draft into the server's Drafts folder, replacing the previous version.
+/// Returns the saved copy, for the next save to replace it.
+#[tauri::command]
+pub async fn draft_save(
+    state: St<'_>,
+    account_id: String,
+    draft: ComposeDraft,
+    replace: Option<i64>,
+) -> CmdResult<Option<i64>> {
     let account = state.account(&account_id)?;
     let Some(folder) = state.store.folder_by_role(&account.id, FolderRole::Drafts)? else {
         return Err(CmdError::new(
@@ -1019,10 +1031,11 @@ pub async fn draft_save(state: St<'_>, account_id: String, draft: ComposeDraft, 
         }));
     }
     let raw = smtp::build(&draft)?.formatted();
+    let message_id = message::parse_summary(&raw).message_id;
     let worker = state.worker(&account.id)?;
     worker
         .run(Work::Append {
-            folder,
+            folder: folder.clone(),
             raw,
             flags: "(\\Draft \\Seen)".into(),
             message_id: None,
@@ -1031,7 +1044,15 @@ pub async fn draft_save(state: St<'_>, account_id: String, draft: ComposeDraft, 
     if let Some(old) = replace {
         let _ = discard(&state, old).await;
     }
-    Ok(())
+    // The append synced the folder: the copy is in the cache unless the server hides it.
+    let saved = match message_id {
+        Some(mid) => state
+            .store
+            .find_by_message_id(&account.id, &folder, &mid)?
+            .map(|r| r.id),
+        None => None,
+    };
+    Ok(saved)
 }
 
 #[tauri::command]
