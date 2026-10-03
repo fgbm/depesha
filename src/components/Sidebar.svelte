@@ -20,6 +20,8 @@
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Download from "@lucide/svelte/icons/download";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { when } from "../lib/later";
@@ -40,8 +42,9 @@
     trash: Trash,
   };
 
+  // With one account "All inboxes" would repeat its Inbox.
   const SMART = $derived<{ view: View; label: string; icon: Component }[]>([
-    { view: { kind: "unified", role: "inbox" }, label: t("nav.allInboxes"), icon: Mails },
+    ...(app.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "inbox" } as View, label: t("nav.allInboxes"), icon: Mails }]),
     { view: { kind: "unified", role: "inbox", unread: true }, label: t("nav.unread"), icon: Mail },
     { view: { kind: "unified", role: "inbox", flagged: true }, label: t("nav.flagged"), icon: Flag },
   ]);
@@ -130,11 +133,11 @@
 
   <div class="scroll">
     <div class="group">
-      {#each SMART as s, i (s.label)}
+      {#each SMART as s (s.label)}
         <button class="item" class:active={isActive(s.view)} onclick={() => app.setView(s.view)}>
           <span class="icon"><s.icon size={16} /></span>
           <span class="name">{s.label}</span>
-          {#if i === 0 && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
+          {#if s.icon === Mails && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
         </button>
       {/each}
       {#each registry.items("views") as pv (pv.id)}
@@ -158,17 +161,19 @@
 
     {#each app.accounts as acc (acc.id)}
       <div class="group">
-        <div class="account">
+        <div class="account" class:open={menuFor === acc.id} class:collapsed={collapsed[acc.id]}>
           <button class="account-name" onclick={() => (collapsed[acc.id] = !collapsed[acc.id])} title={acc.email}>
             <span class="dot {acc.status?.state ?? 'connecting'}" title={statusText(acc)}></span>
             <span class="name">{acc.display_name || acc.email}</span>
-            <span class="chev">{collapsed[acc.id] ? "▸" : "▾"}</span>
+            <span class="chev"><ChevronRight size={13} /></span>
           </button>
-          <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} aria-label={t("account.menu")}>⋯</button>
+          <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
           {#if menuFor === acc.id}
             <div class="menu">
               <button onclick={() => refresh(acc)}>{t("account.refresh")}</button>
               <button onclick={() => { menuFor = null; app.wizard = { account: acc }; }}>{t("account.settings")}</button>
+              <hr />
+              <button onclick={() => { menuFor = null; app.wizard = { account: null }; }}><Plus size={14} /> {t("account.add")}</button>
             </div>
           {/if}
         </div>
@@ -219,7 +224,7 @@
   {/if}
 
   <div class="foot">
-    <button class="btn ghost add" onclick={() => (app.wizard = { account: null })}><Plus size={15} /> {t("account.add")}</button>
+    <button class="btn ghost settings" onclick={() => (app.settingsOpen = true)}><Settings size={15} /> {t("settings.title")}</button>
     <span class="spacer"></span>
     <div class="dnd-wrap">
       <button
@@ -239,7 +244,6 @@
       {/if}
     </div>
     <button class="foot-btn" onclick={() => (app.pluginsOpen = true)} title={t("ext.title")} aria-label={t("ext.title")}><Puzzle size={16} /></button>
-    <button class="foot-btn" onclick={() => (app.settingsOpen = true)} title={t("settings.title")} aria-label={t("settings.title")}><Settings size={16} /></button>
   </div>
 </nav>
 
@@ -283,13 +287,13 @@
     padding-bottom: 8px;
   }
 
+  /* Groups are set apart by space, not lines. */
   .group {
-    padding: 6px 0;
-    border-top: 1px solid rgb(255 255 255 / 6%);
+    padding: 4px 0;
   }
 
-  .group:first-child {
-    border-top: none;
+  .group + .group {
+    margin-top: 10px;
   }
 
   .item {
@@ -341,13 +345,14 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--side-ink);
-    background: rgb(255 255 255 / 10%);
+    background: color-mix(in srgb, var(--side-ink) 12%, transparent);
     border-radius: 10px;
     padding: 0 7px;
   }
 
   .count.alert {
     background: var(--accent);
+    color: var(--accent-ink);
   }
 
   .count.quiet {
@@ -374,20 +379,44 @@
     padding: 6px 4px 6px 14px;
     font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     text-align: left;
   }
 
+  .account-name:hover {
+    color: var(--side-ink);
+  }
+
+  /* The chevron and the menu show up on hover; a folded account keeps its chevron. */
   .chev {
-    font-size: 10px;
+    display: inline-flex;
+    transform: rotate(90deg);
+    transition: transform 0.12s;
+  }
+
+  .account.collapsed .chev {
+    transform: none;
+  }
+
+  /* Hidden by colour, not opacity: WebDriver takes an element with opacity 0 for hidden. */
+  .chev,
+  .menu-btn {
+    color: transparent;
+  }
+
+  .account:hover .chev,
+  .account:hover .menu-btn,
+  .account:focus-within .chev,
+  .account:focus-within .menu-btn,
+  .account.open .menu-btn,
+  .account.collapsed .chev {
+    color: var(--side-muted);
   }
 
   .menu-btn {
+    display: inline-flex;
     background: none;
     border: none;
-    color: var(--side-muted);
-    padding: 2px 6px;
+    padding: 3px 5px;
     border-radius: 4px;
   }
 
@@ -412,11 +441,21 @@
   }
 
   .menu button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     background: none;
     border: none;
     text-align: left;
     padding: 6px 10px;
     border-radius: 5px;
+  }
+
+  .menu hr {
+    width: 100%;
+    margin: 4px 0;
+    border: none;
+    border-top: 1px solid var(--line);
   }
 
   .menu button:hover {
@@ -448,8 +487,8 @@
     padding: 6px 8px;
     font-size: 12px;
     line-height: 1.35;
-    color: #f2c9c4;
-    background: rgb(179 38 30 / 22%);
+    color: var(--side-ink);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
     border: none;
     border-radius: 6px;
     text-align: left;
@@ -460,7 +499,6 @@
     display: block;
     margin-top: 3px;
     font-weight: 600;
-    color: #fff;
   }
 
   .update {
@@ -485,7 +523,6 @@
     align-items: center;
     gap: 2px;
     padding: 6px 8px 10px;
-    border-top: 1px solid rgb(255 255 255 / 6%);
   }
 
   .spacer {
@@ -526,13 +563,13 @@
     color: var(--muted);
   }
 
-  .add {
+  .settings {
     color: var(--side-muted);
     justify-content: flex-start;
     padding: 5px 8px;
   }
 
-  .add:hover {
+  .settings:hover {
     color: var(--side-ink);
     background: var(--side-2) !important;
   }

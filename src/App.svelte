@@ -130,7 +130,7 @@
 
 <div
   class="layout"
-  style:grid-template-columns={app.view.kind === "outbox" ? `${side}px 1fr` : `${side}px 4px ${list}px 4px 1fr`}
+  style:grid-template-columns={app.view.kind === "outbox" ? `${side}px 1fr` : `${side}px 1px ${list}px 1px 1fr`}
 >
   <Sidebar onCompose={() => app.newMessage()} />
   {#if app.view.kind === "outbox"}
@@ -179,15 +179,25 @@
     height: 100vh;
   }
 
+  /* A hairline to look at, a wider strip to grab. */
   .gutter {
+    position: relative;
+    z-index: 5;
     cursor: col-resize;
     background: var(--line);
     touch-action: none;
   }
 
+  .gutter::after {
+    content: "";
+    position: absolute;
+    inset: 0 -3px;
+  }
+
   .gutter:hover,
   .gutter:active {
     background: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
   }
 
   .wide {
@@ -223,7 +233,9 @@
   }
 
   .toast .act {
-    color: #f3c27a;
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
     font-weight: 600;
     padding: 0 6px;
     white-space: nowrap;

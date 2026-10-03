@@ -53,6 +53,8 @@
     return "";
   });
 
+  const count = $derived(tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` }));
+
   const showAccount = $derived(app.accounts.length > 1 && app.view.kind !== "folder");
   const isSentLike = $derived.by(() => {
     const v = app.view;
@@ -73,13 +75,13 @@
     searchTimer = setTimeout(() => {
       const text = searchText.trim();
       if (text) app.setView({ kind: "search", text });
-      else if (app.view.kind === "search") app.setView({ kind: "unified", role: "inbox" });
+      else if (app.view.kind === "search") app.setView(app.home());
     }, 250);
   }
 
   function clearSearch() {
     searchText = "";
-    if (app.view.kind === "search") app.setView({ kind: "unified", role: "inbox" });
+    if (app.view.kind === "search") app.setView(app.home());
   }
 
   function click(e: MouseEvent, m: MessageRow) {
@@ -114,8 +116,9 @@
   });
 </script>
 
-<section class="list">
-  <header data-tauri-drag-region>
+<!-- The number of messages says little at a glance: it stays in the title's tooltip. -->
+<section class="list" data-count={count}>
+  <header data-tauri-drag-region class:scrolled={scrollTop > 0}>
     <div class="search">
       <input
         class="input"
@@ -127,24 +130,17 @@
       />
       {#if searchText}<button class="btn ghost clear" onclick={clearSearch} aria-label={t("clear")}>×</button>{/if}
     </div>
-    {#if tabs}
-      <div class="split" role="tablist">
-        {#each tabs.tabs() as sp (sp.id)}
-          <button role="tab" aria-selected={tabs.current() === sp.id} class:on={tabs.current() === sp.id} onclick={() => tabs.select(sp.id)}>
-            {sp.title}
-          </button>
-        {/each}
-      </div>
-    {/if}
     <div class="title">
-      <h2>{title}</h2>
-      <span class="muted">
-        {#if app.selected.size > 1}
-          {t("list.selected", { n: app.selected.size })}
-        {:else}
-          {tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` })}
-        {/if}
-      </span>
+      <h2 title={count}>{title}</h2>
+      {#if tabs}
+        <div class="split" role="tablist">
+          {#each tabs.tabs() as sp (sp.id)}
+            <button role="tab" aria-selected={tabs.current() === sp.id} class:on={tabs.current() === sp.id} onclick={() => tabs.select(sp.id)}>
+              {sp.title}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
   </header>
 
@@ -220,13 +216,17 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-right: 1px solid var(--line);
     background: var(--paper);
   }
 
+  /* The header gets its line only once rows slide under it. */
   header {
-    padding: 12px 12px 8px;
-    border-bottom: 1px solid var(--line);
+    padding: 12px 12px 6px;
+    border-bottom: 1px solid transparent;
+  }
+
+  header.scrolled {
+    border-bottom-color: var(--line);
   }
 
   .search {
@@ -245,41 +245,17 @@
     padding: 3px 8px;
   }
 
-  .split {
-    display: flex;
-    gap: 2px;
-    margin-top: 10px;
-    background: var(--paper-2);
-    border-radius: 7px;
-    padding: 2px;
-  }
-
-  .split button {
-    flex: 1;
-    border: none;
-    background: none;
-    border-radius: 5px;
-    padding: 3px 6px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .split button.on {
-    background: var(--selected);
-    color: var(--ink);
-    font-weight: 600;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
-  }
-
   .title {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
+    align-items: center;
     gap: 8px;
     margin-top: 10px;
+    min-height: 26px;
   }
 
   h2 {
+    flex: 1;
+    min-width: 0;
     margin: 0;
     font-size: 16px;
     font-weight: 650;
@@ -288,9 +264,31 @@
     white-space: nowrap;
   }
 
-  .title .muted {
+  /* List tabs read as filters of the title, not as a separate control. */
+  .split {
+    flex: none;
+    display: flex;
+    gap: 2px;
+  }
+
+  .split button {
+    border: none;
+    background: none;
+    border-radius: 5px;
+    padding: 3px 7px;
     font-size: 12px;
-    white-space: nowrap;
+    color: var(--muted);
+  }
+
+  .split button:hover {
+    color: var(--ink);
+    background: var(--hover);
+  }
+
+  .split button.on {
+    color: var(--ink);
+    font-weight: 600;
+    background: var(--hover);
   }
 
   .server {
@@ -321,16 +319,28 @@
     position: relative;
   }
 
+  /* Rows are told apart by space and hover, not by lines between them. */
   .row {
     position: absolute;
-    left: 0;
-    right: 0;
-    height: 64px;
-    padding: 9px 14px 0 18px;
-    border-bottom: 1px solid var(--line);
+    left: 6px;
+    right: 6px;
+    height: 62px;
+    padding: 9px 10px 0 16px;
+    border-radius: 7px;
     cursor: default;
     overflow: hidden;
-    box-shadow: inset 3px 0 0 var(--acct, transparent);
+  }
+
+  /* Account mark in lists that mix accounts. */
+  .row::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 14px;
+    bottom: 14px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--acct, transparent);
   }
 
   .row:hover {
@@ -345,7 +355,7 @@
   .row.unread::before {
     content: "";
     position: absolute;
-    left: 6px;
+    left: 5px;
     top: 15px;
     width: 7px;
     height: 7px;

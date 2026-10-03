@@ -232,7 +232,7 @@ try {
     await rowBySubject("Счёт за октябрь", 30000);
     await d.button("Входящие");
     await d.until("folder view", async () => (await textOf(".list h2")).trim() === "Входящие");
-    const count = async () => (await textOf(".list .title .muted")).trim();
+    const count = async () => d.exec("return document.querySelector('.list').dataset.count");
     for (let i = 0; i < 40; i++) {
       await d.exec("const v = document.querySelector('.viewport'); v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll'));");
       await new Promise((r) => setTimeout(r, 300));
@@ -289,7 +289,7 @@ try {
   });
 
   await step("4.4", "«всегда для отправителя» запоминает доверие", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     await openBySubject("Счёт за октябрь");
     await openBySubject("HTML-письмо с картинками");
     await d.button("Всегда для news@example.org");
@@ -322,7 +322,7 @@ try {
   });
 
   await step("7.3", "клавиатура: j/k по списку, c — новое письмо, Esc — закрыть", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     await openBySubject("Счёт за октябрь");
     const body = await d.find("body");
     const before = await textOf(".reader h1");
@@ -337,7 +337,7 @@ try {
   });
 
   await step("6.3", "групповые действия: три письма отмечаются непрочитанными", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     const subjects = ["Массовое письмо 619", "Массовое письмо 618", "Массовое письмо 617"];
     await d.click(await rowBySubject(subjects[0]));
     for (const subj of subjects.slice(1)) {
@@ -391,7 +391,7 @@ try {
   });
 
   await step("3.5", "новое письмо появляется само (IDLE), меньше чем за 60 с", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     await rowBySubject(subject, 60000);
     console.log(`    пришло через ${((Date.now() - sentAt) / 1000).toFixed(1)} с после отправки`);
   });
@@ -439,7 +439,7 @@ try {
   });
 
   await step("3.7", "флаг, поставленный другим клиентом, виден", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     helper("flag", "INBOX", "Счёт за октябрь");
     const flagged = async () =>
       d.exec(`return [...document.querySelectorAll('.row')].some(r => r.innerText.includes('Счёт за октябрь') && r.querySelector('.flag'))`);
@@ -466,7 +466,7 @@ try {
   });
 
   await step("8", "цепочка: три письма — одна строка, в письме видна вся переписка", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     const threadRow = () =>
       d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes('Бюджет на ноябрь')).map(r => r.querySelector('.count')?.innerText.trim() ?? '1')`);
     await d.until("one row with 3", async () => JSON.stringify(await threadRow()) === '["3"]', 15000);
@@ -509,7 +509,7 @@ try {
   });
 
   await step("2", "«Отложить»: письмо ждёт в «Отложенных» и возвращается непрочитанным", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     await openBySubject("Скидки недели");
     await press("h");
     await d.until("snooze menu", async () => (await textOf(".reader .pop")).includes("Завтра утром"));
@@ -594,7 +594,7 @@ try {
     await d.type(await d.find(".palette .q"), "перейти отлож");
     await d.type(await d.find(".palette .q"), "\uE007");
     await d.until("snoozed view", async () => (await textOf(".list h2")).trim() === "Отложенные");
-    await d.button("Все входящие");
+    await d.button("Входящие");
   });
 
   await step("7.8", "язык: английский включается в настройках сразу, без перезапуска", async () => {
@@ -608,16 +608,16 @@ try {
       await d.click(await d.find(".prefs footer .btn.primary"));
       await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
     };
-    await d.button("Все входящие");
+    await d.button("Входящие");
     await setLanguage("настр", "en");
-    await d.until("English sidebar", async () => (await sidebarText()).includes("All inboxes"), 10000);
-    if (!(await textOf(".list h2")).includes("All inboxes")) throw new Error(`заголовок: ${await textOf(".list h2")}`);
+    await d.until("English sidebar", async () => (await sidebarText()).includes("Inbox"), 10000);
+    if (!(await textOf(".list h2")).includes("Inbox")) throw new Error(`заголовок: ${await textOf(".list h2")}`);
     if (!(await textOf(".list .search input") || (await d.exec("return document.querySelector('.list .search input').placeholder"))).includes("Search")) {
       throw new Error("поле поиска не переведено");
     }
     await screenshot("english");
     await setLanguage("sett", "ru");
-    await d.until("Russian again", async () => (await sidebarText()).includes("Все входящие"), 10000);
+    await d.until("Russian again", async () => (await sidebarText()).includes("Входящие"), 10000);
   });
 
   const openModules = async () => {
@@ -634,7 +634,7 @@ try {
   const install = (name, dir = "plugins/community") => invoke("extension_install", { path: join(root, dir, name) });
 
   await step("10.1", "плагины: выключенный плагин уносит свои кнопки, клавиши и разделы", async () => {
-    await d.button("Все входящие");
+    await d.button("Входящие");
     await openModules();
     await screenshot("plugins");
     await d.click(await d.find(".modal.plugins input[data-plugin=snooze]"));
@@ -704,6 +704,8 @@ try {
   });
 
   await step("1.4, 2.2", "второй ящик по TLS: недоверенный сертификат принимается по отпечатку в мастере", async () => {
+    // With one account, adding another lives in its menu.
+    await d.click(await d.find(".menu-btn"));
     await d.button("Добавить ящик");
     await d.until("wizard", async () => (await d.findAll(".wizard")).length === 1);
     await setInput(".wizard input[placeholder='Иван Петров']", "Боб");

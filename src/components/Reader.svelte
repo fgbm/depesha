@@ -16,6 +16,7 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
   import Pencil from "@lucide/svelte/icons/pencil";
+  import ImageOff from "@lucide/svelte/icons/image-off";
   import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
@@ -40,6 +41,12 @@
   const isDraft = $derived(msg ? app.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const files = $derived(msg ? msg.view.attachments.filter((a) => !(a.inline && a.content_id)) : []);
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.allowRemote && !msg.trusted_sender);
+  /** "To: me" says nothing: shown only when someone else got it too. */
+  const onlyToMe = $derived.by(() => {
+    const s = msg?.view.summary;
+    const me = account?.email.toLowerCase();
+    return !!s && !!me && s.cc.length === 0 && s.to.length === 1 && s.to[0].email.toLowerCase() === me;
+  });
   const bulk = $derived(app.selected.size > 1);
   const bulkAccount = $derived.by(() => {
     const ids = [...app.selected];
@@ -174,9 +181,9 @@
       {#if isDraft}
         <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
       {:else}
-        <button class="btn" onclick={() => onReply(false)} title={t("act.replyHint")}><Reply size={15} /> {t("act.reply")}</button>
-        <button class="btn" onclick={() => onReply(true)} title={t("act.replyAllHint")}><ReplyAll size={15} /><span class="lbl">{t("act.replyAll")}</span></button>
-        <button class="btn" onclick={onForward} title={t("act.forwardHint")}><Forward size={15} /><span class="lbl">{t("act.forward")}</span></button>
+        <button class="btn ghost" onclick={() => onReply(false)} title={t("act.replyHint")}><Reply size={16} /> {t("act.reply")}</button>
+        <button class="btn ghost" onclick={() => onReply(true)} title={t("act.replyAllHint")}><ReplyAll size={16} /><span class="lbl">{t("act.replyAll")}</span></button>
+        <button class="btn ghost" onclick={onForward} title={t("act.forwardHint")}><Forward size={16} /><span class="lbl">{t("act.forward")}</span></button>
       {/if}
       <span class="sep" data-tauri-drag-region></span>
       <button class="btn ghost" onclick={() => app.archive()} title={t("act.doneHint")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
@@ -244,7 +251,7 @@
               {#if msg.view.summary.from?.name}<span class="muted">&lt;{msg.view.summary.from.email}&gt;</span>{/if}
               {#each registry.lists.readerHeader as h (h)}<h.item.component {...h.item.props ?? {}} />{/each}
             </div>
-            {#if msg.view.summary.to.length}<div class="muted small">{t("compose.fwd.to")}: {list(msg.view.summary.to)}</div>{/if}
+            {#if msg.view.summary.to.length && !onlyToMe}<div class="muted small">{t("compose.fwd.to")}: {list(msg.view.summary.to)}</div>{/if}
             {#if msg.view.summary.cc.length}<div class="muted small">{t("compose.fwd.cc")}: {list(msg.view.summary.cc)}</div>{/if}
           </div>
           <div class="date muted small">
@@ -268,12 +275,15 @@
           {#each b.actions ?? [] as a (a.title)}<button class="btn" class:primary={a.primary} class:ghost={!a.primary} onclick={a.run}>{a.title}</button>{/each}
         </div>
       {/each}
+      <!-- A quiet line, not a warning: hidden images are the normal state. -->
       {#if showRemoteBanner}
-        <div class="banner">
+        <div class="remote" title={t("reader.remoteWhy")}>
+          <ImageOff size={14} />
           <span>{t("reader.remoteHidden")}</span>
-          <button class="btn" onclick={() => app.open(msg.row.id, true)}>{t("reader.show")}</button>
+          <button class="link" onclick={() => app.open(msg.row.id, true)}>{t("reader.show")}</button>
           {#if msg.view.summary.from}
-            <button class="btn ghost" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
+            <span aria-hidden="true">·</span>
+            <button class="link" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
           {/if}
         </div>
       {/if}
@@ -309,13 +319,11 @@
   {:else if app.opening}
     <div class="center muted">{t("reader.loading")}</div>
   {:else}
+    <!-- One way in instead of a wall of keys: the palette lists every command with its key. -->
     <div class="center muted">
       <div class="hint">
         <p>{t("reader.choose")}</p>
-        <p class="small">
-          <kbd>j</kbd>/<kbd>k</kbd> — {t("keys.nextPrev")}, <kbd>e</kbd> — {t("keys.done")}, <kbd>r</kbd> — {t("keys.reply")},
-          <kbd>c</kbd> — {t("keys.compose")}, <kbd>/</kbd> — {t("keys.search")}, <kbd>z</kbd> — {t("keys.undo")}, <kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}
-        </p>
+        <p class="small"><kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}</p>
       </div>
     </div>
   {/if}
@@ -360,8 +368,6 @@
     gap: 4px;
     /* The right edge stays clear for the window controls (WindowControls.svelte). */
     padding: 8px 144px 8px 12px;
-    border-bottom: 1px solid var(--line);
-    background: var(--paper);
     flex-wrap: wrap;
   }
 
@@ -565,6 +571,28 @@
     min-width: 200px;
   }
 
+  .remote {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 22px 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .link {
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--link);
+  }
+
+  .link:hover {
+    text-decoration: underline;
+  }
+
   .files {
     display: flex;
     flex-wrap: wrap;
@@ -609,15 +637,14 @@
     margin: 0 16px 16px;
   }
 
+  /* Plain text reads as a column under the header, not as a card across the pane. */
   .plain {
     flex: 1;
-    overflow: auto;
+    max-width: 72ch;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    background: var(--paper);
-    border-radius: 6px;
-    padding: 18px 22px;
-    line-height: 1.55;
+    padding: 4px 6px 24px;
+    line-height: 1.6;
   }
 
   .plain a {

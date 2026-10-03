@@ -47,7 +47,9 @@ export function coreCommands(): Command[] {
   const where = (s: string) => () => t("cmd.go", { where: s.toLowerCase() });
   list.push(
     { id: "core.search", title: () => t("cmd.search"), hint: () => "/", run: () => app.focusSearch() },
-    { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) },
+    app.accounts.length > 1
+      ? { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) }
+      : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.setView(app.home()) },
     { id: "core.go.unread", title: where(t("nav.unread")), run: go({ kind: "unified", role: "inbox", unread: true }) },
     { id: "core.go.flagged", title: where(t("nav.flagged")), run: go({ kind: "unified", role: "inbox", flagged: true }) },
   );

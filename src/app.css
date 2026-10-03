@@ -21,8 +21,10 @@
   color-scheme: light;
 }
 
+/* Themes (Settings → Appearance, src/lib/theme.ts). Without data-theme the system picks
+   between Paper above and Night. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --paper: #171a1f;
     --paper-2: #1d2128;
     --ink: #e4e0d8;
@@ -35,6 +37,54 @@
     --side-2: #1a222b;
     color-scheme: dark;
   }
+}
+
+:root[data-theme="night"] {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #8f97a2;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #2e3742;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  color-scheme: dark;
+}
+
+:root[data-theme="snow"] {
+  --paper: #ffffff;
+  --paper-2: #f5f6f8;
+  --ink: #1b1f24;
+  --muted: #687180;
+  --line: #e3e6ea;
+  --hover: #f0f2f5;
+  --selected: #e3e8ef;
+  --accent: #c4302b;
+  --link: #1d5fbf;
+  --side: #f3f4f6;
+  --side-2: #e5e7eb;
+  --side-ink: #1f2937;
+  --side-muted: #6b7280;
+  color-scheme: light;
+}
+
+:root[data-theme="graphite"] {
+  --paper: #1c1c1e;
+  --paper-2: #232325;
+  --ink: #e6e6e6;
+  --muted: #9a9aa0;
+  --line: #2e2e31;
+  --hover: #2a2a2d;
+  --selected: #34343a;
+  --accent: #d6463d;
+  --link: #8ab4f8;
+  --side: #26272b;
+  --side-2: #313237;
+  --side-ink: #dcdde0;
+  --side-muted: #8e9096;
+  color-scheme: dark;
 }
 
 * {
@@ -98,7 +148,7 @@ button {
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: #9b1f18;
+  background: color-mix(in srgb, var(--accent) 85%, #000);
 }
 
 .btn.ghost {
