@@ -167,6 +167,13 @@ impl Connection {
         for (k, v) in headers {
             req = req.header(*k, v);
         }
+        // hyper sends no Content-Length for an empty body, and IIS answers a POST
+        // without one with 411 (the first leg of NTLM is such a POST).
+        if !matches!(method, "GET" | "HEAD")
+            && !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("Content-Length"))
+        {
+            req = req.header("Content-Length", body.len());
+        }
         let req = req
             .body(Full::new(Bytes::from(body)))
             .map_err(|e| Error::Protocol(e.to_string()))?;

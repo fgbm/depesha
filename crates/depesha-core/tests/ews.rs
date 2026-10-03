@@ -328,7 +328,7 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
                 let mut ntlm_user: Option<String> = None;
                 loop {
                     let mut auth = String::new();
-                    let mut len = 0usize;
+                    let mut len = None;
                     let mut line = String::new();
                     if r.read_line(&mut line).await.unwrap_or(0) == 0 {
                         return;
@@ -342,11 +342,19 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
                         }
                         let (k, v) = h.split_once(':').unwrap();
                         match k.to_ascii_lowercase().as_str() {
-                            "content-length" => len = v.trim().parse().unwrap(),
+                            "content-length" => len = Some(v.trim().parse::<usize>().unwrap()),
                             "authorization" => auth = v.trim().to_owned(),
                             _ => {}
                         }
                     }
+                    // IIS refuses a POST without Content-Length, even an empty one.
+                    let Some(len) = len else {
+                        let head = "HTTP/1.1 411 Length Required\r\nContent-Length: 0\r\n\r\n";
+                        if w.write_all(head.as_bytes()).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    };
                     let mut body = vec![0; len];
                     r.read_exact(&mut body).await.unwrap();
                     let expected = format!("Basic {}", BASE64.encode("CORP\\me:secret"));

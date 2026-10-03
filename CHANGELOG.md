@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Sender pictures: a colleague's photo from the account's Exchange (`GetUserPhoto`, Exchange 2013 and later), and a company's logo published with BIMI next to mail that passed DMARC. The verdict is taken from the topmost `Authentication-Results`, the one the receiving server added; the domain must enforce DMARC (`p=quarantine` or `reject`), the logo is an HTTPS SVG of at most 32 KB shown as an image. Pictures are cached for a week, missing ones for a day; logos can be switched off in Settings → Message list. Yandex's own sender portraits are not available to other clients.
+- Exchange with Windows login (NTLM) no longer answers HTTP 411: the first, empty step of the handshake now carries `Content-Length: 0`, which IIS requires for every POST.
 - The `<title>` of an HTML message no longer shows as a line of text above it, and neither `<title>` nor `<style>` leak into previews.
 
 ## 0.5.2 — 2026-10-03
