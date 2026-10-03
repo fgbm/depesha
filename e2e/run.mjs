@@ -364,6 +364,21 @@ try {
     }
   });
 
+  await step("6.3", "«Непрочитанные»: прочитанное письмо остаётся в списке до смены вида", async () => {
+    await d.button("Непрочитанные");
+    await openBySubject("Массовое письмо 619");
+    await d.until("\\Seen on server", async () => helper("flags", "INBOX", "Массовое письмо 619").includes("\\Seen"), 10000);
+    // The change comes back from the server and reloads the list: the letter must stay open.
+    await new Promise((r) => setTimeout(r, 2000));
+    await rowBySubject("Массовое письмо 619", 1000);
+    if (!(await textOf(".reader h1")).includes("Массовое письмо 619")) throw new Error("письмо закрылось");
+    await d.button("Входящие");
+    await d.button("Непрочитанные");
+    await rowBySubject("Массовое письмо 618");
+    const gone = await d.exec("return ![...document.querySelectorAll('.row .subject')].some((s) => s.innerText.includes('Массовое письмо 619'))");
+    if (!gone) throw new Error("прочитанное письмо осталось после смены вида");
+  });
+
   await step("5.7", "подпись из настроек ящика попадает в новое письмо", async () => {
     await d.click(await d.find(".menu-btn"));
     await d.button("Настройки…");

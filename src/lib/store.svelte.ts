@@ -123,6 +123,8 @@ class AppStore {
 
   private toastSeq = 0;
   private composeSeq = 0;
+  /** Messages read or (un)flagged in this view: "Unread" and "Flagged" keep them until the view changes. */
+  private keep = new Set<number>();
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private openSeq = 0;
 
@@ -365,8 +367,10 @@ class AppStore {
       const drafts = this.folder(v.account_id, v.folder)?.role === "drafts";
       return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts, ...tabs, limit: PAGE, offset };
     }
-    if (v.kind === "unified")
-      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, threads, ...tabs, limit: PAGE, offset };
+    if (v.kind === "unified") {
+      const keep_ids = v.unread || v.flagged ? [...this.keep] : [];
+      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, keep_ids, threads, ...tabs, limit: PAGE, offset };
+    }
     if (v.kind === "plugin") {
       const pv = registry.view(v.id);
       return pv ? { ...pv.query(), limit: PAGE, offset } : null;
@@ -472,6 +476,7 @@ class AppStore {
 
   async setView(v: View) {
     this.view = v;
+    this.keep = new Set();
     this.conversation = [];
     this.serverRows = null;
     this.messages = [];
@@ -522,6 +527,7 @@ class AppStore {
       this.conversation = [];
       // Marked read on the server only after it was shown.
       if (wasUnread) {
+        this.keep.add(id);
         api.setFlag([id], { flag: "seen", value: true }).catch((e) => this.fail(e));
         const row = this.messages.find((m) => m.id === id);
         if (row) row.flags.seen = true;
@@ -556,6 +562,7 @@ class AppStore {
     // Reading a conversation reads all of it, unless the user changed flags meanwhile.
     const unread = conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
     if (unread.length && epoch === this.flagEpoch) {
+      for (const u of unread) this.keep.add(u);
       api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.fail(e));
       for (const m of this.messages) if (unread.includes(m.id)) m.flags.seen = true;
     }
@@ -708,6 +715,7 @@ class AppStore {
   async flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) {
     if (!ids.length) return;
     this.flagEpoch++;
+    for (const id of ids) this.keep.add(id);
     for (const m of this.messages) if (ids.includes(m.id)) m.flags[change] = value;
     if (this.opened && ids.includes(this.opened.row.id)) this.opened.row.flags[change] = value;
     try {

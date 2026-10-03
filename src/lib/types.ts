@@ -202,6 +202,8 @@ export interface ListQuery {
   role?: FolderRole | null;
   unread_only?: boolean;
   flagged_only?: boolean;
+  /** Read or unflagged while the list is open: they stay in it. */
+  keep_ids?: number[];
   bulk?: boolean | null;
   threads?: boolean;
   snoozed_only?: boolean;

@@ -229,6 +229,9 @@ pub struct ListQuery {
     pub role: Option<FolderRole>,
     pub unread_only: bool,
     pub flagged_only: bool,
+    /// Messages that stay in an unread or flagged list although they no longer
+    /// match: the ones read or unflagged while it is open, as in Gmail.
+    pub keep_ids: Vec<i64>,
     /// Only mail from people (`false`) or only lists and notifications (`true`).
     pub bulk: Option<bool>,
     /// One row per conversation: its newest message, with the count.
@@ -578,11 +581,22 @@ impl Store {
                 }
             }
         }
+        let mut only = Vec::new();
         if q.unread_only {
-            cond.push_str(" AND m.seen = 0");
+            only.push("m.seen = 0");
         }
         if q.flagged_only {
-            cond.push_str(" AND m.flagged = 1");
+            only.push("m.flagged = 1");
+        }
+        if !only.is_empty() {
+            let only = only.join(" AND ");
+            if q.keep_ids.is_empty() {
+                cond.push_str(&format!(" AND {only}"));
+            } else {
+                let marks = vec!["?"; q.keep_ids.len()].join(",");
+                cond.push_str(&format!(" AND ({only} OR m.id IN ({marks}))"));
+                args.extend(q.keep_ids.iter().map(|&id| id.into()));
+            }
         }
         if let Some(bulk) = q.bulk {
             cond.push_str(if bulk { " AND m.bulk = 1" } else { " AND m.bulk = 0" });
@@ -1574,6 +1588,23 @@ mod tests {
             1
         );
         assert!(store.get(id1).unwrap().unwrap().flags.seen);
+        // Read while the unread list is open: it stays there until the list changes.
+        let unread = |keep_ids: Vec<i64>, threads: bool| {
+            store
+                .list(&ListQuery {
+                    unread_only: true,
+                    keep_ids,
+                    threads,
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+        assert!(unread(vec![], false).is_empty());
+        for threads in [false, true] {
+            let kept = unread(vec![id1], threads);
+            assert_eq!(kept.len(), 1);
+            assert!(kept[0].flags.seen);
+        }
 
         let folders = store.folders(Some("a")).unwrap();
         assert_eq!(folders.iter().find(|f| f.folder.name == "INBOX").unwrap().unread, 0);
