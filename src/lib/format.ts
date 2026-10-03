@@ -1,5 +1,5 @@
 import { i18n, locale, t, tn } from "./i18n.svelte";
-import type { Addr, FolderRole } from "./types";
+import type { Account, Addr, FolderRole } from "./types";
 
 /** "Inbox" / "Входящие" for a folder with a known role. */
 export function roleLabel(role: FolderRole): string {
@@ -46,6 +46,11 @@ export function shortDateTime(unix: number | null): string {
 export function addrName(a: Addr | null | undefined): string {
   if (!a) return "";
   return a.name?.trim() || a.email;
+}
+
+/** How the app names a mailbox: the user's label, else the address. */
+export function accountLabel(a: Pick<Account, "label" | "email">): string {
+  return a.label?.trim() || a.email;
 }
 
 export function addrFull(a: Addr): string {

@@ -5,7 +5,7 @@ import type { Command } from "../plugin-api";
 import { registry } from "../plugin-host/registry.svelte";
 import { api } from "./api";
 import { extensions, fromRow } from "./extensions.svelte";
-import { roleLabel } from "./format";
+import { accountLabel, roleLabel } from "./format";
 import { t } from "./i18n.svelte";
 import { app, type View } from "./store.svelte";
 
@@ -62,7 +62,7 @@ export function coreCommands(): Command[] {
   for (const f of app.folders.filter((f) => f.selectable && !f.hidden)) {
     const acc = app.account(f.account_id);
     const name = f.role ? roleLabel(f.role) : f.display_name;
-    const suffix = many && acc ? ` · ${acc.display_name || acc.email}` : "";
+    const suffix = many && acc ? ` · ${accountLabel(acc)}` : "";
     list.push({
       id: `core.open.${f.account_id}.${f.name}`,
       title: () => t("cmd.openFolder", { folder: name }) + suffix,

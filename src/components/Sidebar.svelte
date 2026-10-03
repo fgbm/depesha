@@ -26,7 +26,7 @@
   import { api } from "../lib/api";
   import { when } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
-  import { roleLabel } from "../lib/format";
+  import { accountLabel, roleLabel } from "../lib/format";
   import { registry } from "../plugin-host/registry.svelte";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
@@ -164,7 +164,7 @@
         <div class="account" class:open={menuFor === acc.id} class:collapsed={collapsed[acc.id]}>
           <button class="account-name" onclick={() => (collapsed[acc.id] = !collapsed[acc.id])} title={acc.email}>
             <span class="dot {acc.status?.state ?? 'connecting'}" title={statusText(acc)}></span>
-            <span class="name">{acc.display_name || acc.email}</span>
+            <span class="name">{accountLabel(acc)}</span>
             <span class="chev"><ChevronRight size={13} /></span>
           </button>
           <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>

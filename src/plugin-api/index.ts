@@ -127,7 +127,7 @@ export interface PluginContext {
     opened(): OpenedMessage | null;
     /** Selected messages, or the opened one. */
     selection(): number[];
-    accounts(): { id: string; email: string; display_name: string }[];
+    accounts(): { id: string; email: string; display_name: string; label?: string }[];
     folders(): FolderInfo[];
     /** Takes messages out of the list, runs `run`, offers undo of the moves it returns. */
     perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string): Promise<void>;

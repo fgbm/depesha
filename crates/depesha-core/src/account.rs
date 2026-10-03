@@ -38,6 +38,10 @@ impl ServerConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
     pub id: String,
+    /// What the user calls the mailbox in the app ("Work"); empty shows the address.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    /// Sender name recipients see in From.
     pub display_name: String,
     pub email: String,
     pub username: String,

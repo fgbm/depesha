@@ -8,7 +8,7 @@
   import FileText from "@lucide/svelte/icons/file-text";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { isDirty, swapSignature } from "../lib/compose";
-  import { size } from "../lib/format";
+  import { accountLabel, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { extensions } from "../lib/extensions.svelte";
   import AddressInput from "./AddressInput.svelte";
@@ -205,7 +205,7 @@
         <span class="label">{t("compose.fwd.from")}</span>
         <select class="input from" value={c.account_id} onchange={(e) => setAccount(e.currentTarget.value)}>
           {#each app.accounts as a (a.id)}
-            <option value={a.id}>{a.display_name ? `${a.display_name} <${a.email}>` : a.email}</option>
+            <option value={a.id}>{a.label?.trim() ? `${accountLabel(a)} — ` : ""}{a.display_name ? `${a.display_name} <${a.email}>` : a.email}</option>
           {/each}
         </select>
         {#if !showCc}<button class="btn ghost small" onclick={() => (showCc = true)}>{t("compose.fwd.cc")}</button>{/if}

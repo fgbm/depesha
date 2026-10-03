@@ -9,6 +9,7 @@
 - New icon: the tile is the back of an envelope with a dark flap and a wax seal with «Д». Sources in `design/logo/`: `build.mjs` draws the SVGs (the master for 48 px and up, simplified versions for 24–32 and 16 px; only `.icns` keeps the Apple grid margin), `icons.sh` rebuilds `src-tauri/icons` and the sidebar logo from them.
 - Autodetect no longer suggests a made-up `smtp.<domain>` (#1): a server with a valid certificate wins over one with an untrusted certificate, the outgoing server is looked for on the incoming host first, `mail.`/`imap.`/`smtp.` names that only exist through a wildcard DNS record are skipped, and host names from autoconfig must resolve.
 - The signature field in the account wizard grows from 3 to 8 lines and scrolls after that, so its resize handle no longer slides under the buttons (#2).
+- Accounts get a name of their own ("Work", "Personal") shown in the sidebar, the list and the From menu; the sender name recipients see is a separate field. Accounts without one show the address, as before.
 - Recipient suggestions ignore case in any alphabet: "иван" finds "Иван". SQLite folds only ASCII, so the store registers its own `fold()`.
 - Shortcuts work after a click into the message text: keys pressed inside the message frame are passed on to the app; plain arrows still scroll the message.
 

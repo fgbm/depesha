@@ -22,6 +22,8 @@ export interface EwsConfig {
 
 export interface Account {
   id: string;
+  /** What the user calls the mailbox in the app; empty shows the address. */
+  label?: string;
   display_name: string;
   email: string;
   username: string;

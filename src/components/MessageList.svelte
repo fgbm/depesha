@@ -5,7 +5,7 @@
   import { app } from "../lib/store.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowTag } from "../plugin-api";
-  import { addrName, listDate, roleLabel } from "../lib/format";
+  import { accountLabel, addrName, listDate, roleLabel } from "../lib/format";
   import { i18n, t, tn } from "../lib/i18n.svelte";
   import type { MessageRow } from "../lib/types";
 
@@ -48,7 +48,7 @@
       const f = app.folder(v.account_id, v.folder);
       const acc = app.account(v.account_id);
       const name = f?.role ? roleLabel(f.role) : (f?.display_name ?? v.folder);
-      return `${name}${app.accounts.length > 1 && acc ? ` · ${acc.display_name || acc.email}` : ""}`;
+      return `${name}${app.accounts.length > 1 && acc ? ` · ${accountLabel(acc)}` : ""}`;
     }
     return "";
   });

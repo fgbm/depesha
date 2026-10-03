@@ -25,6 +25,7 @@
 
   let step = $state<"start" | "settings">(existing ? "settings" : "start");
   let name = $state(existing?.display_name ?? "");
+  let label = $state(existing?.label ?? "");
   let email = $state(existing?.email ?? "");
   let password = $state("");
   let username = $state(existing?.username ?? "");
@@ -175,6 +176,7 @@
   function account(): Account {
     const acc: Account = {
       id: existing?.id ?? "",
+      label: label.trim(),
       display_name: name.trim(),
       email: email.trim(),
       username: username.trim(),
@@ -319,8 +321,9 @@
         {#each notes as n (n)}<p class="note">⚠ {n}</p>{/each}
 
         <div class="grid">
-          <label class="field"><span>{t("wizard.name")}</span><input class="input" bind:value={name} /></label>
-          <label class="field"><span>{t("wizard.address")}</span><input class="input" bind:value={email} disabled={!!existing} /></label>
+          <label class="field"><span>{t("wizard.mailboxName")}</span><input class="input" bind:value={label} placeholder={email.trim() || t("wizard.mailboxNamePlaceholder")} /></label>
+          <label class="field"><span>{t("wizard.name")}</span><input class="input" bind:value={name} placeholder={t("wizard.namePlaceholder")} /></label>
+          <label class="field wide"><span>{t("wizard.address")}</span><input class="input" bind:value={email} disabled={!!existing} /></label>
           {#if mode === "oauth" && provider}
             <div class="field signed">
               <span>{t("wizard.signIn")}</span>
@@ -478,6 +481,10 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+  }
+
+  .grid .wide {
+    grid-column: 1 / -1;
   }
 
   fieldset {

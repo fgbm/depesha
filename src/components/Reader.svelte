@@ -20,7 +20,7 @@
   import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
-  import { addrFull, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
+  import { accountLabel, addrFull, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
   import { emptyDraft, fromDraft, withSignature } from "../lib/compose";
   import { t, tn } from "../lib/i18n.svelte";
   import Puzzle from "@lucide/svelte/icons/puzzle";
@@ -256,7 +256,7 @@
           </div>
           <div class="date muted small">
             {longDate(msg.view.summary.date ?? msg.row.date)}
-            {#if app.accounts.length > 1 && account}<div>{account.display_name || account.email}</div>{/if}
+            {#if app.accounts.length > 1 && account}<div>{accountLabel(account)}</div>{/if}
           </div>
         </div>
       </div>
