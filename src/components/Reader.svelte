@@ -299,8 +299,8 @@
         <div class="files">
           {#each files as a (a.index)}
             <div class="file">
-              <button class="file-name" onclick={() => openAttachment(a)} title={t("file.open")}><Paperclip size={13} /> {a.name}</button>
-              <span class="muted small">{size(a.size)}</span>
+              <button class="file-name" onclick={() => openAttachment(a)} title={`${t("file.open")}: ${a.name}`}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
+              <span class="fsize muted">{size(a.size)}</span>
               <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title={t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
             </div>
           {/each}
@@ -611,25 +611,59 @@
   .file {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    min-width: 0;
+    max-width: 340px;
+    height: 32px;
     border: 1px solid var(--line);
     background: var(--paper);
     border-radius: 6px;
-    padding: 2px 4px 2px 8px;
-    max-width: 320px;
+    padding: 0 2px 0 8px;
   }
 
+  /* The name shrinks with an ellipsis; the icon, size and button keep their room. */
   .file-name {
-    display: inline-flex;
+    flex: 1;
+    min-width: 0;
+    display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     background: none;
     border: none;
-    padding: 2px;
+    padding: 0;
+    color: var(--link);
+  }
+
+  .file-name :global(svg) {
+    flex: none;
+  }
+
+  .fname {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--link);
+  }
+
+  .fname:hover {
+    text-decoration: underline;
+  }
+
+  .fsize {
+    flex: none;
+    font-size: 12px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .file .small-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
   }
 
   .small-btn {
