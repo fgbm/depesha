@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Lint and unit tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo fmt --all --check
+      - run: npm run build
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
+      - run: npx vitest run
+      - run: cargo test -p depesha-core
+
+  integration:
+    name: Integration (GreenMail, Dovecot)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: docker compose -f compose.test.yaml up -d
+      - name: Wait for servers
+        run: |
+          for _ in $(seq 60); do
+            python3 -c "import imaplib; imaplib.IMAP4('127.0.0.1', 3143).logout(); imaplib.IMAP4('127.0.0.1', 31143).logout()" 2>/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+      - run: DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
+
+  e2e:
+    name: End-to-end GUI (Linux, Xvfb)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev \
+            libayatana-appindicator3-dev webkit2gtk-driver xvfb gnome-keyring libsecret-tools dbus-x11
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo install tauri-driver --locked
+      - run: docker compose -f compose.test.yaml up -d
+      - name: Seed test mailbox
+        run: |
+          for i in $(seq 30); do python3 e2e/imap_helper.py seed && break; sleep 2; done
+      - run: npx tauri build --debug --no-bundle
+      - name: Run E2E with a session bus and an unlocked keyring
+        run: |
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &
+          dbus-run-session -- bash -c '
+            echo -n "ci" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            WEBKIT_DRIVER=/usr/bin/WebKitWebDriver E2E_DISPLAY=:99 node e2e/run.mjs'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screens
+          path: e2e/screens
+
+  build:
+    name: Build ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo test -p depesha-core --lib
+      - run: npx tauri build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundles-${{ matrix.os }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.rpm
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe
+            target/release/bundle/**/*.dmg
+          if-no-files-found: error

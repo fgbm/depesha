@@ -1,0 +1,28 @@
+# Local IMAP/SMTP server for integration tests:
+#   docker compose -f compose.test.yaml up -d
+#   DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
+# Plain ports 3025/3143; TLS ports 3465/3993 use GreenMail's self-signed certificate.
+services:
+  greenmail:
+    image: greenmail/standalone:latest
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
+        -Dgreenmail.setup.test.smtps -Dgreenmail.setup.test.imaps
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=alice:secret@local.test,bob:secret@local.test,carol:secret@local.test
+        -Dgreenmail.users.login=local_part
+    ports:
+      - "127.0.0.1:3025:3025"
+      - "127.0.0.1:3143:3143"
+      - "127.0.0.1:3465:3465"
+      - "127.0.0.1:3993:3993"
+  # Dovecot 2.4: refuses cleartext login, so tests use STARTTLS on 31143 with the
+  # image's self-signed certificate pinned. Any user name, password "secret".
+  dovecot:
+    image: dovecot/dovecot:latest
+    environment:
+      USER_PASSWORD: "{PLAIN}secret"
+    ports:
+      - "127.0.0.1:31143:31143"
+      - "127.0.0.1:31993:31993"

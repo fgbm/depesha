@@ -1,0 +1,12 @@
+[Desktop Entry]
+Categories={{categories}}
+Comment=Почтовый клиент для любого IMAP/SMTP-сервера
+Comment[ru]=Почтовый клиент для любого IMAP/SMTP-сервера
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Name=Депеша
+Name[ru]=Депеша
+Keywords=mail;email;imap;smtp;exchange;почта;
+Terminal=false
+Type=Application
