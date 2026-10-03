@@ -38,6 +38,24 @@ a{color:#1f5fa8}
       hover = a?.getAttribute("href") ?? "";
     });
     doc.addEventListener("mouseleave", () => (hover = ""));
+    // Keys pressed inside the frame never reach the window: replay them on the
+    // iframe element so the app shortcuts work after a click into the message.
+    // Plain arrows stay with the frame and scroll the message.
+    doc.addEventListener("keydown", (e) => {
+      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.ctrlKey && !e.metaKey && !e.altKey) return;
+      const copy = new KeyboardEvent("keydown", {
+        key: e.key,
+        code: e.code,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+        repeat: e.repeat,
+        bubbles: true,
+        cancelable: true,
+      });
+      if (!frame?.dispatchEvent(copy)) e.preventDefault();
+    });
   }
 </script>
 

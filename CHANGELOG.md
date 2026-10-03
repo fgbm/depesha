@@ -10,6 +10,7 @@
 - Autodetect no longer suggests a made-up `smtp.<domain>` (#1): a server with a valid certificate wins over one with an untrusted certificate, the outgoing server is looked for on the incoming host first, `mail.`/`imap.`/`smtp.` names that only exist through a wildcard DNS record are skipped, and host names from autoconfig must resolve.
 - The signature field in the account wizard grows from 3 to 8 lines and scrolls after that, so its resize handle no longer slides under the buttons (#2).
 - Recipient suggestions ignore case in any alphabet: "иван" finds "Иван". SQLite folds only ASCII, so the store registers its own `fold()`.
+- Shortcuts work after a click into the message text: keys pressed inside the message frame are passed on to the app; plain arrows still scroll the message.
 
 ## 0.5.0 — 2026-10-03
 
