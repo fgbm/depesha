@@ -105,6 +105,27 @@ fn prefix(proto: &str, e: depesha_core::Error) -> CmdError {
     err
 }
 
+/// The order of the mailboxes in the sidebar and wherever they are listed.
+#[tauri::command]
+pub fn accounts_arrange(state: St<'_>, ids: Vec<String>) -> CmdResult<()> {
+    state.arrange_accounts(&ids)
+}
+
+/// How the mailbox is shown: its name in the app and its colour. Login data stays as is.
+#[tauri::command]
+pub fn account_look(state: St<'_>, id: String, label: String, color: String) -> CmdResult<()> {
+    let mut account = state.account(&id)?;
+    account.label = label.trim().to_owned();
+    let color = color.trim();
+    // Only `#rrggbb`: the value ends up in CSS.
+    account.color = if color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+        color.to_ascii_lowercase()
+    } else {
+        String::new()
+    };
+    state.save_account(account)
+}
+
 #[tauri::command]
 pub async fn account_save(
     state: St<'_>,

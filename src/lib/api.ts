@@ -104,6 +104,8 @@ export const api = {
   tasks: () => call<Task[]>("tasks_list"),
   taskDismiss: (key: string) => call<void>("task_dismiss", { key }),
   trustSender: (email: string) => call<void>("trust_sender", { email }),
+  accountsArrange: (ids: string[]) => call<void>("accounts_arrange", { ids }),
+  accountLook: (id: string, label: string, color: string) => call<void>("account_look", { id, label, color }),
   avatar: (accountId: string, email: string, authenticated: boolean) =>
     call<string | null>("avatar", { accountId, email, authenticated }),
   addresses: (prefix: string) => call<Addr[]>("addresses", { prefix }),

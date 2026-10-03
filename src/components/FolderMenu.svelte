@@ -4,6 +4,7 @@
   import MailOpen from "@lucide/svelte/icons/mail-open";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import Settings from "@lucide/svelte/icons/settings";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import Activity from "@lucide/svelte/icons/activity";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
@@ -87,6 +88,7 @@
     <button class="mi" onclick={() => (naming = true)}><FolderPlus size={15} /> {t("folder.new")}</button>
     <hr />
     <button class="mi" onclick={() => run(() => (app.wizard = { account }))}><Settings size={15} /> {t("account.settings")}</button>
+    <button class="mi" onclick={() => run(() => (app.accountsOpen = true))}><Inbox size={15} /> {t("accounts.manage")}</button>
     <button class="mi" onclick={() => run(() => (app.tasksOpen = true))}><Activity size={15} /> {t("tasks.title")}…</button>
   {/if}
 </Popover>

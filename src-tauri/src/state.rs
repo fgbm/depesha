@@ -111,6 +111,15 @@ impl AppState {
         Ok(())
     }
 
+    /// Puts the mailboxes in this order; ones missing from `ids` keep their place after them.
+    pub fn arrange_accounts(&self, ids: &[String]) -> CmdResult<()> {
+        let mut config = lock(&self.config);
+        let place = |id: &str| ids.iter().position(|x| x == id).unwrap_or(usize::MAX);
+        config.accounts.sort_by_key(|a| place(&a.id));
+        config::save(&self.config_path, &config)?;
+        Ok(())
+    }
+
     pub fn remove_account(&self, id: &str) -> CmdResult<()> {
         let mut config = lock(&self.config);
         config.accounts.retain(|a| a.id != id);

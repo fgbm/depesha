@@ -894,6 +894,43 @@ try {
     await screenshot("unified-two-accounts");
   });
 
+  await step("4.2", "менеджер ящиков: порядок, название и цвет; свёрнутый ящик без лишнего отступа", async () => {
+    const names = () => d.exec("return [...document.querySelectorAll('nav.side .account-name .name')].map(n => n.innerText.trim())");
+    const before = await names();
+    await d.exec("document.querySelector('nav.side .account .menu-btn').click()");
+    await d.click(await d.until("manage item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Ящики…')]")));
+    await d.until("manager", async () => (await d.findAll(".modal.accounts")).length === 1);
+    await d.click((await d.findAll(".modal.accounts .order .btn"))[1]);
+    await d.until("order changed", async () => (await names())[0] === before[1]);
+    // The colour of the mailbox now first, and its name.
+    await d.click((await d.findAll(".modal.accounts .swatch-wrap > .swatch"))[0]);
+    await d.click(await d.until("palette", () => d.find(".pop .palette .swatch[aria-label='#d0658f']")));
+    await d.until("dot coloured", async () =>
+      (await d.exec("return getComputedStyle(document.querySelector('nav.side .account .dot')).backgroundColor")) === "rgb(208, 101, 143)");
+    const input = (await d.findAll(".modal.accounts .name"))[0];
+    const label = await d.exec("return document.querySelector('.modal.accounts .name').value");
+    await d.clear(input);
+    await d.type(input, "Тестовый\uE007");
+    await d.until("renamed", async () => (await names())[0] === "Тестовый");
+    await screenshot("accounts");
+    // Back as it was, for the steps after this one.
+    await d.exec(
+      "const i = document.querySelector('.modal.accounts .name'); i.focus(); i.value = arguments[0]; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();",
+      label,
+    );
+    await d.until("name back", async () => (await names())[0] === before[1]);
+    await d.click((await d.findAll(".modal.accounts .order .btn"))[2]);
+    await d.until("order back", async () => JSON.stringify(await names()) === JSON.stringify(before));
+    await d.click(await d.find(".modal.accounts footer .btn.primary"));
+    // Folded: the next mailbox's name follows right under it.
+    await d.exec("document.querySelector('nav.side .account-name').click()");
+    const gap = await d.exec(`const g = document.querySelectorAll('nav.side .group');
+      const a = g[g.length - 2].querySelector('.account').getBoundingClientRect(), b = g[g.length - 1].querySelector('.account').getBoundingClientRect();
+      return Math.round(b.top - a.bottom);`);
+    await d.exec("document.querySelector('nav.side .account-name').click()");
+    if (gap > 8) throw new Error(`отступ под свёрнутым ящиком ${gap}px`);
+  });
+
   await step("3.9", "не больше 3 IMAP-соединений на ящик", async () => {
     // Only connections to the published ports: docker-proxy's own leg to the container also has dport 3143.
     const out = execFileSync("ss", ["-tnH", "state", "established", "( dport = :3143 or dport = :3993 )"], { encoding: "utf-8" });

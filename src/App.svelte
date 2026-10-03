@@ -14,6 +14,7 @@
   import Preferences from "./components/Preferences.svelte";
   import Plugins from "./components/Plugins.svelte";
   import Tasks from "./components/Tasks.svelte";
+  import Accounts from "./components/Accounts.svelte";
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
   import { host } from "./plugin-host/host.svelte";
@@ -88,7 +89,7 @@
       }
       return;
     }
-    if (app.settingsOpen || app.pluginsOpen || app.tasksOpen) return;
+    if (app.settingsOpen || app.pluginsOpen || app.tasksOpen || app.accountsOpen) return;
     const t = e.target as HTMLElement;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) {
       if (e.key === "Escape") t.blur();
@@ -178,6 +179,9 @@
 {/if}
 {#if app.tasksOpen}
   <Tasks />
+{/if}
+{#if app.accountsOpen}
+  <Accounts />
 {/if}
 {#each registry.lists.overlays as o (o)}
   <o.item.component {...o.item.props ?? {}} />

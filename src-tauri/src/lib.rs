@@ -153,6 +153,8 @@ pub fn run() {
             commands::task_dismiss,
             commands::trust_sender,
             commands::avatar,
+            commands::accounts_arrange,
+            commands::account_look,
             commands::addresses,
             commands::attachment_save,
             commands::attachments_save_all,

@@ -53,6 +53,25 @@ export function accountLabel(a: Pick<Account, "label" | "email">): string {
   return a.label?.trim() || a.email;
 }
 
+/** Mailbox colours: calm enough for a sidebar dot and a list stripe on paper and at night. */
+export const ACCOUNT_PALETTE = [
+  "#3f7cc4",
+  "#c77d1a",
+  "#4a9a6a",
+  "#9b59b6",
+  "#c0504d",
+  "#2a9d9b",
+  "#b5873a",
+  "#5c6bc0",
+  "#d0658f",
+  "#6d8a3a",
+];
+
+/** The mailbox's own colour, or one from the palette by its place. */
+export function accountColor(a: Pick<Account, "color"> | undefined, index: number): string {
+  return a?.color || ACCOUNT_PALETTE[Math.max(0, index) % ACCOUNT_PALETTE.length];
+}
+
 export function addrFull(a: Addr): string {
   return a.name?.trim() ? `${a.name} <${a.email}>` : a.email;
 }

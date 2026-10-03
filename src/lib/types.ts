@@ -24,6 +24,8 @@ export interface Account {
   id: string;
   /** What the user calls the mailbox in the app; empty shows the address. */
   label?: string;
+  /** `#rrggbb`; empty takes one from the palette by the mailbox's place. */
+  color?: string;
   display_name: string;
   email: string;
   username: string;

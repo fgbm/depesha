@@ -22,10 +22,6 @@
   }
 
   /** Account colour stripe in lists that mix accounts. */
-  const PALETTE = ["#3f7cc4", "#c77d1a", "#4a9a6a", "#9b59b6", "#c0504d", "#2a9d9b"];
-  function accountColor(id: string): string {
-    return PALETTE[Math.max(0, app.accounts.findIndex((a) => a.id === id)) % PALETTE.length];
-  }
 
   const ROW = 64;
   const OVERSCAN = 8;
@@ -210,7 +206,7 @@
           class:selected={app.selected.has(m.id)}
           class:opened={app.opened?.row.id === m.id}
           style:top="{(start + i) * ROW}px"
-          style:--acct={showAccount ? accountColor(m.account_id) : "transparent"}
+          style:--acct={showAccount ? app.accountColor(m.account_id) : "transparent"}
           role="option"
           aria-selected={app.selected.has(m.id)}
           tabindex="-1"

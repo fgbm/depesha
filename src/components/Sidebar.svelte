@@ -72,7 +72,22 @@
     ];
   }
 
-  let collapsed = $state<Record<string, boolean>>({});
+  /** Folded mailboxes, kept between launches. */
+  const COLLAPSED_KEY = "depesha.sidebar.collapsed";
+  let collapsed = $state<Record<string, boolean>>(readCollapsed());
+
+  function readCollapsed(): Record<string, boolean> {
+    try {
+      return JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  function toggle(id: string) {
+    collapsed[id] = !collapsed[id];
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
+  }
   /** The context menu of a folder, or of an account (folder null). */
   let folderMenu = $state<{ at: { x: number; y: number }; account: AccountView; folder: FolderInfo | null } | null>(null);
 
@@ -177,10 +192,10 @@
     </div>
 
     {#each app.accounts as acc (acc.id)}
-      <div class="group">
+      <div class="group" class:collapsed={collapsed[acc.id]}>
         <div class="account" class:open={menuFor === acc.id} class:collapsed={collapsed[acc.id]}>
-          <button class="account-name" onclick={() => (collapsed[acc.id] = !collapsed[acc.id])} oncontextmenu={(e) => contextMenu(e, acc, null)} title={acc.email}>
-            <span class="dot {acc.status?.state ?? 'connecting'}" title={statusText(acc)}></span>
+          <button class="account-name" onclick={() => toggle(acc.id)} oncontextmenu={(e) => contextMenu(e, acc, null)} title={acc.email}>
+            <span class="dot {acc.status?.state ?? 'connecting'}" style:--dot={app.accountColor(acc.id)} title={statusText(acc)}></span>
             <span class="name">{accountLabel(acc)}</span>
             <span class="chev"><ChevronRight size={13} /></span>
           </button>
@@ -189,6 +204,7 @@
             <button class="mi" onclick={() => refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>
             <button class="mi" onclick={() => { menuFor = null; app.wizard = { account: acc }; }}><Settings size={15} /> {t("account.settings")}</button>
             <hr />
+            <button class="mi" onclick={() => { menuFor = null; app.accountsOpen = true; }}><Inbox size={15} /> {t("accounts.manage")}</button>
             <button class="mi" onclick={() => { menuFor = null; app.wizard = { account: null }; }}><Plus size={15} /> {t("account.add")}</button>
           </Popover>
         </div>
@@ -330,6 +346,15 @@
     margin-top: 10px;
   }
 
+  /* A folded mailbox is one line: no room kept for folders it does not show. */
+  .group.collapsed {
+    padding-bottom: 0;
+  }
+
+  .group.collapsed + .group {
+    margin-top: 2px;
+  }
+
   .item {
     width: 100%;
     display: flex;
@@ -459,24 +484,25 @@
     color: var(--side-ink);
   }
 
+  /* The mailbox's colour; how it is connected shows as a ring around it. */
   .dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     flex: none;
-    background: var(--side-muted);
+    background: var(--dot, var(--side-muted));
   }
 
-  .dot.online {
-    background: #4caf7a;
+  .dot.connecting {
+    opacity: 0.45;
   }
 
   .dot.error {
-    background: #e0a030;
+    box-shadow: 0 0 0 2px #e0a030;
   }
 
   .dot.paused {
-    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
   }
 
   .problem {

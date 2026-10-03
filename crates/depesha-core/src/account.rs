@@ -41,6 +41,10 @@ pub struct Account {
     /// What the user calls the mailbox in the app ("Work"); empty shows the address.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
+    /// Colour that marks the mailbox in the sidebar and in shared lists (`#3f7cc4`);
+    /// empty takes one from the palette by the mailbox's place.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
     /// Sender name recipients see in From.
     pub display_name: String,
     pub email: String,

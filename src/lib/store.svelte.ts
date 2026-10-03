@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { accountColor } from "./format";
 import { listen } from "@tauri-apps/api/event";
 import { api, asError } from "./api";
 import { when } from "./later";
@@ -129,6 +130,8 @@ class AppStore {
   conversation = $state<MessageRow[]>([]);
   settingsOpen = $state(false);
   pluginsOpen = $state(false);
+  /** The mailbox manager: order, names and colours. */
+  accountsOpen = $state(false);
   tasksOpen = $state(false);
   /** Background work: running, and failed until dismissed. */
   tasks = $state<Task[]>([]);
@@ -362,6 +365,12 @@ class AppStore {
 
   account(id: string) {
     return this.accounts.find((a) => a.id === id);
+  }
+
+  /** The colour that marks a mailbox in the sidebar and in shared lists. */
+  accountColor(id: string): string {
+    const i = this.accounts.findIndex((a) => a.id === id);
+    return accountColor(this.accounts[i], i);
   }
 
   folder(accountId: string, name: string) {
