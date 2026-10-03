@@ -30,6 +30,7 @@
   import { accountLabel, roleLabel } from "../lib/format";
   import { registry } from "../plugin-host/registry.svelte";
   import Popover from "./Popover.svelte";
+  import FolderMenu from "./FolderMenu.svelte";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
   let { onCompose }: { onCompose: () => void } = $props();
@@ -72,6 +73,14 @@
   }
 
   let collapsed = $state<Record<string, boolean>>({});
+  /** The context menu of a folder, or of an account (folder null). */
+  let folderMenu = $state<{ at: { x: number; y: number }; account: AccountView; folder: FolderInfo | null } | null>(null);
+
+  function contextMenu(e: MouseEvent, account: AccountView, folder: FolderInfo | null) {
+    e.preventDefault();
+    menuFor = null;
+    folderMenu = { at: { x: e.clientX, y: e.clientY }, account, folder };
+  }
   let menuFor = $state<string | null>(null);
 
   const totalUnread = $derived(
@@ -170,7 +179,7 @@
     {#each app.accounts as acc (acc.id)}
       <div class="group">
         <div class="account" class:open={menuFor === acc.id} class:collapsed={collapsed[acc.id]}>
-          <button class="account-name" onclick={() => (collapsed[acc.id] = !collapsed[acc.id])} title={acc.email}>
+          <button class="account-name" onclick={() => (collapsed[acc.id] = !collapsed[acc.id])} oncontextmenu={(e) => contextMenu(e, acc, null)} title={acc.email}>
             <span class="dot {acc.status?.state ?? 'connecting'}" title={statusText(acc)}></span>
             <span class="name">{accountLabel(acc)}</span>
             <span class="chev"><ChevronRight size={13} /></span>
@@ -200,6 +209,7 @@
               disabled={!f.selectable}
               style:padding-left="{14 + depth(f) * 14}px"
               onclick={() => app.setView(v)}
+              oncontextmenu={(e) => f.selectable && contextMenu(e, acc, f)}
               title={f.display_name}
             >
               <span class="icon"><Icon size={16} /></span>
@@ -213,6 +223,10 @@
       </div>
     {/each}
   </div>
+
+  {#if folderMenu}
+    {#key folderMenu}<FolderMenu at={folderMenu.at} account={folderMenu.account} folder={folderMenu.folder} onclose={() => (folderMenu = null)} />{/key}
+  {/if}
 
   {#if app.update && ["available", "downloading", "ready", "installed"].includes(app.update.state)}
     {@const u = app.update}

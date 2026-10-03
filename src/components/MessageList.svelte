@@ -3,6 +3,7 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Reply from "@lucide/svelte/icons/reply";
   import { app } from "../lib/store.svelte";
+  import RowMenu from "./RowMenu.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowTag } from "../plugin-api";
   import { accountLabel, addrName, listDate, roleLabel } from "../lib/format";
@@ -86,6 +87,17 @@
 
   function click(e: MouseEvent, m: MessageRow) {
     app.select(m.id, e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "single");
+  }
+
+  let menu = $state<{ at: { x: number; y: number }; ids: number[] } | null>(null);
+
+  /** A right click acts on the selection it falls in, otherwise selects its row, as in Outlook. */
+  function context(e: MouseEvent, m: MessageRow) {
+    e.preventDefault();
+    let ids = app.selected.has(m.id) ? [...app.selected] : [m.id];
+    if (!app.selected.has(m.id)) app.select(m.id);
+    if (!ids.length) ids = [m.id];
+    menu = { at: { x: e.clientX, y: e.clientY }, ids };
   }
 
   function who(m: MessageRow): string {
@@ -203,6 +215,7 @@
           aria-selected={app.selected.has(m.id)}
           tabindex="-1"
           onclick={(e) => click(e, m)}
+          oncontextmenu={(e) => context(e, m)}
           onkeydown={() => {}}
         >
           <div class="line1">
@@ -225,6 +238,9 @@
     </div>
     {#if app.loadingMore}<div class="more muted">{t("loading")}</div>{/if}
   </div>
+  {#if menu}
+    {#key menu}<RowMenu at={menu.at} ids={menu.ids} onclose={() => (menu = null)} />{/key}
+  {/if}
 </section>
 
 <style>

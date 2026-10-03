@@ -364,6 +364,57 @@ try {
     }
   });
 
+  await step("6.6", "контекстное меню строки: флаг, подменю «Отложить» и папок", async () => {
+    await d.button("Входящие");
+    const subj = "Массовое письмо 616";
+    await rowBySubject(subj);
+    const rightClick = () =>
+      d.exec(
+        `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+         const r = row.getBoundingClientRect();
+         row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 20 }));`,
+        subj,
+      );
+    await rightClick();
+    await d.until("menu", async () => (await textOf(".pop")).includes("Поставить флаг"));
+    const menu = await textOf(".pop");
+    for (const item of ["Ответить", "Ответить всем", "Переслать", "Готово", "Это спам", "Удалить"]) {
+      if (!menu.includes(item)) throw new Error(`нет пункта «${item}»: ${menu}`);
+    }
+    await screenshot("row-menu");
+    await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Поставить флаг')]"));
+    await d.until("\\Flagged on server", async () => helper("flags", "INBOX", subj).includes("\\Flagged"), 10000);
+    // Submenus open in place of the menu.
+    await rightClick();
+    await d.click(await d.until("snooze item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Отложить')]")));
+    await d.until("snooze presets", async () => (await textOf(".pop")).includes("Завтра"));
+    await press("Escape");
+    await d.until("menu closed", async () => (await d.findAll(".pop")).length === 0);
+  });
+
+  await step("6.7", "контекстное меню папки: новая вложенная папка; версия в сайдбаре", async () => {
+    const version = await textOf("nav.side .brand .version");
+    if (!/^\d+\.\d+\.\d+/.test(version)) throw new Error(`версия: «${version}»`);
+    await d.exec(
+      `const item = [...document.querySelectorAll('nav.side .item')].find((b) => b.innerText.trim() === 'Работа');
+       const r = item.getBoundingClientRect();
+       item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10 }));`,
+    );
+    await d.until("folder menu", async () => (await textOf(".pop")).includes("Синхронизировать папку"));
+    await screenshot("folder-menu");
+    await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Новая папка внутри')]"));
+    const input = await d.until("name input", () => d.find(".pop input").catch(() => null));
+    await d.type(input, "Проекты\uE007");
+    await d.until("subfolder in sidebar", async () => (await sidebarText()).includes("Проекты"), 15000);
+    // Inside «Работа», not in a new folder named by the raw modified UTF-7 of it.
+    const side = await sidebarText();
+    if (side.includes("&")) throw new Error(`папка с сырым именем: ${side}`);
+    const nested = await d.exec(
+      "const p = [...document.querySelectorAll('nav.side .item')].find((b) => b.innerText.trim() === 'Проекты'); return p ? parseInt(p.style.paddingLeft) : 0;",
+    );
+    if (nested <= 14) throw new Error(`«Проекты» не вложена (отступ ${nested}px)`);
+  });
+
   await step("3.11", "офлайн: письма за 30 дней скачиваются сами, ход виден в «Фоновых задачах»", async () => {
     const overview = () => invoke("sync_overview");
     await d.until("offline download done", async () => {

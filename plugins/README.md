@@ -51,6 +51,7 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `keybinding` | a key (`h`, `Mod+k`), with an optional condition |
 | `readerToolbar`, `bulkToolbar`, `readerHeader` | components in the reader toolbar, in the panel for several selected messages, next to the sender |
 | `messageAction` | an item in the reader's "More" menu |
+| `rowAction` | an item in the context menu of list rows, or a submenu (`menu`) |
 | `banner` | a line above the opened message, with buttons |
 | `rowTag` | a tag in a list row |
 | `view` | a list of its own with a sidebar entry |

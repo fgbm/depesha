@@ -147,6 +147,7 @@ pub fn run() {
             commands::load_older,
             commands::sync_now,
             commands::sync_overview,
+            commands::folder_create,
             commands::offline_pause,
             commands::tasks_list,
             commands::task_dismiss,

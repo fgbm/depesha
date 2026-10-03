@@ -3,7 +3,7 @@
 // this registry, the host (host.svelte.ts) writes it.
 
 import type { Component } from "svelte";
-import type { Banner, Command, ComposeContext, ComposeDraft, ListTabs, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowTag, View } from "../plugin-api";
+import type { Banner, Command, ComposeContext, ComposeDraft, ListTabs, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
 
 export interface Owned<T> {
   owner: string;
@@ -37,6 +37,7 @@ interface Lists {
   bulkToolbar: Owned<Rendered>[];
   readerHeader: Owned<Rendered>[];
   messageActions: Owned<MessageAction>[];
+  rowActions: Owned<RowAction>[];
   banners: Owned<(msg: OpenedMessage) => Banner | null>[];
   rowTags: Owned<(row: MessageRow) => RowTag | null>[];
   views: Owned<View>[];
@@ -54,6 +55,7 @@ const empty = (): Lists => ({
   bulkToolbar: [],
   readerHeader: [],
   messageActions: [],
+  rowActions: [],
   banners: [],
   rowTags: [],
   views: [],

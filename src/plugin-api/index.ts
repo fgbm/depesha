@@ -67,6 +67,21 @@ export interface MessageAction {
   run: (msg: OpenedMessage) => void;
 }
 
+/**
+ * An item in the context menu of list rows. `ids` are the rows it applies to: the
+ * selection, or the row clicked. With `menu`, the item opens that component in its
+ * place; the core adds the props `ids` and `done` (closes the menu).
+ */
+export interface RowAction {
+  id: string;
+  title: () => string;
+  icon?: Component;
+  hint?: string;
+  when?: (ids: number[]) => boolean;
+  run?: (ids: number[]) => void;
+  menu?: Rendered;
+}
+
 export interface Banner {
   text: string;
   tone?: "info" | "warn";
@@ -165,6 +180,8 @@ export interface PluginContext {
     readerHeader(r: Rendered): void;
     /** Items in the reader's "More" menu. */
     messageAction(a: MessageAction): void;
+    /** Items in the context menu of list rows. */
+    rowAction(a: RowAction): void;
     banner(provider: (msg: OpenedMessage) => Banner | null): void;
     rowTag(provider: (row: MessageRow) => RowTag | null): void;
     view(v: View): void;

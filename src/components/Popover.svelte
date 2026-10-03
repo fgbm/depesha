@@ -6,8 +6,17 @@
     align = "right",
     matchWidth = false,
     role = "menu",
+    at = null,
     children,
-  }: { open: boolean; align?: "left" | "right"; matchWidth?: boolean; role?: "menu" | "listbox"; children: Snippet } = $props();
+  }: {
+    open: boolean;
+    align?: "left" | "right";
+    matchWidth?: boolean;
+    role?: "menu" | "listbox";
+    /** A context menu: opens at this point of the window instead of under its parent. */
+    at?: { x: number; y: number } | null;
+    children: Snippet;
+  } = $props();
 
   let box = $state<HTMLDivElement | null>(null);
   /** Fixed coordinates: a dialog's `overflow: hidden` does not cut the menu off. */
@@ -20,15 +29,18 @@
   function place() {
     const anchor = box?.parentElement;
     if (!box || !anchor) return;
-    const r = anchor.getBoundingClientRect();
+    const r = at ? { left: at.x, right: at.x, top: at.y, bottom: at.y, width: 0 } : anchor.getBoundingClientRect();
+    const gap = at ? 0 : GAP;
     const w = box.offsetWidth;
     const h = box.scrollHeight;
-    const below = window.innerHeight - r.bottom - GAP - MARGIN;
-    const above = r.top - GAP - MARGIN;
+    const below = window.innerHeight - r.bottom - gap - MARGIN;
+    const above = r.top - gap - MARGIN;
     const down = h <= below || below >= above;
     const maxHeight = Math.max(80, down ? below : above);
-    const top = down ? r.bottom + GAP : r.top - GAP - Math.min(h, maxHeight);
-    const left = Math.min(Math.max(MARGIN, align === "left" ? r.left : r.right - w), window.innerWidth - w - MARGIN);
+    const top = down ? r.bottom + gap : r.top - gap - Math.min(h, maxHeight);
+    // A context menu opens to the right of the pointer, to its left near the edge.
+    const want = at ? (at.x + w + MARGIN > window.innerWidth ? at.x - w : at.x) : align === "left" ? r.left : r.right - w;
+    const left = Math.min(Math.max(MARGIN, want), window.innerWidth - w - MARGIN);
     pos = { left, top, maxHeight, minWidth: matchWidth ? r.width : 0 };
   }
 
@@ -40,6 +52,8 @@
       pos = null;
       return;
     }
+    // A context menu moves with every right click.
+    void at;
     before = document.activeElement as HTMLElement | null;
     place();
     // The first item that is current (a select's value), or the first one: arrows go on from there.
@@ -51,8 +65,9 @@
   });
 
   function outside(e: PointerEvent) {
-    // The trigger toggles by itself; clicks inside stay inside.
-    if (open && box && !box.parentElement?.contains(e.target as Node)) open = false;
+    // The trigger toggles by itself; clicks inside stay inside. A context menu has no trigger.
+    const inside = at ? box : box?.parentElement;
+    if (open && box && !inside?.contains(e.target as Node)) open = false;
   }
 
   function items(): HTMLElement[] {
@@ -90,8 +105,12 @@
   onkeydowncapture={onKey}
   onresize={() => open && place()}
   onscrollcapture={(e) => {
-    // A scrolled list would leave the menu hanging away from its button.
-    if (open && box && !box.contains(e.target as Node)) open = false;
+    // A scrolled list would leave the menu hanging away from its button. A context
+    // menu stays: opening the row scrolls the app by itself; only the user's wheel closes it.
+    if (open && !at && box && !box.contains(e.target as Node)) open = false;
+  }}
+  onwheel={(e) => {
+    if (open && at && box && !box.contains(e.target as Node)) open = false;
   }}
 />
 

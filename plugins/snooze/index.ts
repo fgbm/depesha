@@ -2,6 +2,7 @@ import AlarmClock from "@lucide/svelte/icons/alarm-clock";
 import { snoozePresets, when, type Plugin } from "@depesha/plugin-api";
 import { snoozeMail } from "./actions";
 import SnoozeButton from "./SnoozeButton.svelte";
+import SnoozeRowMenu from "./SnoozeRowMenu.svelte";
 import { snooze } from "./state.svelte";
 import { S } from "./strings";
 
@@ -29,6 +30,13 @@ export default {
     });
     ctx.ui.readerToolbar({ component: SnoozeButton, props: { ctx } });
     ctx.ui.bulkToolbar({ component: SnoozeButton, props: { ctx, bulk: true } });
+    ctx.ui.rowAction({
+      id: "snooze",
+      title: () => `${ctx.t(S.action)}…`,
+      icon: AlarmClock,
+      hint: "h",
+      menu: { component: SnoozeRowMenu, props: { ctx } },
+    });
     ctx.ui.keybinding("h", () => (snooze.open = true), () => ctx.mail.opened() !== null);
     for (const [i, p] of snoozePresets().entries()) {
       ctx.ui.command({

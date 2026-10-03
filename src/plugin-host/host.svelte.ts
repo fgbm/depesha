@@ -70,6 +70,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       bulkToolbar: (r) => registry.add("bulkToolbar", id, r),
       readerHeader: (r) => registry.add("readerHeader", id, r),
       messageAction: (a) => registry.add("messageActions", id, a),
+      rowAction: (a) => registry.add("rowActions", id, a),
       banner: (p) => registry.add("banners", id, p),
       rowTag: (p) => registry.add("rowTags", id, p),
       view: (v) => registry.add("views", id, v),
