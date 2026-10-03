@@ -4,9 +4,24 @@
   import { api, asError } from "../lib/api";
   import { longDate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
-  import type { Account, CmdError, Security, ServerConfig } from "../lib/types";
+  import type { Account, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig } from "../lib/types";
 
   const existing = app.wizard?.account ?? null;
+
+  /** `imap`: password over IMAP and SMTP; `oauth`: browser sign-in; `ews`: Exchange Web Services. */
+  let mode = $state<"imap" | "oauth" | "ews">(
+    existing?.ews ? "ews" : existing?.auth?.kind === "oauth" ? "oauth" : "imap",
+  );
+  let provider = $state<OAuthProvider | null>(existing?.auth?.kind === "oauth" ? existing.auth.provider : null);
+  /** A browser sign-in not saved yet. */
+  let grant = $state<string | null>(null);
+  let providers = $state<OAuthProviderView[]>([]);
+  let waitingBrowser = $state(false);
+  let ewsUrl = $state(existing?.ews?.url ?? "");
+  let ewsCert = $state<string | undefined>(existing?.ews?.trusted_cert);
+  let ewsServer = $state("");
+
+  api.oauthProviders().then((p) => (providers = p)).catch(() => {});
 
   let step = $state<"start" | "settings">(existing ? "settings" : "start");
   let name = $state(existing?.display_name ?? "");
@@ -22,7 +37,7 @@
   let busy = $state(false);
   let status = $state("");
   let error = $state<CmdError | null>(null);
-  let errorProto = $state<"IMAP" | "SMTP" | null>(null);
+  let errorProto = $state<"IMAP" | "SMTP" | "EWS" | null>(null);
 
   const DEFAULT_PORT: Record<"imap" | "smtp", Record<Security, number>> = {
     imap: { tls: 993, starttls: 143, plain: 143 },
@@ -37,8 +52,100 @@
     server.trusted_cert = undefined;
   }
 
+  /** Mail domains whose provider wants OAuth rather than a password. */
+  function oauthFor(address: string): OAuthProvider | null {
+    const domain = address.split("@")[1]?.trim().toLowerCase() ?? "";
+    if (["gmail.com", "googlemail.com"].includes(domain)) return "google";
+    if (["yandex.ru", "ya.ru", "yandex.com", "yandex.by", "yandex.kz", "narod.ru"].includes(domain)) return "yandex";
+    if (["outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.ru", "hotmail.ru", "live.ru"].includes(domain)) return "microsoft";
+    return null;
+  }
+
+  const suggested = $derived(mode === "imap" ? oauthFor(email) : null);
+
+  function providerTitle(p: OAuthProvider): string {
+    return providers.find((x) => x.provider === p)?.title ?? { google: "Google", yandex: t("wizard.yandex"), microsoft: "Microsoft" }[p];
+  }
+
+  async function signIn(p: OAuthProvider) {
+    error = null;
+    if (providers.length && !providers.find((x) => x.provider === p)?.configured) {
+      error = { kind: "input", message: t("wizard.oauthNotConfigured", { provider: providerTitle(p) }) };
+      return;
+    }
+    busy = true;
+    waitingBrowser = true;
+    status = t("wizard.waitingBrowser", { provider: providerTitle(p) });
+    try {
+      const g = await api.oauthSignIn(p, existing?.email ?? (email.trim() || null));
+      if (existing && g.email.toLowerCase() !== existing.email.toLowerCase()) {
+        error = { kind: "auth", message: t("wizard.otherAccount", { email: g.email, expected: existing.email }) };
+        return;
+      }
+      mode = "oauth";
+      provider = p;
+      grant = g.id;
+      email = g.email;
+      username = g.email;
+      if (!name.trim() && g.name) name = g.name;
+      if (!existing) {
+        imap = g.imap;
+        smtp = g.smtp;
+        saveSent = p !== "google";
+      }
+      password = "";
+      step = "settings";
+      waitingBrowser = false;
+      await checkAndSave();
+    } catch (e) {
+      error = asError(e);
+    } finally {
+      busy = false;
+      waitingBrowser = false;
+      if (!error) status = "";
+    }
+  }
+
+  function cancelSignIn() {
+    api.oauthCancel();
+  }
+
+  function startExchange() {
+    error = null;
+    mode = "ews";
+    if (!username) username = email.trim();
+  }
+
+  async function nextExchange() {
+    error = null;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      error = { kind: "input", message: t("wizard.needEmail") };
+      return;
+    }
+    if (!password) {
+      error = { kind: "input", message: t("wizard.needPasswordPlain") };
+      return;
+    }
+    busy = true;
+    status = t("wizard.detecting");
+    try {
+      const login = username.trim() || email.trim();
+      username = login;
+      const d = await api.exchangeDetect(email.trim(), login, password, ewsServer.trim() || null);
+      ewsUrl = d.url ?? `https://mail.${email.split("@")[1]}/EWS/Exchange.asmx`;
+      source = d.source;
+      notes = d.notes;
+      saveSent = false;
+      step = "settings";
+    } finally {
+      busy = false;
+      status = "";
+    }
+  }
+
   async function next() {
     error = null;
+    if (mode === "ews") return nextExchange();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       error = { kind: "input", message: t("wizard.needEmail") };
       return;
@@ -66,35 +173,47 @@
   }
 
   function account(): Account {
-    return {
+    const acc: Account = {
       id: existing?.id ?? "",
       display_name: name.trim(),
       email: email.trim(),
       username: username.trim(),
       imap: { ...imap, host: imap.host.trim(), port: Number(imap.port) },
       smtp: { ...smtp, host: smtp.host.trim(), port: Number(smtp.port) },
-      save_sent_copy: saveSent,
+      save_sent_copy: mode === "ews" ? false : saveSent,
       signature,
     };
+    if (mode === "oauth" && provider) acc.auth = { kind: "oauth", provider };
+    if (mode === "ews") acc.ews = { url: ewsUrl.trim(), trusted_cert: ewsCert };
+    return acc;
   }
 
   async function checkAndSave() {
     error = null;
     errorProto = null;
     busy = true;
-    status = t("wizard.checking");
+    status = mode === "ews" ? t("wizard.checkingEws") : t("wizard.checking");
     try {
       const acc = account();
-      await api.accountCheck(acc, password || null);
+      const secret = mode === "oauth" ? null : password || null;
+      await api.accountCheck(acc, secret, grant);
       status = t("wizard.saving");
-      await api.accountSave(acc, password || null);
+      await api.accountSave(acc, secret, grant);
+      grant = null;
       await app.loadAccounts();
       app.wizard = null;
       app.toast(existing ? t("wizard.saved") : t("wizard.added", { email: acc.email }));
       app.scheduleFolders();
+      if (!existing && app.accounts.length === 1) app.setView(app.home());
     } catch (e) {
       error = asError(e);
-      errorProto = error.message.startsWith("SMTP") ? "SMTP" : error.message.startsWith("IMAP") ? "IMAP" : null;
+      errorProto = error.message.startsWith("SMTP")
+        ? "SMTP"
+        : error.message.startsWith("IMAP")
+          ? "IMAP"
+          : error.message.startsWith("EWS")
+            ? "EWS"
+            : null;
     } finally {
       busy = false;
       status = "";
@@ -103,6 +222,11 @@
 
   function trustCert() {
     if (!error?.cert) return;
+    if (errorProto === "EWS") {
+      ewsCert = error.cert.sha256;
+      checkAndSave();
+      return;
+    }
     const target = errorProto === "SMTP" ? smtp : imap;
     target.trusted_cert = error.cert.sha256;
     checkAndSave();
@@ -132,7 +256,7 @@
       await api.accountRemove(existing.id);
       await Promise.all([app.loadAccounts(), app.loadFolders()]);
       app.wizard = null;
-      app.setView({ kind: "unified", role: "inbox" });
+      app.setView(app.home());
     } catch (e) {
       error = asError(e);
     }
@@ -143,8 +267,10 @@
   }
 
   const authHint = $derived(
-    error?.kind === "auth" && !username.includes("\\")
-      ? t("wizard.authHint")
+    error?.kind === "auth" && mode !== "oauth" && !username.includes("\\")
+      ? mode === "ews"
+        ? t("wizard.ewsAuthHint")
+        : t("wizard.authHint")
       : "",
   );
 </script>
@@ -159,14 +285,35 @@
     </header>
 
     <div class="content">
-      {#if step === "start"}
+      {#if step === "start" && mode !== "ews"}
         <p class="muted lead">{t("wizard.lead")}</p>
+        <div class="oauth">
+          {#each (["google", "yandex", "microsoft"] as OAuthProvider[]) as p (p)}
+            <button class="btn" onclick={() => signIn(p)} disabled={busy}>{t("wizard.signInWith", { provider: providerTitle(p) })}</button>
+          {/each}
+        </div>
+        <p class="muted small or">{t("wizard.orPassword")}</p>
         <label class="field"><span>{t("wizard.yourName")}</span><input class="input" bind:value={name} placeholder={t("wizard.namePlaceholder")} /></label>
         <label class="field"><span>{t("wizard.email")}</span>
           <!-- svelte-ignore a11y_autofocus -->
           <input class="input" bind:value={email} type="email" autofocus placeholder={t("wizard.emailPlaceholder")} onkeydown={(e) => e.key === "Enter" && next()} />
         </label>
+        {#if suggested}<p class="note">{t("wizard.oauthSuggested", { provider: providerTitle(suggested) })}</p>{/if}
         <label class="field"><span>{t("wizard.password")}</span><input class="input" bind:value={password} type="password" onkeydown={(e) => e.key === "Enter" && next()} /></label>
+        <p class="small"><button class="link" onclick={startExchange} disabled={busy}>{t("wizard.exchangeLink")}</button></p>
+      {:else if step === "start"}
+        <p class="muted lead">{t("wizard.exchangeLead")}</p>
+        <label class="field"><span>{t("wizard.yourName")}</span><input class="input" bind:value={name} placeholder={t("wizard.namePlaceholder")} /></label>
+        <label class="field"><span>{t("wizard.email")}</span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="input" bind:value={email} type="email" autofocus placeholder={t("wizard.emailPlaceholder")} />
+        </label>
+        <div class="grid">
+          <label class="field"><span>{t("wizard.login")}</span><input class="input" bind:value={username} placeholder={t("wizard.loginPlaceholder")} /></label>
+          <label class="field"><span>{t("wizard.password")}</span><input class="input" bind:value={password} type="password" onkeydown={(e) => e.key === "Enter" && next()} /></label>
+        </div>
+        <label class="field"><span>{t("wizard.exchangeServer")}</span><input class="input" bind:value={ewsServer} placeholder={t("wizard.exchangeServerPlaceholder")} onkeydown={(e) => e.key === "Enter" && next()} /></label>
+        <p class="small"><button class="link" onclick={() => (mode = "imap")} disabled={busy}>{t("wizard.back")}</button></p>
       {:else}
         {#if source}<p class="muted lead">{t("wizard.found", { source })}</p>{/if}
         {#each notes as n (n)}<p class="note">⚠ {n}</p>{/each}
@@ -174,11 +321,31 @@
         <div class="grid">
           <label class="field"><span>{t("wizard.name")}</span><input class="input" bind:value={name} /></label>
           <label class="field"><span>{t("wizard.address")}</span><input class="input" bind:value={email} disabled={!!existing} /></label>
-          <label class="field"><span>{t("wizard.login")}</span><input class="input" bind:value={username} placeholder={t("wizard.loginPlaceholder")} /></label>
-          <label class="field"><span>{existing ? t("wizard.passwordKeep") : t("wizard.password")}</span><input class="input" type="password" bind:value={password} /></label>
+          {#if mode === "oauth" && provider}
+            <div class="field signed">
+              <span>{t("wizard.signIn")}</span>
+              <div class="signed-row">
+                <span>{grant ? t("wizard.signedInWith", { provider: providerTitle(provider) }) : t("wizard.viaProvider", { provider: providerTitle(provider) })}</span>
+                <button class="btn ghost" onclick={() => provider && signIn(provider)} disabled={busy}>{t("wizard.signInAgain")}</button>
+              </div>
+            </div>
+          {:else}
+            <label class="field"><span>{t("wizard.login")}</span><input class="input" bind:value={username} placeholder={t("wizard.loginPlaceholder")} /></label>
+            <label class="field"><span>{existing ? t("wizard.passwordKeep") : t("wizard.password")}</span><input class="input" type="password" bind:value={password} /></label>
+          {/if}
         </div>
 
-        {#each [["imap", t("wizard.incoming"), imap], ["smtp", t("wizard.outgoing"), smtp]] as [key, title, server] (key)}
+        {#if mode === "ews"}
+          <fieldset>
+            <legend>{t("wizard.exchangeLegend")}</legend>
+            <label class="field"><span>{t("wizard.ewsUrl")}</span><input class="input" bind:value={ewsUrl} placeholder="https://mail.company.ru/EWS/Exchange.asmx" /></label>
+            {#if ewsCert}<p class="muted small">{t("wizard.trusted")} {fingerprint(ewsCert).slice(0, 23)}…
+              <button class="link" onclick={() => (ewsCert = undefined)}>{t("wizard.forget")}</button></p>{/if}
+            <p class="muted small">{t("wizard.ewsNote")}</p>
+          </fieldset>
+        {/if}
+
+        {#each (mode === "ews" ? [] : [["imap", t("wizard.incoming"), imap], ["smtp", t("wizard.outgoing"), smtp]]) as [key, title, server] (key)}
           {@const s = server as ServerConfig}
           <fieldset>
             <legend>{title}</legend>
@@ -203,7 +370,7 @@
           <textarea class="input sig" bind:value={signature} rows="3" placeholder={t("wizard.signaturePlaceholder")}></textarea>
         </label>
 
-        <label class="check"><input type="checkbox" bind:checked={saveSent} /> {t("wizard.saveSent")}</label>
+        {#if mode !== "ews"}<label class="check"><input type="checkbox" bind:checked={saveSent} /> {t("wizard.saveSent")}</label>{/if}
       {/if}
 
       {#if error}
@@ -220,7 +387,7 @@
             </dl>
             <p class="muted small">{t("wizard.trustNote")}</p>
             <button class="btn" onclick={trustCert} disabled={busy}>{t("wizard.trust")}</button>
-          {:else if error.kind === "no-tls"}
+          {:else if error.kind === "no-tls" && mode !== "ews"}
             <p class="muted small">{t("wizard.noTlsNote")}</p>
             <button class="btn ghost" onclick={allowPlain} disabled={busy}>{t("wizard.allowPlain")}</button>
           {:else if error.kind === "imap-unavailable"}
@@ -228,14 +395,15 @@
           {/if}
         </div>
       {/if}
-      {#if status}<p class="muted">{status}</p>{/if}
+      {#if status}<p class="muted">{status}
+        {#if waitingBrowser}<button class="link" onclick={cancelSignIn}>{t("cancel")}</button>{/if}</p>{/if}
     </div>
 
     <footer>
       {#if existing}<button class="btn ghost danger-text" onclick={removeAccount} disabled={busy}>{t("wizard.remove")}</button>{/if}
       <span class="spacer"></span>
       {#if step === "start"}
-        <button class="btn primary" onclick={next} disabled={busy}>{t("wizard.next")}</button>
+        <button class="btn primary" onclick={next} disabled={busy || waitingBrowser}>{t("wizard.next")}</button>
       {:else}
         {#if !existing}<button class="btn ghost" onclick={() => (step = "start")} disabled={busy}>{t("wizard.back")}</button>{/if}
         <button class="btn primary" onclick={checkAndSave} disabled={busy}>{busy ? t("wizard.checkingShort") : t("wizard.checkAndSave")}</button>
@@ -281,6 +449,29 @@
     border-radius: 6px;
     font-size: 13px;
     line-height: 1.4;
+  }
+
+  .oauth {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .oauth .btn {
+    flex: 1;
+    min-width: 150px;
+  }
+
+  .or {
+    margin: 2px 0 -4px;
+  }
+
+  .signed-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 32px;
   }
 
   .grid {

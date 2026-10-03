@@ -12,7 +12,11 @@ import type {
   Unsubscribed,
   UpdateStatus,
   Detection,
+  EwsDetection,
   FlagChange,
+  OAuthGrant,
+  OAuthProvider,
+  OAuthProviderView,
   FolderInfo,
   ListQuery,
   MessageRow,
@@ -47,8 +51,16 @@ function wireDraft(d: ComposeDraft) {
 export const api = {
   accounts: () => call<AccountView[]>("accounts"),
   detect: (email: string) => call<Detection>("detect", { email }),
-  accountCheck: (account: Account, password: string | null) => call<void>("account_check", { account, password }),
-  accountSave: (account: Account, password: string | null) => call<Account>("account_save", { account, password }),
+  accountCheck: (account: Account, password: string | null, grant: string | null = null) =>
+    call<void>("account_check", { account, password, grant }),
+  accountSave: (account: Account, password: string | null, grant: string | null = null) =>
+    call<Account>("account_save", { account, password, grant }),
+  oauthProviders: () => call<OAuthProviderView[]>("oauth_providers"),
+  oauthSignIn: (provider: OAuthProvider, loginHint: string | null) =>
+    call<OAuthGrant>("oauth_sign_in", { provider, loginHint }),
+  oauthCancel: () => call<void>("oauth_cancel"),
+  exchangeDetect: (email: string, username: string, password: string, server: string | null) =>
+    call<EwsDetection>("exchange_detect", { email, username, password, server }),
   accountRemove: (id: string) => call<void>("account_remove", { id }),
   folders: (accountId?: string) => call<FolderInfo[]>("folders", { accountId: accountId ?? null }),
   messages: (query: ListQuery) => call<MessageRow[]>("messages", { query }),

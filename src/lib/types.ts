@@ -9,6 +9,17 @@ export interface ServerConfig {
   trusted_cert?: string;
 }
 
+export type OAuthProvider = "google" | "yandex" | "microsoft";
+
+/** How the account logs in; absent means a password. */
+export type AuthMethod = { kind: "password" } | { kind: "oauth"; provider: OAuthProvider };
+
+/** Exchange Web Services instead of IMAP and SMTP. */
+export interface EwsConfig {
+  url: string;
+  trusted_cert?: string;
+}
+
 export interface Account {
   id: string;
   display_name: string;
@@ -18,6 +29,35 @@ export interface Account {
   smtp: ServerConfig;
   save_sent_copy: boolean;
   signature: string;
+  auth?: AuthMethod;
+  ews?: EwsConfig;
+}
+
+export interface OAuthProviderView {
+  provider: OAuthProvider;
+  title: string;
+  configured: boolean;
+}
+
+/** A finished browser sign-in, passed by id to account_check and account_save. */
+export interface OAuthGrant {
+  id: string;
+  provider: OAuthProvider;
+  email: string;
+  name: string | null;
+  imap: ServerConfig;
+  smtp: ServerConfig;
+}
+
+export interface OAuthClient {
+  client_id: string;
+  client_secret?: string;
+}
+
+export interface EwsDetection {
+  url: string | null;
+  source: string;
+  notes: string[];
 }
 
 export interface CertProblem {
@@ -201,6 +241,9 @@ export interface Template {
   text: string;
 }
 
+/** `system` follows the system's light or dark mode with `paper` and `night`. */
+export type Theme = "system" | "paper" | "night" | "snow" | "graphite";
+
 export interface Settings {
   undo_send_secs: number;
   notify: "people" | "all" | "none";
@@ -209,9 +252,11 @@ export interface Settings {
   templates: Template[];
   updates: "auto" | "notify" | "off";
   language: "auto" | "en" | "ru";
+  theme: Theme;
   disabled_plugins: string[];
   plugin_settings: Record<string, Record<string, unknown>>;
   disabled_extensions: string[];
+  oauth_clients: Partial<Record<OAuthProvider, OAuthClient>>;
 }
 
 /** Text in the interface languages; English is required. */

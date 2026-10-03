@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, asError } from "./api";
 import { when } from "./later";
+import { applyTheme } from "./theme";
 import { i18n, t, tn } from "./i18n.svelte";
 import { extensions, listenForMail, textOf, type MailAction } from "./extensions.svelte";
 import { registry } from "../plugin-host/registry.svelte";
@@ -82,9 +83,11 @@ class AppStore {
     templates: [],
     updates: "auto",
     language: "auto",
+    theme: "system",
     disabled_plugins: [],
     plugin_settings: {},
     disabled_extensions: [],
+    oauth_clients: {},
   });
   update = $state<UpdateStatus | null>(null);
   /** The opened message's conversation, oldest first; empty for a lone message. */
@@ -101,6 +104,7 @@ class AppStore {
   async init() {
     await this.loadLanguage();
     await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadOutbox(), this.loadSettings()]);
+    this.view = this.home();
     await this.reload();
     if (this.accounts.length === 0) this.wizard = { account: null };
 
@@ -154,6 +158,7 @@ class AppStore {
   async loadSettings() {
     try {
       this.settings = await api.settings();
+      applyTheme(this.settings.theme);
     } catch (e) {
       this.fail(e);
     }
@@ -162,6 +167,7 @@ class AppStore {
   async saveSettings(next: Settings) {
     const threadsChanged = next.threads !== this.settings.threads;
     this.settings = next;
+    applyTheme(next.theme);
     try {
       await api.saveSettings($state.snapshot(next));
     } catch (e) {
@@ -237,6 +243,14 @@ class AppStore {
         return void (await api.move(ids, f.name));
       }
     }
+  }
+
+  /** Where the app starts and comes back to: all inboxes, or the only account's inbox. */
+  home(): View {
+    if (this.accounts.length !== 1) return { kind: "unified", role: "inbox" };
+    const id = this.accounts[0].id;
+    const inbox = this.folders.find((f) => f.account_id === id && f.role === "inbox");
+    return { kind: "folder", account_id: id, folder: inbox?.name ?? "INBOX" };
   }
 
   /** Inbox lists: where plugins' list tabs apply. */
