@@ -25,6 +25,8 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 - **Find anything.** Full-text search that understands Russian, operators (`from:` `to:` `subject:` `has:attachment` `is:unread` `before:` `after:` `in:`, with Russian synonyms), server-side search for mail older than the cache, "all mail from this sender" in one click.
 - **Keyboard and command palette.** `Ctrl+K` runs any action or opens any folder by a few letters of its name.
 - **Any server.** Multiple accounts and a unified inbox; settings discovery (known providers, autoconfig, MX, SRV); IMAP IDLE with reconnects; Exchange quirks handled: Russian folder names, hidden calendars and contacts, the 5-messages-per-minute limit.
+- **Sign in with Google, Yandex or Microsoft.** OAuth 2.0 in the system browser (PKCE, loopback redirect); IMAP and SMTP log in with XOAUTH2, the refresh token stays in the OS keyring. Builds take their OAuth clients from `DEPESHA_GOOGLE_CLIENT_ID`/`_SECRET`, `DEPESHA_YANDEX_CLIENT_ID`/`_SECRET` and `DEPESHA_MICROSOFT_CLIENT_ID`; your own clients can be set in Settings.
+- **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services: Autodiscover or the OWA address, Basic login, folders, sync, flags, moves, search, sending with the copy kept by the server, new mail through streaming notifications.
 - **English and Russian.** The interface, error messages, dates and quote headers follow the system language; Settings switch it on the fly.
 - **Everyday tools.** Reply, reply all, forward with attachments, signatures, templates, address completion, bulk actions, offline reading, light and dark theme.
 
@@ -70,6 +72,7 @@ Every update is signed in the release pipeline, and the app checks the signature
 | Dovecot 2.4 | integration tests: STARTTLS, MOVE, fallbacks without MOVE/UIDPLUS, IDLE, server search with Russian operators, the Snoozed folder |
 | GreenMail | integration tests and a 45-step end-to-end GUI run, every feature above included |
 | Exchange 2019 (behaviour) | a scripted SMTP server with Exchange replies; Russian Exchange folder layout |
+| Exchange 2019 EWS (behaviour) | a scripted EWS server with Exchange 2019 answers (`tests/ews.rs`) |
 | 50 000-message mailbox | first sync 0.4 s, re-sync 0.2–0.4 s, full header load 18 s, a page of conversations 80 ms, search 4–17 ms |
 
 Validation against a live Exchange 2019 mailbox is still pending. If you run one, an issue with your results is very welcome.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Sign in with Google, Yandex and Microsoft (Outlook.com, Microsoft 365): OAuth 2.0 with PKCE in the system browser, the answer comes to `http://127.0.0.1:47851–47853/oauth/callback`. IMAP and SMTP log in with SASL XOAUTH2; the refresh token lives in the keyring, access tokens only in memory and are refreshed before they expire or after the server refuses one. A revoked sign-in pauses the account and the wizard offers "Sign in again".
+- OAuth clients are built in from `DEPESHA_*_CLIENT_ID`/`_SECRET` at build time; Settings has "Your own OAuth clients" for builds without them.
+- Exchange that publishes only OWA: accounts over Exchange Web Services (`depesha-core::ews`). The address comes from the server field, Autodiscover or OWA host names; login with Basic (or a bearer token). Folders keep IMAP-like names (`INBOX/Работа`), calendars and contacts are hidden; the newest 500 messages first and "Load older" by date; flags, moves, deletion, server search (AQS), snooze, sending with Bcc and the copy in Sent Items made by the server; new mail through streaming notifications, polling when they are not available. NTLM and Kerberos are not supported: Exchange must accept Basic on EWS, and the error says so when it does not.
+- `depesha-core::mail` puts IMAP and EWS behind one interface for the worker and the outbox.
+
 ## 0.5.0 — 2026-10-03
 
 Plugins, the way Obsidian does it: the core does mail, everything else is a plugin.
