@@ -4,17 +4,6 @@
 
 - Releases publish themselves once all four builds succeed; a failed build leaves the draft. The notes are the version's CHANGELOG section (with untagged versions before it) and the commits since the previous tag grouped by type, made by `scripts/release-notes.sh`.
 
-## Unreleased
-
-Conversations that hold together, and a composer that steps aside.
-
-- Answers join their conversation even without `References`: a new message takes the conversation of any cached message it names (`References`, `In-Reply-To`) or that names it, so Outlook's answers that carry only `In-Reply-To`, and answers that arrive before their original, no longer start conversations of their own. Exchange's `Thread-Index` counts even when the message has a Message-ID. An answer with no headers at all (phones) joins a letter with the same subject without "Re:"/"Отв:"/"AW:" when each side wrote to the other within 30 days. Conversations found to be one are merged. The cache is linked again once on the first start (`PRAGMA user_version` 1).
-- A grouped row counts my answers from Sent, shows the date of the newest letter and moves up when I answer, names who wrote ("Ivan, me, Maria") and marks a started answer with a red "Draft".
-- The reader shows the conversation as a column: earlier letters fold into cards above the opened one, later ones below it, the middle of a long conversation into "N more". A quick reply box under the conversation sends with Ctrl+Enter or unfolds into a window; an answer left half-written there folds into a window instead of being lost.
-- The compose window no longer blocks the mail: it docks in the bottom right corner, folds into a bar (Esc or "—"), opens full screen, and several can be open at once. Drafts save themselves to the server 3 s after the last change ("Saved at 10:00" in the title bar); `draft_save` returns the saved copy so the next save replaces it, and the new `draft_discard` deletes it. Toasts sit left of the windows, so they no longer cover the Send button.
-- SMTP introduces itself in EHLO by the computer's full domain name or, without one, by its address (`EHLO [192.168.1.10]`), as Thunderbird does; never as `localhost`. Windows has no `/etc/hostname`, so every check of an account on sendmail servers failed with "550 5.7.1 Sender unknown", explained as a policy on the message. A refused greeting now has its own error naming the EHLO name.
-- Exchange with only Windows login on EWS: NTLMv2 (MS-NLMP) when the server offers NTLM or Negotiate and not Basic, also for Autodiscover. The handshake runs once per connection and again when the server forgets it; the Authenticate message carries a MIC and channel bindings to the server certificate (`tls-server-end-point`), which Exchange with Extended Protection requires. Logins `DOMAIN\user` and `user@domain` both work. Kerberos is still not supported.
-
 ## 0.5.1 — 2026-10-03
 
 Sign-in with Google, Yandex and Microsoft, Exchange over EWS, accounts with names of their own, a new icon, and one look for menus, lists and confirmations.
