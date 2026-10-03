@@ -49,140 +49,28 @@ pub struct Account {
     /// Added below new messages and replies, after the standard "-- " separator.
     #[serde(default)]
     pub signature: String,
-    /// How the account logs in. Accounts saved before OAuth use a password.
-    #[serde(default, skip_serializing_if = "AuthMethod::is_password")]
-    pub auth: AuthMethod,
-    /// Exchange Web Services instead of IMAP and SMTP: `imap` and `smtp` are then unused.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ews: Option<EwsConfig>,
-}
-
-impl Account {
-    pub fn is_ews(&self) -> bool {
-        self.ews.is_some()
-    }
 }
 
 fn yes() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum AuthMethod {
-    /// The keyring holds the password.
-    #[default]
-    Password,
-    /// The keyring holds the provider's refresh token; IMAP and SMTP log in with XOAUTH2.
-    OAuth { provider: OAuthProvider },
-}
-
-impl AuthMethod {
-    pub fn is_password(&self) -> bool {
-        *self == Self::Password
-    }
-
-    pub fn oauth_provider(&self) -> Option<OAuthProvider> {
-        match self {
-            Self::OAuth { provider } => Some(*provider),
-            Self::Password => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OAuthProvider {
-    Google,
-    Yandex,
-    Microsoft,
-}
-
-impl OAuthProvider {
-    pub const ALL: [Self; 3] = [Self::Google, Self::Yandex, Self::Microsoft];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Google => "google",
-            Self::Yandex => "yandex",
-            Self::Microsoft => "microsoft",
-        }
-    }
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Google => "Google",
-            Self::Yandex => crate::lang::pick("Yandex", "Яндекс"),
-            Self::Microsoft => "Microsoft",
-        }
-    }
-
-    /// IMAP and SMTP servers that accept this provider's tokens.
-    pub fn servers(self) -> (ServerConfig, ServerConfig) {
-        let domain = match self {
-            Self::Google => "gmail.com",
-            Self::Yandex => "yandex.ru",
-            Self::Microsoft => "outlook.com",
-        };
-        known_provider(domain).expect("every OAuth provider is a known provider")
-    }
-}
-
-/// Where Exchange Web Services live, e.g. `https://mail.example.com/EWS/Exchange.asmx`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EwsConfig {
-    pub url: String,
-    /// SHA-256 of a certificate the user explicitly trusted for this server.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trusted_cert: Option<String>,
-}
-
-#[derive(Clone)]
-enum Secret {
-    Password(String),
-    /// OAuth 2.0 access token, sent with SASL XOAUTH2.
-    Bearer(String),
-}
-
 #[derive(Clone)]
 pub struct Credentials {
     pub username: String,
-    secret: Secret,
+    password: String,
 }
 
 impl Credentials {
     pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             username: username.into(),
-            secret: Secret::Password(password.into()),
+            password: password.into(),
         }
     }
 
-    pub fn oauth(username: impl Into<String>, access_token: impl Into<String>) -> Self {
-        Self {
-            username: username.into(),
-            secret: Secret::Bearer(access_token.into()),
-        }
-    }
-
-    /// The password, or the access token for OAuth credentials.
     pub fn password(&self) -> &str {
-        match &self.secret {
-            Secret::Password(p) | Secret::Bearer(p) => p,
-        }
-    }
-
-    pub fn bearer(&self) -> Option<&str> {
-        match &self.secret {
-            Secret::Bearer(t) => Some(t),
-            Secret::Password(_) => None,
-        }
-    }
-
-    /// SASL XOAUTH2 initial response, before base64 (Google and Microsoft spell it this way).
-    pub fn xoauth2(&self) -> Option<String> {
-        self.bearer()
-            .map(|token| format!("user={}\x01auth=Bearer {token}\x01\x01", self.username))
+        &self.password
     }
 }
 
@@ -209,10 +97,6 @@ pub fn known_provider(domain: &str) -> Option<(ServerConfig, ServerConfig)> {
             ("imap.rambler.ru", "smtp.rambler.ru", 465, Security::Tls)
         }
         "icloud.com" | "me.com" | "mac.com" => ("imap.mail.me.com", "smtp.mail.me.com", 587, Security::StartTls),
-        // Personal Microsoft accounts and Microsoft 365 share these hosts; both need OAuth.
-        "outlook.com" | "hotmail.com" | "live.com" | "msn.com" | "outlook.ru" | "hotmail.ru" | "live.ru" => {
-            ("outlook.office365.com", "smtp.office365.com", 587, Security::StartTls)
-        }
         _ => return None,
     };
     Some((
@@ -246,45 +130,5 @@ mod tests {
     fn debug_hides_password() {
         let creds = Credentials::new("u", "hunter2");
         assert!(!format!("{creds:?}").contains("hunter2"));
-        let creds = Credentials::oauth("u", "ya29.token");
-        assert!(!format!("{creds:?}").contains("ya29"));
-    }
-
-    #[test]
-    fn xoauth2_string() {
-        let creds = Credentials::oauth("someuser@example.com", "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg");
-        assert_eq!(
-            creds.xoauth2().unwrap(),
-            "user=someuser@example.com\x01auth=Bearer ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg\x01\x01"
-        );
-        assert!(Credentials::new("u", "p").xoauth2().is_none());
-    }
-
-    #[test]
-    fn old_accounts_use_passwords() {
-        let json = r#"{"id":"a","display_name":"A","email":"a@b.ru","username":"a",
-            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"}}"#;
-        let a: Account = serde_json::from_str(json).unwrap();
-        assert_eq!(a.auth, AuthMethod::Password);
-        assert!(!a.is_ews());
-        // Nothing new is written for them either.
-        let back = serde_json::to_string(&a).unwrap();
-        assert!(!back.contains("auth") && !back.contains("ews"));
-
-        let mut a = a;
-        a.auth = AuthMethod::OAuth {
-            provider: OAuthProvider::Yandex,
-        };
-        let back = serde_json::to_string(&a).unwrap();
-        assert!(back.contains(r#""auth":{"kind":"oauth","provider":"yandex"}"#), "{back}");
-    }
-
-    #[test]
-    fn oauth_providers_have_servers() {
-        for p in OAuthProvider::ALL {
-            let (imap, smtp) = p.servers();
-            assert!(!imap.host.is_empty() && !smtp.host.is_empty());
-        }
-        assert_eq!(OAuthProvider::Microsoft.servers().0.host, "outlook.office365.com");
     }
 }
