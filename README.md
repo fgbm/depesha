@@ -26,7 +26,7 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 - **Keyboard and command palette.** `Ctrl+K` runs any action or opens any folder by a few letters of its name.
 - **Any server.** Multiple accounts and a unified inbox; settings discovery (known providers, autoconfig, MX, SRV); IMAP IDLE with reconnects; Exchange quirks handled: Russian folder names, hidden calendars and contacts, the 5-messages-per-minute limit.
 - **Sign in with Google, Yandex or Microsoft.** OAuth 2.0 in the system browser (PKCE, loopback redirect); IMAP and SMTP log in with XOAUTH2, the refresh token stays in the OS keyring. Builds take their OAuth clients from `DEPESHA_GOOGLE_CLIENT_ID`/`_SECRET`, `DEPESHA_YANDEX_CLIENT_ID`/`_SECRET` and `DEPESHA_MICROSOFT_CLIENT_ID`; your own clients can be set in Settings.
-- **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services: Autodiscover or the OWA address, Basic login, folders, sync, flags, moves, search, sending with the copy kept by the server, new mail through streaming notifications.
+- **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services: Autodiscover or the OWA address, Basic or NTLM login (with channel binding for Extended Protection), folders, sync, flags, moves, search, sending with the copy kept by the server, new mail through streaming notifications.
 - **English and Russian.** The interface, error messages, dates and quote headers follow the system language; Settings switch it on the fly.
 - **Everyday tools.** Reply, reply all, forward with attachments, signatures, templates, address completion, bulk actions, offline reading, light and dark theme.
 
