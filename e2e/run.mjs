@@ -337,6 +337,15 @@ try {
     await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0);
   });
 
+  await step("7.3", "клавиши работают на русской раскладке (о = j, л = k)", async () => {
+    await openBySubject("Счёт за октябрь");
+    const before = await textOf(".reader h1");
+    await press("о", { code: "KeyJ" });
+    await d.until("next message", async () => (await textOf(".reader h1")) !== before);
+    await press("л", { code: "KeyK" });
+    await d.until("back", async () => (await textOf(".reader h1")) === before);
+  });
+
   await step("6.3", "групповые действия: три письма отмечаются непрочитанными", async () => {
     await d.button("Входящие");
     const subjects = ["Массовое письмо 619", "Массовое письмо 618", "Массовое письмо 617"];

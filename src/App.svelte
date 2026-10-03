@@ -4,6 +4,7 @@
   import { app } from "./lib/store.svelte";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
+  import { keyNames, shortcutKeys } from "./lib/keys";
   import Sidebar from "./components/Sidebar.svelte";
   import MessageList from "./components/MessageList.svelte";
   import Reader from "./components/Reader.svelte";
@@ -63,24 +64,23 @@
     };
   });
 
-  /** "Mod+k", "h", "Delete": how plugins name keys. */
-  function keyName(e: KeyboardEvent): string {
-    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    return (e.ctrlKey || e.metaKey ? "Mod+" : "") + (e.altKey ? "Alt+" : "") + key;
-  }
-
-  function pluginKey(name: string): (() => void) | undefined {
-    return registry.items("keybindings").find((b) => b.key === name && (!b.when || b.when()))?.run;
+  /** The first plugin binding of any of the names (what the key types, then its US key). */
+  function pluginKey(names: string[]): (() => void) | undefined {
+    const bindings = registry.items("keybindings");
+    for (const name of names) {
+      const run = bindings.find((b) => b.key === name && (!b.when || b.when()))?.run;
+      if (run) return run;
+    }
   }
 
   function onKey(e: KeyboardEvent) {
     if (app.wizard) return;
     // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
     if ((e.target as HTMLElement | null)?.closest?.(".compose")) return;
-    const name = keyName(e);
+    const names = keyNames(e);
     // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box).
-    if (name.startsWith("Mod+")) {
-      const run = pluginKey(name);
+    if (e.ctrlKey || e.metaKey) {
+      const run = pluginKey(names);
       if (run) {
         e.preventDefault();
         run();
@@ -112,7 +112,8 @@
       s: () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
       "/": () => searchInput?.focus(),
     };
-    const action = actions[e.key] ?? pluginKey(name);
+    // Named keys (ArrowDown, Delete) keep their case; letters work on any layout.
+    const action = shortcutKeys(e).map((k) => actions[k]).find(Boolean) ?? pluginKey(names);
     if (action) {
       e.preventDefault();
       action();
