@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 
@@ -256,6 +257,13 @@ impl Store {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        // SQLite's lower() and LIKE fold only ASCII: "иван" would not find "Иван".
+        conn.create_scalar_function(
+            "fold",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|s| s.to_lowercase())),
+        )?;
         // Databases created by older versions.
         for (table, column, decl) in [
             ("folders", "oldest_uid", "INTEGER NOT NULL DEFAULT 0"),
@@ -1092,10 +1100,14 @@ impl Store {
                 FROM messages, json_each(messages.to_addrs) j
              )
              SELECT email, MAX(name) FROM a
-             WHERE email LIKE ?1 || '%' ESCAPE '\\' OR name LIKE '%' || ?1 || '%' ESCAPE '\\'
-             GROUP BY lower(email) ORDER BY COUNT(*) DESC LIMIT ?2",
+             WHERE fold(email) LIKE ?1 || '%' ESCAPE '\\' OR fold(name) LIKE '%' || ?1 || '%' ESCAPE '\\'
+             GROUP BY fold(email) ORDER BY COUNT(*) DESC LIMIT ?2",
         )?;
-        let escaped = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let escaped = prefix
+            .to_lowercase()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         let rows = stmt.query_map(params![escaped, limit], |r| {
             Ok(Addr {
                 email: r.get(0)?,
@@ -1207,6 +1219,29 @@ mod tests {
             date: Some(date),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn known_addresses_ignore_case_in_any_alphabet() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        let mail = summary("Привет", 100);
+        let msg = NewMessage {
+            uid: 1,
+            summary: &mail,
+            fallback_date: 0,
+            size: 10,
+            flags: Flags::default(),
+        };
+        store.insert_message("a", "INBOX", &msg).unwrap();
+        for prefix in ["иван", "ИВАН", "пЕт", "IVAN", "Ivan@"] {
+            let found = store.known_addresses(prefix, 8).unwrap();
+            assert_eq!(found.len(), 1, "{prefix}");
+            assert_eq!(found[0].email, "ivan@example.org");
+        }
+        assert!(store.known_addresses("сидор", 8).unwrap().is_empty());
     }
 
     /// The GUI sends only the fields it sets; a folder query without `unread_only` once failed.
