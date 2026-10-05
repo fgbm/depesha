@@ -636,7 +636,9 @@ impl Ops {
         let account = &self.account;
         match result {
             Ok(out) => {
-                if let (Work::Prefetch, Output::Count(n)) = (work, out)
+                // The next offline batch; mail that came between full syncs (IDLE, the
+                // copy in Sent) is downloaded at once, not at the next pass.
+                if let (Work::Prefetch | Work::SyncFolder(_), Output::Count(n)) = (work, out)
                     && *n > 0
                 {
                     offer(&self.background, &self.queued, Work::Prefetch);
@@ -717,7 +719,7 @@ async fn perform(
         Op::Work(work) => work,
         Op::PassFolder(folder) => {
             return match sync_one(state, account, conn, folder, *notify_new).await {
-                Ok(()) => Ok(Output::None),
+                Ok(_) => Ok(Output::None),
                 Err(e) if e.is_transient() => Err(e),
                 // One broken folder (Exchange shows some odd ones) must not stop the rest.
                 Err(e) => {
@@ -745,10 +747,9 @@ async fn perform(
             ))
         }
         Work::Prefetch => prefetch(state, conn, id).await,
-        Work::SyncFolder(folder) => {
-            sync_one(state, account, conn, folder, *notify_new).await?;
-            Ok(Output::None)
-        }
+        Work::SyncFolder(folder) => Ok(Output::Count(
+            sync_one(state, account, conn, folder, *notify_new).await?,
+        )),
         Work::LoadBody(msg_id) => Ok(Output::Body(mail::load_body(conn, store, *msg_id).await?)),
         Work::SetFlag {
             folder,
@@ -864,7 +865,8 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result
     Ok(Output::Count(if last { 0 } else { saved }))
 }
 
-async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: &str, notify: bool) -> Result<()> {
+/// Returns how many messages came new.
+async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: &str, notify: bool) -> Result<usize> {
     let id = account.id.as_str();
     let (_, before) = state.store.folder_state(id, folder)?;
     let report = mail::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;
@@ -891,7 +893,7 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
         );
         notify_new_mail(state, account, &fresh);
     }
-    Ok(())
+    Ok(report.added)
 }
 
 fn new_messages(n: usize) -> String {
