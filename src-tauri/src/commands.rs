@@ -350,6 +350,59 @@ pub async fn server_search(state: St<'_>, text: String, account_id: Option<Strin
     result
 }
 
+/// The folders a server search goes into: the one `in:` names (with `in:X/*`, its
+/// subfolders too), else the inbox, sent and archive of the mailbox. Names come from the
+/// cache, so `in:X/*` with an X the cache does not have finds nothing.
+fn search_folders(q: &SearchQuery, account_folders: &[FolderInfo]) -> Vec<String> {
+    let role = |word: &str| match word.to_lowercase().as_str() {
+        "inbox" | "входящие" => Some(FolderRole::Inbox),
+        "sent" | "отправленные" => Some(FolderRole::Sent),
+        "drafts" | "черновики" => Some(FolderRole::Drafts),
+        "archive" | "архив" => Some(FolderRole::Archive),
+        "trash" | "корзина" => Some(FolderRole::Trash),
+        "spam" | "junk" | "спам" => Some(FolderRole::Junk),
+        "snoozed" | "отложенные" => Some(FolderRole::Snoozed),
+        _ => None,
+    };
+    let by_name = |want: &str| {
+        let lower = want.to_lowercase();
+        account_folders
+            .iter()
+            .find(|f| f.folder.name.to_lowercase() == lower || f.folder.display_name.to_lowercase() == lower)
+    };
+    if let Some(want) = &q.folder {
+        let name = by_name(want)
+            .or_else(|| role(want).and_then(|r| account_folders.iter().find(|f| f.folder.role == Some(r))))
+            .map(|f| f.folder.name.clone());
+        let Some(name) = name else {
+            return Vec::new();
+        };
+        let mut out = vec![name.clone()];
+        if q.subfolders {
+            let prefix = account_folders
+                .iter()
+                .find(|f| f.folder.name == name)
+                .and_then(|f| f.folder.delimiter.as_deref())
+                .filter(|d| !d.is_empty())
+                .map(|d| format!("{name}{d}"));
+            if let Some(prefix) = prefix {
+                out.extend(
+                    account_folders
+                        .iter()
+                        .filter(|f| f.folder.name.starts_with(&prefix))
+                        .map(|f| f.folder.name.clone()),
+                );
+            }
+        }
+        return out;
+    }
+    [FolderRole::Inbox, FolderRole::Sent, FolderRole::Archive]
+        .iter()
+        .filter_map(|r| account_folders.iter().find(|f| f.folder.role == Some(*r)))
+        .map(|f| f.folder.name.clone())
+        .collect()
+}
+
 async fn search_servers(state: &AppState, text: &str, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
     let Some(account_id) = search_scope(state, text, account_id) else {
         return Ok(Vec::new());
@@ -358,14 +411,13 @@ async fn search_servers(state: &AppState, text: &str, account_id: Option<String>
         Some(id) => vec![state.account(&id)?],
         None => state.accounts(),
     };
+    let query = SearchQuery::parse(text);
     let mut rows = Vec::new();
     let mut last_err = None;
     for account in accounts {
         let worker = state.worker(&account.id)?;
-        for role in [FolderRole::Inbox, FolderRole::Sent, FolderRole::Archive] {
-            let Some(folder) = state.store.folder_by_role(&account.id, role)? else {
-                continue;
-            };
+        let cache = state.store.folders(Some(&account.id))?;
+        for folder in search_folders(&query, &cache) {
             match worker
                 .run(Work::Search {
                     folder,
@@ -2146,7 +2198,54 @@ pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>
 
 #[cfg(test)]
 mod tests {
-    use super::{DANGEROUS, free_path, safe_name};
+    use super::{DANGEROUS, free_path, safe_name, search_folders};
+    use depesha_core::imap::{Folder, FolderRole};
+    use depesha_core::query::SearchQuery;
+    use depesha_core::store::FolderInfo;
+
+    fn folder(account: &str, name: &str, role: Option<FolderRole>, delimiter: Option<&str>) -> FolderInfo {
+        FolderInfo {
+            account_id: account.to_owned(),
+            folder: Folder {
+                name: name.to_owned(),
+                display_name: name.to_owned(),
+                delimiter: delimiter.map(str::to_owned),
+                role,
+                selectable: true,
+                hidden: false,
+            },
+            total: 0,
+            unread: 0,
+        }
+    }
+
+    #[test]
+    fn a_server_search_goes_into_the_named_folder_or_the_three_roles() {
+        let cache = vec![
+            folder("a", "INBOX", Some(FolderRole::Inbox), Some("/")),
+            folder("a", "Отправленные", Some(FolderRole::Sent), Some("/")),
+            folder("a", "Архив", Some(FolderRole::Archive), Some("/")),
+            folder("a", "Работа", None, Some("/")),
+            folder("a", "Работа/2026", None, Some("/")),
+            folder("a", "Личное", None, Some("/")),
+        ];
+        // No folder named: the inbox, sent and archive, in that order.
+        assert_eq!(
+            search_folders(&SearchQuery::parse("больше:25М"), &cache),
+            ["INBOX", "Отправленные", "Архив"]
+        );
+        // A folder by its name, without its subfolders.
+        assert_eq!(search_folders(&SearchQuery::parse("in:Работа"), &cache), ["Работа"]);
+        // `in:Работа/*` takes the folders inside it too: by name, not by display name.
+        assert_eq!(
+            search_folders(&SearchQuery::parse("в:Работа/*"), &cache),
+            ["Работа", "Работа/2026"]
+        );
+        // A role word finds the role's folder.
+        assert_eq!(search_folders(&SearchQuery::parse("in:архив"), &cache), ["Архив"]);
+        // A folder the cache does not have: nothing to search.
+        assert!(search_folders(&SearchQuery::parse("in:Нет такой"), &cache).is_empty());
+    }
 
     #[test]
     fn attachment_names_cannot_hide_a_program() {
