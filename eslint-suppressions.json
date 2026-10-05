@@ -1,0 +1,89 @@
+{
+  "src/App.svelte": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/Compose.svelte": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "svelte/no-at-html-tags": {
+      "count": 1
+    }
+  },
+  "src/components/MessageList.svelte": {
+    "svelte/no-useless-mustaches": {
+      "count": 1
+    }
+  },
+  "src/components/Reader.svelte": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/components/RichEditor.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    }
+  },
+  "src/components/account/ServerSection.svelte": {
+    "no-empty-pattern": {
+      "count": 1
+    }
+  },
+  "src/components/account/StorageSection.svelte": {
+    "no-empty-pattern": {
+      "count": 1
+    }
+  },
+  "src/lib/commands.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/lib/compose.test.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/lib/compose.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/lib/later.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/lib/list.test.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/lib/richtext.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/lib/viewer.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/plugin-host/host.svelte.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  }
+}
