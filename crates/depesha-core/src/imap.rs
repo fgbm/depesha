@@ -14,11 +14,15 @@ use tokio::time::timeout;
 use crate::account::{Credentials, Security, ServerConfig};
 pub use crate::query::Criterion;
 use crate::tr;
+use crate::watchdog::Watchdog;
 use crate::{Error, Result, tls, utf7};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Exchange drops idle IMAP sessions after 30 minutes; RFC 2177 asks for at most 29.
 pub const IDLE_RENEW: Duration = Duration::from_secs(25 * 60);
+/// The first byte of an answer must come this soon after a command (`Watchdog`):
+/// longer than a slow SEARCH or MOVE of many messages, far shorter than TCP's own hours.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(150);
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + Debug {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> Io for T {}
@@ -106,6 +110,7 @@ async fn open(server: &ServerConfig) -> Result<Client<Box<dyn Io>>> {
         }
     };
 
+    let stream: Box<dyn Io> = Box::new(Watchdog::new(stream, ANSWER_TIMEOUT));
     let mut client = Client::new(stream);
     // There is no second greeting after STARTTLS.
     if server.security != Security::StartTls {

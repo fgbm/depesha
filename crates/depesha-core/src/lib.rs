@@ -20,5 +20,6 @@ pub mod sync;
 pub mod tls;
 pub mod unsubscribe;
 pub mod utf7;
+pub mod watchdog;
 
 pub use error::{Error, Result};
