@@ -25,4 +25,18 @@ node e2e/run.mjs
 
 Переменные: `DEPESHA_APP` (путь к бинарнику, например релизный `target/release/depesha`), `WEBKIT_DRIVER`, `E2E_DISPLAY`.
 
+Если связка ключей пользователя заблокирована, мастер не сохранит пароль («SS error: prompt dismissed»). Тогда прогон запускается в отдельной сессии D-Bus с одноразовой связкой, основная не трогается:
+
+```
+cat > /tmp/e2e-keyring.sh <<'SH'
+#!/bin/bash
+export XDG_DATA_HOME="$(mktemp -d)"
+echo -n x | gnome-keyring-daemon --login >/dev/null 2>&1
+eval "$(gnome-keyring-daemon --start --components=secrets)"
+unset XDG_DATA_HOME
+node e2e/run.mjs
+SH
+chmod +x /tmp/e2e-keyring.sh && dbus-run-session -- /tmp/e2e-keyring.sh
+```
+
 Тест работает во временном профиле (`XDG_*` во временном каталоге) и отключает системные уведомления (`DEPESHA_NO_NOTIFICATIONS=1`). Пароли тестовых ящиков попадают в связку ключей пользователя и удаляются в конце прогона по id тестовой учётной записи.
