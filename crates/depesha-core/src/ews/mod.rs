@@ -443,7 +443,7 @@ pub async fn discover(email: &str, creds: &Credentials, server: Option<&str>) ->
     };
     let mut notes = Vec::new();
     for host in [format!("autodiscover.{domain}"), domain.clone()] {
-        match autodiscover(&host, email, creds).await {
+        match autodiscover(&host, email, creds, &domain).await {
             Ok(Some(url)) => {
                 return EwsDetection {
                     url: Some(url),
@@ -496,35 +496,49 @@ pub async fn discover(email: &str, creds: &Credentials, server: Option<&str>) ->
     }
 }
 
-/// POX Autodiscover (`autodiscover.xml`); follows one redirect.
-async fn autodiscover(host: &str, email: &str, creds: &Credentials) -> Result<Option<String>> {
+/// Whether the password may go to `host` when it asks for it: a host of the mail's
+/// own domain, but not the bare domain, whose web site is often someone else's
+/// hosting. Outlook leaked passwords this way ("Autodiscover leak", 2021).
+fn may_sign_in(host: &str, domain: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    host.ends_with(&format!(".{domain}"))
+}
+
+/// POX Autodiscover (`autodiscover.xml`); follows one redirect. The first request of
+/// every host goes without credentials: they go only when the server asks for
+/// them and `may_sign_in` allows it.
+async fn autodiscover(host: &str, email: &str, creds: &Credentials, domain: &str) -> Result<Option<String>> {
     let body = format!(
         r#"<?xml version="1.0" encoding="utf-8"?><Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006"><Request><EMailAddress>{}</EMailAddress><AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema></Request></Autodiscover>"#,
         escape(email)
     );
     let mut url = Url::parse(&format!("https://{host}/autodiscover/autodiscover.xml"))?;
     for _ in 0..2 {
+        let trusted = may_sign_in(&url.host, domain);
         let fut = async {
             let mut conn = Connection::open(&url, None).await?;
             let mut headers = vec![("Content-Type", "text/xml; charset=utf-8".to_owned())];
-            let mut with_basic = headers.clone();
-            with_basic.push(("Authorization", basic(creds)));
             let resp = conn
-                .send("POST", &url.path, &with_basic, body.clone().into_bytes())
+                .send("POST", &url.path, &headers, body.clone().into_bytes())
                 .await?;
+            if resp.status != 401 || !trusted {
+                return Ok(resp);
+            }
             let challenges = resp.header_all("WWW-Authenticate");
+            if offers(&challenges, "Basic") {
+                headers.push(("Authorization", basic(creds)));
+                return conn.send("POST", &url.path, &headers, body.clone().into_bytes()).await;
+            }
             // Autodiscover behind Windows login only.
             match ntlm_scheme(&challenges) {
-                Some(scheme) if resp.status == 401 && !offers(&challenges, "Basic") => {
-                    match ntlm_login(&mut conn, scheme, creds, &url, &headers).await? {
-                        Ok(authorization) => {
-                            headers.push(("Authorization", authorization));
-                            conn.send("POST", &url.path, &headers, body.clone().into_bytes()).await
-                        }
-                        Err(resp) => Ok(resp),
+                Some(scheme) => match ntlm_login(&mut conn, scheme, creds, &url, &headers).await? {
+                    Ok(authorization) => {
+                        headers.push(("Authorization", authorization));
+                        conn.send("POST", &url.path, &headers, body.clone().into_bytes()).await
                     }
-                }
-                _ => Ok(resp),
+                    Err(resp) => Ok(resp),
+                },
+                None => Ok(resp),
             }
         };
         let resp = tokio::time::timeout(std::time::Duration::from_secs(10), fut)

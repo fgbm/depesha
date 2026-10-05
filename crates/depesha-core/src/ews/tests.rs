@@ -73,3 +73,15 @@ fn search_query_becomes_aqs() {
         "\"бюджет\" from:\"anna\" subject:\"отчёт за май\" hasattachment:true isread:false"
     );
 }
+
+#[test]
+fn autodiscover_signs_in_only_on_hosts_of_the_mail_domain() {
+    use super::may_sign_in;
+    assert!(may_sign_in("autodiscover.example.com", "example.com"));
+    assert!(may_sign_in("Mail.Example.com", "example.com"));
+    // The bare domain is often a web site on someone else's hosting.
+    assert!(!may_sign_in("example.com", "example.com"));
+    // A redirect elsewhere gets no password.
+    assert!(!may_sign_in("autodiscover.example.org", "example.com"));
+    assert!(!may_sign_in("evilexample.com", "example.com"));
+}
