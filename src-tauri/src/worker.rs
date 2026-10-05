@@ -2,6 +2,7 @@
 //! runs user actions one at a time, and a second connection waiting for changes
 //! (IMAP IDLE or EWS streaming notifications).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
@@ -86,9 +87,46 @@ pub enum Output {
 
 type Reply = oneshot::Sender<Result<Output>>;
 
+/// Background syncs waiting in the queue, by `sync_key`: a second one of the same folder
+/// is not queued (a burst of IDLE notices, clicks through folders). The key is let go
+/// when the sync starts, so changes during it bring the next one.
+type Queued = Arc<std::sync::Mutex<HashSet<String>>>;
+
+fn sync_key(work: &Work) -> Option<String> {
+    match work {
+        Work::SyncAll => Some(String::new()),
+        Work::SyncFolder(f) => Some(f.clone()),
+        _ => None,
+    }
+}
+
+fn hold(queued: &Queued, key: &str) -> bool {
+    queued.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_owned())
+}
+
+fn release(queued: &Queued, key: &str) {
+    queued.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
+}
+
+/// Queues background work unless the same sync already waits there.
+async fn queue(tx: &mpsc::Sender<(Work, Option<Reply>)>, queued: &Queued, work: Work) {
+    let key = sync_key(&work);
+    if let Some(k) = &key
+        && !hold(queued, k)
+    {
+        return;
+    }
+    if tx.send((work, None)).await.is_err()
+        && let Some(k) = &key
+    {
+        release(queued, k);
+    }
+}
+
 #[derive(Clone)]
 pub struct Worker {
     tx: mpsc::Sender<(Work, Option<Reply>)>,
+    queued: Queued,
     tasks: Arc<Vec<JoinHandle<()>>>,
     /// Set after errors only the user can fix; stops automatic reconnects.
     paused: Arc<AtomicBool>,
@@ -101,9 +139,19 @@ impl Worker {
         }
     }
 
-    /// Queues background work without waiting.
+    /// Queues background work without waiting; a sync already waiting is not queued twice.
     pub fn kick(&self, work: Work) {
-        let _ = self.tx.try_send((work, None));
+        let key = sync_key(&work);
+        if let Some(k) = &key
+            && !hold(&self.queued, k)
+        {
+            return;
+        }
+        if self.tx.try_send((work, None)).is_err()
+            && let Some(k) = &key
+        {
+            release(&self.queued, k);
+        }
     }
 
     /// Runs work on the operations connection and waits for the result.
@@ -138,10 +186,19 @@ fn needs_user(e: &Error) -> bool {
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (tx, rx) = mpsc::channel(64);
     let paused = Arc::new(AtomicBool::new(false));
-    let ops = tokio::spawn(ops_loop(state.clone(), account.clone(), rx, tx.clone(), paused.clone()));
-    let idle = tokio::spawn(idle_loop(state, account, tx.clone(), paused.clone()));
+    let queued: Queued = Arc::default();
+    let ops = tokio::spawn(ops_loop(
+        state.clone(),
+        account.clone(),
+        rx,
+        tx.clone(),
+        paused.clone(),
+        queued.clone(),
+    ));
+    let idle = tokio::spawn(idle_loop(state, account, tx.clone(), paused.clone(), queued.clone()));
     let worker = Worker {
         tx,
+        queued,
         tasks: Arc::new(vec![ops, idle]),
         paused,
     };
@@ -155,6 +212,7 @@ async fn ops_loop(
     mut rx: mpsc::Receiver<(Work, Option<Reply>)>,
     tx: mpsc::Sender<(Work, Option<Reply>)>,
     paused: Arc<AtomicBool>,
+    queued: Queued,
 ) {
     let mut conn: Option<Conn> = None;
     let mut notify_new = false;
@@ -173,6 +231,11 @@ async fn ops_loop(
                 (Work::SyncAll, None)
             }
         };
+        if reply.is_none()
+            && let Some(k) = sync_key(&work)
+        {
+            release(&queued, &k);
+        }
         if reply.is_none() && paused.load(Ordering::Relaxed) {
             continue;
         }
@@ -513,6 +576,7 @@ async fn idle_loop(
     account: Account,
     tx: mpsc::Sender<(Work, Option<Reply>)>,
     paused: Arc<AtomicBool>,
+    queued: Queued,
 ) {
     let mut backoff = Duration::from_secs(5);
     loop {
@@ -548,7 +612,7 @@ async fn idle_loop(
                     Ok((c, outcome)) => {
                         conn = c;
                         if matches!(outcome, IdleOutcome::Changed) {
-                            let _ = tx.send((Work::SyncFolder("INBOX".into()), None)).await;
+                            queue(&tx, &queued, Work::SyncFolder("INBOX".into())).await;
                         }
                     }
                     Err(e) => {
@@ -560,7 +624,7 @@ async fn idle_loop(
                 },
                 _ = resumed_from_sleep() => {
                     tracing::info!(account = %account.id, "resumed from sleep, reconnecting");
-                    let _ = tx.send((Work::SyncAll, None)).await;
+                    queue(&tx, &queued, Work::SyncAll).await;
                     break;
                 }
             }
@@ -579,5 +643,32 @@ async fn resumed_from_sleep() {
         if wall_elapsed > mono.elapsed() + Duration::from_secs(20) {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_waiting_sync_is_not_queued_twice() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let queued: Queued = Arc::default();
+        for _ in 0..5 {
+            queue(&tx, &queued, Work::SyncFolder("INBOX".into())).await;
+        }
+        queue(&tx, &queued, Work::SyncFolder("Sent".into())).await;
+        queue(&tx, &queued, Work::SyncAll).await;
+        queue(&tx, &queued, Work::SyncAll).await;
+        let mut got = Vec::new();
+        while let Ok((w, _)) = rx.try_recv() {
+            got.push(sync_key(&w).unwrap());
+        }
+        assert_eq!(got, ["INBOX", "Sent", ""]);
+
+        // Started: changes during the sync bring the next one.
+        release(&queued, "INBOX");
+        queue(&tx, &queued, Work::SyncFolder("INBOX".into())).await;
+        assert!(matches!(rx.try_recv(), Ok((Work::SyncFolder(f), None)) if f == "INBOX"));
     }
 }

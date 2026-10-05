@@ -9,6 +9,7 @@ import { i18n, t, tn } from "./i18n.svelte";
 import { extensions, listenForMail, textOf, type MailAction } from "./extensions.svelte";
 import { registry } from "../plugin-host/registry.svelte";
 import { emptyDraft, forward, isForward, reply, withSignature } from "./compose";
+import { debounce } from "./debounce";
 import { compareRows } from "./sort";
 import type { ListFilter, ListScope } from "../plugin-api";
 import type {
@@ -161,7 +162,8 @@ class AppStore {
   private keep = new Set<number>();
   /** How rows read or (un)flagged in this view looked before: they keep their place in the order until the view changes. */
   private pins = new Map<number, Pin>();
-  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Server changes come in bursts: the list reloads when one ends, at least once a second. */
+  private reloadSoon = debounce(() => void this.reload(), 250, 1000);
   private openSeq = 0;
 
   async init() {
@@ -538,8 +540,7 @@ class AppStore {
   }
 
   scheduleReload() {
-    if (this.reloadTimer) clearTimeout(this.reloadTimer);
-    this.reloadTimer = setTimeout(() => this.reload(), 250);
+    this.reloadSoon();
   }
 
   /** Reloads the current list keeping as many rows as are shown now. */
@@ -654,6 +655,8 @@ class AppStore {
     }
     this.view = v;
     this.noOlder = false;
+    // A reload asked for by the previous view would load this one twice.
+    this.reloadSoon.cancel();
     this.keep = new Set();
     this.pins = new Map();
     this.conversation = [];
@@ -746,23 +749,20 @@ class AppStore {
     }
   }
 
-  private conversationTimer: ReturnType<typeof setTimeout> | null = null;
-
   /** A letter joined the open conversation (an answer, a forward, new mail): show it, flags untouched. */
-  private scheduleConversation() {
-    if (this.conversationTimer) clearTimeout(this.conversationTimer);
-    this.conversationTimer = setTimeout(async () => {
-      const opened = this.opened;
-      if (!opened) return;
-      const seq = this.openSeq;
-      const rows = await api.thread(opened.row.id).catch(() => []);
-      // A letter moved or deleted meanwhile keeps its conversation until opened again.
-      if (seq !== this.openSeq || rows.length === 0) return;
-      const next = shownConversation(rows, opened.row.id, opened.row.folder);
-      const same = (a: MessageRow[], b: MessageRow[]) =>
-        a.length === b.length && a.every((m, i) => m.id === b[i].id && m.flags.seen === b[i].flags.seen && m.flags.flagged === b[i].flags.flagged);
-      if (!same(next, this.conversation)) this.conversation = next;
-    }, 250);
+  private scheduleConversation = debounce(() => void this.refreshConversation(), 250, 1000);
+
+  private async refreshConversation() {
+    const opened = this.opened;
+    if (!opened) return;
+    const seq = this.openSeq;
+    const rows = await api.thread(opened.row.id).catch(() => []);
+    // A letter moved or deleted meanwhile keeps its conversation until opened again.
+    if (seq !== this.openSeq || rows.length === 0) return;
+    const next = shownConversation(rows, opened.row.id, opened.row.folder);
+    const same = (a: MessageRow[], b: MessageRow[]) =>
+      a.length === b.length && a.every((m, i) => m.id === b[i].id && m.flags.seen === b[i].flags.seen && m.flags.flagged === b[i].flags.flagged);
+    if (!same(next, this.conversation)) this.conversation = next;
   }
 
   move(step: 1 | -1) {
