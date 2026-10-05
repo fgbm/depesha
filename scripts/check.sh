@@ -18,6 +18,12 @@ step "clippy"
 cargo clippy --workspace --all-targets -- -D warnings
 step "svelte-check"
 npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
+step "eslint"
+npm run lint
+step "метрики фронтенда"
+scripts/frontend-metrics.sh
+step "инварианты фронтенда"
+scripts/frontend-invariants.sh
 step "vitest"
 npx vitest run
 step "cargo test (unit + scripted Exchange SMTP)"

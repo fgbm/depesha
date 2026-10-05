@@ -35,6 +35,9 @@ jobs:
       - run: npm run build
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
+      - run: npm run lint
+      - run: scripts/frontend-metrics.sh
+      - run: scripts/frontend-invariants.sh
       - run: npx vitest run
       - run: cargo test -p depesha-core
       - run: cargo test -p depesha --lib
