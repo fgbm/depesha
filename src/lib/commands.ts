@@ -7,6 +7,7 @@ import { api } from "./api";
 import { extensions, fromRow } from "./extensions.svelte";
 import { accountLabel, roleLabel } from "./format";
 import { t } from "./i18n.svelte";
+import { PRESETS, RELEVANCE, reversed } from "./sort";
 import { app, type View } from "./store.svelte";
 
 const go = (v: View) => () => app.setView(v);
@@ -43,6 +44,22 @@ export function coreCommands(): Command[] {
   }
   const undo = app.lastUndo;
   if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), hint: () => "z", run: () => app.undo() });
+
+  if (app.listKey()) {
+    // Search results keep an order of their own: the rank means nothing elsewhere.
+    const search = app.view.kind === "search";
+    for (const p of search ? [RELEVANCE, ...PRESETS] : PRESETS) {
+      const how = t(`sort.preset.${p.id}`).toLowerCase();
+      list.push({ id: `core.sort.${p.id}`, title: () => t("sort.cmd", { how }), run: () => app.setSort(p.sort, search || app.ownSort()) });
+    }
+    list.push({ id: "core.sort.reverse", title: () => t("sort.cmdReverse"), run: () => app.setSort(reversed(app.sort()), search || app.ownSort()) });
+  }
+  const lf = app.listFilter();
+  if (lf) {
+    for (const o of lf.filter.options()) {
+      list.push({ id: `core.show.${o.id}`, title: () => t("sort.show", { what: o.title.toLowerCase() }), run: () => lf.filter.select(lf.list, o.id) });
+    }
+  }
 
   const where = (s: string) => () => t("cmd.go", { where: s.toLowerCase() });
   list.push(

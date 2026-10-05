@@ -212,8 +212,26 @@ export interface ListQuery {
   threads?: boolean;
   snoozed_only?: boolean;
   followups_only?: boolean;
+  /** The order, first key first; newest first when empty. */
+  sort?: SortKey[];
+  /** Rows changed in the open list: they keep their place by the earlier state. */
+  pins?: Pin[];
   limit?: number;
   offset?: number;
+}
+
+export type SortField = "date" | "unread" | "flagged" | "people" | "sender" | "subject" | "size" | "attachments" | "relevance";
+
+/** One step of the order. `desc`: newest, biggest, Я→А; for yes/no keys the "yes" first. */
+export interface SortKey {
+  by: SortField;
+  desc: boolean;
+}
+
+export interface Pin {
+  id: number;
+  unread: boolean;
+  flagged: boolean;
 }
 
 export type FlagChange = { flag: "seen" | "flagged" | "answered"; value: boolean };
@@ -276,6 +294,10 @@ export interface Settings {
   offline_attachments: boolean;
   /** Brand logos (BIMI) next to mail that passed DMARC. */
   sender_logos: boolean;
+  /** The order of lists without one of their own; newest first when empty. */
+  list_sort: SortKey[];
+  /** Lists ordered their own way, by view key. */
+  view_sorts: Record<string, SortKey[]>;
 }
 
 /** Background work shown in the tasks window. */

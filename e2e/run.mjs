@@ -67,9 +67,15 @@ async function step(criteria, name, fn) {
 }
 
 async function rowBySubject(subject, timeoutMs = 15000) {
-  return d.until(`row "${subject}"`, () =>
-    d.xpath(`//div[contains(@class,'row')][.//span[contains(@class,'subject') and contains(., ${JSON.stringify(subject)})]]`),
-  timeoutMs);
+  const xpath = `//div[contains(@class,'row')][.//span[contains(@class,'subject') and contains(., ${JSON.stringify(subject)})]]`;
+  return d.until(`row "${subject}"`, async () => {
+    const row = await d.xpath(xpath).catch(() => null);
+    if (row) return row;
+    // The list draws only the rows in view: scroll on, as a person would, and from the top again at the end.
+    await d.exec(`const v = document.querySelector('.list .viewport');
+      if (v) v.scrollTop = v.scrollTop + v.clientHeight >= v.scrollHeight - 1 ? 0 : v.scrollTop + v.clientHeight;`);
+    return null;
+  }, timeoutMs);
 }
 
 async function openBySubject(subject) {
@@ -82,6 +88,16 @@ async function openFolder(name) {
     `[...document.querySelectorAll('nav.side .item')].find((b) => b.innerText.trim() === arguments[0]).click();`,
     name,
   );
+}
+
+/** Picks an item of the list's "View" menu (filter or order) and closes the menu. */
+async function viewOption(label) {
+  if (!(await d.exec("return !!document.querySelector('.pop')"))) await d.click(await d.find(".list .view .trigger"));
+  const item = await d.until(`view item ${label}`, () =>
+    d.xpath(`//div[contains(@class,'pop')]//button[contains(@class,'mi') and normalize-space(.)=${JSON.stringify(label)}]`),
+  );
+  await d.click(item);
+  await press("Escape");
 }
 
 async function textOf(css) {
@@ -654,20 +670,82 @@ try {
     await screenshot("conversation");
   });
 
-  await step("9", "люди и рассылки отдельно; отписка письмом", async () => {
-    await d.button("Рассылки");
+  await step("9", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {
+    await viewOption("Рассылки");
     await rowBySubject("Скидки недели");
-    if ((await textOf(".list")).includes("Счёт за октябрь")) throw new Error("письмо от человека среди рассылок");
-    await d.button("Люди");
+    if ((await textOf(".list .viewport")).includes("Счёт за октябрь")) throw new Error("письмо от человека среди рассылок");
+    await viewOption("Люди");
     await d.until("people only", async () => {
-      const t = await textOf(".list");
+      const t = await textOf(".list .viewport");
       return t.includes("Счёт за октябрь") && !t.includes("Скидки недели");
     });
-    await d.exec("document.querySelector('.split button').click()");
+    // The hidden mail is named on the button, and the choice belongs to this list only.
+    const trigger = () => d.exec("const b = document.querySelector('.list .view .trigger'); return b ? [b.innerText.trim(), b.classList.contains('filtered')] : null");
+    const [label, filtered] = await trigger();
+    if (!filtered || !label.startsWith("Люди")) throw new Error(`кнопка «Вид»: ${label}`);
+    await openFolder("Корзина");
+    await d.until("trash unfiltered", async () => (await trigger())?.[1] === false);
+    await d.button("Входящие");
+    await d.until("inbox keeps People", async () => (await trigger())?.[1] === true);
+    await viewOption("Все");
+    await d.until("filter off", async () => (await trigger())?.[1] === false);
     await openBySubject("Скидки недели");
     await d.click(await d.find(".reader .chip"));
     await d.click(await d.find(".reader .banner .btn.primary"));
     await d.until("unsubscribe request delivered", async () => helper("count", "INBOX", "unsubscribe-weekly") === "1", 40000);
+  });
+
+  await step("16", "сортировка: важное наверху не прыгает под рукой; по отправителю, как в кэше; свой порядок списка", async () => {
+    const subjects = () => d.exec("return [...document.querySelectorAll('.list .row .subject')].map((e) => e.innerText)");
+    const top = () => d.exec("const r = [...document.querySelectorAll('.list .row')].sort((a, b) => a.offsetTop - b.offsetTop)[0]; return r ? [r.querySelector('.subject').innerText, r.classList.contains('unread')] : null");
+    try {
+      // At least one unread letter to put on top.
+      await openBySubject("Счёт за октябрь");
+      await press("u");
+      await viewOption("Важное наверху");
+      await d.until("unread on top", async () => (await top())?.[1] === true, 15000);
+      // Read: the letter keeps its place until the list changes.
+      const [first] = await top();
+      await openBySubject(first);
+      // The flag reaches the server and the list reloads meanwhile.
+      await new Promise((r) => setTimeout(r, 2500));
+      const [still] = await top();
+      if (still !== first) throw new Error(`прочитанное уехало: наверху «${still}», было «${first}»`);
+
+      // The list shows the order the cache gives for the same keys.
+      await viewOption("По отправителю");
+      const rows = await invoke("messages", { query: { role: "inbox", limit: 2000 } });
+      const acc = rows[0].account_id;
+      const want = await invoke("messages", {
+        query: { account_id: acc, folder: "INBOX", threads: true, sort: [{ by: "sender", desc: false }, { by: "date", desc: true }], limit: 30 },
+      });
+      await d.until("sorted by sender", async () => {
+        const shown = (await subjects()).slice(0, 10);
+        return JSON.stringify(shown) === JSON.stringify(want.slice(0, 10).map((m) => m.subject || "(без темы)"));
+      });
+      const label = await textOf(".list .view .trigger");
+      if (!label.includes("По отправителю")) throw new Error(`кнопка «Вид»: ${label}`);
+
+      // An order of its own: other lists keep the common one.
+      await d.click(await d.find(".list .view .trigger"));
+      await d.click(await d.find(".pop .scope input"));
+      await viewOption("По теме");
+      await openFolder("Корзина");
+      await d.until("trash by sender", async () => (await textOf(".list .view .trigger")).includes("По отправителю"));
+      await d.button("Входящие");
+      await d.until("inbox by subject", async () => (await textOf(".list .view .trigger")).includes("По теме"));
+      const settings = await invoke("settings_get");
+      if (!Object.values(settings.view_sorts).some((s) => s[0]?.by === "subject")) throw new Error(`настройки: ${JSON.stringify(settings.view_sorts)}`);
+      await screenshot("sort");
+    } finally {
+      // Back to the defaults for the steps that follow, whatever failed above.
+      await press("Escape");
+      await d.button("Входящие");
+      await d.click(await d.find(".list .view .trigger"));
+      // Unticked, the list takes the common order again; then the common order is newest first.
+      if (await d.exec("return !!document.querySelector('.pop .scope input:checked')")) await d.click(await d.find(".pop .scope input"));
+      await viewOption("По дате");
+    }
   });
 
   await step("1.4", "«Готово» подряд: убранные письма не возвращаются в список, пока сервер их переносит", async () => {

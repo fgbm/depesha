@@ -3,6 +3,7 @@ use std::path::Path;
 use depesha_core::account::{Account, OAuthProvider};
 use depesha_core::lang::{self, Lang};
 use depesha_core::oauth::OAuthClient;
+use depesha_core::store::SortKey;
 use serde::{Deserialize, Serialize};
 
 /// Account settings without passwords; those live in the OS keyring.
@@ -50,6 +51,10 @@ pub struct Settings {
     /// Brand logos published with BIMI next to mail that passed DMARC: a DNS
     /// lookup and a download from the brand's site, once a week per domain.
     pub sender_logos: bool,
+    /// The order of lists without one of their own; newest first when empty.
+    pub list_sort: Vec<SortKey>,
+    /// Lists ordered their own way, by view key (`folder:<account>:<name>`, `unified:inbox`…).
+    pub view_sorts: std::collections::BTreeMap<String, Vec<SortKey>>,
 }
 
 impl Default for Settings {
@@ -70,6 +75,8 @@ impl Default for Settings {
             offline: "30".into(),
             offline_attachments: false,
             sender_logos: true,
+            list_sort: Vec::new(),
+            view_sorts: Default::default(),
         }
     }
 }

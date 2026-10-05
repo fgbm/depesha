@@ -1,5 +1,5 @@
 import ListX from "@lucide/svelte/icons/list-x";
-import type { OpenedMessage, Plugin, PluginContext } from "@depesha/plugin-api";
+import type { ListScope, OpenedMessage, Plugin, PluginContext } from "@depesha/plugin-api";
 import UnsubscribeChip from "./UnsubscribeChip.svelte";
 import { unsub } from "./state.svelte";
 import { S } from "./strings";
@@ -28,19 +28,25 @@ async function unsubscribe(ctx: PluginContext, msg: OpenedMessage) {
 export default {
   manifest: { id: "newsletters", name: S.name, description: S.about },
   activate(ctx) {
-    ctx.ui.listTabs({
-      tabs: () => [
+    // Each list keeps its own choice. The single choice of earlier versions ("split",
+    // inboxes only) stays what inboxes show until one is made for them.
+    const current = (list: ListScope): Split =>
+      ctx.settings.get<Record<string, Split>>("splits", {})[list.key] ??
+      (list.inbox ? ctx.settings.get<Split>("split", "all") : "all");
+    ctx.ui.listFilter({
+      title: () => ctx.t(S.show),
+      options: () => [
         { id: "all", title: ctx.t(S.all) },
         { id: "people", title: ctx.t(S.people) },
         { id: "bulk", title: ctx.t(S.bulk) },
       ],
-      current: () => ctx.settings.get<Split>("split", "all"),
-      select: (id) => {
-        ctx.settings.set("split", id);
+      current,
+      select: (list, id) => {
+        ctx.settings.set("splits", { ...ctx.settings.get<Record<string, Split>>("splits", {}), [list.key]: id });
         ctx.mail.reload();
       },
-      query: () => {
-        const split = ctx.settings.get<Split>("split", "all");
+      query: (list) => {
+        const split = current(list);
         return split === "all" ? {} : { bulk: split === "bulk" };
       },
     });

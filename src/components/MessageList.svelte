@@ -4,6 +4,7 @@
   import Reply from "@lucide/svelte/icons/reply";
   import { app } from "../lib/store.svelte";
   import RowMenu from "./RowMenu.svelte";
+  import ViewMenu from "./ViewMenu.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowTag } from "../plugin-api";
   import { accountLabel, addrName, listDate, roleLabel } from "../lib/format";
@@ -13,8 +14,6 @@
   let { searchInput = $bindable() }: { searchInput: HTMLInputElement | null } = $props();
 
 
-  /** List tabs of a plugin (People / Newsletters) above inbox lists. */
-  const tabs = $derived(app.inboxLike() ? registry.items("listTabs")[0] : undefined);
   const pluginView = $derived(app.view.kind === "plugin" ? registry.view(app.view.id) : undefined);
 
   function tagsOf(m: MessageRow): RowTag[] {
@@ -153,15 +152,7 @@
     </div>
     <div class="title">
       <h2 title={count}>{title}</h2>
-      {#if tabs}
-        <div class="split" role="tablist">
-          {#each tabs.tabs() as sp (sp.id)}
-            <button role="tab" aria-selected={tabs.current() === sp.id} class:on={tabs.current() === sp.id} onclick={() => tabs.select(sp.id)}>
-              {sp.title}
-            </button>
-          {/each}
-        </div>
-      {/if}
+      {#if app.listKey()}<ViewMenu />{/if}
     </div>
   </header>
 
@@ -328,33 +319,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  /* List tabs read as filters of the title, not as a separate control. */
-  .split {
-    flex: none;
-    display: flex;
-    gap: 2px;
-  }
-
-  .split button {
-    border: none;
-    background: none;
-    border-radius: 5px;
-    padding: 3px 7px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .split button:hover {
-    color: var(--ink);
-    background: var(--hover);
-  }
-
-  .split button.on {
-    color: var(--ink);
-    font-weight: 600;
-    background: var(--hover);
   }
 
   .server {

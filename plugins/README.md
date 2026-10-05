@@ -55,7 +55,7 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `banner` | a line above the opened message, with buttons |
 | `rowTag` | a tag in a list row |
 | `view` | a list of its own with a sidebar entry |
-| `listTabs` | tabs above the inbox that narrow its query |
+| `listFilter` | a choice in the list's "View" menu that narrows its query (People / Newsletters); each list keeps its own |
 | `composeControl` | a control in the compose window; `slot: "send"` joins it to the Send button |
 | `sendCheck` | warnings before sending |
 | `settingsSection` | a section in Settings |

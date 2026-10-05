@@ -9,6 +9,8 @@ import { i18n, t, tn } from "./i18n.svelte";
 import { extensions, listenForMail, textOf, type MailAction } from "./extensions.svelte";
 import { registry } from "../plugin-host/registry.svelte";
 import { emptyDraft, forward, reply, withSignature } from "./compose";
+import { compareRows } from "./sort";
+import type { ListFilter, ListScope } from "../plugin-api";
 import type {
   Account,
   AccountStatus,
@@ -23,7 +25,9 @@ import type {
   Moved,
   OpenedMessage,
   OutboxItem,
+  Pin,
   Settings,
+  SortKey,
   Task,
   UpdateStatus,
 } from "./types";
@@ -125,6 +129,8 @@ class AppStore {
     offline: "30",
     offline_attachments: false,
     sender_logos: true,
+    list_sort: [],
+    view_sorts: {},
   });
   update = $state<UpdateStatus | null>(null);
   /** The opened message's conversation, oldest first; empty for a lone message. */
@@ -152,6 +158,8 @@ class AppStore {
   private composeSeq = 0;
   /** Messages read or (un)flagged in this view: "Unread" and "Flagged" keep them until the view changes. */
   private keep = new Set<number>();
+  /** How rows read or (un)flagged in this view looked before: they keep their place in the order until the view changes. */
+  private pins = new Map<number, Pin>();
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private openSeq = 0;
 
@@ -366,12 +374,66 @@ class AppStore {
     return { kind: "folder", account_id: id, folder: inbox?.name ?? "INBOX" };
   }
 
-  /** Inbox lists: where plugins' list tabs apply. */
+  /** Inbox lists: all inboxes, or the inbox of one mailbox. */
   inboxLike(): boolean {
     const v = this.view;
     if (v.kind === "unified") return v.role === "inbox";
     if (v.kind === "folder") return this.folder(v.account_id, v.folder)?.role === "inbox";
     return false;
+  }
+
+  /** The key the current list keeps its own order and filter under; null for lists without them. */
+  listKey(): string | null {
+    const v = this.view;
+    if (v.kind === "folder") return `folder:${v.account_id}:${v.folder}`;
+    if (v.kind === "unified") return `unified:${v.role}${v.unread ? ":unread" : v.flagged ? ":flagged" : ""}`;
+    if (v.kind === "plugin") return `plugin:${v.id}`;
+    if (v.kind === "search") return "search";
+    return null;
+  }
+
+  /** The filter of plugins (People / Newsletters) with the list it applies to; lists of my own mail have none. */
+  listFilter(): { filter: ListFilter; list: ListScope } | null {
+    const v = this.view;
+    const filter = registry.items("listFilters")[0];
+    const key = this.listKey();
+    if (!filter || !key || (v.kind !== "folder" && v.kind !== "unified")) return null;
+    const role = v.kind === "folder" ? this.folder(v.account_id, v.folder)?.role : v.role;
+    if (role === "sent" || role === "drafts") return null;
+    return { filter, list: { key, inbox: this.inboxLike() } };
+  }
+
+  /** The order of the current list: its own, or the common one. */
+  sort(): SortKey[] {
+    const key = this.listKey();
+    return (key && this.settings.view_sorts?.[key]) || this.settings.list_sort || [];
+  }
+
+  /** The current list has an order of its own. */
+  ownSort(): boolean {
+    const key = this.listKey();
+    return !!key && !!this.settings.view_sorts?.[key];
+  }
+
+  /** Orders the current list (`own`), or every list without an order of its own. */
+  async setSort(sort: SortKey[], own = this.ownSort()) {
+    const key = this.listKey();
+    const view_sorts = { ...(this.settings.view_sorts ?? {}) };
+    let list_sort = this.settings.list_sort ?? [];
+    if (own && key) view_sorts[key] = sort;
+    else {
+      if (key) delete view_sorts[key];
+      list_sort = sort;
+    }
+    // A new order places every row anew: rows changed earlier no longer hold their places.
+    this.pins = new Map();
+    await this.saveSettings({ ...this.settings, list_sort, view_sorts });
+    this.reload();
+  }
+
+  /** Remembers how a row looked before the user changed it, once per view. */
+  private pin(row: MessageRow | undefined) {
+    if (row && !this.pins.has(row.id)) this.pins.set(row.id, { id: row.id, unread: !row.flags.seen, flagged: row.flags.flagged });
   }
 
   /** Asks in the app's own dialog; true when the user agreed. */
@@ -449,21 +511,26 @@ class AppStore {
 
   private query(offset: number): ListQuery | null {
     const v = this.view;
-    // Plugins' list tabs (People / Newsletters) narrow inbox lists.
-    const tabs = this.inboxLike() ? (registry.items("listTabs")[0]?.query() ?? {}) : {};
+    // The plugins' filter (People / Newsletters) narrows the list.
+    const lf = this.listFilter();
+    const filter = lf ? lf.filter.query(lf.list) : {};
+    const sort = this.sort();
+    // Pins matter only where the order looks at what they keep.
+    const pins = sort.some((k) => k.by === "unread" || k.by === "flagged") ? [...this.pins.values()] : [];
+    const shape = { ...filter, sort, pins };
     const threads = this.settings.threads;
     if (v.kind === "folder") {
       const drafts = this.folder(v.account_id, v.folder)?.role === "drafts";
-      return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts, ...tabs, limit: PAGE, offset };
+      return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts, ...shape, limit: PAGE, offset };
     }
     if (v.kind === "unified") {
       const keep_ids = v.unread || v.flagged ? [...this.keep] : [];
-      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, keep_ids, threads, ...tabs, limit: PAGE, offset };
+      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, keep_ids, threads, ...shape, limit: PAGE, offset };
     }
     if (v.kind === "plugin") {
       const pv = registry.view(v.id);
       // Grouped like folders unless the view says otherwise.
-      return pv ? { threads, ...pv.query(), limit: PAGE, offset } : null;
+      return pv ? { threads, sort, pins, ...pv.query(), limit: PAGE, offset } : null;
     }
     return null;
   }
@@ -479,7 +546,7 @@ class AppStore {
     const v = this.view;
     try {
       if (v.kind === "search") {
-        const local = v.text.trim() ? await api.search(v.text) : [];
+        const local = v.text.trim() ? await api.search(v.text, this.sort()) : [];
         if (this.view !== v) return;
         this.messages = this.visible(this.merge(local, this.serverRows ?? []));
         this.exhausted = true;
@@ -513,9 +580,14 @@ class AppStore {
     }
   }
 
+  /** Search results of the cache and of the servers, in the list's order. */
   private merge(a: MessageRow[], b: MessageRow[]): MessageRow[] {
     const seen = new Set(a.map((m) => m.id));
-    return [...a, ...b.filter((m) => !seen.has(m.id))].sort((x, y) => y.date - x.date);
+    const extra = b.filter((m) => !seen.has(m.id));
+    const sort = this.sort();
+    // Only the cache knows how well a message matches: the servers' finds follow its best.
+    if (sort[0]?.by === "relevance") return [...a, ...extra.sort(compareRows(sort.slice(1)))];
+    return [...a, ...extra].sort(compareRows(sort));
   }
 
   /** Searches on the servers too: finds mail older than the local cache. */
@@ -573,6 +645,7 @@ class AppStore {
     }
     this.view = v;
     this.keep = new Set();
+    this.pins = new Map();
     this.conversation = [];
     this.serverRows = null;
     this.messages = [];
@@ -625,6 +698,7 @@ class AppStore {
       this.conversation = [];
       // Marked read on the server only after it was shown.
       if (wasUnread) {
+        this.pin(this.messages.find((m) => m.id === id) ?? { ...msg.row, flags: { ...msg.row.flags, seen: false } });
         this.keep.add(id);
         api.setFlag([id], { flag: "seen", value: true }).catch((e) => this.fail(e));
         const row = this.messages.find((m) => m.id === id);
@@ -664,6 +738,7 @@ class AppStore {
     const unread = conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
     if (unread.length && epoch === this.flagEpoch) {
       for (const u of unread) this.keep.add(u);
+      for (const m of conversation) if (unread.includes(m.id)) this.pin(m);
       api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.fail(e));
       for (const m of this.messages) if (unread.includes(m.id)) m.flags.seen = true;
     }
@@ -861,6 +936,7 @@ class AppStore {
     if (!ids.length) return;
     this.flagEpoch++;
     for (const id of ids) this.keep.add(id);
+    for (const m of this.messages) if (ids.includes(m.id)) this.pin(m);
     for (const m of this.messages) if (ids.includes(m.id)) m.flags[change] = value;
     if (this.opened && ids.includes(this.opened.row.id)) this.opened.row.flags[change] = value;
     try {

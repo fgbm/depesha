@@ -114,7 +114,7 @@ async fn send_sync_read_flag_move() {
     );
     assert!(view.has_remote_content);
     assert!(view.attachments.iter().any(|a| a.name == "счёт.txt"));
-    assert_eq!(store.search("вложении", Some("bob"), 0).unwrap().len(), 1);
+    assert_eq!(store.search("вложении", Some("bob"), 0, &[]).unwrap().len(), 1);
     let again = sync::sync_folder(&mut conn, &store, "bob", "INBOX", SyncOptions::default())
         .await
         .unwrap();

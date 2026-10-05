@@ -85,6 +85,31 @@ pub fn topic(subject: &str) -> String {
     rest.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
+/// A name or a subject as the list sorts it: folded, "ё" as "е", without the quotes
+/// and dashes around it, so «"ООО Ромашка"» stands among the «О».
+pub fn sort_key(text: &str) -> String {
+    let text = text.trim_matches(|c: char| !c.is_alphanumeric());
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .replace('ё', "е")
+}
+
+/// The subject's sort key: answers stand next to the letter they answer.
+pub fn subject_sort_key(subject: &str) -> String {
+    sort_key(strip_prefixes(subject).0)
+}
+
+/// The sender's sort key: the name, or the address without one.
+pub fn sender_sort_key(from: Option<&Addr>) -> String {
+    from.map(|a| match a.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => sort_key(name),
+        None => sort_key(&a.email),
+    })
+    .unwrap_or_default()
+}
+
 /// The subject without its reply and forward prefixes, and whether there were any.
 fn strip_prefixes(subject: &str) -> (&str, bool) {
     const PREFIXES: [&str; 13] = [
@@ -712,6 +737,23 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
         assert_eq!(topic("Перенос встречи"), "перенос встречи");
         assert!(!strip_prefixes("Перенос: среда").1);
         assert!(strip_prefixes("Пересл: среда").1);
+    }
+
+    #[test]
+    fn sort_keys_fold_case_yo_and_prefixes() {
+        assert_eq!(subject_sort_key("RE: Fwd:  Ёлка  в офисе"), "елка в офисе");
+        assert_eq!(subject_sort_key("[Важно] Отчёт?"), "важно] отчет");
+        let named = |name: Option<&str>, email: &str| {
+            sender_sort_key(Some(&Addr {
+                name: name.map(Into::into),
+                email: email.into(),
+            }))
+        };
+        assert_eq!(named(Some("\"ООО Ромашка\""), "x@y"), "ооо ромашка");
+        assert_eq!(named(Some("  "), "Ivan@Example.org"), "ivan@example.org");
+        assert_eq!(named(None, "ivan@example.org"), "ivan@example.org");
+        assert_eq!(sender_sort_key(None), "");
+        assert!(named(Some("анна"), "a") == named(Some("Анна"), "b"));
     }
 
     #[test]

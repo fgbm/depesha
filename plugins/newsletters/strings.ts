@@ -4,6 +4,7 @@ export const S = {
     en: "Newsletters and robots apart from mail from people, recognised by their headers; unsubscribe in one click.",
     ru: "Рассылки и роботы отдельно от писем людей — по их заголовкам; отписка в один клик.",
   },
+  show: { en: "Show", ru: "Показывать" },
   all: { en: "All", ru: "Все" },
   people: { en: "People", ru: "Люди" },
   bulk: { en: "Newsletters", ru: "Рассылки" },

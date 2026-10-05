@@ -111,13 +111,27 @@ export interface View {
   empty: () => string;
 }
 
-/** Tabs above the inbox list, e.g. People / Newsletters. */
-export interface ListTabs {
-  tabs: () => { id: string; title: string }[];
-  current: () => string;
-  select: (id: string) => void;
-  /** Extra conditions for the inbox query of the current tab. */
-  query: () => Partial<ListQuery>;
+/** The list a filter applies to: each list keeps its own choice. */
+export interface ListScope {
+  /** Stable key of the list, e.g. `folder:<account>:INBOX` or `unified:inbox`. */
+  key: string;
+  /** An inbox: all inboxes, or the inbox of one mailbox. */
+  inbox: boolean;
+}
+
+/**
+ * Which messages a list shows, e.g. All / People / Newsletters: a section of the list's
+ * "View" menu, next to the order. The first option means "no filter"; any other is
+ * named on the "View" button so hidden mail is not forgotten.
+ */
+export interface ListFilter {
+  /** The section's title, e.g. "Show". */
+  title: () => string;
+  options: () => { id: string; title: string }[];
+  current: (list: ListScope) => string;
+  select: (list: ListScope, id: string) => void;
+  /** Extra conditions for the list's query under its current option. */
+  query: (list: ListScope) => Partial<ListQuery>;
 }
 
 /** The compose window as plugins see it. */
@@ -187,7 +201,8 @@ export interface PluginContext {
     banner(provider: (msg: OpenedMessage) => Banner | null): void;
     rowTag(provider: (row: MessageRow) => RowTag | null): void;
     view(v: View): void;
-    listTabs(t: ListTabs): void;
+    /** Which messages lists show; lists without mail from outside (Sent, Drafts) do not offer it. */
+    listFilter(f: ListFilter): void;
     /** Controls in the compose window; the core adds the `compose` prop to `props`. */
     composeControl(c: {
       component: Component<{ compose: ComposeContext; ctx: PluginContext }>;

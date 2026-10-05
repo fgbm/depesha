@@ -232,6 +232,92 @@ const OFFLINE_MAX_SIZE: u32 = 25 * 1024 * 1024;
 /// carry files the server did not mark as attachments.
 const OFFLINE_MAX_TEXT: u32 = 2 * 1024 * 1024;
 
+/// What a list can be ordered by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortField {
+    Date,
+    Unread,
+    Flagged,
+    /// Mail from people before newsletters and robots.
+    People,
+    Sender,
+    Subject,
+    Size,
+    Attachments,
+    /// The search engine's rank; only in a search with words.
+    Relevance,
+}
+
+/// One step of the order. `desc`: newest, biggest, Я→А; for yes/no keys the "yes" first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortKey {
+    pub by: SortField,
+    #[serde(default)]
+    pub desc: bool,
+}
+
+/// How a row looked when it was changed in the open list: it keeps its place by that
+/// state until the list changes, so reading the top message of "unread first" does
+/// not throw it down under the pointer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pin {
+    pub id: i64,
+    pub unread: bool,
+    pub flagged: bool,
+}
+
+/// Pins beyond these are ignored: the expression grows with each one.
+const MAX_PINS: usize = 500;
+
+/// `CASE m.id WHEN … THEN … ELSE <now> END`: pinned rows keep their earlier state.
+/// Ids and states are numbers, written into the SQL as literals.
+fn pinned(pins: &[Pin], state: fn(&Pin) -> bool, now: &str) -> String {
+    if pins.is_empty() {
+        return now.to_owned();
+    }
+    let mut sql = String::from("(CASE m.id");
+    for p in pins.iter().take(MAX_PINS) {
+        sql.push_str(&format!(" WHEN {} THEN {}", p.id, u8::from(state(p))));
+    }
+    sql.push_str(&format!(" ELSE {now} END)"));
+    sql
+}
+
+/// The ORDER BY of a list. `expr` gives each key's SQL; the newest first and the id
+/// break ties, so pages follow each other without gaps or repeats.
+fn order_by(sort: &[SortKey], expr: impl Fn(SortField) -> Option<String>, date: &str) -> String {
+    let mut parts = Vec::new();
+    let mut by_date = false;
+    for k in sort {
+        let Some(e) = expr(k.by) else { continue };
+        by_date |= k.by == SortField::Date;
+        // Relevance has one direction: the best match first (bm25 is lower for it).
+        let desc = if k.by == SortField::Relevance { false } else { k.desc };
+        parts.push(format!("{e} {}", if desc { "DESC" } else { "ASC" }));
+    }
+    if !by_date {
+        parts.push(format!("{date} DESC"));
+    }
+    parts.push("m.id DESC".into());
+    parts.join(", ")
+}
+
+/// Keys that are a column of the message itself.
+fn message_sort_column(by: SortField) -> Option<&'static str> {
+    Some(match by {
+        SortField::Date => "m.date",
+        SortField::Unread => "(m.seen = 0)",
+        SortField::Flagged => "m.flagged",
+        SortField::People => "(m.bulk = 0)",
+        SortField::Sender => "m.sort_sender",
+        SortField::Subject => "m.sort_subject",
+        SortField::Size => "m.size",
+        SortField::Attachments => "m.has_attachments",
+        SortField::Relevance => return None,
+    })
+}
+
 /// Which messages to show. An empty query is the unified inbox of all accounts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -254,6 +340,10 @@ pub struct ListQuery {
     pub snoozed_only: bool,
     /// Sent mail still waiting for an answer.
     pub followups_only: bool,
+    /// The order, first key first; newest first when empty.
+    pub sort: Vec<SortKey>,
+    /// Rows changed in the open list: they sort by their earlier state.
+    pub pins: Vec<Pin>,
     pub limit: u32,
     pub offset: u32,
 }
@@ -299,6 +389,8 @@ impl Store {
             ("messages", "unsubscribe", "TEXT"),
             ("outbox", "followup_secs", "INTEGER NOT NULL DEFAULT 0"),
             ("messages", "topic", "TEXT NOT NULL DEFAULT ''"),
+            ("messages", "sort_sender", "TEXT NOT NULL DEFAULT ''"),
+            ("messages", "sort_subject", "TEXT NOT NULL DEFAULT ''"),
         ] {
             let exists = conn
                 .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?
@@ -323,6 +415,13 @@ impl Store {
             let tx = conn.transaction()?;
             rethread(&tx)?;
             tx.execute_batch("PRAGMA user_version = 1")?;
+            tx.commit()?;
+        }
+        if version < 2 {
+            // Sort keys of sender and subject for the mail cached before they existed.
+            let tx = conn.transaction()?;
+            fill_sort_keys(&tx)?;
+            tx.execute_batch("PRAGMA user_version = 2")?;
             tx.commit()?;
         }
         Ok(Self { conn: Mutex::new(conn) })
@@ -495,8 +594,9 @@ impl Store {
         let id: i64 = tx.query_row(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
                 to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe, topic)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                thread, bulk, unsubscribe, topic, sort_sender, sort_subject)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+                ?23, ?24)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft
@@ -524,6 +624,8 @@ impl Store {
                 summary.bulk,
                 summary.unsubscribe.as_ref().and_then(|u| serde_json::to_string(u).ok()),
                 links.topic,
+                crate::message::sender_sort_key(summary.from.as_ref()),
+                crate::message::subject_sort_key(&summary.subject),
             ],
             |r| r.get(0),
         )?;
@@ -619,10 +721,24 @@ impl Store {
         args.push(i64::from(q.offset).into());
 
         let from = "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
+        let unread = pinned(&q.pins, |p| p.unread, "(m.seen = 0)");
+        let flagged = pinned(&q.pins, |p| p.flagged, "m.flagged");
         let conn = self.conn();
         if !q.threads {
-            let sql =
-                format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?");
+            let order = order_by(
+                &q.sort,
+                |by| {
+                    Some(match by {
+                        SortField::Date => "m.date".into(),
+                        SortField::Unread => unread.clone(),
+                        SortField::Flagged => flagged.clone(),
+                        SortField::Relevance => return None,
+                        other => message_sort_column(other)?.into(),
+                    })
+                },
+                "m.date",
+            );
+            let sql = format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY {order} LIMIT ? OFFSET ?");
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params_from_iter(args), message_row)?;
             return Ok(rows.collect::<Result<_, _>>()?);
@@ -631,9 +747,28 @@ impl Store {
         // from the row that holds the MAX, as long as it is the only MIN/MAX in the
         // query (hence SUM for flags). The row is unread or flagged when any message is.
         // The conversation moves up when I answer, as in Gmail: my answer in Sent counts.
+        // Sorting looks at the whole conversation: unread or flagged when any letter is,
+        // its size is the sum; sender and subject are the newest letter's.
+        let order = order_by(
+            &q.sort,
+            |by| {
+                Some(match by {
+                    SortField::Date => "last".into(),
+                    SortField::Unread => "(g.s_unread > 0)".into(),
+                    SortField::Flagged => "(g.s_flagged > 0)".into(),
+                    SortField::Size => "g.s_size".into(),
+                    SortField::Attachments => "(g.s_files > 0)".into(),
+                    SortField::Relevance => return None,
+                    other => message_sort_column(other)?.into(),
+                })
+            },
+            "last",
+        );
         let sql = format!(
             "WITH g AS (
-                SELECT m.id AS id, MAX(m.date) AS newest, SUM(m.seen = 0) AS unread, SUM(m.flagged) AS flagged
+                SELECT m.id AS id, MAX(m.date) AS newest, SUM(m.seen = 0) AS unread, SUM(m.flagged) AS flagged,
+                    SUM({unread}) AS s_unread, SUM({flagged}) AS s_flagged, SUM(m.size) AS s_size,
+                    SUM(m.has_attachments) AS s_files
                 FROM {from} WHERE {cond} GROUP BY m.account_id, m.thread
              )
              SELECT {COLUMNS}, g.unread, g.flagged,
@@ -642,7 +777,7 @@ impl Store {
                     WHERE x.account_id = m.account_id AND x.thread = m.thread
                       AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')), 0)) AS last
              FROM g JOIN messages m ON m.id = g.id
-             ORDER BY last DESC, m.id DESC LIMIT ? OFFSET ?"
+             ORDER BY {order} LIMIT ? OFFSET ?"
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), |r| {
@@ -823,8 +958,14 @@ impl Store {
     }
 
     /// Search over subject, addresses and the bodies already downloaded, with
-    /// operators (see `query`). Trash and spam only with `in:`.
-    pub fn search(&self, text: &str, account_id: Option<&str>, limit: u32) -> Result<Vec<MessageRow>> {
+    /// operators (see `query`). Trash and spam only with `in:`. Newest first unless `sort` says otherwise.
+    pub fn search(
+        &self,
+        text: &str,
+        account_id: Option<&str>,
+        limit: u32,
+        sort: &[SortKey],
+    ) -> Result<Vec<MessageRow>> {
         let q = SearchQuery::parse(text);
         let mut terms: Vec<String> = Vec::new();
         let mut column = |col: Option<&str>, value: &str| {
@@ -889,13 +1030,22 @@ impl Store {
         args.push(i64::from(if limit == 0 { 100 } else { limit }).into());
         let limit_arg = args.len();
         let join = "JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
-        let sql = if terms.is_empty() {
-            format!("SELECT {COLUMNS} FROM messages m {join} WHERE {cond} ORDER BY m.date DESC LIMIT ?{limit_arg}")
+        let words = !terms.is_empty();
+        let order = order_by(
+            sort,
+            |by| match by {
+                SortField::Relevance => words.then(|| "bm25(search)".into()),
+                other => message_sort_column(other).map(Into::into),
+            },
+            "m.date",
+        );
+        let sql = if !words {
+            format!("SELECT {COLUMNS} FROM messages m {join} WHERE {cond} ORDER BY {order} LIMIT ?{limit_arg}")
         } else {
             args.push(terms.join(" ").into());
             format!(
                 "SELECT {COLUMNS} FROM search s JOIN messages m ON m.id = s.rowid {join}
-                 WHERE search MATCH ?{} AND {cond} ORDER BY m.date DESC LIMIT ?{limit_arg}",
+                 WHERE search MATCH ?{} AND {cond} ORDER BY {order} LIMIT ?{limit_arg}",
                 args.len()
             )
         };
@@ -1462,6 +1612,24 @@ fn rethread(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Sort keys of every cached message, from its sender and subject.
+fn fill_sort_keys(conn: &Connection) -> Result<()> {
+    let rows: Vec<(i64, String, Option<String>)> = conn
+        .prepare("SELECT id, subject, from_addr FROM messages")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut set = conn.prepare("UPDATE messages SET sort_sender = ?2, sort_subject = ?3 WHERE id = ?1")?;
+    for (id, subject, from) in rows {
+        let from: Option<Addr> = from.and_then(|s| serde_json::from_str(&s).ok());
+        set.execute(params![
+            id,
+            crate::message::sender_sort_key(from.as_ref()),
+            crate::message::subject_sort_key(&subject)
+        ])?;
+    }
+    Ok(())
+}
+
 const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_reply_to, m.refs, m.subject,
     m.from_addr, m.to_addrs, m.cc_addrs, m.reply_to, m.date, m.size,
     m.seen, m.answered, m.flagged, m.draft, m.has_attachments, m.thread, m.bulk,
@@ -1651,11 +1819,11 @@ mod tests {
             .unwrap();
         assert_eq!(unread.len(), 1);
 
-        assert_eq!(store.search("счёт", None, 0).unwrap().len(), 1);
-        assert_eq!(store.search("петров", None, 0).unwrap().len(), 3);
+        assert_eq!(store.search("счёт", None, 0, &[]).unwrap().len(), 1);
+        assert_eq!(store.search("петров", None, 0, &[]).unwrap().len(), 3);
         store.save_body(id1, b"raw", "оплатить до пятницы").unwrap();
-        assert_eq!(store.search("пятниц", None, 0).unwrap()[0].id, id1);
-        assert!(store.search("\"", None, 0).unwrap().is_empty());
+        assert_eq!(store.search("пятниц", None, 0, &[]).unwrap()[0].id, id1);
+        assert!(store.search("\"", None, 0, &[]).unwrap().is_empty());
 
         assert_eq!(
             store
@@ -1697,7 +1865,7 @@ mod tests {
 
         store.remove_uids("a", "INBOX", &[1]).unwrap();
         assert!(store.get(id1).unwrap().is_none());
-        assert!(store.search("пятниц", None, 0).unwrap().is_empty());
+        assert!(store.search("пятниц", None, 0, &[]).unwrap().is_empty());
 
         store
             .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
@@ -1970,7 +2138,7 @@ mod tests {
 
         let subjects = |q: &str| -> Vec<String> {
             store
-                .search(q, None, 0)
+                .search(q, None, 0, &[])
                 .unwrap()
                 .into_iter()
                 .map(|m| m.subject)
@@ -2096,5 +2264,209 @@ mod tests {
         assert_eq!(grouped[0].snoozed_until, Some(1000));
         assert_eq!(store.snoozed_count(true).unwrap(), 1);
         assert_eq!(store.snoozed_count(false).unwrap(), 2);
+    }
+
+    /// A letter from `name` with its own size and flags, for the sorting tests.
+    fn letter(store: &Store, uid: u32, name: &str, subject: &str, date: i64, size: u32, flags: Flags) -> i64 {
+        let s = Summary {
+            subject: subject.into(),
+            from: Some(Addr {
+                name: Some(name.into()),
+                email: format!("{uid}@example.org"),
+            }),
+            date: Some(date),
+            message_id: Some(format!("m{uid}@x")),
+            ..Default::default()
+        };
+        let msg = NewMessage {
+            uid,
+            summary: &s,
+            fallback_date: 0,
+            size,
+            flags,
+        };
+        store.insert_message("a", "INBOX", &msg).unwrap()
+    }
+
+    fn sorted(store: &Store, sort: &[(SortField, bool)], pins: Vec<Pin>, threads: bool) -> Vec<String> {
+        store
+            .list(&ListQuery {
+                sort: sort.iter().map(|&(by, desc)| SortKey { by, desc }).collect(),
+                pins,
+                threads,
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .map(|m| m.subject)
+            .collect()
+    }
+
+    #[test]
+    fn lists_sort_by_several_keys() {
+        let store = mailbox();
+        let read = Flags {
+            seen: true,
+            ..Default::default()
+        };
+        let unread = Flags::default();
+        let flagged = Flags {
+            seen: true,
+            flagged: true,
+            ..Default::default()
+        };
+        letter(&store, 1, "Ёлкин", "Re: Бюджет", 100, 500, read);
+        letter(&store, 2, "анна", "Отчёт", 200, 9_000, unread);
+        let elena = letter(&store, 3, "Елена", "Fwd: Акт", 300, 50, flagged);
+        letter(&store, 4, "Анна", "Аренда", 400, 700, read);
+        letter(&store, 5, "\"Борис\"", "Встреча", 500, 10, unread);
+
+        use SortField::*;
+        for threads in [false, true] {
+            // Newest first, as before, when no order is set.
+            assert_eq!(
+                sorted(&store, &[], vec![], threads),
+                ["Встреча", "Аренда", "Fwd: Акт", "Отчёт", "Re: Бюджет"]
+            );
+            // Case and "ё" do not split names; the newer letter first among equal ones.
+            assert_eq!(
+                sorted(&store, &[(Sender, false)], vec![], threads),
+                ["Аренда", "Отчёт", "Встреча", "Fwd: Акт", "Re: Бюджет"]
+            );
+            // "Re:" and "Fwd:" do not count.
+            assert_eq!(
+                sorted(&store, &[(Subject, false)], vec![], threads),
+                ["Fwd: Акт", "Аренда", "Re: Бюджет", "Встреча", "Отчёт"]
+            );
+            assert_eq!(
+                sorted(&store, &[(Size, true)], vec![], threads),
+                ["Отчёт", "Аренда", "Re: Бюджет", "Fwd: Акт", "Встреча"]
+            );
+            // Important on top: unread, then flagged, then the newest.
+            assert_eq!(
+                sorted(
+                    &store,
+                    &[(Unread, true), (Flagged, true), (Date, true)],
+                    vec![],
+                    threads
+                ),
+                ["Встреча", "Отчёт", "Fwd: Акт", "Аренда", "Re: Бюджет"]
+            );
+            // Two keys: unread first, A to Я inside.
+            assert_eq!(
+                sorted(&store, &[(Unread, true), (Sender, false)], vec![], threads),
+                ["Отчёт", "Встреча", "Аренда", "Fwd: Акт", "Re: Бюджет"]
+            );
+        }
+
+        // Unflagged while the list is open: it stays where it was until the list changes.
+        store.update_flags("a", "INBOX", &[(3, read)]).unwrap();
+        let pin = Pin {
+            id: elena,
+            unread: false,
+            flagged: true,
+        };
+        for threads in [false, true] {
+            let order = &[(Unread, true), (Flagged, true), (Date, true)];
+            assert_eq!(sorted(&store, order, vec![pin], threads)[2], "Fwd: Акт");
+            assert_eq!(sorted(&store, order, vec![], threads)[3], "Fwd: Акт");
+        }
+    }
+
+    #[test]
+    fn sorted_pages_follow_each_other() {
+        let store = mailbox();
+        // Many equal keys: the order has to stay the same from page to page.
+        for uid in 1..=25 {
+            letter(
+                &store,
+                uid,
+                if uid % 2 == 0 { "Анна" } else { "Борис" },
+                "Тема",
+                100 + i64::from(uid % 3),
+                10,
+                Flags::default(),
+            );
+        }
+        let sort = vec![SortKey {
+            by: SortField::Sender,
+            desc: false,
+        }];
+        let all = store
+            .list(&ListQuery {
+                sort: sort.clone(),
+                limit: 100,
+                ..Default::default()
+            })
+            .unwrap();
+        let mut paged = Vec::new();
+        for offset in (0..25).step_by(7) {
+            paged.extend(
+                store
+                    .list(&ListQuery {
+                        sort: sort.clone(),
+                        limit: 7,
+                        offset,
+                        ..Default::default()
+                    })
+                    .unwrap(),
+            );
+        }
+        assert_eq!(
+            paged.iter().map(|m| m.id).collect::<Vec<_>>(),
+            all.iter().map(|m| m.id).collect::<Vec<_>>()
+        );
+        assert_eq!(all.len(), 25);
+    }
+
+    #[test]
+    fn search_sorts_too() {
+        let store = mailbox();
+        let read = Flags {
+            seen: true,
+            ..Default::default()
+        };
+        letter(&store, 1, "Борис", "Счёт за май", 100, 10, read);
+        letter(&store, 2, "Анна", "Счёт за июнь", 200, 10, read);
+        let by = |sort: &[SortKey]| -> Vec<String> {
+            store
+                .search("счёт", None, 0, sort)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.subject)
+                .collect()
+        };
+        assert_eq!(by(&[]), ["Счёт за июнь", "Счёт за май"]);
+        let sender = SortKey {
+            by: SortField::Sender,
+            desc: true,
+        };
+        assert_eq!(by(&[sender]), ["Счёт за май", "Счёт за июнь"]);
+        let relevance = SortKey {
+            by: SortField::Relevance,
+            desc: true,
+        };
+        assert_eq!(by(&[relevance]).len(), 2);
+        // Without words there is no rank to sort by: newest first.
+        let dated = store.search("после:1970-01-01", None, 0, &[relevance]).unwrap();
+        assert_eq!(dated.iter().map(|m| m.date).collect::<Vec<_>>(), [200, 100]);
+    }
+
+    #[test]
+    fn old_caches_get_sort_keys() {
+        let store = mailbox();
+        let id = letter(&store, 1, "Ёлкин", "RE: Отчёт", 100, 10, Flags::default());
+        let conn = store.conn();
+        conn.execute("UPDATE messages SET sort_sender = '', sort_subject = ''", [])
+            .unwrap();
+        fill_sort_keys(&conn).unwrap();
+        let keys: (String, String) = conn
+            .query_row(
+                "SELECT sort_sender, sort_subject FROM messages WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(keys, ("елкин".into(), "отчет".into()));
     }
 }

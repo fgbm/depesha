@@ -4,7 +4,7 @@
 
 import type { Component } from "svelte";
 import type { FileViewer } from "../lib/viewer";
-import type { Banner, Command, ComposeContext, ComposeDraft, ListTabs, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
+import type { Banner, Command, ComposeContext, ComposeDraft, ListFilter, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
 
 export interface Owned<T> {
   owner: string;
@@ -42,7 +42,7 @@ interface Lists {
   banners: Owned<(msg: OpenedMessage) => Banner | null>[];
   rowTags: Owned<(row: MessageRow) => RowTag | null>[];
   views: Owned<View>[];
-  listTabs: Owned<ListTabs>[];
+  listFilters: Owned<ListFilter>[];
   composeControls: Owned<ComposeControl>[];
   sendChecks: Owned<(draft: ComposeDraft, accountEmail: string) => string[]>[];
   settingsSections: Owned<SettingsSection>[];
@@ -62,7 +62,7 @@ const empty = (): Lists => ({
   banners: [],
   rowTags: [],
   views: [],
-  listTabs: [],
+  listFilters: [],
   composeControls: [],
   sendChecks: [],
   settingsSections: [],

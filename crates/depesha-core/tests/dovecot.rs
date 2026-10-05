@@ -183,7 +183,7 @@ async fn server_search_finds_uncached_mail_in_russian() {
     sync::sync_folder(&mut conn, &store, "s", "INBOX", SyncOptions { initial_limit: 10 })
         .await
         .unwrap();
-    assert!(store.search("договор", None, 0).unwrap().is_empty());
+    assert!(store.search("договор", None, 0, &[]).unwrap().is_empty());
 
     for literal_plus in [true, false] {
         conn.caps.literal_plus = literal_plus;

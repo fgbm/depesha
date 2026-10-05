@@ -10,7 +10,7 @@ use depesha_core::ews::{self, EwsDetection};
 use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
-use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze};
+use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze, SortKey};
 use depesha_core::{avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -281,8 +281,15 @@ pub fn messages(state: St<'_>, query: ListQuery) -> CmdResult<Vec<MessageRow>> {
 }
 
 #[tauri::command]
-pub fn search(state: St<'_>, text: String, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
-    Ok(state.store.search(&text, account_id.as_deref(), 300)?)
+pub fn search(
+    state: St<'_>,
+    text: String,
+    account_id: Option<String>,
+    sort: Option<Vec<SortKey>>,
+) -> CmdResult<Vec<MessageRow>> {
+    Ok(state
+        .store
+        .search(&text, account_id.as_deref(), 300, &sort.unwrap_or_default())?)
 }
 
 /// Searches on the servers: inbox, sent and archive of every account (or one account).

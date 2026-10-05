@@ -25,6 +25,7 @@ import type {
   MessageView,
   OpenedMessage,
   OutboxItem,
+  SortKey,
 } from "./types";
 
 /** Backend errors arrive as `CmdError`; anything else is wrapped so callers can rely on the shape. */
@@ -67,7 +68,8 @@ export const api = {
   accountRemove: (id: string) => call<void>("account_remove", { id }),
   folders: (accountId?: string) => call<FolderInfo[]>("folders", { accountId: accountId ?? null }),
   messages: (query: ListQuery) => call<MessageRow[]>("messages", { query }),
-  search: (text: string, accountId?: string) => call<MessageRow[]>("search", { text, accountId: accountId ?? null }),
+  search: (text: string, sort: SortKey[] = [], accountId?: string) =>
+    call<MessageRow[]>("search", { text, accountId: accountId ?? null, sort }),
   serverSearch: (text: string, accountId?: string) =>
     call<MessageRow[]>("server_search", { text, accountId: accountId ?? null }),
   open: (id: number, allowRemote: boolean) => call<OpenedMessage>("message_open", { id, allowRemote }),

@@ -129,7 +129,7 @@ async fn fifty_thousand_messages() {
 
     let t = Instant::now();
     let found = store
-        .search("от:отправитель тема:счёт после:2026-01-01", None, 300)
+        .search("от:отправитель тема:счёт после:2026-01-01", None, 300, &[])
         .unwrap();
     println!(
         "search with operators: {:.1} ms ({} hits)",
@@ -138,7 +138,7 @@ async fn fifty_thousand_messages() {
     );
 
     let t = Instant::now();
-    let found = store.search("счёт 42", None, 300).unwrap();
+    let found = store.search("счёт 42", None, 300, &[]).unwrap();
     let search = t.elapsed();
     println!(
         "search over {N}: {:.1} ms ({} hits)",
@@ -149,7 +149,7 @@ async fn fifty_thousand_messages() {
     assert!(!found.is_empty());
 
     let t = Instant::now();
-    let found = store.search("Отправитель", None, 300).unwrap();
+    let found = store.search("Отправитель", None, 300, &[]).unwrap();
     println!(
         "search, broad term: {:.1} ms ({} hits)",
         t.elapsed().as_secs_f64() * 1000.0,
