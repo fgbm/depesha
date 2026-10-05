@@ -270,17 +270,19 @@ pub async fn exchange_detect(
     ews::discover(email.trim(), &creds, server.as_deref().filter(|s| !s.trim().is_empty())).await
 }
 
-#[tauri::command]
+// Commands that read the cache run off the main thread (`async`): while a sync holds
+// the database, the window must keep drawing and taking input.
+#[tauri::command(async)]
 pub fn folders(state: St<'_>, account_id: Option<String>) -> CmdResult<Vec<FolderInfo>> {
     Ok(state.store.folders(account_id.as_deref())?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages(state: St<'_>, query: ListQuery) -> CmdResult<Vec<MessageRow>> {
     Ok(state.store.list(&query)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn search(
     state: St<'_>,
     text: String,
@@ -656,7 +658,7 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
 }
 
 /// The whole conversation of a message, oldest first.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn thread(state: St<'_>, id: i64) -> CmdResult<Vec<MessageRow>> {
     let r = row(&state, id)?;
     Ok(state.store.thread(&r.account_id, &r.thread)?)
@@ -668,7 +670,7 @@ pub struct Counters {
     followups: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn counters(state: St<'_>) -> CmdResult<Counters> {
     Ok(Counters {
         snoozed: state.store.snoozed_count(state.settings().threads)?,
@@ -677,7 +679,7 @@ pub fn counters(state: St<'_>) -> CmdResult<Counters> {
 }
 
 /// No answer yet and not now: the reminder comes again `secs` from now.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn followup_postpone(state: St<'_>, id: i64, secs: i64) -> CmdResult<i64> {
     let r = row(&state, id)?;
     let due = chrono::Utc::now().timestamp() + secs.max(60);
@@ -688,7 +690,7 @@ pub fn followup_postpone(state: St<'_>, id: i64, secs: i64) -> CmdResult<i64> {
     Ok(due)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<()> {
     let r = row(&state, id)?;
     if let Some(mid) = &r.message_id {
@@ -833,7 +835,7 @@ pub fn task_dismiss(state: St<'_>, key: String) {
 }
 
 /// Per account: the last full sync and how much of the offline window is downloaded.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_overview(state: St<'_>) -> CmdResult<Vec<crate::tasks::AccountSync>> {
     let settings = state.settings();
     let since = settings.offline_since();
@@ -945,12 +947,12 @@ pub async fn avatar(
     Ok(uri)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn trust_sender(state: St<'_>, email: String) -> CmdResult<()> {
     Ok(state.store.trust_sender(&email)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn addresses(state: St<'_>, prefix: String) -> CmdResult<Vec<Addr>> {
     Ok(state.store.known_addresses(&prefix, 8)?)
 }
@@ -1501,7 +1503,7 @@ pub async fn draft_save(
     Ok(saved)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn outbox(state: St<'_>) -> CmdResult<Vec<OutboxItem>> {
     let mut items = state.store.outbox()?;
     for item in &mut items {
@@ -1513,7 +1515,7 @@ pub fn outbox(state: St<'_>) -> CmdResult<Vec<OutboxItem>> {
     Ok(items)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
     state.store.outbox_requeue(id, chrono::Utc::now().timestamp())?;
     state.outbox_notify.notify_one();
@@ -1530,7 +1532,7 @@ pub struct ReturnedDraft {
 }
 
 /// Takes the message out of the outbox back into editing.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>> {
     let account_id = state
         .store
@@ -1649,7 +1651,7 @@ pub fn extension_storage_set(
 }
 
 /// Cached rows by id, for extensions that look at new mail.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>> {
     let mut out = Vec::new();
     for id in ids {
