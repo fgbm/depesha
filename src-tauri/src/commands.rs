@@ -956,7 +956,8 @@ pub async fn attachment_save(state: St<'_>, id: i64, index: u32, path: String) -
     let row = row(&state, id)?;
     let raw = raw_of(&state, &row).await?;
     let (_, bytes) = message::attachment(&raw, index)?;
-    tokio::fs::write(path, bytes).await?;
+    tokio::fs::write(&path, bytes).await?;
+    mark_from_internet(std::path::Path::new(&path)).await;
     Ok(())
 }
 
@@ -970,6 +971,7 @@ pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32, dir: String)
     let folder = save_folder(&dir).await?;
     let path = free_path(&folder, &safe_name(&info.name));
     tokio::fs::write(&path, bytes).await.map_err(|e| save_error(&dir, e))?;
+    mark_from_internet(&path).await;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -988,7 +990,8 @@ pub async fn attachments_save_all(state: St<'_>, id: i64, dir: String) -> CmdRes
     {
         let (_, bytes) = message::attachment(&raw, info.index)?;
         let path = free_path(&folder, &safe_name(&info.name));
-        tokio::fs::write(path, bytes).await.map_err(|e| save_error(&dir, e))?;
+        tokio::fs::write(&path, bytes).await.map_err(|e| save_error(&dir, e))?;
+        mark_from_internet(&path).await;
         saved += 1;
     }
     Ok(saved)
@@ -1066,10 +1069,88 @@ pub fn document_html(text: String, markdown: bool) -> String {
     message::document_html(&text, markdown)
 }
 
+/// Programs and what runs them: saved only, never opened from a letter.
 const DANGEROUS: &[&str] = &[
-    "exe", "msi", "bat", "cmd", "com", "scr", "pif", "vbs", "vbe", "js", "jse", "wsf", "wsh", "ps1", "jar", "lnk",
-    "desktop", "sh", "run", "appimage", "deb", "rpm", "reg", "hta", "cpl", "msc",
+    // Windows
+    "exe",
+    "msi",
+    "msp",
+    "mst",
+    "bat",
+    "cmd",
+    "com",
+    "scr",
+    "pif",
+    "vb",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "ws",
+    "wsf",
+    "wsh",
+    "wsc",
+    "sct",
+    "ps1",
+    "psm1",
+    "psd1",
+    "jar",
+    "lnk",
+    "url",
+    "website",
+    "scf",
+    "inf",
+    "reg",
+    "hta",
+    "cpl",
+    "msc",
+    "chm",
+    "gadget",
+    "application",
+    "appref-ms",
+    "msix",
+    "msixbundle",
+    "appx",
+    "appxbundle",
+    "appinstaller",
+    "library-ms",
+    "settingcontent-ms",
+    "search-ms",
+    "xll",
+    "xlam",
+    "iso",
+    "img",
+    "vhd",
+    "vhdx",
+    // Linux
+    "desktop",
+    "sh",
+    "run",
+    "appimage",
+    "deb",
+    "rpm",
+    "flatpakref",
+    // macOS
+    "app",
+    "command",
+    "terminal",
+    "pkg",
+    "dmg",
+    "workflow",
+    "scpt",
 ];
+
+/// Windows: a file from mail carries the "came from the internet" mark (Mark of the
+/// Web), so Office opens it in Protected View and SmartScreen checks programs.
+async fn mark_from_internet(path: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        let stream = format!("{}:Zone.Identifier", path.display());
+        let _ = tokio::fs::write(stream, b"[ZoneTransfer]\r\nZoneId=3\r\n").await;
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+}
 
 /// Opens an attachment with the system application. Executables are only saved, never opened.
 #[tauri::command]
@@ -1100,6 +1181,7 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
     tokio::fs::create_dir_all(&dir).await?;
     let path = dir.join(&name);
     tokio::fs::write(&path, bytes).await?;
+    mark_from_internet(&path).await;
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| {
@@ -1110,23 +1192,57 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
         })
 }
 
+/// A file name the sender chose, made safe on every system: no path, no control or
+/// text-direction characters ("gpj.exe" shown as "exe.jpg"), no dots or spaces at
+/// the end (Windows drops them, and "a.exe." would pass for a file without an
+/// extension), no reserved Windows names, not too long.
 fn safe_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
         .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '\0' | '<' | '>' | '"' | '|' | '?' | '*') {
+            if matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*') {
                 '_'
             } else {
                 c
             }
         })
         .collect();
-    let cleaned = cleaned.trim().trim_start_matches('.').to_owned();
+    let mut cleaned = cleaned
+        .trim_start_matches(|c: char| c == '.' || c.is_whitespace())
+        .trim_end_matches(|c: char| c == '.' || c.is_whitespace())
+        .to_owned();
     if cleaned.is_empty() {
-        "attachment".into()
-    } else {
-        cleaned
+        return "attachment".into();
     }
+    let stem = cleaned
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        cleaned.insert(0, '_');
+    }
+    // 255 bytes is the limit of most file systems; the extension is kept.
+    while cleaned.len() > 200 {
+        let cut = match cleaned.rfind('.') {
+            Some(dot) if cleaned.len() - dot <= 20 && dot > 0 => dot,
+            _ => cleaned.len(),
+        };
+        let mut at = cut - 1;
+        while !cleaned.is_char_boundary(at) {
+            at -= 1;
+        }
+        cleaned.remove(at);
+    }
+    cleaned
 }
 
 fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
@@ -1542,7 +1658,39 @@ pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>
 
 #[cfg(test)]
 mod tests {
-    use super::free_path;
+    use super::{DANGEROUS, free_path, safe_name};
+
+    #[test]
+    fn attachment_names_cannot_hide_a_program() {
+        let ext = |n: &str| {
+            safe_name(n)
+                .rsplit_once('.')
+                .map(|(_, e)| e.to_ascii_lowercase())
+                .unwrap_or_default()
+        };
+        for name in [
+            "invoice.exe.",
+            "invoice.exe. .",
+            "invoice.exe  ",
+            "..\\invoice.exe",
+            "invoice.\u{202e}gpj.exe",
+        ] {
+            assert!(
+                DANGEROUS.contains(&ext(name).as_str()),
+                "{name:?} → {:?}",
+                safe_name(name)
+            );
+        }
+        assert_eq!(safe_name("../../.bashrc"), "_.._.bashrc");
+        assert_eq!(safe_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_name("com1"), "_com1");
+        assert_eq!(safe_name("console.txt"), "console.txt");
+        assert_eq!(safe_name("отчёт\u{0007}.pdf"), "отчёт.pdf");
+        assert_eq!(safe_name(". . ."), "attachment");
+        let long = format!("{}.pdf", "я".repeat(300));
+        let short = safe_name(&long);
+        assert!(short.len() <= 200 && short.ends_with(".pdf"), "{short}");
+    }
 
     #[test]
     fn a_saved_file_never_replaces_another() {
