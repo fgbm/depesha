@@ -32,6 +32,7 @@ const MIGRATIONS: &[Step] = &[
     v3_unversioned_columns,
     v4_modseq,
     v5_lookups,
+    v7_size_index,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -376,6 +377,16 @@ fn v5_lookups(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 7: large mail is found by size: the biggest first, or everything above a threshold,
+/// counted and summed from the index alone. Sizes were cached from the start (RFC822.SIZE,
+/// EWS Size), so nothing is fetched again.
+fn v7_size_index(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE INDEX messages_by_size ON messages (size, date, account_id, folder, has_attachments, seen, flagged);",
+    )?;
+    Ok(())
+}
+
 /// Counts again the rows of `threads` that match `which`, `{0}` standing for the table.
 fn count_threads(which: &str) -> String {
     let rows = which.replace("{0}", "");
@@ -493,6 +504,9 @@ pub struct MessageRow {
     /// The newest letter of the conversation, mine included; the row's own date otherwise.
     #[serde(default)]
     pub thread_date: i64,
+    /// Bytes of the conversation's letters in the list; the row's own size otherwise.
+    #[serde(default)]
+    pub thread_size: u64,
     /// Who wrote in the conversation, in order of first appearance; empty when not grouped.
     #[serde(default)]
     pub thread_senders: Vec<Addr>,
@@ -630,6 +644,128 @@ fn list_filter(q: &ListQuery) -> (String, Vec<rusqlite::types::Value>) {
         cond.push_str(if bulk { " AND m.bulk = 1" } else { " AND m.bulk = 0" });
     }
     (cond, args)
+}
+
+/// What a search found in the cache: letters and their bytes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchTotals {
+    pub count: u64,
+    pub size: u64,
+}
+
+/// A search as SQL over `messages m` and its folder `f`: the FROM, the WHERE and its
+/// parameters, numbered. `None` when the query asks for nothing.
+struct SearchSql {
+    from: &'static str,
+    cond: String,
+    args: Vec<rusqlite::types::Value>,
+    /// There are words to match: the FROM has the full-text table and its MATCH.
+    words: bool,
+}
+
+fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
+    let mut terms: Vec<String> = Vec::new();
+    let mut column = |col: Option<&str>, value: &str| {
+        for w in value.split_whitespace() {
+            let w = w.replace('"', "");
+            if w.is_empty() {
+                continue;
+            }
+            terms.push(match col {
+                Some(c) => format!("{c} : \"{w}\"*"),
+                None => format!("\"{w}\"*"),
+            });
+        }
+    };
+    q.words.iter().for_each(|w| column(None, w));
+    q.from.iter().for_each(|w| column(Some("sender"), w));
+    q.to.iter().for_each(|w| column(Some("recipients"), w));
+    q.subject.iter().for_each(|w| column(Some("subject"), w));
+
+    let mut cond = String::from("(?1 IS NULL OR m.account_id = ?1)");
+    let mut args: Vec<rusqlite::types::Value> = vec![account_id.map(str::to_owned).into()];
+    // A mailbox named in the query is a filter; one the caller picked is only the scope.
+    let mut filtered = q.account.is_some();
+    let mut push = |cond: &mut String, sql: &str| {
+        cond.push_str(sql);
+        filtered = true;
+    };
+    if q.has_attachment {
+        push(&mut cond, " AND m.has_attachments = 1");
+    }
+    if q.unread {
+        push(&mut cond, " AND m.seen = 0");
+    }
+    if q.flagged {
+        push(&mut cond, " AND m.flagged = 1");
+    }
+    if let Some(t) = q.after {
+        args.push(t.into());
+        push(&mut cond, &format!(" AND m.date >= ?{}", args.len()));
+    }
+    if let Some(t) = q.before {
+        args.push(t.into());
+        push(&mut cond, &format!(" AND m.date < ?{}", args.len()));
+    }
+    if let Some(n) = q.larger {
+        args.push(i64::try_from(n).unwrap_or(i64::MAX).into());
+        push(&mut cond, &format!(" AND m.size > ?{}", args.len()));
+    }
+    if let Some(n) = q.smaller {
+        args.push(i64::try_from(n).unwrap_or(i64::MAX).into());
+        push(&mut cond, &format!(" AND m.size < ?{}", args.len()));
+    }
+    match &q.folder {
+        // The folder named, by its name or role, and with `/*` the folders inside it.
+        Some(folder) if q.subfolders => {
+            args.push(folder.clone().into());
+            let n = args.len();
+            let role = role_word(folder).map(FolderRole::as_str).unwrap_or("");
+            args.push(role.to_owned().into());
+            push(
+                &mut cond,
+                &format!(
+                    " AND EXISTS (SELECT 1 FROM folders p WHERE p.account_id = m.account_id
+                        AND (p.name = ?{n} COLLATE NOCASE OR p.display_name = ?{n} COLLATE NOCASE OR p.role = ?{})
+                        AND (p.name = m.folder OR (COALESCE(p.delimiter, '') != ''
+                            AND substr(m.folder, 1, length(p.name) + length(p.delimiter)) = p.name || p.delimiter)))",
+                    n + 1
+                ),
+            );
+        }
+        Some(folder) => {
+            args.push(folder.clone().into());
+            let n = args.len();
+            let role = role_word(folder).map(FolderRole::as_str).unwrap_or("");
+            args.push(role.to_owned().into());
+            push(
+                &mut cond,
+                &format!(
+                    " AND (f.name = ?{n} COLLATE NOCASE OR f.display_name = ?{n} COLLATE NOCASE OR f.role = ?{})",
+                    n + 1
+                ),
+            );
+        }
+        None => cond.push_str(" AND COALESCE(f.role, '') NOT IN ('trash', 'junk')"),
+    }
+    if terms.is_empty() && !filtered {
+        return None;
+    }
+    if terms.is_empty() {
+        return Some(SearchSql {
+            from: "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder",
+            cond,
+            args,
+            words: false,
+        });
+    }
+    args.push(terms.join(" ").into());
+    Some(SearchSql {
+        from: "search s JOIN messages m ON m.id = s.rowid JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder",
+        cond: format!("search MATCH ?{} AND {cond}", args.len()),
+        args,
+        words: true,
+    })
 }
 
 /// A letter of a conversation for its row in a list: id, Message-ID, sender, a draft.
@@ -1202,15 +1338,15 @@ impl Store {
              )
              SELECT g.id, g.unread, g.flagged,
                 CASE WHEN COALESCE(g.role, '') = 'sent' THEN g.date
-                     ELSE COALESCE(t.incoming, t.latest, g.date) END AS last
+                     ELSE COALESCE(t.incoming, t.latest, g.date) END AS last, g.s_size
              FROM g LEFT JOIN threads t ON t.account_id = g.account_id AND t.thread = g.thread
                 {message}
              ORDER BY {order} LIMIT ? OFFSET ?"
         );
-        let page: Vec<(i64, i64, i64, i64)> = conn
+        let page: Vec<(i64, i64, i64, i64, u64)> = conn
             .prepare(&sql)?
             .query_map(params_from_iter(args), |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, unsigned(r.get(4)?)))
             })?
             .collect::<rusqlite::Result<_>>()?;
         let ids: Vec<i64> = page.iter().map(|p| p.0).collect();
@@ -1220,10 +1356,11 @@ impl Store {
             ))?
             .query_map([json_list(&ids)], message_row)?
             .collect::<rusqlite::Result<_>>()?;
-        for (row, &(_, unread, flagged, last)) in rows.iter_mut().zip(&page) {
+        for (row, &(_, unread, flagged, last, size)) in rows.iter_mut().zip(&page) {
             row.flags.seen = unread == 0;
             row.flags.flagged = flagged > 0;
             row.thread_date = last;
+            row.thread_size = size;
         }
 
         // The letters of every conversation on the page, in one query.
@@ -1455,71 +1592,17 @@ impl Store {
         limit: u32,
         sort: &[SortKey],
     ) -> Result<Vec<MessageRow>> {
-        let q = SearchQuery::parse(text);
-        let mut terms: Vec<String> = Vec::new();
-        let mut column = |col: Option<&str>, value: &str| {
-            for w in value.split_whitespace() {
-                let w = w.replace('"', "");
-                if w.is_empty() {
-                    continue;
-                }
-                terms.push(match col {
-                    Some(c) => format!("{c} : \"{w}\"*"),
-                    None => format!("\"{w}\"*"),
-                });
-            }
-        };
-        q.words.iter().for_each(|w| column(None, w));
-        q.from.iter().for_each(|w| column(Some("sender"), w));
-        q.to.iter().for_each(|w| column(Some("recipients"), w));
-        q.subject.iter().for_each(|w| column(Some("subject"), w));
-
-        let mut cond = String::from("(?1 IS NULL OR m.account_id = ?1)");
-        let mut args: Vec<rusqlite::types::Value> = vec![account_id.map(str::to_owned).into()];
-        let mut filtered = false;
-        if q.has_attachment {
-            cond.push_str(" AND m.has_attachments = 1");
-            filtered = true;
-        }
-        if q.unread {
-            cond.push_str(" AND m.seen = 0");
-            filtered = true;
-        }
-        if q.flagged {
-            cond.push_str(" AND m.flagged = 1");
-            filtered = true;
-        }
-        if let Some(t) = q.after {
-            args.push(t.into());
-            cond.push_str(&format!(" AND m.date >= ?{}", args.len()));
-            filtered = true;
-        }
-        if let Some(t) = q.before {
-            args.push(t.into());
-            cond.push_str(&format!(" AND m.date < ?{}", args.len()));
-            filtered = true;
-        }
-        match &q.folder {
-            Some(folder) => {
-                args.push(folder.clone().into());
-                let n = args.len();
-                let role = role_word(folder).map(FolderRole::as_str).unwrap_or("");
-                args.push(role.to_owned().into());
-                cond.push_str(&format!(
-                    " AND (f.name = ?{n} COLLATE NOCASE OR f.display_name = ?{n} COLLATE NOCASE OR f.role = ?{})",
-                    n + 1
-                ));
-                filtered = true;
-            }
-            None => cond.push_str(" AND COALESCE(f.role, '') NOT IN ('trash', 'junk')"),
-        }
-        if terms.is_empty() && !filtered {
+        let Some(SearchSql {
+            from,
+            cond,
+            mut args,
+            words,
+        }) = search_sql(&SearchQuery::parse(text), account_id)
+        else {
             return Ok(Vec::new());
-        }
+        };
         args.push(i64::from(if limit == 0 { 100 } else { limit }).into());
         let limit_arg = args.len();
-        let join = "JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
-        let words = !terms.is_empty();
         let order = order_by(
             sort,
             |by| match by {
@@ -1529,20 +1612,26 @@ impl Store {
             "m.date",
             "m.id",
         );
-        let sql = if !words {
-            format!("SELECT {COLUMNS} FROM messages m {join} WHERE {cond} ORDER BY {order} LIMIT ?{limit_arg}")
-        } else {
-            args.push(terms.join(" ").into());
-            format!(
-                "SELECT {COLUMNS} FROM search s JOIN messages m ON m.id = s.rowid {join}
-                 WHERE search MATCH ?{} AND {cond} ORDER BY {order} LIMIT ?{limit_arg}",
-                args.len()
-            )
-        };
+        let sql = format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY {order} LIMIT ?{limit_arg}");
         let conn = self.conn();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), message_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// How many letters the search finds in the cache and their size, beyond the
+    /// rows `search` returns.
+    pub fn search_totals(&self, text: &str, account_id: Option<&str>) -> Result<SearchTotals> {
+        let Some(SearchSql { from, cond, args, .. }) = search_sql(&SearchQuery::parse(text), account_id) else {
+            return Ok(SearchTotals::default());
+        };
+        let sql = format!("SELECT COUNT(*), COALESCE(SUM(m.size), 0) FROM {from} WHERE {cond}");
+        Ok(self.conn().query_row(&sql, params_from_iter(args), |r| {
+            Ok(SearchTotals {
+                count: unsigned(r.get(0)?),
+                size: unsigned(r.get(1)?),
+            })
+        })?)
     }
 
     pub fn snooze_add(&self, s: &Snooze) -> Result<()> {
@@ -2350,11 +2439,17 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         bulk: r.get(20)?,
         thread_count: 1,
         thread_date: r.get(12)?,
+        thread_size: unsigned(r.get(13)?),
         thread_senders: Vec::new(),
         thread_draft: false,
         snoozed_until: r.get(21)?,
         followup_due: r.get(22)?,
     })
+}
+
+/// A count or a sum of sizes, never negative.
+fn unsigned(n: i64) -> u64 {
+    u64::try_from(n).unwrap_or(0)
 }
 
 fn addr_text(a: &Addr) -> String {
@@ -2862,6 +2957,91 @@ mod tests {
         assert_eq!(subjects("счёт"), ["Счёт на оплату"]);
         assert_eq!(subjects("счёт in:корзина"), ["Счёт старый"]);
         assert_eq!(subjects("after:1970-01-01 before:1970-01-02").len(), 2);
+    }
+
+    #[test]
+    fn large_mail_by_size_year_folder_and_mailbox() {
+        let store = Store::open_in_memory().unwrap();
+        let folders = [
+            folder("INBOX", Some(FolderRole::Inbox)),
+            folder("Projects", None),
+            folder("Projects/2024", None),
+            folder("ProjectsOld", None),
+            folder("Trash", Some(FolderRole::Trash)),
+        ];
+        store.replace_folders("a", &folders).unwrap();
+        store.replace_folders("b", &folders[..1]).unwrap();
+        let mb = 1 << 20;
+        let jan_2024 = crate::query::SearchQuery::parse("year:2024").after.unwrap();
+        let jan_2025 = crate::query::SearchQuery::parse("year:2025").after.unwrap();
+        let add = |account: &str, folder: &str, uid: u32, subject: &str, date: i64, size: u32, files: bool| {
+            let mut s = summary(subject, date);
+            s.has_attachments = files;
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size,
+                flags: Flags::default(),
+            };
+            store.insert_message(account, folder, &msg).unwrap();
+        };
+        add("a", "INBOX", 1, "Фото с отпуска", jan_2024 + 100, 30 * mb, true);
+        // The last second of 2024 and the first of 2025: the year is exact.
+        add("a", "Projects", 1, "Смета", jan_2025 - 1, 60 * mb, true);
+        add("a", "Projects/2024", 1, "Чертежи", jan_2025, 120 * mb, true);
+        add("a", "ProjectsOld", 1, "Архив проекта", jan_2024 + 200, 40 * mb, false);
+        add("a", "INBOX", 2, "Записка", jan_2024 + 300, 25 * mb, false);
+        add("a", "Trash", 1, "Старый дистрибутив", jan_2024 + 400, 500 * mb, true);
+        add("b", "INBOX", 1, "Видео", jan_2024 + 500, 80 * mb, true);
+
+        let subjects = |q: &str, account: Option<&str>| -> Vec<String> {
+            store
+                .search(
+                    q,
+                    account,
+                    0,
+                    &[SortKey {
+                        by: SortField::Size,
+                        desc: true,
+                    }],
+                )
+                .unwrap()
+                .into_iter()
+                .map(|m| m.subject)
+                .collect()
+        };
+        // Bigger than the threshold, not equal to it; the biggest first; the trash only when asked for.
+        assert_eq!(
+            subjects("larger:25M", None),
+            ["Чертежи", "Видео", "Смета", "Архив проекта", "Фото с отпуска"]
+        );
+        assert_eq!(subjects("больше:50МБ меньше:100МБ", None), ["Видео", "Смета"]);
+        assert_eq!(
+            subjects("larger:25M year:2024", None),
+            ["Видео", "Смета", "Архив проекта", "Фото с отпуска"]
+        );
+        // A folder alone, or with `/*` the folders inside it, not one that only starts the same.
+        assert_eq!(subjects("larger:1M in:projects", None), ["Смета"]);
+        assert_eq!(subjects("larger:1M в:Projects/*", None), ["Чертежи", "Смета"]);
+        assert_eq!(subjects("larger:1M in:projects/2024", None), ["Чертежи"]);
+        assert_eq!(
+            subjects("larger:1M has:attachment year:2024", Some("a")),
+            ["Смета", "Фото с отпуска"]
+        );
+        assert_eq!(subjects("larger:1M in:trash", None), ["Старый дистрибутив"]);
+
+        let totals = store.search_totals("larger:25M year:2024", None).unwrap();
+        assert_eq!(
+            totals,
+            SearchTotals {
+                count: 4,
+                size: u64::from(210 * mb),
+            }
+        );
+        assert_eq!(store.search_totals("larger:25M", Some("b")).unwrap().count, 1);
+        assert_eq!(store.search_totals("", None).unwrap(), SearchTotals::default());
+        assert_eq!(store.search_totals("фото", None).unwrap().count, 1);
     }
 
     #[test]
@@ -3888,7 +4068,7 @@ mod tests {
                         JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
                         WHERE x.account_id = m.account_id AND x.thread = m.thread
                           AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')),
-                    m.date) END AS last
+                    m.date) END AS last, g.s_size
              FROM g JOIN messages m ON m.id = g.id
                 LEFT JOIN folders mf ON mf.account_id = m.account_id AND mf.name = m.folder
              ORDER BY {order} LIMIT ? OFFSET ?"
@@ -3901,6 +4081,7 @@ mod tests {
                 row.flags.seen = r.get::<_, i64>(COLUMN_COUNT)? == 0;
                 row.flags.flagged = r.get::<_, i64>(COLUMN_COUNT + 1)? > 0;
                 row.thread_date = r.get(COLUMN_COUNT + 2)?;
+                row.thread_size = unsigned(r.get(COLUMN_COUNT + 3)?);
                 Ok(row)
             })
             .unwrap()
@@ -4442,6 +4623,47 @@ mod tests {
         assert!(
             plan.iter()
                 .any(|l| l.contains("COVERING INDEX messages_by_account_date")),
+            "{plan:#?}"
+        );
+        // Large mail (#16): the biggest first and the totals above a threshold go by size;
+        // a year narrower than the sizes may go by date.
+        let biggest = [SortKey {
+            by: SortField::Size,
+            desc: true,
+        }];
+        for (name, plan) in [
+            (
+                "largest",
+                plans(&store, || store.search("larger:900", None, 300, &biggest)),
+            ),
+            (
+                "large of a year",
+                plans(&store, || store.search("larger:900 year:2024", Some("a"), 300, &[])),
+            ),
+            (
+                "large in total",
+                plans(&store, || store.search_totals("larger:900 older:1y", None)),
+            ),
+        ] {
+            assert!(!plan.iter().any(|l| reads_every_message(l)), "{name}: {plan:#?}");
+            assert!(
+                plan.iter()
+                    .any(|l| l.starts_with("SEARCH m USING ") && l.contains("INDEX messages_by_")),
+                "{name}: {plan:#?}"
+            );
+        }
+        for plan in [
+            plans(&store, || store.search("larger:900", None, 300, &biggest)),
+            plans(&store, || store.search_totals("larger:900 older:1y", None)),
+        ] {
+            assert!(
+                plan.iter().any(|l| l.contains("INDEX messages_by_size (size>?)")),
+                "{plan:#?}"
+            );
+        }
+        let plan = plans(&store, || store.search_totals("larger:900", None));
+        assert!(
+            plan.iter().any(|l| l.contains("COVERING INDEX messages_by_size")),
             "{plan:#?}"
         );
     }

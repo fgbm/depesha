@@ -112,6 +112,24 @@ fn search_query_becomes_aqs() {
 }
 
 #[test]
+fn a_search_without_words_is_a_restriction() {
+    use super::restriction;
+    let q = crate::query::SearchQuery::parse("larger:25M есть:вложение");
+    assert_eq!(
+        restriction(&q).unwrap(),
+        concat!(
+            r#"<t:And><t:IsGreaterThan><t:FieldURI FieldURI="item:Size"/><t:FieldURIOrConstant><t:Constant Value="26214400"/></t:FieldURIOrConstant></t:IsGreaterThan>"#,
+            r#"<t:IsEqualTo><t:FieldURI FieldURI="item:HasAttachments"/><t:FieldURIOrConstant><t:Constant Value="true"/></t:FieldURIOrConstant></t:IsEqualTo></t:And>"#
+        )
+    );
+    let q = crate::query::SearchQuery::parse("year:2024");
+    assert!(restriction(&q).unwrap().contains("IsGreaterThanOrEqualTo"));
+    // Words go as AQS; the size is checked on what it finds.
+    assert_eq!(restriction(&crate::query::SearchQuery::parse("отчёт larger:1M")), None);
+    assert_eq!(restriction(&crate::query::SearchQuery::parse("in:Archive")), None);
+}
+
+#[test]
 fn autodiscover_signs_in_only_on_hosts_of_the_mail_domain() {
     use super::may_sign_in;
     assert!(may_sign_in("autodiscover.example.com", "example.com"));

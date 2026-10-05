@@ -737,7 +737,10 @@ pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Re
         line.push_str(c.key);
         let Some(value) = &c.value else { continue };
         let value = value.replace(['\r', '\n'], " ");
-        if value.is_ascii() {
+        if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+            // LARGER and SMALLER take a number, not a string; digits are a valid atom anywhere.
+            line.push_str(&format!(" {value}"));
+        } else if value.is_ascii() {
             line.push_str(&format!(" \"{}\"", value.replace(['\\', '"'], "")));
         } else if conn.caps.literal_plus {
             line.push_str(&format!(" {{{}+}}\r\n{value}", value.len()));

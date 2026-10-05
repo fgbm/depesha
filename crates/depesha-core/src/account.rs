@@ -240,9 +240,50 @@ pub fn domain_of(email: &str) -> Option<&str> {
         .filter(|d| !d.is_empty() && d.contains('.'))
 }
 
+/// The mailbox `account:` names: by address, by the user's label, or by a part of the
+/// address (`account:work`, `account:example.com`). An exact match wins.
+pub fn find<'a>(accounts: &'a [Account], name: &str) -> Option<&'a Account> {
+    let name = name.trim().to_lowercase();
+    if name.is_empty() {
+        return None;
+    }
+    let exact = |a: &&Account| a.email.to_lowercase() == name || a.label.to_lowercase() == name || a.id == name;
+    accounts.iter().find(exact).or_else(|| {
+        accounts
+            .iter()
+            .find(|a| a.email.to_lowercase().contains(&name) || a.label.to_lowercase().contains(&name))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_a_mailbox_by_name() {
+        let json = |id: &str, email: &str, label: &str| {
+            format!(
+                r#"{{"id":"{id}","label":"{label}","display_name":"","email":"{email}","username":"",
+                "imap":{{"host":"h","port":993,"security":"tls"}},"smtp":{{"host":"h","port":587,"security":"starttls"}}}}"#
+            )
+        };
+        let accounts: Vec<Account> = [
+            json("1", "ivan@example.com", "Работа"),
+            json("2", "ivan@example.org", ""),
+            json("3", "example@example.net", ""),
+        ]
+        .iter()
+        .map(|j| serde_json::from_str(j).unwrap())
+        .collect();
+        let id = |name: &str| find(&accounts, name).map(|a| a.id.as_str());
+        assert_eq!(id("работа"), Some("1"));
+        assert_eq!(id("IVAN@example.org"), Some("2"));
+        assert_eq!(id("example.net"), Some("3"));
+        // The whole address before a part of another one.
+        assert_eq!(id("example@example.net"), Some("3"));
+        assert_eq!(id("nobody"), None);
+        assert_eq!(id(" "), None);
+    }
 
     #[test]
     fn knows_providers() {

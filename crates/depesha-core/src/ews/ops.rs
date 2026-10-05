@@ -982,6 +982,44 @@ pub fn aqs(q: &SearchQuery) -> String {
     parts.join(" ")
 }
 
+/// A search without words as a FindItem restriction: AQS has no size, and a restriction
+/// cannot go with a query string. `None` when there are words or nothing to restrict.
+pub fn restriction(q: &SearchQuery) -> Option<String> {
+    if !(q.words.is_empty() && q.from.is_empty() && q.to.is_empty() && q.subject.is_empty()) {
+        return None;
+    }
+    let compare = |op: &str, uri: &str, value: String| {
+        format!(
+            r#"<t:{op}>{}<t:FieldURIOrConstant><t:Constant Value="{value}"/></t:FieldURIOrConstant></t:{op}>"#,
+            field(uri)
+        )
+    };
+    let mut parts = Vec::new();
+    if let Some(n) = q.larger {
+        parts.push(compare("IsGreaterThan", "item:Size", n.to_string()));
+    }
+    if let Some(n) = q.smaller {
+        parts.push(compare("IsLessThan", "item:Size", n.to_string()));
+    }
+    if let Some(t) = q.after {
+        parts.push(compare("IsGreaterThanOrEqualTo", "item:DateTimeReceived", iso(t)));
+    }
+    if let Some(t) = q.before {
+        parts.push(compare("IsLessThan", "item:DateTimeReceived", iso(t)));
+    }
+    if q.has_attachment {
+        parts.push(compare("IsEqualTo", "item:HasAttachments", "true".into()));
+    }
+    if q.unread {
+        parts.push(compare("IsEqualTo", "message:IsRead", "false".into()));
+    }
+    match parts.len() {
+        0 => None,
+        1 => parts.pop(),
+        _ => Some(format!("<t:And>{}</t:And>", parts.concat())),
+    }
+}
+
 /// Searches the folder on the server and caches what it finds. Returns row ids, newest first.
 pub async fn search_server(
     s: &mut Session,
@@ -991,12 +1029,16 @@ pub async fn search_server(
     text_: &str,
 ) -> Result<Vec<i64>> {
     let q = SearchQuery::parse(text_);
+    let restriction = restriction(&q);
     let query = aqs(&q);
-    if query.trim().is_empty() {
+    if restriction.is_none() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
     let fid = folder_id(store, account_id, folder)?;
-    let page = find_page(s, &fid, 0, 300, None, Some(&query)).await?;
+    let page = match &restriction {
+        Some(r) => find_page(s, &fid, 0, 300, Some(r), None).await?,
+        None => find_page(s, &fid, 0, 300, None, Some(&query)).await?,
+    };
     let found: Vec<&Scanned> = page.items.iter().filter(|i| !q.flagged || i.flags.flagged).collect();
     let ids: Vec<String> = found.iter().map(|i| i.id.clone()).collect();
     let (fresh, uids) = low_uids(store, account_id, folder, &ids)?;
@@ -1005,6 +1047,7 @@ pub async fn search_server(
     for uid in uids {
         if let Some(row) = store.find_by_uid(account_id, folder, uid)?
             && (!q.has_attachment || row.has_attachments)
+            && q.fits_size(row.size.into())
         {
             rows.push(row.id);
         }

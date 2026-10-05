@@ -155,6 +155,7 @@ pub fn run() {
             commands::folders,
             commands::messages,
             commands::search,
+            commands::search_totals,
             commands::server_search,
             commands::message_open,
             commands::set_flag,

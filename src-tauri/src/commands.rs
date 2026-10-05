@@ -4,14 +4,15 @@ use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use depesha_core::account::{Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
+use depesha_core::account::{self, Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
 use depesha_core::autodetect::{self, Detection};
 use depesha_core::avatar::Receiver;
 use depesha_core::ews::{self, EwsDetection};
 use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
+use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
-use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze, SortKey};
+use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, SearchTotals, Snooze, SortKey};
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
@@ -294,6 +295,15 @@ pub fn messages(state: St<'_>, query: ListQuery) -> CmdResult<Vec<MessageRow>> {
     Ok(state.store.list(&query)?)
 }
 
+/// The mailbox a search looks in: the one `account:` names, else the one asked for, or
+/// every mailbox. `None` when `account:` names no mailbox: nothing is found.
+fn search_scope(state: &AppState, text: &str, account_id: Option<String>) -> Option<Option<String>> {
+    match SearchQuery::parse(text).account {
+        Some(name) => account::find(&state.accounts(), &name).map(|a| Some(a.id.clone())),
+        None => Some(account_id),
+    }
+}
+
 #[tauri::command(async)]
 pub fn search(
     state: St<'_>,
@@ -301,9 +311,21 @@ pub fn search(
     account_id: Option<String>,
     sort: Option<Vec<SortKey>>,
 ) -> CmdResult<Vec<MessageRow>> {
+    let Some(account_id) = search_scope(&state, &text, account_id) else {
+        return Ok(Vec::new());
+    };
     Ok(state
         .store
         .search(&text, account_id.as_deref(), 300, &sort.unwrap_or_default())?)
+}
+
+/// How many letters the search finds in the cache and their size, the shown ones and the rest.
+#[tauri::command(async)]
+pub fn search_totals(state: St<'_>, text: String, account_id: Option<String>) -> CmdResult<SearchTotals> {
+    let Some(account_id) = search_scope(&state, &text, account_id) else {
+        return Ok(SearchTotals::default());
+    };
+    Ok(state.store.search_totals(&text, account_id.as_deref())?)
 }
 
 /// Searches on the servers: inbox, sent and archive of every account (or one account).
@@ -321,6 +343,9 @@ pub async fn server_search(state: St<'_>, text: String, account_id: Option<Strin
 }
 
 async fn search_servers(state: &AppState, text: &str, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
+    let Some(account_id) = search_scope(state, text, account_id) else {
+        return Ok(Vec::new());
+    };
     let accounts = match account_id {
         Some(id) => vec![state.account(&id)?],
         None => state.accounts(),

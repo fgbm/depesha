@@ -58,6 +58,8 @@ pub struct Settings {
     pub list_sort: Vec<SortKey>,
     /// Lists ordered their own way, by view key (`folder:<account>:<name>`, `unified:inbox`…).
     pub view_sorts: std::collections::BTreeMap<String, Vec<SortKey>>,
+    /// What counts as a large letter in the ready-made searches (Settings → General → Search), megabytes.
+    pub large_mb: u32,
 }
 
 impl Default for Settings {
@@ -81,6 +83,7 @@ impl Default for Settings {
             attachments_dir: String::new(),
             list_sort: Vec::new(),
             view_sorts: Default::default(),
+            large_mb: 25,
         }
     }
 }

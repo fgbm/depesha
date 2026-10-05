@@ -26,6 +26,7 @@
     "allow-folders",
     "allow-messages",
     "allow-search",
+    "allow-search-totals",
     "allow-server-search",
     "allow-message-open",
     "allow-set-flag",

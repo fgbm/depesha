@@ -14,6 +14,7 @@ const COMMANDS: &[&str] = &[
     "folders",
     "messages",
     "search",
+    "search_totals",
     "server_search",
     "message_open",
     "set_flag",

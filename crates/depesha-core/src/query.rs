@@ -1,8 +1,10 @@
 //! Search operators, the same for the local cache and IMAP SEARCH:
 //! `from:` `to:` `subject:` `has:attachment` `is:unread` `is:flagged`
-//! `before:` `after:` `in:`, with Russian synonyms. Everything else is free text.
+//! `before:` `after:` `in:` (`in:Work/*` with subfolders), size `larger:25M` `smaller:`, age `older:2y` `newer:30d`,
+//! a calendar year `year:2024` and a mailbox `account:`, with Russian synonyms.
+//! Everything else is free text.
 
-use chrono::{Local, NaiveDate, TimeZone};
+use chrono::{DateTime, Duration, Local, Months, NaiveDate, TimeZone};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchQuery {
@@ -19,6 +21,13 @@ pub struct SearchQuery {
     pub before: Option<i64>,
     /// Folder name or role word (`inbox`, `входящие`, `sent`...).
     pub folder: Option<String>,
+    /// The folder's subfolders too: `in:Work/*`.
+    pub subfolders: bool,
+    /// Size bounds in bytes, both exclusive like IMAP LARGER and SMALLER.
+    pub larger: Option<u64>,
+    pub smaller: Option<u64>,
+    /// A mailbox by its address or name; the caller knows the mailboxes.
+    pub account: Option<String>,
 }
 
 impl SearchQuery {
@@ -26,7 +35,17 @@ impl SearchQuery {
         *self == Self::default()
     }
 
+    /// A letter of this size passes the size bounds.
+    pub fn fits_size(&self, size: u64) -> bool {
+        self.larger.is_none_or(|n| size > n) && self.smaller.is_none_or(|n| size < n)
+    }
+
     pub fn parse(text: &str) -> Self {
+        Self::parse_at(text, Local::now())
+    }
+
+    /// `parse` with ages (`older:1y`) counted back from `now`.
+    pub fn parse_at(text: &str, now: DateTime<Local>) -> Self {
         let mut q = Self::default();
         for token in tokens(text) {
             let Some((key, value)) = token.split_once(':').filter(|(k, v)| !k.is_empty() && !v.is_empty()) else {
@@ -47,18 +66,65 @@ impl SearchQuery {
                     _ => q.words.push(token),
                 },
                 "before" | "до" => match day_start(&value) {
-                    Some(t) => q.before = Some(t),
+                    Some(t) => q.until(t),
                     None => q.words.push(token),
                 },
                 "after" | "после" | "с" => match day_start(&value) {
-                    Some(t) => q.after = Some(t),
+                    Some(t) => q.since(t),
                     None => q.words.push(token),
                 },
-                "in" | "в" => q.folder = Some(value),
+                "older" | "старше" => match ago(&value, now) {
+                    Some(t) => q.until(t),
+                    None => q.words.push(token),
+                },
+                "newer" | "новее" | "моложе" => match ago(&value, now) {
+                    Some(t) => q.since(t),
+                    None => q.words.push(token),
+                },
+                // From January 1 inclusive to January 1 of the next year exclusive.
+                "year" | "год" => match value
+                    .parse::<i32>()
+                    .ok()
+                    .and_then(|y| Some((year_start(y)?, year_start(y + 1)?)))
+                {
+                    Some((from, to)) => {
+                        q.since(from);
+                        q.until(to);
+                    }
+                    None => q.words.push(token),
+                },
+                "larger" | "больше" => match bytes(&value) {
+                    Some(n) => q.larger = Some(q.larger.map_or(n, |m| m.max(n))),
+                    None => q.words.push(token),
+                },
+                "smaller" | "меньше" => match bytes(&value) {
+                    Some(n) => q.smaller = Some(q.smaller.map_or(n, |m| m.min(n))),
+                    None => q.words.push(token),
+                },
+                "in" | "в" => match value.strip_suffix("/*").filter(|f| !f.is_empty()) {
+                    Some(folder) => {
+                        q.folder = Some(folder.to_owned());
+                        q.subfolders = true;
+                    }
+                    None => {
+                        q.folder = Some(value);
+                        q.subfolders = false;
+                    }
+                },
+                "account" | "ящик" | "аккаунт" => q.account = Some(value),
                 _ => q.words.push(token),
             }
         }
         q
+    }
+
+    /// Bounds narrow each other: `year:2024 older:1y` is what both allow.
+    fn since(&mut self, t: i64) {
+        self.after = Some(self.after.map_or(t, |a| a.max(t)));
+    }
+
+    fn until(&mut self, t: i64) {
+        self.before = Some(self.before.map_or(t, |b| b.min(t)));
     }
 }
 
@@ -95,6 +161,49 @@ fn day_start(value: &str) -> Option<i64> {
         .map(|d| d.timestamp())
 }
 
+/// January 1 of `year`, local midnight.
+fn year_start(year: i32) -> Option<i64> {
+    if !(1970..=9999).contains(&year) {
+        return None;
+    }
+    let date = NaiveDate::from_ymd_opt(year, 1, 1)?;
+    Local
+        .from_local_datetime(&date.and_hms_opt(0, 0, 0)?)
+        .earliest()
+        .map(|d| d.timestamp())
+}
+
+/// `30d`, `2w`, `6m`, `1y` (`30д`, `2н`, `6м`, `1г`) back from `now`, as Unix time.
+fn ago(value: &str, now: DateTime<Local>) -> Option<i64> {
+    let digits = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
+    let n: u32 = value[..digits].parse().ok()?;
+    let then = match value[digits..].to_lowercase().as_str() {
+        "d" | "д" => now.checked_sub_signed(Duration::days(n.into()))?,
+        "w" | "н" => now.checked_sub_signed(Duration::weeks(n.into()))?,
+        "m" | "м" | "мес" => now.checked_sub_months(Months::new(n))?,
+        "y" | "г" | "л" => now.checked_sub_months(Months::new(n.checked_mul(12)?))?,
+        _ => return None,
+    };
+    Some(then.timestamp())
+}
+
+/// `25M`, `1.5G`, `500K`, `25МБ`, `1,5ГБ`; a bare number is bytes, as in Gmail.
+/// Units are binary, as sizes are shown.
+fn bytes(value: &str) -> Option<u64> {
+    let end = value
+        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != ',')
+        .unwrap_or(value.len());
+    let n: f64 = value[..end].replace(',', ".").parse().ok()?;
+    let unit: u64 = match value[end..].to_lowercase().as_str() {
+        "" | "b" | "б" => 1,
+        "k" | "kb" | "к" | "кб" => 1 << 10,
+        "m" | "mb" | "м" | "мб" => 1 << 20,
+        "g" | "gb" | "г" | "гб" => 1 << 30,
+        _ => return None,
+    };
+    (n.is_finite() && n >= 0.0).then(|| (n * unit as f64).round() as u64)
+}
+
 /// One IMAP SEARCH key with an optional string argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Criterion {
@@ -116,7 +225,8 @@ impl Criterion {
 }
 
 /// The query as IMAP SEARCH keys (RFC 3501 6.4.4). `has:attachment` has no
-/// IMAP equivalent and is applied to the results locally.
+/// IMAP equivalent and is applied to the results locally. SINCE and BEFORE look at
+/// INTERNALDATE, close to the Date the cache filters by.
 pub fn imap_criteria(q: &SearchQuery) -> Vec<Criterion> {
     let mut out = Vec::new();
     out.extend(q.words.iter().map(|w| Criterion::new("TEXT", w.clone())));
@@ -140,6 +250,12 @@ pub fn imap_criteria(q: &SearchQuery) -> Vec<Criterion> {
             key: "BEFORE",
             value: Some(imap_date(t)),
         });
+    }
+    if let Some(n) = q.larger {
+        out.push(Criterion::new("LARGER", n.to_string()));
+    }
+    if let Some(n) = q.smaller {
+        out.push(Criterion::new("SMALLER", n.to_string()));
     }
     out
 }
@@ -181,11 +297,91 @@ mod tests {
         assert_eq!(q.words, ["до:завтра", "is:whatever", "тема:"]);
     }
 
+    fn at(y: i32, m: u32, d: u32) -> DateTime<Local> {
+        Local.with_ymd_and_hms(y, m, d, 12, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn size_operators_in_both_languages() {
+        let q = SearchQuery::parse("larger:25M smaller:1.5G");
+        assert_eq!(q.larger, Some(25 << 20));
+        assert_eq!(q.smaller, Some(3 << 29));
+        let q = SearchQuery::parse("больше:10МБ меньше:500кб больше:2,5м");
+        // Two lower bounds: the stricter one.
+        assert_eq!(q.larger, Some(10 << 20));
+        assert_eq!(q.smaller, Some(500 << 10));
+        assert_eq!(SearchQuery::parse("larger:1000").larger, Some(1000));
+        // Bounds that contradict each other let nothing through.
+        assert!(!q.fits_size(400 << 10) && !q.fits_size(20 << 20));
+        let q = SearchQuery::parse("larger:10M");
+        assert!(q.fits_size(11 << 20) && !q.fits_size(10 << 20));
+        let q = SearchQuery::parse("larger:huge больше:-1M");
+        assert_eq!(q.words, ["larger:huge", "больше:-1M"]);
+        assert_eq!(q.larger, None);
+    }
+
+    #[test]
+    fn a_calendar_year_is_exact() {
+        let q = SearchQuery::parse("year:2024");
+        assert_eq!(q.after, year_start(2024));
+        assert_eq!(q.before, year_start(2025));
+        let jan = Local.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap().timestamp();
+        assert_eq!(q.after, Some(jan));
+        assert_eq!(SearchQuery::parse("год:24").words, ["год:24"]);
+    }
+
+    #[test]
+    fn ages_count_back_from_now() {
+        let now = at(2026, 10, 5);
+        let q = SearchQuery::parse_at("older:1y", now);
+        assert_eq!(q.before, Some(at(2025, 10, 5).timestamp()));
+        let q = SearchQuery::parse_at("старше:2г", now);
+        assert_eq!(q.before, Some(at(2024, 10, 5).timestamp()));
+        let q = SearchQuery::parse_at("newer:30d старше:6м", now);
+        assert_eq!(q.after, Some(at(2026, 9, 5).timestamp()));
+        assert_eq!(q.before, Some(at(2026, 4, 5).timestamp()));
+        // A year and an age narrow each other.
+        let q = SearchQuery::parse_at("year:2025 older:1y", now);
+        assert_eq!(q.after, year_start(2025));
+        assert_eq!(q.before, Some(at(2025, 10, 5).timestamp()));
+        assert_eq!(SearchQuery::parse_at("older:soon", now).words, ["older:soon"]);
+    }
+
+    #[test]
+    fn a_folder_alone_or_with_its_subfolders() {
+        let q = SearchQuery::parse("в:Работа/*");
+        assert_eq!((q.folder.as_deref(), q.subfolders), (Some("Работа"), true));
+        let q = SearchQuery::parse("in:Work/Projects/*");
+        assert_eq!((q.folder.as_deref(), q.subfolders), (Some("Work/Projects"), true));
+        let q = SearchQuery::parse("in:Работа");
+        assert_eq!((q.folder.as_deref(), q.subfolders), (Some("Работа"), false));
+        // A bare "/*" names no folder.
+        let q = SearchQuery::parse("in:/*");
+        assert_eq!((q.folder.as_deref(), q.subfolders), (Some("/*"), false));
+    }
+
+    #[test]
+    fn a_mailbox_by_name() {
+        let q = SearchQuery::parse("ящик:work larger:25M");
+        assert_eq!(q.account.as_deref(), Some("work"));
+        assert!(q.words.is_empty());
+    }
+
     #[test]
     fn maps_to_imap_keys() {
         let q = SearchQuery::parse("from:ivan договор is:flagged after:2026-10-03");
         let keys: Vec<_> = imap_criteria(&q).iter().map(|c| c.key).collect();
         assert_eq!(keys, ["TEXT", "FROM", "FLAGGED", "SINCE"]);
         assert_eq!(imap_criteria(&q)[3].value.as_deref(), Some("3-Oct-2026"));
+
+        let q = SearchQuery::parse("larger:25M smaller:100M");
+        let keys: Vec<_> = imap_criteria(&q)
+            .into_iter()
+            .map(|c| (c.key, c.value.unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            keys,
+            [("LARGER", "26214400".to_owned()), ("SMALLER", "104857600".to_owned())]
+        );
     }
 }
