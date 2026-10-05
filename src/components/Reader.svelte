@@ -81,6 +81,16 @@
   const files = $derived(msg ? msg.view.attachments.filter((a) => !(a.inline && a.content_id)) : []);
   /** The form picked above this letter: it holds while the letter is open and is not kept. */
   let picked = $state<{ id: number; view: BodyView } | null>(null);
+  // The choice belongs to the letter open now: another letter, or the same one opened
+  // again after leaving it, shows the form the setting asks for.
+  let shownId: number | null = null;
+  $effect(() => {
+    const id = msg?.row.id ?? null;
+    if (id !== shownId) {
+      shownId = id;
+      picked = null;
+    }
+  });
   const switchable = $derived(msg ? switchViews(msg.view, app.settings.letter_view) : []);
   const shown = $derived<BodyView>(
     !msg ? "text" : picked?.id === msg.row.id ? picked.view : preferredView(msg.view, app.settings.letter_view),
