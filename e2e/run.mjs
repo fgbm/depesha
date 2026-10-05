@@ -314,6 +314,9 @@ try {
     for (const want of ["multipart/alternative", "text/plain", "multipart/related", "text/html", "image/png", "Content-ID: <"]) {
       if (!raw.includes(want)) throw new Error(`в письме нет ${want}`);
     }
+    // The copy that came back stays in INBOX and would shift the counts below.
+    helper("delete", "INBOX", subj);
+    await d.until("copy gone", async () => helper("count", "INBOX", subj) === "0", 15000);
     // The steps below type into the plain-text field.
     const settings = await invoke("settings_get");
     await invoke("settings_set", { settings: { ...settings, compose_format: "plain" } });
