@@ -77,13 +77,28 @@ export function secondsAfter(from: Date, amount: number, unit: Unit): number {
 }
 
 /**
- * The `weekday` (0 is Sunday) at `time` ("HH:MM"), not earlier than a day after `from`:
- * "on Monday at 9:00" sent on Monday at 8:00 is next Monday, not in an hour.
+ * A date's local wall-clock time in milliseconds: a calendar day stays exactly 24 h
+ * even across a DST change, unlike `getTime`, which can make it 23 h or 25 h.
  */
-export function nextWeekday(from: Date, weekday: number, time: string): Date {
+function wallMs(d: Date): number {
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+}
+
+/** The nearest `weekday` (0 is Sunday) at `time` on or after the day of `from`. */
+function nearestWeekday(from: Date, weekday: number, time: string): Date {
   const d = at(from, time);
   d.setDate(d.getDate() + ((weekday - d.getDay() + 7) % 7));
-  while (d.getTime() - from.getTime() < 86_400_000) d.setDate(d.getDate() + 7);
+  return d;
+}
+
+/**
+ * The `weekday` (0 is Sunday) at `time` ("HH:MM"), not earlier than a day after `from`:
+ * "on Monday at 9:00" sent on Monday at 8:00 is next Monday, not in an hour. The day is
+ * counted on the clock, so a spring-forward's 23 h day does not push the answer a week.
+ */
+export function nextWeekday(from: Date, weekday: number, time: string): Date {
+  const d = nearestWeekday(from, weekday, time);
+  while (wallMs(d) - wallMs(from) < 86_400_000) d.setDate(d.getDate() + 7);
   return d;
 }
 

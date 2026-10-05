@@ -40,6 +40,29 @@ describe("a day of the week", () => {
     expect(nextWeekday(friday, 6, "16:00").getDate()).toBe(3);
     expect(nextWeekday(friday, 6, "15:00").getDate()).toBe(10);
   });
+
+  it("counts days on the clock, so a spring-forward's short day does not push a week", () => {
+    // On a DST change the real day can be 23 h; a reminder made a day before must still
+    // find the next day, not the same weekday a week later. The check uses Berlin in the
+    // test; nothing is asserted about the machine's own zone.
+    const had = process.env.TZ;
+    process.env.TZ = "Europe/Berlin";
+    try {
+      // Sunday 29 March 2026 is the spring-forward day in Berlin: 23 real hours long.
+      // "On Sunday 9:00" set Saturday 28 March 9:00 is exactly the next day's clock time.
+      const sat = new Date(2026, 2, 28, 9, 0);
+      const sunday = nextWeekday(sat, 0, "09:00");
+      expect([sunday.getDate(), sunday.getDay(), sunday.getHours()]).toEqual([29, 0, 9]);
+      // A later clock time the same Saturday is under a day away, so the Sunday after.
+      expect(nextWeekday(new Date(2026, 2, 28, 10, 0), 0, "09:00").getDate()).toBe(5);
+      // Saturday to Monday crosses the short day and keeps both days.
+      const monday = nextWeekday(new Date(2026, 2, 28, 15, 0), 1, "09:00");
+      expect([monday.getDate(), monday.getDay()]).toEqual([30, 1]);
+    } finally {
+      if (had === undefined) delete process.env.TZ;
+      else process.env.TZ = had;
+    }
+  });
 });
 
 describe("what the compose window asks", () => {
