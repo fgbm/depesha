@@ -1325,12 +1325,8 @@ pub async fn draft_save(
     replace: Option<i64>,
 ) -> CmdResult<Option<i64>> {
     let account = state.account(&account_id)?;
-    let Some(folder) = state.store.folder_by_role(&account.id, FolderRole::Drafts)? else {
-        return Err(CmdError::new(
-            "not-found",
-            tr!("the server has no Drafts folder", "на сервере нет папки «Черновики»"),
-        ));
-    };
+    // A mailbox without Drafts gets one, as it gets an Archive for "Done".
+    let folder = role_folder(&state, &account.id, FolderRole::Drafts, pick("Drafts", "Черновики")).await?;
     let send_at = draft.send_at;
     let mut draft = resolve(&state, draft).await?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
