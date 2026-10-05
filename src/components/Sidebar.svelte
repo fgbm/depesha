@@ -276,7 +276,7 @@
         <span class="name">{label(f)}</span>
         {@render count(f)}
       </button>
-      {#if f.selectable}{@render star(acc, favouriteOf(f), false)}{/if}
+      {#if f.selectable}{@render star(acc, favouriteOf(f))}{/if}
     </div>
   {/each}
 {/snippet}
@@ -292,7 +292,7 @@
 
 <!-- The star in the last column of a row: its place does not depend on the name, the depth or the counter.
      Quick actions of the row, when there are some, go left of it. -->
-{#snippet star(acc: AccountView, fav: Favourite, inBlock: boolean)}
+{#snippet star(acc: AccountView, fav: Favourite)}
   {@const on = favourites.has(acc.id, fav.name)}
   <button
     class="star"
@@ -300,7 +300,7 @@
     aria-pressed={on}
     title={on ? t("favourites.remove") : t("favourites.add")}
     aria-label={on ? t("favourites.remove") : t("favourites.add")}
-    onclick={() => favourites.toggle(acc.id, fav, inBlock)}
+    onclick={() => favourites.toggle(acc.id, fav)}
   ><Star size={15} fill={on ? "currentColor" : "none"} /></button>
 {/snippet}
 
@@ -333,7 +333,7 @@
             <span class="name">{f?.role ? roleLabel(f.role) : where.leaf}{#if where.path}<span class="path">{where.path}</span>{/if}</span>
             {#if f && !gone}{@render count(f)}{/if}
           </button>
-          {@render star(acc, fav, true)}
+          {@render star(acc, fav)}
         </div>
       {/each}
     </div>

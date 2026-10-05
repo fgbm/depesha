@@ -53,7 +53,7 @@ const key = (account: string, name: string) => `${account}\u0000${name}`;
 
 export class Favourites {
   private all = $state<Record<string, Favourite[]>>({});
-  /** Unstarred in the favourites block, still on screen until their timer runs out. */
+  /** Unstarred, still in the favourites block until their timer runs out. */
   private leaving = $state<Record<string, true>>({});
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Called right before a row leaves the block, while it is still in the page. */
@@ -88,15 +88,11 @@ export class Favourites {
     this.save();
   }
 
-  /** `later`: from the favourites block, the row stays and fades so the next one does not slide under the pointer. */
-  remove(account: string, name: string, later = false) {
+  /** Wherever unstarred, the row of the block stays and fades, so neither the rows after it nor
+   *  the tree below slide under the pointer; starring it again meanwhile keeps it. */
+  remove(account: string, name: string) {
     const k = key(account, name);
     if (!this.of(account).some((f) => f.name === name)) return;
-    if (!later) {
-      this.cancel(k);
-      this.drop(account, name);
-      return;
-    }
     if (this.leaving[k]) return;
     this.leaving[k] = true;
     this.timers.set(
@@ -110,8 +106,8 @@ export class Favourites {
   }
 
   /** The star: adds, removes, and a second press on a fading row keeps it. */
-  toggle(account: string, folder: Favourite, later = false) {
-    if (this.has(account, folder.name)) this.remove(account, folder.name, later);
+  toggle(account: string, folder: Favourite) {
+    if (this.has(account, folder.name)) this.remove(account, folder.name);
     else this.add(account, folder);
   }
 

@@ -42,13 +42,51 @@ describe("favourite folders", () => {
     expect(readFavourites('{"a":[{"name":"X"},{"name":"X"},{"x":1}]}')).toEqual({ a: [{ name: "X", display: "X", delimiter: null }] });
   });
 
-  it("toggle from the tree removes at once", () => {
+});
+
+describe("unstarring in the tree", () => {
+  // The block sits above the tree: a row gone at once would move the tree under the pointer.
+  it("keeps the folder's row in the block while it fades, the star empty at once", () => {
     const { favs, saved } = make();
     favs.toggle("a", folder("INBOX"));
-    expect(favs.has("a", "INBOX")).toBe(true);
+    favs.toggle("a", folder("Archive"));
     favs.toggle("a", folder("INBOX"));
+    expect(favs.has("a", "INBOX")).toBe(false);
+    expect(favs.isLeaving("a", "INBOX")).toBe(true);
+    expect(favs.of("a").map((f) => f.name)).toEqual(["INBOX", "Archive"]);
+    expect(saved().a).toHaveLength(2);
+    vi.advanceTimersByTime(FADE_MS - 1);
+    expect(favs.of("a")).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(favs.of("a").map((f) => f.name)).toEqual(["Archive"]);
+    favs.toggle("a", folder("Archive"));
+    vi.advanceTimersByTime(FADE_MS);
     expect(favs.of("a")).toEqual([]);
     expect(saved()).toEqual({});
+  });
+
+  it("a second press on the tree's star keeps the folder in its place", () => {
+    const { favs, saved } = make();
+    favs.toggle("a", folder("A"));
+    favs.toggle("a", folder("B"));
+    favs.toggle("a", folder("A"));
+    vi.advanceTimersByTime(FADE_MS - 100);
+    favs.toggle("a", folder("A"));
+    expect(favs.has("a", "A")).toBe(true);
+    expect(favs.isLeaving("a", "A")).toBe(false);
+    vi.advanceTimersByTime(FADE_MS * 3);
+    expect(favs.of("a").map((f) => f.name)).toEqual(["A", "B"]);
+    expect(saved().a.map((f) => f.name)).toEqual(["A", "B"]);
+  });
+
+  it("the same press again after the row is gone adds it at the end", () => {
+    const { favs } = make();
+    favs.toggle("a", folder("A"));
+    favs.toggle("a", folder("B"));
+    favs.toggle("a", folder("A"));
+    vi.advanceTimersByTime(FADE_MS);
+    favs.toggle("a", folder("A"));
+    expect(favs.of("a").map((f) => f.name)).toEqual(["B", "A"]);
   });
 });
 
@@ -57,7 +95,7 @@ describe("unstarring in the favourites block", () => {
     const { favs, saved } = make();
     favs.add("a", folder("A"));
     favs.add("a", folder("B"));
-    favs.toggle("a", folder("A"), true);
+    favs.toggle("a", folder("A"));
     // The star is empty at once; the row and its place stay.
     expect(favs.has("a", "A")).toBe(false);
     expect(favs.isLeaving("a", "A")).toBe(true);
@@ -73,9 +111,9 @@ describe("unstarring in the favourites block", () => {
   it("a second press while it fades cancels the removal entirely", () => {
     const { favs } = make();
     favs.add("a", folder("A"));
-    favs.toggle("a", folder("A"), true);
+    favs.toggle("a", folder("A"));
     vi.advanceTimersByTime(FADE_MS / 2);
-    favs.toggle("a", folder("A"), true);
+    favs.toggle("a", folder("A"));
     expect(favs.has("a", "A")).toBe(true);
     expect(favs.isLeaving("a", "A")).toBe(false);
     vi.advanceTimersByTime(FADE_MS * 3);
@@ -85,7 +123,7 @@ describe("unstarring in the favourites block", () => {
   it("the star in the tree follows the block, and restores the fading row", () => {
     const { favs } = make();
     favs.add("a", folder("A"));
-    favs.remove("a", "A", true);
+    favs.remove("a", "A");
     expect(favs.has("a", "A")).toBe(false);
     favs.toggle("a", folder("A"));
     expect(favs.has("a", "A")).toBe(true);
@@ -96,9 +134,9 @@ describe("unstarring in the favourites block", () => {
   it("several rows can go one after another", () => {
     const { favs } = make();
     for (const n of ["A", "B", "C"]) favs.add("a", folder(n));
-    favs.toggle("a", folder("A"), true);
+    favs.toggle("a", folder("A"));
     vi.advanceTimersByTime(FADE_MS);
-    favs.toggle("a", folder("B"), true);
+    favs.toggle("a", folder("B"));
     vi.advanceTimersByTime(FADE_MS);
     expect(favs.of("a").map((f) => f.name)).toEqual(["C"]);
   });
@@ -109,7 +147,7 @@ describe("unstarring in the favourites block", () => {
     favs.onleave = (_, name) => left.push(`${name}:${favs.of("a").length}`);
     favs.add("a", folder("A"));
     favs.add("a", folder("B"));
-    favs.remove("a", "A", true);
+    favs.remove("a", "A");
     vi.advanceTimersByTime(FADE_MS);
     expect(left).toEqual(["A:2"]);
   });

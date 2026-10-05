@@ -788,10 +788,24 @@ try {
       throw new Error("звёздочка не сброшена после меню");
 
     // Without favourites the mailbox folds whole again, as before.
-    // A removed row slides out of the block for 150 ms and the tree moves up under it: the
-    // next star is clicked once the row is gone, or the click lands on the row below.
-    for (const name of await favs()) {
+    // Unstarred in the tree, the folder's row in the block above stays and fades as well: the
+    // tree does not move under the pointer, the star is empty at once, a second press keeps it.
+    const top = (name) => d.exec(`return document.querySelector('${tree}[data-folder="' + arguments[0] + '"]').getBoundingClientRect().top`, name);
+    const pressedIn = (name) => d.exec(`return document.querySelector('${tree}[data-folder="' + arguments[0] + '"] .star').getAttribute('aria-pressed')`, name);
+    const leavingRow = (name) => d.exec(`return !!document.querySelector('nav.side .fav-row.leaving[data-folder="' + arguments[0] + '"]')`, name);
+    const rest = await favs();
+    const was = await top(rest[0]);
+    await d.click(await star(rest[0]));
+    if ((await top(rest[0])) !== was) throw new Error("дерево сдвинулось сразу после звёздочки");
+    if ((await pressedIn(rest[0])) !== "false" || !(await leavingRow(rest[0]))) throw new Error("строка в блоке не затухает, или звёздочка в дереве не сброшена");
+    await d.click(await star(rest[0]));
+    await new Promise((r) => setTimeout(r, 1200));
+    if (!(await favs()).includes(rest[0]) || (await pressedIn(rest[0])) !== "true") throw new Error("повторное нажатие в дереве не вернуло папку");
+    // The rows go after their pause, and then the tree moves up: the next star waits for it.
+    for (const name of rest) {
+      const at = await top(name);
       await d.click(await star(name));
+      if ((await top(name)) !== at) throw new Error(`дерево сдвинулось под «${name}»`);
       await d.until(`${name} out of the block`, async () => (await d.findAll(`nav.side .favs .fav-row[data-folder=${JSON.stringify(name)}]`)).length === 0);
     }
     await d.until("no favourites", async () => (await d.findAll("nav.side .fav-row")).length === 0);
