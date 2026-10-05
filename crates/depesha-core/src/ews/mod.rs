@@ -134,13 +134,14 @@ impl Session {
                 }
                 // SOAP faults come with 500.
                 500 => {
-                    let text = resp.text();
-                    let (code, message) = fault(&text);
-                    if code == "ErrorInvalidServerVersion" && self.version + 1 < VERSIONS.len() {
+                    let e = fault(&resp.text());
+                    if matches!(&e, Error::Ews { code, .. } if code == "ErrorInvalidServerVersion")
+                        && self.version + 1 < VERSIONS.len()
+                    {
                         self.version += 1;
                         continue;
                     }
-                    return Err(Error::Ews { code, message });
+                    return Err(e);
                 }
                 s @ (502..=504) => {
                     return Err(Error::Io(std::io::Error::other(tr!(
@@ -320,10 +321,14 @@ pub(crate) fn parse(text: &str) -> Result<Document<'_>> {
     Document::parse(text).map_err(|e| Error::Protocol(format!("EWS XML: {e}")))
 }
 
-/// `faultcode`/`ResponseCode` and the message of a SOAP fault.
-fn fault(text: &str) -> (String, String) {
+/// A SOAP fault as an error: `faultcode`/`ResponseCode`, its message and back-off.
+fn fault(text: &str) -> Error {
     let Ok(doc) = Document::parse(text) else {
-        return ("HTTP500".into(), text.chars().take(200).collect());
+        return Error::Ews {
+            code: "HTTP500".into(),
+            message: text.chars().take(200).collect(),
+            back_off: None,
+        };
     };
     let root = doc.root_element();
     let code = desc(root, "ResponseCode")
@@ -339,7 +344,23 @@ fn fault(text: &str) -> (String, String) {
         .unwrap_or_default()
         .trim()
         .to_owned();
-    (code, message)
+    Error::Ews {
+        code,
+        message,
+        back_off: back_off(root),
+    }
+}
+
+/// `BackOffMilliseconds` of the `MessageXml` a throttled request comes back with:
+/// how long Exchange wants the client to wait before the next request.
+fn back_off(n: Node) -> Option<std::time::Duration> {
+    n.descendants()
+        .find(|v| {
+            v.is_element() && v.tag_name().name() == "Value" && v.attribute("Name") == Some("BackOffMilliseconds")
+        })
+        .and_then(|v| v.text())
+        .and_then(|t| t.trim().parse().ok())
+        .map(std::time::Duration::from_millis)
 }
 
 /// Every `*ResponseMessage` of the answer, an error for those that failed.
@@ -350,6 +371,7 @@ pub(crate) fn responses<'a, 'i>(doc: &'a Document<'i>) -> Vec<Result<Node<'a, 'i
             Some("Error") => Err(Error::Ews {
                 code: text(n, "ResponseCode").unwrap_or("Error").to_owned(),
                 message: text(n, "MessageText").unwrap_or_default().to_owned(),
+                back_off: back_off(n),
             }),
             _ => Ok(n),
         })

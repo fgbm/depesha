@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::tls::CertProblem;
 use crate::tr;
 
@@ -35,10 +37,19 @@ pub enum Error {
     Protocol(String),
     NotFound,
     Parse,
-    /// Exchange Web Services refused a request: `ResponseCode` and `MessageText`.
+    /// Exchange Web Services refused a request: `ResponseCode` and `MessageText`;
+    /// `back_off` is the pause a throttled request (`ErrorServerBusy`) is asked to
+    /// keep, `BackOffMilliseconds` of its `MessageXml`.
     Ews {
         code: String,
         message: String,
+        back_off: Option<Duration>,
+    },
+    /// Exchange is busy and the mailbox's queue sends nothing for `wait`: `retrying`
+    /// when the queue repeats the request itself, otherwise the action was not done.
+    Busy {
+        wait: Duration,
+        retrying: bool,
     },
     /// The web server offers none of the login methods we speak (EWS without Basic).
     HttpAuth(String),
@@ -134,7 +145,25 @@ impl std::fmt::Display for Error {
                 "{host} is an address in a private network; Depesha does not send requests there from a letter",
                 "{host} — адрес во внутренней сети; по ссылке из письма Депеша туда не обращается"
             ),
-            Self::Ews { code, message } => ews_text(code, message),
+            Self::Ews {
+                code,
+                message,
+                back_off,
+            } => ews_text(code, message, *back_off),
+            Self::Busy { wait, retrying: true } => {
+                let n = seconds(*wait);
+                tr!(
+                    "the Exchange server is busy; the mailbox will try again in {n} s",
+                    "сервер Exchange занят; ящик повторит запрос через {n} с"
+                )
+            }
+            Self::Busy { wait, retrying: false } => {
+                let n = seconds(*wait);
+                tr!(
+                    "the Exchange server is busy; nothing was done, try again in {n} s",
+                    "сервер Exchange занят; ничего не сделано, повторите через {n} с"
+                )
+            }
             Self::HttpAuth(offered) => tr!(
                 "Exchange accepts only {offered} on EWS; Depesha signs in with Basic or NTLM. Ask the administrator \
                  to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true",
@@ -198,8 +227,24 @@ impl Error {
                     | "ErrorMailboxMoveInProgress"
                     | "ErrorBatchProcessingStopped"
             ),
+            Self::Busy { .. } => true,
             Self::Imap(async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost) => true,
             _ => false,
+        }
+    }
+
+    /// Exchange throttles the client (`ErrorServerBusy`): the connection is fine,
+    /// the next request must wait (`back_off`).
+    pub fn is_busy(&self) -> bool {
+        matches!(self, Self::Ews { code, .. } if code == "ErrorServerBusy")
+    }
+
+    /// The pause the server asked for before the next request, if it named one.
+    pub fn back_off(&self) -> Option<Duration> {
+        match self {
+            Self::Ews { back_off, .. } => *back_off,
+            Self::Busy { wait, .. } => Some(*wait),
+            _ => None,
         }
     }
 
@@ -288,13 +333,30 @@ fn io_text(e: &std::io::Error) -> String {
     }
 }
 
-fn ews_text(code: &str, message: &str) -> String {
+/// Whole seconds of a pause, rounded up: "0 s" would read as no pause.
+fn seconds(d: Duration) -> u64 {
+    d.as_millis().div_ceil(1000).max(1) as u64
+}
+
+fn ews_text(code: &str, message: &str, back_off: Option<Duration>) -> String {
     use crate::lang::pick;
+    if code == "ErrorServerBusy" {
+        // Whether and when the request is repeated is the caller's business (`Busy`).
+        return match back_off {
+            Some(d) => {
+                let n = seconds(d);
+                tr!(
+                    "the server is busy and asks to wait {n} s (Exchange: {code})",
+                    "сервер занят и просит подождать {n} с (Exchange: {code})"
+                )
+            }
+            None => tr!(
+                "the server is busy (Exchange: {code})",
+                "сервер занят (Exchange: {code})"
+            ),
+        };
+    }
     let explained = match code {
-        "ErrorServerBusy" => pick(
-            "the server is busy, will try again later",
-            "сервер занят, попробуем позже",
-        ),
         "ErrorItemNotFound" => pick("the message is no longer on the server", "письма уже нет на сервере"),
         "ErrorFolderNotFound" => pick("the folder is no longer on the server", "папки уже нет на сервере"),
         "ErrorMessageSizeExceeded" => pick(

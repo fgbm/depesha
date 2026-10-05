@@ -142,6 +142,8 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 } else {
                     (30_i64 << item.attempts.min(6)).min(1800)
                 };
+                // A throttled Exchange named its pause: not a moment sooner.
+                let delay = delay.max(e.back_off().map_or(0, |d| d.as_secs().min(1800) as i64 + 1));
                 state
                     .store
                     .outbox_retry_later(item.id, now + delay, &e.to_string(), !transient)?;

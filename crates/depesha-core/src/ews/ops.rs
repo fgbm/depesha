@@ -284,6 +284,7 @@ fn folder_id(store: &Store, account_id: &str, folder: &str) -> Result<String> {
     store.ews_folder_id(account_id, folder)?.ok_or_else(|| Error::Ews {
         code: "ErrorFolderNotFound".into(),
         message: folder.to_owned(),
+        back_off: None,
     })
 }
 

@@ -35,6 +35,20 @@ struct Mailbox {
     created: Vec<String>,
     /// Offer only Negotiate and NTLM, like Exchange with Basic switched off.
     windows_only: bool,
+    /// Throttling: the next requests get `ErrorServerBusy` as a SOAP fault, with
+    /// `BackOffMilliseconds` when given.
+    busy: Vec<Option<u64>>,
+    /// TCP connections accepted.
+    connections: usize,
+}
+
+fn busy_fault(back_off: Option<u64>) -> String {
+    let xml = back_off
+        .map(|ms| format!(r#"<t:MessageXml xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><t:Value Name="BackOffMilliseconds">{ms}</t:Value></t:MessageXml>"#))
+        .unwrap_or_default();
+    envelope(&format!(
+        r#"<s:Fault><faultcode xmlns:a="http://schemas.microsoft.com/exchange/services/2006/types">a:ErrorServerBusy</faultcode><faultstring xml:lang="en-US">The server cannot service this request right now. Try again later.</faultstring><detail><e:ResponseCode xmlns:e="http://schemas.microsoft.com/exchange/services/2006/errors">ErrorServerBusy</e:ResponseCode><e:Message xmlns:e="http://schemas.microsoft.com/exchange/services/2006/errors">The server cannot service this request right now. Try again later.</e:Message>{xml}</detail></s:Fault>"#
+    ))
 }
 
 type Shared = Arc<Mutex<Mailbox>>;
@@ -320,6 +334,7 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
         loop {
             let (stream, _) = listener.accept().await.unwrap();
             let mailbox = mailbox.clone();
+            mailbox.lock().unwrap().connections += 1;
             tokio::spawn(async move {
                 let (r, mut w) = stream.into_split();
                 let mut r = BufReader::new(r);
@@ -393,6 +408,9 @@ async fn fake_exchange(mailbox: Shared) -> u16 {
                             "WWW-Authenticate: Basic realm=\"mail.corp.ru\"\r\n".to_owned(),
                             String::new(),
                         )
+                    } else if !mailbox.lock().unwrap().busy.is_empty() {
+                        let back_off = mailbox.lock().unwrap().busy.remove(0);
+                        ("500 Internal Server Error", String::new(), busy_fault(back_off))
                     } else {
                         let text = String::from_utf8(body).unwrap();
                         let reply = handle(&mut mailbox.lock().unwrap(), &text);
@@ -448,6 +466,8 @@ async fn ews_mailbox_round_trip() {
         next_id: 100,
         created: Vec::new(),
         windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -634,4 +654,39 @@ async fn ews_mailbox_round_trip() {
     let photo = ews::user_photo(&mut s, "boss@corp.ru").await.unwrap();
     assert_eq!(photo.as_deref(), Some(&b"\xff\xd8\xffphoto"[..]));
     assert_eq!(ews::user_photo(&mut s, "stranger@example.com").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
+    let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+        items: Vec::new(),
+        next_id: 1,
+        created: Vec::new(),
+        windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
+    }));
+    let port = fake_exchange(mailbox.clone()).await;
+    let config = EwsConfig {
+        url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+        trusted_cert: None,
+    };
+    let creds = Credentials::new("CORP\\me", "secret");
+    let mut s = ews::connect(&config, &creds, "me@corp.ru").await.unwrap();
+    let store = Store::open_in_memory().unwrap();
+
+    mailbox.lock().unwrap().busy = vec![Some(2000), None];
+    let e = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap_err();
+    assert!(e.is_busy(), "{e:?}");
+    assert_eq!(e.back_off(), Some(Duration::from_secs(2)));
+    // Not a broken link and not a login error: the account is not paused for it.
+    assert_eq!(e.kind(), "network");
+    let e = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap_err();
+    assert!(e.is_busy());
+    assert_eq!(e.back_off(), None);
+
+    // The retry goes on the same connection: no new TCP connection, no new login.
+    let folders = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
+    assert!(folders.iter().any(|f| f.name == "INBOX"));
+    assert_eq!(mailbox.lock().unwrap().connections, 1);
 }
