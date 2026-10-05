@@ -11,6 +11,7 @@
 import base64
 import email.utils
 import imaplib
+import socket
 import sys
 import time
 
@@ -20,6 +21,8 @@ ME = "carol@local.test"
 
 def conn():
     c = imaplib.IMAP4(HOST, PORT)
+    # APPEND waits for "+" before the literal: with Nagle each message took 40 ms.
+    c.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     c.login(USER, PASSWORD)
     return c
 
