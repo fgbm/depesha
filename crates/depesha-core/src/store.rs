@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
-use crate::imap::{Flags, Folder, FolderRole};
+use crate::imap::{FlagChange, Flags, Folder, FolderRole};
 use crate::message::{Addr, Summary, Unsubscribe};
 use crate::query::SearchQuery;
 use crate::smtp::Draft;
@@ -361,6 +361,34 @@ pub struct NewMessage<'a> {
 
 pub struct Store {
     conn: Mutex<Connection>,
+    /// Flags changed here and not yet stored on the server: a sync in between
+    /// must not bring the old value back.
+    pending: Mutex<HashMap<(String, String, u32), PendingFlags>>,
+}
+
+/// Values the user set on one message, and how many changes still wait for the server.
+#[derive(Debug, Default)]
+struct PendingFlags {
+    seen: Option<bool>,
+    flagged: Option<bool>,
+    answered: Option<bool>,
+    waiting: u32,
+}
+
+impl PendingFlags {
+    fn set(&mut self, change: FlagChange) {
+        match change {
+            FlagChange::Seen(v) => self.seen = Some(v),
+            FlagChange::Flagged(v) => self.flagged = Some(v),
+            FlagChange::Answered(v) => self.answered = Some(v),
+        }
+    }
+
+    fn apply(&self, f: &mut Flags) {
+        f.seen = self.seen.unwrap_or(f.seen);
+        f.flagged = self.flagged.unwrap_or(f.flagged);
+        f.answered = self.answered.unwrap_or(f.answered);
+    }
 }
 
 impl Store {
@@ -424,7 +452,14 @@ impl Store {
             tx.execute_batch("PRAGMA user_version = 2")?;
             tx.commit()?;
         }
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            pending: Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn pending(&self) -> MutexGuard<'_, HashMap<(String, String, u32), PendingFlags>> {
+        self.pending.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn conn(&self) -> MutexGuard<'_, Connection> {
@@ -640,7 +675,60 @@ impl Store {
         Ok(id)
     }
 
+    /// Flags from the server. A change the user made here and the server has not
+    /// stored yet keeps its value: the server's is the one from before it.
     pub fn update_flags(&self, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
+        let flags: Vec<(u32, Flags)> = {
+            let pending = self.pending();
+            flags
+                .iter()
+                .map(|&(uid, mut f)| {
+                    if let Some(p) = pending.get(&(account_id.to_owned(), folder.to_owned(), uid)) {
+                        p.apply(&mut f);
+                    }
+                    (uid, f)
+                })
+                .collect()
+        };
+        self.write_flags(account_id, folder, &flags)
+    }
+
+    /// A flag changed by the user: cached at once and held against syncs until
+    /// `settle_flags` reports the server's answer.
+    pub fn change_flags(&self, account_id: &str, folder: &str, uids: &[u32], change: FlagChange) -> Result<usize> {
+        {
+            let mut pending = self.pending();
+            for &uid in uids {
+                let p = pending
+                    .entry((account_id.to_owned(), folder.to_owned(), uid))
+                    .or_default();
+                p.set(change);
+                p.waiting += 1;
+            }
+        }
+        let flags: Vec<(u32, Flags)> = uids
+            .iter()
+            .filter_map(|&uid| self.find_by_uid(account_id, folder, uid).ok().flatten())
+            .map(|r| (r.uid, r.flags))
+            .collect();
+        self.update_flags(account_id, folder, &flags)
+    }
+
+    /// The server answered one `change_flags`: syncs bring its flags again.
+    pub fn settle_flags(&self, account_id: &str, folder: &str, uids: &[u32]) {
+        let mut pending = self.pending();
+        for &uid in uids {
+            let key = (account_id.to_owned(), folder.to_owned(), uid);
+            if let Some(p) = pending.get_mut(&key) {
+                p.waiting = p.waiting.saturating_sub(1);
+                if p.waiting == 0 {
+                    pending.remove(&key);
+                }
+            }
+        }
+    }
+
+    fn write_flags(&self, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let mut changed = 0;
@@ -1902,6 +1990,42 @@ mod tests {
             },
         };
         store.insert_message("a", folder, &msg).unwrap()
+    }
+
+    #[test]
+    fn sync_keeps_flags_the_server_has_not_stored_yet() {
+        let store = mailbox();
+        let id = put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        let seen = |store: &Store| store.get(id).unwrap().unwrap().flags.seen;
+        let server = |seen| {
+            [(
+                7,
+                Flags {
+                    seen,
+                    ..Default::default()
+                },
+            )]
+        };
+
+        // Opened here; a sync from before the server stored \Seen does not unread it.
+        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+        assert!(seen(&store));
+        assert_eq!(store.update_flags("a", "INBOX", &server(false)).unwrap(), 0);
+        assert!(seen(&store));
+
+        // Two changes in flight: the later value holds until both are answered.
+        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(false)).unwrap();
+        store.settle_flags("a", "INBOX", &[7]);
+        store.update_flags("a", "INBOX", &server(true)).unwrap();
+        assert!(!seen(&store));
+
+        // All answered: the server is right again, other clients' changes included.
+        store.settle_flags("a", "INBOX", &[7]);
+        store.update_flags("a", "INBOX", &server(true)).unwrap();
+        assert!(seen(&store));
+        store.settle_flags("a", "INBOX", &[7]);
+        store.update_flags("a", "INBOX", &server(false)).unwrap();
+        assert!(!seen(&store));
     }
 
     #[test]

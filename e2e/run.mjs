@@ -778,6 +778,40 @@ try {
     }
   });
 
+  await step("1.4", "«Готово»: отметка «прочитано» у следующего письма не мигает, счётчик не растёт", async () => {
+    const [done, next] = ["Массовое письмо 602", "Массовое письмо 601"];
+    await invoke("set_flag", { ids: [await idOf(next)], change: { flag: "seen", value: false } });
+    await d.until("unread on server", async () => !helper("flags", "INBOX", next).includes("\\Seen"), 15000);
+    await openBySubject(done);
+    // The counter has caught up with the mark above before recording starts.
+    const unread = (await invoke("messages", { query: { role: "inbox", unread_only: true, limit: 50 } })).length;
+    await d.until("inbox counter", async () =>
+      Number(await d.exec("return [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Входящие')?.querySelector('.count')?.innerText ?? 0")) === unread);
+    // Every change of the next row and of the Inbox counter is recorded.
+    await d.exec(`
+      window.__flags = [];
+      const snap = () => {
+        const row = [...document.querySelectorAll('.list .row')].find((r) => r.querySelector('.subject')?.innerText.includes(arguments[0]));
+        const inbox = [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Входящие');
+        window.__flags.push({ unread: row ? row.classList.contains('unread') : null, count: Number(inbox?.querySelector('.count')?.innerText ?? 0) });
+      };
+      snap();
+      window.__flagsObserver = new MutationObserver(snap);
+      window.__flagsObserver.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });`, next);
+    await press("e");
+    await d.until(`${next} open`, async () => (await textOf(".reader h1")).includes(next), 10000);
+    await d.until(`${done} archived`, async () => helper("count", "Архив", done) === "1", 30000);
+    await d.until(`${next} read on server`, async () => helper("flags", "INBOX", next).includes("\\Seen"), 15000);
+    await new Promise((r) => setTimeout(r, 2000));
+    const snaps = await d.exec("window.__flagsObserver.disconnect(); return window.__flags;");
+    const states = snaps.map((s) => s.unread).filter((u) => u !== null);
+    const read = states.indexOf(false);
+    if (read < 0) throw new Error("следующее письмо не стало прочитанным");
+    if (states.indexOf(true, read) >= 0) throw new Error(`отметка вернулась в «не прочитано»: ${states.join(" ")}`);
+    const counts = snaps.map((s) => s.count);
+    if (counts.some((c, i) => i > 0 && c > counts[i - 1])) throw new Error(`счётчик «Входящих» рос: ${counts.join(" ")}`);
+  });
+
   await step("1", "«Готово» (e) убирает в архив, z возвращает", async () => {
     await openBySubject("Счёт на оплату");
     await press("e");

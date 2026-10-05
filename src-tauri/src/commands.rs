@@ -496,29 +496,26 @@ async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name:
 #[tauri::command]
 pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdResult<()> {
     for ((account_id, folder), uids) in group(&state, &ids)? {
-        // Local first so the list reacts at once; the next sync fixes it if the server refuses.
-        let flags: Vec<_> = uids
-            .iter()
-            .filter_map(|uid| state.store.find_by_uid(&account_id, &folder, *uid).ok().flatten())
-            .map(|r| {
-                let mut f = r.flags;
-                match change {
-                    FlagChange::Seen(v) => f.seen = v,
-                    FlagChange::Flagged(v) => f.flagged = v,
-                    FlagChange::Answered(v) => f.answered = v,
-                }
-                (r.uid, f)
-            })
-            .collect();
-        state.store.update_flags(&account_id, &folder, &flags)?;
+        let worker = state.worker(&account_id)?;
+        // Local first so the list reacts at once; syncs keep it until the server answers.
+        state.store.change_flags(&account_id, &folder, &uids, change)?;
         state.emit(
             "mail-changed",
             serde_json::json!({ "account_id": account_id, "folder": folder }),
         );
-        state
-            .worker(&account_id)?
-            .run(Work::SetFlag { folder, uids, change })
-            .await?;
+        let done = worker
+            .run(Work::SetFlag {
+                folder: folder.clone(),
+                uids: uids.clone(),
+                change,
+            })
+            .await;
+        state.store.settle_flags(&account_id, &folder, &uids);
+        if done.is_err() {
+            // Refused or not sent: the list shows the server's state again.
+            worker.kick(Work::SyncFolder(folder));
+        }
+        done?;
     }
     Ok(())
 }
