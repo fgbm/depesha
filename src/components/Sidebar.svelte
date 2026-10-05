@@ -23,11 +23,14 @@
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Activity from "@lucide/svelte/icons/activity";
+  import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
+  import ChevronsRight from "@lucide/svelte/icons/chevrons-right";
   import { app, type View } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { when } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
-  import { accountLabel, roleLabel } from "../lib/format";
+  import { accountLabel, initials, roleLabel } from "../lib/format";
+  import { layout } from "../lib/layout.svelte";
   import { unfolded, withChildren } from "../lib/folders";
   import { registry } from "../plugin-host/registry.svelte";
   import Popover from "./Popover.svelte";
@@ -171,6 +174,27 @@
     }
   }
 
+  /** The mailbox whose folders open beside the strip; a click opens them, hovering does not. */
+  let flyout = $state<string | null>(null);
+
+  // The full sidebar shows the folders itself: an open flyout does not come back with the strip.
+  $effect(() => {
+    if (!layout.strip) flyout = null;
+  });
+
+  function inboxUnread(acc: AccountView): number {
+    return app.folders.filter((f) => f.account_id === acc.id && f.role === "inbox").reduce((n, f) => n + f.unread, 0);
+  }
+
+  function accountInitials(acc: AccountView): string {
+    return initials({ name: acc.label?.trim() || acc.display_name?.trim() || acc.email.split("@")[0], email: acc.email });
+  }
+
+  /** A count on an icon: small, so big numbers are cut short. */
+  function badge(n: number): string {
+    return n > 99 ? "99+" : String(n);
+  }
+
   const outboxFailed = $derived(app.outbox.some((o) => o.failed));
   const tasksRunning = $derived(app.tasks.filter((x) => x.state === "running").length);
   const tasksFailed = $derived(app.tasks.some((x) => x.state === "failed"));
@@ -179,155 +203,279 @@
   );
 </script>
 
-<nav class="side">
-  <div class="brand" data-tauri-drag-region>
-    <img src="/icon.png" alt="" width="26" height="26" />
-    <span>{t("app.name")}</span>
-    {#if app.version}<span class="version" title={t("app.version", { version: app.version })}>{app.version}</span>{/if}
-  </div>
-
-  <button class="btn primary compose-btn" onclick={onCompose} title={t("compose.newHint")}><Pencil size={15} /> {t("compose.new")}</button>
-
-  <div class="scroll">
-    <div class="group">
-      {#each SMART as s (s.label)}
-        <button class="item" class:active={isActive(s.view)} onclick={() => app.setView(s.view)}>
-          <span class="icon"><s.icon size={16} /></span>
-          <span class="name">{s.label}</span>
-          {#if s.icon === Mails && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
-          {#if s.icon === FilePen && totalDrafts > 0}<span class="count quiet">{totalDrafts}</span>{/if}
-        </button>
-      {/each}
-      {#each registry.items("views") as pv (pv.id)}
-        {@const n = pv.count()}
-        {#if n > 0}
-          <button class="item" class:active={isActive({ kind: "plugin", id: pv.id })} onclick={() => app.setView({ kind: "plugin", id: pv.id })}>
-            <span class="icon"><pv.icon size={16} /></span>
-            <span class="name">{pv.title()}</span>
-            <span class="count quiet">{n}</span>
-          </button>
-        {/if}
-      {/each}
-      {#if app.outbox.length > 0}
-        <button class="item" class:active={isActive({ kind: "outbox" })} onclick={() => app.setView({ kind: "outbox" })}>
-          <span class="icon"><Hourglass size={16} /></span>
-          <span class="name">{t("nav.outbox")}</span>
-          <span class="count" class:alert={outboxFailed}>{app.outbox.length}</span>
-        </button>
+<!-- A folder of a mailbox, the same in the full sidebar and in the strip's flyout. -->
+{#snippet folderRows(acc: AccountView, picked?: () => void)}
+  {@const all = foldersOf(acc)}
+  {@const parents = withChildren(all)}
+  {#each unfolded(all, (name) => !!folded[`${acc.id}\u0000${name}`]) as f (f.name)}
+    {@const v = { kind: "folder", account_id: acc.id, folder: f.name } as View}
+    {@const Icon = f.role ? ROLE_ICON[f.role] : Folder}
+    <div class="folder-row">
+      {#if parents.has(f.name)}
+        {@const open = !folded[foldKey(f)]}
+        <!-- A triangle of its own: a click on the name still opens the folder. -->
+        <button
+          class="fold"
+          style:left="{depth(f) * 14}px"
+          onclick={() => fold(f)}
+          aria-expanded={open}
+          title={open ? t("sidebar.foldFolder") : t("sidebar.unfoldFolder")}
+          aria-label={`${open ? t("sidebar.foldFolder") : t("sidebar.unfoldFolder")}: ${label(f)}`}
+        >{#if open}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</button>
       {/if}
+      <button
+        class="item"
+        class:active={isActive(v)}
+        class:disabled={!f.selectable}
+        disabled={!f.selectable}
+        role={picked ? "menuitem" : undefined}
+        style:padding-left="{14 + depth(f) * 14}px"
+        onclick={() => {
+          picked?.();
+          app.setView(v);
+        }}
+        oncontextmenu={(e) => f.selectable && contextMenu(e, acc, f)}
+        title={f.display_name}
+      >
+        <span class="icon"><Icon size={16} /></span>
+        <span class="name">{label(f)}</span>
+        <!-- Drafts count all of them: a draft is not "unread". -->
+        {#if f.role === "drafts"}
+          {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
+        {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
+          <span class="count">{f.unread}</span>
+        {/if}
+      </button>
     </div>
+  {/each}
+{/snippet}
 
-    {#each app.accounts as acc (acc.id)}
-      <div class="group" class:collapsed={collapsed[acc.id]}>
-        <div class="account" class:open={menuFor === acc.id} class:collapsed={collapsed[acc.id]}>
-          <button class="account-name" onclick={() => toggle(acc.id)} oncontextmenu={(e) => contextMenu(e, acc, null)} title={acc.email}>
-            <span class="dot {acc.status?.state ?? 'connecting'}" style:--dot={app.accountColor(acc.id)} title={statusText(acc)}></span>
-            <span class="name">{accountLabel(acc)}</span>
-            <span class="chev"><ChevronRight size={13} /></span>
-          </button>
-          <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
-          <Popover bind:open={() => menuFor === acc.id, (v) => (menuFor = v ? acc.id : null)}>
-            <button class="mi" onclick={() => refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>
-            <button class="mi" onclick={() => { menuFor = null; app.accountSettings(acc); }}><Settings size={15} /> {t("account.settings")}</button>
-            <hr />
-            <button class="mi" onclick={() => { menuFor = null; app.openSettings("accounts"); }}><Inbox size={15} /> {t("accounts.manage")}</button>
-            <button class="mi" onclick={() => { menuFor = null; app.accountSettings(null); }}><Plus size={15} /> {t("account.add")}</button>
-          </Popover>
-        </div>
-        {#if acc.status && (acc.status.state === "error" || acc.status.state === "paused")}
-          <button class="problem" onclick={() => (acc.status?.state === "paused" ? app.accountSettings(acc) : refresh(acc))}>
-            {statusText(acc)}
-            <span class="fix">{acc.status.state === "paused" ? t("account.fix") : t("retry")}</span>
-          </button>
-        {/if}
-        {#if !collapsed[acc.id]}
-          {@const all = foldersOf(acc)}
-          {@const parents = withChildren(all)}
-          {#each unfolded(all, (name) => !!folded[`${acc.id}\u0000${name}`]) as f (f.name)}
-            {@const v = { kind: "folder", account_id: acc.id, folder: f.name } as View}
-            {@const Icon = f.role ? ROLE_ICON[f.role] : Folder}
-            <div class="folder-row">
-              {#if parents.has(f.name)}
-                {@const open = !folded[foldKey(f)]}
-                <!-- A triangle of its own: a click on the name still opens the folder. -->
-                <button
-                  class="fold"
-                  style:left="{depth(f) * 14}px"
-                  onclick={() => fold(f)}
-                  aria-expanded={open}
-                  title={open ? t("sidebar.foldFolder") : t("sidebar.unfoldFolder")}
-                  aria-label={`${open ? t("sidebar.foldFolder") : t("sidebar.unfoldFolder")}: ${label(f)}`}
-                >{#if open}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</button>
-              {/if}
-              <button
-                class="item"
-                class:active={isActive(v)}
-                class:disabled={!f.selectable}
-                disabled={!f.selectable}
-                style:padding-left="{14 + depth(f) * 14}px"
-                onclick={() => app.setView(v)}
-                oncontextmenu={(e) => f.selectable && contextMenu(e, acc, f)}
-                title={f.display_name}
-              >
-                <span class="icon"><Icon size={16} /></span>
-                <span class="name">{label(f)}</span>
-                <!-- Drafts count all of them: a draft is not "unread". -->
-                {#if f.role === "drafts"}
-                  {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
-                {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
-                  <span class="count">{f.unread}</span>
-                {/if}
-              </button>
-            </div>
-          {/each}
-        {/if}
-      </div>
-    {/each}
+{#snippet problem(acc: AccountView, picked?: () => void)}
+  {#if acc.status && (acc.status.state === "error" || acc.status.state === "paused")}
+    <button
+      class="problem"
+      role={picked ? "menuitem" : undefined}
+      onclick={() => {
+        picked?.();
+        if (acc.status?.state === "paused") app.accountSettings(acc);
+        else refresh(acc);
+      }}
+    >
+      {statusText(acc)}
+      <span class="fix">{acc.status.state === "paused" ? t("account.fix") : t("retry")}</span>
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet dndButton(align: "left" | "right")}
+  <div class="dnd-wrap">
+    <button
+      class="foot-btn"
+      class:on={dnd}
+      onclick={() => (dnd ? setDnd(0) : (dndMenu = !dndMenu))}
+      title={dnd ? t("dnd.until", { when: when(app.settings.dnd_until) }) : t("dnd.title")}
+      aria-label={t("dnd.title")}
+    >
+      {#if dnd}<BellOff size={16} />{:else}<Bell size={16} />{/if}
+    </button>
+    <Popover bind:open={dndMenu} {align}>
+      <div class="mt">{t("dnd.title")}</div>
+      {#each dndOptions() as o (o.label)}<button class="mi" onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
+    </Popover>
   </div>
+{/snippet}
 
+{#snippet menus()}
   {#if folderMenu}
     {#key folderMenu}<FolderMenu at={folderMenu.at} account={folderMenu.account} folder={folderMenu.folder} onclose={() => (folderMenu = null)} />{/key}
   {/if}
+{/snippet}
 
-  {#if app.update && ["available", "downloading", "ready", "installed"].includes(app.update.state)}
-    {@const u = app.update}
-    <div class="update">
-      {#if u.state === "installed" || u.state === "ready"}
-        <span>{t("update.ready", { version: u.version ?? "" })}</span>
-        <button class="btn primary" onclick={() => app.restartForUpdate()}><RotateCw size={14} /> {t("update.restart")}</button>
-      {:else if u.state === "downloading"}
-        <span>{t("update.downloading", { version: u.version ?? "" })}</span>
+{#snippet tasksButton()}
+  <button class="foot-btn tasks-btn" class:busy={tasksRunning > 0} class:failed={tasksFailed} onclick={() => (app.tasksOpen = true)} title={tasksTitle} aria-label={t("tasks.title")}>
+    <span class="idle"><Activity size={16} /></span>
+    {#if tasksRunning > 0}<span class="spin"><RotateCw size={16} /></span>{/if}
+  </button>
+{/snippet}
+
+{#if layout.strip}
+  <!-- The folded sidebar: the same sections as icons, a circle per mailbox with its folders beside it. -->
+  <nav class="side strip">
+    <div class="brand" data-tauri-drag-region>
+      <img src="/icon.png" alt="" width="26" height="26" />
+    </div>
+
+    <button class="btn primary tile-compose" onclick={onCompose} title={t("compose.newHint")} aria-label={t("compose.new")}><Pencil size={16} /></button>
+
+    <div class="scroll">
+      <div class="tiles">
+        {#each SMART as s (s.label)}
+          <button class="tile" class:active={isActive(s.view)} onclick={() => app.setView(s.view)} title={s.label} aria-label={s.label}>
+            <s.icon size={18} />
+            {#if s.icon === Mails && totalUnread > 0}<span class="badge">{badge(totalUnread)}</span>{/if}
+            {#if s.icon === FilePen && totalDrafts > 0}<span class="badge quiet">{badge(totalDrafts)}</span>{/if}
+          </button>
+        {/each}
+        {#each registry.items("views") as pv (pv.id)}
+          {@const n = pv.count()}
+          {#if n > 0}
+            <button class="tile" class:active={isActive({ kind: "plugin", id: pv.id })} onclick={() => app.setView({ kind: "plugin", id: pv.id })} title={pv.title()} aria-label={pv.title()}>
+              <pv.icon size={18} />
+              <span class="badge quiet">{badge(n)}</span>
+            </button>
+          {/if}
+        {/each}
+        {#if app.outbox.length > 0}
+          <button class="tile" class:active={isActive({ kind: "outbox" })} onclick={() => app.setView({ kind: "outbox" })} title={t("nav.outbox")} aria-label={t("nav.outbox")}>
+            <Hourglass size={18} />
+            <span class="badge" class:alert={outboxFailed}>{badge(app.outbox.length)}</span>
+          </button>
+        {/if}
+      </div>
+
+      <div class="circles">
+        {#each app.accounts as acc (acc.id)}
+          {@const unread = inboxUnread(acc)}
+          {@const state = acc.status?.state ?? "connecting"}
+          <div class="circle-wrap">
+            <button
+              class="circle"
+              class:open={flyout === acc.id}
+              class:current={app.view.kind === "folder" && app.view.account_id === acc.id}
+              style:--acc={app.accountColor(acc.id)}
+              onclick={() => (flyout = flyout === acc.id ? null : acc.id)}
+              oncontextmenu={(e) => contextMenu(e, acc, null)}
+              title={`${accountLabel(acc)} · ${statusText(acc)}`}
+              aria-label={accountLabel(acc)}
+              aria-haspopup="menu"
+              aria-expanded={flyout === acc.id}
+            >
+              {accountInitials(acc)}
+              <span class="status {state}"></span>
+              {#if unread > 0}<span class="badge">{badge(unread)}</span>{/if}
+            </button>
+            <Popover bind:open={() => flyout === acc.id, (v) => (flyout = v ? acc.id : null)} beside tone="side">
+              <div class="fly-head" oncontextmenu={(e) => contextMenu(e, acc, null)} role="presentation">
+                <span class="dot {state}" style:--dot={app.accountColor(acc.id)} title={statusText(acc)}></span>
+                <span class="fly-name">{accountLabel(acc)}</span>
+              </div>
+              {#if acc.label?.trim()}<div class="fly-mail">{acc.email}</div>{/if}
+              {@render problem(acc, () => (flyout = null))}
+              <div class="fly-folders">{@render folderRows(acc, () => (flyout = null))}</div>
+            </Popover>
+          </div>
+        {/each}
+      </div>
+    </div>
+
+    {#if app.update && ["available", "ready", "installed"].includes(app.update.state)}
+      {@const u = app.update}
+      {#if u.state === "available"}
+        <button class="tile update-tile" onclick={() => app.installUpdate()} title={t("update.available", { version: u.version ?? "" })} aria-label={t("update.install")}><Download size={18} /></button>
       {:else}
-        <span>{t("update.available", { version: u.version ?? "" })}</span>
-        <button class="btn primary" onclick={() => app.installUpdate()}><Download size={14} /> {t("update.install")}</button>
+        <button class="tile update-tile" onclick={() => app.restartForUpdate()} title={t("update.ready", { version: u.version ?? "" })} aria-label={t("update.restart")}><RotateCw size={18} /></button>
       {/if}
-    </div>
-  {/if}
+    {/if}
 
-  <div class="foot">
-    <button class="btn ghost settings" onclick={() => app.openSettings()}><Settings size={15} /> {t("settings.title")}</button>
-    <span class="spacer"></span>
-    <div class="dnd-wrap">
-      <button
-        class="foot-btn"
-        class:on={dnd}
-        onclick={() => (dnd ? setDnd(0) : (dndMenu = !dndMenu))}
-        title={dnd ? t("dnd.until", { when: when(app.settings.dnd_until) }) : t("dnd.title")}
-        aria-label={t("dnd.title")}
-      >
-        {#if dnd}<BellOff size={16} />{:else}<Bell size={16} />{/if}
-      </button>
-      <Popover bind:open={dndMenu} align="left">
-        <div class="mt">{t("dnd.title")}</div>
-        {#each dndOptions() as o (o.label)}<button class="mi" onclick={() => setDnd(o.until)}>{o.label}</button>{/each}
-      </Popover>
+    <div class="strip-foot">
+      <button class="foot-btn" onclick={() => layout.toggleSidebar()} title={t("sidebar.unfold")} aria-label={t("sidebar.unfold")}><ChevronsRight size={16} /></button>
+      {@render dndButton("left")}
+      {@render tasksButton()}
+      <button class="foot-btn" onclick={() => app.openSettings()} title={t("settings.title")} aria-label={t("settings.title")}><Settings size={16} /></button>
     </div>
-    <button class="foot-btn tasks-btn" class:busy={tasksRunning > 0} class:failed={tasksFailed} onclick={() => (app.tasksOpen = true)} title={tasksTitle} aria-label={t("tasks.title")}>
-      <span class="idle"><Activity size={16} /></span>
-      {#if tasksRunning > 0}<span class="spin"><RotateCw size={16} /></span>{/if}
-    </button>
-  </div>
-</nav>
+    {@render menus()}
+  </nav>
+{:else}
+  <nav class="side">
+    <div class="brand" data-tauri-drag-region>
+      <img src="/icon.png" alt="" width="26" height="26" />
+      <span>{t("app.name")}</span>
+      {#if app.version}<span class="version" title={t("app.version", { version: app.version })}>{app.version}</span>{/if}
+      <span class="spacer"></span>
+      <button class="fold-side" onclick={() => layout.toggleSidebar()} title={t("sidebar.fold")} aria-label={t("sidebar.fold")}><ChevronsLeft size={14} /></button>
+    </div>
+
+    <button class="btn primary compose-btn" onclick={onCompose} title={t("compose.newHint")}><Pencil size={15} /> {t("compose.new")}</button>
+
+    <div class="scroll">
+      <div class="group">
+        {#each SMART as s (s.label)}
+          <button class="item" class:active={isActive(s.view)} onclick={() => app.setView(s.view)}>
+            <span class="icon"><s.icon size={16} /></span>
+            <span class="name">{s.label}</span>
+            {#if s.icon === Mails && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
+            {#if s.icon === FilePen && totalDrafts > 0}<span class="count quiet">{totalDrafts}</span>{/if}
+          </button>
+        {/each}
+        {#each registry.items("views") as pv (pv.id)}
+          {@const n = pv.count()}
+          {#if n > 0}
+            <button class="item" class:active={isActive({ kind: "plugin", id: pv.id })} onclick={() => app.setView({ kind: "plugin", id: pv.id })}>
+              <span class="icon"><pv.icon size={16} /></span>
+              <span class="name">{pv.title()}</span>
+              <span class="count quiet">{n}</span>
+            </button>
+          {/if}
+        {/each}
+        {#if app.outbox.length > 0}
+          <button class="item" class:active={isActive({ kind: "outbox" })} onclick={() => app.setView({ kind: "outbox" })}>
+            <span class="icon"><Hourglass size={16} /></span>
+            <span class="name">{t("nav.outbox")}</span>
+            <span class="count" class:alert={outboxFailed}>{app.outbox.length}</span>
+          </button>
+        {/if}
+      </div>
+
+      {#each app.accounts as acc (acc.id)}
+        <div class="group" class:collapsed={collapsed[acc.id]}>
+          <div class="account" class:open={menuFor === acc.id} class:collapsed={collapsed[acc.id]}>
+            <button class="account-name" onclick={() => toggle(acc.id)} oncontextmenu={(e) => contextMenu(e, acc, null)} title={acc.email}>
+              <span class="dot {acc.status?.state ?? 'connecting'}" style:--dot={app.accountColor(acc.id)} title={statusText(acc)}></span>
+              <span class="name">{accountLabel(acc)}</span>
+              <span class="chev"><ChevronRight size={13} /></span>
+            </button>
+            <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
+            <Popover bind:open={() => menuFor === acc.id, (v) => (menuFor = v ? acc.id : null)}>
+              <button class="mi" onclick={() => refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>
+              <button class="mi" onclick={() => { menuFor = null; app.accountSettings(acc); }}><Settings size={15} /> {t("account.settings")}</button>
+              <hr />
+              <button class="mi" onclick={() => { menuFor = null; app.openSettings("accounts"); }}><Inbox size={15} /> {t("accounts.manage")}</button>
+              <button class="mi" onclick={() => { menuFor = null; app.accountSettings(null); }}><Plus size={15} /> {t("account.add")}</button>
+            </Popover>
+          </div>
+          {@render problem(acc)}
+          {#if !collapsed[acc.id]}
+            {@render folderRows(acc)}
+          {/if}
+        </div>
+      {/each}
+    </div>
+
+    {#if app.update && ["available", "downloading", "ready", "installed"].includes(app.update.state)}
+      {@const u = app.update}
+      <div class="update">
+        {#if u.state === "installed" || u.state === "ready"}
+          <span>{t("update.ready", { version: u.version ?? "" })}</span>
+          <button class="btn primary" onclick={() => app.restartForUpdate()}><RotateCw size={14} /> {t("update.restart")}</button>
+        {:else if u.state === "downloading"}
+          <span>{t("update.downloading", { version: u.version ?? "" })}</span>
+        {:else}
+          <span>{t("update.available", { version: u.version ?? "" })}</span>
+          <button class="btn primary" onclick={() => app.installUpdate()}><Download size={14} /> {t("update.install")}</button>
+        {/if}
+      </div>
+    {/if}
+
+    <div class="foot">
+      <button class="btn ghost settings" onclick={() => app.openSettings()}><Settings size={15} /> {t("settings.title")}</button>
+      <span class="spacer"></span>
+      {@render dndButton("left")}
+      {@render tasksButton()}
+    </div>
+    {@render menus()}
+  </nav>
+{/if}
+
 
 <style>
   .side {
@@ -361,8 +509,27 @@
   }
 
   /* Drag the window by the logo and name too: the drag region only counts direct hits on itself. */
-  .brand > :global(*) {
+  .brand > :global(*:not(button)) {
     pointer-events: none;
+  }
+
+  /* «: quiet, as the version beside it; the panel folds into the strip. */
+  .fold-side {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--side-ink) 18%, transparent);
+    border-radius: 5px;
+    background: none;
+    color: var(--side-muted);
+  }
+
+  .fold-side:hover {
+    color: var(--side-ink);
+    background: var(--side-2);
   }
 
   .compose-btn {
@@ -701,6 +868,212 @@
     .tasks-btn.busy .spin {
       animation: appear 0s 0.6s forwards;
     }
+  }
+
+  /* The strip: the sidebar folded into a column of icons. */
+  .strip {
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .strip .brand {
+    justify-content: center;
+    padding: 14px 0 8px;
+    align-self: stretch;
+  }
+
+  .tile-compose {
+    width: 38px;
+    height: 36px;
+    padding: 0;
+    margin: 6px 0 10px;
+    justify-content: center;
+    flex: none;
+  }
+
+  .strip .scroll {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* No scrollbar eating the narrow column; the wheel and the keyboard still scroll it. */
+    scrollbar-width: none;
+  }
+
+  .tiles,
+  .circles {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+  }
+
+  .circles {
+    gap: 10px;
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, transparent);
+  }
+
+  .tile {
+    position: relative;
+    flex: none;
+    width: 38px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: var(--side-ink);
+    opacity: 0.85;
+  }
+
+  .tile:hover {
+    background: var(--side-2);
+    opacity: 1;
+  }
+
+  .tile.active {
+    background: var(--side-2);
+    opacity: 1;
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .update-tile {
+    margin-bottom: 4px;
+    color: var(--accent-ink);
+    background: var(--accent);
+    opacity: 1;
+  }
+
+  .update-tile:hover {
+    background: var(--accent);
+    filter: brightness(1.1);
+  }
+
+  /* A count on an icon, in its upper right corner. */
+  .badge {
+    position: absolute;
+    top: -3px;
+    right: -5px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 9px;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 17px;
+    text-align: center;
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: 0 0 0 2px var(--side);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .badge.quiet {
+    background: color-mix(in srgb, var(--side-ink) 22%, var(--side));
+    color: var(--side-ink);
+    font-weight: 600;
+  }
+
+  .circle-wrap {
+    position: relative;
+  }
+
+  /* A mailbox: its colour and initials; how it is connected is the dot at the bottom. */
+  .circle {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--acc);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .circle:hover,
+  .circle.open {
+    box-shadow:
+      0 0 0 2px var(--side),
+      0 0 0 4px color-mix(in srgb, var(--side-ink) 45%, transparent);
+  }
+
+  .circle.current:not(.open) {
+    box-shadow:
+      0 0 0 2px var(--side),
+      0 0 0 4px var(--accent);
+  }
+
+  .status {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--side-muted);
+    box-shadow: 0 0 0 2px var(--side);
+  }
+
+  .status.online {
+    background: var(--ok);
+  }
+
+  .status.error,
+  .status.paused {
+    background: var(--accent);
+  }
+
+  .strip-foot {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 0 10px;
+  }
+
+  /* The flyout beside the strip: the mailbox's folders, as in the full sidebar. */
+  .fly-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 2px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--side-muted);
+  }
+
+  .fly-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .fly-mail {
+    padding: 0 10px 6px 26px;
+    font-size: 12px;
+    color: var(--side-muted);
+  }
+
+  .fly-folders {
+    min-width: 220px;
+    padding-top: 4px;
+  }
+
+  .fly-folders .item {
+    border-radius: 5px;
   }
 
   .settings {

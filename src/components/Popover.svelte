@@ -7,6 +7,8 @@
     matchWidth = false,
     role = "menu",
     at = null,
+    beside = false,
+    tone = "paper",
     children,
   }: {
     open: boolean;
@@ -15,6 +17,10 @@
     role?: "menu" | "listbox";
     /** A context menu: opens at this point of the window instead of under its parent. */
     at?: { x: number; y: number } | null;
+    /** To the right of its parent, level with it (a flyout from the sidebar strip). */
+    beside?: boolean;
+    /** "side": in the sidebar's colours, as a part of it. */
+    tone?: "paper" | "side";
     children: Snippet;
   } = $props();
 
@@ -33,6 +39,12 @@
     const gap = at ? 0 : GAP;
     const w = box.offsetWidth;
     const h = box.scrollHeight;
+    if (beside) {
+      const maxHeight = window.innerHeight - 2 * MARGIN;
+      const top = Math.max(MARGIN, Math.min(r.top - GAP, window.innerHeight - MARGIN - Math.min(h, maxHeight)));
+      pos = { left: Math.min(r.right + GAP, window.innerWidth - w - MARGIN), top, maxHeight, minWidth: 0 };
+      return;
+    }
     const below = window.innerHeight - r.bottom - gap - MARGIN;
     const above = r.top - gap - MARGIN;
     const down = h <= below || below >= above;
@@ -71,7 +83,7 @@
   }
 
   function items(): HTMLElement[] {
-    return box ? [...box.querySelectorAll<HTMLElement>("button.mi:not(:disabled)")] : [];
+    return box ? [...box.querySelectorAll<HTMLElement>("button.mi:not(:disabled), button[role='menuitem']:not(:disabled)")] : [];
   }
 
   // Capture: the menu gets Escape before the dialog it sits in would close.
@@ -117,6 +129,7 @@
 {#if open}
   <div
     class="pop"
+    class:side={tone === "side"}
     bind:this={box}
     {role}
     style:left={pos ? `${pos.left}px` : "0"}
@@ -148,6 +161,13 @@
     text-align: left;
     font-size: 14px;
     font-weight: 400;
+  }
+
+  .pop.side {
+    background: var(--side);
+    color: var(--side-ink);
+    border-color: color-mix(in srgb, var(--side-ink) 14%, transparent);
+    box-shadow: 0 10px 28px rgb(0 0 0 / 32%);
   }
 
   .pop :global(button.mi) {

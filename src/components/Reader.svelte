@@ -19,6 +19,11 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import ImageOff from "@lucide/svelte/icons/image-off";
   import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
+  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
+  import ChevronUp from "@lucide/svelte/icons/chevron-up";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import { layout } from "../lib/layout.svelte";
+  import { viewTitle } from "../lib/titles";
   import { app } from "../lib/store.svelte";
   import { api, asError } from "../lib/api";
   import { accountLabel, addrFull, addrName, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
@@ -85,6 +90,8 @@
     return all.to.length + all.cc.length > one.to.length + one.cc.length;
   });
   const bulk = $derived(app.selected.size > 1);
+  /** The letter with its toolbar is on screen, not a placeholder or an error. */
+  const showsLetter = $derived(!bulk && !app.openError && !showOpening && !(app.opening && !msg) && !!msg);
   const bulkAccount = $derived.by(() => {
     const ids = [...app.selected];
     const accs = new Set(app.messages.filter((m) => ids.includes(m.id)).map((m) => m.account_id));
@@ -332,7 +339,22 @@
   });
 </script>
 
+<!-- A narrow window shows the letter instead of the list: the way back and to the neighbours. -->
+{#snippet nav()}
+  {#if layout.single && app.windowOf === null}
+    {@const list = viewTitle(app.view)}
+    <button class="btn back" onclick={() => layout.showList()} title={t("nav.backHint", { list })} aria-label={t("nav.back", { list })}>
+      <ChevronLeft size={16} /><span class="back-lbl">{list}</span>
+    </button>
+    <button class="btn ghost icon" onclick={() => app.move(-1)} title={t("nav.prevHint")} aria-label={t("nav.prev")}><ChevronUp size={16} /></button>
+    <button class="btn ghost icon" onclick={() => app.move(1)} title={t("nav.nextHint")} aria-label={t("nav.next")}><ChevronDown size={16} /></button>
+  {/if}
+{/snippet}
+
 <section class="reader">
+  {#if layout.single && app.windowOf === null && !showsLetter}
+    <div class="toolbar compact" data-tauri-drag-region>{@render nav()}</div>
+  {/if}
   {#if bulk}
     <div class="center">
       <h3>{t("bulk.selected", { n: app.selected.size })}</h3>
@@ -384,7 +406,8 @@
       {/if}
     </div>
   {:else if msg}
-    <div class="toolbar" data-tauri-drag-region>
+    <div class="toolbar" class:compact={layout.single && app.windowOf === null} data-tauri-drag-region>
+      {@render nav()}
       {#if isDraft}
         <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
       {/if}
@@ -732,6 +755,32 @@
   .anchor {
     position: relative;
     display: inline-flex;
+  }
+
+  /* The list's name, as much of it as fits: the button gives way before the actions wrap. */
+  .back {
+    /* Grows first, up to its whole name; the spacer takes the rest. */
+    flex: 100 1 36px;
+    min-width: 36px;
+    max-width: max-content;
+    overflow: hidden;
+  }
+
+  .back :global(svg) {
+    flex: none;
+  }
+
+  .back-lbl {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A narrow window: the way back and the neighbours come first, the actions keep only their icons. */
+  .toolbar.compact :global(.lbl),
+  .toolbar.compact :global(.lbl2) {
+    display: none;
   }
 
   /* A narrow reader keeps one toolbar row: secondary labels go, tooltips stay. */

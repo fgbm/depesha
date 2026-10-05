@@ -7,11 +7,20 @@
   import ViewMenu from "./ViewMenu.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowTag } from "../plugin-api";
-  import { accountLabel, addrName, listDate, roleLabel } from "../lib/format";
+  import { addrName, listDate } from "../lib/format";
+  import { layout } from "../lib/layout.svelte";
+  import { viewTitle } from "../lib/titles";
   import { i18n, t, tn } from "../lib/i18n.svelte";
   import type { Addr, MessageRow } from "../lib/types";
 
-  let { searchInput = $bindable() }: { searchInput: HTMLInputElement | null } = $props();
+  let {
+    searchInput = $bindable(),
+    edge = false,
+  }: {
+    searchInput: HTMLInputElement | null;
+    /** The rightmost column (a narrow window): the header leaves room for the window buttons. */
+    edge?: boolean;
+  } = $props();
 
 
   const pluginView = $derived(app.view.kind === "plugin" ? registry.view(app.view.id) : undefined);
@@ -35,19 +44,7 @@
   const end = $derived(Math.min(app.messages.length, Math.ceil((scrollTop + height) / ROW) + OVERSCAN));
   const visible = $derived(app.messages.slice(start, end));
 
-  const title = $derived.by(() => {
-    const v = app.view;
-    if (v.kind === "search") return t("search.title");
-    if (v.kind === "plugin") return pluginView?.title() ?? "";
-    if (v.kind === "unified") return v.unread ? t("nav.unread") : v.flagged ? t("nav.flagged") : t("nav.allInboxes");
-    if (v.kind === "folder") {
-      const f = app.folder(v.account_id, v.folder);
-      const acc = app.account(v.account_id);
-      const name = f?.role ? roleLabel(f.role) : (f?.display_name ?? v.folder);
-      return `${name}${app.accounts.length > 1 && acc ? ` · ${accountLabel(acc)}` : ""}`;
-    }
-    return "";
-  });
+  const title = $derived(viewTitle(app.view));
 
   const count = $derived(tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` }));
 
@@ -82,7 +79,10 @@
   }
 
   function click(e: MouseEvent, m: MessageRow) {
-    app.select(m.id, e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "single");
+    const mode = e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "single";
+    // A plain click opens the letter; in a narrow window it takes the column.
+    if (mode === "single") layout.showLetter();
+    app.select(m.id, mode);
   }
 
   let menu = $state<{ at: { x: number; y: number }; ids: number[] } | null>(null);
@@ -139,7 +139,7 @@
 <section class="list" data-count={count}>
   <!-- Work on the server after a click (move, flag, search) shows here, so a click never looks ignored. -->
   {#if app.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
-  <header data-tauri-drag-region class:scrolled={scrollTop > 0}>
+  <header data-tauri-drag-region class:scrolled={scrollTop > 0} class:edge>
     <div class="search">
       <input
         class="input"
@@ -285,6 +285,11 @@
 
   header.scrolled {
     border-bottom-color: var(--line);
+  }
+
+  /* The right edge stays clear for the window controls (WindowControls.svelte). */
+  header.edge .search {
+    margin-right: 132px;
   }
 
   .search {

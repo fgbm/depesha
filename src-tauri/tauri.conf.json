@@ -16,7 +16,7 @@
         "title": "Депеша",
         "width": 1280,
         "height": 820,
-        "minWidth": 900,
+        "minWidth": 520,
         "minHeight": 560,
         "decorations": false,
         "dragDropEnabled": true

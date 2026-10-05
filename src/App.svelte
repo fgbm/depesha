@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { app } from "./lib/store.svelte";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import { keyNames, shortcutKeys } from "./lib/keys";
+  import { layout } from "./lib/layout.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import MessageList from "./components/MessageList.svelte";
   import Reader from "./components/Reader.svelte";
@@ -20,29 +21,38 @@
 
   let searchInput = $state<HTMLInputElement | null>(null);
 
-  // Pane widths, remembered between launches.
-  const saved = JSON.parse(localStorage.getItem("depesha.panes") ?? "{}");
-  let side = $state<number>(saved.side ?? 248);
-  let list = $state<number>(saved.list ?? 380);
+  // The width decides the layout from the first paint.
+  layout.resize(window.innerWidth);
 
+  /** Dragging a hairline: column widths, remembered between launches; the sidebar's snaps into the strip. */
   function drag(which: "side" | "list", e: PointerEvent) {
     const startX = e.clientX;
-    const start = which === "side" ? side : list;
+    const start = which === "side" ? layout.sideWidth : layout.listWidth;
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
     const move = (ev: PointerEvent) => {
       const w = start + ev.clientX - startX;
-      if (which === "side") side = Math.min(420, Math.max(180, w));
-      else list = Math.min(760, Math.max(280, w));
+      if (which === "side") layout.dragSide(w);
+      else layout.dragList(w);
     };
     const up = () => {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", up);
-      localStorage.setItem("depesha.panes", JSON.stringify({ side, list }));
+      layout.save();
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
   }
+
+  /** A letter (or its error, or one being opened) to show; several selected rows are not one. */
+  const hasLetter = $derived(app.selected.size <= 1 && !!(app.opened || app.opening || app.openError));
+  const column = $derived(layout.single ? layout.column(hasLetter) : null);
+
+  // Another list starts on the list in a narrow window.
+  $effect(() => {
+    void app.view;
+    untrack(() => layout.showList());
+  });
 
   onMount(() => {
     app.init().catch((e) => app.fail(e, t("startup")));
@@ -100,6 +110,13 @@
       return;
     }
     if (e.altKey) return;
+    // A narrow window shows the list or the letter: Enter opens the selected one, Esc goes back.
+    // Keys a viewer or a menu took already, and Enter on a focused button, are not theirs.
+    const onButton = !!t?.closest?.("button, a");
+    if (!e.defaultPrevented && ((e.key === "Enter" && !onButton && layout.enter(app.selected.size)) || (e.key === "Escape" && layout.back(hasLetter)))) {
+      e.preventDefault();
+      return;
+    }
     const actions: Record<string, () => void> = {
       j: () => app.move(1),
       ArrowDown: () => app.move(1),
@@ -137,20 +154,32 @@
   });
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onresize={() => layout.resize(window.innerWidth)} />
 
 <div
   class="layout"
-  style:grid-template-columns={app.view.kind === "outbox" ? `${side}px 1fr` : `${side}px 1px ${list}px 1px 1fr`}
+  class:single={layout.single}
+  style:grid-template-columns={app.view.kind === "outbox"
+    ? `${layout.sideWidth}px 1fr`
+    : layout.single
+      ? `${layout.sideWidth}px 1px 1fr`
+      : `${layout.sideWidth}px 1px ${layout.listWidth}px 1px 1fr`}
 >
   <Sidebar onCompose={() => app.newMessage()} />
   {#if app.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
   {:else}
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
-    <MessageList bind:searchInput />
-    <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
-    <Reader onReply={(all) => app.replyTo(all)} onForward={() => app.forwardOpened()} />
+    <!-- Both stay in place in a narrow window, one of them hidden: the list keeps its scroll and selection. -->
+    <div class="pane" class:away={column === "message"} inert={column === "message"}>
+      <MessageList bind:searchInput edge={layout.single} />
+    </div>
+    {#if !layout.single}
+      <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
+    {/if}
+    <div class="pane" class:away={column === "list"} inert={column === "list"}>
+      <Reader onReply={(all) => app.replyTo(all)} onForward={() => app.forwardOpened()} />
+    </div>
   {/if}
 </div>
 
@@ -204,5 +233,21 @@
 
   .wide {
     overflow: auto;
+  }
+
+  .pane {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  /* One column for both in a narrow window; the one away keeps its layout, unseen. */
+  .single .pane {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .pane.away {
+    visibility: hidden;
   }
 </style>
