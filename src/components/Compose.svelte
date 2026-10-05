@@ -71,12 +71,18 @@
 
   // Replies start typing above the quote and signature. Once, when the window opens:
   // an effect would rerun on every keystroke and throw the caret back to the start.
+  // The field opens at its top, not at the end of a long quote: setting the value and
+  // focusing scroll it to the end in WebKit, and moving the caret does not scroll back.
   onMount(() => {
-    if (body && c.draft.text.startsWith("\n\n") && c.draft.to.length) {
+    if (!body) return;
+    if (c.draft.text.startsWith("\n\n") && c.draft.to.length) {
       placed = true;
       body.focus();
       body.setSelectionRange(0, 0);
     }
+    body.scrollTop = 0;
+    const field = body;
+    requestAnimationFrame(() => (field.scrollTop = 0));
   });
 
   function setAccount(id: string) {
