@@ -519,32 +519,33 @@
           {#each after as m (m.id)}{@render card(m)}{/each}
         </div>
       {/if}
-
-      {#if !isDraft}
-        <div class="quick">
-          {#if quick}
-            <div class="quick-box">
-              <div class="quick-to muted">
-                {#if quick.all}<ReplyAll size={14} />{:else}<Reply size={14} />{/if}
-                <span class="quick-who">{[...quick.draft.to, ...quick.draft.cc].map(addrFull).join(", ")}</span>
-                {#if manyRecipients}
-                  <button class="quick-all" class:on={quick.all} aria-pressed={quick.all} onclick={() => quick && setQuickAll(!quick.all)} title={t("act.replyAllHint")}>{t("act.replyAll")}</button>
-                {/if}
-              </div>
-              <textarea bind:this={quickBox} bind:value={quickText} onkeydown={onQuickKey} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
-              <div class="quick-actions">
-                <button class="btn primary" onclick={quickSend} disabled={quickBusy || !quickText.trim()}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
-                <button class="btn ghost" onclick={() => quickToWindow()}>{t("reader.toWindow")}</button>
-                <span class="sep"></span>
-                <button class="btn ghost icon" onclick={() => { quick = null; quickText = ""; }} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
-              </div>
-            </div>
-          {:else}
-            <button class="quick-bar" onclick={() => openQuick(false)}><Reply size={16} /> {t("act.reply")}</button>
-          {/if}
-        </div>
-      {/if}
     </div>
+
+    <!-- Outside the scroll: the answer stays at the bottom of the pane while the letter scrolls. -->
+    {#if !isDraft}
+      <div class="quick">
+        {#if quick}
+          <div class="quick-box">
+            <div class="quick-to muted">
+              {#if quick.all}<ReplyAll size={14} />{:else}<Reply size={14} />{/if}
+              <span class="quick-who">{[...quick.draft.to, ...quick.draft.cc].map(addrFull).join(", ")}</span>
+              {#if manyRecipients}
+                <button class="quick-all" class:on={quick.all} aria-pressed={quick.all} onclick={() => quick && setQuickAll(!quick.all)} title={t("act.replyAllHint")}>{t("act.replyAll")}</button>
+              {/if}
+            </div>
+            <textarea bind:this={quickBox} bind:value={quickText} onkeydown={onQuickKey} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
+            <div class="quick-actions">
+              <button class="btn primary" onclick={quickSend} disabled={quickBusy || !quickText.trim()}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+              <button class="btn ghost" onclick={() => quickToWindow()}>{t("reader.toWindow")}</button>
+              <span class="sep"></span>
+              <button class="btn ghost icon" onclick={() => { quick = null; quickText = ""; }} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
+            </div>
+          </div>
+        {:else}
+          <button class="quick-bar" onclick={() => openQuick(false)}><Reply size={16} /> {t("act.reply")}</button>
+        {/if}
+      </div>
+    {/if}
   {:else}
     <!-- One way in instead of a wall of keys: the palette lists every command with its key. -->
     <div class="center muted">
@@ -780,9 +781,10 @@
   }
 
   .quick {
+    flex: none;
     display: flex;
     gap: 8px;
-    margin: 0 22px 22px;
+    margin: 10px 22px 16px;
   }
 
   /* One wide bar that reads as a field: a click turns it into the answer. */
@@ -1128,8 +1130,9 @@
     font-size: 12px;
   }
 
+  /* Grows with plain text, so a long letter scrolls instead of running under the answer bar. */
   .body {
-    flex: 1;
+    flex: 1 0 auto;
     min-height: 420px;
     display: flex;
     margin: 0 16px 16px;
