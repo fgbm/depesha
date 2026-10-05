@@ -3,6 +3,7 @@
 // this registry, the host (host.svelte.ts) writes it.
 
 import type { Component } from "svelte";
+import type { FileViewer } from "../lib/viewer";
 import type { Banner, Command, ComposeContext, ComposeDraft, ListTabs, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
 
 export interface Owned<T> {
@@ -46,6 +47,8 @@ interface Lists {
   sendChecks: Owned<(draft: ComposeDraft, accountEmail: string) => string[]>[];
   settingsSections: Owned<SettingsSection>[];
   overlays: Owned<Rendered>[];
+  /** Renderers of the attachment viewer; the core's are owned by "core". */
+  fileViewers: Owned<FileViewer>[];
 }
 
 const empty = (): Lists => ({
@@ -64,6 +67,7 @@ const empty = (): Lists => ({
   sendChecks: [],
   settingsSections: [],
   overlays: [],
+  fileViewers: [],
 });
 
 class Registry {

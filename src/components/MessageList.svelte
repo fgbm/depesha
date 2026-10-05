@@ -211,6 +211,7 @@
           aria-selected={app.selected.has(m.id)}
           tabindex="-1"
           onclick={(e) => click(e, m)}
+          ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.openWindow(m)}
           oncontextmenu={(e) => context(e, m)}
           onkeydown={() => {}}
         >

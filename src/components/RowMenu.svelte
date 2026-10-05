@@ -11,6 +11,7 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import UserSearch from "@lucide/svelte/icons/user-search";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import AppWindow from "@lucide/svelte/icons/app-window";
   import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
   import { registry } from "../plugin-host/registry.svelte";
@@ -76,6 +77,7 @@
     <button class="mi" onclick={() => withOpened(() => app.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint">r</span></button>
     <button class="mi" onclick={() => withOpened(() => app.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint">a</span></button>
     <button class="mi" onclick={() => withOpened(() => app.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint">f</span></button>
+    <button class="mi" onclick={() => single && run(() => app.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>
     <hr />
   {/if}
   <button class="mi" onclick={() => run(() => app.flag("seen", anyUnread, ids))}>

@@ -78,6 +78,35 @@ HTML = (
 ).encode()
 
 
+FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures" / "attachments"
+DOCS_TYPES = {
+    "contract.pdf": "application/pdf",
+    "contract.docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "price.xlsx": "application/octet-stream",
+    "notes.md": "text/markdown",
+    "sums.csv": "text/csv",
+}
+
+
+def docs(when):
+    """A letter with one attachment of every kind the viewer draws itself."""
+    parts = [
+        "From: =?utf-8?B?" + base64.b64encode("Отдел закупок".encode()).decode() + "?= <buy@example.org>\r\n"
+        "To: carol@local.test\r\nSubject: =?utf-8?B?" + base64.b64encode("Документы на проверку".encode()).decode() + "?=\r\n"
+        f"Date: {email.utils.formatdate(when, localtime=True)}\r\nMessage-ID: <docs1@example.org>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        "--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nДоговор, прайс и заметки во вложении.\r\n"
+    ]
+    for name, ctype in DOCS_TYPES.items():
+        data = base64.encodebytes((FIXTURES / name).read_bytes()).decode().replace("\n", "\r\n")
+        parts.append(
+            f'--mix\r\nContent-Type: {ctype}; name="{name}"\r\nContent-Disposition: attachment; filename="{name}"\r\n'
+            f"Content-Transfer-Encoding: base64\r\n\r\n{data}"
+        )
+    parts.append("--mix--\r\n")
+    return "".join(parts).encode()
+
+
 def seed():
     c = conn()
     # GreenMail's hierarchy delimiter is ".".
@@ -90,6 +119,8 @@ def seed():
         when = now - 86400 * 30 - (620 - i) * 3600
         subject = "Quarterly report archive" if i == 10 else f"Массовое письмо {i:03d}"
         append(c, "INBOX", msg(subject, f"Тело письма номер {i}", when=when), "(\\Seen)", when)
+    # In «Работа», not in INBOX: the inbox's rows stay where other steps expect them.
+    append(c, imaplib_utf7("Работа"), docs(now - 86400), "(\\Seen)", now - 86400)
     append(c, "INBOX", CP1251, "", now - 7200)
     append(c, "INBOX", HTML, "", now - 3600)
     append(c, "INBOX", msg("Счёт за октябрь", "Оплатить до пятницы, реквизиты во вложении.", when=now - 600), "", now - 600)

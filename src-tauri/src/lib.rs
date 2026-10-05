@@ -159,6 +159,10 @@ pub fn run() {
             commands::attachment_save,
             commands::attachments_save_all,
             commands::attachment_open,
+            commands::attachment_bytes,
+            commands::message_window,
+            commands::letter_view,
+            commands::document_html,
             commands::open_link,
             commands::send,
             commands::draft_save,
@@ -172,6 +176,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Depesha")
         .run(|app, event| {
+            // Closing the main window quits, letters open in their own windows too.
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+                && label == "main"
+            {
+                app.exit(0);
+            }
             // A Windows update downloaded in the background installs when the app quits.
             if let tauri::RunEvent::Exit = event
                 && let Some(state) = app.try_state::<Arc<AppState>>()

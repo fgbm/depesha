@@ -12,6 +12,8 @@ export { default as LaterMenu } from "../components/LaterMenu.svelte";
 export { default as Select } from "../components/Select.svelte";
 export { sendLaterPresets, snoozePresets, when, type Preset } from "../lib/later";
 export { addrName, listDate, matches, size } from "../lib/format";
+export type { FileViewer, ViewedFile } from "../lib/viewer";
+import type { FileViewer } from "../lib/viewer";
 
 export type Lang = "en" | "ru";
 
@@ -200,5 +202,10 @@ export interface PluginContext {
     settingsSection(s: { title: () => string; component: Component<{ ctx: PluginContext }>; props: { ctx: PluginContext } }): void;
     /** Rendered on top of the window, e.g. a command palette. */
     overlay(r: Rendered): void;
+    /**
+     * A renderer of attachments in the viewer: a new format, or a better one for a format
+     * the core shows (the core's have priority 0). The component gets `file` besides `props`.
+     */
+    fileViewer(v: FileViewer): void;
   };
 }

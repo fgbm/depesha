@@ -13,6 +13,7 @@
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import ListX from "@lucide/svelte/icons/list-x";
   import Folder from "@lucide/svelte/icons/folder";
+  import AppWindow from "@lucide/svelte/icons/app-window";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
   import Pencil from "@lucide/svelte/icons/pencil";
@@ -28,6 +29,7 @@
   import { registry } from "../plugin-host/registry.svelte";
   import type { Banner as PluginBanner } from "../plugin-api";
   import MailFrame from "./MailFrame.svelte";
+  import Viewer from "./Viewer.svelte";
   import Popover from "./Popover.svelte";
   import type { Addr, AttachmentInfo, ComposeDraft, MessageRow } from "../lib/types";
   import { untrack } from "svelte";
@@ -102,6 +104,17 @@
       return;
     }
     await app.openLink(href);
+  }
+
+  /** The attachment shown in the viewer: the letter and its place among the files. */
+  let viewing = $state<{ id: number; at: number } | null>(null);
+  $effect(() => {
+    // Another letter opened: the viewer of the previous one closes.
+    if (viewing && viewing.id !== msg?.row.id) viewing = null;
+  });
+
+  function viewAttachment(a: AttachmentInfo) {
+    if (msg) viewing = { id: msg.row.id, at: Math.max(0, files.indexOf(a)) };
   }
 
   async function openAttachment(a: AttachmentInfo) {
@@ -362,6 +375,9 @@
           {#if folders.length}
             <button class="mi" onclick={() => { moreOpen = false; moveOpen = true; }}><Folder size={15} /> {t("act.moveTo")}</button>
           {/if}
+          {#if app.windowOf === null && !isDraft}
+            <button class="mi" onclick={() => { moreOpen = false; app.openWindow(msg.row); }}><AppWindow size={15} /> {t("act.newWindow")}</button>
+          {/if}
           <hr />
           <button class="mi" onclick={() => { moreOpen = false; app.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
           {#each messageCommands as c (c.ext.id + c.id)}
@@ -474,7 +490,7 @@
         <div class="files">
           {#each files as a (a.index)}
             <div class="file">
-              <button class="file-name" onclick={() => openAttachment(a)} title={`${t("file.open")}: ${a.name}`}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
+              <button class="file-name" onclick={() => viewAttachment(a)} title={`${t("file.open")}: ${a.name}`}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
               <span class="fsize muted">{size(a.size)}</span>
               <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title={t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
             </div>
@@ -539,6 +555,17 @@
     </div>
   {/if}
 </section>
+
+{#if viewing && msg && files.length}
+  <Viewer
+    id={viewing.id}
+    {files}
+    start={viewing.at}
+    onClose={() => (viewing = null)}
+    onSave={saveAttachment}
+    onOpenApp={openAttachment}
+  />
+{/if}
 
 <style>
   .reader {

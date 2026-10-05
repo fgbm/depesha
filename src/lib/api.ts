@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import type {
   Account,
   AccountSync,
@@ -22,6 +22,7 @@ import type {
   FolderInfo,
   ListQuery,
   MessageRow,
+  MessageView,
   OpenedMessage,
   OutboxItem,
 } from "./types";
@@ -32,7 +33,7 @@ export function asError(e: unknown): CmdError {
   return { kind: "other", message: String(e) };
 }
 
-export async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+export async function call<T>(cmd: string, args?: InvokeArgs): Promise<T> {
   try {
     return await invoke<T>(cmd, args);
   } catch (e) {
@@ -112,6 +113,12 @@ export const api = {
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),
   attachmentsSaveAll: (id: number, dir: string) => call<number>("attachments_save_all", { id, dir }),
   attachmentOpen: (id: number, index: number) => call<void>("attachment_open", { id, index }),
+  messageWindow: (id: number, title: string) => call<void>("message_window", { id, title }),
+  /** Arrives as binary, not as JSON. */
+  attachmentBytes: (id: number, index: number) => call<ArrayBuffer>("attachment_bytes", { id, index }),
+  /** A letter's raw bytes (an attached .eml), parsed as the reader shows it. */
+  letterView: (bytes: ArrayBuffer) => call<MessageView>("letter_view", new Uint8Array(bytes)),
+  documentHtml: (text: string, markdown: boolean) => call<string>("document_html", { text, markdown }),
   openLink: (url: string) => call<void>("open_link", { url }),
   send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupDays: number | null) =>
     call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupDays }),

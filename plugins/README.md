@@ -12,7 +12,7 @@ All plugins live in this repository for now. Once the contract settles, they mov
 | Language | TypeScript and Svelte, bundled with the app | plain JavaScript, `main.js` up to 512 KB |
 | Runs | in the window, trusted | in a Web Worker inside a sandboxed frame (`ext://`), no access to the app or IPC |
 | Sees | `@depesha/plugin-api` | the `depesha` object and the data its permissions allow |
-| Can add | buttons, menus, banners, list views, list tabs, row tags, compose controls, send checks, settings sections, keys, overlays | banners, commands, send warnings, actions on new mail |
+| Can add | buttons, menus, banners, list views, list tabs, row tags, compose controls, send checks, settings sections, keys, overlays, attachment formats | banners, commands, send warnings, actions on new mail |
 
 ## Built-in plugins
 
@@ -60,6 +60,7 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `sendCheck` | warnings before sending |
 | `settingsSection` | a section in Settings |
 | `overlay` | a component on top of the window |
+| `fileViewer` | a renderer of attachments in the viewer: a new format (by `extensions`, `mimes` or `match`), or a better one for a format the core shows (`priority` above 0). The component gets `file` (`ViewedFile`: `bytes()`, `text()`, `openLink()`, `fail()`) besides its `props`; the viewer's header, ←/→, Esc, Save and "Open in application" stay the same for every format |
 
 ## Community plugins
 

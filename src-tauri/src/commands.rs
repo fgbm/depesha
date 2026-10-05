@@ -964,6 +964,59 @@ pub async fn attachments_save_all(state: St<'_>, id: i64, dir: String) -> CmdRes
     Ok(saved)
 }
 
+/// Opens a letter in a window of its own (double click in the list); a letter already
+/// open in one brings that window forward instead of opening a second.
+#[tauri::command]
+pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> CmdResult<()> {
+    let label = format!("message-{id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let title = if title.trim().is_empty() {
+        "Depesha".to_owned()
+    } else {
+        title
+    };
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        label,
+        tauri::WebviewUrl::App(format!("index.html?message={id}").into()),
+    )
+    .title(title)
+    .inner_size(960.0, 760.0)
+    .min_inner_size(560.0, 420.0)
+    .decorations(false)
+    .build()
+    .map_err(|e| CmdError::new("window", e.to_string()))?;
+    Ok(())
+}
+
+/// An attachment's content for the viewer, sent as binary: no base64 on the way.
+#[tauri::command]
+pub async fn attachment_bytes(state: St<'_>, id: i64, index: u32) -> CmdResult<tauri::ipc::Response> {
+    let row = row(&state, id)?;
+    let raw = raw_of(&state, &row).await?;
+    let (_, bytes) = message::attachment(&raw, index)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// A letter attached to a letter (.eml), to read without saving it; its bytes come as the raw request body.
+#[tauri::command]
+pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(CmdError::new("bad-request", "expected the letter's bytes"));
+    };
+    Ok(message::parse_view(bytes, false)?)
+}
+
+/// An attached HTML or Markdown file, cleaned like a letter for the viewer.
+#[tauri::command]
+pub fn document_html(text: String, markdown: bool) -> String {
+    message::document_html(&text, markdown)
+}
+
 const DANGEROUS: &[&str] = &[
     "exe", "msi", "bat", "cmd", "com", "scr", "pif", "vbs", "vbe", "js", "jse", "wsf", "wsh", "ps1", "jar", "lnk",
     "desktop", "sh", "run", "appimage", "deb", "rpm", "reg", "hta", "cpl", "msc",

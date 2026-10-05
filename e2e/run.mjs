@@ -77,6 +77,13 @@ async function openBySubject(subject) {
   await d.until(`reader shows "${subject}"`, async () => (await textOf(".reader h1")).includes(subject));
 }
 
+async function openFolder(name) {
+  await d.exec(
+    `[...document.querySelectorAll('nav.side .item')].find((b) => b.innerText.trim() === arguments[0]).click();`,
+    name,
+  );
+}
+
 async function textOf(css) {
   return d.exec("return document.querySelector(arguments[0])?.innerText ?? ''", css);
 }
@@ -317,6 +324,84 @@ try {
     if (res !== "ok") throw new Error(res);
     const head = readFileSync(target).subarray(0, 8).toString();
     if (head !== "%PDF-1.4") throw new Error(`содержимое: ${head}`);
+  });
+
+  await step("4.10", "просмотрщик вложений: PDF, Word, Excel, Markdown, CSV в cp1251; ←/→ и Esc", async () => {
+    const frameText = () =>
+      d.exec("return document.querySelector('.viewer iframe')?.contentDocument?.body?.innerText ?? ''");
+    await openFolder("Работа");
+    await openBySubject("Документы на проверку");
+    await d.click(await d.until("contract.pdf", () => d.xpath("//button[contains(@class,'file-name')][contains(., 'contract.pdf')]")));
+    await d.until("pdf page drawn", () => d.exec("return !!document.querySelector('.viewer .page canvas')"), 20000);
+    await d.until("pdf text layer", async () => (await textOf(".viewer .page")).includes("Договор поставки"), 10000);
+    await screenshot("viewer-pdf");
+    await press("ArrowRight");
+    await d.until("docx", async () => (await frameText()).includes("Поставщик обязуется"), 20000);
+    await screenshot("viewer-docx");
+    await press("ArrowRight");
+    await d.until("xlsx", async () => (await frameText()).includes("Реагент Б"), 20000);
+    await press("ArrowRight");
+    await d.until("markdown", async () => (await frameText()).includes("Заметки к встрече"));
+    const md = await d.exec("return document.querySelector('.viewer iframe').contentDocument.body.innerHTML");
+    if (!md.includes("<h1") || !md.includes("<table") || md.includes("<script")) throw new Error(`markdown: ${md}`);
+    await screenshot("viewer-markdown");
+    await press("ArrowRight");
+    await d.until("csv in cp1251", async () => (await textOf(".viewer table")).includes("Петров"));
+    await press("Escape");
+    await d.until("viewer closed", async () => (await d.findAll(".viewer")).length === 0);
+    // A file that only pretends to be a PDF: the viewer says so and offers the application.
+    await d.button("Входящие");
+    await openBySubject("HTML-письмо с картинками");
+    await d.click(await d.until("report.pdf", () => d.xpath("//button[contains(@class,'file-name')][contains(., 'report.pdf')]")));
+    await d.until("fallback", async () => (await textOf(".viewer")).includes("не получилось показать"), 20000);
+    await press("Escape");
+    await d.until("viewer closed", async () => (await d.findAll(".viewer")).length === 0);
+  });
+
+  await step("4.11", "письмо в отдельном окне: двойной щелчок, ответ в этом окне, «Готово» закрывает окно, z в главном", async () => {
+    const subj = "Документы на проверку";
+    const main = await d.req("GET", d.s("/window"));
+    await openFolder("Работа");
+    await rowBySubject(subj);
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+       row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));`,
+      subj,
+    );
+    const handles = () => d.req("GET", d.s("/window/handles"));
+    await d.until("second window", async () => (await handles()).length === 2, 15000);
+    const other = (await handles()).find((h) => h !== main);
+    await d.req("POST", d.s("/window"), { handle: other });
+    try {
+      await d.until("letter in its window", async () => (await textOf(".reader h1")).includes(subj), 20000);
+      if ((await d.findAll(".list, nav.side")).length) throw new Error("в окне письма есть список или боковая панель");
+      // Double click again: the same window comes forward, no second one.
+      await d.req("POST", d.s("/window"), { handle: main });
+      await d.exec(
+        `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+         row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));`,
+        subj,
+      );
+      await new Promise((r) => setTimeout(r, 1500));
+      if ((await handles()).length !== 2) throw new Error(`окон: ${(await handles()).length}`);
+      await d.req("POST", d.s("/window"), { handle: other });
+      await d.click(await d.until("reply", () => d.xpath("//div[contains(@class,'acts')]//button[contains(., 'Ответить')]")));
+      await d.until("compose in the window", async () => (await d.findAll(".compose")).length === 1);
+      const re = await d.exec("return document.querySelector('.compose .subject').value");
+      if (re !== `Re: ${subj}`) throw new Error(`тема ответа: ${re}`);
+      await screenshot("message-window-reply");
+      await d.click(await d.until("discard", () => d.find(".compose [aria-label='Удалить черновик']")));
+      if ((await d.findAll(".confirm")).length) await d.click(await d.xpath("//div[contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+      await d.until("compose gone", async () => (await d.findAll(".compose")).length === 0);
+      await d.click(await d.until("done", () => d.xpath("//div[contains(@class,'toolbar')]//button[contains(., 'Готово')]")));
+      await d.until("window closed", async () => (await handles()).length === 1, 20000);
+    } finally {
+      await d.req("POST", d.s("/window"), { handle: main });
+    }
+    await d.until("archived on server", async () => helper("count", "Работа", subj) === "0", 20000);
+    await d.until("undo offered in the main window", async () => (await textOf(".toasts")).includes("Отменить"));
+    await press("z");
+    await d.until("back in its folder", async () => helper("count", "Работа", subj) === "1", 20000);
   });
 
   await step("7.3", "клавиатура: j/k по списку, c — новое письмо, Esc — закрыть", async () => {

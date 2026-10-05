@@ -211,8 +211,8 @@ fn is_real_html(msg: &Message<'_>) -> bool {
 pub fn attachment(raw: &[u8], index: u32) -> Result<(AttachmentInfo, Vec<u8>)> {
     let msg = MessageParser::default().parse(raw).ok_or(Error::Parse)?;
     let part = msg.attachment(index).ok_or(Error::NotFound)?;
-    let info = attachment_info(index, part);
-    Ok((info, part_bytes(part).to_vec()))
+    let info = attachment_info(&msg, index, part);
+    Ok((info, part_bytes(&msg, part).into_owned()))
 }
 
 /// Plain text used for the full-text search index.
@@ -299,6 +299,20 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
 
     let clean = builder.clean(html).to_string();
     (clean, remote.load(Ordering::Relaxed))
+}
+
+/// An attached HTML or Markdown file made as safe to show as a letter: no scripts, no remote images.
+pub fn document_html(text: &str, markdown: bool) -> String {
+    let html = if markdown {
+        use pulldown_cmark::{Options, Parser, html};
+        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_FOOTNOTES;
+        let mut out = String::with_capacity(text.len() * 3 / 2);
+        html::push_html(&mut out, Parser::new_ext(text, options));
+        out
+    } else {
+        text.to_owned()
+    };
+    sanitize_html(&html, &HashMap::new(), false).0
 }
 
 /// The first occurrence of a header, unfolded: the one the last server added.
@@ -405,11 +419,11 @@ fn addrs(address: &Address<'_>) -> Vec<Addr> {
 fn attachments_of(msg: &Message<'_>) -> Vec<AttachmentInfo> {
     msg.attachments()
         .enumerate()
-        .map(|(i, part)| attachment_info(i as u32, part))
+        .map(|(i, part)| attachment_info(msg, i as u32, part))
         .collect()
 }
 
-fn attachment_info(index: u32, part: &MessagePart<'_>) -> AttachmentInfo {
+fn attachment_info(msg: &Message<'_>, index: u32, part: &MessagePart<'_>) -> AttachmentInfo {
     let mime = part
         .content_type()
         .map(|ct| match ct.subtype() {
@@ -429,23 +443,82 @@ fn attachment_info(index: u32, part: &MessagePart<'_>) -> AttachmentInfo {
     AttachmentInfo {
         index,
         name,
-        size: part_bytes(part).len(),
+        size: part_bytes(msg, part).len(),
         mime,
         content_id: part.content_id().map(str::to_owned),
         inline,
     }
 }
 
-fn part_bytes<'a>(part: &'a MessagePart<'_>) -> &'a [u8] {
-    match part.message() {
-        Some(inner) => inner.raw_message(),
-        None => part.contents(),
+/// The file's content. A text file with a declared charset comes re-encoded to UTF-8, so
+/// any editor opens it; without one mail-parser would take it for UTF-8 and garble a file
+/// in another encoding (a CSV from 1C in Windows-1251, say), so it is kept as it was sent.
+fn part_bytes<'a>(msg: &'a Message<'_>, part: &'a MessagePart<'_>) -> Cow<'a, [u8]> {
+    use mail_parser::decoders::{base64::base64_decode, quoted_printable::quoted_printable_decode};
+    use mail_parser::{Encoding, PartType};
+    if let Some(inner) = part.message() {
+        return Cow::Borrowed(inner.raw_message());
     }
+    if matches!(part.body, PartType::Text(_) | PartType::Html(_))
+        && part.content_type().and_then(|ct| ct.attribute("charset")).is_none()
+        && let Some(body) = msg.raw_message.get(part.offset_body as usize..part.offset_end as usize)
+    {
+        let decoded = match part.encoding {
+            Encoding::Base64 => base64_decode(body),
+            Encoding::QuotedPrintable => quoted_printable_decode(body),
+            Encoding::None => Some(body.to_vec()),
+        };
+        if let Some(bytes) = decoded {
+            return Cow::Owned(bytes);
+        }
+    }
+    Cow::Borrowed(part.contents())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_attachments_keep_their_bytes() {
+        let cp1251 = [0xc8u8, 0xec, 0xff, b';', b'1', b'\r', b'\n'];
+        let mut raw = b"From: a@example.org\r\nSubject: s\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nhi\r\n\
+--b\r\nContent-Type: text/csv; name=\"a.csv\"\r\nContent-Disposition: attachment; filename=\"a.csv\"\r\n\
+Content-Transfer-Encoding: base64\r\n\r\n"
+            .to_vec();
+        raw.extend(BASE64.encode(cp1251).as_bytes());
+        raw.extend(b"\r\n--b\r\nContent-Type: text/plain; name=\"b.txt\"\r\nContent-Disposition: attachment; filename=\"b.txt\"\r\n\
+Content-Transfer-Encoding: quoted-printable\r\n\r\n=C8=EC=FF;1\r\n--b\r\nContent-Type: text/plain; name=\"c.txt\"\r\n\
+Content-Disposition: attachment; filename=\"c.txt\"\r\n\r\nplain\r\n--b--\r\n");
+        let (info, bytes) = attachment(&raw, 0).unwrap();
+        assert_eq!(info.name, "a.csv");
+        assert_eq!(bytes, cp1251);
+        assert_eq!(info.size, cp1251.len());
+        assert_eq!(attachment(&raw, 1).unwrap().1, &cp1251[..5]);
+        assert_eq!(attachment(&raw, 2).unwrap().1, b"plain");
+    }
+
+    #[test]
+    fn markdown_files_render_without_scripts_or_remote_images() {
+        let html = document_html(
+            "# План\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n<script>alert(1)</script>\n\n![x](https://t.example/p.png)",
+            true,
+        );
+        assert!(html.contains("<h1>План</h1>"), "{html}");
+        assert!(html.contains("<table>"), "{html}");
+        assert!(!html.contains("script"), "{html}");
+        assert!(!html.contains("t.example"), "{html}");
+    }
+
+    #[test]
+    fn html_files_lose_scripts_and_handlers() {
+        let html = document_html(
+            "<p onclick=\"x()\">Привет</p><script>x()</script><a href=\"javascript:x()\">a</a>",
+            false,
+        );
+        assert_eq!(html, "<p>Привет</p><a rel=\"noopener noreferrer\">a</a>");
+    }
 
     const MAIL: &[u8] = b"From: =?UTF-8?B?0JjQstCw0L0=?= <ivan@example.org>\r\n\
 To: Bob <bob@example.org>, carol@example.org\r\n\

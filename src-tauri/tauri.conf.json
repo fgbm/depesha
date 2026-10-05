@@ -29,6 +29,8 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob: https: http:",
         "font-src": "'self' data:",
+        "media-src": "'self' blob:",
+        "worker-src": "'self' blob:",
         "frame-src": "'self' ext: http://ext.localhost https://ext.localhost",
         "connect-src": "ipc: http://ipc.localhost",
         "object-src": "'none'",

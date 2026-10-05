@@ -16,7 +16,12 @@
     "@tauri-apps/plugin-dialog": "2.8.1",
     "@tauri-apps/plugin-notification": "2.5.1",
     "@tauri-apps/plugin-opener": "2.7.0",
-    "svelte": "5.57.1"
+    "docx-preview": "0.4.1",
+    "dompurify": "3.4.16",
+    "jszip": "3.10.2",
+    "pdfjs-dist": "6.3.289",
+    "svelte": "5.57.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",

@@ -1,6 +1,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { accountColor } from "./format";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, asError } from "./api";
 import { when } from "./later";
 import { applyTheme } from "./theme";
@@ -140,6 +141,13 @@ class AppStore {
   /** The last move that can be taken back with "z". */
   lastUndo = $state<{ moved: Moved[]; text: string } | null>(null);
 
+  /**
+   * The letter a separate message window shows (double click in the list); null in the
+   * main window. Such a window has no list: actions on its letter close it, and what
+   * concerns the list (undo, a search by sender) goes to the main window.
+   */
+  windowOf = $state<number | null>(null);
+
   private toastSeq = 0;
   private composeSeq = 0;
   /** Messages read or (un)flagged in this view: "Unread" and "Flagged" keep them until the view changes. */
@@ -189,6 +197,59 @@ class AppStore {
     await listenForMail((ids) => this.applyRules(ids));
     await listen<UpdateStatus>("update-status", (e) => (this.update = e.payload));
     this.update = await api.updateStatus().catch(() => null);
+    // A message window hands over what concerns the list.
+    await listen<{ moved: Moved[]; text: string }>("window-moved", (e) => {
+      this.lastUndo = e.payload;
+      this.toast(e.payload.text, false, { label: t("undo"), run: () => this.undo() });
+      this.reload();
+    });
+    await listen<View>("window-view", (e) => {
+      getCurrentWindow().setFocus().catch(() => {});
+      this.setView(e.payload);
+    });
+  }
+
+  /** A separate window with one letter: no list, no background work of its own. */
+  async initWindow(id: number) {
+    this.windowOf = id;
+    await this.loadLanguage();
+    await Promise.all([this.loadAccounts(), this.loadFolders(), this.loadSettings()]);
+    this.selected = new Set([id]);
+    await this.open(id);
+
+    await listen<{ account_id: string; folder: string }>("mail-changed", (e) => {
+      const row = this.opened?.row;
+      if (row && row.account_id === e.payload.account_id && row.folder === e.payload.folder) this.checkStillThere();
+      this.scheduleFolders();
+    });
+    await listen("folders-changed", () => this.scheduleFolders());
+    await listen<{ account_id: string; status: AccountStatus }>("account-status", (e) => {
+      const a = this.accounts.find((x) => x.id === e.payload.account_id);
+      if (a) a.status = e.payload.status;
+    });
+    await listen<{ subject: string }>("sent", (e) => this.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") })));
+    await listen<{ error: CmdError }>("send-failed", (e) =>
+      this.toast(t("toast.sendFailed", { error: e.payload.error.message }), true),
+    );
+    await listen("settings-changed", async () => {
+      await this.loadSettings();
+      await this.loadLanguage();
+      await extensions.load();
+    });
+    extensions.toast = (text, error) => this.toast(text, error);
+    // Mail rules run in the main window only, or they would run twice.
+    await extensions.load();
+  }
+
+  /** The letter was moved or deleted elsewhere: the window says so instead of showing a ghost. */
+  private async checkStillThere() {
+    const id = this.opened?.row.id ?? this.windowOf;
+    if (id === null) return;
+    const rows = await api.messagesById([id]).catch(() => null);
+    if (rows && rows.length === 0) {
+      this.opened = null;
+      this.openError = { kind: "not-found", message: t("window.gone") };
+    }
   }
 
   toast(text: string, error = false, action?: Toast["action"], ms?: number) {
@@ -414,6 +475,7 @@ class AppStore {
 
   /** Reloads the current list keeping as many rows as are shown now. */
   async reload() {
+    if (this.windowOf !== null) return;
     const v = this.view;
     try {
       if (v.kind === "search") {
@@ -504,6 +566,11 @@ class AppStore {
   }
 
   async setView(v: View) {
+    if (this.windowOf !== null) {
+      // A message window has no list: the main window shows it.
+      await emitTo("main", "window-view", v);
+      return;
+    }
     this.view = v;
     this.keep = new Set();
     this.conversation = [];
@@ -611,12 +678,16 @@ class AppStore {
   }
 
   selectedIds(): number[] {
+    // A message window acts on the letter it shows, also after a click in its conversation.
+    if (this.windowOf !== null) return this.opened ? [this.opened.row.id] : [];
     if (this.selected.size) return [...this.selected];
     return this.opened ? [this.opened.row.id] : [];
   }
 
   /** Takes rows out of the list and opens the next one: triage keeps going. */
   private takeOut(ids: number[]) {
+    // A message window keeps showing its letter until the action is through.
+    if (this.windowOf !== null) return;
     const index = this.messages.findIndex((m) => ids.includes(m.id));
     this.messages = this.messages.filter((m) => !ids.includes(m.id));
     this.opened = null;
@@ -628,7 +699,8 @@ class AppStore {
 
   /** The ids an action applies to: in a grouped list a row stands for its whole conversation. */
   private async withConversation(ids: number[]): Promise<number[]> {
-    if (!this.settings.threads) return ids;
+    // A message window shows one letter, not a row of the list: the action is for it alone.
+    if (!this.settings.threads || this.windowOf !== null) return ids;
     const out = new Set(ids);
     for (const id of ids) {
       const row = this.messages.find((m) => m.id === id) ?? this.opened?.row;
@@ -690,6 +762,12 @@ class AppStore {
     this.takeOut(ids);
     try {
       const moved = (await run(all)).filter((m) => m.message_ids.length);
+      if (this.windowOf !== null) {
+        // The letter is done with: its window closes, the main window offers the undo.
+        if (moved.length) await emitTo("main", "window-moved", { moved, text });
+        await getCurrentWindow().close();
+        return;
+      }
       if (moved.length) {
         this.lastUndo = { moved, text };
         this.toast(text, false, { label: t("undo"), run: () => this.undo() });
@@ -830,8 +908,21 @@ class AppStore {
     this.openCompose({ account_id: acc.id, draft, draft_id: null });
   }
 
+  /** Opens a letter in a window of its own; a draft opens in the composer instead. */
+  async openWindow(row: MessageRow) {
+    if (this.folder(row.account_id, row.folder)?.role === "drafts") {
+      await this.select(row.id);
+      return;
+    }
+    try {
+      await api.messageWindow(row.id, row.subject || t("noSubject"));
+    } catch (e) {
+      this.fail(e);
+    }
+  }
+
   /** Opens a composition window; the others fold into bars, as in Gmail. */
-  openCompose(c: ComposeState, mode: ComposeWindow["mode"] = "open"): number {
+  openCompose(c: ComposeState, mode: ComposeWindow["mode"] = this.windowOf !== null ? "max" : "open"): number {
     // A saved draft opened again goes to its window.
     const open = c.draft_id !== null ? this.composes.find((w) => w.draft_id === c.draft_id) : undefined;
     if (open) {

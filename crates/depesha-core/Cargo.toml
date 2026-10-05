@@ -23,6 +23,7 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder"]
 mail-parser = "0.11.9"
 md-5 = "0.11.0"
 md4 = "0.11.0"
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 ring = "0.17.14"
 roxmltree = "0.21.1"
 rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }

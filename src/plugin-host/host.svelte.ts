@@ -79,6 +79,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       sendCheck: (c) => registry.add("sendChecks", id, c),
       settingsSection: (s) => registry.add("settingsSections", id, s),
       overlay: (r) => registry.add("overlays", id, r),
+      fileViewer: (v) => registry.add("fileViewers", id, v),
     },
   };
 }
