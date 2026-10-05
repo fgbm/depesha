@@ -790,6 +790,18 @@ try {
     await screenshot("conversation");
   });
 
+  await step("8", "письмо, открытое из карточки беседы, не закрывается, когда список обновляется", async () => {
+    // The first letter of the conversation: not a row of the grouped list.
+    await d.click((await d.findAll(".thread .card"))[0]);
+    await d.until("older letter open", async () => (await textOf(".reader .body")).includes("Предлагаю обсудить"));
+    // Any change reloads the list: a flag set and taken off on another letter.
+    const other = await idOf("Скидки недели");
+    await invoke("set_flag", { ids: [other], change: { flag: "flagged", value: true } });
+    await invoke("set_flag", { ids: [other], change: { flag: "flagged", value: false } });
+    await new Promise((r) => setTimeout(r, 1500));
+    if (!(await textOf(".reader .body")).includes("Предлагаю обсудить")) throw new Error("письмо закрылось после обновления списка");
+  });
+
   await step("9", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {
     await viewOption("Рассылки");
     await rowBySubject("Скидки недели");

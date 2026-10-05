@@ -574,7 +574,13 @@ class AppStore {
       const ids = new Set(this.messages.map((m) => m.id));
       const kept = [...this.selected].filter((id) => ids.has(id));
       if (kept.length !== this.selected.size) this.selected = new Set(kept);
-      if (this.opened && !ids.has(this.opened.row.id) && v.kind !== "search") this.opened = null;
+      // Not in the list is not gone: a letter opened from its conversation (an older one,
+      // my answer in Sent) is not a row of a grouped list. Closed only when it left the cache.
+      const opened = this.opened;
+      if (opened && !ids.has(opened.row.id) && v.kind !== "search") {
+        const rows = await api.messagesById([opened.row.id]).catch(() => null);
+        if (rows?.length === 0 && this.opened === opened) this.opened = null;
+      }
     } catch (e) {
       this.fail(e);
     }
