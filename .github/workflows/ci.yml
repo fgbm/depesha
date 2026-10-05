@@ -78,7 +78,7 @@ jobs:
       - name: Seed test mailbox
         run: |
           for i in $(seq 30); do python3 e2e/imap_helper.py seed && break; sleep 2; done
-      - run: npx tauri build --debug --no-bundle
+      - run: npx tauri build --debug --no-bundle --features e2e
       - name: Run E2E with a session bus and an unlocked keyring
         run: |
           Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &

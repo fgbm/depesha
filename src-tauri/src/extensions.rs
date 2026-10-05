@@ -514,7 +514,15 @@ fn storage_path(app: &tauri::AppHandle, id: &str) -> CmdResult<PathBuf> {
         .app_data_dir()
         .map_err(|e| CmdError::new("io", e.to_string()))?
         .join("extension-data");
-    std::fs::create_dir_all(&dir)?;
+    storage_file(&dir, id)
+}
+
+/// The file an extension keeps its data in; an id that is not one never leaves the folder.
+fn storage_file(dir: &Path, id: &str) -> CmdResult<PathBuf> {
+    if !valid_id(id) {
+        return Err(CmdError::new("extension", "bad id"));
+    }
+    std::fs::create_dir_all(dir)?;
     Ok(dir.join(format!("{id}.json")))
 }
 
@@ -542,9 +550,6 @@ pub fn storage_set(app: &tauri::AppHandle, id: &str, key: &str, value: serde_jso
 }
 
 fn load_storage(app: &tauri::AppHandle, id: &str) -> CmdResult<BTreeMap<String, serde_json::Value>> {
-    if !valid_id(id) {
-        return Err(CmdError::new("extension", "bad id"));
-    }
     match std::fs::read(storage_path(app, id)?) {
         Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
         Err(_) => Ok(BTreeMap::new()),
@@ -635,6 +640,35 @@ fn nonce() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extension_data_stays_in_its_folder() {
+        let root = std::env::temp_dir().join(format!("depesha-ext-data-{}", std::process::id()));
+        let dir = root.join("extension-data");
+        assert_eq!(
+            storage_file(&dir, "ru.example.rules").unwrap(),
+            dir.join("ru.example.rules.json")
+        );
+        for id in [
+            "../../x",
+            "..",
+            "a/b",
+            "a\\b",
+            "..\\x",
+            "/etc/passwd",
+            "",
+            ".hidden",
+            "A",
+        ] {
+            assert!(storage_file(&dir, id).is_err(), "{id:?}");
+        }
+        assert_eq!(
+            std::fs::read_dir(&root).unwrap().count(),
+            1,
+            "only extension-data was made"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     fn manifest(json: &str) -> CmdResult<Manifest> {
         let m: Manifest = serde_json::from_str(json).unwrap();

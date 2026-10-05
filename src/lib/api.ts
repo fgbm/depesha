@@ -120,8 +120,10 @@ export const api = {
     call<string | null>("avatar", { accountId, email, authenticated }),
   addresses: (prefix: string) => call<Addr[]>("addresses", { prefix }),
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),
-  attachmentsSaveAll: (id: number, dir: string) => call<number>("attachments_save_all", { id, dir }),
-  attachmentSaveIn: (id: number, index: number, dir: string) => call<string>("attachment_save_in", { id, index, dir }),
+  /** Into `dir` just picked with `pickFolder`, or without it into the folder from the settings. */
+  attachmentsSaveAll: (id: number, dir: string | null) => call<number>("attachments_save_all", { id, dir }),
+  /** Into the folder from the settings; returns the path. */
+  attachmentSaveIn: (id: number, index: number) => call<string>("attachment_save_in", { id, index }),
   attachmentOpen: (id: number, index: number) => call<void>("attachment_open", { id, index }),
   messageWindow: (id: number, title: string) => call<void>("message_window", { id, title }),
   /** Arrives as binary, not as JSON. */
@@ -143,5 +145,15 @@ export const api = {
       { id },
     ),
   tempAttachment: (name: string, data: string) => call<string>("temp_attachment", { name, data }),
-  fileInfo: (path: string) => call<{ name: string; size: number }>("file_info", { path }),
+  /** Name and size of a file dropped on the window. */
+  fileInfo: (path: string) => call<PickedFile>("file_info", { path }),
+  // The system dialogs are opened by the backend: it reads and writes only what the user picked there.
+  pickFiles: (title: string) => call<PickedFile[]>("pick_files", { title }),
+  pickFolder: (to: "save" | "plugin", title: string, current: string | null = null) =>
+    call<string | null>("pick_folder", { to, title, current }),
+  pickSaveFile: (title: string, name: string) => call<string | null>("pick_save_file", { title, name }),
+  pluginSettingsSet: (plugin: string, values: Record<string, unknown>) =>
+    call<void>("plugin_settings_set", { plugin, values }),
 };
+
+export type PickedFile = { path: string; name: string; size: number };

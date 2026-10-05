@@ -20,6 +20,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::config::Settings;
 use crate::error::{CmdError, CmdResult};
+use crate::paths::Use;
 use crate::secrets;
 use crate::state::{AccountStatus, AppState};
 use crate::worker::{self, Output, Work};
@@ -147,6 +148,13 @@ pub async fn account_save(
     if account.display_name.trim().is_empty() {
         account.display_name = account.email.clone();
     }
+    let before = state
+        .accounts()
+        .into_iter()
+        .find(|a| a.id == account.id)
+        .map(|a| a.attachments_dir)
+        .unwrap_or_default();
+    check_save_folder(&state, &before, &account.attachments_dir)?;
     let grant = grant.and_then(|g| state.grants.lock().unwrap_or_else(|e| e.into_inner()).remove(&g));
     match (&account.auth, grant) {
         (AuthMethod::OAuth { .. }, Some(grant)) => {
@@ -908,6 +916,7 @@ pub fn settings_get(state: St<'_>) -> Settings {
 #[tauri::command]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     let before = state.settings();
+    check_save_folder(&state, &before.attachments_dir, &settings.attachments_dir)?;
     let offline_changed =
         before.offline != settings.offline || before.offline_attachments != settings.offline_attachments;
     state.save_settings(settings)?;
@@ -921,6 +930,26 @@ pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// A folder attachments go to without asking is one the user picked, not one typed in
+/// by whatever runs in the page: an unchanged or emptied setting needs no picking.
+fn check_save_folder(state: &AppState, before: &str, after: &str) -> CmdResult<()> {
+    let after = after.trim();
+    if after.is_empty() || after == before.trim() {
+        return Ok(());
+    }
+    state.paths.check(Use::SaveFolder, after).map(|_| ())
+}
+
+/// The settings of one built-in plugin; the rest of the settings stay as they are.
+#[tauri::command]
+pub fn plugin_settings_set(state: St<'_>, plugin: String, values: serde_json::Value) -> CmdResult<()> {
+    let mut settings = state.settings();
+    settings.plugin_settings.insert(plugin, values);
+    state.save_settings(settings)?;
+    state.emit("settings-changed", serde_json::json!({}));
     Ok(())
 }
 
@@ -1085,21 +1114,46 @@ pub fn addresses(state: St<'_>, prefix: String) -> CmdResult<Vec<Addr>> {
     Ok(state.store.known_addresses(&prefix, 8)?)
 }
 
+/// Saves an attachment where the user said in the save dialog (`pick_save_file`).
 #[tauri::command]
 pub async fn attachment_save(state: St<'_>, id: i64, index: u32, path: String) -> CmdResult<()> {
+    let path = state.paths.check(Use::SaveFile, &path)?;
     let row = row(&state, id)?;
     let raw = raw_of(&state, &row).await?;
     let (_, bytes) = message::attachment(&raw, index)?;
     tokio::fs::write(&path, bytes).await?;
-    mark_from_internet(std::path::Path::new(&path)).await;
+    mark_from_internet(&path).await;
     Ok(())
+}
+
+/// The folder attachments of this letter go to without asking: its mailbox's own, else
+/// the one from the settings. Both were picked by the user (`check_save_folder`).
+fn settings_folder(state: &AppState, row: &MessageRow) -> CmdResult<String> {
+    let own = state.account(&row.account_id)?.attachments_dir;
+    let dir = if own.trim().is_empty() {
+        state.settings().attachments_dir
+    } else {
+        own
+    };
+    let dir = dir.trim().to_owned();
+    if dir.is_empty() {
+        return Err(CmdError::new(
+            "save-folder",
+            tr!(
+                "no folder for attachments is chosen in Settings → Mail",
+                "папка для вложений не выбрана в Настройках → «Почта»"
+            ),
+        ));
+    }
+    Ok(dir)
 }
 
 /// Saves an attachment into the folder from the settings, without asking where:
 /// renamed on a name clash, the folder made again if it went away. Returns the path.
 #[tauri::command]
-pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32, dir: String) -> CmdResult<String> {
+pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32) -> CmdResult<String> {
     let row = row(&state, id)?;
+    let dir = settings_folder(&state, &row)?;
     let raw = raw_of(&state, &row).await?;
     let (info, bytes) = message::attachment(&raw, index)?;
     let folder = save_folder(&dir).await?;
@@ -1110,9 +1164,17 @@ pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32, dir: String)
 }
 
 /// Saves every attachment into a folder, renaming on name clashes. Returns how many.
+/// The folder is one just picked (`pick_folder`), or without one the folder from the settings.
 #[tauri::command]
-pub async fn attachments_save_all(state: St<'_>, id: i64, dir: String) -> CmdResult<usize> {
+pub async fn attachments_save_all(state: St<'_>, id: i64, dir: Option<String>) -> CmdResult<usize> {
     let row = row(&state, id)?;
+    let dir = match dir {
+        Some(dir) => {
+            state.paths.check(Use::SaveFolder, &dir)?;
+            dir
+        }
+        None => settings_folder(&state, &row)?,
+    };
     let raw = raw_of(&state, &row).await?;
     let view = message::parse_view(&raw, false)?;
     let folder = save_folder(&dir).await?;
@@ -1445,6 +1507,7 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
     for a in d.attachments {
         let att = match a {
             AttachmentSource::File { path } => {
+                state.paths.check(Use::Attach, &path)?;
                 let data = tokio::fs::read(&path)
                     .await
                     .map_err(|e| CmdError::new("io", format!("{path}: {e}")))?;
@@ -1690,7 +1753,7 @@ pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>>
 
 /// Saves attachments handed back by `outbox_cancel` to temp files so the composer can reuse them.
 #[tauri::command]
-pub async fn temp_attachment(app: tauri::AppHandle, name: String, data: String) -> CmdResult<String> {
+pub async fn temp_attachment(app: tauri::AppHandle, state: St<'_>, name: String, data: String) -> CmdResult<String> {
     let bytes = BASE64.decode(data).map_err(|e| CmdError::new("io", e.to_string()))?;
     let dir = app
         .path()
@@ -1701,23 +1764,107 @@ pub async fn temp_attachment(app: tauri::AppHandle, name: String, data: String) 
     tokio::fs::create_dir_all(&dir).await?;
     let path = dir.join(safe_name(&name));
     tokio::fs::write(&path, bytes).await?;
+    state.paths.allow(Use::Attach, path.clone());
     Ok(path.to_string_lossy().into_owned())
 }
 
 #[derive(Serialize)]
 pub struct FileInfo {
+    path: String,
     name: String,
     size: u64,
 }
 
-#[tauri::command]
-pub async fn file_info(path: String) -> CmdResult<FileInfo> {
+async fn info_of(path: PathBuf) -> CmdResult<FileInfo> {
     let meta = tokio::fs::metadata(&path).await?;
-    let name = PathBuf::from(&path)
+    let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    Ok(FileInfo { name, size: meta.len() })
+    Ok(FileInfo {
+        path: path.to_string_lossy().into_owned(),
+        name,
+        size: meta.len(),
+    })
+}
+
+/// Name and size of a file chosen to attach (dropped on the window); nothing about others.
+#[tauri::command]
+pub async fn file_info(state: St<'_>, path: String) -> CmdResult<FileInfo> {
+    info_of(state.paths.check(Use::Attach, &path)?).await
+}
+
+/// The system's file dialog, opened by the backend so that it knows what the user chose.
+fn dialog(window: &tauri::Window, title: String) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    use tauri_plugin_dialog::DialogExt;
+    let builder = window.dialog().file().set_title(title);
+    // As the dialog plugin does: a parent window on Linux breaks GTK's dialog.
+    #[cfg(any(windows, target_os = "macos"))]
+    let builder = builder.set_parent(window);
+    builder
+}
+
+/// Files to attach, picked in the open dialog. Empty when the dialog was closed.
+#[tauri::command]
+pub async fn pick_files(window: tauri::Window, state: St<'_>, title: String) -> CmdResult<Vec<FileInfo>> {
+    let picked = dialog(&window, title).blocking_pick_files().unwrap_or_default();
+    let mut files = Vec::new();
+    for path in picked.into_iter().filter_map(|p| p.into_path().ok()) {
+        state.paths.allow(Use::Attach, path.clone());
+        files.push(info_of(path).await?);
+    }
+    Ok(files)
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderUse {
+    /// Attachments are saved into it.
+    Save,
+    /// A plugin is installed from it.
+    Plugin,
+}
+
+/// A folder picked in the system dialog, starting at `current`; nothing when it was closed.
+#[tauri::command]
+pub async fn pick_folder(
+    window: tauri::Window,
+    state: St<'_>,
+    to: FolderUse,
+    title: String,
+    current: Option<String>,
+) -> CmdResult<Option<String>> {
+    let mut builder = dialog(&window, title);
+    if let Some(dir) = current.filter(|d| !d.trim().is_empty()) {
+        builder = builder.set_directory(dir);
+    }
+    let Some(path) = builder.blocking_pick_folder().and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    let to = match to {
+        FolderUse::Save => Use::SaveFolder,
+        FolderUse::Plugin => Use::Plugin,
+    };
+    state.paths.allow(to, path.clone());
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Where to save one attachment, asked in the save dialog; nothing when it was closed.
+#[tauri::command]
+pub async fn pick_save_file(
+    window: tauri::Window,
+    state: St<'_>,
+    title: String,
+    name: String,
+) -> CmdResult<Option<String>> {
+    let picked = dialog(&window, title)
+        .set_file_name(safe_name(&name))
+        .blocking_save_file()
+        .and_then(|p| p.into_path().ok());
+    Ok(picked.map(|path| {
+        state.paths.allow(Use::SaveFile, path.clone());
+        path.to_string_lossy().into_owned()
+    }))
 }
 
 #[tauri::command]
@@ -1749,8 +1896,8 @@ pub fn extensions(app: tauri::AppHandle, state: St<'_>) -> CmdResult<Vec<crate::
 
 /// An extension folder as it would be installed, for the user to agree to; copies nothing.
 #[tauri::command]
-pub fn extension_inspect(app: tauri::AppHandle, path: String) -> CmdResult<crate::extensions::Preview> {
-    crate::extensions::inspect(&app, std::path::Path::new(&path))
+pub fn extension_inspect(app: tauri::AppHandle, state: St<'_>, path: String) -> CmdResult<crate::extensions::Preview> {
+    crate::extensions::inspect(&app, &state.paths.check(Use::Plugin, &path)?)
 }
 
 /// Installs an extension whose permissions and hooks are exactly the agreed ones.
@@ -1762,8 +1909,9 @@ pub fn extension_install(
     permissions: Vec<String>,
     hooks: Vec<String>,
 ) -> CmdResult<crate::extensions::Manifest> {
+    let from = state.paths.check(Use::Plugin, &path)?;
     let grant = crate::extensions::Grant { permissions, hooks };
-    let m = crate::extensions::install(&app, std::path::Path::new(&path), grant)?;
+    let m = crate::extensions::install(&app, &from, grant)?;
     state.emit("extensions-changed", serde_json::json!({ "id": m.id }));
     Ok(m)
 }

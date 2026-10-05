@@ -31,3 +31,8 @@ tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[features]
+# Test builds for e2e/run.mjs: files under the folders in DEPESHA_E2E_ROOT count as
+# chosen by the user, since WebDriver cannot answer system dialogs. Never in a release.
+e2e = []

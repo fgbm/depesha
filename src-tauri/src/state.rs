@@ -44,6 +44,8 @@ pub struct AppState {
     pub oauth_cancel: Notify,
     /// Background work the user sees in the tasks window.
     pub tasks: crate::tasks::Tasks,
+    /// Files and folders the user chose, the only ones commands read or write.
+    pub paths: crate::paths::Paths,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

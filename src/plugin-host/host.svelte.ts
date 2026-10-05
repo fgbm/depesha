@@ -58,11 +58,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     fail: (e, prefix) => app.fail(e, prefix),
     settings: {
       get: <T>(key: string, fallback: T) => (key in own() ? (own()[key] as T) : fallback),
-      set: (key, value) =>
-        app.saveSettings({
-          ...app.settings,
-          plugin_settings: { ...(app.settings.plugin_settings ?? {}), [id]: { ...own(), [key]: value } },
-        }),
+      set: (key, value) => app.savePluginSettings(id, { ...own(), [key]: value }),
     },
     ui: {
       command: (c) => registry.add("commands", id, c),

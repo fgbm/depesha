@@ -34,6 +34,7 @@
         "frame-src": "'self' ext: http://ext.localhost https://ext.localhost",
         "connect-src": "ipc: http://ipc.localhost",
         "object-src": "'none'",
+        "base-uri": "'none'",
         "form-action": "'none'"
       }
     }

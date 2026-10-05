@@ -2,7 +2,7 @@
 // driven over WebDriver, against GreenMail (compose.test.yaml).
 //
 //   docker compose -f compose.test.yaml up -d --force-recreate && python3 e2e/imap_helper.py seed
-//   npx tauri build --debug --no-bundle
+//   npx tauri build --debug --no-bundle --features e2e
 //   e2e/keyring.sh node e2e/run.mjs   (a throwaway keyring, see e2e/README.md)
 //
 // Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99).
@@ -10,7 +10,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
 
@@ -31,6 +31,8 @@ const env = {
   XDG_CACHE_HOME: join(profile, "cache"),
   WEBKIT_DISABLE_COMPOSITING_MODE: "1",
   DEPESHA_NO_NOTIFICATIONS: "1",
+  // A build with the `e2e` feature takes files here as chosen in a dialog: WebDriver cannot answer one.
+  DEPESHA_E2E_ROOT: [profile, root].join(delimiter),
   // The scenario reads Russian text; the language follows the locale (LANGUAGE wins).
   LANGUAGE: "ru",
   // E2E_DARK=1: the whole run in the dark theme, for its screenshots.
@@ -145,6 +147,30 @@ async function invoke(cmd, args = {}) {
   });
   if (r.err) throw new Error(`${cmd}: ${r.err}`);
   return r.ok;
+}
+
+/** A command the backend must refuse: returns its error. */
+async function refused(cmd, args = {}) {
+  const r = await d.req("POST", d.s("/execute/async"), {
+    script:
+      "const done = arguments[arguments.length - 1]; window.__TAURI_INTERNALS__.invoke(arguments[0], arguments[1]).then((v) => done({ ok: v ?? null }), (e) => done({ err: String(e?.message ?? e) }));",
+    args: [cmd, args],
+  });
+  if (!r.err) throw new Error(`${cmd} выполнилась, а должна быть отклонена`);
+  return r.err;
+}
+
+/** The next folder dialog (`pick_folder`) answers `path` without showing up. */
+function pickFolder(path) {
+  return d.exec(`
+    const path = arguments[0];
+    const tauri = window.__TAURI_INTERNALS__;
+    const invoke = tauri.invoke;
+    tauri.invoke = (cmd, args, options) => {
+      if (cmd !== "pick_folder") return invoke(cmd, args, options);
+      tauri.invoke = invoke;
+      return Promise.resolve(path);
+    };`, path);
 }
 
 async function idOf(subject) {
@@ -374,9 +400,16 @@ try {
     const setDir = async (value) => {
       await press(",", { ctrlKey: true });
       await d.click(await d.until("mail page", () => d.find(".prefs .tab[data-page='mail']")));
-      const input = await d.until("folder field", () => d.find(".prefs .folder input"));
-      await d.clear(input);
-      if (value) await d.type(input, value);
+      await d.until("folder field", () => d.find(".prefs .folder input"));
+      // Picked in the dialog: the field is not typed into.
+      if (value) {
+        await pickFolder(value);
+        await d.click(await d.find(".prefs .folder .btn:not(.icon)"));
+        await d.until("folder picked", async () => (await d.exec("return document.querySelector('.prefs .folder input').value")) === value);
+      } else {
+        const clear = await d.findAll(".prefs .folder .btn.icon");
+        if (clear.length) await d.click(clear[0]);
+      }
       await d.click(await d.find(".prefs footer .btn.primary"));
       await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
     };
@@ -396,6 +429,29 @@ try {
     await d.button("Входящие");
     if (readFileSync(join(dir, "report (1).pdf")).subarray(0, 8).toString() !== "%PDF-1.4") throw new Error("копия искажена");
     await setDir("");
+  });
+
+  await step("8.5", "пути не из диалога отклоняются: файлы не пишутся и не читаются", async () => {
+    const outside = join(tmpdir(), `depesha-e2e-outside-${process.pid}`);
+    const rows = await invoke("search", { text: "HTML письмо картинками", accountId: null });
+    const id = rows[0]?.id;
+    if (!id) throw new Error("письмо не найдено поиском");
+    const accountId = (await invoke("accounts"))[0].id;
+    const settings = await invoke("settings_get");
+    await refused("attachment_save", { id, index: 1, path: join(outside, "report.pdf") });
+    await refused("settings_set", { settings: { ...settings, attachments_dir: outside } });
+    if ((await invoke("settings_get")).attachments_dir !== settings.attachments_dir) throw new Error("папка вложений сменилась");
+    await refused("attachments_save_all", { id, dir: outside });
+    if (existsSync(outside)) throw new Error(`создано: ${outside}`);
+    const secret = "/etc/hostname";
+    const err = await refused("file_info", { path: secret });
+    if (/\d{2,}/.test(err)) throw new Error(`file_info раскрыл размер: ${err}`);
+    const draft = { from: null, to: [{ name: null, email: "someone@example.org" }], subject: "e2e: чужой файл", text: "", attachments: [{ kind: "file", path: secret }] };
+    await refused("draft_save", { accountId, draft, replace: null });
+    await refused("send", { accountId, draft, discardDraft: null, at: null, followupSecs: null });
+    if ((await invoke("outbox")).some((o) => o.draft.subject === draft.subject)) throw new Error("письмо с чужим файлом в «Исходящих»");
+    await refused("extension_install", { path: join(outside, "plugin"), permissions: [], hooks: [] });
+    await refused("extension_storage_set", { id: "../../x", key: "k", value: 1 });
   });
 
   await step("4.10", "просмотрщик вложений в области чтения: PDF, Word, Excel, Markdown, CSV в cp1251; ←/→ и Esc", async () => {
@@ -462,6 +518,17 @@ try {
     try {
       await d.until("letter in its window", async () => (await textOf(".reader h1")).includes(subj), 20000);
       if ((await d.findAll(".list, nav.side")).length) throw new Error("в окне письма есть список или боковая панель");
+      // What a letter's window has no use for, it cannot call.
+      const accountsBefore = await invoke("accounts");
+      const settingsBefore = await invoke("settings_get");
+      const extensionsBefore = (await invoke("extensions")).length;
+      await refused("account_remove", { id: accountsBefore[0].id });
+      await refused("settings_set", { settings: { ...settingsBefore, undo_send_secs: 0 } });
+      await refused("extension_install", { path: join(root, "plugins/community/reading-time"), permissions: [], hooks: [] });
+      await refused("update_install");
+      if ((await invoke("accounts")).length !== accountsBefore.length) throw new Error("ящик удалён из окна письма");
+      if ((await invoke("settings_get")).undo_send_secs !== settingsBefore.undo_send_secs) throw new Error("настройки изменены из окна письма");
+      if ((await invoke("extensions")).length !== extensionsBefore) throw new Error("плагин поставлен из окна письма");
       // Double click again: the same window comes forward, no second one.
       await d.req("POST", d.s("/window"), { handle: main });
       await d.exec(
@@ -1202,17 +1269,6 @@ try {
     return invoke("extension_install", { path, permissions: m.permissions ?? [], hooks: m.hooks ?? [] });
   };
   const extensionsDir = join(profile, "data", "ru.depesha.mail", "extensions");
-  /** The next folder dialog answers `path` without showing up. */
-  const pickFolder = (path) =>
-    d.exec(`
-      const path = arguments[0];
-      const tauri = window.__TAURI_INTERNALS__;
-      const invoke = tauri.invoke;
-      tauri.invoke = (cmd, args, options) => {
-        if (cmd !== "plugin:dialog|open") return invoke(cmd, args, options);
-        tauri.invoke = invoke;
-        return Promise.resolve(path);
-      };`, path);
   const installFromUi = async (name) => {
     await pickFolder(join(root, "e2e/fixtures/extensions", name));
     await d.click(await d.find(".prefs .plugins .head .btn"));

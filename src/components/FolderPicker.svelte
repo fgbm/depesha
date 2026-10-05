@@ -1,19 +1,25 @@
 <script lang="ts">
-  // A folder on disk: typed, or picked in the system dialog; empty is a choice too.
-  import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  // A folder on disk, picked in the system dialog; empty is a choice too. It is not typed:
+  // the backend saves files only into a folder the user picked there.
   import X from "@lucide/svelte/icons/x";
+  import { api } from "../lib/api";
+  import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
 
   let { value = $bindable(""), label, placeholder = "" }: { value: string; label: string; placeholder?: string } = $props();
 
   async function pick() {
-    const dir = await openDialog({ directory: true, title: label, defaultPath: value || undefined });
-    if (typeof dir === "string") value = dir;
+    try {
+      const dir = await api.pickFolder("save", label, value || null);
+      if (dir) value = dir;
+    } catch (e) {
+      app.fail(e);
+    }
   }
 </script>
 
 <div class="folder">
-  <input class="input" bind:value {placeholder} aria-label={label} spellcheck="false" />
+  <input class="input" {value} readonly {placeholder} aria-label={label} spellcheck="false" onclick={pick} />
   {#if value}
     <button class="btn ghost icon" onclick={() => (value = "")} title={t("settings.askEveryTime")} aria-label={t("settings.askEveryTime")}><X size={14} /></button>
   {/if}

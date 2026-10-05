@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from "svelte";
-  import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
@@ -133,15 +132,10 @@
   }
 
   async function attach() {
-    const picked = await openDialog({ multiple: true, title: t("compose.attachTitle") });
-    if (!picked) return;
-    for (const path of Array.isArray(picked) ? picked : [picked]) {
-      try {
-        const info = await api.fileInfo(path);
-        c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
-      } catch (e) {
-        app.fail(e);
-      }
+    try {
+      for (const f of await api.pickFiles(t("compose.attachTitle"))) c.draft.attachments.push({ kind: "file", ...f });
+    } catch (e) {
+      app.fail(e);
     }
   }
 

@@ -2,6 +2,9 @@
   import { t } from "../lib/i18n.svelte";
   // Renders sanitized message HTML in a sandboxed iframe: no scripts, no network
   // except images the user allowed, links go through onLink.
+  // A srcdoc document also takes the window's CSP (tauri.conf.json), and its own <meta> only
+  // narrows it: so the window's policy keeps `img-src https: http:` (remote images, once
+  // allowed) and `style-src 'unsafe-inline'` (the letters' own styles) for this frame alone.
   let {
     html,
     allowRemote,

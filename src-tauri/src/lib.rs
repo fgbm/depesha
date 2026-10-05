@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod extensions;
 mod outbox;
+mod paths;
 mod scheduler;
 mod secrets;
 mod state;
@@ -115,6 +116,7 @@ pub fn run() {
                 grants: Default::default(),
                 oauth_cancel: Notify::new(),
                 tasks: Default::default(),
+                paths: paths::Paths::new(),
             });
             app.manage(state.clone());
             state.apply_language();
@@ -129,6 +131,16 @@ pub fn run() {
                 outbox::run(state).await;
             });
             Ok(())
+        })
+        // Files dropped on a window were chosen by the user: they may be attached.
+        .on_webview_event(|webview, event| {
+            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event
+                && let Some(state) = webview.try_state::<Arc<AppState>>()
+            {
+                for path in paths.iter().filter(|p| p.is_file()) {
+                    state.paths.allow(paths::Use::Attach, path.clone());
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::accounts,
@@ -160,6 +172,7 @@ pub fn run() {
             commands::unsubscribe_plan,
             commands::settings_get,
             commands::settings_set,
+            commands::plugin_settings_set,
             commands::language,
             commands::extensions,
             commands::messages_by_id,
@@ -202,6 +215,9 @@ pub fn run() {
             commands::outbox_cancel,
             commands::temp_attachment,
             commands::file_info,
+            commands::pick_files,
+            commands::pick_folder,
+            commands::pick_save_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Depesha")
@@ -223,4 +239,77 @@ pub fn run() {
                 updater::apply_staged(&state);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    fn allowed(capability: &str) -> BTreeSet<String> {
+        let json: serde_json::Value = serde_json::from_str(capability).unwrap();
+        json["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str()?.strip_prefix("allow-"))
+            .map(|c| c.replace('-', "_"))
+            .collect()
+    }
+
+    /// build.rs, `invoke_handler` and the capabilities name the same commands, and a
+    /// letter's window cannot manage mailboxes, plugins, updates or settings.
+    #[test]
+    fn acl_matches_the_commands() {
+        let manifest: Vec<&str> = include_str!("../build.rs")
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix('"')?.strip_suffix("\","))
+            .collect();
+        let handler: Vec<&str> = include_str!("lib.rs")
+            .split("generate_handler![")
+            .nth(1)
+            .and_then(|s| s.split("])").next())
+            .unwrap()
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("commands::")?.strip_suffix(','))
+            .collect();
+        let commands: BTreeSet<String> = handler.iter().map(|c| c.to_string()).collect();
+        assert_eq!(commands.len(), handler.len(), "a command registered twice");
+        assert_eq!(
+            manifest.iter().map(|c| c.to_string()).collect::<BTreeSet<_>>(),
+            commands,
+            "build.rs and invoke_handler differ"
+        );
+        assert_eq!(manifest.len(), handler.len());
+
+        let main = allowed(include_str!("../capabilities/main.json"));
+        let message = allowed(include_str!("../capabilities/message.json"));
+        assert_eq!(main, commands, "the main window allows every command");
+        assert!(message.is_subset(&commands), "{:?}", message.difference(&commands));
+        for denied in [
+            "account_save",
+            "account_remove",
+            "account_check",
+            "accounts_arrange",
+            "account_look",
+            "detect",
+            "exchange_detect",
+            "oauth_providers",
+            "oauth_sign_in",
+            "oauth_cancel",
+            "extension_inspect",
+            "extension_install",
+            "extension_approve",
+            "extension_remove",
+            "update_status",
+            "update_check",
+            "update_install",
+            "update_restart",
+            "offline_pause",
+            "settings_set",
+            "message_window",
+        ] {
+            assert!(commands.contains(denied), "{denied} is not a command");
+            assert!(!message.contains(denied), "a letter's window may call {denied}");
+        }
+    }
 }

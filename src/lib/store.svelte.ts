@@ -185,9 +185,21 @@ export class AppStore {
       await api.saveSettings($state.snapshot(next));
     } catch (e) {
       this.fail(e, t("err.settings"));
+      // Refused (a folder not picked in the dialog): the window shows what is saved.
+      await this.loadSettings();
     }
     await this.loadLanguage();
     if (threadsChanged) this.reload();
+  }
+
+  /** A built-in plugin's own settings; a letter's window may save them, not the rest. */
+  async savePluginSettings(plugin: string, values: Record<string, unknown>) {
+    this.settings = { ...this.settings, plugin_settings: { ...(this.settings.plugin_settings ?? {}), [plugin]: values } };
+    try {
+      await api.pluginSettingsSet(plugin, $state.snapshot(values));
+    } catch (e) {
+      this.fail(e, t("err.settings"));
+    }
   }
 
   async checkUpdates() {

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
@@ -23,9 +22,9 @@
   }
 
   async function install() {
-    const dir = await openDialog({ directory: true, title: t("ext.installTitle") });
-    if (!dir || Array.isArray(dir)) return;
     try {
+      const dir = await api.pickFolder("plugin", t("ext.installTitle"));
+      if (!dir) return;
       const preview = await api.extensionInspect(dir);
       // An update that asks for nothing new goes in at once; anything else waits for consent.
       if (preview.previous && !widens(preview.manifest, preview.previous.granted)) await put(dir, preview.manifest, true);

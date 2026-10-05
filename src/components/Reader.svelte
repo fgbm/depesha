@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import Forward from "@lucide/svelte/icons/forward";
@@ -155,7 +154,7 @@
     if (!msg) return;
     if (!saveDir) return saveAttachmentAs(a);
     try {
-      const path = await app.track(api.attachmentSaveIn(msg.row.id, a.index, saveDir));
+      const path = await app.track(api.attachmentSaveIn(msg.row.id, a.index));
       app.toast(t("file.savedTo", { name: path.split(/[\\/]/).pop() ?? a.name, dir: saveDir }));
     } catch (e) {
       // The folder is gone or closed to writing: the error says so, the file goes elsewhere.
@@ -165,9 +164,9 @@
 
   async function saveAttachmentAs(a: AttachmentInfo) {
     if (!msg) return;
-    const path = await save({ defaultPath: a.name, title: t("file.saveTitle") });
-    if (!path) return;
     try {
+      const path = await api.pickSaveFile(t("file.saveTitle"), a.name);
+      if (!path) return;
       await app.track(api.attachmentSave(msg.row.id, a.index, path));
       app.toast(t("file.saved", { name: a.name }));
     } catch (e) {
@@ -177,9 +176,10 @@
 
   async function saveAll() {
     if (!msg) return;
-    const dir = saveDir || (await openDialog({ directory: true, title: t("file.saveAllTitle") }));
-    if (!dir || Array.isArray(dir)) return;
     try {
+      // The folder from the settings is the backend's to find; another one is picked now.
+      const dir = saveDir ? null : await api.pickFolder("save", t("file.saveAllTitle"));
+      if (!saveDir && !dir) return;
       const n = await app.track(api.attachmentsSaveAll(msg.row.id, dir));
       app.toast(tn("file.savedAll", n));
     } catch (e) {

@@ -49,5 +49,5 @@ for i in $(seq 10); do
   [[ $i == 10 ]] && { echo "seed failed"; exit 1; }
   sleep 2
 done
-npx tauri build --debug --no-bundle
+npx tauri build --debug --no-bundle --features e2e
 e2e/keyring.sh node e2e/run.mjs

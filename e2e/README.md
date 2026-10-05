@@ -19,11 +19,13 @@ cargo install tauri-driver --locked
 ```
 docker compose -f compose.test.yaml up -d --force-recreate
 python3 e2e/imap_helper.py seed
-npx tauri build --debug --no-bundle
+npx tauri build --debug --no-bundle --features e2e
 e2e/keyring.sh node e2e/run.mjs
 ```
 
 Переменные: `DEPESHA_APP` (путь к бинарнику, например релизный `target/release/depesha`), `WEBKIT_DRIVER`, `E2E_DISPLAY`.
+
+Сборка с фичей `e2e` считает выбранными пользователем файлы и папки из `DEPESHA_E2E_ROOT` (профиль прогона и корень репозитория; `run.mjs` задаёт его сам): системные диалоги WebDriver не нажимает, а без диалога бэкенд не пишет и не читает файлы по путям из интерфейса. Релизная сборка этой фичи не включает, и переменная там ничего не значит. Шаги, которые сами открывают диалог, подменяют ответ команды `pick_folder`.
 
 `e2e/keyring.sh` запускает команду в отдельной сессии D-Bus с одноразовой разблокированной связкой ключей: пароли тестовых ящиков не попадают в связку пользователя, а заблокированная связка не мешает мастеру («SS error: prompt dismissed»). Так прогон запускает `scripts/check.sh`; вручную — `e2e/keyring.sh node e2e/run.mjs`. С `E2E_SYSTEM_KEYRING=1` используется связка текущей сессии.
 
