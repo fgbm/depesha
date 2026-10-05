@@ -1462,6 +1462,20 @@ impl Store {
             .optional()?)
     }
 
+    /// The id of a cached letter with this Message-ID anywhere in the account. A waiting
+    /// for a reply is countable and cancellable only while its letter is in the cache
+    /// (`followups_count`), so after a copy into Sent this is the check that it landed.
+    pub fn find_any_by_message_id(&self, account_id: &str, message_id: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT id FROM messages WHERE account_id = ?1 AND message_id = ?2 LIMIT 1",
+                params![account_id, message_id.trim_matches(['<', '>'])],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     pub fn get(&self, id: i64) -> Result<Option<MessageRow>> {
         Ok(self
             .conn()

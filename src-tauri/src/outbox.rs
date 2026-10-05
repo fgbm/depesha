@@ -82,30 +82,46 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 state.task_done(&key);
                 state.store.outbox_remove(item.id)?;
                 state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
-                // The letter is on the server; its copy must join the Sent cache first, so a
-                // waiting-for-a-reply added below finds it. The wait requires the copy in the
-                // cache: without it the badge stays at zero until the copy happens to arrive.
-                // Exchange Web Services already put it into Sent Items.
+                let message_id = message::parse_summary(&raw).message_id;
+                let sent = state.store.folder_by_role(&account.id, FolderRole::Sent)?;
+                let worker = state.worker(&account.id).ok();
+                // Whether a waiting-for-a-reply may be added: the wait is countable and
+                // cancellable only while its letter is in the cache. A server that keeps its
+                // own copy (Exchange, Gmail) files it, and the Sent sync below brings it; a
+                // client-side copy is appended here (the append syncs the folder, so a
+                // successful append means the letter is cached).
+                let mut letter_cached = true;
                 if account.save_sent_copy
                     && !account.is_ews()
-                    && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
-                    && let Ok(worker) = state.worker(&account.id)
+                    && let Some(sent) = sent.as_ref()
+                    && let Some(worker) = worker.as_ref()
                 {
-                    let message_id = message::parse_summary(&raw).message_id;
                     let work = Work::Append {
-                        folder: sent,
+                        folder: sent.clone(),
                         // The wait below still parses the letter: the copy takes a copy.
                         raw: raw.clone(),
                         flags: "(\\Seen)".into(),
-                        message_id,
+                        message_id: message_id.clone(),
                     };
                     if let Err(e) = worker.run_background(work).await {
                         tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
-                        state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
+                        // A wait whose letter never arrived would show badge 0 and could not
+                        // be cancelled. Sync Sent first: the copy may have landed after all.
+                        letter_cached = match &message_id {
+                            Some(mid) => {
+                                worker.run_background(Work::SyncFolder(sent.clone())).await.is_ok()
+                                    && state.store.find_any_by_message_id(&account.id, mid)?.is_some()
+                            }
+                            None => false,
+                        };
+                        if !letter_cached {
+                            state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
+                        }
                     }
                 }
                 if item.followup_secs > 0
-                    && let Some(message_id) = message::parse_summary(&raw).message_id
+                    && letter_cached
+                    && let Some(message_id) = message_id
                 {
                     state.store.followup_add(&Followup::after_sending(
                         &account.id,
@@ -121,8 +137,8 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 // answer joins its conversation at once, and again a moment later for servers
                 // that file it with a delay.
                 if (!account.save_sent_copy || account.is_ews())
-                    && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
-                    && let Ok(worker) = state.worker(&account.id)
+                    && let Some(sent) = sent
+                    && let Some(worker) = worker
                 {
                     worker.kick(Work::SyncFolder(sent.clone()));
                     tokio::spawn(async move {

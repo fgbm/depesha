@@ -536,6 +536,20 @@ mod tests {
     }
 
     #[test]
+    fn a_letter_is_found_by_message_id_in_any_folder() {
+        // The outbox asks this after a failed copy and a Sent sync: a wait may only be
+        // added while its letter is in the cache, wherever the copy was filed.
+        let store = mailbox();
+        assert_eq!(store.find_any_by_message_id("a", "q@x").unwrap(), None);
+        let id = put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
+        assert_eq!(store.find_any_by_message_id("a", "q@x").unwrap(), Some(id));
+        // Angle brackets and the folder are irrelevant.
+        assert_eq!(store.find_any_by_message_id("a", "<q@x>").unwrap(), Some(id));
+        // Another account's letter with the same id is not this account's.
+        assert_eq!(store.find_any_by_message_id("b", "q@x").unwrap(), None);
+    }
+
+    #[test]
     fn an_answer_counts_only_from_the_awaited_recipient() {
         let store = mailbox();
         put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
