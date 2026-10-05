@@ -1,0 +1,121 @@
+// The quick answer under the conversation: write without leaving it, unfold into a window
+// when it grows. The state, the effects and the order are the component's of old;
+// QuickReply.svelte brings the markup, so every `t("…")` of this answer stays in a component.
+//
+// A composable in the plain sense: it keeps no markup and no wording, only the state and
+// the actions, and returns from `useQuickReply()`.
+
+import { untrack } from "svelte";
+import { app } from "../../lib/store.svelte";
+import { formatFor, reply } from "../../lib/compose";
+import { defaultSignature, withSignature } from "../../lib/signatures";
+import { GAP, htmlLetterText, paragraphsHtml } from "../../lib/richtext";
+import { sendWarnings } from "../../lib/sendChecks";
+import type { ComposeDraft } from "../../lib/types";
+
+export class QuickReplyState {
+  /** The letter being read; the answer is built from it. */
+  readonly msg = $derived(app.opened);
+  /** The letter's mailbox: the answer comes from its address, in its format. */
+  readonly account = $derived(this.msg ? app.account(this.msg.row.account_id) : undefined);
+  /** "All" is offered only when it reaches someone a plain reply does not. */
+  readonly manyRecipients = $derived.by(() => {
+    const msg = this.msg;
+    const account = this.account;
+    if (!msg || !account) return false;
+    const me = { name: account.display_name, email: account.email };
+    const one = reply(msg, me, false);
+    const all = reply(msg, me, true);
+    return all.to.length + all.cc.length > one.to.length + one.cc.length;
+  });
+
+  /** The answer being typed: built from the letter when the box opened. */
+  quick = $state<{ account_id: string; email: string; draft: ComposeDraft; all: boolean; to: number } | null>(null);
+  text = $state("");
+  box = $state<HTMLTextAreaElement | null>(null);
+  busy = $state(false);
+
+  constructor() {
+    // Another letter opened with an answer half-written: it waits folded in the corner.
+    $effect(() => {
+      const id = this.msg?.row.id;
+      untrack(() => {
+        if (!this.quick || this.quick.to === id) return;
+        if (this.text.trim()) this.toWindow("min");
+        this.quick = null;
+        this.text = "";
+      });
+    });
+  }
+
+  openQuick(all: boolean) {
+    const msg = this.msg;
+    const account = this.account;
+    if (!msg || !account) return;
+    const me = { name: account.display_name, email: account.email };
+    // No format switch here: the answer goes in the mailbox's format.
+    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), defaultSignature(account));
+    this.quick = { account_id: account.id, email: account.email, draft, all, to: msg.row.id };
+    queueMicrotask(() => this.box?.focus());
+  }
+
+  /** "All" in the open box: the recipients change, what was typed stays. */
+  setAll(all: boolean) {
+    const msg = this.msg;
+    const account = this.account;
+    if (!msg || !account || !this.quick) return;
+    const me = { name: account.display_name, email: account.email };
+    this.quick = { ...this.quick, all, draft: withSignature(reply(msg, me, all, this.quick.draft.format), defaultSignature(account)) };
+    this.box?.focus();
+  }
+
+  private draft(q: NonNullable<typeof this.quick>): ComposeDraft {
+    if (q.draft.format !== "html") return { ...q.draft, text: this.text.trimEnd() + q.draft.text };
+    // In an HTML mailbox: paragraphs by empty lines, addresses as links, above the signature and quote.
+    const html = paragraphsHtml(this.text) + (q.draft.html ?? "").replace(GAP, "");
+    return { ...q.draft, html, text: htmlLetterText(html) };
+  }
+
+  /** Moves what was typed into a composition window; nothing typed is lost. */
+  toWindow(mode: "open" | "min" = "open") {
+    if (this.quick) app.openCompose({ account_id: this.quick.account_id, draft: this.draft(this.quick), draft_id: null, unsaved: true }, mode);
+    this.quick = null;
+    this.text = "";
+  }
+
+  async send() {
+    const q = this.quick;
+    if (!q || !this.text.trim() || this.busy) return;
+    const draft = this.draft(q);
+    this.busy = true;
+    try {
+      const found = await sendWarnings(draft, q.email);
+      // Warnings are read and answered in the full window.
+      if (found.length) return this.toWindow();
+      await app.send(q.account_id, draft, null, null, null);
+      this.quick = null;
+      this.text = "";
+    } catch (e) {
+      app.fail(e);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  onKey(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      this.send();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.text.trim()) this.toWindow("min");
+      else this.quick = null;
+    }
+  }
+}
+
+/** The quick answer under the conversation: the state and the actions, no markup. */
+export function useQuickReply(): QuickReplyState {
+  return new QuickReplyState();
+}

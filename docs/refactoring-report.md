@@ -252,7 +252,97 @@ scoped-стили панелей переехали с их владельцам
 
 ## Фаза 5. Reader
 
-Статус: **не начато**.
+Статус: **выполнено**.
+
+### Что сделано
+
+`src/components/Reader.svelte` (1299 → 310 строк, скрипт 368 → 112, разметка 295 → 97,
+стиль 636 → 101) остался областью чтения: она владеет состояниями письма, решает,
+какое из них показать (письмо, заготовка, ошибка, массовая операция, «письмо идёт»),
+держит `iframe srcdoc` с его правилами пересоздания и сборкой вьюера вложений и
+разметку строки вложений/тела. Всё остальное переехало в `components/reader/`; CSS
+переехал с владельцем разметки, `app.*` остался единственной точкой входа, пропсы
+узкие — реактивные состояния компонентов, без цепочек.
+
+Компоненты (имена — по шву разметки, а не механически по списку из issue):
+
+- `ReaderHeader` — заголовок письма: тема, отправитель с фото/логотипом, получатели,
+  дата, а также строка вложений (`.files`/`.file`/`.file-name`/`.fname`/`.fsize`, №23:
+  клик по имени открывает вьюер, кнопки сохранения). Свои `.head`/`.from`/`.avatar`/
+  `.who`/`.date`/`.sender`/`.files`/`.file*`/`.small-btn`; сюда же переехали
+  `fromSender`, `onlyToMe`, `list`, `saveDir`, показ вложений.
+- `ReaderToolbar` — панель письма: «назад»/соседи (переданы снипетом `nav`), «продолжить
+  черновик», «Готово», кнопки плагинов, «Удалить», меню «Ещё» и «Переместить»; здесь
+  живут `moreOpen`/`moveOpen`, `messageCommands`, `pluginActions`, `folders` и весь
+  toolbar-CSS (`.toolbar`, `.anchor`, `.sep`, `.icon`, `.folder-list`, `.compact`,
+  контейнерные запросы).
+- `ReaderStates` — всё, что не письмо: массовая операция, ошибка, «письмо идёт»
+  (прогресс/скелет/«медленно»), заготовка «выберите письмо»; свой `.center`/`.opening`/
+  `.progress`/`.skeleton`/`.slow`/`.hint`/`.actions`/`.select-all`/`.danger-text`.
+- `ReaderBody` — «HTML · Markdown · Текст» и сам текст: `MailFrame` с `#key` по
+  `row.id` и `allowRemote || trusted_sender` (пересоздание `iframe srcdoc` сохранено
+  дословно), `mailto:`/ссылки. Здесь же сброс выбранного вида на смену письма (`picked`
+  обнуляется эффектом по `row.id` — это и есть сохранённая фиксация «сброс при смене
+  письма»).
+- `Conversation` — карточки переписки выше/ниже письма и «N ещё»: `.card`, `.mini`,
+  `.draft-tag`, `.more-line`; каркас `.thread` (рамка, `aria-label={t("conv.label")}`)
+  остался у области чтения, чтобы `aria-*` не сдвинулся.
+- `QuickReply` — быстрый ответ: `.quick*`-разметка и CSS; состояние и действия — в
+  `useQuickReply`.
+- `ReplyActions` — «Ответить/Ответить всем/Переслать» (`.acts`/`.act`): вынесены из
+  `ReaderHeader`, чтобы он уложился в 350 строк.
+
+Композаблы (состояние без разметки, возвращают объект из `use*`):
+
+- `useAttachmentViewer.svelte.ts` — вьюер вложений в области чтения (R8, #23): какое
+  вложение показано, его `at`, возврат к письму (`scrollBefore`/`closeViewer`),
+  сохранение файла/всех файлов, `openAttachment`; `Viewer.svelte` получает `id`, `files`
+  и `bind:at`, а тосты и заголовки диалогов остаются в области чтения (там свои `t()`).
+- `useQuickReply.svelte.ts` — быстрый ответ: `quick`, `text`, `busy`, `manyRecipients`,
+  `openQuick`/`setAll`/`toWindow`/`send`/`onKey` и эффект «незаконченный ответ уходит в
+  окно при смене письма».
+
+Отличия от имён в issue объяснены швами и лимитом 350 (AC10): `Header` и `Conversation`
+— как названо; `QuickReply` — как названо; вместо одного `AttachmentViewer.svelte`
+вьюер остался существующим `Viewer.svelte` (#23), а его сквозная логика вынесена в
+`useAttachmentViewer`; дополнительно выделены `ReaderToolbar`, `ReaderStates`,
+`ReaderBody` и `ReplyActions` — без них `Reader` был бы 400+ строк (панель и заголовок
+одного письма не влезают в 350 вместе с телом и областью чтения), а тело письма с
+`iframe srcdoc` — отдельный шов с собственным CSS. Дробления ради дробления нет:
+каждый файл — смысловой блок со своим CSS.
+
+Поведение не изменилось: классы, `role=`/`aria-*`, `data-*` и все `t()`-ключи
+побайтово на месте (инварианты сверены), `e2e/run.mjs` не тронут, доверие отправителю
+(`allowRemote`/`trusted_sender`/`sender_unverified`/«показать»/`trustSender`) и пересоздание
+`iframe srcdoc` сохранены дословно.
+
+### Проверка фазы
+
+| Проверка | Результат |
+| --- | --- |
+| `npm run lint` | зелёный (0 ошибок; сняты 3 неактуальных подавления `Reader.svelte`) |
+| `npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings` | 0 ошибок, 0 предупреждений |
+| `npx vite build` | зелёный (бандл не вырос) |
+| `npx vitest run` | 40 файлов, 277 тестов — зелёные |
+| `cargo fmt --all --check` | чисто |
+| `cargo clippy --workspace --all-targets -- -D warnings` | зелёный |
+| `cargo test -p depesha-core` / `-p depesha --lib` | зелёные (2 / 24) |
+| `scripts/frontend-metrics.sh` | регрессий нет (`Reader.svelte` 1299 → 310) |
+| `scripts/frontend-invariants.sh` | дрейфа нет (`t_keys 559`, `app_members 85`, `role/aria 238`, `data_kinds 23`); обновлён только счётчик компонентов 60 → 67 |
+| `git diff --name-only main -- '*.svelte' 'e2e'` | только `Reader.svelte` и новые `components/reader/*.svelte`; `e2e/run.mjs` без изменений |
+
+| Файл | Строк | Ответственность |
+| --- | --- | --- |
+| `components/Reader.svelte` | 310 | область чтения: состояния и выбор, `iframe srcdoc`, вьюер, строка вложений, каркас `.scroll`/`.thread`/`.body-area` |
+| `components/reader/ReaderHeader.svelte` | 266 | заголовок письма и строка вложений |
+| `components/reader/ReaderToolbar.svelte` | 179 | панель письма, меню «Ещё»/«Переместить», кнопки плагинов |
+| `components/reader/QuickReply.svelte` | 138 | разметка быстрого ответа |
+| `components/reader/Conversation.svelte` | 131 | карточки переписки и «N ещё» |
+| `components/reader/ReaderBody.svelte` | 109 | «HTML · Markdown · Текст» и текст (`MailFrame`, ссылки) |
+| `components/reader/ReaderStates.svelte` | 99 | массовая операция, ошибка, «письмо идёт», заготовка |
+| `components/reader/ReplyActions.svelte` | 65 | «Ответить/Ответить всем/Переслать» |
+| `components/reader/useAttachmentViewer.svelte.ts` | 124 | вьюер вложений: показанное вложение, возврат, сохранение (R8) |
+| `components/reader/useQuickReply.svelte.ts` | 121 | быстрый ответ: состояние, отправка, уход в окно |
 
 ## Итоговая приёмка
 
