@@ -91,6 +91,8 @@ class AppStore {
   /** All cached messages of the view are loaded; for folders, older ones may still be on the server. */
   exhausted = $state(false);
   loadingMore = $state(false);
+  /** The server said the folder has nothing older: scrolling to the end does not ask again. */
+  private noOlder = false;
   selected = $state<Set<number>>(new Set());
   anchor = $state<number | null>(null);
   opened = $state<OpenedMessage | null>(null);
@@ -625,9 +627,10 @@ class AppStore {
         if (this.view !== v) return;
         this.messages = this.append(rows);
         this.exhausted = rows.length < PAGE;
-      } else if (v.kind === "folder") {
+      } else if (v.kind === "folder" && !this.noOlder) {
         // The cache ran out: fetch older headers from the server.
         const n = await this.track(api.loadOlder(v.account_id, v.folder));
+        if (n === 0 && this.view === v) this.noOlder = true;
         if (n > 0 && this.view === v) {
           this.exhausted = false;
           const rows = await api.messages(this.query(this.messages.length)!);
@@ -650,6 +653,7 @@ class AppStore {
       return;
     }
     this.view = v;
+    this.noOlder = false;
     this.keep = new Set();
     this.pins = new Map();
     this.conversation = [];
