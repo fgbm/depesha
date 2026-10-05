@@ -43,6 +43,18 @@ describe("saving a mailbox's page", () => {
     expect(done).toHaveBeenCalled();
   });
 
+  it("saves the mailbox's own format without logging in; «as in the settings» saves none", async () => {
+    const form = new AccountForm({ ...saved, compose_format: "markdown" }, vi.fn());
+    expect(form.composeFormat).toBe("markdown");
+    form.composeFormat = "html";
+    expect(form.needsCheck).toBe(false);
+    expect(form.account().compose_format).toBe("html");
+    form.composeFormat = "";
+    expect("compose_format" in form.account()).toBe(false);
+    await form.save();
+    expect(api.accountCheck).not.toHaveBeenCalled();
+  });
+
   it("checks the login first when a server changed", async () => {
     const form = new AccountForm(saved, () => {});
     form.smtp.port = 587;

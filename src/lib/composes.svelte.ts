@@ -4,8 +4,9 @@
 import { api } from "./api";
 import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
-import { emptyDraft, forward, isForward, reply, withSignature } from "./compose";
-import type { Account, AccountView, AttachmentSource, ComposeDraft, OpenedMessage, OutboxItem } from "./types";
+import { emptyDraft, formatFor, forward, isForward, reply, withSignature } from "./compose";
+import { dropPlan, offersZones, type DropZone } from "./images";
+import type { Account, AccountView, AttachmentSource, ComposeDraft, OpenedMessage, OutboxItem, Settings } from "./types";
 
 export interface ComposeState {
   account_id: string;
@@ -30,6 +31,8 @@ export interface ComposeHost {
   /** The letter of a separate message window, where compositions open full screen; null in the main window. */
   readonly windowOf: number | null;
   readonly opened: OpenedMessage | null;
+  /** The format of new letters comes from here unless the mailbox has its own. */
+  readonly settings: Settings;
   /** Set to start the first mailbox's setup. */
   wizard: { account: Account | null } | null;
   account(id: string): AccountView | undefined;
@@ -66,7 +69,7 @@ export class ComposeManager {
       this.host.wizard = { account: null };
       return;
     }
-    const draft = withSignature(emptyDraft({ name: acc.display_name, email: acc.email }), acc.signature);
+    const draft = withSignature(emptyDraft({ name: acc.display_name, email: acc.email }, this.format(acc)), acc.signature);
     this.open({ account_id: acc.id, draft, draft_id: null });
   }
 
@@ -80,7 +83,7 @@ export class ComposeManager {
       (c) => c.draft.in_reply_to && c.draft.in_reply_to === msg.view.summary.message_id && !isForward(c.draft.subject),
     );
     if (same) return this.show(same.id);
-    const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all), acc.signature);
+    const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all, this.format(acc)), acc.signature);
     this.open({ account_id: acc.id, draft, draft_id: null });
   }
 
@@ -88,8 +91,43 @@ export class ComposeManager {
     const msg = this.host.opened;
     const acc = msg && this.host.account(msg.row.account_id);
     if (!msg || !acc) return;
-    const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }), acc.signature);
+    const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }, this.format(acc)), acc.signature);
     this.open({ account_id: acc.id, draft, draft_id: null });
+  }
+
+  /** Files dragged over the window: the HTML letter offers its two zones, the one under the pointer. */
+  dragging = $state<{ zones: boolean; zone: DropZone | null } | null>(null);
+  /** Where each window puts pictures dropped "into the text". */
+  private pictureTargets = new Map<number, (paths: string[]) => Promise<void>>();
+
+  pictureTarget(id: number, insert: ((paths: string[]) => Promise<void>) | null) {
+    if (insert) this.pictureTargets.set(id, insert);
+    else this.pictureTargets.delete(id);
+  }
+
+  dragEnter(c: ComposeWindow, paths: string[]) {
+    this.dragging = { zones: offersZones(paths.map(baseName), c.draft.format ?? "plain"), zone: null };
+  }
+
+  /** Files dropped on the window: pictures into the text on its zone, the rest attached. */
+  async dropFiles(c: ComposeWindow, paths: string[], zone: DropZone | null) {
+    this.dragging = null;
+    const plan = dropPlan(paths.map(baseName), c.draft.format ?? "plain", zone);
+    const inline = paths.filter((p) => plan.inline.includes(baseName(p)));
+    for (const path of paths.filter((p) => !inline.includes(p))) {
+      try {
+        const info = await api.fileInfo(path);
+        c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
+      } catch (err) {
+        this.host.fail(err);
+      }
+    }
+    if (inline.length) await this.pictureTargets.get(c.id)?.(inline);
+  }
+
+  /** How a new letter from the mailbox is written. */
+  format(acc: Account | undefined) {
+    return formatFor(acc, this.host.settings);
   }
 
   /** Unfolds a window and folds the rest. */
@@ -139,6 +177,8 @@ export class ComposeManager {
           bcc: d.bcc,
           subject: d.subject,
           text: d.text,
+          html: d.html ?? null,
+          format: d.format ?? "plain",
           in_reply_to: d.in_reply_to,
           references: d.references,
           attachments,
@@ -152,4 +192,8 @@ export class ComposeManager {
       this.host.fail(e);
     }
   }
+}
+
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
 }

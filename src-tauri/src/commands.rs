@@ -11,7 +11,7 @@ use depesha_core::ews::{self, EwsDetection};
 use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
-use depesha_core::smtp::{self, Draft, OutgoingAttachment};
+use depesha_core::smtp::{self, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, SearchTotals, Snooze, SortKey};
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -1288,6 +1288,13 @@ pub fn document_html(text: String, markdown: bool) -> String {
     message::document_html(&text, markdown)
 }
 
+/// A letter in Markdown as the HTML it would go out as: the composer switching to the
+/// visual editor takes it from here, so both agree.
+#[tauri::command]
+pub fn markdown_html(text: String) -> String {
+    message::markdown_html(&text)
+}
+
 /// Programs and what runs them: saved only, never opened from a letter.
 const DANGEROUS: &[&str] = &[
     // Windows
@@ -1514,6 +1521,11 @@ pub struct ComposeDraft {
     subject: String,
     #[serde(default)]
     text: String,
+    /// The letter from the visual editor; only an HTML letter has it.
+    #[serde(default)]
+    html: Option<String>,
+    #[serde(default)]
+    format: BodyFormat,
     in_reply_to: Option<String>,
     #[serde(default)]
     references: Vec<String>,
@@ -1558,6 +1570,10 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
         total += att.data.len() as u64;
         attachments.push(att);
     }
+    // Pictures in the text travel inside the letter too: they count with the files.
+    if d.format == BodyFormat::Html {
+        total += d.html.as_ref().map_or(0, |h| h.len() as u64 * 3 / 4);
+    }
     if total > MAX_ATTACHMENTS {
         return Err(CmdError::new(
             "too-large",
@@ -1574,7 +1590,9 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
         bcc: d.bcc,
         subject: d.subject,
         text: d.text,
-        html: None,
+        // A letter switched to plain text or Markdown does not take its old HTML along.
+        html: d.html.filter(|_| d.format == BodyFormat::Html),
+        format: d.format,
         in_reply_to: d.in_reply_to,
         references: d.references,
         attachments,
@@ -1694,6 +1712,11 @@ pub async fn draft_save(
         // A header line on top is as good as any other place for it.
         raw.splice(0..0, format!("{}: {at}\r\n", message::SEND_AT_HEADER).into_bytes());
     }
+    if draft.format != BodyFormat::Plain {
+        // Markdown looks like plain text in the letter: the draft says how it was written.
+        let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
+        raw.splice(0..0, header.into_bytes());
+    }
     let message_id = message::parse_summary(&raw).message_id;
     let worker = state.worker(&account.id)?;
     worker
@@ -1811,6 +1834,45 @@ async fn info_of(path: PathBuf) -> CmdResult<FileInfo> {
     })
 }
 
+/// Pictures that go into the text of a letter: what every mail program shows.
+const PICTURES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+
+/// A picture file read for the text of a letter is at most this big; the composer
+/// makes a large photo smaller before it goes in.
+const MAX_PICTURE_FILE: u64 = 25 * 1024 * 1024;
+
+/// A picture chosen to attach (picked or dropped on the window), as a `data:` URL for
+/// the text of a letter. Other files and files nobody chose are refused.
+#[tauri::command]
+pub async fn inline_image(state: St<'_>, path: String) -> CmdResult<String> {
+    let path = state.paths.check(Use::Attach, &path)?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !PICTURES.contains(&ext.as_str()) {
+        return Err(CmdError::new(
+            "not-a-picture",
+            tr!("“{name}” is not a picture", "«{name}» — не картинка"),
+        ));
+    }
+    if tokio::fs::metadata(&path).await?.len() > MAX_PICTURE_FILE {
+        return Err(CmdError::new(
+            "too-large",
+            tr!(
+                "“{name}” is too large to go into the text",
+                "«{name}» слишком большая, чтобы вставить её в текст"
+            ),
+        ));
+    }
+    let data = tokio::fs::read(&path).await?;
+    Ok(format!("data:{};base64,{}", mime_for(&name), BASE64.encode(data)))
+}
+
 /// Name and size of a file chosen to attach (dropped on the window); nothing about others.
 #[tauri::command]
 pub async fn file_info(state: St<'_>, path: String) -> CmdResult<FileInfo> {
@@ -1829,8 +1891,17 @@ fn dialog(window: &tauri::Window, title: String) -> tauri_plugin_dialog::FileDia
 
 /// Files to attach, picked in the open dialog. Empty when the dialog was closed.
 #[tauri::command]
-pub async fn pick_files(window: tauri::Window, state: St<'_>, title: String) -> CmdResult<Vec<FileInfo>> {
-    let picked = dialog(&window, title).blocking_pick_files().unwrap_or_default();
+pub async fn pick_files(
+    window: tauri::Window,
+    state: St<'_>,
+    title: String,
+    images: Option<bool>,
+) -> CmdResult<Vec<FileInfo>> {
+    let mut builder = dialog(&window, title);
+    if images.unwrap_or(false) {
+        builder = builder.add_filter(pick("Pictures", "Картинки"), &PICTURES);
+    }
+    let picked = builder.blocking_pick_files().unwrap_or_default();
     let mut files = Vec::new();
     for path in picked.into_iter().filter_map(|p| p.into_path().ok()) {
         state.paths.allow(Use::Attach, path.clone());

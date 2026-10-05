@@ -77,6 +77,7 @@ export class AppStore {
     list_sort: [],
     view_sorts: {},
     large_mb: 25,
+    compose_format: "html",
   });
   update = $state<UpdateStatus | null>(null);
   /** One window for every setting: the app's, the mailboxes', the plugins'. */

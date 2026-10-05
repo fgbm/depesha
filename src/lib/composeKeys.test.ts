@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { composeAction, keyLabel } from "./composeKeys";
+
+const press = (key: string, code: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } = {}) => ({
+  key,
+  code,
+  ctrlKey: !!mods.ctrl,
+  shiftKey: !!mods.shift,
+  altKey: !!mods.alt,
+  metaKey: !!mods.meta,
+});
+
+describe("keys of the composition window", () => {
+  it("knows its actions", () => {
+    expect(composeAction(press("Enter", "Enter", { ctrl: true }))).toBe("send");
+    expect(composeAction(press("Escape", "Escape"))).toBe("fold");
+    expect(composeAction(press("l", "KeyL", { ctrl: true }))).toBe("link");
+    expect(composeAction(press("l", "KeyL", { meta: true }))).toBe("link");
+    expect(composeAction(press("P", "KeyP", { ctrl: true, shift: true }))).toBe("preview");
+    expect(composeAction(press("b", "KeyB", { ctrl: true }))).toBe("bold");
+  });
+
+  it("works on the Russian layout by the physical key", () => {
+    expect(composeAction(press("д", "KeyL", { ctrl: true }))).toBe("link");
+    expect(composeAction(press("З", "KeyP", { ctrl: true, shift: true }))).toBe("preview");
+  });
+
+  it("leaves Ctrl+K to the command palette and other keys alone", () => {
+    expect(composeAction(press("k", "KeyK", { ctrl: true }))).toBeNull();
+    expect(composeAction(press("л", "KeyK", { ctrl: true }))).toBeNull();
+    expect(composeAction(press("p", "KeyP", { ctrl: true }))).toBeNull();
+    expect(composeAction(press("l", "KeyL"))).toBeNull();
+    expect(composeAction(press("l", "KeyL", { ctrl: true, alt: true }))).toBeNull();
+  });
+
+  it("names the keys for tooltips", () => {
+    expect(keyLabel("link")).toBe("Ctrl+L");
+    expect(keyLabel("preview")).toBe("Ctrl+Shift+P");
+    expect(keyLabel("send")).toBe("Ctrl+Enter");
+  });
+});

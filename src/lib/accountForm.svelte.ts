@@ -6,7 +6,7 @@ import { app } from "./store.svelte";
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
 import { connectionChanged } from "./connection";
-import type { Account, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig } from "./types";
+import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig } from "./types";
 
 const DEFAULT_PORT: Record<"imap" | "smtp", Record<Security, number>> = {
   imap: { tls: 993, starttls: 143, plain: 143 },
@@ -54,6 +54,8 @@ export class AccountForm {
   smtp = $state<ServerConfig>({ host: "", port: 587, security: "starttls" });
   saveSent = $state(true);
   signature = $state("");
+  /** How new letters from this mailbox are written; "" takes the format from the settings. */
+  composeFormat = $state<BodyFormat | "">("");
   attachmentsDir = $state("");
   source = $state("");
   notes = $state<string[]>([]);
@@ -92,6 +94,7 @@ export class AccountForm {
       this.smtp = { ...e.smtp };
       this.saveSent = e.save_sent_copy;
       this.signature = e.signature;
+      this.composeFormat = e.compose_format ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
     }
     api.oauthProviders().then((p) => (this.providers = p)).catch(() => {});
@@ -234,6 +237,7 @@ export class AccountForm {
       signature: this.signature,
       attachments_dir: this.attachmentsDir.trim(),
     };
+    if (this.composeFormat) acc.compose_format = this.composeFormat;
     if (this.mode === "oauth" && this.provider) acc.auth = { kind: "oauth", provider: this.provider };
     if (this.mode === "ews") acc.ews = { url: this.ewsUrl.trim(), trusted_cert: this.ewsCert };
     return acc;

@@ -78,6 +78,7 @@
     "allow-message-window",
     "allow-letter-view",
     "allow-document-html",
+    "allow-markdown-html",
     "allow-open-link",
     "allow-send",
     "allow-draft-save",
@@ -87,6 +88,7 @@
     "allow-outbox-cancel",
     "allow-temp-attachment",
     "allow-file-info",
+    "allow-inline-image",
     "allow-pick-files",
     "allow-pick-folder",
     "allow-pick-save-file"

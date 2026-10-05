@@ -80,7 +80,7 @@
 
   /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos, attachments_dir } =
+    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos, attachments_dir, compose_format } =
       $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
@@ -95,6 +95,7 @@
       sender_logos,
       attachments_dir: (attachments_dir ?? "").trim(),
       large_mb: threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb),
+      compose_format,
     });
     close();
   }
@@ -209,6 +210,19 @@
             </label>
           </section>
           <section>
+            <h4>{t("settings.newMessages")}</h4>
+            <div class="inline">
+              <span>{t("settings.composeFormat")}</span>
+              <Select
+                class="compose-format"
+                label={t("settings.composeFormat")}
+                bind:value={draft.compose_format}
+                options={(["plain", "html", "markdown"] as const).map((f) => ({ value: f, label: t(`format.${f}`) }))}
+              />
+            </div>
+            <p class="hint">{t("settings.composeFormatNote")}</p>
+          </section>
+          <section>
             <h4>{t("settings.attachmentsDir")}</h4>
             <FolderPicker bind:value={() => draft.attachments_dir ?? "", (v) => (draft.attachments_dir = v)} label={t("settings.attachmentsDir")} placeholder={t("settings.askEveryTime")} />
             <p class="hint">{t("settings.attachmentsDirNote")}</p>
@@ -223,6 +237,7 @@
                 options={[{ value: 0, label: t("settings.noWait") }, ...[5, 10, 20, 30].map((secs) => ({ value: secs, label: tn("settings.seconds", secs) }))]}
               />
             </div>
+
           </section>
         {:else if current === "notifications"}
           <section>

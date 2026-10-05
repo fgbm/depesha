@@ -12,8 +12,27 @@
   import X from "@lucide/svelte/icons/x";
   import Trash from "@lucide/svelte/icons/trash-2";
   import Clock from "@lucide/svelte/icons/clock";
+  import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
-  import { isDirty, splitQuote, swapSignature } from "../lib/compose";
+  import { convertDraft, isDirty, losesFormatting, splitQuote, swapSignature, swapSignatureHtml } from "../lib/compose";
+  import { GAP, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../lib/richtext";
+  import { cleanEditorHtml } from "../lib/sanitize";
+  import {
+    FIT_FROM,
+    MAX_PICTURE,
+    dataUrlSize,
+    isPictureName,
+    pictureHtml,
+    pictureName,
+    picturesSize,
+    readAsDataUrl,
+    shrinkPicture,
+    takePictures,
+  } from "../lib/images";
+  import type { BodyFormat, ComposeDraft } from "../lib/types";
+  import RichEditor from "./RichEditor.svelte";
+  import FormatBar from "./FormatBar.svelte";
+  import { composeAction } from "../lib/composeKeys";
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { sendWarnings } from "../lib/sendChecks";
@@ -32,23 +51,57 @@
   let bccInput = $state<AddressInput | null>(null);
   let body = $state<HTMLTextAreaElement | null>(null);
 
+  const format = $derived<BodyFormat>(c.draft.format ?? "plain");
+  /** The window's width: the format switch and the formatting row fold in a narrow one. */
+  let width = $state(640);
+
   // A reply's quote stays folded under the field; the draft keeps the whole text.
   const parts = untrack(() => splitQuote(c.draft.text));
   let head = $state(parts.head);
   let quote = $state(parts.quote);
   let quoteOpen = $state(false);
   const quoteHeader = $derived(quote.trim().split("\n")[0] ?? "");
+  // An HTML letter is one editor: the quote of a reply stands in it, under the signature.
+  let htmlBody = $state(untrack(() => c.draft.html ?? ""));
+  /** The plain version last made of the HTML: a different text was set from outside. */
+  let plainOfHtml = untrack(() => c.draft.text);
+  /** The quote turned into text once, not on every key: a quoted letter may be long. */
+  let quoteText = { html: "", text: "" };
+  function plainOf(html: string): string {
+    const split = splitHtmlQuote(html);
+    if (split.quote !== quoteText.html) quoteText = { html: split.quote, text: htmlToText(split.quote) };
+    return letterText(split.head, quoteText.text);
+  }
   $effect(() => {
+    if (format === "html") return;
     const text = head + quote;
     if (untrack(() => c.draft.text) !== text) c.draft.text = text;
+  });
+  $effect(() => {
+    if (format !== "html") return;
+    const html = htmlBody;
+    untrack(() => {
+      if (c.draft.html !== html) c.draft.html = html;
+      plainOfHtml = plainOf(html);
+      if (c.draft.text !== plainOfHtml) c.draft.text = plainOfHtml;
+    });
   });
   // A plugin may set the text as a whole: split it again.
   $effect(() => {
     const text = c.draft.text;
-    if (untrack(() => head + quote) !== text) ({ head, quote } = splitQuote(text));
+    untrack(() => {
+      if (format !== "html") {
+        if (head + quote !== text) ({ head, quote } = splitQuote(text));
+      } else if (text !== plainOfHtml) {
+        plainOfHtml = text;
+        htmlBody = textToHtml(text);
+      }
+    });
   });
 
-  const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0));
+  /** Files and the pictures in the text: both travel in the letter. */
+  const pictures = $derived(format === "html" ? picturesSize(htmlBody) : 0);
+  const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0) + pictures);
   /** Warnings the user has to look at before the message goes; null when not checked yet. */
   let warnings = $state<string[] | null>(null);
   let pendingAt: number | null = null;
@@ -91,6 +144,7 @@
   );
 
   function insertText(text: string) {
+    if (format === "html") return rich?.insertText(text);
     const at = body ? body.selectionStart : 0;
     head = head.slice(0, at) + text + head.slice(at);
     queueMicrotask(() => {
@@ -112,6 +166,13 @@
   // The field opens at its top, not at the end of a long quote: setting the value and
   // focusing scroll it to the end in WebKit, and moving the caret does not scroll back.
   onMount(() => {
+    if (format === "html") {
+      if (c.draft.to.length && htmlBody.startsWith(GAP)) {
+        placed = true;
+        rich?.focus(true);
+      }
+      return;
+    }
     if (!body) return;
     if (c.draft.text.startsWith("\n\n") && c.draft.to.length) {
       placed = true;
@@ -126,10 +187,163 @@
   function setAccount(id: string) {
     const acc = app.account(id);
     if (!acc) return;
-    head = swapSignature(head, app.account(c.account_id)?.signature, acc.signature);
+    const before = app.account(c.account_id)?.signature;
+    if (format === "html") {
+      // The signature stands above the quote: only the part above it is looked at.
+      const split = splitHtmlQuote(htmlBody);
+      htmlBody = swapSignatureHtml(split.head, before, acc.signature) + split.quote;
+    } else head = swapSignature(head, before, acc.signature);
     c.account_id = id;
     c.draft.from = { name: acc.display_name, email: acc.email };
   }
+
+  const FORMATS: { value: BodyFormat; label: () => string; short: () => string }[] = [
+    { value: "plain", label: () => t("format.short.plain"), short: () => t("format.short.plain") },
+    { value: "html", label: () => t("format.short.html"), short: () => t("format.short.html") },
+    { value: "markdown", label: () => t("format.short.markdown"), short: () => t("format.short.md") },
+  ];
+
+  let switching = false;
+
+  /** Rewrites the letter in another format; the settings stay as they are. */
+  async function setFormat(next: BodyFormat) {
+    if (next === format || switching) return;
+    const signature = app.account(c.account_id)?.signature;
+    let current = $state.snapshot(c.draft) as ComposeDraft;
+    if (losesFormatting(current, next)) {
+      const ok = await app.confirm({
+        title: t("compose.format.toPlainTitle"),
+        text: t("compose.format.loseHtml"),
+        okLabel: t("compose.format.toPlain"),
+        cancelLabel: t("compose.format.stayHtml"),
+      });
+      if (!ok) return;
+    }
+    switching = true;
+    try {
+      if (format === "html" && next === "markdown") {
+        // Markdown has no pictures inside: they go with the letter as files.
+        const { html, pictures } = takePictures(current.html ?? "");
+        if (pictures.length) {
+          const ok = await app.confirm({ text: t("compose.format.picturesAttach"), okLabel: t("compose.format.toMarkdown") });
+          if (!ok) return;
+          let n = c.draft.attachments.length;
+          for (const p of pictures) {
+            const name = pictureName(p.mime, ++n);
+            const path = await api.tempAttachment(name, p.base64);
+            c.draft.attachments.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
+          }
+          current = { ...current, html };
+        }
+      }
+      preview = false;
+      const d = await convertDraft(current, next, signature, (text) => api.markdownHtml(text));
+      if (d.format === "html") {
+        htmlBody = d.html ?? "";
+        plainOfHtml = d.text;
+      } else {
+        ({ head, quote } = splitQuote(d.text));
+      }
+      c.draft.html = d.html ?? null;
+      c.draft.text = d.text;
+      c.draft.format = d.format;
+    } catch (e) {
+      app.fail(e);
+    } finally {
+      switching = false;
+    }
+  }
+
+  let rich = $state<RichEditor | null>(null);
+  let bar = $state<FormatBar | null>(null);
+  /** Markdown shown as it will look. */
+  let preview = $state(false);
+  let previewHtml = $state("");
+  $effect(() => {
+    if (!preview || format !== "markdown") return;
+    const text = c.draft.text;
+    api
+      .markdownHtml(text)
+      .then((html) => (previewHtml = cleanEditorHtml(html)))
+      .catch((e) => app.fail(e));
+  });
+
+  // Pictures in the text of an HTML letter. A large photo is made smaller first; one
+  // still too big goes as a file, as it would anyway.
+  async function addPictures(found: { name: string; dataUrl: string }[]) {
+    let fragment = "";
+    for (const p of found) {
+      try {
+        const ready = await shrinkPicture(p.dataUrl);
+        if (dataUrlSize(ready.dataUrl) > MAX_PICTURE) {
+          const base64 = p.dataUrl.slice(p.dataUrl.indexOf(",") + 1);
+          const path = await api.tempAttachment(p.name, base64);
+          c.draft.attachments.push({ kind: "file", path, name: p.name, size: dataUrlSize(p.dataUrl) });
+          app.toast(t("compose.picture.attachedBig", { name: p.name }));
+          continue;
+        }
+        fragment += pictureHtml(ready.dataUrl, ready.width > FIT_FROM ? "fit" : "natural");
+      } catch (e) {
+        app.fail(e);
+      }
+    }
+    if (fragment) rich?.insertHtml(fragment);
+  }
+
+  /** Picture files chosen or dropped "into the text"; a file that cannot go there is attached. */
+  async function insertPictureFiles(paths: string[]) {
+    const found: { name: string; dataUrl: string }[] = [];
+    for (const path of paths) {
+      const name = path.split(/[\\/]/).pop() ?? path;
+      try {
+        found.push({ name, dataUrl: await api.inlineImage(path) });
+      } catch {
+        const info = await api.fileInfo(path).catch(() => null);
+        if (info) c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
+        app.toast(t("compose.picture.attachedBig", { name }));
+      }
+    }
+    await addPictures(found);
+  }
+
+  async function pictureFromFile() {
+    try {
+      const files = await api.pickFiles(t("compose.picture.pickTitle"), true);
+      for (const f of files.filter((f) => !isPictureName(f.name))) c.draft.attachments.push({ kind: "file", ...f });
+      await insertPictureFiles(files.filter((f) => isPictureName(f.name)).map((f) => f.path));
+    } catch (e) {
+      app.fail(e);
+    }
+  }
+
+  async function pastedPictures(blobs: Blob[]) {
+    const found: { name: string; dataUrl: string }[] = [];
+    let n = 0;
+    for (const blob of blobs) found.push({ name: blob instanceof File && blob.name ? blob.name : pictureName(blob.type, ++n), dataUrl: await readAsDataUrl(blob) });
+    await addPictures(found);
+  }
+
+  async function pictureFromClipboard() {
+    const blobs: Blob[] = [];
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((x) => /^image\/(png|jpeg|gif|webp)$/.test(x));
+        if (type) blobs.push(await item.getType(type));
+      }
+    } catch {
+      // The system did not give the clipboard to the page: Ctrl+V does it.
+      return app.toast(t("compose.picture.useCtrlV"));
+    }
+    if (!blobs.length) return app.toast(t("compose.picture.noneInClipboard"));
+    await pastedPictures(blobs);
+  }
+
+  // Dropped files go to the window's zones: "into the text" or "attach" (App.svelte).
+  onMount(() => {
+    app.compose.pictureTarget(c.id, insertPictureFiles);
+    return () => app.compose.pictureTarget(c.id, null);
+  });
+  const zones = $derived(format === "html" && c.mode !== "min" && !!app.compose.dragging?.zones && app.activeCompose()?.id === c.id);
 
   async function attach() {
     try {
@@ -281,15 +495,27 @@
 
   const savedText = $derived(c.savedAt ? t("compose.savedAt", { time: listDate(Math.floor(c.savedAt / 1000)) }) : "");
 
+  // The window's keys come from one table (lib/composeKeys.ts); Ctrl+K is left to the palette.
   function onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    const action = composeAction(e);
+    if (action === "send") {
       e.preventDefault();
       send(null, warnings !== null);
-    } else if (e.key === "Escape") {
+    } else if (action === "fold") {
       // Gmail's way: Esc leaves full screen, then folds the window; the draft stays.
       e.preventDefault();
       if (c.mode === "max") c.mode = "open";
       else minimize();
+    } else if (action === "link" && format !== "plain") {
+      e.preventDefault();
+      bar?.startLink();
+    } else if (action === "preview" && format === "markdown") {
+      e.preventDefault();
+      preview = !preview;
+    } else if ((action === "bold" || action === "italic" || action === "underline") && format === "markdown" && !preview) {
+      // The HTML editor does these itself; in Markdown they type the markup.
+      e.preventDefault();
+      bar?.run(action);
     }
   }
 </script>
@@ -301,6 +527,7 @@
   class="compose"
   class:min={c.mode === "min"}
   class:max={c.mode === "max"}
+  bind:clientWidth={width}
   role="dialog"
   aria-label={c.draft.subject.trim() || t("compose.newMessage")}
   tabindex="-1"
@@ -334,6 +561,23 @@
           }))}
           onchange={setAccount}
         />
+        {#if width >= 360}
+          <div class="modes" role="radiogroup" aria-label={t("compose.format.title")}>
+            {#each FORMATS as f (f.value)}
+              <button role="radio" aria-checked={format === f.value} class:on={format === f.value} disabled={busy} onclick={() => setFormat(f.value)}>
+                {width >= 460 ? f.label() : f.short()}
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <Select
+            class="mode-select"
+            label={t("compose.format.title")}
+            bind:value={() => format, (v) => void setFormat(v)}
+            options={FORMATS.map((f) => ({ value: f.value, label: f.label() }))}
+            disabled={busy}
+          />
+        {/if}
         {#if !showCc}<button class="btn ghost small" onclick={() => (showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
       </div>
       <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} />
@@ -347,9 +591,61 @@
       </div>
     </div>
 
-    <textarea bind:this={body} bind:value={head} onfocus={onBodyFocus} spellcheck="true" placeholder={t("compose.bodyPlaceholder")}></textarea>
+    {#if format !== "plain"}
+      <FormatBar
+        bind:this={bar}
+        {format}
+        {width}
+        {rich}
+        field={body}
+        bind:preview
+        onpicturefile={pictureFromFile}
+        onpictureclipboard={pictureFromClipboard}
+      />
+    {/if}
 
-    {#if quote}
+    <div class="body-area">
+      {#if format === "html"}
+        <RichEditor
+          bind:this={rich}
+          bind:html={htmlBody}
+          class="body"
+          label={t("compose.body")}
+          placeholder={t("compose.bodyPlaceholder")}
+          onselection={() => bar?.refresh()}
+          onpictures={pastedPictures}
+        />
+      {:else if format === "markdown" && preview}
+        <!-- Cleaned twice: by the backend that renders it and here. -->
+        <div class="md-preview" role="document" aria-label={t("compose.markdown.preview")}>{@html previewHtml}</div>
+      {:else}
+        <textarea
+          bind:this={body}
+          bind:value={head}
+          onfocus={onBodyFocus}
+          spellcheck="true"
+          aria-label={t("compose.body")}
+          placeholder={format === "markdown" ? t("compose.markdownPlaceholder") : t("compose.bodyPlaceholder")}
+        ></textarea>
+      {/if}
+      {#if zones}
+        <div class="zones">
+          <div class="zone inline" class:hover={app.compose.dragging?.zone === "inline"} data-drop-zone="inline">
+            <ImageIcon size={22} />
+            <b>{t("compose.drop.inline")}</b>
+            <span>{t("compose.drop.inlineNote")}</span>
+          </div>
+          <div class="zone attach" class:hover={app.compose.dragging?.zone === "attach"} data-drop-zone="attach">
+            <Paperclip size={22} />
+            <b>{t("compose.drop.attach")}</b>
+            <span>{t("compose.drop.attachNote")}</span>
+          </div>
+        </div>
+      {/if}
+    </div>
+    {#if format === "markdown"}<p class="md-note">{t("compose.markdown.note")}</p>{/if}
+
+    {#if format !== "html" && quote}
       <div class="quote" class:open={quoteOpen}>
         <button class="quote-bar" onclick={() => (quoteOpen = !quoteOpen)} aria-expanded={quoteOpen}>
           {#if quoteOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
@@ -362,7 +658,7 @@
       </div>
     {/if}
 
-    {#if c.draft.attachments.length}
+    {#if c.draft.attachments.length || pictures}
       <div class="files">
         {#each c.draft.attachments as a, i (i)}
           <span class="file"><Paperclip size={12} /> {a.name} <span class="muted">{size(a.size)}</span>
@@ -399,7 +695,7 @@
           <button class="btn ghost icon" onclick={() => (options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
         </span>
       {/if}
-      <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")}><Paperclip size={15} /> {t("compose.files")}</button>
+      <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if width >= 460} {t("compose.files")}{/if}</button>
       {#each controls.filter((x) => x.slot !== "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       <span class="spacer"></span>
       <button class="btn ghost icon" onclick={discard} disabled={busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
@@ -610,6 +906,108 @@
   .quote-text {
     padding-top: 4px;
     color: var(--muted);
+  }
+
+  /* The format of this letter, beside its sender: segments, or a list in a narrow window. */
+  .modes {
+    display: inline-flex;
+    flex: none;
+    padding: 2px;
+    gap: 2px;
+    border-radius: 8px;
+    background: var(--hover);
+  }
+
+  .modes button {
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 12.5px;
+    padding: 3px 9px;
+    border-radius: 6px;
+  }
+
+  .modes button.on {
+    background: var(--paper);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
+  }
+
+  .row :global(.mode-select) {
+    flex: none;
+  }
+
+  .row :global(.mode-select .trigger) {
+    border-color: transparent;
+  }
+
+  .body-area {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .md-preview {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 18px;
+    line-height: 1.55;
+    user-select: text;
+    contain: layout paint;
+  }
+
+  .md-preview :global(blockquote) {
+    margin: 0 0 0 0.8ex;
+    border-left: 2px solid var(--line);
+    padding-left: 1ex;
+    color: var(--muted);
+  }
+
+  .md-note {
+    margin: 0;
+    padding: 4px 18px;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+  }
+
+  /* Files dragged over an HTML letter: into the text, or attached. */
+  .zones {
+    position: absolute;
+    inset: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    z-index: 2;
+  }
+
+  .zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+    padding: 12px;
+    border: 2px dashed var(--line);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--paper) 92%, var(--ink));
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+
+  .zone b {
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .zone.hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--paper));
   }
 
   .files {

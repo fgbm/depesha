@@ -33,6 +33,8 @@ export interface Account {
   smtp: ServerConfig;
   save_sent_copy: boolean;
   signature: string;
+  /** How new letters from this mailbox are written; absent takes the settings' format. */
+  compose_format?: BodyFormat | null;
   /** Where this mailbox's attachments are saved without asking; empty takes the settings' folder. */
   attachments_dir?: string;
   auth?: AuthMethod;
@@ -198,6 +200,8 @@ export interface MessageView {
   attachments: AttachmentInfo[];
   /** A draft's scheduled sending time, unix seconds. */
   send_at?: number | null;
+  /** How a draft of Depesha's was being written; absent for other letters. */
+  format?: BodyFormat | null;
 }
 
 export interface OpenedMessage {
@@ -249,13 +253,21 @@ export type AttachmentSource =
   | { kind: "file"; path: string; name: string; size: number }
   | { kind: "message"; id: number; index: number; name: string; size: number };
 
+/** How a letter is written: plain text, formatted in the visual editor, or Markdown. */
+export type BodyFormat = "plain" | "html" | "markdown";
+
 export interface ComposeDraft {
   from: Addr | null;
   to: Addr[];
   cc: Addr[];
   bcc: Addr[];
   subject: string;
+  /** The plain-text version; in Markdown, the Markdown itself. Plugins read and check it. */
   text: string;
+  /** The letter from the visual editor; only an HTML letter has it. */
+  html?: string | null;
+  /** Absent is plain text. */
+  format?: BodyFormat;
   in_reply_to: string | null;
   references: string[];
   attachments: AttachmentSource[];
@@ -313,6 +325,8 @@ export interface Settings {
   view_sorts: Record<string, SortKey[]>;
   /** What counts as a large letter in the ready queries (Settings → General → Search), megabytes. */
   large_mb: number;
+  /** How new letters are written; a mailbox may have its own. */
+  compose_format: BodyFormat;
 }
 
 /** What a search found in the cache: letters and their bytes. */

@@ -23,6 +23,38 @@ use crate::{Error, Result, tls};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// How a letter is written. It decides the parts that go out: plain text alone, or
+/// plain text with HTML of the same content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BodyFormat {
+    #[default]
+    Plain,
+    /// Formatted in the visual editor: `Draft::html` is the letter, `Draft::text` its plain version.
+    Html,
+    /// `Draft::text` is Markdown: it goes out as is for plain-text readers and rendered as HTML.
+    Markdown,
+}
+
+impl BodyFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Html => "html",
+            Self::Markdown => "markdown",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "plain" => Some(Self::Plain),
+            "html" => Some(Self::Html),
+            "markdown" => Some(Self::Markdown),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Draft {
     pub from: Option<Addr>,
@@ -30,8 +62,13 @@ pub struct Draft {
     pub cc: Vec<Addr>,
     pub bcc: Vec<Addr>,
     pub subject: String,
+    /// The plain-text version; for Markdown, the Markdown itself.
     pub text: String,
+    /// The letter as HTML, when it was written formatted.
     pub html: Option<String>,
+    /// Outbox entries saved before formats existed are plain text.
+    #[serde(default)]
+    pub format: BodyFormat,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub attachments: Vec<OutgoingAttachment>,
@@ -124,29 +161,143 @@ pub fn build(draft: &Draft) -> Result<Message> {
         builder = builder.references(draft.references.iter().map(|r| angle(r)).collect::<Vec<_>>().join(" "));
     }
 
-    let body = |text: String| match &draft.html {
-        Some(html) => MultiPart::alternative()
-            .singlepart(text_part(text))
-            .singlepart(html_part(html.clone())),
-        None => MultiPart::mixed().singlepart(text_part(text)),
+    let (plain, rest) = alternatives(draft);
+    let body = if rest.is_empty() {
+        Part::One(plain)
+    } else {
+        let alternative = MultiPart::alternative().singlepart(plain);
+        Part::Many(rest.into_iter().fold(alternative, |m, part| part.add_to(m)))
     };
-    let message = match (&draft.html, draft.attachments.is_empty()) {
-        (None, true) => builder.singlepart(text_part(draft.text.clone())),
-        (Some(_), true) => builder.multipart(body(draft.text.clone())),
-        (html, false) => {
-            let mut mixed = match html {
-                Some(_) => MultiPart::mixed().multipart(body(draft.text.clone())),
-                None => MultiPart::mixed().singlepart(text_part(draft.text.clone())),
-            };
-            for a in &draft.attachments {
-                let ct = ContentType::parse(&a.mime)
-                    .unwrap_or_else(|_| ContentType::parse("application/octet-stream").expect("valid mime"));
-                mixed = mixed.singlepart(Attachment::new(a.name.clone()).body(a.data.clone(), ct));
-            }
-            builder.multipart(mixed)
+    let message = if draft.attachments.is_empty() {
+        match body {
+            Part::One(part) => builder.singlepart(part),
+            Part::Many(parts) => builder.multipart(parts),
         }
+    } else {
+        let mut mixed = body.add_to(MultiPart::mixed().build());
+        for a in &draft.attachments {
+            let ct = ContentType::parse(&a.mime)
+                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").expect("valid mime"));
+            mixed = mixed.singlepart(Attachment::new(a.name.clone()).body(a.data.clone(), ct));
+        }
+        builder.multipart(mixed)
     };
     message.map_err(|e| Error::Compose(e.to_string()))
+}
+
+/// A body part: one part, or parts of their own (`multipart/…`).
+enum Part {
+    One(SinglePart),
+    Many(MultiPart),
+}
+
+impl Part {
+    fn add_to(self, to: MultiPart) -> MultiPart {
+        match self {
+            Part::One(part) => to.singlepart(part),
+            Part::Many(parts) => to.multipart(parts),
+        }
+    }
+}
+
+/// The letter's text in every form it goes out in: the plain one, then the others in
+/// the order `multipart/alternative` wants them. A `text/markdown` part (#8) would go last.
+fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
+    let plain = text_part(draft.text.clone());
+    let html = match draft.format {
+        BodyFormat::Markdown => Some(crate::message::markdown_html(&draft.text)),
+        _ => draft.html.as_deref().map(crate::message::compose_html),
+    };
+    (plain, html.map(|html| html_body(&html)).into_iter().collect())
+}
+
+/// The HTML of a letter as it goes out: `text/html` alone, or `multipart/related` with
+/// the pictures of the HTML as parts of their own that it calls by `cid:`. Every picture
+/// of the letter comes this way, those of the text and of the signature alike: the
+/// composer puts them into the HTML as `data:` images, and here they become parts.
+fn html_body(html: &str) -> Part {
+    let (html, images) = inline_images(html);
+    let part = html_part(html_document(&html));
+    if images.is_empty() {
+        return Part::One(part);
+    }
+    let related = MultiPart::related().singlepart(part);
+    Part::Many(images.into_iter().enumerate().fold(related, |m, (i, image)| {
+        let ct =
+            ContentType::parse(&image.mime).unwrap_or_else(|_| ContentType::parse("image/png").expect("valid mime"));
+        let name = format!("image{}.{}", i + 1, image.extension());
+        m.singlepart(Attachment::new_inline_with_name(image.cid, name).body(image.data, ct))
+    }))
+}
+
+/// A whole HTML document around the letter: clients that show the part as a page get its charset.
+fn html_document(body: &str) -> String {
+    format!("<!DOCTYPE html>\r\n<html><head><meta charset=\"utf-8\"></head><body>{body}</body></html>\r\n")
+}
+
+/// A picture inside the letter, sent as a part of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineImage {
+    /// The `Content-ID`, without angle brackets: the HTML calls it `cid:<cid>`.
+    pub cid: String,
+    pub mime: String,
+    pub data: Vec<u8>,
+}
+
+impl InlineImage {
+    fn extension(&self) -> &'static str {
+        match self.mime.as_str() {
+            "image/jpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "png",
+        }
+    }
+}
+
+/// Pictures the HTML carries as `data:` images, the kinds every mail program shows.
+const INLINE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// Takes the `data:` pictures out of the cleaned HTML: each `<img src="data:image/…;base64,…">`
+/// gets a `cid:` link and the picture becomes an [`InlineImage`]. The same picture twice
+/// (a logo) is one part. Anything else stays as it was.
+pub fn inline_images(html: &str) -> (String, Vec<InlineImage>) {
+    const START: &str = "src=\"data:";
+    let mut out = String::with_capacity(html.len().min(64 * 1024));
+    let mut images: Vec<InlineImage> = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find(START) {
+        let value = &rest[at + START.len()..];
+        let Some(end) = value.find('"') else { break };
+        let parsed = value[..end].split_once(";base64,").and_then(|(mime, data)| {
+            let mime = mime.trim().to_ascii_lowercase();
+            let data: String = data.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+            INLINE_TYPES.contains(&mime.as_str()).then_some(())?;
+            Some((mime, BASE64.decode(data).ok()?))
+        });
+        out.push_str(&rest[..at]);
+        match parsed {
+            Some((mime, data)) => {
+                let cid = match images.iter().find(|i| i.mime == mime && i.data == data) {
+                    Some(same) => same.cid.clone(),
+                    None => {
+                        let cid = format!("{}@depesha", random_token());
+                        images.push(InlineImage {
+                            cid: cid.clone(),
+                            mime,
+                            data,
+                        });
+                        cid
+                    }
+                };
+                out.push_str(&format!("src=\"cid:{cid}\""));
+            }
+            None => out.push_str(&rest[at..at + START.len() + end + 1]),
+        }
+        rest = &value[end + 1..];
+    }
+    out.push_str(rest);
+    (out, images)
 }
 
 fn random_token() -> String {
@@ -512,6 +663,208 @@ mod tests {
         let parsed = crate::message::parse_view(raw.as_bytes(), false).unwrap();
         assert_eq!(parsed.summary.subject, "Re: Привет");
         assert_eq!(parsed.text.as_deref().map(str::trim), Some("Текст"));
+    }
+
+    fn letter(format: BodyFormat, text: &str, html: Option<&str>) -> Draft {
+        Draft {
+            from: Some(addr("me@example.org")),
+            to: vec![addr("you@example.org")],
+            subject: "Формат".into(),
+            text: text.into(),
+            html: html.map(Into::into),
+            format,
+            ..Default::default()
+        }
+    }
+
+    fn content_types(raw: &str) -> Vec<String> {
+        raw.lines()
+            .filter_map(|l| l.strip_prefix("Content-Type: "))
+            .map(|v| v.split(';').next().unwrap_or_default().trim().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn plain_text_goes_as_one_part() {
+        let raw = String::from_utf8(build(&letter(BodyFormat::Plain, "Привет", None)).unwrap().formatted()).unwrap();
+        assert_eq!(content_types(&raw), ["text/plain"], "{raw}");
+    }
+
+    #[test]
+    fn html_goes_with_its_plain_version() {
+        let draft = letter(
+            BodyFormat::Html,
+            "Привет, Боб!",
+            Some("<div>Привет, <b>Боб</b>!</div><script>alert(1)</script><div onclick=\"x()\">.</div>"),
+        );
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            ["multipart/alternative", "text/plain", "text/html"],
+            "{raw}"
+        );
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        assert_eq!(view.text.as_deref().map(str::trim), Some("Привет, Боб!"));
+        let html = view.html.unwrap();
+        assert!(html.contains("<b>Боб</b>"), "{html}");
+        assert!(!html.contains("script") && !html.contains("onclick"), "{html}");
+    }
+
+    #[test]
+    fn markdown_goes_as_is_and_rendered() {
+        let text = "**жирный**\n\n- раз\n- два\n\n-- \nИван";
+        let raw = String::from_utf8(build(&letter(BodyFormat::Markdown, text, None)).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            ["multipart/alternative", "text/plain", "text/html"],
+            "{raw}"
+        );
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        assert_eq!(
+            view.text.map(|t| t.replace("\r\n", "\n")).as_deref().map(str::trim_end),
+            Some(text)
+        );
+        let html = view.html.unwrap();
+        assert!(html.contains("<strong>жирный</strong>"), "{html}");
+        assert!(html.contains("<ul>") && html.contains("<li>раз</li>"), "{html}");
+        // The signature keeps its lines.
+        assert!(html.contains("--<br>"), "{html}");
+    }
+
+    #[test]
+    fn formatted_letter_keeps_attachments_beside() {
+        let mut draft = letter(BodyFormat::Html, "Счёт", Some("<p>Счёт</p>"));
+        draft.attachments.push(OutgoingAttachment {
+            name: "a.txt".into(),
+            mime: "text/plain".into(),
+            data: b"hi".to_vec(),
+        });
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/mixed",
+                "multipart/alternative",
+                "text/plain",
+                "text/html",
+                "text/plain"
+            ],
+            "{raw}"
+        );
+    }
+
+    const PNG: &str =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    fn header_value<'a>(raw: &'a str, name: &str) -> Vec<&'a str> {
+        raw.lines()
+            .filter_map(|l| l.strip_prefix(name))
+            .map(str::trim)
+            .collect()
+    }
+
+    #[test]
+    fn pictures_in_the_text_go_as_related_parts() {
+        let html = format!(
+            "<div>Зал:</div><img src=\"data:image/png;base64,{PNG}\" style=\"width:100%\"><img src=\"data:image/png;base64,{PNG}\"><img src=\"cid:foreign@example.org\">"
+        );
+        let draft = letter(BodyFormat::Html, "Зал:", Some(&html));
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/alternative",
+                "text/plain",
+                "multipart/related",
+                "text/html",
+                "image/png"
+            ],
+            "{raw}"
+        );
+        // The same picture twice is one part; the HTML calls it by its Content-ID.
+        let ids = header_value(&raw, "Content-ID: ");
+        assert_eq!(ids.len(), 1, "{raw}");
+        let cid = ids[0].trim_matches(['<', '>']);
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        let picture = &view.attachments[0];
+        assert!(
+            picture.inline && picture.content_id.as_deref() == Some(cid),
+            "{picture:?}"
+        );
+        // The HTML finds its picture by that id: the reader shows it.
+        assert!(view.html.unwrap().contains(&format!("data:image/png;base64,{PNG}")));
+        // A cid: link of someone else's letter leads nowhere and goes.
+        assert!(!raw.contains("foreign@example.org"), "{raw}");
+    }
+
+    #[test]
+    fn pictures_go_beside_attachments() {
+        let html = format!("<p>Фото</p><img src=\"data:image/png;base64,{PNG}\">");
+        let mut draft = letter(BodyFormat::Html, "Фото", Some(&html));
+        draft.attachments.push(OutgoingAttachment {
+            name: "смета.pdf".into(),
+            mime: "application/pdf".into(),
+            data: b"%PDF".to_vec(),
+        });
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/mixed",
+                "multipart/alternative",
+                "text/plain",
+                "multipart/related",
+                "text/html",
+                "image/png",
+                "application/pdf"
+            ],
+            "{raw}"
+        );
+    }
+
+    #[test]
+    fn a_draft_with_a_picture_opens_with_it() {
+        let html = format!("<div>Фото:</div><img src=\"data:image/png;base64,{PNG}\">");
+        let raw = build(&letter(BodyFormat::Html, "Фото:", Some(&html)))
+            .unwrap()
+            .formatted();
+        let view = crate::message::parse_view(&raw, false).unwrap();
+        let shown = view.html.unwrap();
+        assert!(shown.contains(&format!("data:image/png;base64,{PNG}")), "{shown}");
+        assert!(!shown.contains("cid:"), "{shown}");
+        // Saved again, it is the same letter.
+        let again = build(&letter(BodyFormat::Html, "Фото:", Some(&shown)))
+            .unwrap()
+            .formatted();
+        let again = String::from_utf8(again).unwrap();
+        assert_eq!(header_value(&again, "Content-ID: ").len(), 1, "{again}");
+    }
+
+    #[test]
+    fn only_pictures_leave_the_html() {
+        let (html, images) = inline_images(
+            "<img src=\"data:text/html;base64,PGI+\"><img src=\"data:image/png;base64,***\"><a href=\"x\">a</a>",
+        );
+        assert!(images.is_empty());
+        assert_eq!(
+            html,
+            "<img src=\"data:text/html;base64,PGI+\"><img src=\"data:image/png;base64,***\"><a href=\"x\">a</a>"
+        );
+    }
+
+    #[test]
+    fn signature_and_quote_blocks_survive_cleaning() {
+        let html = "<div>Да</div><div class=\"depesha-signature\">-- <br>Иван</div>\
+                    <div class=\"depesha-quote other\"><blockquote style=\"margin:0\">Вопрос</blockquote></div>";
+        let clean = crate::message::compose_html(html);
+        assert!(clean.contains("<div class=\"depesha-signature\">"), "{clean}");
+        assert!(clean.contains("<div class=\"depesha-quote\">"), "{clean}");
+    }
+
+    #[test]
+    fn outbox_entries_from_before_formats_are_plain() {
+        let draft: Draft = serde_json::from_str(r#"{"from":null,"to":[],"cc":[],"bcc":[],"subject":"","text":"x","html":null,"in_reply_to":null,"references":[],"attachments":[]}"#).unwrap();
+        assert_eq!(draft.format, BodyFormat::Plain);
     }
 
     #[test]

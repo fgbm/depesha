@@ -29,7 +29,7 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 - **Sign in with Google, Yandex or Microsoft.** OAuth 2.0 in the system browser (PKCE, loopback redirect); IMAP and SMTP log in with XOAUTH2, the refresh token stays in the OS keyring. Builds take their OAuth clients from `DEPESHA_GOOGLE_CLIENT_ID`/`_SECRET`, `DEPESHA_YANDEX_CLIENT_ID`/`_SECRET` and `DEPESHA_MICROSOFT_CLIENT_ID`.
 - **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services: Autodiscover or the OWA address, Basic or NTLM login (with channel binding for Extended Protection), folders, sync, flags, moves, search, sending with the copy kept by the server, new mail through streaming notifications.
 - **English and Russian.** The interface, error messages, dates and quote headers follow the system language; Settings switch it on the fly.
-- **Everyday tools.** Reply, reply all, forward with attachments, signatures, templates, address completion, bulk actions, offline reading, light and dark theme.
+- **Everyday tools.** Reply, reply all, forward with attachments, letters in plain text, formatted (HTML) or Markdown, signatures, templates, address completion, bulk actions, offline reading, light and dark theme.
 
 <p align="center"><img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"> <img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"></p>
 <p align="center"><img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"> <img src="docs/screenshots/certificate.png" width="420" alt="Trusting a certificate by fingerprint"></p>

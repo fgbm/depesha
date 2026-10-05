@@ -27,7 +27,8 @@
   import { app } from "../lib/store.svelte";
   import { api, asError } from "../lib/api";
   import { accountLabel, addrFull, addrName, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
-  import { emptyDraft, fromDraft, reply, withSignature } from "../lib/compose";
+  import { emptyDraft, formatFor, fromDraft, reply, withSignature } from "../lib/compose";
+  import { GAP, htmlLetterText, paragraphsHtml } from "../lib/richtext";
   import { t, tn } from "../lib/i18n.svelte";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import { extensions, fromRow } from "../lib/extensions.svelte";
@@ -107,7 +108,7 @@
       const acc = account ?? app.accounts[0];
       if (!acc) return;
       const to = decodeURIComponent(href.slice(7).split("?")[0]);
-      const draft = emptyDraft({ name: acc.display_name, email: acc.email });
+      const draft = emptyDraft({ name: acc.display_name, email: acc.email }, formatFor(acc, app.settings));
       draft.to = to ? to.split(",").map((email) => ({ name: null, email: email.trim() })) : [];
       const subject = new URLSearchParams(href.split("?")[1] ?? "").get("subject");
       if (subject) draft.subject = subject;
@@ -275,7 +276,8 @@
   function openQuick(all: boolean) {
     if (!msg || !account) return;
     const me = { name: account.display_name, email: account.email };
-    const draft = withSignature(reply(msg, me, all), account.signature);
+    // No format switch here: the answer goes in the mailbox's format.
+    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), account.signature);
     quick = { account_id: account.id, email: account.email, draft, all, to: msg.row.id };
     queueMicrotask(() => quickBox?.focus());
   }
@@ -284,12 +286,15 @@
   function setQuickAll(all: boolean) {
     if (!msg || !account || !quick) return;
     const me = { name: account.display_name, email: account.email };
-    quick = { ...quick, all, draft: withSignature(reply(msg, me, all), account.signature) };
+    quick = { ...quick, all, draft: withSignature(reply(msg, me, all, quick.draft.format), account.signature) };
     quickBox?.focus();
   }
 
   function quickDraft(q: NonNullable<typeof quick>): ComposeDraft {
-    return { ...q.draft, text: quickText.trimEnd() + q.draft.text };
+    if (q.draft.format !== "html") return { ...q.draft, text: quickText.trimEnd() + q.draft.text };
+    // In an HTML mailbox: paragraphs by empty lines, addresses as links, above the signature and quote.
+    const html = paragraphsHtml(quickText) + (q.draft.html ?? "").replace(GAP, "");
+    return { ...q.draft, html, text: htmlLetterText(html) };
   }
 
   /** Moves what was typed into a composition window; nothing typed is lost. */

@@ -43,6 +43,7 @@
     "allow-attachments-save-all",
     "allow-letter-view",
     "allow-document-html",
+    "allow-markdown-html",
     "allow-open-link",
     "allow-send",
     "allow-draft-save",
@@ -52,6 +53,7 @@
     "allow-extension-storage-get",
     "allow-extension-storage-set",
     "allow-plugin-settings-set",
+    "allow-inline-image",
     "allow-pick-files",
     "allow-pick-folder",
     "allow-pick-save-file"

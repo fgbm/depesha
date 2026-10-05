@@ -134,6 +134,8 @@ export const api = {
   /** A letter's raw bytes (an attached .eml), parsed as the reader shows it. */
   letterView: (bytes: ArrayBuffer) => call<MessageView>("letter_view", new Uint8Array(bytes)),
   documentHtml: (text: string, markdown: boolean) => call<string>("document_html", { text, markdown }),
+  /** A letter in Markdown as the HTML it goes out as. */
+  markdownHtml: (text: string) => call<string>("markdown_html", { text }),
   openLink: (url: string) => call<void>("open_link", { url }),
   send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupSecs: number | null) =>
     call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupSecs }),
@@ -151,7 +153,10 @@ export const api = {
   /** Name and size of a file dropped on the window. */
   fileInfo: (path: string) => call<PickedFile>("file_info", { path }),
   // The system dialogs are opened by the backend: it reads and writes only what the user picked there.
-  pickFiles: (title: string) => call<PickedFile[]>("pick_files", { title }),
+  /** `images`: the dialog shows pictures first. */
+  pickFiles: (title: string, images = false) => call<PickedFile[]>("pick_files", { title, images }),
+  /** A picked or dropped picture as a `data:` URL, for the text of a letter. */
+  inlineImage: (path: string) => call<string>("inline_image", { path }),
   pickFolder: (to: "save" | "plugin", title: string, current: string | null = null) =>
     call<string | null>("pick_folder", { to, title, current }),
   pickSaveFile: (title: string, name: string) => call<string | null>("pick_save_file", { title, name }),

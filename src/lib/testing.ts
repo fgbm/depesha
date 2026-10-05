@@ -58,6 +58,7 @@ export const settings = (): Settings => ({
   list_sort: [],
   view_sorts: {},
   large_mb: 25,
+  compose_format: "plain",
 });
 
 /** Answers of an empty mailbox; tests change what they look at. */

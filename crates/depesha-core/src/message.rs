@@ -12,7 +12,7 @@ use crate::avatar::Receiver;
 use crate::{Error, Result};
 
 /// Inline images above this size are not embedded into the rendered HTML.
-const MAX_INLINE_IMAGE: usize = 5 * 1024 * 1024;
+pub const MAX_INLINE_IMAGE: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Addr {
@@ -180,10 +180,20 @@ pub struct MessageView {
     /// A draft's scheduled sending time (`SEND_AT_HEADER`), unix seconds.
     #[serde(default)]
     pub send_at: Option<i64>,
+    /// How a draft was being written (`FORMAT_HEADER`); absent for other letters.
+    #[serde(default)]
+    pub format: Option<crate::smtp::BodyFormat>,
 }
 
 /// Where Depesha keeps a draft's scheduled time; only drafts carry it, sent mail never does.
 pub const SEND_AT_HEADER: &str = "X-Depesha-Send-At";
+
+/// How a draft was being written (`BodyFormat`), for it to open the same way; drafts only.
+pub const FORMAT_HEADER: &str = "X-Depesha-Format";
+
+/// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
+/// replace it, and the quote, to fold it. Cleaning keeps these classes and no others.
+pub const COMPOSE_CLASSES: [&str; 2] = ["depesha-signature", "depesha-quote"];
 
 pub fn parse_summary(raw: &[u8]) -> Summary {
     match MessageParser::default().parse_headers(raw) {
@@ -218,6 +228,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
 
     let summary = summary_of(&msg);
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
+    let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| crate::smtp::BodyFormat::from_name(&v));
     Ok(MessageView {
         summary,
         text,
@@ -226,6 +237,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         authenticated: false,
         attachments,
         send_at,
+        format,
     })
 }
 
@@ -330,6 +342,7 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
             "dir",
         ])
         .add_url_schemes(["cid", "data"])
+        .add_allowed_classes("div", COMPOSE_CLASSES)
         .clean_content_tags(HIDDEN_TAGS.into())
         .link_rel(Some("noopener noreferrer"));
 
@@ -375,6 +388,28 @@ pub fn document_html(text: &str, markdown: bool) -> String {
         text.to_owned()
     };
     sanitize_html(&html, &HashMap::new(), false).0
+}
+
+/// A letter written in Markdown as the HTML it goes out as. A line break stays a line
+/// break, as people expect of a letter (and GitHub comments): the signature under "-- "
+/// and the quoted lines keep their lines. No scripts, no remote images.
+pub fn markdown_html(text: &str) -> String {
+    use pulldown_cmark::{Event, Options, Parser, html};
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let events = Parser::new_ext(text, options).map(|e| match e {
+        Event::SoftBreak => Event::HardBreak,
+        e => e,
+    });
+    let mut out = String::with_capacity(text.len() * 3 / 2);
+    html::push_html(&mut out, events);
+    sanitize_html(&out, &HashMap::new(), false).0
+}
+
+/// The HTML of the visual editor cleaned once more before it leaves: the editor
+/// cleans what is pasted, this is the last word. Pictures of a quoted letter stay,
+/// the user saw them; `cid:` links lead nowhere in a new letter and go.
+pub fn compose_html(html: &str) -> String {
+    sanitize_html(html, &HashMap::new(), true).0
 }
 
 /// Every occurrence of a header, unfolded, topmost (the one the last server added)
@@ -710,6 +745,26 @@ JVBERi0xLjQK\r\n\
             Some(1_790_000_000)
         );
         assert_eq!(parse_view(mail("").as_bytes(), false).unwrap().send_at, None);
+    }
+
+    #[test]
+    fn a_draft_keeps_its_format() {
+        let mail =
+            |extra: &str| format!("{extra}From: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n");
+        let format = |raw: String| parse_view(raw.as_bytes(), false).unwrap().format;
+        assert_eq!(
+            format(mail(&format!("{FORMAT_HEADER}: markdown\r\n"))),
+            Some(crate::smtp::BodyFormat::Markdown)
+        );
+        assert_eq!(format(mail(&format!("{FORMAT_HEADER}: rtf\r\n"))), None);
+        assert_eq!(format(mail("")), None);
+    }
+
+    #[test]
+    fn markdown_letters_keep_their_lines_and_no_remote_images() {
+        let html = markdown_html("Привет,\nБоб\n\n![x](https://tracker.example/p.gif)<script>alert(1)</script>");
+        assert!(html.contains("Привет,<br>"), "{html}");
+        assert!(!html.contains("tracker.example") && !html.contains("script"), "{html}");
     }
 
     #[test]

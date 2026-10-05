@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import type { PhysicalPosition } from "@tauri-apps/api/dpi";
+  import type { DropZone } from "./lib/images";
   import { app } from "./lib/store.svelte";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
@@ -56,18 +58,21 @@
 
   onMount(() => {
     app.init().catch((e) => app.fail(e, t("startup")));
-    // Files dropped on the window become attachments of the open composition.
+    // Files dropped on the window go to the open composition: attached, or, in an HTML
+    // letter, pictures into the text when dropped on that zone.
+    const zoneAt = (pos: PhysicalPosition): DropZone | null => {
+      const { x, y } = pos.toLogical(window.devicePixelRatio);
+      const zone = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-zone]")?.dataset.dropZone;
+      return zone === "inline" || zone === "attach" ? zone : null;
+    };
     const unlisten = getCurrentWebview().onDragDropEvent(async (e) => {
       const c = app.activeCompose();
-      if (e.payload.type !== "drop" || !c) return;
-      for (const path of e.payload.paths) {
-        try {
-          const info = await api.fileInfo(path);
-          c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
-        } catch (err) {
-          app.fail(err);
-        }
-      }
+      const p = e.payload;
+      if (!c) return;
+      if (p.type === "enter") app.compose.dragEnter(c, p.paths);
+      else if (p.type === "over" && app.compose.dragging) app.compose.dragging.zone = zoneAt(p.position);
+      else if (p.type === "leave") app.compose.dragging = null;
+      else if (p.type === "drop") await app.compose.dropFiles(c, p.paths, zoneAt(p.position));
     });
     return () => {
       unlisten.then((f) => f());
@@ -85,9 +90,10 @@
 
   function onKey(e: KeyboardEvent) {
     if (app.wizard) return;
-    // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
-    if ((e.target as HTMLElement | null)?.closest?.(".compose")) return;
     const names = keyNames(e);
+    // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
+    // Only Ctrl+K reaches the app from there: the palette opens from anywhere.
+    if ((e.target as HTMLElement | null)?.closest?.(".compose") && !names.includes("Mod+k")) return;
     // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box).
     if (e.ctrlKey || e.metaKey) {
       // Ctrl+, opens the settings, as in most desktop programs (Obsidian, VS Code).

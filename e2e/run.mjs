@@ -283,6 +283,43 @@ try {
     if (found.trim()) throw new Error(`пароль найден в файлах: ${found}`);
   });
 
+  await step("5.9", "новая установка пишет письма в HTML", async () => {
+    const settings = await invoke("settings_get");
+    if (settings.compose_format !== "html") throw new Error(`формат новых писем: ${settings.compose_format}`);
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose .rich")).length === 1);
+    // The switch stands in the «From» row, the formatting row under the subject.
+    const modes = await d.exec("return [...document.querySelectorAll('.compose .modes [role=radio]')].map((b) => b.textContent.trim() + (b.getAttribute('aria-checked') === 'true' ? '*' : ''))");
+    if (modes.join(" ") !== "Текст HTML* Markdown") throw new Error(`переключатель режима: ${modes.join(" ")}`);
+    if ((await d.findAll(".compose [role=toolbar] button")).length < 9) throw new Error("нет строки оформления");
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+  });
+
+  await step("5.9", "HTML-письмо с картинкой в тексте уходит с частью multipart/related", async () => {
+    const subj = `Картинка ${stamp}`;
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose .rich")).length === 1);
+    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
+    await setInput(".compose .subject", subj);
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    await d.exec(
+      "const r = document.querySelector('.compose .rich'); r.focus(); document.execCommand('insertHTML', false, arguments[0]);",
+      `<div>Фото <b>зала</b>:</div><img src="data:image/png;base64,${png}">`,
+    );
+    await d.button("Отправить");
+    await composeClosed();
+    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
+    const raw = helper("raw", "INBOX", subj);
+    for (const want of ["multipart/alternative", "text/plain", "multipart/related", "text/html", "image/png", "Content-ID: <"]) {
+      if (!raw.includes(want)) throw new Error(`в письме нет ${want}`);
+    }
+    // The steps below type into the plain-text field.
+    const settings = await invoke("settings_get");
+    await invoke("settings_set", { settings: { ...settings, compose_format: "plain" } });
+    await d.until("plain format", async () => (await invoke("settings_get")).compose_format === "plain");
+  });
+
   await step("3.1–3.3", "папки: роли, русские имена, служебные скрыты", async () => {
     const text = await d.until("folders", async () => {
       const t = await sidebarText();

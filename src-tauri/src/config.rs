@@ -3,6 +3,7 @@ use std::path::Path;
 use depesha_core::account::{Account, OAuthProvider};
 use depesha_core::lang::{self, Lang};
 use depesha_core::oauth::OAuthClient;
+use depesha_core::smtp::BodyFormat;
 use depesha_core::store::SortKey;
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +61,14 @@ pub struct Settings {
     pub view_sorts: std::collections::BTreeMap<String, Vec<SortKey>>,
     /// What counts as a large letter in the ready-made searches (Settings → General → Search), megabytes.
     pub large_mb: u32,
+    /// How new letters are written; a mailbox may have its own (`Account::compose_format`).
+    /// A new install writes HTML; one set up before the choice existed goes on with plain text.
+    #[serde(default = "plain")]
+    pub compose_format: BodyFormat,
+}
+
+fn plain() -> BodyFormat {
+    BodyFormat::Plain
 }
 
 impl Default for Settings {
@@ -84,6 +93,7 @@ impl Default for Settings {
             list_sort: Vec::new(),
             view_sorts: Default::default(),
             large_mb: 25,
+            compose_format: BodyFormat::Html,
         }
     }
 }
@@ -167,4 +177,19 @@ pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(config).map_err(std::io::Error::other)?)?;
     std::fs::rename(tmp, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_installs_write_html_and_old_ones_keep_plain_text() {
+        assert_eq!(Settings::default().compose_format, BodyFormat::Html);
+        let old: Config = serde_json::from_str(r#"{"accounts":[],"settings":{"undo_send_secs":5}}"#).unwrap();
+        assert_eq!(old.settings.compose_format, BodyFormat::Plain);
+        assert_eq!(old.settings.undo_send_secs, 5);
+        let chosen: Settings = serde_json::from_str(r#"{"compose_format":"markdown"}"#).unwrap();
+        assert_eq!(chosen.compose_format, BodyFormat::Markdown);
+    }
 }

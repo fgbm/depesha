@@ -57,6 +57,9 @@ pub struct Account {
     /// Added below new messages and replies, after the standard "-- " separator.
     #[serde(default)]
     pub signature: String,
+    /// How new letters from this mailbox are written; none takes the format from the settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compose_format: Option<crate::smtp::BodyFormat>,
     /// Where this mailbox's attachments are saved without asking; empty takes the
     /// folder from the settings.
     #[serde(default, skip_serializing_if = "String::is_empty")]

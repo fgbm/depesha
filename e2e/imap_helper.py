@@ -256,6 +256,10 @@ def main():
         if uids:
             typ, data = c.uid("FETCH", uids[-1], f"(BODY.PEEK[HEADER.FIELDS ({sys.argv[4]})])")
             print(data[0][1].decode().strip())
+    elif cmd == "raw":
+        if uids:
+            typ, data = c.uid("FETCH", uids[-1], "(BODY.PEEK[])")
+            print(data[0][1].decode("utf-8", "replace"))
     elif cmd == "flag":
         c.uid("STORE", uids[-1], "+FLAGS", "(\\Flagged)")
         print("ok")
