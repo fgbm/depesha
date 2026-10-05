@@ -13,7 +13,6 @@ const base: Account = {
   imap: { host: "imap.example.com", port: 993, security: "tls" },
   smtp: { host: "smtp.example.com", port: 465, security: "tls" },
   save_sent_copy: true,
-  signature: "",
   attachments_dir: "",
 };
 const edit = (patch: Partial<Account>): Account => ({ ...structuredClone(base), ...patch });
@@ -25,7 +24,7 @@ beforeEach(() => {
 
 describe("whether saving needs a login first", () => {
   it("not for names, colour, signature, folder or the sent copy", () => {
-    const after = edit({ label: "Home", color: "#3f7cc4", display_name: "J", signature: "--\nJ", attachments_dir: "/tmp", save_sent_copy: false });
+    const after = edit({ label: "Home", color: "#3f7cc4", display_name: "J", signatures: [{ id: "s1", name: "J", html: "J", text: "J" }], default_signature: "s1", attachments_dir: "/tmp", save_sent_copy: false });
     expect(connectionChanged(base, after, "", null)).toBe(false);
   });
 

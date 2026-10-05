@@ -27,7 +27,8 @@
   import { app } from "../lib/store.svelte";
   import { api, asError } from "../lib/api";
   import { accountLabel, addrFull, addrName, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
-  import { emptyDraft, formatFor, fromDraft, reply, withSignature } from "../lib/compose";
+  import { emptyDraft, formatFor, fromDraft, reply } from "../lib/compose";
+  import { defaultSignature, withSignature } from "../lib/signatures";
   import { GAP, htmlLetterText, paragraphsHtml } from "../lib/richtext";
   import { t, tn } from "../lib/i18n.svelte";
   import Puzzle from "@lucide/svelte/icons/puzzle";
@@ -132,7 +133,7 @@
       draft.to = to ? to.split(",").map((email) => ({ name: null, email: email.trim() })) : [];
       const subject = new URLSearchParams(href.split("?")[1] ?? "").get("subject");
       if (subject) draft.subject = subject;
-      app.openCompose({ account_id: acc.id, draft: withSignature(draft, acc.signature), draft_id: null });
+      app.openCompose({ account_id: acc.id, draft: withSignature(draft, defaultSignature(acc)), draft_id: null });
       return;
     }
     await app.openLink(href);
@@ -297,7 +298,7 @@
     if (!msg || !account) return;
     const me = { name: account.display_name, email: account.email };
     // No format switch here: the answer goes in the mailbox's format.
-    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), account.signature);
+    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), defaultSignature(account));
     quick = { account_id: account.id, email: account.email, draft, all, to: msg.row.id };
     queueMicrotask(() => quickBox?.focus());
   }
@@ -306,7 +307,7 @@
   function setQuickAll(all: boolean) {
     if (!msg || !account || !quick) return;
     const me = { name: account.display_name, email: account.email };
-    quick = { ...quick, all, draft: withSignature(reply(msg, me, all, quick.draft.format), account.signature) };
+    quick = { ...quick, all, draft: withSignature(reply(msg, me, all, quick.draft.format), defaultSignature(account)) };
     quickBox?.focus();
   }
 

@@ -345,6 +345,8 @@ mod tests {
             smtp: crate::account::ServerConfig::new(host, 465, crate::account::Security::Tls),
             save_sent_copy: true,
             signature: String::new(),
+            signatures: Vec::new(),
+            default_signature: None,
             compose_format: None,
             attachments_dir: String::new(),
             auth: Default::default(),

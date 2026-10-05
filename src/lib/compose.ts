@@ -2,22 +2,9 @@
 
 import { addrFull, shortDateTime } from "./format";
 import { t } from "./i18n.svelte";
-import {
-  GAP,
-  QUOTE_CLASS,
-  QUOTE_STYLE,
-  SIGNATURE_CLASS,
-  escapeHtml,
-  findBlock,
-  hasFormatting,
-  htmlLetterText,
-  htmlToMarkdown,
-  htmlToText,
-  removeBlock,
-  splitHtmlQuote,
-  textToHtml,
-} from "./richtext";
-import type { Account, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings } from "./types";
+import { GAP, QUOTE_CLASS, QUOTE_STYLE, escapeHtml, hasFormatting, htmlLetterText, htmlToMarkdown, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
+import { sigBlock, sigHtml, splitPlain, withoutHtmlSignature } from "./signatures";
+import type { Account, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
 
 export function emptyDraft(from: Addr | null, format: BodyFormat = "plain"): ComposeDraft {
   return {
@@ -184,118 +171,28 @@ export function fromDraft(msg: OpenedMessage, me: Addr): ComposeDraft {
   };
 }
 
-/**
- * Splits a reply into what is typed and the quote under it: the "… wrote:" line and the
- * ">" lines after it, to the end. `head + quote` is the text again; no quote, all is head.
- */
-export function splitQuote(text: string): { head: string; quote: string } {
-  const lines = text.split("\n");
-  let offset = 0;
-  for (let i = 0; i < lines.length - 1; i++) {
-    const line = lines[i];
-    const header = line.trim() !== "" && !line.startsWith(">") && line.trimEnd().endsWith(":") && lines[i + 1].startsWith(">");
-    if (header && lines.slice(i + 1).every((l) => l.startsWith(">") || l.trim() === "")) {
-      // The empty lines above the header go with the quote.
-      let start = offset;
-      while (start > 0 && text[start - 1] === "\n") start--;
-      return { head: text.slice(0, start), quote: text.slice(start) };
-    }
-    offset += line.length + 1;
-  }
-  return { head: text, quote: "" };
-}
+export { splitQuote } from "./quote";
 
-/** Something worth keeping was typed; an untouched signature does not count. */
-export function isDirty(d: ComposeDraft, signature?: string): boolean {
+/** Something worth keeping was typed; the signature does not count, it is put in whole. */
+export function isDirty(d: ComposeDraft): boolean {
   let text: string;
   if (d.format === "html") {
-    text = htmlToText(withoutSignature(d.html ?? "", signature) ?? d.html ?? "");
+    text = htmlToText(withoutHtmlSignature(d.html ?? ""));
   } else {
-    const block = sigBlock(signature);
-    text = block ? d.text.replace(block, "") : d.text;
+    const { body, rest } = splitPlain(d.text);
+    text = body + rest;
   }
   return d.to.length + d.cc.length + d.bcc.length + d.attachments.length > 0 || d.subject.trim() !== "" || text.trim() !== "";
 }
 
-/** Signature block with the standard "-- " separator (RFC 3676), or nothing. */
-export function sigBlock(signature: string | undefined): string {
-  const sig = (signature ?? "").trim();
-  return sig ? `\n\n-- \n${sig}` : "";
-}
-
-/**
- * The signature of an HTML letter: a block of its own, found again to be replaced.
- * Formatted signatures (#25) go into the same block.
- */
-export function sigHtml(signature: string | undefined): string {
-  const sig = (signature ?? "").trim();
-  return sig ? `<div class="${SIGNATURE_CLASS}">-- <br>${sig.split("\n").map(escapeHtml).join("<br>")}</div>` : "";
-}
-
-/** The HTML without its signature block, if the block is the signature as it was put in; null otherwise. */
-function withoutSignature(html: string, signature: string | undefined): string | null {
-  const b = findBlock(html, SIGNATURE_CLASS);
-  if (!b || htmlToText(html.slice(b.start, b.end)).trim() !== htmlToText(sigHtml(signature)).trim()) return null;
-  return html.slice(0, b.start) + html.slice(b.end);
-}
-
-/** Puts an HTML block above the quote, or at the end when there is none. */
-function aboveQuote(html: string, block: string): string {
-  const q = findBlock(html, QUOTE_CLASS);
-  return q ? html.slice(0, q.start) + block + html.slice(q.start) : html + block;
-}
-
-/** Adds the signature: at the end of a new message, above the quote in replies and forwards. */
-export function withSignature(draft: ComposeDraft, signature: string | undefined): ComposeDraft {
-  if (draft.format === "html") {
-    const block = sigHtml(signature);
-    if (!block) return draft;
-    const html = draft.html?.trim() ? draft.html : GAP;
-    return withHtml(draft, aboveQuote(html, block));
-  }
-  const block = sigBlock(signature);
-  if (!block) return draft;
-  return { ...draft, text: draft.text.startsWith("\n\n") ? block + draft.text : draft.text + block };
-}
-
-/** Replaces one account's signature with another's when the sender changes. */
-export function swapSignature(text: string, from: string | undefined, to: string | undefined): string {
-  const oldBlock = sigBlock(from);
-  const newBlock = sigBlock(to);
-  if (oldBlock && text.includes(oldBlock)) return text.replace(oldBlock, newBlock);
-  if (!newBlock) return text;
-  const quote = text.search(/\n\n[^\n]*(пишет:|wrote:|-------- Пересылаемое сообщение|-------- Forwarded message)/);
-  return quote >= 0 ? text.slice(0, quote) + newBlock + text.slice(quote) : text + newBlock;
-}
-
-/** The same for an HTML letter: an edited signature stays, as in plain text. */
-export function swapSignatureHtml(html: string, from: string | undefined, to: string | undefined): string {
-  const rest = withoutSignature(html, from);
-  const block = sigHtml(to);
-  if (rest !== null) {
-    const at = findBlock(html, SIGNATURE_CLASS)?.start ?? rest.length;
-    return rest.slice(0, at) + block + rest.slice(at);
-  }
-  return block ? aboveQuote(html, block) : html;
-}
-
-/** A letter split into what is typed, whether the signature is under it, and the quote. */
-interface Parts {
-  body: string;
-  signed: boolean;
-  quote: string;
-}
-
-function partsOf(d: ComposeDraft, signature: string | undefined): Parts {
+/** A letter split into what is typed and the quote; the signature between them is left out. */
+function partsOf(d: ComposeDraft): { body: string; quote: string } {
   if (d.format === "html") {
     const { head, quote } = splitHtmlQuote(d.html ?? "");
-    const rest = withoutSignature(head, signature);
-    return { body: rest ?? head, signed: rest !== null, quote };
+    return { body: withoutHtmlSignature(head), quote };
   }
-  const { head, quote } = splitQuote(d.text);
-  const block = sigBlock(signature);
-  const signed = !!block && head.includes(block);
-  return { body: signed ? head.replace(block, "") : head, signed, quote };
+  const { body, rest } = splitPlain(d.text);
+  return { body, quote: rest };
 }
 
 /**
@@ -307,23 +204,24 @@ export function losesFormatting(d: ComposeDraft, to: BodyFormat): boolean {
 }
 
 /**
- * The letter in another format. What is typed is converted, the signature is put
- * again in the new format, the quote keeps its formatting where the format has it.
+ * The letter in another format. What is typed is converted, the letter's signature
+ * (`signature`, the window knows it) is put again in the new format's version, the quote
+ * keeps its formatting where the format has it.
  * `markdownHtml` renders Markdown the way the backend sends it.
  */
 export async function convertDraft(
   d: ComposeDraft,
   to: BodyFormat,
-  signature: string | undefined,
+  signature: Signature | null,
   markdownHtml: (text: string) => Promise<string>,
 ): Promise<ComposeDraft> {
   const from = d.format ?? "plain";
   if (from === to) return d;
-  const { body, signed, quote } = partsOf(d, signature);
+  const { body, quote } = partsOf(d);
   if (to === "html") {
     const html = from === "markdown" ? await markdownHtml(body.trim()) : textToHtml(body.replace(/^\n+/, "").trimEnd());
     const quoteHtml = quote ? `<div class="${QUOTE_CLASS}">${textToHtml(quote.replace(/^\n+/, "").trimEnd())}</div>` : "";
-    const head = (body.trim() ? html : GAP) + (signed ? sigHtml(signature) : "");
+    const head = (body.trim() ? html : GAP) + sigHtml(signature);
     return withHtml({ ...d, format: "html" }, head + quoteHtml);
   }
   let text: string;
@@ -337,5 +235,5 @@ export async function convertDraft(
     text = body;
     quoteText = quote;
   }
-  return { ...d, format: to, html: null, text: text + (signed ? sigBlock(signature) : "") + quoteText };
+  return { ...d, format: to, html: null, text: text + sigBlock(signature) + quoteText };
 }

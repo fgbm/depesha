@@ -85,6 +85,10 @@ function render(html: string, markdown: boolean): string {
   let bullet = ""; // the list marker the next content starts with
   const lists: { ordered: boolean; n: number; items: number }[] = [];
   const links: { href: string; text: string; at: number }[] = [];
+  // A signature block opened: its "-- " line goes before its first words. A block that
+  // writes the separator itself (letters before #25) keeps one; one of pictures alone gets none.
+  let sigOwed = false;
+  let dropBreak = false;
 
   const prefix = () => (depth ? "> ".repeat(depth) : "");
   // The signature separator keeps its space (RFC 3676); other lines lose what trails them.
@@ -106,6 +110,13 @@ function render(html: string, markdown: boolean): string {
   };
   const write = (s: string) => {
     if (!s) return;
+    if (sigOwed) {
+      sigOwed = false;
+      dropBreak = false;
+      flush();
+      settle();
+      push("-- ");
+    }
     if (!started) {
       settle();
       started = true;
@@ -117,6 +128,11 @@ function render(html: string, markdown: boolean): string {
   };
   const text = (raw: string) => {
     if (hidden) return;
+    if (sigOwed && /^\s*--\s*$/.test(raw)) {
+      dropBreak = true;
+      return;
+    }
+    if (sigOwed && !raw.trim()) return;
     if (pre) {
       raw.split("\n").forEach((part, i) => {
         if (i > 0) {
@@ -152,6 +168,10 @@ function render(html: string, markdown: boolean): string {
     }
     if (hidden) continue;
     if (name === "br") {
+      if (dropBreak || sigOwed) {
+        dropBreak = false;
+        continue;
+      }
       if (!started) settle();
       push(cur);
       cur = "";
@@ -165,7 +185,13 @@ function render(html: string, markdown: boolean): string {
       brk(2);
       continue;
     }
-    const own = (attrs.class ?? "").split(/\s+/).some((c) => c === SIGNATURE_CLASS || c === QUOTE_CLASS);
+    const classes = (attrs.class ?? "").split(/\s+/);
+    const own = classes.some((c) => c === SIGNATURE_CLASS || c === QUOTE_CLASS);
+    if (own && !close && classes.includes(SIGNATURE_CLASS)) {
+      brk(2);
+      sigOwed = true;
+      continue;
+    }
     if (name === "blockquote") {
       brk(1);
       // An empty line owed before or after the quote stays outside it.

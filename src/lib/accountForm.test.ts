@@ -21,7 +21,6 @@ const saved: Account = {
   imap: { host: "imap.example.com", port: 993, security: "tls" },
   smtp: { host: "smtp.example.com", port: 465, security: "tls" },
   save_sent_copy: true,
-  signature: "",
   attachments_dir: "",
 };
 
@@ -35,11 +34,12 @@ describe("saving a mailbox's page", () => {
   it("saves a new signature without logging in, and keeps the colour", async () => {
     const done = vi.fn();
     const form = new AccountForm(saved, done);
-    form.signature = "Jane";
+    form.signatures = [{ id: "s1", name: "Work", html: "<div>Jane</div>", text: "Jane" }];
+    form.defaultSignature = "s1";
     expect(form.needsCheck).toBe(false);
     await form.save();
     expect(api.accountCheck).not.toHaveBeenCalled();
-    expect(api.accountSave).toHaveBeenCalledWith(expect.objectContaining({ signature: "Jane", color: "#9b59b6" }), null, null);
+    expect(api.accountSave).toHaveBeenCalledWith(expect.objectContaining({ signatures: [{ id: "s1", name: "Work", html: "<div>Jane</div>", text: "Jane" }], default_signature: "s1", color: "#9b59b6" }), null, null);
     expect(done).toHaveBeenCalled();
   });
 

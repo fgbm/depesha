@@ -4,7 +4,7 @@
   import { AccountForm } from "../lib/accountForm.svelte";
   import ConnectionFields from "./account/ConnectionFields.svelte";
   import CheckError from "./account/CheckError.svelte";
-  import SignatureField from "./account/SignatureField.svelte";
+  import SignaturesField from "./account/SignaturesField.svelte";
   import AttachmentsDirField from "./account/AttachmentsDirField.svelte";
   import { PROVIDER_LOGO } from "./account/logos";
 
@@ -75,7 +75,7 @@
         </div>
 
         <ConnectionFields {form} />
-        <SignatureField bind:value={form.signature} />
+        <SignaturesField {form} />
         <AttachmentsDirField bind:value={form.attachmentsDir} />
       {/if}
 

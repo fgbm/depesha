@@ -85,6 +85,8 @@ export class AppStore {
   settingsOpen = $state(false);
   /** The page it opens on: "general", "offline", "accounts", "account:<id>", "account:new", "plugins"… */
   settingsPage = $state("general");
+  /** A section of a mailbox's page to open the settings at (`letters`), once. */
+  settingsSection: string | null = null;
   tasksOpen = $state(false);
   /** Background work: running, and failed until dismissed. */
   tasks = $state<Task[]>([]);
@@ -493,8 +495,9 @@ export class AppStore {
     if (ok) api.openLink(href).catch((e) => this.fail(e));
   }
 
-  openSettings(page = "general") {
+  openSettings(page = "general", section: string | null = null) {
     this.settingsPage = page;
+    this.settingsSection = section;
     this.settingsOpen = true;
   }
 

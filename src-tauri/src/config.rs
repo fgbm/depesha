@@ -173,6 +173,15 @@ pub fn load(path: &Path) -> Config {
     config
 }
 
+/// Moves the one plain-text signature of a mailbox from before 0.6.0 into its list of
+/// signatures, as the default one (#25). Run once the language is set: the name is worded in it.
+pub fn adopt_old_signatures(config: &mut Config) {
+    let name = lang::pick("Signature", "Подпись");
+    for account in &mut config.accounts {
+        account.adopt_old_signature(name);
+    }
+}
+
 /// Writes through a temporary file so a crash never leaves half a config.
 pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
@@ -196,5 +205,42 @@ mod tests {
         assert_eq!(old.settings.letter_view, "sender");
         let chosen: Settings = serde_json::from_str(r#"{"compose_format":"markdown"}"#).unwrap();
         assert_eq!(chosen.compose_format, BodyFormat::Markdown);
+    }
+
+    #[test]
+    fn a_signature_from_before_becomes_the_default_one() {
+        lang::pin(Lang::Ru);
+        let dir = std::env::temp_dir().join(format!("depesha-config-{}", std::process::id()));
+        let path = dir.join("accounts.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"accounts":[{"id":"a","display_name":"Иван","email":"ivan@example.com","username":"ivan",
+                "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":465,"security":"tls"},
+                "signature":"Иван Петров\nexample.com"},
+              {"id":"b","display_name":"B","email":"b@example.com","username":"b",
+                "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":465,"security":"tls"}}],
+              "settings":{}}"#,
+        )
+        .unwrap();
+        let mut config = load(&path);
+        adopt_old_signatures(&mut config);
+        let a = &config.accounts[0];
+        assert_eq!(a.signatures.len(), 1);
+        assert_eq!(a.signatures[0].name, "Подпись");
+        assert_eq!(a.signatures[0].text, "Иван Петров\nexample.com");
+        assert_eq!(a.default_signature.as_deref(), Some(a.signatures[0].id.as_str()));
+        assert!(config.accounts[1].signatures.is_empty() && config.accounts[1].default_signature.is_none());
+        // Saved and read again, it is the same, and the old field is not written back.
+        save(&path, &config).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("\"signature\""));
+        let mut again = load(&path);
+        adopt_old_signatures(&mut again);
+        assert_eq!(again.accounts[0].signatures, config.accounts[0].signatures);
+        assert_eq!(
+            again.accounts[0].default_signature,
+            config.accounts[0].default_signature
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -6,7 +6,7 @@ import { app } from "./store.svelte";
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
 import { connectionChanged } from "./connection";
-import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig } from "./types";
+import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig, Signature } from "./types";
 
 const DEFAULT_PORT: Record<"imap" | "smtp", Record<Security, number>> = {
   imap: { tls: 993, starttls: 143, plain: 143 },
@@ -53,7 +53,9 @@ export class AccountForm {
   imap = $state<ServerConfig>({ host: "", port: 993, security: "tls" });
   smtp = $state<ServerConfig>({ host: "", port: 587, security: "starttls" });
   saveSent = $state(true);
-  signature = $state("");
+  /** The mailbox's signatures in order, and the id of the default one (lib/signatures.ts). */
+  signatures = $state<Signature[]>([]);
+  defaultSignature = $state<string | null>(null);
   /** How new letters from this mailbox are written; "" takes the format from the settings. */
   composeFormat = $state<BodyFormat | "">("");
   attachmentsDir = $state("");
@@ -93,7 +95,8 @@ export class AccountForm {
       this.imap = { ...e.imap };
       this.smtp = { ...e.smtp };
       this.saveSent = e.save_sent_copy;
-      this.signature = e.signature;
+      this.signatures = (e.signatures ?? []).map((s) => ({ ...s }));
+      this.defaultSignature = e.default_signature ?? null;
       this.composeFormat = e.compose_format ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
     }
@@ -234,7 +237,8 @@ export class AccountForm {
       imap: { ...this.imap, host: this.imap.host.trim(), port: Number(this.imap.port) },
       smtp: { ...this.smtp, host: this.smtp.host.trim(), port: Number(this.smtp.port) },
       save_sent_copy: this.mode === "ews" ? false : this.saveSent,
-      signature: this.signature,
+      signatures: this.signatures.map((s) => ({ ...s })),
+      default_signature: this.defaultSignature,
       attachments_dir: this.attachmentsDir.trim(),
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;

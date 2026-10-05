@@ -882,6 +882,51 @@ mod tests {
     }
 
     #[test]
+    fn a_signature_with_a_logo_goes_inside_the_letter() {
+        // The logo stands in the signature and once more in the text: one part for both.
+        let logo = format!("data:image/png;base64,{PNG}");
+        let html = format!(
+            "<div>Смета готова.</div><img src=\"{logo}\">\
+             <div class=\"depesha-signature\"><div><img src=\"{logo}\" style=\"width:46px\"> Мария Соколова</div>\
+             <div><a href=\"https://example.com\">example.com</a></div></div>"
+        );
+        let text = "Смета готова.\n\n-- \nМария Соколова\nexample.com";
+        let raw = String::from_utf8(build(&letter(BodyFormat::Html, text, Some(&html))).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/alternative",
+                "text/plain",
+                "multipart/related",
+                "text/html",
+                "image/png"
+            ],
+            "{raw}"
+        );
+        let ids = header_value(&raw, "Content-ID: ");
+        assert_eq!(ids.len(), 1, "{raw}");
+        let cid = ids[0].trim_matches(['<', '>']);
+        // No picture is left in the HTML itself, none is loaded from the web.
+        assert!(!raw.contains("src=\"http"), "{raw}");
+        assert!(!raw.contains("data:image"), "{raw}");
+        // The reader finds both places by that id, without loading remote pictures.
+        let shown = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        assert_eq!(shown.attachments.len(), 1);
+        assert!(shown.attachments[0].inline && shown.attachments[0].content_id.as_deref() == Some(cid));
+        let view_html = shown.html.unwrap();
+        assert!(view_html.contains("depesha-signature"), "{view_html}");
+        assert_eq!(view_html.matches(&logo).count(), 2, "{view_html}");
+    }
+
+    #[test]
+    fn a_plain_letter_gets_the_text_of_the_signature_only() {
+        let text = "Да.\n\n-- \nМария Соколова\nexample.com <https://example.com>";
+        let raw = String::from_utf8(build(&letter(BodyFormat::Plain, text, None)).unwrap().formatted()).unwrap();
+        assert_eq!(content_types(&raw), ["text/plain"], "{raw}");
+        assert!(!raw.contains("Content-ID"), "{raw}");
+    }
+
+    #[test]
     fn pictures_go_beside_attachments() {
         let html = format!("<p>Фото</p><img src=\"data:image/png;base64,{PNG}\">");
         let mut draft = letter(BodyFormat::Html, "Фото", Some(&html));

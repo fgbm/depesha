@@ -116,12 +116,31 @@ export async function shrinkPicture(dataUrl: string): Promise<{ dataUrl: string;
   const type = dataUrlType(dataUrl);
   const { width, height } = fitSide(img.naturalWidth, img.naturalHeight);
   if (type === "image/gif" || (width === img.naturalWidth && height === img.naturalHeight)) return { dataUrl, width: img.naturalWidth };
+  return { dataUrl: redraw(img, type, width, height), width };
+}
+
+/**
+ * A picture drawn no wider than it is shown (a logo of a signature, sent with every
+ * letter); a narrower one, or a GIF, stays as it is.
+ */
+export async function shrinkToWidth(dataUrl: string, shown: number): Promise<string> {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const type = dataUrlType(dataUrl);
+  const width = Math.max(1, Math.round(shown));
+  if (type === "image/gif" || img.naturalWidth <= width) return dataUrl;
+  const out = redraw(img, type, width, Math.max(1, Math.round((img.naturalHeight * width) / img.naturalWidth)));
+  return dataUrlSize(out) < dataUrlSize(dataUrl) ? out : dataUrl;
+}
+
+/** PNG keeps transparency; anything else becomes a JPEG. */
+function redraw(img: HTMLImageElement, type: string, width: number, height: number): string {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   canvas.getContext("2d")?.drawImage(img, 0, 0, width, height);
-  const out = type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.85);
-  return { dataUrl: out, width };
+  return type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.85);
 }
 
 /** A file or a piece of the clipboard as a `data:` URL. */

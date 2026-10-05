@@ -92,9 +92,10 @@ pub fn run() {
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
 
             let config_path = config_dir.join("accounts.json");
-            let config = config::load(&config_path);
+            let mut config = config::load(&config_path);
             // The language before the cache opens: its refusal is shown to the user.
             depesha_core::lang::set(config.settings.lang());
+            config::adopt_old_signatures(&mut config);
             let store = match Store::open(data_dir.join("mail.sqlite")) {
                 Ok(store) => store,
                 Err(e) => {

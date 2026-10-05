@@ -2,7 +2,7 @@
   // The visual editor of a letter: an editable block, formatting by the browser's own
   // editing commands. What comes in is cleaned (lib/sanitize.ts); the HTML goes out as typed.
   // A picture in the text is picked by a click and gets a small panel: two sizes, delete.
-  import { onMount } from "svelte";
+  import { onMount, type Snippet } from "svelte";
   import { cleanEditorHtml, cleanPastedHtml } from "../lib/sanitize";
   import { escapeHtml } from "../lib/richtext";
   import { isPictureType } from "../lib/images";
@@ -15,6 +15,8 @@
     class: cls = "",
     onselection,
     onpictures,
+    locked = "",
+    lockedBar,
   }: {
     html?: string;
     label: string;
@@ -24,6 +26,13 @@
     onselection?: () => void;
     /** Pictures pasted from the clipboard: the window decides how they go in. */
     onpictures?: (pictures: Blob[]) => void;
+    /**
+     * The class of a block that is not edited in place (the signature of a letter): the
+     * caret does not go in, it is put or taken away whole by the window.
+     */
+    locked?: string;
+    /** Shown at the top right corner of that block when it is pointed at or focused: its menu. */
+    lockedBar?: Snippet;
   } = $props();
 
   let el = $state<HTMLDivElement | null>(null);
@@ -43,9 +52,19 @@
     empty = !!el && !el.textContent?.trim() && !el.querySelector("img, li, blockquote, hr");
   }
 
+  /** The block's mark of being locked is the editor's, not the letter's. */
+  function unlocked(value: string): string {
+    return locked ? value.replace(/ contenteditable="false"/g, "") : value;
+  }
+
+  function lock() {
+    if (!el || !locked) return;
+    for (const b of el.querySelectorAll<HTMLElement>(`.${locked}`)) b.contentEditable = "false";
+  }
+
   function read() {
     if (!el) return;
-    shown = el.innerHTML;
+    shown = unlocked(el.innerHTML);
     measure();
     if (html !== shown) html = shown;
     place();
@@ -55,9 +74,11 @@
     const value = html;
     if (!el || value === shown) return;
     el.innerHTML = cleanEditorHtml(value);
+    lock();
     shown = value;
     picked = null;
     measure();
+    place();
   });
 
   onMount(() => {
@@ -73,7 +94,8 @@
       const target = e.target as HTMLElement;
       // A link in the letter being written is text to edit, never a way out of the app.
       if (target.closest("a")) e.preventDefault();
-      picked = target instanceof HTMLImageElement ? target : null;
+      // A picture of the locked block is not the letter's to resize or delete.
+      picked = target instanceof HTMLImageElement && !(locked && target.closest(`.${locked}`)) ? target : null;
       place();
     };
     el?.addEventListener("click", click);
@@ -191,7 +213,38 @@
   let frame = $state<{ left: number; top: number; width: number; height: number } | null>(null);
   const fits = $derived(!!picked && frame !== null && picked.style.width === "100%");
 
+  // The locked block: where it stands, and whether the pointer is over it.
+  let block = $state<{ left: number; top: number; width: number; height: number; right: number } | null>(null);
+  let overBlock = $state(false);
+
+  function placeBlock() {
+    const b = locked && el ? el.querySelector<HTMLElement>(`.${locked}`) : null;
+    if (!b || !wrap || !el) {
+      block = null;
+      return;
+    }
+    const r = b.getBoundingClientRect();
+    const w = wrap.getBoundingClientRect();
+    const e = el.getBoundingClientRect();
+    // Out of sight in a scrolled letter: no bar floating over the text.
+    if (r.bottom < e.top || r.top > e.bottom) {
+      block = null;
+      return;
+    }
+    block = { left: r.left - w.left, top: r.top - w.top, width: r.width, height: r.height, right: w.right - r.right };
+  }
+
+  function onpointermove(e: PointerEvent) {
+    if (!locked) return;
+    const over = !!(e.target as Element | null)?.closest?.(`.${locked}`);
+    if (over !== overBlock) {
+      overBlock = over;
+      placeBlock();
+    }
+  }
+
   function place() {
+    placeBlock();
     if (!picked || !wrap || !el?.contains(picked)) {
       picked = null;
       frame = null;
@@ -224,7 +277,8 @@
   }
 </script>
 
-<div class="rich-wrap {cls}" bind:this={wrap}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="rich-wrap {cls}" bind:this={wrap} onpointerleave={() => (overBlock = false)}>
   <div
     bind:this={el}
     class="rich"
@@ -241,7 +295,16 @@
     {onpaste}
     {ondrop}
     {onkeydown}
+    {onpointermove}
   ></div>
+  {#if lockedBar && block}
+    {#if overBlock}
+      <div class="block-hover" style="left:{block.left}px;top:{block.top}px;width:{block.width}px;height:{block.height}px" aria-hidden="true"></div>
+    {/if}
+    <div class="block-bar" class:shown={overBlock} style="right:{block.right}px;top:{block.top - 11}px">
+      {@render lockedBar()}
+    </div>
+  {/if}
   {#if picked && frame}
     <div class="frame" style="left:{frame.left}px;top:{frame.top}px;width:{frame.width}px;height:{frame.height}px" aria-hidden="true"></div>
     <div class="picture-bar" role="toolbar" aria-label={t("compose.picture.title")} style="left:{frame.left}px;top:{frame.top + frame.height + 6}px">
@@ -259,9 +322,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* The letter stays inside its box, whatever its styles say. */
-    contain: layout paint;
-    isolation: isolate;
   }
 
   .rich {
@@ -274,6 +334,10 @@
     outline: none;
     user-select: text;
     overflow-wrap: anywhere;
+    /* The letter stays inside its box, whatever its styles say. The bars beside it are
+       outside: a menu of theirs is laid over the window, not cut by the box. */
+    contain: layout paint;
+    isolation: isolate;
   }
 
   .rich.empty::before {
@@ -317,8 +381,36 @@
     border-top: 1px dashed var(--line);
   }
 
+  .rich :global(.depesha-signature img) {
+    cursor: default;
+  }
+
   .rich :global(.depesha-quote) {
     margin-top: 0.8em;
+  }
+
+  /* The locked block pointed at: a tint under the pointer, its menu at the corner. */
+  .block-hover {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 4px;
+    outline: 1px solid var(--line);
+    outline-offset: 3px;
+    background: color-mix(in srgb, var(--hover) 45%, transparent);
+  }
+
+  .block-bar {
+    position: absolute;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  .block-bar.shown,
+  .block-bar:hover,
+  .block-bar:focus-within,
+  .block-bar:has(:global(.open)) {
+    opacity: 1;
   }
 
   .frame {

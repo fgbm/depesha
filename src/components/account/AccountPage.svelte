@@ -1,7 +1,9 @@
 <script lang="ts">
   // A mailbox's page in the settings window: one page of sections under a table of contents
   // that stays in sight and marks the section being read, and the page's own buttons.
+  import { onMount } from "svelte";
   import { t } from "../../lib/i18n.svelte";
+  import { app } from "../../lib/store.svelte";
   import { AccountForm } from "../../lib/accountForm.svelte";
   import { currentSection } from "../../lib/toc";
   import type { AccountView } from "../../lib/types";
@@ -24,6 +26,14 @@
     const atBottom = scroller.scrollTop > 0 && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
     current = currentSection(tops, scroller.scrollTop, atBottom);
   }
+
+  // Opened for one of its sections (the signatures, from a letter): the page starts there.
+  onMount(() => {
+    const id = app.settingsSection;
+    app.settingsSection = null;
+    const target = id ? scroller?.querySelector<HTMLElement>(`section[data-section="${id}"]`) : null;
+    if (scroller && target) scroller.scrollTop = target.offsetTop;
+  });
 
   function go(e: MouseEvent, id: string) {
     e.preventDefault();

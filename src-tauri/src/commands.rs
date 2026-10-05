@@ -149,6 +149,14 @@ pub async fn account_save(
     if account.display_name.trim().is_empty() {
         account.display_name = account.email.clone();
     }
+    // The default is one of the mailbox's signatures, or none.
+    if !account
+        .signatures
+        .iter()
+        .any(|s| account.default_signature.as_deref() == Some(s.id.as_str()))
+    {
+        account.default_signature = None;
+    }
     let before = state
         .accounts()
         .into_iter()

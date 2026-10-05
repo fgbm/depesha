@@ -948,26 +948,89 @@ try {
     if (!gone) throw new Error("прочитанное письмо осталось после смены вида");
   });
 
-  await step("5.7", "подпись из настроек ящика попадает в новое письмо", async () => {
+  /** Picks an item of the signature menu open in the letter or in the settings. */
+  async function menuItem(label) {
+    const item = await d.until(`menu item ${label}`, () =>
+      d.xpath(`//div[contains(@class,'pop')]//button[contains(@class,'mi') and normalize-space(.)=${JSON.stringify(label)}]`).catch(() => null),
+    );
+    await d.click(item);
+  }
+
+  /** Types lines into the signature open in its editor, as the editor's own commands do. */
+  async function typeSignature(lines) {
+    await d.exec(
+      `const el = document.querySelector('.account-page .sig-rich .rich'); el.focus();
+       arguments[0].forEach((line, i) => { if (i) document.execCommand('insertParagraph'); document.execCommand('insertText', false, line); });`,
+      lines,
+    );
+  }
+
+  await step("5.7", "две подписи в настройках ящика, подпись по умолчанию попадает в новое письмо", async () => {
     await d.click(await d.find(".menu-btn"));
     await d.button("Настройки…");
     await d.until("settings", async () => (await d.findAll(".account-page")).length === 1);
-    // WebKitWebDriver drops "\n" in typed text; Enter makes the line break.
-    await setInput(".account-page textarea.sig", "С уважением,\uE007Кэрол");
-    // The connection is as it was: saved without a login.
+    // The first one becomes the default by itself.
+    await d.button("Добавить подпись");
+    await setInput(".account-page .signatures input.name", "Рабочая");
+    await typeSignature(["С уважением,", "Кэрол"]);
+    await d.click(await d.xpath("//div[contains(@class,'signatures')]//button[contains(., 'Свернуть')]"));
+    await d.button("Добавить подпись");
+    await setInput(".account-page .signatures input.name", "Короткая");
+    await typeSignature(["Кэрол, отдел ИТ"]);
+    await d.click(await d.xpath("//div[contains(@class,'signatures')]//button[contains(., 'Свернуть')]"));
+    const list = await textOf(".account-page .signatures");
+    if (!/Рабочая\s*по умолчанию/.test(list) || !list.includes("Короткая")) throw new Error(`список подписей: ${list}`);
+    // Signatures are no part of the connection: saved without a login.
     if ((await textOf(".account-page footer .btn.primary")).trim() !== "Сохранить") throw new Error("подпись просит проверки подключения");
     await d.click(await d.find(".account-page footer .btn.primary"));
     await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
     // A mailbox's page lives in the settings window: saved, it goes back to the list of mailboxes.
     if (!(await d.findAll(".prefs .accounts")).length) throw new Error("после сохранения нет списка ящиков");
     await closeSettings();
+    const [acc] = await invoke("accounts");
+    if (acc.signatures?.length !== 2 || acc.default_signature !== acc.signatures[0].id) throw new Error(JSON.stringify(acc.signatures));
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    // The field has only what is typed; the signature stands under it, apart.
     const text = await d.exec("return document.querySelector('.compose textarea').value");
-    if (!text.includes("-- \nС уважением,\nКэрол")) throw new Error(JSON.stringify(text));
-    // Only the signature was typed: closing must neither ask nor save a draft.
+    if (text.includes("Кэрол")) throw new Error(`подпись в поле ввода: ${JSON.stringify(text)}`);
+    const sig = await textOf(".compose .sig-plain .sig-text");
+    if (!sig.includes("-- \nС уважением,\nКэрол")) throw new Error(JSON.stringify(sig));
+    // Only the signature is there: closing must neither ask nor save a draft.
     await d.click(await d.find(".compose header button:last-child"));
     await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 10000);
+  });
+
+  await step("5.7", "подпись выбирается на самом блоке подписи, «Без подписи» убирает блок", async () => {
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, 'Текст письма.');");
+    // The menu sits on the block and shows when it is pointed at; a click opens it.
+    await d.exec("document.querySelector('.compose .sig-plain .chip').click()");
+    await menuItem("Короткая");
+    await d.until("short one", async () => (await textOf(".compose .sig-plain .sig-text")).includes("Кэрол, отдел ИТ"));
+    if ((await textOf(".compose .sig-plain .sig-text")).includes("С уважением")) throw new Error("в письме две подписи");
+    if ((await d.exec("return document.querySelector('.compose textarea').value")) !== "Текст письма.") throw new Error("текст письма изменился");
+    await d.exec("document.querySelector('.compose .sig-plain .chip').click()");
+    await menuItem("Без подписи");
+    await d.until("no signature", async () => (await d.findAll(".compose .sig-plain")).length === 0);
+    if (!(await textOf(".compose .sig-none")).includes("Без подписи")) throw new Error("нет строки «Без подписи · добавить»");
+    await d.click(await d.find(".compose .sig-none button"));
+    await menuItem("Рабочая");
+    await d.until("back", async () => (await textOf(".compose .sig-plain .sig-text")).includes("С уважением,"));
+    // In HTML the signature is a block of the editor that the caret does not enter.
+    await d.click(await d.xpath("//div[contains(@class,'compose')]//div[@role='radiogroup']//button[normalize-space(.)='HTML']"));
+    await d.until("html signature", async () =>
+      d.exec("const b = document.querySelector('.compose .rich .depesha-signature'); return !!b && b.isContentEditable === false && b.innerText.includes('Кэрол');"));
+    await d.exec("const bar = document.querySelector('.compose .block-bar .chip'); bar.click();");
+    await menuItem("Короткая");
+    await d.until("html swapped", async () => (await textOf(".compose .rich .depesha-signature")).includes("отдел ИТ"));
+    if ((await d.findAll(".compose .rich .depesha-signature")).length !== 1) throw new Error("в письме две подписи");
+    if (!(await textOf(".compose .rich")).includes("Текст письма.")) throw new Error("текст письма потерялся");
+    // The letter was typed in: it goes away without a draft.
+    await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
+    await d.click(await d.until("confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
+    await composeClosed();
   });
 
   let sentAt = 0;
@@ -1021,7 +1084,7 @@ try {
     await d.until("reply compose", async () => (await d.findAll(".compose")).length === 1);
     const subj = await d.exec("return document.querySelector('.compose .subject').value");
     if (subj !== `Re: ${subject}`) throw new Error(`тема: ${subj}`);
-    // The quote is folded under the field, which shows only what is typed and the signature.
+    // The quote is folded under the field, which shows only what is typed; the signature stands apart.
     const body = await d.exec("return document.querySelector('.compose textarea').value");
     if (body.includes("> Тестовое письмо")) throw new Error(`цитата в поле ввода: ${body}`);
     if (!(await textOf(".compose .quote-bar")).includes("пишет:")) throw new Error("нет свёрнутой цитаты");

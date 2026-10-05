@@ -14,23 +14,15 @@
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
-  import { convertDraft, isDirty, losesFormatting, splitQuote, swapSignature, swapSignatureHtml } from "../lib/compose";
-  import { GAP, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../lib/richtext";
+  import { convertDraft, isDirty, losesFormatting } from "../lib/compose";
+  import { GAP, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../lib/richtext";
+  import { defaultSignature, hasHtmlSignature, putSignatureHtml, sigBlock, signatureIn, signaturesOf, splitPlain, withoutHtmlSignature } from "../lib/signatures";
   import { cleanEditorHtml } from "../lib/sanitize";
-  import {
-    FIT_FROM,
-    MAX_PICTURE,
-    dataUrlSize,
-    isPictureName,
-    pictureHtml,
-    pictureName,
-    picturesSize,
-    readAsDataUrl,
-    shrinkPicture,
-    takePictures,
-  } from "../lib/images";
-  import type { BodyFormat, ComposeDraft } from "../lib/types";
+  import { dataUrlSize, isPictureName, pictureName, picturesSize, takePictures } from "../lib/images";
+  import { clipboardPictures, picturesFromBlobs, picturesFromFiles, picturesHtml, type FoundPicture } from "../lib/pictureInput";
+  import type { BodyFormat, ComposeDraft, Signature } from "../lib/types";
   import RichEditor from "./RichEditor.svelte";
+  import SignaturePicker from "./SignaturePicker.svelte";
   import FormatBar from "./FormatBar.svelte";
   import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
   import { composeAction } from "../lib/composeKeys";
@@ -56,10 +48,19 @@
   /** The window's width: the format switch and the formatting row fold in a narrow one. */
   let width = $state(640);
 
-  // A reply's quote stays folded under the field; the draft keeps the whole text.
-  const parts = untrack(() => splitQuote(c.draft.text));
-  let head = $state(parts.head);
-  let quote = $state(parts.quote);
+  /** The mailbox's signatures, to choose from on the signature block. */
+  const signatures = $derived(signaturesOf(app.account(c.account_id)));
+  /**
+   * The signature under the letter: one of the mailbox's, a draft's own, or none. A block
+   * of its own, never edited in the letter: only put whole, swapped or taken away.
+   */
+  let signature = $state<Signature | null>(untrack(() => signatureIn(c.draft, signaturesOf(app.account(c.account_id)))));
+
+  // A plain letter: the field has what is typed, the signature stands under it, a reply's
+  // quote or the forwarded letter stays folded below. The draft keeps the whole text.
+  const parts = untrack(() => splitPlain(c.draft.text));
+  let head = $state(parts.body);
+  let quote = $state(parts.rest);
   let quoteOpen = $state(false);
   const quoteHeader = $derived(quote.trim().split("\n")[0] ?? "");
   // An HTML letter is one editor: the quote of a reply stands in it, under the signature.
@@ -75,7 +76,7 @@
   }
   $effect(() => {
     if (format === "html") return;
-    const text = head + quote;
+    const text = head + sigBlock(signature) + quote;
     if (untrack(() => c.draft.text) !== text) c.draft.text = text;
   });
   $effect(() => {
@@ -83,6 +84,8 @@
     const html = htmlBody;
     untrack(() => {
       if (c.draft.html !== html) c.draft.html = html;
+      // The block was deleted with the text around it: the letter has no signature now.
+      if (signature && !hasHtmlSignature(html)) signature = null;
       plainOfHtml = plainOf(html);
       if (c.draft.text !== plainOfHtml) c.draft.text = plainOfHtml;
     });
@@ -92,7 +95,12 @@
     const text = c.draft.text;
     untrack(() => {
       if (format !== "html") {
-        if (head + quote !== text) ({ head, quote } = splitQuote(text));
+        if (head + sigBlock(signature) + quote !== text) {
+          const p = splitPlain(text);
+          head = p.body;
+          quote = p.rest;
+          signature = signatureIn({ ...c.draft, format, text }, signatures);
+        }
       } else if (text !== plainOfHtml) {
         plainOfHtml = text;
         htmlBody = textToHtml(text);
@@ -100,8 +108,10 @@
     });
   });
 
-  /** Files and the pictures in the text: both travel in the letter. */
+  /** Files and the pictures in the text and the signature: all travel in the letter. */
   const pictures = $derived(format === "html" ? picturesSize(htmlBody) : 0);
+  /** The signature's own pictures alone do not bring up the row of files. */
+  const textPictures = $derived(format === "html" && pictures > 0 ? picturesSize(withoutHtmlSignature(htmlBody)) : 0);
   const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0) + pictures);
   /** Warnings the user has to look at before the message goes; null when not checked yet. */
   let warnings = $state<string[] | null>(null);
@@ -192,18 +202,41 @@
     requestAnimationFrame(() => (field.scrollTop = 0));
   });
 
+  // With a signature under it, the plain field is as tall as its text, so the signature
+  // stands right under the words (frame 6) and the area scrolls; without one it fills the area.
+  let areaWidth = $state(0);
+  $effect(() => {
+    void head;
+    void areaWidth;
+    const field = body;
+    if (!field) return;
+    if (format === "html" || !signature) {
+      field.style.removeProperty("height");
+      return;
+    }
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  });
+
+  /** Puts this signature under the letter in place of the one it has; none takes it away. */
+  function putSignature(sig: Signature | null) {
+    signature = sig;
+    if (format === "html") htmlBody = putSignatureHtml(htmlBody, sig);
+  }
+
+  // Another sender: its default signature, even over one chosen by hand (frame 5).
   function setAccount(id: string) {
     const acc = app.account(id);
     if (!acc) return;
-    const before = app.account(c.account_id)?.signature;
-    if (format === "html") {
-      // The signature stands above the quote: only the part above it is looked at.
-      const split = splitHtmlQuote(htmlBody);
-      htmlBody = swapSignatureHtml(split.head, before, acc.signature) + split.quote;
-    } else head = swapSignature(head, before, acc.signature);
+    putSignature(defaultSignature(acc));
     c.account_id = id;
     c.draft.from = { name: acc.display_name, email: acc.email };
   }
+
+  /** The mailbox's signatures in the settings; a letter's own window has no settings. */
+  const signatureSettings = $derived(
+    app.windowOf === null ? () => app.openSettings(`account:${c.account_id}`, "letters") : undefined,
+  );
 
   const FORMATS: { value: BodyFormat; label: () => string; short: () => string }[] = [
     { value: "plain", label: () => t("format.short.plain"), short: () => t("format.short.plain") },
@@ -216,7 +249,6 @@
   /** Rewrites the letter in another format; the settings stay as they are. */
   async function setFormat(next: BodyFormat) {
     if (next === format || switching) return;
-    const signature = app.account(c.account_id)?.signature;
     let current = $state.snapshot(c.draft) as ComposeDraft;
     if (losesFormatting(current, next)) {
       const ok = await app.confirm({
@@ -245,12 +277,14 @@
         }
       }
       preview = false;
-      const d = await convertDraft(current, next, signature, (text) => api.markdownHtml(text));
+      const d = await convertDraft(current, next, $state.snapshot(signature) as Signature | null, (text) => api.markdownHtml(text));
       if (d.format === "html") {
         htmlBody = d.html ?? "";
         plainOfHtml = d.text;
       } else {
-        ({ head, quote } = splitQuote(d.text));
+        const p = splitPlain(d.text);
+        head = p.body;
+        quote = p.rest;
       }
       c.draft.html = d.html ?? null;
       c.draft.text = d.text;
@@ -278,38 +312,29 @@
 
   // Pictures in the text of an HTML letter. A large photo is made smaller first; one
   // still too big goes as a file, as it would anyway.
-  async function addPictures(found: { name: string; dataUrl: string }[]) {
-    let fragment = "";
-    for (const p of found) {
+  async function addPictures(found: FoundPicture[]) {
+    const { html, tooBig, failed } = await picturesHtml(found);
+    for (const p of tooBig) {
       try {
-        const ready = await shrinkPicture(p.dataUrl);
-        if (dataUrlSize(ready.dataUrl) > MAX_PICTURE) {
-          const base64 = p.dataUrl.slice(p.dataUrl.indexOf(",") + 1);
-          const path = await api.tempAttachment(p.name, base64);
-          c.draft.attachments.push({ kind: "file", path, name: p.name, size: dataUrlSize(p.dataUrl) });
-          app.toast(t("compose.picture.attachedBig", { name: p.name }));
-          continue;
-        }
-        fragment += pictureHtml(ready.dataUrl, ready.width > FIT_FROM ? "fit" : "natural");
+        const base64 = p.dataUrl.slice(p.dataUrl.indexOf(",") + 1);
+        const path = await api.tempAttachment(p.name, base64);
+        c.draft.attachments.push({ kind: "file", path, name: p.name, size: dataUrlSize(p.dataUrl) });
+        app.toast(t("compose.picture.attachedBig", { name: p.name }));
       } catch (e) {
         app.fail(e);
       }
     }
-    if (fragment) rich?.insertHtml(fragment);
+    for (const e of failed) app.fail(e);
+    if (html) rich?.insertHtml(html);
   }
 
   /** Picture files chosen or dropped "into the text"; a file that cannot go there is attached. */
   async function insertPictureFiles(paths: string[]) {
-    const found: { name: string; dataUrl: string }[] = [];
-    for (const path of paths) {
-      const name = path.split(/[\\/]/).pop() ?? path;
-      try {
-        found.push({ name, dataUrl: await api.inlineImage(path) });
-      } catch {
-        const info = await api.fileInfo(path).catch(() => null);
-        if (info) c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
-        app.toast(t("compose.picture.attachedBig", { name }));
-      }
+    const { found, refused } = await picturesFromFiles(paths);
+    for (const path of refused) {
+      const info = await api.fileInfo(path).catch(() => null);
+      if (info) c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
+      app.toast(t("compose.picture.attachedBig", { name: info?.name ?? path }));
     }
     await addPictures(found);
   }
@@ -325,23 +350,12 @@
   }
 
   async function pastedPictures(blobs: Blob[]) {
-    const found: { name: string; dataUrl: string }[] = [];
-    let n = 0;
-    for (const blob of blobs) found.push({ name: blob instanceof File && blob.name ? blob.name : pictureName(blob.type, ++n), dataUrl: await readAsDataUrl(blob) });
-    await addPictures(found);
+    await addPictures(await picturesFromBlobs(blobs));
   }
 
   async function pictureFromClipboard() {
-    const blobs: Blob[] = [];
-    try {
-      for (const item of await navigator.clipboard.read()) {
-        const type = item.types.find((x) => /^image\/(png|jpeg|gif|webp)$/.test(x));
-        if (type) blobs.push(await item.getType(type));
-      }
-    } catch {
-      // The system did not give the clipboard to the page: Ctrl+V does it.
-      return app.toast(t("compose.picture.useCtrlV"));
-    }
+    const blobs = await clipboardPictures();
+    if (blobs === null) return app.toast(t("compose.picture.useCtrlV"));
     if (!blobs.length) return app.toast(t("compose.picture.noneInClipboard"));
     await pastedPictures(blobs);
   }
@@ -445,7 +459,7 @@
     const draft = $state.snapshot(c.draft);
     const text = JSON.stringify(draft);
     if (text === lastSaved) return true;
-    if (!isDirty(draft, app.account(c.account_id)?.signature) && c.draft_id === null) return true;
+    if (!isDirty(draft) && c.draft_id === null) return true;
     savingNow = true;
     saving = (async () => {
       try {
@@ -480,7 +494,7 @@
 
   async function discard() {
     if (busy) return;
-    if (isDirty(c.draft, app.account(c.account_id)?.signature)) {
+    if (isDirty(c.draft)) {
       const ok = await app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true });
       if (!ok) return;
     }
@@ -527,6 +541,10 @@
     }
   }
 </script>
+
+{#snippet signatureChip()}
+  <SignaturePicker variant="chip" {signatures} current={signature} onpick={putSignature} onsettings={signatureSettings} />
+{/snippet}
 
 {#if c.mode === "max"}
   <div class="backdrop" role="presentation" onclick={() => (c.mode = "open")}></div>
@@ -612,7 +630,7 @@
       />
     {/if}
 
-    <div class="body-area">
+    <div class="body-area" bind:clientWidth={areaWidth} class:signed={format !== "html" && !!signature && !(format === "markdown" && preview)}>
       {#if format === "html"}
         <RichEditor
           bind:this={rich}
@@ -622,6 +640,8 @@
           placeholder={t("compose.bodyPlaceholder")}
           onselection={() => bar?.refresh()}
           onpictures={pastedPictures}
+          locked={SIGNATURE_CLASS}
+          lockedBar={signature ? signatureChip : undefined}
         />
       {:else if format === "markdown" && preview}
         <!-- Cleaned twice: by the backend that renders it and here. -->
@@ -635,6 +655,18 @@
           aria-label={t("compose.body")}
           placeholder={format === "markdown" ? t("compose.markdownPlaceholder") : t("compose.bodyPlaceholder")}
         ></textarea>
+        {#if signature}
+          <!-- The version a letter in text or Markdown gets, under "-- ": shown, not edited. -->
+          <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
+            <div class="sig-text">{sigBlock(signature).replace(/^\n\n/, "") || t("compose.signature.noText")}</div>
+            <div class="sig-bar">{@render signatureChip()}</div>
+          </div>
+        {/if}
+      {/if}
+      {#if !signature && signatures.length && !(format === "markdown" && preview)}
+        <div class="sig-none">
+          <SignaturePicker variant="line" {signatures} current={null} onpick={putSignature} onsettings={signatureSettings} />
+        </div>
       {/if}
       {#if zones}
         <div class="zones">
@@ -666,7 +698,7 @@
       </div>
     {/if}
 
-    {#if c.draft.attachments.length || pictures}
+    {#if c.draft.attachments.length || textPictures}
       <div class="files">
         {#each c.draft.attachments as a, i (i)}
           <span class="file"><Paperclip size={12} /> {a.name} <span class="muted">{size(a.size)}</span>
@@ -957,6 +989,61 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  /* The signature of a plain letter: under the text, apart, not edited; its menu on it. */
+  .sig-plain {
+    position: relative;
+    flex: none;
+    margin: 0 18px;
+    padding: 8px 0 10px;
+    border-top: 1px dashed var(--line);
+    max-height: 40%;
+    overflow: auto;
+  }
+
+  .sig-text {
+    white-space: pre-wrap;
+    line-height: 1.55;
+    color: var(--ink);
+    opacity: 0.9;
+    user-select: text;
+  }
+
+  .sig-bar {
+    position: absolute;
+    right: 0;
+    top: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  .sig-plain:hover .sig-bar,
+  .sig-bar:focus-within,
+  .sig-bar:has(:global(.open)) {
+    opacity: 1;
+  }
+
+  .sig-none {
+    flex: none;
+    padding: 2px 18px 8px;
+  }
+
+  /* The field grows with its text; the area scrolls the letter and its signature together. */
+  .body-area.signed {
+    overflow-y: auto;
+  }
+
+  .body-area.signed textarea {
+    flex: none;
+    min-height: calc(5 * 1.55em + 28px);
+    overflow: hidden;
+  }
+
+  .body-area.signed .sig-plain {
+    max-height: none;
+    overflow: visible;
+    margin-bottom: 14px;
   }
 
   .md-preview {

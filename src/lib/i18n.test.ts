@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { i18n, t, tn } from "./i18n.svelte";
 import { en } from "./locales/en";
 import { ru } from "./locales/ru";
-import { forward, reply, swapSignature, withSignature, emptyDraft } from "./compose";
+import { forward, reply, emptyDraft } from "./compose";
+import { putSignatureText, splitPlain, withSignature } from "./signatures";
 import { snoozePresets, when } from "./later";
 import { size } from "./format";
 import type { OpenedMessage } from "./types";
@@ -53,9 +54,13 @@ describe("English mail text", () => {
     expect(r.text).toMatch(/\nOn .+, Bob <bob@x\.example> wrote:\n> Numbers attached\./);
     const f = forward(msg(), me);
     expect(f.text).toContain("-------- Forwarded message --------\nSubject: Budget");
-    const swapped = swapSignature(r.text, "", "Jane");
+    const jane = { id: "s1", name: "Jane", html: "Jane", text: "Jane" };
+    const swapped = putSignatureText(r.text, jane);
     expect(swapped.indexOf("-- \nJane")).toBeLessThan(swapped.indexOf("wrote:"));
-    expect(withSignature(emptyDraft(me), "J").text).toBe("\n\n-- \nJ");
+    // The English forward header is told apart from what is typed too.
+    expect(splitPlain(f.text)).toMatchObject({ body: "", signature: null });
+    expect(putSignatureText(f.text, jane).indexOf("-- \nJane")).toBeLessThan(putSignatureText(f.text, jane).indexOf("Forwarded"));
+    expect(withSignature(emptyDraft(me), { ...jane, text: "J" }).text).toBe("\n\n-- \nJ");
   });
 
   it("names times and sizes in English", () => {

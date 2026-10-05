@@ -54,9 +54,16 @@ pub struct Account {
     /// Put a copy of sent mail into Sent. Off for servers that do it themselves (Gmail).
     #[serde(default = "yes")]
     pub save_sent_copy: bool,
-    /// Added below new messages and replies, after the standard "-- " separator.
-    #[serde(default)]
+    /// The one plain-text signature of versions before 0.6.0. Read only to be moved into
+    /// `signatures` (`Account::adopt_old_signature`); never written.
+    #[serde(default, skip_serializing)]
     pub signature: String,
+    /// The mailbox's signatures, in the user's order; none is fine.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signatures: Vec<Signature>,
+    /// The id of the signature new letters, replies and forwards get; none puts none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_signature: Option<String>,
     /// How new letters from this mailbox are written; none takes the format from the settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compose_format: Option<crate::smtp::BodyFormat>,
@@ -76,6 +83,58 @@ impl Account {
     pub fn is_ews(&self) -> bool {
         self.ews.is_some()
     }
+
+    /// Moves the plain-text signature of an earlier version into the list, as the
+    /// default one named `name`: its text stays as letters had it. Nothing happens to a
+    /// mailbox that has signatures already. Returns whether one was moved.
+    pub fn adopt_old_signature(&mut self, name: &str) -> bool {
+        let old = std::mem::take(&mut self.signature);
+        let text = old.trim();
+        if text.is_empty() || !self.signatures.is_empty() {
+            return false;
+        }
+        let id = "s1".to_string();
+        self.signatures.push(Signature {
+            id: id.clone(),
+            name: name.to_string(),
+            html: text_html(text),
+            text: text.to_string(),
+        });
+        self.default_signature = Some(id);
+        true
+    }
+}
+
+/// A signature of a mailbox (#25). It stands under the letter in a block of its own and
+/// is put in whole, never edited in the letter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Signature {
+    pub id: String,
+    pub name: String,
+    /// The signature in an HTML letter. Its pictures are inside as `data:` images: they
+    /// live here, with the mailbox's settings, and the file one came from is not needed.
+    pub html: String,
+    /// What a letter in plain text or Markdown gets under "-- ": the text and the links
+    /// with their addresses, no pictures. Made from `html` when the signature is saved.
+    pub text: String,
+}
+
+/// Plain text as lines of HTML, the way the letter's editor writes them.
+fn text_html(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let line = line
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;");
+            if line.is_empty() {
+                "<div><br></div>".to_string()
+            } else {
+                format!("<div>{line}</div>")
+            }
+        })
+        .collect()
 }
 
 fn yes() -> bool {
@@ -336,6 +395,48 @@ mod tests {
             back.contains(r#""auth":{"kind":"oauth","provider":"yandex"}"#),
             "{back}"
         );
+    }
+
+    #[test]
+    fn an_old_signature_becomes_the_default_one() {
+        let json = r#"{"id":"a","display_name":"A","email":"a@b.ru","username":"a",
+            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"},
+            "signature":"Иван Петров\n\n<Отдел> & \"Ко\"\n"}"#;
+        let mut a: Account = serde_json::from_str(json).unwrap();
+        assert!(a.adopt_old_signature("Подпись"));
+        assert_eq!(a.signatures.len(), 1);
+        let s = &a.signatures[0];
+        assert_eq!(s.name, "Подпись");
+        assert_eq!(s.text, "Иван Петров\n\n<Отдел> & \"Ко\"");
+        assert_eq!(
+            s.html,
+            "<div>Иван Петров</div><div><br></div><div>&lt;Отдел&gt; &amp; &quot;Ко&quot;</div>"
+        );
+        assert_eq!(a.default_signature.as_deref(), Some(s.id.as_str()));
+        // The old field is gone from what is written.
+        let back = serde_json::to_string(&a).unwrap();
+        assert!(!back.contains("\"signature\""), "{back}");
+        let again: Account = serde_json::from_str(&back).unwrap();
+        assert_eq!(again.signatures, a.signatures);
+        assert_eq!(again.default_signature, a.default_signature);
+    }
+
+    #[test]
+    fn signatures_already_there_win_over_an_old_one() {
+        let json = r#"{"id":"a","display_name":"A","email":"a@b.ru","username":"a",
+            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"},
+            "signature":"old","signatures":[{"id":"x","name":"New","html":"<b>New</b>","text":"New"}]}"#;
+        let mut a: Account = serde_json::from_str(json).unwrap();
+        assert!(!a.adopt_old_signature("Signature"));
+        assert_eq!(a.signatures.len(), 1);
+        assert_eq!(a.signatures[0].id, "x");
+        assert!(a.default_signature.is_none());
+        // An empty one moves nothing.
+        let mut b = a.clone();
+        b.signatures.clear();
+        b.signature = "  \n".into();
+        assert!(!b.adopt_old_signature("Signature"));
+        assert!(b.signatures.is_empty() && b.default_signature.is_none());
     }
 
     #[test]

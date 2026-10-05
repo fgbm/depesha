@@ -32,13 +32,26 @@ export interface Account {
   imap: ServerConfig;
   smtp: ServerConfig;
   save_sent_copy: boolean;
-  signature: string;
+  /** The mailbox's signatures in the user's order; absent is none. */
+  signatures?: Signature[];
+  /** The id of the signature new letters get; absent puts none. */
+  default_signature?: string | null;
   /** How new letters from this mailbox are written; absent takes the settings' format. */
   compose_format?: BodyFormat | null;
   /** Where this mailbox's attachments are saved without asking; empty takes the settings' folder. */
   attachments_dir?: string;
   auth?: AuthMethod;
   ews?: EwsConfig;
+}
+
+/** A signature of a mailbox: under the letter in a block of its own, put in whole. */
+export interface Signature {
+  id: string;
+  name: string;
+  /** As in an HTML letter; its pictures are inside as `data:` images. */
+  html: string;
+  /** What a letter in plain text or Markdown gets under "-- "; made from `html`. */
+  text: string;
 }
 
 export interface OAuthProviderView {

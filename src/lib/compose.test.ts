@@ -12,15 +12,18 @@ import {
   reply,
   replySubject,
   splitQuote,
-  swapSignature,
-  swapSignatureHtml,
-  withSignature,
 } from "./compose";
+import { putSignatureHtml, putSignatureText, withSignature } from "./signatures";
 import { htmlLetterText, htmlToText, splitHtmlQuote } from "./richtext";
 import { linkify, parseAddr, pluralRu } from "./format";
-import type { OpenedMessage } from "./types";
+import type { OpenedMessage, Signature } from "./types";
 
 const me = { name: "Влад", email: "me@example.com" };
+
+/** A signature of these words, its HTML a line a line. */
+function sig(text: string): Signature {
+  return { id: text, name: text, html: text.split("\n").map((l) => `<div>${l}</div>`).join(""), text };
+}
 
 function msg(over: Partial<OpenedMessage["view"]["summary"]> = {}): OpenedMessage {
   const summary = {
@@ -103,7 +106,7 @@ describe("reply", () => {
 
 describe("splitQuote", () => {
   it("takes the quote of a reply off what is typed, losing nothing", () => {
-    const d = withSignature(reply(msg(), me, false), "Карл");
+    const d = withSignature(reply(msg(), me, false), sig("Карл"));
     const typed = `Спасибо!${d.text}`;
     const { head, quote } = splitQuote(typed);
     expect(head).toBe("Спасибо!\n\n-- \nКарл");
@@ -157,26 +160,28 @@ describe("format", () => {
 
 describe("signature", () => {
   it("goes below a new message and above the quote of a reply", () => {
-    expect(withSignature(emptyDraft(me), "Иван\nотдел ИТ").text).toBe("\n\n-- \nИван\nотдел ИТ");
-    const r = withSignature(reply(msg(), me, false), "Иван");
+    expect(withSignature(emptyDraft(me), sig("Иван\nотдел ИТ")).text).toBe("\n\n-- \nИван\nотдел ИТ");
+    const r = withSignature(reply(msg(), me, false), sig("Иван"));
     expect(r.text.indexOf("-- \nИван")).toBeLessThan(r.text.indexOf("пишет:"));
-    expect(withSignature(emptyDraft(me), "  ").text).toBe("");
+    expect(withSignature(emptyDraft(me), sig("  ")).text).toBe("");
+    expect(withSignature(emptyDraft(me), null).text).toBe("");
   });
 
   it("is swapped when the sender changes", () => {
-    const text = withSignature(reply(msg(), me, false), "Старая").text;
-    const swapped = swapSignature(text, "Старая", "Новая");
+    const text = withSignature(reply(msg(), me, false), sig("Старая")).text;
+    const swapped = putSignatureText(text, sig("Новая"));
     expect(swapped).toContain("-- \nНовая");
     expect(swapped).not.toContain("Старая");
     expect(swapped.indexOf("Новая")).toBeLessThan(swapped.indexOf("пишет:"));
-    const added = swapSignature(reply(msg(), me, false).text, "", "Добавлена");
+    const added = putSignatureText(reply(msg(), me, false).text, sig("Добавлена"));
     expect(added.indexOf("Добавлена")).toBeLessThan(added.indexOf("пишет:"));
-    expect(swapSignature("Текст\n\n-- \nСтарая", "Старая", "")).toBe("Текст");
+    expect(putSignatureText("Текст\n\n-- \nСтарая", null)).toBe("Текст");
   });
 
   it("an untouched signature is not a draft", () => {
-    expect(isDirty(withSignature(emptyDraft(me), "Иван"), "Иван")).toBe(false);
-    expect(isDirty({ ...withSignature(emptyDraft(me), "Иван"), text: "Привет" + withSignature(emptyDraft(me), "Иван").text }, "Иван")).toBe(true);
+    const d = withSignature(emptyDraft(me), sig("Иван"));
+    expect(isDirty(d)).toBe(false);
+    expect(isDirty({ ...d, text: "Привет" + d.text })).toBe(true);
   });
 });
 
@@ -195,15 +200,16 @@ describe("formats", () => {
   });
 
   it("a new HTML letter has the signature in its own block, below an empty line", () => {
-    const d = withSignature(emptyDraft(me, "html"), "Иван\nотдел ИТ");
-    expect(d.html).toBe('<div><br></div><div class="depesha-signature">-- <br>Иван<br>отдел ИТ</div>');
+    const d = withSignature(emptyDraft(me, "html"), sig("Иван\nотдел ИТ"));
+    expect(d.html).toBe('<div><br></div><div class="depesha-signature"><div>Иван</div><div>отдел ИТ</div></div>');
+    // Its plain version has the separator, though the HTML shows none.
     expect(d.text).toBe("\n-- \nИван\nотдел ИТ");
-    expect(isDirty(d, "Иван\nотдел ИТ")).toBe(false);
-    expect(isDirty({ ...d, html: "<div>Привет</div>" + d.html }, "Иван\nотдел ИТ")).toBe(true);
+    expect(isDirty(d)).toBe(false);
+    expect(isDirty({ ...d, html: "<div>Привет</div>" + d.html })).toBe(true);
   });
 
   it("an HTML reply quotes the letter with its formatting, the signature above the quote", () => {
-    const d = withSignature(reply(html(), me, false, "html"), "Влад");
+    const d = withSignature(reply(html(), me, false, "html"), sig("Влад"));
     expect(d.format).toBe("html");
     const { head, quote } = splitHtmlQuote(d.html ?? "");
     expect(head).toContain("depesha-signature");
@@ -228,7 +234,7 @@ describe("formats", () => {
   });
 
   it("an HTML forward carries the letter below its header", () => {
-    const d = withSignature(forward(html(), me, "html"), "Влад");
+    const d = withSignature(forward(html(), me, "html"), sig("Влад"));
     const { head, quote } = splitHtmlQuote(d.html ?? "");
     expect(head).toContain("Влад");
     expect(quote).toContain("Пересылаемое сообщение");
@@ -236,17 +242,14 @@ describe("formats", () => {
   });
 
   it("the signature of an HTML letter is swapped in its block", () => {
-    const d = withSignature(reply(html(), me, false, "html"), "Старая");
-    const swapped = swapSignatureHtml(d.html ?? "", "Старая", "Новая");
+    const d = withSignature(reply(html(), me, false, "html"), sig("Старая"));
+    const swapped = putSignatureHtml(d.html ?? "", sig("Новая"));
     expect(swapped).toContain("Новая");
     expect(swapped).not.toContain("Старая");
     expect(swapped.indexOf("Новая")).toBeLessThan(swapped.indexOf("depesha-quote"));
-    expect(swapSignatureHtml(swapped, "Новая", "")).not.toContain("depesha-signature");
-    const added = swapSignatureHtml(reply(html(), me, false, "html").html ?? "", "", "Добавлена");
+    expect(putSignatureHtml(swapped, null)).not.toContain("depesha-signature");
+    const added = putSignatureHtml(reply(html(), me, false, "html").html ?? "", sig("Добавлена"));
     expect(added.indexOf("Добавлена")).toBeLessThan(added.indexOf("depesha-quote"));
-    // An edited signature is the user's text: it stays.
-    const edited = (d.html ?? "").replace("Старая", "Старая, с правкой");
-    expect(swapSignatureHtml(edited, "Старая", "Новая")).toContain("Старая, с правкой");
   });
 
   it("a draft opens in the format it was written in", () => {
@@ -260,7 +263,7 @@ describe("formats", () => {
   });
 
   it("asks only before HTML with formatting becomes plain text", () => {
-    const plain = withSignature(emptyDraft(me, "html"), "Влад");
+    const plain = withSignature(emptyDraft(me, "html"), sig("Влад"));
     expect(losesFormatting(plain, "plain")).toBe(false);
     expect(losesFormatting({ ...plain, html: "<div><b>да</b></div>" + plain.html }, "plain")).toBe(true);
     expect(losesFormatting({ ...plain, html: '<div><img src="data:image/png;base64,AA"></div>' }, "plain")).toBe(true);
@@ -270,26 +273,26 @@ describe("formats", () => {
   });
 
   it("HTML becomes plain text with the same words, signature and quote", async () => {
-    const d = withSignature(reply(html(), me, false, "html"), "Влад");
+    const d = withSignature(reply(html(), me, false, "html"), sig("Влад"));
     const typed = { ...d, html: "<div>Ответ <b>жирный</b></div>" + (d.html ?? "") };
-    const plain = await convertDraft(typed, "plain", "Влад", md);
+    const plain = await convertDraft(typed, "plain", sig("Влад"), md);
     expect(plain.format).toBe("plain");
     expect(plain.html).toBeNull();
     const { head, quote } = splitQuote(plain.text);
     expect(head).toBe("Ответ жирный\n\n-- \nВлад");
     expect(quote).toContain("пишет:\n> Добрый день!");
     // The signature is found again: changing the sender replaces it.
-    expect(swapSignature(plain.text, "Влад", "Иван")).not.toContain("Влад");
+    expect(putSignatureText(plain.text, sig("Иван"))).not.toContain("Влад");
   });
 
   it("the quote of an HTML reply is part of the letter, under the signature", async () => {
-    const d = withSignature(reply(html(), me, false, "html"), "Влад");
+    const d = withSignature(reply(html(), me, false, "html"), sig("Влад"));
     // One piece of HTML: the empty line to type in, the signature, the quote with its formatting.
     expect(d.html?.startsWith('<div><br></div><div class="depesha-signature">')).toBe(true);
     expect(d.html).toMatch(/depesha-signature[\s\S]*<div class="depesha-quote">[\s\S]*<blockquote[^>]*><p>Добрый <b>день<\/b>!<\/p>/);
     // Answered between the lines of the quote: the answer is kept in any format.
     const between = { ...d, html: (d.html ?? "").replace("</blockquote>", "</blockquote><div>Согласна.</div>") };
-    const plain = await convertDraft(between, "plain", "Влад", md);
+    const plain = await convertDraft(between, "plain", sig("Влад"), md);
     expect(plain.text).toContain("> Добрый день!\n\nСогласна.");
     // A draft opens with the quote where it was.
     const view = { ...msg(), view: { ...msg().view, format: "html" as const, html: between.html ?? "", text: between.text } };
@@ -301,31 +304,31 @@ describe("formats", () => {
 
   it("HTML becomes Markdown with its formatting", async () => {
     const d = { ...emptyDraft(me, "html"), html: "<div><b>жирный</b></div><ul><li>раз</li></ul>" };
-    expect((await convertDraft(d, "markdown", undefined, md)).text).toBe("**жирный**\n\n- раз");
+    expect((await convertDraft(d, "markdown", null, md)).text).toBe("**жирный**\n\n- раз");
   });
 
   it("plain text and Markdown become HTML with the signature in its block and the quote folded", async () => {
-    const r = withSignature(reply(msg(), me, false, "plain"), "Влад");
+    const r = withSignature(reply(msg(), me, false, "plain"), sig("Влад"));
     const typed = { ...r, text: "Да, <согласен>" + r.text };
-    const h = await convertDraft(typed, "html", "Влад", md);
+    const h = await convertDraft(typed, "html", sig("Влад"), md);
     expect(h.format).toBe("html");
     const { head, quote } = splitHtmlQuote(h.html ?? "");
-    expect(head).toBe('<div>Да, &lt;согласен&gt;</div><div class="depesha-signature">-- <br>Влад</div>');
+    expect(head).toBe('<div>Да, &lt;согласен&gt;</div><div class="depesha-signature"><div>Влад</div></div>');
     expect(quote).toContain("<blockquote");
     expect(htmlToText(quote)).toContain("> Добрый день!");
 
-    const m = await convertDraft({ ...emptyDraft(me, "markdown"), text: "**жирный**" }, "html", undefined, md);
+    const m = await convertDraft({ ...emptyDraft(me, "markdown"), text: "**жирный**" }, "html", null, md);
     expect(m.html).toBe("<p><strong>жирный</strong></p>");
     // An empty letter keeps its empty line above the signature.
-    expect((await convertDraft(withSignature(emptyDraft(me), "Влад"), "html", "Влад", md)).html).toBe(
-      '<div><br></div><div class="depesha-signature">-- <br>Влад</div>',
+    expect((await convertDraft(withSignature(emptyDraft(me), sig("Влад")), "html", sig("Влад"), md)).html).toBe(
+      '<div><br></div><div class="depesha-signature"><div>Влад</div></div>',
     );
   });
 
   it("plain text and Markdown keep their words when switched", async () => {
-    const d = withSignature({ ...emptyDraft(me, "markdown"), text: "**да**" }, "Влад");
-    const plain = await convertDraft(d, "plain", "Влад", md);
+    const d = withSignature({ ...emptyDraft(me, "markdown"), text: "**да**" }, sig("Влад"));
+    const plain = await convertDraft(d, "plain", sig("Влад"), md);
     expect(plain.text).toBe("**да**\n\n-- \nВлад");
-    expect((await convertDraft(plain, "markdown", "Влад", md)).text).toBe(plain.text);
+    expect((await convertDraft(plain, "markdown", sig("Влад"), md)).text).toBe(plain.text);
   });
 });
