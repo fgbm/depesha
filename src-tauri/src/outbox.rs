@@ -82,6 +82,28 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 state.task_done(&key);
                 state.store.outbox_remove(item.id)?;
                 state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
+                // The letter is on the server; its copy must join the Sent cache first, so a
+                // waiting-for-a-reply added below finds it. The wait requires the copy in the
+                // cache: without it the badge stays at zero until the copy happens to arrive.
+                // Exchange Web Services already put it into Sent Items.
+                if account.save_sent_copy
+                    && !account.is_ews()
+                    && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
+                    && let Ok(worker) = state.worker(&account.id)
+                {
+                    let message_id = message::parse_summary(&raw).message_id;
+                    let work = Work::Append {
+                        folder: sent,
+                        // The wait below still parses the letter: the copy takes a copy.
+                        raw: raw.clone(),
+                        flags: "(\\Seen)".into(),
+                        message_id,
+                    };
+                    if let Err(e) = worker.run_background(work).await {
+                        tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
+                        state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
+                    }
+                }
                 if item.followup_secs > 0
                     && let Some(message_id) = message::parse_summary(&raw).message_id
                 {
@@ -94,24 +116,6 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                         &item.followup,
                     ))?;
                     state.emit("counters-changed", json!({}));
-                }
-                // Exchange Web Services already put the copy into Sent Items.
-                if account.save_sent_copy
-                    && !account.is_ews()
-                    && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
-                    && let Ok(worker) = state.worker(&account.id)
-                {
-                    let message_id = message::parse_summary(&raw).message_id;
-                    let work = Work::Append {
-                        folder: sent,
-                        raw,
-                        flags: "(\\Seen)".into(),
-                        message_id,
-                    };
-                    if let Err(e) = worker.run_background(work).await {
-                        tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
-                        state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
-                    }
                 }
                 // The server keeps the copy itself (Exchange, Gmail): Sent is synced now, so the
                 // answer joins its conversation at once, and again a moment later for servers

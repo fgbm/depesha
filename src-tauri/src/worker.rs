@@ -898,6 +898,10 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
     let report = mail::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;
     if report.changed() {
         state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
+        // The folder's letters changed: a "waiting for a reply" of one that just arrived in
+        // Sent, or an answer resolved, moves the counters. Cheap, and it also keeps badges
+        // right for plugin-driven lists; the main list reload stays on `mail-changed`.
+        state.emit("counters-changed", json!({}));
     }
     if notify && report.added > 0 && folder.eq_ignore_ascii_case("INBOX") && before > 0 {
         let fresh: Vec<_> = state
