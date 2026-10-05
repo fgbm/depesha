@@ -160,16 +160,22 @@ async function refused(cmd, args = {}) {
   return r.err;
 }
 
-/** The next folder dialog (`pick_folder`) answers `path` without showing up. */
+/**
+ * The next folder dialog (`pick_folder`) answers `path` without showing up.
+ * Tauri defines `__TAURI_INTERNALS__.invoke` read-only, so assigning over it is
+ * silently ignored; the call is caught one level down, where the IPC goes out
+ * as `fetch("ipc://localhost/<command>")`.
+ */
 function pickFolder(path) {
   return d.exec(`
     const path = arguments[0];
-    const tauri = window.__TAURI_INTERNALS__;
-    const invoke = tauri.invoke;
-    tauri.invoke = (cmd, args, options) => {
-      if (cmd !== "pick_folder") return invoke(cmd, args, options);
-      tauri.invoke = invoke;
-      return Promise.resolve(path);
+    const fetch = window.fetch;
+    window.fetch = (url, init) => {
+      if (!decodeURIComponent(String(url)).endsWith("/pick_folder")) return fetch(url, init);
+      window.fetch = fetch;
+      return Promise.resolve(new Response(JSON.stringify(path), {
+        headers: { "Content-Type": "application/json", "Tauri-Response": "ok" },
+      }));
     };`, path);
 }
 
