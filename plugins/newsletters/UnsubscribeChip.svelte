@@ -1,15 +1,14 @@
 <script lang="ts">
   import ListX from "@lucide/svelte/icons/list-x";
   import type { PluginContext } from "@depesha/plugin-api";
-  import { unsub } from "./state.svelte";
   import { S } from "./strings";
 
-  let { ctx }: { ctx: PluginContext } = $props();
+  let { ctx, ask }: { ctx: PluginContext; ask: (id: number) => void } = $props();
   const msg = $derived(ctx.mail.opened());
 </script>
 
 {#if msg?.view.summary.unsubscribe}
-  <button class="chip" onclick={() => (unsub.confirm = msg.row.id)} title={ctx.t(S.hint)}><ListX size={13} /> {ctx.t(S.action)}</button>
+  <button class="chip" onclick={() => ask(msg.row.id)} title={ctx.t(S.hint)}><ListX size={13} /> {ctx.t(S.action)}</button>
 {/if}
 
 <style>

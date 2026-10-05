@@ -506,6 +506,11 @@
         <div class="banner" class:info={b.tone !== "warn"}>
           {#if b.icon}<b.icon size={15} />{/if}
           <span>{b.text}</span>
+          {#if b.details?.length}
+            <dl class="details selectable">
+              {#each b.details as d, j (j)}<dt>{d.label}</dt><dd>{d.value}</dd>{/each}
+            </dl>
+          {/if}
           {#each b.actions ?? [] as a (a.title)}<button class="btn" class:primary={a.primary} class:ghost={!a.primary} onclick={a.run}>{a.title}</button>{/each}
         </div>
       {/each}
@@ -517,7 +522,12 @@
           <button class="link" onclick={() => app.open(msg.row.id, true)}>{t("reader.show")}</button>
           {#if msg.view.summary.from}
             <span aria-hidden="true">·</span>
-            <button class="link" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
+            {#if msg.sender_unverified}
+              <!-- Anyone can write a trusted address into From: the trust waits for a confirmed sender. -->
+              <span>{t("reader.unverifiedSender", { email: msg.view.summary.from.email })}</span>
+            {:else}
+              <button class="link" onclick={trustSender}>{t("reader.alwaysFor", { email: msg.view.summary.from.email })}</button>
+            {/if}
           {/if}
         </div>
       {/if}
@@ -1070,6 +1080,26 @@
   .banner span {
     flex: 1;
     min-width: 200px;
+  }
+
+  .banner .details {
+    flex-basis: 100%;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 2px 10px;
+    margin: 0;
+    max-height: 160px;
+    overflow: auto;
+  }
+
+  .banner .details dt {
+    color: var(--muted);
+  }
+
+  .banner .details dd {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .remote {

@@ -65,6 +65,9 @@ PNG = base64.b64decode(
 )
 
 HTML = (
+    # The receiving server's verdict (the mailbox's own domain): "always for the sender" holds
+    # only for a sender the server vouches for.
+    "Authentication-Results: mx.local.test; dmarc=pass header.from=example.org\r\n"
     "From: =?utf-8?B?" + base64.b64encode("Рассылка".encode()).decode() + "?= <news@example.org>\r\n"
     "To: carol@local.test\r\nSubject: =?utf-8?B?" + base64.b64encode("HTML-письмо с картинками".encode()).decode() + "?=\r\n"
     "Date: Fri, 2 Oct 2026 11:00:00 +0300\r\nMessage-ID: <html1@example.org>\r\nMIME-Version: 1.0\r\n"

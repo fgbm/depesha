@@ -191,6 +191,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "reader.message": "Письмо",
   "reader.remoteHidden": "Внешние картинки скрыты.",
   "reader.remoteWhy": "По внешним картинкам отправитель узнаёт, что вы открыли письмо.",
+  "reader.unverifiedSender": "{email} в доверенных, но не подтверждено, что письмо пришло с этого адреса.",
   "reader.show": "Показать",
   "remove": "Убрать",
   "retry": "Повторить",

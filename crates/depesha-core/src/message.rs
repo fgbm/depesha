@@ -8,6 +8,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use mail_parser::{Address, Message, MessageParser, MessagePart, MimeHeaders};
 use serde::{Deserialize, Serialize};
 
+use crate::avatar::Receiver;
 use crate::{Error, Result};
 
 /// Inline images above this size are not embedded into the rendered HTML.
@@ -172,7 +173,8 @@ pub struct MessageView {
     /// The message references remote images or styles (tracking pixels included).
     pub has_remote_content: bool,
     /// The receiving server says the message passed DMARC for its From domain:
-    /// a brand logo may stand next to it.
+    /// a brand logo may stand next to it. `parse_view` leaves it false; the caller
+    /// that knows the mailbox fills it in from [`authenticity`].
     pub authenticated: bool,
     pub attachments: Vec<AttachmentInfo>,
     /// A draft's scheduled sending time (`SEND_AT_HEADER`), unix seconds.
@@ -215,23 +217,50 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     let text = msg.body_text(0).map(Cow::into_owned);
 
     let summary = summary_of(&msg);
-    let from_domain = summary
-        .from
-        .as_ref()
-        .and_then(|a| a.email.rsplit_once('@'))
-        .map(|(_, d)| d);
-    let authenticated = from_domain
-        .is_some_and(|d| crate::avatar::dmarc_passed(topmost_header(&msg, "Authentication-Results").as_deref(), d));
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
     Ok(MessageView {
         summary,
         text,
         html,
         has_remote_content,
-        authenticated,
+        authenticated: false,
         attachments,
         send_at,
     })
+}
+
+/// What the receiving server vouches for about a letter's sender. Only the server of
+/// the mailbox the letter came to is believed: the same headers in a letter that
+/// came some other way, or attached to one, prove nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Authenticity {
+    /// DMARC passed for the From domain: a brand logo may stand next to it.
+    pub dmarc: bool,
+    /// Exchange says the sender signed in to the organization (a colleague).
+    pub internal: bool,
+}
+
+impl Authenticity {
+    /// The From address is the sender's own.
+    pub fn verified(&self) -> bool {
+        self.dmarc || self.internal
+    }
+}
+
+pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
+    let Some(msg) = MessageParser::default().parse_headers(raw) else {
+        return Authenticity::default();
+    };
+    let from = summary_of(&msg).from;
+    let dmarc = from
+        .as_ref()
+        .and_then(|a| a.email.rsplit_once('@'))
+        .is_some_and(|(_, d)| crate::avatar::dmarc_passed(&headers_all(&msg, "Authentication-Results"), d, receiver));
+    let internal = receiver.exchange
+        && headers_all(&msg, "X-MS-Exchange-Organization-AuthAs")
+            .first()
+            .is_some_and(|v| v.eq_ignore_ascii_case("Internal"));
+    Authenticity { dmarc, internal }
 }
 
 /// mail-parser converts text/plain to HTML when there is no HTML part;
@@ -348,19 +377,21 @@ pub fn document_html(text: &str, markdown: bool) -> String {
     sanitize_html(&html, &HashMap::new(), false).0
 }
 
-/// The first occurrence of a header, unfolded: the one the last server added.
-/// `header_raw` gives the last one, which for trace headers is the sender's own.
-fn topmost_header(msg: &Message<'_>, name: &str) -> Option<String> {
-    let h = msg
-        .headers()
+/// Every occurrence of a header, unfolded, topmost (the one the last server added)
+/// first. `header_raw` gives the last one, which for trace headers is the sender's own.
+fn headers_all(msg: &Message<'_>, name: &str) -> Vec<String> {
+    msg.headers()
         .iter()
-        .find(|h| h.name.as_str().eq_ignore_ascii_case(name))?;
-    let raw = msg.raw_message().get(h.offset_start as usize..h.offset_end as usize)?;
-    let v = String::from_utf8_lossy(raw)
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    (!v.is_empty()).then_some(v)
+        .filter(|h| h.name.as_str().eq_ignore_ascii_case(name))
+        .filter_map(|h| msg.raw_message().get(h.offset_start as usize..h.offset_end as usize))
+        .map(|raw| {
+            String::from_utf8_lossy(raw)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|v| !v.is_empty())
+        .collect()
 }
 
 /// A header as one line: unfolded and trimmed.
@@ -617,22 +648,56 @@ JVBERi0xLjQK\r\n\
         assert!(allowed.html.unwrap().contains("tracker.example"));
     }
 
+    fn receiver(domain: &str) -> Receiver {
+        Receiver {
+            domains: vec![domain.into()],
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn trusts_the_receiving_servers_dmarc_verdict_only() {
         let mail = |results: &str| {
-            format!("{results}From: Ozon <news@ozon.ru>\r\nTo: me@example.com\r\nSubject: Hi\r\n\r\nText\r\n")
+            format!("{results}From: Ozon <news@ozon.ru>\r\nTo: me@example.net\r\nSubject: Hi\r\n\r\nText\r\n")
         };
-        let ours = "Authentication-Results: mx.example.com; dmarc=pass header.from=ozon.ru\r\n";
-        let forged = "Authentication-Results: evil; dmarc=pass header.from=ozon.ru\r\n";
-        let failed = "Authentication-Results: mx.example.com; dmarc=fail header.from=ozon.ru\r\n";
-        assert!(parse_view(mail(ours).as_bytes(), false).unwrap().authenticated);
-        // Our server's verdict on top, the sender's own claim under it.
+        let ours = receiver("example.net");
+        let dmarc = |raw: String| authenticity(raw.as_bytes(), &ours).dmarc;
+        let own_pass = "Authentication-Results: mx.example.net; dmarc=pass header.from=ozon.ru\r\n";
+        let own_fail = "Authentication-Results: mx.example.net; dmarc=fail header.from=ozon.ru\r\n";
+        let foreign_pass = "Authentication-Results: mx.example.org; dmarc=pass header.from=ozon.ru\r\n";
+        let nameless_pass = "Authentication-Results: dmarc=pass header.from=ozon.ru\r\n";
+        assert!(dmarc(mail(own_pass)));
+        // The only header is another server's: the receiving one wrote none, the sender did.
+        assert!(!dmarc(mail(foreign_pass)));
+        assert!(!dmarc(mail(nameless_pass)));
+        // Another server's claim is skipped wherever it stands; our own verdict decides.
+        assert!(!dmarc(mail(&format!("{foreign_pass}{own_fail}"))));
+        assert!(dmarc(mail(&format!("{foreign_pass}{own_pass}"))));
+        assert!(!dmarc(mail(&format!("{own_fail}{own_pass}"))));
+        assert!(!dmarc(mail(String::new().as_str())));
+        // The view alone knows no receiver: an attached letter is never authenticated.
+        assert!(!parse_view(mail(own_pass).as_bytes(), false).unwrap().authenticated);
+    }
+
+    #[test]
+    fn exchange_vouches_for_its_own_senders_only() {
+        let mail = |extra: &str| format!("{extra}From: boss@contoso.example\r\nSubject: Hi\r\n\r\nText\r\n");
+        let internal = mail("X-MS-Exchange-Organization-AuthAs: Internal\r\n");
+        let exchange = Receiver {
+            exchange: true,
+            ..receiver("contoso.example")
+        };
+        assert!(authenticity(internal.as_bytes(), &exchange).internal);
+        assert!(authenticity(internal.as_bytes(), &exchange).verified());
         assert!(
-            !parse_view(mail(&format!("{failed}{forged}")).as_bytes(), false)
-                .unwrap()
-                .authenticated
+            !authenticity(
+                mail("X-MS-Exchange-Organization-AuthAs: Anonymous\r\n").as_bytes(),
+                &exchange
+            )
+            .internal
         );
-        assert!(!parse_view(mail("").as_bytes(), false).unwrap().authenticated);
+        // Any other server leaves the header as the sender wrote it.
+        assert!(!authenticity(internal.as_bytes(), &receiver("contoso.example")).verified());
     }
 
     #[test]

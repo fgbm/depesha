@@ -6,11 +6,13 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use depesha_core::account::{Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
 use depesha_core::autodetect::{self, Detection};
+use depesha_core::avatar::Receiver;
 use depesha_core::ews::{self, EwsDetection};
 use depesha_core::imap::{FlagChange, FolderRole};
-use depesha_core::message::{self, Addr, MessageView};
+use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
 use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze, SortKey};
+use depesha_core::unsubscribe::Way;
 use depesha_core::{avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -354,6 +356,9 @@ pub struct OpenedMessage {
     row: MessageRow,
     view: MessageView,
     trusted_sender: bool,
+    /// The From address is on the trusted list, but the receiving server does not vouch
+    /// that this letter is really from it: its pictures stay hidden.
+    sender_unverified: bool,
 }
 
 async fn raw_of(state: &AppState, row: &MessageRow) -> CmdResult<Vec<u8>> {
@@ -384,12 +389,18 @@ pub async fn message_open(state: St<'_>, id: i64, allow_remote: bool) -> CmdResu
     let row = row(&state, id)?;
     let raw = raw_of(&state, &row).await?;
     let sender = row.from.as_ref().map(|a| a.email.clone()).unwrap_or_default();
-    let trusted_sender = !sender.is_empty() && state.store.is_trusted_sender(&sender)?;
-    let view = message::parse_view(&raw, allow_remote || trusted_sender)?;
+    let listed = !sender.is_empty() && state.store.is_trusted_sender(&sender)?;
+    // Anyone can write a trusted address into From: the trust holds only for a sender
+    // the receiving server vouches for.
+    let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
+    let trusted_sender = listed && auth.verified();
+    let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
+    view.authenticated = auth.dmarc;
     Ok(OpenedMessage {
         row,
         view,
         trusted_sender,
+        sender_unverified: listed && !trusted_sender,
     })
 }
 
@@ -700,69 +711,118 @@ pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
+/// How Depesha would leave a list, for the user to confirm before anything goes out.
+#[derive(Serialize)]
+pub struct UnsubscribePlan {
+    way: Way,
+    /// The mailbox a request by mail leaves from.
+    from: String,
+    /// A request by mail goes to another organization than the letter's sender.
+    foreign: bool,
+}
+
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Unsubscribed {
     /// The sender's server confirmed the one-click request.
     Done,
-    /// A request went out by mail through the outbox.
+    /// The confirmed request went out by mail through the outbox.
     MailSent { to: String },
-    /// Only a web page is offered; the user decides whether to open it.
-    Link { url: String },
+    /// One click did not work; a request by mail is possible but needs its own confirmation.
+    Confirm { plan: UnsubscribePlan, reason: String },
 }
 
-/// Leaves a mailing list the way its sender offers: one click (RFC 8058) first,
-/// then a request by mail, then the web page.
-#[tauri::command]
-pub async fn unsubscribe(state: St<'_>, id: i64) -> CmdResult<Unsubscribed> {
-    let r = row(&state, id)?;
-    let Some(u) = state.store.unsubscribe_of(id)? else {
-        return Err(CmdError::new(
-            "not-found",
-            tr!(
-                "the sender gave no way to unsubscribe",
-                "отправитель не указал, как отписаться"
-            ),
-        ));
+fn no_unsubscribe() -> CmdError {
+    CmdError::new(
+        "not-found",
+        tr!(
+            "the sender gave no way to unsubscribe",
+            "отправитель не указал, как отписаться"
+        ),
+    )
+}
+
+fn unsubscribe_ways(state: &AppState, id: i64) -> CmdResult<(MessageRow, Unsubscribe, Vec<Way>)> {
+    let r = row(state, id)?;
+    let u = state.store.unsubscribe_of(id)?.ok_or_else(no_unsubscribe)?;
+    let ways = depesha_core::unsubscribe::ways(&u);
+    if ways.is_empty() {
+        return Err(depesha_core::unsubscribe::no_way(&u).into());
+    }
+    Ok((r, u, ways))
+}
+
+fn plan_of(state: &AppState, r: &MessageRow, way: Way) -> CmdResult<UnsubscribePlan> {
+    let from = state.account(&r.account_id)?.email;
+    let foreign = match (&way, &r.from) {
+        (Way::Mail { to, .. }, Some(sender)) => depesha_core::unsubscribe::foreign(to, &sender.email),
+        (Way::Mail { .. }, None) => true,
+        _ => false,
     };
-    if let Some(url) = &u.one_click {
-        match depesha_core::unsubscribe::one_click(url).await {
-            Ok(_) => return Ok(Unsubscribed::Done),
-            Err(e) if u.mailto.is_none() => return Err(e.into()),
-            Err(e) => tracing::info!("one-click unsubscribe failed, trying mail: {e}"),
+    Ok(UnsubscribePlan { way, from, foreign })
+}
+
+/// The way a list would be left: one click (RFC 8058) first, then a request by mail,
+/// then the web page. Nothing is sent: the user sees this and confirms it.
+#[tauri::command(async)]
+pub fn unsubscribe_plan(state: St<'_>, id: i64) -> CmdResult<UnsubscribePlan> {
+    let (r, _, mut ways) = unsubscribe_ways(&state, id)?;
+    plan_of(&state, &r, ways.remove(0))
+}
+
+/// Leaves a mailing list the way the user confirmed (`one-click` or `mail`). When one
+/// click fails and a letter is possible, the letter is offered for confirmation, not sent.
+#[tauri::command]
+pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsubscribed> {
+    let (r, u, ways) = unsubscribe_ways(&state, id)?;
+    match way.as_str() {
+        "one-click" => {
+            let Some(url) = u
+                .one_click
+                .filter(|_| ways.iter().any(|w| matches!(w, Way::OneClick { .. })))
+            else {
+                return Err(no_unsubscribe());
+            };
+            match depesha_core::unsubscribe::one_click(&url).await {
+                Ok(_) => Ok(Unsubscribed::Done),
+                Err(e) => match depesha_core::unsubscribe::after_one_click(&ways) {
+                    Some(mail) => {
+                        tracing::info!("one-click unsubscribe failed, offering mail: {e}");
+                        Ok(Unsubscribed::Confirm {
+                            plan: plan_of(&state, &r, mail.clone())?,
+                            reason: e.to_string(),
+                        })
+                    }
+                    None => Err(e.into()),
+                },
+            }
         }
-    }
-    if let Some((to, subject, text)) = u.mailto.as_deref().and_then(depesha_core::unsubscribe::mailto) {
-        let account = state.account(&r.account_id)?;
-        let draft = Draft {
-            from: Some(Addr {
-                name: Some(account.display_name.clone()).filter(|n| !n.is_empty()),
-                email: account.email.clone(),
-            }),
-            to: vec![Addr {
-                name: None,
-                email: to.clone(),
-            }],
-            subject,
-            text,
-            ..Default::default()
-        };
-        smtp::build(&draft)?;
-        let now = chrono::Utc::now().timestamp();
-        state.store.outbox_add(&account.id, &draft, now, now, 0)?;
-        state.outbox_notify.notify_one();
-        state.emit("outbox-changed", serde_json::json!({}));
-        return Ok(Unsubscribed::MailSent { to });
-    }
-    match u.http {
-        Some(url) => Ok(Unsubscribed::Link { url }),
-        None => Err(CmdError::new(
-            "not-found",
-            tr!(
-                "the sender gave no way to unsubscribe",
-                "отправитель не указал, как отписаться"
-            ),
-        )),
+        "mail" => {
+            let Some(Way::Mail { to, subject, text }) = ways.into_iter().find(|w| matches!(w, Way::Mail { .. })) else {
+                return Err(no_unsubscribe());
+            };
+            let account = state.account(&r.account_id)?;
+            let draft = Draft {
+                from: Some(Addr {
+                    name: Some(account.display_name.clone()).filter(|n| !n.is_empty()),
+                    email: account.email.clone(),
+                }),
+                to: vec![Addr {
+                    name: None,
+                    email: to.clone(),
+                }],
+                subject,
+                text,
+                ..Default::default()
+            };
+            smtp::build(&draft)?;
+            let now = chrono::Utc::now().timestamp();
+            state.store.outbox_add(&account.id, &draft, now, now, 0)?;
+            state.outbox_notify.notify_one();
+            state.emit("outbox-changed", serde_json::json!({}));
+            Ok(Unsubscribed::MailSent { to })
+        }
+        _ => Err(CmdError::new("bad-request", format!("unknown unsubscribe way: {way}"))),
     }
 }
 

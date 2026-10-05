@@ -201,7 +201,10 @@ export interface MessageView {
 export interface OpenedMessage {
   row: MessageRow;
   view: MessageView;
+  /** Remote pictures load: the sender is trusted and the receiving server vouches for From. */
   trusted_sender: boolean;
+  /** The sender is trusted, but this letter's From is not confirmed: pictures stay hidden. */
+  sender_unverified?: boolean;
 }
 
 export interface ListQuery {
@@ -397,4 +400,21 @@ export interface Counters {
   followups: number;
 }
 
-export type Unsubscribed = { kind: "done" } | { kind: "mail-sent"; to: string } | { kind: "link"; url: string };
+export type UnsubscribeWay =
+  | { kind: "one-click"; host: string }
+  | { kind: "mail"; to: string; subject: string; text: string }
+  | { kind: "link"; url: string };
+
+/** How a list would be left, shown to the user before anything is sent. */
+export interface UnsubscribePlan {
+  way: UnsubscribeWay;
+  /** The mailbox a request by mail leaves from. */
+  from: string;
+  /** A request by mail goes to another organization than the sender. */
+  foreign: boolean;
+}
+
+export type Unsubscribed =
+  | { kind: "done" }
+  | { kind: "mail-sent"; to: string }
+  | { kind: "confirm"; plan: UnsubscribePlan; reason: string };

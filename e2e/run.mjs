@@ -823,6 +823,13 @@ try {
     await d.until("filter off", async () => (await trigger())?.[1] === false);
     await openBySubject("Скидки недели");
     await d.click(await d.find(".reader .chip"));
+    // The letter is shown as it will go, and nothing goes before the user agrees.
+    await d.until("unsubscribe letter shown", async () => {
+      const t = await textOf(".reader .banner");
+      return t.includes("carol@local.test") && t.includes("unsubscribe-weekly") && t.includes("Текст");
+    });
+    await new Promise((r) => setTimeout(r, 1500));
+    if (helper("count", "INBOX", "unsubscribe-weekly") !== "0") throw new Error("письмо-отписка ушло до подтверждения");
     await d.click(await d.find(".reader .banner .btn.primary"));
     await d.until("unsubscribe request delivered", async () => helper("count", "INBOX", "unsubscribe-weekly") === "1", 40000);
   });

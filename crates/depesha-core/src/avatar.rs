@@ -9,6 +9,8 @@ use hickory_resolver::TokioResolver;
 use hickory_resolver::proto::rr::RData;
 use tokio::time::timeout;
 
+use crate::account::Account;
+
 /// A BIMI logo is SVG Tiny PS of at most 32 KB.
 pub const MAX_LOGO: usize = 32 * 1024;
 const STEP: Duration = Duration::from_secs(5);
@@ -35,21 +37,25 @@ pub async fn bimi_logo(domain: &str) -> Option<String> {
         None if org != domain => txt(&resolver, &format!("default._bimi.{org}")).await,
         None => None,
     }?;
-    let url = bimi_location(&record)?;
+    fetch_logo(&bimi_location(&record)?).await.ok().flatten()
+}
+
+/// Downloads the SVG a BIMI record points at. The domain's owner chose the address:
+/// only the public internet, as for one-click unsubscribe.
+async fn fetch_logo(url: &str) -> crate::Result<Option<String>> {
     let resp = timeout(
         STEP * 2,
-        crate::http::request("GET", &url, &[("Accept", "image/svg+xml".into())], Vec::new()),
+        crate::http::request_public("GET", url, &[("Accept", "image/svg+xml".into())], Vec::new()),
     )
     .await
-    .ok()?
-    .ok()?;
+    .map_err(|_| crate::Error::Timeout("HTTP answer"))??;
     if resp.status != 200 || resp.body.len() > MAX_LOGO || !is_svg(&resp.body) {
-        return None;
+        return Ok(None);
     }
-    Some(format!(
+    Ok(Some(format!(
         "data:image/svg+xml;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(&resp.body)
-    ))
+    )))
 }
 
 /// A picture's bytes as a `data:` URI; JPEG unless the bytes say PNG or GIF.
@@ -137,26 +143,164 @@ fn is_svg(body: &[u8]) -> bool {
     head.contains("<svg")
 }
 
-/// The receiving server checked DMARC and it passed for the From domain.
-/// Only the topmost `Authentication-Results` counts: the ones below it came
-/// with the message and could be written by anyone.
-pub fn dmarc_passed(auth_results: Option<&str>, from_domain: &str) -> bool {
-    let Some(ar) = auth_results else {
-        return false;
-    };
-    let ar = ar.to_ascii_lowercase();
-    let Some(at) = ar.find("dmarc=pass") else {
-        return false;
-    };
-    // The header.from of the DMARC result, when given, must be the sender's.
-    let rest = &ar[at..];
-    let rest = &rest[..rest.find(';').unwrap_or(rest.len())];
-    match rest.split_whitespace().find_map(|w| w.strip_prefix("header.from=")) {
-        Some(d) => d
-            .trim_matches(|c| c == '"' || c == ')')
-            .eq_ignore_ascii_case(from_domain),
-        None => true,
+/// Mail services whose servers sign `Authentication-Results` with a domain other than
+/// the mailbox's (`mx.google.com` for `imap.gmail.com`).
+const FAMILIES: [&[&str]; 3] = [
+    &["gmail.com", "googlemail.com", "google.com"],
+    &["yandex.ru", "yandex.com", "ya.ru", "yandex.net"],
+    &["mail.ru", "bk.ru", "inbox.ru", "list.ru", "internet.ru"],
+];
+
+/// Who received a message: the servers whose `Authentication-Results` count.
+/// Anyone can write that header into a letter (RFC 8601 §5); the receiving server
+/// removes copies that claim its own name, so only its name is believed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Receiver {
+    /// Organizational domains of the mailbox's server and address.
+    pub domains: Vec<String>,
+    /// Exchange Online: writes its verdict without a server name, on top of the
+    /// header, and renames the ones that came with the letter.
+    pub exchange_online: bool,
+    /// Exchange (Web Services): its own `X-MS-Exchange-Organization-*` headers are
+    /// stripped from mail that comes from outside, so `AuthAs: Internal` is its word.
+    pub exchange: bool,
+}
+
+impl Receiver {
+    pub fn of(account: &Account) -> Self {
+        let server = match &account.ews {
+            Some(ews) => crate::http::Url::parse(&ews.url).map(|u| u.host).unwrap_or_default(),
+            None => account.imap.host.clone(),
+        };
+        let address = account
+            .email
+            .rsplit_once('@')
+            .map(|(_, d)| d.to_owned())
+            .unwrap_or_default();
+        let mut domains = Vec::new();
+        for host in [server.as_str(), address.as_str()] {
+            let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+            // An IP address names no organization.
+            if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') {
+                continue;
+            }
+            let org = org_domain(&host);
+            let family = FAMILIES.iter().find(|f| f.contains(&org.as_str()));
+            for d in family.map_or_else(|| vec![org.clone()], |f| f.iter().map(|d| (*d).to_owned()).collect()) {
+                if !domains.contains(&d) {
+                    domains.push(d);
+                }
+            }
+        }
+        let exchange_online =
+            account.is_ews() && ["office365.com", "outlook.com"].contains(&org_domain(&server).as_str());
+        Self {
+            domains,
+            exchange_online,
+            exchange: account.is_ews(),
+        }
     }
+
+    fn owns(&self, authserv_id: &str) -> bool {
+        let id = authserv_id.trim_end_matches('.').to_ascii_lowercase();
+        id.contains('.') && self.domains.contains(&org_domain(&id))
+    }
+}
+
+/// The DMARC verdict of one `Authentication-Results` header.
+#[derive(Debug, PartialEq, Eq)]
+struct Results {
+    /// The server that wrote it; `None` in Exchange Online's format.
+    authserv_id: Option<String>,
+    /// `(passed, header.from)` of the `dmarc=` result, if there is one.
+    dmarc: Option<(bool, Option<String>)>,
+}
+
+fn results(value: &str) -> Results {
+    let clean = without_comments(value).to_ascii_lowercase();
+    let mut parts = clean.split(';').map(str::trim);
+    let first = parts.next().unwrap_or_default();
+    // `authserv-id [version]`, unless the header starts with a result straight away.
+    let (authserv_id, first_result) = if first.contains('=') {
+        (None, Some(first))
+    } else {
+        (first.split_whitespace().next().map(str::to_owned), None)
+    };
+    let dmarc = first_result.into_iter().chain(parts).find_map(|resinfo| {
+        // `dmarc = pass` is allowed too: glue the `=` back to its word.
+        let resinfo = resinfo
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace(" =", "=")
+            .replace("= ", "=");
+        let mut words = resinfo.split_whitespace();
+        let result = words.next()?.strip_prefix("dmarc=")?;
+        let header_from = words
+            .find_map(|w| w.strip_prefix("header.from="))
+            .map(|d| d.trim_matches('"').to_owned());
+        Some((result == "pass", header_from))
+    });
+    Results { authserv_id, dmarc }
+}
+
+/// The header's text with `(comments)` dropped: a comment says nothing, whatever it says.
+fn without_comments(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    for c in value.chars() {
+        if escaped {
+            escaped = false;
+            if depth == 0 {
+                out.push(c);
+            }
+            continue;
+        }
+        match c {
+            '\\' if quoted || depth > 0 => {
+                escaped = true;
+                if depth == 0 {
+                    out.push(c);
+                }
+            }
+            '"' if depth == 0 => {
+                quoted = !quoted;
+                out.push(c);
+            }
+            '(' if !quoted => depth += 1,
+            ')' if !quoted && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    out.push(' ');
+                }
+            }
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The receiving server checked DMARC and it passed for the From domain.
+/// `auth_results`: every `Authentication-Results`, topmost first. Only a header
+/// written by the account's own server counts (others are skipped, wherever they
+/// stand); the first of them with a DMARC result decides. The verdict must name the
+/// sender's domain in `header.from`: without it, it may be about another domain.
+pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> bool {
+    for (i, header) in auth_results.iter().enumerate() {
+        let r = results(header);
+        let ours = match &r.authserv_id {
+            Some(id) => receiver.owns(id),
+            None => receiver.exchange_online && i == 0,
+        };
+        if !ours {
+            continue;
+        }
+        if let Some((passed, header_from)) = r.dmarc {
+            return passed && header_from.is_some_and(|d| d.eq_ignore_ascii_case(from_domain));
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -189,18 +333,118 @@ mod tests {
         assert_eq!(org_domain("a.b.msk.ru"), "b.msk.ru");
     }
 
+    fn account(email: &str, host: &str) -> Account {
+        Account {
+            id: "a".into(),
+            label: String::new(),
+            color: String::new(),
+            display_name: String::new(),
+            email: email.into(),
+            username: email.into(),
+            imap: crate::account::ServerConfig::new(host, 993, crate::account::Security::Tls),
+            smtp: crate::account::ServerConfig::new(host, 465, crate::account::Security::Tls),
+            save_sent_copy: true,
+            signature: String::new(),
+            attachments_dir: String::new(),
+            auth: Default::default(),
+            ews: None,
+        }
+    }
+
+    fn imap(email: &str, host: &str) -> Receiver {
+        Receiver::of(&account(email, host))
+    }
+
+    fn ews(email: &str, url: &str) -> Receiver {
+        Receiver::of(&Account {
+            ews: Some(crate::account::EwsConfig {
+                url: url.into(),
+                trusted_cert: None,
+            }),
+            ..account(email, "")
+        })
+    }
+
     #[test]
     fn trusts_only_a_passed_dmarc_for_the_sender() {
-        let gmail = "mx.google.com; dkim=pass header.i=@ozon.ru; spf=pass; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=ozon.ru";
-        assert!(dmarc_passed(Some(gmail), "ozon.ru"));
-        assert!(!dmarc_passed(Some(gmail), "ozon-shop.ru"));
-        let exo = "spf=pass smtp.mailfrom=bank.ru; dkim=pass header.d=bank.ru;dmarc=pass action=none header.from=bank.ru;compauth=pass";
-        assert!(dmarc_passed(Some(exo), "bank.ru"));
+        let gmail_box = imap("me@gmail.com", "imap.gmail.com");
+        let gmail = |v: &str| vec![v.to_owned()];
+        let ar = "mx.google.com; dkim=pass header.i=@ozon.ru; spf=pass; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=ozon.ru";
+        assert!(dmarc_passed(&gmail(ar), "ozon.ru", &gmail_box));
+        assert!(!dmarc_passed(&gmail(ar), "ozon-shop.ru", &gmail_box));
         assert!(!dmarc_passed(
-            Some("mx.example; dmarc=fail header.from=bank.ru"),
-            "bank.ru"
+            &gmail("mx.google.com; dmarc=fail header.from=bank.ru"),
+            "bank.ru",
+            &gmail_box
         ));
-        assert!(!dmarc_passed(None, "bank.ru"));
+        assert!(!dmarc_passed(&[], "bank.ru", &gmail_box));
+    }
+
+    #[test]
+    fn reads_the_result_not_the_comments() {
+        let r = imap("me@example.net", "imap.example.net");
+        let one = |v: &str| vec![v.to_owned()];
+        assert!(!dmarc_passed(
+            &one("mx.example.net; dmarc=fail (policy said dmarc=pass) header.from=example.com"),
+            "example.com",
+            &r
+        ));
+        assert!(!dmarc_passed(
+            &one("mx.example.net; spf=pass (dmarc=pass header.from=example.com) smtp.mailfrom=example.com"),
+            "example.com",
+            &r
+        ));
+        assert!(dmarc_passed(
+            &one("mx.example.net 1; dmarc = pass (p=reject) header.from=\"example.com\""),
+            "example.com",
+            &r
+        ));
+        // Without header.from the verdict may be about another domain: not counted.
+        assert!(!dmarc_passed(&one("mx.example.net; dmarc=pass"), "example.com", &r));
+    }
+
+    #[test]
+    fn believes_only_the_receiving_servers_name() {
+        let exo = "spf=pass smtp.mailfrom=bank.ru; dkim=pass header.d=bank.ru;dmarc=pass action=none header.from=bank.ru;compauth=pass";
+        let one = |v: &str| vec![v.to_owned()];
+        // Exchange Online writes no server name: its verdict is believed on top, for its mailboxes only.
+        let m365 = ews("me@contoso.example", "https://outlook.office365.com/EWS/Exchange.asmx");
+        assert!(m365.exchange_online);
+        assert!(dmarc_passed(&one(exo), "bank.ru", &m365));
+        assert!(!dmarc_passed(
+            &["mx.contoso.example; spf=pass".into(), exo.into()],
+            "bank.ru",
+            &m365
+        ));
+        let on_prem = ews("me@contoso.example", "https://mail.contoso.example/EWS/Exchange.asmx");
+        assert!(!on_prem.exchange_online);
+        assert!(!dmarc_passed(&one(exo), "bank.ru", &on_prem));
+        assert!(!dmarc_passed(
+            &one(exo),
+            "bank.ru",
+            &imap("me@example.net", "imap.example.net")
+        ));
+        // The provider's other domain is its own; a domain like it is not.
+        let yandex = imap("me@company.example", "imap.yandex.ru");
+        let ar = "mail-nwsmtp-mxfront-production-main-1.vla.yp-c.yandex.net; dmarc=pass header.from=bank.ru";
+        assert!(dmarc_passed(&one(ar), "bank.ru", &yandex));
+        assert!(!dmarc_passed(
+            &one("mx.yandex.net.evil.example; dmarc=pass header.from=bank.ru"),
+            "bank.ru",
+            &yandex
+        ));
+        // A server of the mailbox's own domain counts even when the IMAP server is elsewhere.
+        assert!(dmarc_passed(
+            &one("mx.company.example; dmarc=pass header.from=bank.ru"),
+            "bank.ru",
+            &yandex
+        ));
+    }
+
+    #[tokio::test]
+    async fn never_downloads_a_logo_from_a_private_address() {
+        let e = fetch_logo("https://10.0.0.1/logo.svg").await.unwrap_err();
+        assert!(matches!(e, crate::Error::PrivateAddress(_)), "{e}");
     }
 
     #[test]

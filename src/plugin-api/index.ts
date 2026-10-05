@@ -88,6 +88,8 @@ export interface Banner {
   text: string;
   tone?: "info" | "warn";
   icon?: Component;
+  /** Lines under the text, shown as they are (line breaks kept): what an action will send. */
+  details?: { label: string; value: string }[];
   actions?: { title: string; run: () => void; primary?: boolean }[];
 }
 

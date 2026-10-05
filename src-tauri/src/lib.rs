@@ -132,6 +132,7 @@ pub fn run() {
             commands::followup_cancel,
             commands::followup_postpone,
             commands::unsubscribe,
+            commands::unsubscribe_plan,
             commands::settings_get,
             commands::settings_set,
             commands::language,

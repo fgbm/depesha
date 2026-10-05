@@ -2,6 +2,7 @@
 //! for IMAP and SMTP. One `Connection` is one TCP connection: NTLM authenticates
 //! the connection, not the request, so the caller must control reuse.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -48,27 +49,49 @@ impl Url {
             Some(i) => (&rest[..i], &rest[i..]),
             None => (rest, "/"),
         };
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((h, p)) if !h.ends_with(']') || p.parse::<u16>().is_ok() => (h, p.parse::<u16>().map_err(|_| bad())?),
-            _ => (authority, if https { 443 } else { 80 }),
-        };
-        if host.is_empty() || host.contains(['@', ' ']) {
-            return Err(bad());
-        }
+        let (host, port) = split_authority(authority, if https { 443 } else { 80 }).ok_or_else(bad)?;
         Ok(Self {
             https,
-            host: host.trim_matches(['[', ']']).to_ascii_lowercase(),
+            host,
             port,
             path: path.to_owned(),
         })
     }
 
     fn authority(&self) -> String {
+        let host = if self.host.contains(':') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
         match (self.https, self.port) {
-            (true, 443) | (false, 80) => self.host.clone(),
-            _ => format!("{}:{}", self.host, self.port),
+            (true, 443) | (false, 80) => host,
+            _ => format!("{host}:{}", self.port),
         }
     }
+}
+
+/// `(host, port)` of `host`, `host:port`, `[v6]` or `[v6]:port`; the host lowercased,
+/// an IPv6 one without brackets. `None` for user info, spaces or a bad port.
+pub fn split_authority(authority: &str, default_port: u16) -> Option<(String, u16)> {
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(rest) => {
+            let (h, after) = rest.split_once(']')?;
+            match after.strip_prefix(':') {
+                Some(p) => (h, p.parse().ok()?),
+                None if after.is_empty() => (h, default_port),
+                None => return None,
+            }
+        }
+        None => match authority.rsplit_once(':') {
+            Some((h, p)) => (h, p.parse().ok()?),
+            None => (authority, default_port),
+        },
+    };
+    if host.is_empty() || host.contains(['@', ' ', '[', ']']) {
+        return None;
+    }
+    Some((host.to_ascii_lowercase(), port))
 }
 
 impl std::fmt::Display for Url {
@@ -120,6 +143,10 @@ impl Connection {
         let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((url.host.as_str(), url.port)))
             .await
             .map_err(|_| Error::Timeout("connecting"))??;
+        Self::over(url, pinned, tcp).await
+    }
+
+    async fn over(url: &Url, pinned: Option<&str>, tcp: TcpStream) -> Result<Self> {
         let (stream, peer_cert): (Box<dyn Io>, _) = if url.https {
             let tls = tls::wrap(&url.host, pinned, tcp).await?;
             let cert = tls
@@ -275,6 +302,101 @@ pub async fn request(method: &str, url: &str, headers: &[(&str, String)], body: 
     conn.send(method, &url.path, headers, body).await
 }
 
+/// One HTTPS request to an address a letter or a sender's DNS gave (a BIMI logo):
+/// only to the public internet, see [`connect_public`].
+pub async fn request_public(method: &str, url: &str, headers: &[(&str, String)], body: Vec<u8>) -> Result<Response> {
+    let url = Url::parse(url)?;
+    if !url.https {
+        return Err(Error::InvalidHost(url.to_string()));
+    }
+    let tcp = connect_public(&url.host, url.port).await?;
+    let mut conn = Connection::over(&url, None, tcp).await?;
+    conn.send(method, &url.path, headers, body).await
+}
+
+/// Connects to a host named by a stranger (a letter, a sender's DNS) only when every
+/// address it resolves to is public, and to exactly the addresses checked: a second
+/// lookup could answer differently.
+pub async fn connect_public(host: &str, port: u16) -> Result<TcpStream> {
+    let addrs: Vec<SocketAddr> = timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((host, port)))
+        .await
+        .map_err(|_| Error::Timeout("connecting"))??
+        .collect();
+    let addrs = public_only(host, addrs)?;
+    let mut last = None;
+    for addr in addrs {
+        match timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+            Ok(Ok(tcp)) => return Ok(tcp),
+            Ok(Err(e)) => last = Some(Error::Io(e)),
+            Err(_) => last = Some(Error::Timeout("connecting")),
+        }
+    }
+    Err(last.unwrap_or_else(|| Error::InvalidHost(host.to_owned())))
+}
+
+/// The addresses a host resolved to, refused as a whole when any of them is not public:
+/// a name with one private address among public ones is as good as a private one.
+pub fn public_only(host: &str, addrs: Vec<SocketAddr>) -> Result<Vec<SocketAddr>> {
+    if addrs.is_empty() {
+        return Err(Error::InvalidHost(host.to_owned()));
+    }
+    if addrs.iter().any(|a| !is_public(a.ip())) {
+        return Err(Error::PrivateAddress(host.to_owned()));
+    }
+    Ok(addrs)
+}
+
+/// An address on the public internet: not loopback, private, link-local, shared (CGNAT),
+/// unique-local, multicast, documentation, benchmarking or reserved.
+pub fn is_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_public_v4(v4),
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            // IPv4 written as IPv6: mapped (::ffff:a.b.c.d), NAT64 (64:ff9b::a.b.c.d), 6to4 (2002:ab:cd::).
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_v4(v4);
+            }
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                return is_public_v4(Ipv4Addr::new(
+                    (s[6] >> 8) as u8,
+                    s[6] as u8,
+                    (s[7] >> 8) as u8,
+                    s[7] as u8,
+                ));
+            }
+            if s[0] == 0x2002 {
+                return is_public_v4(Ipv4Addr::new(
+                    (s[1] >> 8) as u8,
+                    s[1] as u8,
+                    (s[2] >> 8) as u8,
+                    s[2] as u8,
+                ));
+            }
+            // Only global unicast (2000::/3), without the IETF protocol block (Teredo,
+            // benchmarking, ORCHID: 2001::/23) and documentation (2001:db8::/32).
+            (s[0] & 0xe000) == 0x2000 && !(s[0] == 0x2001 && s[1] < 0x200) && !(s[0] == 0x2001 && s[1] == 0xdb8)
+        }
+    }
+}
+
+fn is_public_v4(ip: Ipv4Addr) -> bool {
+    let [a, b, c, _] = ip.octets();
+    !(a == 0
+        || a == 10
+        || a == 127
+        || (a == 100 && (64..128).contains(&b))
+        || (a == 169 && b == 254)
+        || (a == 172 && (16..32).contains(&b))
+        || (a == 192 && b == 0 && (c == 0 || c == 2))
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 192 && b == 168)
+        || (a == 198 && (b == 18 || b == 19))
+        || (a == 198 && b == 51 && c == 100)
+        || (a == 203 && b == 0 && c == 113)
+        || a >= 224)
+}
+
 /// `application/x-www-form-urlencoded` body.
 pub fn form(pairs: &[(&str, &str)]) -> Vec<u8> {
     pairs
@@ -355,6 +477,69 @@ mod tests {
         assert_eq!(u.to_string(), "http://127.0.0.1:8080/");
         assert!(Url::parse("mail.example.com").is_err());
         assert!(Url::parse("https://:443/").is_err());
+        let u = Url::parse("https://[::1]/x").unwrap();
+        assert_eq!((u.host.as_str(), u.port), ("::1", 443));
+        assert_eq!(u.to_string(), "https://[::1]/x");
+        assert_eq!(Url::parse("https://[fd00::1]:8443").unwrap().port, 8443);
+        assert!(Url::parse("https://[::1/").is_err());
+    }
+
+    #[test]
+    fn tells_public_addresses_from_private_ones() {
+        for ip in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.5.4",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "224.0.0.1",
+            "255.255.255.255",
+            "192.0.2.10",
+            "::1",
+            "::",
+            "fd00::1",
+            "fe80::1",
+            "ff02::1",
+            "2001:db8::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.1.2.3",
+            "64:ff9b::a00:1",
+            "2002:c0a8:101::1",
+        ] {
+            assert!(!is_public(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in [
+            "93.184.216.34",
+            "8.8.8.8",
+            "2606:2800:220:1::1",
+            "::ffff:8.8.8.8",
+            "64:ff9b::808:808",
+        ] {
+            assert!(is_public(ip.parse().unwrap()), "{ip}");
+        }
+        // A name with a single private address among public ones is refused as a whole.
+        let addr = |s: &str| SocketAddr::new(s.parse().unwrap(), 443);
+        assert!(public_only("ok.example", vec![addr("93.184.216.34")]).is_ok());
+        assert!(matches!(
+            public_only("evil.example", vec![addr("93.184.216.34"), addr("10.0.0.1")]),
+            Err(Error::PrivateAddress(h)) if h == "evil.example"
+        ));
+        assert!(public_only("none.example", vec![]).is_err());
+    }
+
+    #[tokio::test]
+    async fn never_connects_to_a_private_address() {
+        for url in [
+            "https://127.0.0.1:9/",
+            "https://localhost:9/",
+            "https://[::1]:9/",
+            "https://10.0.0.1/",
+        ] {
+            let e = request_public("GET", url, &[], Vec::new()).await.unwrap_err();
+            assert!(matches!(e, Error::PrivateAddress(_)), "{url}: {e}");
+        }
     }
 
     #[test]

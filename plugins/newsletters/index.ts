@@ -1,6 +1,7 @@
 import ListX from "@lucide/svelte/icons/list-x";
 import type { ListScope, OpenedMessage, Plugin, PluginContext } from "@depesha/plugin-api";
 import UnsubscribeChip from "./UnsubscribeChip.svelte";
+import { confirmation, type Plan } from "./confirm";
 import { unsub } from "./state.svelte";
 import { S } from "./strings";
 
@@ -10,16 +11,46 @@ function listName(ctx: PluginContext, msg: OpenedMessage): string {
   return msg.view.summary.from?.name ?? msg.view.summary.from?.email ?? ctx.t(S.fallback);
 }
 
-async function unsubscribe(ctx: PluginContext, msg: OpenedMessage) {
+type Unsubscribed = { kind: "done" } | { kind: "mail-sent"; to: string } | { kind: "confirm"; plan: Plan; reason: string };
+
+function close() {
   unsub.confirm = null;
-  const name = listName(ctx, msg);
+  unsub.plan = null;
+  unsub.reason = null;
+}
+
+/** Asks the backend how it would unsubscribe; the banner shows that before anything goes out. */
+async function ask(ctx: PluginContext, id: number) {
+  close();
+  unsub.confirm = id;
   try {
-    const r = await ctx.backend<{ kind: "done" } | { kind: "mail-sent"; to: string } | { kind: "link"; url: string }>("unsubscribe", {
-      id: msg.row.id,
-    });
+    const plan = await ctx.backend<Plan>("unsubscribe_plan", { id });
+    if (unsub.confirm === id) unsub.plan = plan;
+  } catch (e) {
+    if (unsub.confirm === id) close();
+    ctx.fail(e, ctx.t(S.failed));
+  }
+}
+
+/** Does what the banner showed, and only that. */
+async function unsubscribe(ctx: PluginContext, msg: OpenedMessage, plan: Plan) {
+  const id = msg.row.id;
+  const name = listName(ctx, msg);
+  close();
+  if (plan.way.kind === "link") {
+    ctx.openLink(plan.way.url);
+    return;
+  }
+  try {
+    const r = await ctx.backend<Unsubscribed>("unsubscribe", { id, way: plan.way.kind });
     if (r.kind === "done") ctx.toast(ctx.t(S.done, { name }));
     else if (r.kind === "mail-sent") ctx.toast(ctx.t(S.mailSent, { to: r.to }));
-    else ctx.openLink(r.url);
+    else {
+      // One click failed: the letter needs its own yes.
+      unsub.confirm = id;
+      unsub.plan = r.plan;
+      unsub.reason = r.reason;
+    }
   } catch (e) {
     ctx.fail(e, ctx.t(S.failed));
   }
@@ -50,27 +81,27 @@ export default {
         return split === "all" ? {} : { bulk: split === "bulk" };
       },
     });
-    ctx.ui.readerHeader({ component: UnsubscribeChip, props: { ctx } });
+    ctx.ui.readerHeader({ component: UnsubscribeChip, props: { ctx, ask: (id: number) => ask(ctx, id) } });
     ctx.ui.messageAction({
       id: "newsletters.unsubscribe",
       title: () => ctx.t(S.action),
       icon: ListX,
       when: (msg) => !!msg.view.summary.unsubscribe,
-      run: (msg) => (unsub.confirm = msg.row.id),
+      run: (msg) => ask(ctx, msg.row.id),
     });
-    ctx.ui.banner((msg) =>
-      unsub.confirm === msg.row.id
-        ? {
-            icon: ListX,
-            tone: "info",
-            text: ctx.t(S.confirm, { name: listName(ctx, msg) }),
-            actions: [
-              { title: ctx.t(S.action), primary: true, run: () => unsubscribe(ctx, msg) },
-              { title: ctx.t(S.cancel), run: () => (unsub.confirm = null) },
-            ],
-          }
-        : null,
-    );
-    return () => (unsub.confirm = null);
+    ctx.ui.banner((msg) => {
+      const plan = unsub.plan;
+      if (unsub.confirm !== msg.row.id || !plan) return null;
+      const go = plan.way.kind === "mail" ? S.send : plan.way.kind === "link" ? S.openPage : S.action;
+      return {
+        icon: ListX,
+        ...confirmation(ctx.t, listName(ctx, msg), plan, unsub.reason),
+        actions: [
+          { title: ctx.t(go), primary: true, run: () => unsubscribe(ctx, msg, plan) },
+          { title: ctx.t(S.cancel), run: close },
+        ],
+      };
+    });
+    return close;
   },
 } satisfies Plugin;

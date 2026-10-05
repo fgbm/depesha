@@ -198,6 +198,7 @@ export const en = {
   "reader.message": "Message",
   "reader.remoteHidden": "Remote images are hidden.",
   "reader.remoteWhy": "Remote images tell the sender that you opened the message.",
+  "reader.unverifiedSender": "{email} is trusted, but this letter is not confirmed to come from that address.",
   "reader.show": "Show",
   "remove": "Remove",
   "retry": "Retry",

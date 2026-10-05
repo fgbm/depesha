@@ -45,6 +45,9 @@ pub enum Error {
     /// The mailbox waits for the user (a wrong password): background work does not
     /// knock on the server meanwhile.
     Paused,
+    /// A link from a letter leads into a private network (loopback, LAN, link-local…):
+    /// Depesha does not go there on a stranger's word.
+    PrivateAddress(String),
 }
 
 impl std::fmt::Display for Error {
@@ -108,6 +111,10 @@ impl std::fmt::Display for Error {
             ),
             Self::NotFound => tr!("message not found", "письмо не найдено"),
             Self::Parse => tr!("the message could not be parsed", "не удалось разобрать письмо"),
+            Self::PrivateAddress(host) => tr!(
+                "{host} is an address in a private network; Depesha does not send requests there from a letter",
+                "{host} — адрес во внутренней сети; по ссылке из письма Депеша туда не обращается"
+            ),
             Self::Ews { code, message } => ews_text(code, message),
             Self::HttpAuth(offered) => tr!(
                 "Exchange accepts only {offered} on EWS; Depesha signs in with Basic or NTLM. Ask the administrator \
