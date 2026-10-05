@@ -11,7 +11,7 @@
   <ChevronDown size={15} />
 </button>
 <Popover bind:open align="left">
-  <LaterMenu title={ctx.t(S.title)} presets={sendLaterPresets()} action={ctx.t(S.schedule)} onPick={(at) => { open = false; compose.send(at); }} />
+  <LaterMenu title={ctx.t(S.title)} presets={sendLaterPresets()} action={ctx.t(S.schedule)} onPick={(at) => { open = false; compose.options.at = at; compose.send(); }} />
 </Popover>
 
 <style>

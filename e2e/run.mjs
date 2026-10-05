@@ -895,6 +895,29 @@ try {
     await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
   });
 
+  await step("5.9", "«Отправить позже» до получателей: время остаётся, основная кнопка планирует", async () => {
+    const subj = `Сначала время ${stamp}`;
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.click(await d.find(".compose .split-btn .more"));
+    await d.click(await d.until("preset", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Завтра утром')]")));
+    await d.until("schedule kept", async () => (await textOf(".compose .scheduled")).includes("Запланировано на"));
+    await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
+    await setInput(".compose .subject", subj);
+    await d.until("main button schedules", async () => (await textOf(".compose .split-btn .main")).includes("Запланировать"));
+    await d.click(await d.find(".compose .split-btn .main"));
+    await composeClosed();
+    await d.button("Исходящие");
+    await d.until("scheduled", async () => {
+      const t = await textOf(".outbox");
+      return t.includes(subj) && t.includes("Запланировано: отправится завтра");
+    });
+    if (helper("count", "INBOX", subj) !== "0") throw new Error("письмо ушло сразу");
+    // The queue is left empty for the steps that count on it.
+    await d.click(await d.xpath(`//div[contains(@class,'item')][contains(., ${JSON.stringify(subj)})]//button[contains(., 'Отправить сейчас')]`));
+    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
+  });
+
   await step("5.10", "«Ждут ответа»: напоминание снимается, когда приходит ответ", async () => {
     const subj = `Вопрос ${stamp}`;
     await newMessage("carol@local.test", subj, "Когда будет готово?");

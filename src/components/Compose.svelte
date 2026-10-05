@@ -11,9 +11,10 @@
   import Minimize from "@lucide/svelte/icons/minimize-2";
   import X from "@lucide/svelte/icons/x";
   import Trash from "@lucide/svelte/icons/trash-2";
+  import Clock from "@lucide/svelte/icons/clock";
   import { app, type ComposeWindow } from "../lib/store.svelte";
   import { isDirty, swapSignature } from "../lib/compose";
-  import { accountLabel, listDate, size } from "../lib/format";
+  import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { extensions } from "../lib/extensions.svelte";
   import AddressInput from "./AddressInput.svelte";
@@ -331,9 +332,16 @@
 
     <footer>
       <span class="split-btn anchor">
-        <button class="btn primary main" onclick={() => send()} disabled={busy}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn primary main" onclick={() => send()} disabled={busy}>{options.at ? t("compose.schedule") : t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
         {#each controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       </span>
+      {#if options.at}
+        <span class="scheduled">
+          <Clock size={14} />
+          {t("compose.scheduledFor", { when: shortDateTime(options.at) })}
+          <button class="btn ghost icon" onclick={() => (options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
+        </span>
+      {/if}
       <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")}><Paperclip size={15} /> {t("compose.files")}</button>
       {#each controls.filter((x) => x.slot !== "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       <span class="spacer"></span>
@@ -576,5 +584,14 @@
 
   .spacer {
     flex: 1;
+  }
+
+  .scheduled {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--accent);
+    font-size: 13px;
+    white-space: nowrap;
   }
 </style>
