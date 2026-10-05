@@ -55,19 +55,24 @@ pub struct Caps {
 
 impl Caps {
     /// What Depesha uses out of a CAPABILITY list; names are compared ignoring case.
+    /// IMAP4rev2 (RFC 9051) folds IDLE, MOVE, UIDPLUS, SPECIAL-USE and STATUS=SIZE into
+    /// the base protocol (RFC 9051, 7.2.2 and Appendix E.2), so a server of that version
+    /// has them without naming them. CONDSTORE and QRESYNC are not implied: they stay
+    /// recommended extensions (Appendix F.1).
     pub fn from_names<S: AsRef<str>>(names: &[S]) -> Self {
         let has = |name: &str| names.iter().any(|n| n.as_ref().eq_ignore_ascii_case(name));
+        let rev2 = has("IMAP4rev2");
         Self {
-            idle: has("IDLE"),
-            move_: has("MOVE"),
-            uidplus: has("UIDPLUS"),
-            special_use: has("SPECIAL-USE"),
+            idle: rev2 || has("IDLE"),
+            move_: rev2 || has("MOVE"),
+            uidplus: rev2 || has("UIDPLUS"),
+            special_use: rev2 || has("SPECIAL-USE"),
             literal_plus: has("LITERAL+"),
             // QRESYNC implies CONDSTORE (RFC 7162, 3.2).
             condstore: has("CONDSTORE") || has("QRESYNC"),
             qresync: has("QRESYNC"),
             quota: has("QUOTA"),
-            status_size: has("STATUS=SIZE"),
+            status_size: rev2 || has("STATUS=SIZE"),
         }
     }
 }
@@ -1104,6 +1109,19 @@ mod tests {
         assert!(caps.qresync && caps.condstore);
         assert!(!caps.special_use);
         assert_eq!(Caps::from_names(&["IMAP4rev1"]), Caps::default());
+    }
+
+    #[test]
+    fn rev2_has_the_folded_in_base_features() {
+        // RFC 9051 (7.2.2, Appendix E.2): IMAP4rev2 folds in IDLE, MOVE, UIDPLUS,
+        // SPECIAL-USE and STATUS=SIZE; they are named in CAPABILITY neither in the
+        // base nor in the Appendix F recommendations. CONDSTORE/QRESYNC are not.
+        let caps = Caps::from_names(&["IMAP4rev2"]);
+        assert!(caps.idle && caps.move_ && caps.uidplus && caps.special_use && caps.status_size);
+        assert!(!caps.condstore && !caps.qresync, "recommended, not implied");
+        assert!(!caps.literal_plus && !caps.quota);
+        // Case is ignored, as in the capability list.
+        assert!(Caps::from_names(&["imap4rev2"]).idle);
     }
 
     #[test]

@@ -66,13 +66,18 @@ describe("the server's features", () => {
     expect(row(rows, "condstore").depesha).toBe("used");
   });
 
-  it("IMAP4rev2 has some features without naming them; Depesha reads the names alone", () => {
+  it("IMAP4rev2 has some features without naming them; Depesha reads them as used", () => {
+    // RFC 9051 folds IDLE, MOVE, UIDPLUS, SPECIAL-USE and STATUS=SIZE into the base
+    // protocol, so a rev2 server without those names still gets them used, not a warning.
     const rows = features(["IMAP4rev2", "IDLE"], null, 120, time);
     expect(protocol(["IMAP4rev2"])).toBe("IMAP4rev2");
     const move = row(rows, "move");
     expect(move.server).toBe("base");
-    expect(move.group).toBe("unused");
-    expect(move.depesha).toBe("workaround");
+    expect(move.group).toBe("used");
+    expect(move.depesha).toBe("used");
+    // CONDSTORE/QRESYNC are recommended (RFC 9051, Appendix F.1), not implied.
+    expect(row(rows, "condstore").group).toBe("missing");
+    expect(row(rows, "qresync").group).toBe("missing");
   });
 
   it("a rev2 server needs no explicit IDLE or MOVE: no yellow dot", () => {

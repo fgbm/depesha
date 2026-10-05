@@ -67,12 +67,18 @@ function feature(id: string): Feature {
 
 /**
  * A feature Depesha can use on this server: named in CAPABILITY, or part of the
- * IMAP4rev2 base protocol with QRESYNC implying CONDSTORE — as `features` reads it.
+ * IMAP4rev2 base protocol (RFC 9051 folds in IDLE, MOVE, UIDPLUS, SPECIAL-USE and
+ * STATUS=SIZE) with QRESYNC implying CONDSTORE — as `Caps` in Rust reads it.
  */
 function available(caps: string[], f: Feature): boolean {
   if (has(caps, f.tokens)) return true;
   if (!f.rev2 || !caps.some((c) => c.toUpperCase() === "IMAP4REV2")) return false;
   return f.id !== "condstore" || !!has(caps, ["QRESYNC"]);
+}
+
+/** A feature from the rev2 base set: Depesha's `Caps` sets it even unnamed. */
+function inBase(caps: string[], f: Feature): boolean {
+  return !!f.rev2 && caps.some((c) => c.toUpperCase() === "IMAP4REV2");
 }
 
 export interface Enable {
@@ -104,13 +110,12 @@ export function protocol(caps: string[]): string {
 
 /** The table, in the order of FEATURES; rows the server lacks and nobody misses are left out. */
 export function features(caps: string[], enable: Enable | null, pollSecs: number, time: (unix: number) => string): FeatureRow[] {
-  const rev2 = caps.some((c) => c.toUpperCase() === "IMAP4REV2");
   const minutes = Math.max(1, Math.round(pollSecs / 60));
   const rows: FeatureRow[] = [];
   for (const f of FEATURES) {
     const listed = has(caps, f.tokens);
-    const inBase = !listed && rev2 && !!f.rev2;
-    if (!listed && !inBase && !f.missing) continue;
+    const base = inBase(caps, f);
+    if (!listed && !base && !f.missing) continue;
     // The condstore row stands for CONDSTORE alone in its names.
     const names = listed ?? f.tokens[0].replace("=*", "");
     let gives = t(`server.f.${f.id}.gives` as Key);
@@ -123,13 +128,13 @@ export function features(caps: string[], enable: Enable | null, pollSecs: number
       names: f.id === "sortThread" ? caps.filter((c) => /^(SORT|THREAD=)/i.test(c)).join(", ") || "SORT, THREAD" : names,
       title: t(`server.f.${f.id}.title` as Key),
       gives,
-      server: listed ? "yes" : inBase ? "base" : "no",
+      server: listed ? "yes" : base ? "base" : "no",
       depesha: "used",
       important: false,
       group: "used",
     };
-    // Depesha reads the names in the list (Caps): a feature only in the base protocol is not used.
-    const usable = !!listed || (f.id === "condstore" && !!has(caps, ["QRESYNC"]));
+    // Depesha reads the names in the list (Caps) plus what rev2 folds into its base.
+    const usable = !!listed || (f.rev2 && base) || (f.id === "condstore" && !!has(caps, ["QRESYNC"]));
     if (usable && f.used) {
       row.depesha = "used";
       row.group = "used";
@@ -138,9 +143,9 @@ export function features(caps: string[], enable: Enable | null, pollSecs: number
       row.group = "unused";
     } else {
       row.depesha = f.missing ?? "notUsed";
-      row.group = inBase ? "unused" : "missing";
+      row.group = base ? "unused" : "missing";
       row.without = t(`server.f.${f.id}.without` as Key, { n: minutes, minutes: tn("server.minutes", minutes) });
-      row.important = !!f.important;
+      row.important = !base && !!f.important;
     }
     if (f.id === "qresync" && listed && enable) {
       if (enable.ok) {
