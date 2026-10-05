@@ -75,6 +75,14 @@ describe("the server's features", () => {
     expect(move.depesha).toBe("workaround");
   });
 
+  it("a rev2 server needs no explicit IDLE or MOVE: no yellow dot", () => {
+    // Both are part of the base protocol, as the table shows them.
+    expect(needsAttention(["IMAP4rev2"])).toBe(false);
+    expect(needsAttention(["IMAP4rev2", "IDLE"])).toBe(false);
+    // rev1 without MOVE still warns.
+    expect(needsAttention(["IMAP4rev1", "IDLE"])).toBe(true);
+  });
+
   it("unknown names are kept apart and the report has no secrets in it", () => {
     expect(unknown(MODERN)).toEqual(["SASL-IR", "LOGIN-REFERRALS", "MULTIAPPEND"]);
     const text = report("imap.example.com:993", "* OK [CAPABILITY IMAP4rev1] ready", OLD, { ok: false, answer: "no", at: 1 });

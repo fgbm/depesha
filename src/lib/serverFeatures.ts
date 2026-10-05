@@ -61,6 +61,20 @@ function has(caps: string[], tokens: string[]): string | undefined {
   return caps.find((c) => tokens.some((tk) => matches(c, tk)));
 }
 
+function feature(id: string): Feature {
+  return FEATURES.find((f) => f.id === id)!;
+}
+
+/**
+ * A feature Depesha can use on this server: named in CAPABILITY, or part of the
+ * IMAP4rev2 base protocol with QRESYNC implying CONDSTORE — as `features` reads it.
+ */
+function available(caps: string[], f: Feature): boolean {
+  if (has(caps, f.tokens)) return true;
+  if (!f.rev2 || !caps.some((c) => c.toUpperCase() === "IMAP4REV2")) return false;
+  return f.id !== "condstore" || !!has(caps, ["QRESYNC"]);
+}
+
 export interface Enable {
   ok: boolean;
   answer: string;
@@ -163,7 +177,7 @@ export function unknown(caps: string[]): string[] {
 /** The server slows Depesha down where the user sees it: no IDLE or no MOVE. */
 export function needsAttention(caps: string[] | null | undefined): boolean {
   if (!caps?.length) return false;
-  return !has(caps, ["IDLE"]) || !has(caps, ["MOVE"]);
+  return !available(caps, feature("idle")) || !available(caps, feature("move"));
 }
 
 /** The one-line verdict over the table. */
