@@ -230,7 +230,10 @@
             >
               <span class="icon"><Icon size={16} /></span>
               <span class="name">{label(f)}</span>
-              {#if f.unread > 0 && f.role !== "sent" && f.role !== "trash" && f.role !== "drafts"}
+              <!-- Drafts count all of them: a draft is not "unread". -->
+              {#if f.role === "drafts"}
+                {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
+              {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
                 <span class="count">{f.unread}</span>
               {/if}
             </button>

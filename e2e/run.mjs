@@ -684,6 +684,9 @@ try {
     await openBySubject("Бюджет на ноябрь");
     // The newest letter is opened; the two before it fold into cards above.
     await d.until("conversation cards", async () => (await d.findAll(".thread .card")).length === 2);
+    // Drafts count all of them, read ones too.
+    await d.until("drafts counter", async () =>
+      Number(await d.exec("return [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Черновики')?.querySelector('.count')?.innerText ?? 0")) >= 1);
     const t = await textOf(".thread");
     if (!t.includes("Мария Соколова")) throw new Error(`цепочка: ${t}`);
     await screenshot("conversation");
