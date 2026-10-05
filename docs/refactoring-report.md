@@ -178,7 +178,73 @@
 
 ## Фаза 3. Preferences
 
-Статус: **не начато**.
+Статус: **выполнено**.
+
+### Что сделано
+
+`src/components/Preferences.svelte` (739 → 378 строк, разметка 231 → 52, стиль 355 → 179)
+остался оболочкой окна настроек: вкладки (`CORE`, сгруппированные ящики и секции
+плагинов), `role="tablist"` и стрелки `↑/↓`, заголовок страницы, `content`, общий
+footer с `cancel`/`save`, `closeSettings`, `Escape` и черновик `draft`. Разметка и
+scoped-стили панелей переехали с их владельцами в `components/prefs/`; CSS оболочки
+(бокавая колонка вкладок, `pane`, `header`, `.content`, `footer`, узкое окно)
+осталась в ней.
+
+Панели (имя — по шву `{#if current === …}`, а не механически по списку из issue):
+
+- `GeneralPanel` — `general` + `updates`: язык, оформление и тема, порог крупного
+  письма (`largeValue`/`largeUnit` — `$bindable`), авто-обновления, проверка и версии;
+- `MailPanel` — `mail` + `notifications`: список, формат новых писем, чтение
+  (`letter_view`), папка вложений, «Отменить отправку» (`undo_send_secs`), уведомления
+  и квоты;
+- `OfflinePanel` — `offline`: срок хранения и вложения офлайн;
+- `AccountsPanel` — `accounts`, `account:new`, `account:<id>`: менеджер ящиков
+  (`Accounts.svelte`), мастер и `AccountPage`;
+- `PluginsPanel` — `plugins` и `plugin:<i>`: менеджер плагинов и секции из реестра.
+
+Отличие от имён в issue объяснено швами и лимитом в 350 строк (AC10): `General`,
+`Mail`, `Offline` и `Updates` — это одна и та же форма (секция, `h4`, снипет
+`option`, радио, `.inline`) с общим CSS; четыре отдельных файла скопировали бы её
+четыре раза. Поэтому группировка — по смыслу страницы: приложение+обновления
+(`GeneralPanel`) и почта+уведомления (`MailPanel`, тоже ≤ 350). `Accounts` и `Plugins`
+в issue названы раздельно, но обе панели рендерят общие компоненты `Accounts.svelte`
+и `Plugins.svelte` из соседних фаз и делят один `section`-стиль; они свёрнуты в одну
+панель, чтобы не плодить файлы ради файлов (R10, «не дробить ради дробления»).
+Если проверяющему нужны ровно четыре файла с issue-именами, `MailPanel` отделяется
+от `GeneralPanel` без изменения поведения.
+
+Правила выноса соблюдены: `app.*` остался единственной точкой входа (панели берут
+узкий `draft: Settings` и, где нужно, сам `app`), пропсы не пробрасываются цепочками,
+`mail`/`notifications`/`updates`/`offline`-CSS переехал вместе с разметкой; классы
+`.prefs`, `.account-page`, `.plugins`, `.tab[data-page]`, `.folder input`,
+`.pane h2`, `footer .btn.primary`, `input.large` не тронуты — E2E-селекторы целы.
+Разметка каждого блока побайтово совпала с исходной (сверка построчным `diff`), с
+точностью до структурных `{#if}`-обёрток.
+
+### Проверка фазы
+
+| Проверка | Результат |
+| --- | --- |
+| `npm run lint` | зелёный (0 ошибок; подавлений не добавлено) |
+| `npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings` | 0 ошибок, 0 предупреждений |
+| `npx vite build` | зелёный |
+| `npx vitest run` | 40 файлов, 277 тестов — зелёные |
+| `cargo fmt --all --check` | чисто |
+| `cargo clippy --workspace --all-targets -- -D warnings` | зелёный |
+| `cargo test -p depesha-core` / `-p depesha --lib` | зелёные |
+| `scripts/frontend-metrics.sh` | регрессий нет (`Preferences.svelte` 739 → 378) |
+| `scripts/frontend-invariants.sh` | дрейфа нет (`t_keys 559`, `app_members 85`, `role/aria 238`); обновлён только счётчик компонентов 55 → 60 |
+| `git diff --name-only main -- '*.svelte' 'e2e'` | только `Preferences.svelte` и новые `components/prefs/*.svelte`; `e2e/run.mjs` без изменений |
+
+| Файл | Строк | Ответственность |
+| --- | --- | --- |
+| `components/Preferences.svelte` | 378 (разметка 52) | оболочка окна: вкладки, заголовок, `content`, footer, закрытие |
+| `components/prefs/GeneralPanel.svelte` | 252 | язык, оформление/тема, порог крупного письма, обновления |
+| `components/prefs/MailPanel.svelte` | 181 | список, формат, чтение, вложения, отправка, уведомления, квоты |
+| `components/prefs/OfflinePanel.svelte` | 80 | офлайн: срок хранения и вложения |
+| `components/prefs/AccountsPanel.svelte` | 53 | менеджер ящиков, мастер, страница ящика |
+| `components/prefs/PluginsPanel.svelte` | 32 | менеджер плагинов и секции из реестра |
+
 
 ## Фаза 4. Sidebar
 

@@ -9,18 +9,17 @@
   import { untrack, type Component } from "svelte";
   import { app } from "../lib/store.svelte";
   import { registry } from "../plugin-host/registry.svelte";
-  import { t, tn } from "../lib/i18n.svelte";
-  import { applyTheme, THEMES } from "../lib/theme";
-  import Select from "./Select.svelte";
-  import Accounts from "./Accounts.svelte";
-  import Plugins from "./Plugins.svelte";
-  import Wizard from "./Wizard.svelte";
-  import AccountPage from "./account/AccountPage.svelte";
-  import FolderPicker from "./FolderPicker.svelte";
+  import { t } from "../lib/i18n.svelte";
+  import { applyTheme } from "../lib/theme";
   import { accountLabel } from "../lib/format";
   import { threshold } from "../lib/largeMail";
   import { levels } from "../lib/quota";
   import type { Settings } from "../lib/types";
+  import GeneralPanel from "./prefs/GeneralPanel.svelte";
+  import MailPanel from "./prefs/MailPanel.svelte";
+  import OfflinePanel from "./prefs/OfflinePanel.svelte";
+  import AccountsPanel from "./prefs/AccountsPanel.svelte";
+  import PluginsPanel from "./prefs/PluginsPanel.svelte";
 
   let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
   /** The large-letter threshold as typed: a number and its unit; saved in megabytes. */
@@ -31,7 +30,8 @@
 
   /**
    * Every setting in one window: the app's pages, the mailboxes (one page each),
-   * the plugins and a page per plugin section.
+   * the plugins and a page per plugin section. The shell keeps the tabs, the page
+   * title and the footer; the pages themselves are the panels under `prefs/`.
    */
   const CORE: { id: string; title: () => string; icon: Component }[] = [
     { id: "general", title: () => t("settings.page.general"), icon: Settings2 },
@@ -74,12 +74,6 @@
   );
   /** A mailbox's page has its own buttons: it is checked and saved apart from the rest. */
   const ownButtons = $derived(current.startsWith("account:"));
-
-  /** A radio choice of the snippet below: the field and the value are its own. */
-  function choose(group: "language" | "notify" | "updates" | "letter_view", value: string) {
-    // The snippet offers only the values each field takes.
-    (draft as unknown as Record<string, string>)[group] = value;
-  }
 
   // A theme is easier to pick by seeing it: it applies at once and goes back on Cancel.
   $effect(() => applyTheme(draft.theme));
@@ -153,13 +147,6 @@
   }
 </script>
 
-{#snippet option(group: "language" | "notify" | "updates" | "letter_view", value: string, label: string, note?: string)}
-  <label class="option">
-    <input type="radio" name={group} {value} checked={draft[group] === value} onchange={() => choose(group, value)} />
-    <span class="text">{label}{#if note}<span class="note">{note}</span>{/if}</span>
-  </label>
-{/snippet}
-
 <div class="modal-backdrop" role="presentation">
   <div class="modal prefs" role="dialog" aria-label={t("settings.title")} tabindex="-1" onkeydown={onKey}>
     <nav class="pages" aria-label={t("settings.title")}>
@@ -186,188 +173,16 @@
         {#if pageAccount}<span class="muted sub">{pageAccount.email}{pageAccount.ews ? " · Exchange" : ""}</span>{/if}
       </header>
       <div class="content" class:flush={ownButtons} role="tabpanel" aria-label={title}>
-        {#if current === "general"}
-          <section>
-            <h4>{t("settings.language")}</h4>
-            {@render option("language", "auto", t("settings.languageAuto"))}
-            {@render option("language", "en", "English")}
-            {@render option("language", "ru", "Русский")}
-          </section>
-          <section>
-            <h4>{t("settings.appearance")}</h4>
-            <div class="themes" role="radiogroup" aria-label={t("settings.appearance")}>
-              {#each THEMES as theme (theme)}
-                <label class="theme" class:on={draft.theme === theme}>
-                  <input type="radio" bind:group={draft.theme} value={theme} />
-                  <span class="swatch {theme}" aria-hidden="true"><i></i><b></b></span>
-                  {t(`settings.theme.${theme}`)}
-                </label>
-              {/each}
-            </div>
-            {#if draft.theme === "system"}<p class="hint">{t("settings.theme.systemNote")}</p>{/if}
-          </section>
-          <section>
-            <h4>{t("settings.search")}</h4>
-            <div class="inline">
-              <span>{t("settings.largeMail")}</span>
-              <input class="input large" type="number" min="1" aria-label={t("settings.largeMail")} bind:value={largeValue} />
-              <Select
-                label={t("settings.largeMail")}
-                bind:value={largeUnit}
-                options={[
-                  { value: "mb", label: t("unit.mb") },
-                  { value: "gb", label: t("unit.gb") },
-                ]}
-              />
-            </div>
-            <p class="hint">{t("settings.largeMailNote")}</p>
-          </section>
-        {:else if current === "mail"}
-          <section>
-            <h4>{t("settings.list")}</h4>
-            <label class="option">
-              <input type="checkbox" bind:checked={draft.threads} />
-              <span class="text">{t("settings.threads")}</span>
-            </label>
-            <label class="option">
-              <input type="checkbox" bind:checked={draft.sender_logos} />
-              <span class="text">{t("settings.senderLogos")}<span class="note">{t("settings.senderLogosNote")}</span></span>
-            </label>
-          </section>
-          <section>
-            <h4>{t("settings.newMessages")}</h4>
-            <div class="inline">
-              <span>{t("settings.composeFormat")}</span>
-              <Select
-                class="compose-format"
-                label={t("settings.composeFormat")}
-                bind:value={draft.compose_format}
-                options={(["plain", "html", "markdown"] as const).map((f) => ({ value: f, label: t(`format.${f}`) }))}
-              />
-            </div>
-            <p class="hint">{t("settings.composeFormatNote")}</p>
-          </section>
-          <section>
-            <h4>{t("settings.reading")}</h4>
-            <div class="caption" id="letter-view">{t("settings.letterView")}</div>
-            <div role="radiogroup" aria-labelledby="letter-view">
-              {@render option("letter_view", "sender", t("settings.letterView.sender"), t("settings.letterView.senderNote"))}
-              {@render option("letter_view", "markdown", t("settings.letterView.markdown"), t("settings.letterView.markdownNote"))}
-              {@render option("letter_view", "text", t("settings.letterView.text"), t("settings.letterView.textNote"))}
-            </div>
-            <p class="hint">{t("settings.letterView.hint")}</p>
-          </section>
-          <section>
-            <h4>{t("settings.attachmentsDir")}</h4>
-            <FolderPicker bind:value={() => draft.attachments_dir ?? "", (v) => (draft.attachments_dir = v)} label={t("settings.attachmentsDir")} placeholder={t("settings.askEveryTime")} />
-            <p class="hint">{t("settings.attachmentsDirNote")}</p>
-          </section>
-          <section>
-            <h4>{t("settings.sending")}</h4>
-            <div class="inline">
-              <span>{t("settings.undoSend")}</span>
-              <Select
-                label={t("settings.undoSend")}
-                bind:value={draft.undo_send_secs}
-                options={[{ value: 0, label: t("settings.noWait") }, ...[5, 10, 20, 30].map((secs) => ({ value: secs, label: tn("settings.seconds", secs) }))]}
-              />
-            </div>
-
-          </section>
-        {:else if current === "notifications"}
-          <section>
-            {@render option("notify", "people", t("settings.notifyPeople"), t("settings.notifyPeopleNote"))}
-            {@render option("notify", "all", t("settings.notifyAll"))}
-            {@render option("notify", "none", t("settings.notifyNone"))}
-            <p class="hint">{t("settings.dndNote")}</p>
-          </section>
-          <section data-settings="quota">
-            <h4>{t("settings.quota")}</h4>
-            <label class="option">
-              <input type="checkbox" bind:checked={draft.quota_warn} />
-              <span class="text">{t("settings.quotaWarn")}</span>
-            </label>
-            <div class="inline levels" class:disabled={!draft.quota_warn}>
-              <span>{t("settings.quotaLevels")}</span>
-              {#each [0, 1] as i (i)}
-                <input class="input pct" type="number" min="1" max="99" bind:value={draft.quota_levels[i]} disabled={!draft.quota_warn} aria-label="{t('settings.quotaLevels')} {i + 1}" />
-                <span>%</span>
-              {/each}
-              <span>{t("settings.quotaFull")}</span>
-            </div>
-            <div class="inline" class:disabled={!draft.quota_warn}>
-              <span>{t("settings.quotaRepeat")}</span>
-              <Select
-                label={t("settings.quotaRepeat")}
-                bind:value={draft.quota_repeat}
-                options={[
-                  { value: "threshold", label: t("settings.quotaRepeatThreshold") },
-                  { value: "daily", label: t("settings.quotaRepeatDaily") },
-                ]}
-              />
-            </div>
-            <p class="hint">{t("settings.quotaNote")}</p>
-          </section>
+        {#if current === "general" || current === "updates"}
+          <GeneralPanel {current} {draft} bind:largeValue bind:largeUnit />
+        {:else if current === "mail" || current === "notifications"}
+          <MailPanel {current} {draft} />
         {:else if current === "offline"}
-          <section>
-            <div class="inline">
-              <span>{t("settings.offlineKeep")}</span>
-              <Select
-                label={t("settings.offlineKeep")}
-                bind:value={draft.offline}
-                options={[
-                  { value: "off", label: t("settings.offlineOff") },
-                  { value: "30", label: tn("settings.offlineDays", 30) },
-                  { value: "90", label: tn("settings.offlineDays", 90) },
-                  { value: "365", label: t("settings.offlineYear") },
-                  { value: "all", label: t("settings.offlineAll") },
-                ]}
-              />
-            </div>
-            <label class="option" class:disabled={draft.offline === "off"}>
-              <input type="checkbox" bind:checked={draft.offline_attachments} disabled={draft.offline === "off"} />
-              <span class="text">{t("settings.offlineAttachments")}</span>
-            </label>
-            <p class="hint">{t("settings.offlineNote")}</p>
-          </section>
-        {:else if current === "updates"}
-          <section>
-            {@render option("updates", "auto", t("settings.updatesAuto"), t("settings.updatesAutoNote"))}
-            {@render option("updates", "notify", t("settings.updatesNotify"))}
-            {@render option("updates", "off", t("settings.updatesOff"))}
-          </section>
-          <section>
-            <div class="inline update-row">
-              <div class="status">
-                <div>{t("settings.installed", { version: app.update?.current ?? "—" })}</div>
-                {#if app.update?.state === "checking"}<div class="hint">{t("settings.checking")}</div>
-                {:else if app.update?.state === "error"}<div class="danger-text small">{app.update.error}</div>
-                {:else if app.update?.version}<div class="hint">{t("update.available", { version: app.update.version })}.</div>
-                {/if}
-                {#if app.update?.install === "package"}<div class="hint">{t("settings.packageNote")}</div>{/if}
-                {#if app.update?.install === "unsupported"}<div class="hint">{t("settings.unsupportedNote")}</div>{/if}
-              </div>
-              <button class="btn" onclick={() => app.checkUpdates()} disabled={app.update?.state === "checking"}>{t("settings.checkNow")}</button>
-            </div>
-            <p class="hint">{t("settings.signedNote")}</p>
-          </section>
-        {:else if current === "accounts"}
-          <Accounts onOpen={(p) => (page = p)} />
-        {:else if current === "plugins"}
-          <Plugins />
-        {:else if current === "account:new"}
-          <Wizard embedded onDone={() => (page = "accounts")} />
-        {:else if pageAccount}
-          {#key current}
-            <AccountPage account={pageAccount} onDone={() => (page = "accounts")} />
-          {/key}
+          <OfflinePanel {draft} />
+        {:else if current === "accounts" || current === "account:new" || current.startsWith("account:")}
+          <AccountsPanel {current} {pageAccount} onOpen={(p) => (page = p)} />
         {:else}
-          {@const sec = sections[Number(current.slice(7))]}
-          {#if sec}
-            <section>
-              <sec.item.component {...sec.item.props} />
-            </section>
-          {/if}
+          <PluginsPanel {current} />
         {/if}
       </div>
       {#if !ownButtons}
@@ -521,179 +336,6 @@
     overflow: hidden;
   }
 
-  section {
-    padding: 14px 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  section:last-child {
-    border-bottom: none;
-  }
-
-  h4 {
-    margin: 0 0 10px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-  }
-
-  /* The name of a group of choices under its section's heading. */
-  .caption {
-    margin-bottom: 2px;
-  }
-
-  /* A choice: the control, then its name with an explanation under it. */
-  .option {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 5px 0;
-    cursor: pointer;
-  }
-
-  .option input {
-    margin-top: 2px;
-  }
-
-  .option.disabled {
-    cursor: default;
-    color: var(--muted);
-  }
-
-  .text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    line-height: 1.4;
-  }
-
-  .note,
-  .hint {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.45;
-  }
-
-  .hint {
-    margin: 8px 0 0;
-  }
-
-  .inline {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 4px 0;
-  }
-
-  .small {
-    font-size: 12px;
-  }
-
-  .inline.disabled {
-    color: var(--muted);
-  }
-
-  .pct {
-    width: 56px;
-    padding: 4px 6px;
-    text-align: right;
-  }
-
-  .update-row {
-    justify-content: space-between;
-    align-items: flex-start;
-  }
-
-  .status {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    line-height: 1.4;
-  }
-
-  .themes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .theme {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 6px;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .theme:hover {
-    background: var(--hover);
-  }
-
-  .theme.on {
-    border-color: var(--accent);
-  }
-
-  /* The radio stays for the keyboard and screen readers; the swatch is what one sees. */
-  .theme input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .theme:has(input:focus-visible) {
-    outline: 2px solid var(--accent);
-  }
-
-  /* Swatch colours repeat --side and --paper of each theme in app.css. */
-  .swatch {
-    display: flex;
-    width: 64px;
-    height: 40px;
-    border-radius: 6px;
-    overflow: hidden;
-    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%);
-  }
-
-  .swatch i {
-    width: 35%;
-    background: var(--s);
-  }
-
-  .swatch b {
-    flex: 1;
-    background: var(--p);
-  }
-
-  .swatch.paper {
-    --s: #1f2a37;
-    --p: #faf7f1;
-  }
-
-  .swatch.night {
-    --s: #11161c;
-    --p: #171a1f;
-  }
-
-  .swatch.snow {
-    --s: #f3f4f6;
-    --p: #ffffff;
-  }
-
-  .swatch.graphite {
-    --s: #26272b;
-    --p: #1c1c1e;
-  }
-
-  .swatch.system {
-    --s: #1f2a37;
-    --p: linear-gradient(135deg, #faf7f1 50%, #171a1f 50%);
-  }
-
   footer {
     display: flex;
     gap: 8px;
@@ -732,8 +374,5 @@
     .group {
       display: none;
     }
-  }
-  .large {
-    width: 72px;
   }
 </style>
