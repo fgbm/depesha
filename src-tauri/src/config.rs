@@ -65,6 +65,9 @@ pub struct Settings {
     /// A new install writes HTML; one set up before the choice existed goes on with plain text.
     #[serde(default = "plain")]
     pub compose_format: BodyFormat,
+    /// Which form of a letter the reader shows: `sender` (the one the sender put last,
+    /// default), `markdown` or `text` when the letter has it. A letter's switch overrides it.
+    pub letter_view: String,
 }
 
 fn plain() -> BodyFormat {
@@ -94,6 +97,7 @@ impl Default for Settings {
             view_sorts: Default::default(),
             large_mb: 25,
             compose_format: BodyFormat::Html,
+            letter_view: "sender".into(),
         }
     }
 }
@@ -189,6 +193,7 @@ mod tests {
         let old: Config = serde_json::from_str(r#"{"accounts":[],"settings":{"undo_send_secs":5}}"#).unwrap();
         assert_eq!(old.settings.compose_format, BodyFormat::Plain);
         assert_eq!(old.settings.undo_send_secs, 5);
+        assert_eq!(old.settings.letter_view, "sender");
         let chosen: Settings = serde_json::from_str(r#"{"compose_format":"markdown"}"#).unwrap();
         assert_eq!(chosen.compose_format, BodyFormat::Markdown);
     }

@@ -5,6 +5,7 @@
   import { api } from "../../lib/api";
   import { t } from "../../lib/i18n.svelte";
   import type { Sheet } from "../../lib/office";
+  import { COLUMN_CSS, MARKDOWN_CSS } from "../../lib/prose";
   import type { ViewedFile } from "../../lib/viewer";
   import MailFrame from "../MailFrame.svelte";
 
@@ -15,12 +16,8 @@
   let sheet = $state(0);
   let cut = $state(false);
 
-  /** Markdown reads as a column, not as a line across the screen. */
-  const PROSE = `<style>body{max-width:78ch;margin:24px auto;padding:0 22px;font-size:15px;line-height:1.6}
-code,pre{font-family:ui-monospace,"DejaVu Sans Mono",Consolas,monospace;font-size:13px;background:#f4f1ea;border-radius:4px}
-code{padding:1px 4px}pre{padding:10px 12px;overflow:auto}pre code{padding:0;background:none}
-table{border-collapse:collapse}th,td{border:1px solid #ddd5c4;padding:4px 10px}th{background:#f4f1ea}
-h1,h2{border-bottom:1px solid #e4ddcf;padding-bottom:.25em}</style>`;
+  /** Markdown reads as a column, drawn as in a letter. */
+  const PROSE = COLUMN_CSS + MARKDOWN_CSS;
 
   $effect(() => {
     let gone = false;

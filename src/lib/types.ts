@@ -240,6 +240,10 @@ export interface MessageView {
   send_at?: number | null;
   /** How a draft of Depesha's was being written; absent for other letters. */
   format?: BodyFormat | null;
+  /** The letter's `text/markdown` part drawn as HTML, cleaned like `html`. */
+  markdown?: string | null;
+  /** The forms the letter came in, in its order: the sender's favourite last. */
+  views?: BodyView[];
 }
 
 export interface OpenedMessage {
@@ -368,6 +372,8 @@ export interface Settings {
   large_mb: number;
   /** How new letters are written; a mailbox may have its own. */
   compose_format: BodyFormat;
+  /** Which form of a letter the reader shows; a letter's switch overrides it. */
+  letter_view: LetterViewPref;
 }
 
 /** What a search found in the cache: letters and their bytes. */
@@ -375,6 +381,12 @@ export interface SearchTotals {
   count: number;
   size: number;
 }
+
+/** The sender's favourite form, or Markdown or plain text when the letter has it. */
+export type LetterViewPref = "sender" | "markdown" | "text";
+
+/** A form of a letter's text: a part of its `multipart/alternative`. */
+export type BodyView = "text" | "html" | "markdown";
 
 /** Background work shown in the tasks window. */
 export interface Task {

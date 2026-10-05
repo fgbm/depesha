@@ -201,15 +201,37 @@ impl Part {
 }
 
 /// The letter's text in every form it goes out in: the plain one, then the others in
-/// the order `multipart/alternative` wants them. A `text/markdown` part (#8) would go last.
+/// the order `multipart/alternative` wants them, the sender's favourite last (RFC 2046).
+///
+/// A letter written in Markdown also carries the Markdown itself (RFC 7763), before the
+/// HTML: a reader picks the last part it can show, and RFC 2046 lets a client show an
+/// unknown `text/*` subtype as plain text, so a Markdown part last would put the bare
+/// markup in front of everyone whose client draws HTML. Clients that know Markdown find
+/// it anywhere among the parts.
 fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
     let plain = text_part(draft.text.clone());
+    let mut rest = Vec::new();
     let html = match draft.format {
-        BodyFormat::Markdown => Some(crate::message::markdown_html(&draft.text)),
+        BodyFormat::Markdown => {
+            rest.push(Part::One(markdown_part(draft.text.clone())));
+            Some(crate::message::markdown_html(&draft.text))
+        }
         _ => draft.html.as_deref().map(crate::message::compose_html),
     };
-    (plain, html.map(|html| html_body(&html)).into_iter().collect())
+    rest.extend(html.map(|html| html_body(&html)));
+    (plain, rest)
 }
+
+/// The Markdown a letter was written in (RFC 7763, the variant by RFC 7764).
+fn markdown_part(text: String) -> SinglePart {
+    SinglePart::builder()
+        .header(ContentType::parse(MARKDOWN_TYPE).expect("valid mime"))
+        .header(ContentTransferEncoding::QuotedPrintable)
+        .body(text)
+}
+
+/// The Content-Type of a letter's Markdown part.
+pub const MARKDOWN_TYPE: &str = "text/markdown; charset=utf-8; variant=CommonMark";
 
 /// The HTML of a letter as it goes out: `text/html` alone, or `multipart/related` with
 /// the pictures of the HTML as parts of their own that it calls by `cid:`. Every picture
@@ -712,13 +734,23 @@ mod tests {
 
     #[test]
     fn markdown_goes_as_is_and_rendered() {
-        let text = "**жирный**\n\n- раз\n- два\n\n-- \nИван";
+        let text = "**жирный**\n\n- раз\n- два\n- [x] готово\n\n-- \nИван";
         let raw = String::from_utf8(build(&letter(BodyFormat::Markdown, text, None)).unwrap().formatted()).unwrap();
+        // The Markdown before the HTML: a client that does not know it shows the HTML.
         assert_eq!(
             content_types(&raw),
-            ["multipart/alternative", "text/plain", "text/html"],
+            ["multipart/alternative", "text/plain", "text/markdown", "text/html"],
             "{raw}"
         );
+        let markdown = raw
+            .lines()
+            .find(|l| l.starts_with("Content-Type: text/markdown"))
+            .unwrap();
+        assert!(
+            markdown.contains("charset=utf-8") && markdown.contains("variant=CommonMark"),
+            "{markdown}"
+        );
+        assert!(raw.is_ascii(), "body must be 7-bit for servers without 8BITMIME");
         let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
         assert_eq!(
             view.text.map(|t| t.replace("\r\n", "\n")).as_deref().map(str::trim_end),
@@ -727,8 +759,60 @@ mod tests {
         let html = view.html.unwrap();
         assert!(html.contains("<strong>жирный</strong>"), "{html}");
         assert!(html.contains("<ul>") && html.contains("<li>раз</li>"), "{html}");
+        // A task keeps its box as a character: mail programs drop form fields.
+        assert!(html.contains("<li>☑ готово</li>"), "{html}");
         // The signature keeps its lines.
         assert!(html.contains("--<br>"), "{html}");
+        // Our own letter reads back with its Markdown, which is no attachment.
+        use crate::message::BodyView;
+        assert_eq!(view.views, [BodyView::Text, BodyView::Markdown, BodyView::Html]);
+        assert!(view.markdown.unwrap().contains("<strong>жирный</strong>"));
+        assert!(view.attachments.is_empty(), "{:?}", view.attachments);
+        assert!(!view.summary.has_attachments);
+    }
+
+    #[test]
+    fn only_markdown_letters_carry_markdown() {
+        for (format, html) in [(BodyFormat::Plain, None), (BodyFormat::Html, Some("<p>Да</p>"))] {
+            let raw = String::from_utf8(build(&letter(format, "Да", html)).unwrap().formatted()).unwrap();
+            assert!(!raw.contains("text/markdown"), "{raw}");
+            assert!(
+                crate::message::parse_view(raw.as_bytes(), false)
+                    .unwrap()
+                    .markdown
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_letter_keeps_attachments_beside() {
+        let mut draft = letter(BodyFormat::Markdown, "# План", None);
+        draft.attachments.push(OutgoingAttachment {
+            name: "план.md".into(),
+            mime: "text/markdown".into(),
+            data: b"# other".to_vec(),
+        });
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/mixed",
+                "multipart/alternative",
+                "text/plain",
+                "text/markdown",
+                "text/html",
+                "text/markdown"
+            ],
+            "{raw}"
+        );
+        // The letter's Markdown is its text; the attached file stays a file.
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        assert_eq!(view.attachments.len(), 1, "{:?}", view.attachments);
+        assert_eq!(view.attachments[0].name, "план.md");
+        assert!(view.markdown.unwrap().contains("<h1>План</h1>"));
+        let (_, bytes) = crate::message::attachment(raw.as_bytes(), view.attachments[0].index).unwrap();
+        assert_eq!(bytes, b"# other");
     }
 
     #[test]

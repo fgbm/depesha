@@ -70,7 +70,7 @@
   const ownButtons = $derived(current.startsWith("account:"));
 
   /** A radio choice of the snippet below: the field and the value are its own. */
-  function choose(group: "language" | "notify" | "updates", value: string) {
+  function choose(group: "language" | "notify" | "updates" | "letter_view", value: string) {
     // The snippet offers only the values each field takes.
     (draft as unknown as Record<string, string>)[group] = value;
   }
@@ -80,7 +80,7 @@
 
   /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos, attachments_dir, compose_format } =
+    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos, attachments_dir, compose_format, letter_view } =
       $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
@@ -96,6 +96,7 @@
       attachments_dir: (attachments_dir ?? "").trim(),
       large_mb: threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb),
       compose_format,
+      letter_view,
     });
     close();
   }
@@ -128,7 +129,7 @@
   }
 </script>
 
-{#snippet option(group: "language" | "notify" | "updates", value: string, label: string, note?: string)}
+{#snippet option(group: "language" | "notify" | "updates" | "letter_view", value: string, label: string, note?: string)}
   <label class="option">
     <input type="radio" name={group} {value} checked={draft[group] === value} onchange={() => choose(group, value)} />
     <span class="text">{label}{#if note}<span class="note">{note}</span>{/if}</span>
@@ -221,6 +222,16 @@
               />
             </div>
             <p class="hint">{t("settings.composeFormatNote")}</p>
+          </section>
+          <section>
+            <h4>{t("settings.reading")}</h4>
+            <div class="caption" id="letter-view">{t("settings.letterView")}</div>
+            <div role="radiogroup" aria-labelledby="letter-view">
+              {@render option("letter_view", "sender", t("settings.letterView.sender"), t("settings.letterView.senderNote"))}
+              {@render option("letter_view", "markdown", t("settings.letterView.markdown"), t("settings.letterView.markdownNote"))}
+              {@render option("letter_view", "text", t("settings.letterView.text"), t("settings.letterView.textNote"))}
+            </div>
+            <p class="hint">{t("settings.letterView.hint")}</p>
           </section>
           <section>
             <h4>{t("settings.attachmentsDir")}</h4>
@@ -473,6 +484,11 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--muted);
+  }
+
+  /* The name of a group of choices under its section's heading. */
+  .caption {
+    margin-bottom: 2px;
   }
 
   /* A choice: the control, then its name with an explanation under it. */

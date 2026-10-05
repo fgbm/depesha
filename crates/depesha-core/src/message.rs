@@ -183,6 +183,21 @@ pub struct MessageView {
     /// How a draft was being written (`FORMAT_HEADER`); absent for other letters.
     #[serde(default)]
     pub format: Option<crate::smtp::BodyFormat>,
+    /// The letter's Markdown (`text/markdown`, RFC 7763) drawn as HTML and cleaned like `html`.
+    #[serde(default)]
+    pub markdown: Option<String>,
+    /// The forms the letter came in, in the order it offers them: the sender's favourite last.
+    #[serde(default)]
+    pub views: Vec<BodyView>,
+}
+
+/// A form of the letter's text: one part of its `multipart/alternative`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BodyView {
+    Text,
+    Html,
+    Markdown,
 }
 
 /// Where Depesha keeps a draft's scheduled time; only drafts carry it, sent mail never does.
@@ -204,13 +219,15 @@ pub fn parse_summary(raw: &[u8]) -> Summary {
 
 pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     let msg = MessageParser::default().parse(raw).ok_or(Error::Parse)?;
-    let attachments = attachments_of(&msg);
+    let markdown_ids = markdown_parts(&msg);
+    let attachments = attachments_of(&msg, &markdown_ids);
 
     let mut inline = HashMap::new();
-    for (part, info) in msg.attachments().zip(&attachments) {
+    for info in &attachments {
         if let Some(cid) = &info.content_id
             && info.mime.starts_with("image/")
             && info.size <= MAX_INLINE_IMAGE
+            && let Some(part) = msg.attachment(info.index)
         {
             let uri = format!("data:{};base64,{}", info.mime, BASE64.encode(part.contents()));
             inline.insert(cid.clone(), uri);
@@ -224,6 +241,18 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         }
         _ => (None, false),
     };
+    let (markdown, markdown_remote) = match markdown_ids
+        .first()
+        .and_then(|&id| msg.parts.get(id as usize))
+        .and_then(|p| p.text_contents())
+    {
+        Some(source) => {
+            let (clean, remote) = markdown_letter(source, &inline, allow_remote);
+            (Some(clean), remote)
+        }
+        None => (None, false),
+    };
+    let views = views_of(&msg, markdown_ids.first().copied());
     let text = msg.body_text(0).map(Cow::into_owned);
 
     let summary = summary_of(&msg);
@@ -233,12 +262,60 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         summary,
         text,
         html,
-        has_remote_content,
+        has_remote_content: has_remote_content || markdown_remote,
         authenticated: false,
         attachments,
         send_at,
         format,
+        markdown,
+        views,
     })
+}
+
+/// The letter's Markdown (RFC 7763): a `text/markdown` part among its alternatives, or
+/// the whole letter. mail-parser takes such a part for an attachment; a Markdown file
+/// attached to the letter stays one.
+fn markdown_parts(msg: &Message<'_>) -> Vec<u32> {
+    let is_markdown = |id: u32| {
+        msg.parts.get(id as usize).is_some_and(|p| {
+            p.is_content_type("text", "markdown") && !p.content_disposition().is_some_and(|d| d.is_attachment())
+        })
+    };
+    let mut ids: Vec<u32> = is_markdown(0).then_some(0).into_iter().collect();
+    for part in &msg.parts {
+        if let mail_parser::PartType::Multipart(children) = &part.body
+            && part.is_content_type("multipart", "alternative")
+        {
+            ids.extend(children.iter().copied().filter(|&id| is_markdown(id)));
+        }
+    }
+    ids
+}
+
+/// The forms the letter came in, in the order of their parts: `multipart/alternative`
+/// puts the sender's favourite last (RFC 2046). Plain text made from HTML is not one.
+fn views_of(msg: &Message<'_>, markdown: Option<u32>) -> Vec<BodyView> {
+    use mail_parser::PartType;
+    let first = |ids: &[u32], html: bool| {
+        ids.iter().copied().find(|&id| {
+            Some(id) != markdown
+                && msg.parts.get(id as usize).is_some_and(|p| match &p.body {
+                    PartType::Html(_) => html,
+                    PartType::Text(_) => !html,
+                    _ => false,
+                })
+        })
+    };
+    let mut found: Vec<(u32, BodyView)> = [
+        first(&msg.text_body, false).map(|id| (id, BodyView::Text)),
+        first(&msg.html_body, true).map(|id| (id, BodyView::Html)),
+        markdown.map(|id| (id, BodyView::Markdown)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    found.sort_by_key(|(id, _)| *id);
+    found.into_iter().map(|(_, view)| view).collect()
 }
 
 /// What the receiving server vouches for about a letter's sender. Only the server of
@@ -390,19 +467,45 @@ pub fn document_html(text: &str, markdown: bool) -> String {
     sanitize_html(&html, &HashMap::new(), false).0
 }
 
-/// A letter written in Markdown as the HTML it goes out as. A line break stays a line
-/// break, as people expect of a letter (and GitHub comments): the signature under "-- "
-/// and the quoted lines keep their lines. No scripts, no remote images.
+/// A letter written in Markdown as the HTML it goes out as. No scripts, no remote images.
+/// A task's box is a character: mail programs drop form fields.
 pub fn markdown_html(text: &str) -> String {
-    use pulldown_cmark::{Event, Options, Parser, html};
+    let html = render_markdown(text, |done| if done { "☑ " } else { "☐ " });
+    sanitize_html(&html, &HashMap::new(), false).0
+}
+
+/// Where a task's box stands until the HTML is clean: characters for private use that
+/// no letter carries, as they are taken out of its text first.
+const TASK_DONE: char = '\u{E0D1}';
+const TASK_OPEN: char = '\u{E0D0}';
+
+/// The Markdown part of a received letter as the reader shows it: cleaned like its HTML,
+/// with the same rule for remote pictures, and its tasks as boxes that cannot be ticked.
+/// Says whether it asked for remote content.
+pub fn markdown_letter(text: &str, inline: &HashMap<String, String>, allow_remote: bool) -> (String, bool) {
+    let text = text.replace([TASK_DONE, TASK_OPEN], "");
+    let html = render_markdown(&text, |done| if done { "\u{E0D1}" } else { "\u{E0D0}" });
+    let (clean, remote) = sanitize_html(&html, inline, allow_remote);
+    let clean = clean
+        .replace(TASK_DONE, "<input type=\"checkbox\" checked disabled> ")
+        .replace(TASK_OPEN, "<input type=\"checkbox\" disabled> ");
+    (clean, remote)
+}
+
+/// A letter's Markdown as HTML, not yet cleaned. A line break stays a line break, as
+/// people expect of a letter (and GitHub comments): the signature under "-- " and the
+/// quoted lines keep their lines. `task` gives the text standing for a task's box.
+fn render_markdown(text: &str, task: fn(bool) -> &'static str) -> String {
+    use pulldown_cmark::{CowStr, Event, Options, Parser, html};
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let events = Parser::new_ext(text, options).map(|e| match e {
         Event::SoftBreak => Event::HardBreak,
+        Event::TaskListMarker(done) => Event::Text(CowStr::Borrowed(task(done))),
         e => e,
     });
     let mut out = String::with_capacity(text.len() * 3 / 2);
     html::push_html(&mut out, events);
-    sanitize_html(&out, &HashMap::new(), false).0
+    out
 }
 
 /// The HTML of the visual editor cleaned once more before it leaves: the editor
@@ -473,7 +576,8 @@ fn is_bulk(msg: &Message<'_>) -> bool {
 }
 
 fn summary_of(msg: &Message<'_>) -> Summary {
-    let has_attachments = msg.attachment_count() > 0
+    let markdown = markdown_parts(msg);
+    let has_attachments = msg.attachments.iter().any(|id| !markdown.contains(id))
         || msg.root_part().content_type().is_some_and(|ct| {
             ct.ctype().eq_ignore_ascii_case("multipart")
                 && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case("mixed"))
@@ -515,10 +619,13 @@ fn addrs(address: &Address<'_>) -> Vec<Addr> {
         .collect()
 }
 
-fn attachments_of(msg: &Message<'_>) -> Vec<AttachmentInfo> {
-    msg.attachments()
+/// The letter's attachments with their indexes for [`attachment`], but for its Markdown text.
+fn attachments_of(msg: &Message<'_>, markdown: &[u32]) -> Vec<AttachmentInfo> {
+    msg.attachments
+        .iter()
         .enumerate()
-        .map(|(i, part)| attachment_info(msg, i as u32, part))
+        .filter(|(_, id)| !markdown.contains(id))
+        .filter_map(|(i, &id)| Some(attachment_info(msg, i as u32, msg.parts.get(id as usize)?)))
         .collect()
 }
 
@@ -765,6 +872,70 @@ JVBERi0xLjQK\r\n\
         let html = markdown_html("Привет,\nБоб\n\n![x](https://tracker.example/p.gif)<script>alert(1)</script>");
         assert!(html.contains("Привет,<br>"), "{html}");
         assert!(!html.contains("tracker.example") && !html.contains("script"), "{html}");
+    }
+
+    /// A letter of another Markdown-aware client: the Markdown last, its favourite.
+    const MARKDOWN_MAIL: &[u8] = b"From: ivan@example.org\r\n\
+To: me@example.org\r\n\
+Subject: Notes\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/alternative; boundary=\"a\"\r\n\
+\r\n\
+--a\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+Plain notes\r\n\
+--a\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>HTML notes</p>\r\n\
+--a\r\n\
+Content-Type: text/markdown; charset=utf-8; variant=GFM\r\n\
+\r\n\
+# Notes\r\n\
+\r\n\
+- [x] signed\r\n\
+- [ ] scanners \xee\x83\x91\r\n\
+\r\n\
+| a | b |\r\n\
+|---|---|\r\n\
+| 1 | 2 |\r\n\
+\r\n\
+![p](https://tracker.example/p.gif) <script>alert(1)</script><img src=\"x\" onerror=\"y()\">\r\n\
+--a--\r\n";
+
+    #[test]
+    fn reads_the_markdown_part_of_a_letter() {
+        let view = parse_view(MARKDOWN_MAIL, false).unwrap();
+        assert_eq!(view.views, [BodyView::Text, BodyView::Html, BodyView::Markdown]);
+        assert_eq!(view.text.as_deref().map(str::trim), Some("Plain notes"));
+        assert!(view.html.as_deref().unwrap().contains("HTML notes"));
+        let md = view.markdown.unwrap();
+        assert!(md.contains("<h1>Notes</h1>") && md.contains("<table>"), "{md}");
+        // Tasks are boxes that cannot be ticked; a sender's own marker character is no box.
+        assert_eq!(md.matches("<input").count(), 2, "{md}");
+        assert!(md.contains("<input type=\"checkbox\" checked disabled> signed"), "{md}");
+        assert!(md.contains("<input type=\"checkbox\" disabled> scanners"), "{md}");
+        assert!(!md.contains('\u{E0D1}'), "{md}");
+        // Cleaned like HTML: no scripts or handlers, remote pictures wait for permission.
+        assert!(!md.contains("script") && !md.contains("onerror"), "{md}");
+        assert!(!md.contains("tracker.example"), "{md}");
+        assert!(view.has_remote_content);
+        assert!(view.attachments.is_empty() && !view.summary.has_attachments);
+        let allowed = parse_view(MARKDOWN_MAIL, true).unwrap();
+        assert!(allowed.markdown.unwrap().contains("tracker.example"));
+    }
+
+    #[test]
+    fn a_letter_all_in_markdown_is_its_markdown() {
+        let raw = b"From: a@example.org\r\nSubject: s\r\nContent-Type: text/markdown; charset=utf-8\r\n\r\n**hi**\r\n";
+        let view = parse_view(raw, false).unwrap();
+        assert_eq!(view.views, [BodyView::Markdown]);
+        assert!(view.markdown.unwrap().contains("<strong>hi</strong>"));
+        assert!(view.attachments.is_empty());
+        // Other letters come as they always did.
+        assert_eq!(parse_view(MAIL, false).unwrap().views, [BodyView::Html]);
+        assert!(parse_view(MAIL, false).unwrap().markdown.is_none());
     }
 
     #[test]

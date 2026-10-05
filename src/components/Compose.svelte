@@ -32,6 +32,7 @@
   import type { BodyFormat, ComposeDraft } from "../lib/types";
   import RichEditor from "./RichEditor.svelte";
   import FormatBar from "./FormatBar.svelte";
+  import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
   import { composeAction } from "../lib/composeKeys";
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -650,7 +651,7 @@
         </div>
       {/if}
     </div>
-    {#if format === "markdown"}<p class="md-note">{t("compose.markdown.note")}</p>{/if}
+    {#if format === "markdown"}<MarkdownPartsNote />{/if}
 
     {#if format !== "html" && quote}
       <div class="quote" class:open={quoteOpen}>
@@ -973,14 +974,6 @@
     border-left: 2px solid var(--line);
     padding-left: 1ex;
     color: var(--muted);
-  }
-
-  .md-note {
-    margin: 0;
-    padding: 4px 18px;
-    font-size: 12px;
-    color: var(--muted);
-    border-top: 1px solid var(--line);
   }
 
   /* Files dragged over an HTML letter: into the text, or attached. */

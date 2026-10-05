@@ -36,10 +36,13 @@
   import { sendWarnings } from "../lib/sendChecks";
   import type { Banner as PluginBanner } from "../plugin-api";
   import MailFrame from "./MailFrame.svelte";
+  import LetterViewSwitch from "./LetterViewSwitch.svelte";
+  import { preferredView, switchViews } from "../lib/letterView";
+  import { MARKDOWN_CSS } from "../lib/prose";
   import Viewer from "./Viewer.svelte";
   import Popover from "./Popover.svelte";
   import PluginBannerView from "./PluginBanner.svelte";
-  import type { Addr, AttachmentInfo, ComposeDraft, MessageRow } from "../lib/types";
+  import type { Addr, AttachmentInfo, BodyView, ComposeDraft, MessageRow } from "../lib/types";
   import { untrack } from "svelte";
   import { avatarOf } from "../lib/avatars.svelte";
 
@@ -76,6 +79,12 @@
   );
   const isDraft = $derived(msg ? app.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const files = $derived(msg ? msg.view.attachments.filter((a) => !(a.inline && a.content_id)) : []);
+  /** The form picked above this letter: it holds while the letter is open and is not kept. */
+  let picked = $state<{ id: number; view: BodyView } | null>(null);
+  const switchable = $derived(msg ? switchViews(msg.view, app.settings.letter_view) : []);
+  const shown = $derived<BodyView>(
+    !msg ? "text" : picked?.id === msg.row.id ? picked.view : preferredView(msg.view, app.settings.letter_view),
+  );
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.allowRemote && !msg.trusted_sender);
   /** "To: me" says nothing: shown only when someone else got it too. */
   const onlyToMe = $derived.by(() => {
@@ -573,9 +582,16 @@
         <Viewer id={viewing.id} {files} bind:at={viewing.at} onClose={closeViewer} onSave={saveAttachment} onOpenApp={openAttachment} />
       {/if}
 
+      {#if switchable.length && viewing === null}
+        <LetterViewSwitch views={switchable} bind:value={() => shown, (view) => (picked = { id: msg.row.id, view })} />
+      {/if}
       <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
       <div class="body" hidden={viewing !== null}>
-        {#if msg.view.html}
+        {#if shown === "markdown" && msg.view.markdown}
+          {#key `${msg.row.id}:md:${app.allowRemote || msg.trusted_sender}`}
+            <MailFrame html={MARKDOWN_CSS + msg.view.markdown} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
+          {/key}
+        {:else if shown === "html" && msg.view.html}
           <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->
           {#key `${msg.row.id}:${app.allowRemote || msg.trusted_sender}`}
             <MailFrame html={msg.view.html} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
