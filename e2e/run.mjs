@@ -587,6 +587,26 @@ try {
     if (nested <= 14) throw new Error(`«Проекты» не вложена (отступ ${nested}px)`);
   });
 
+  await step("6.8", "вложенные папки сворачиваются своим треугольником, остальное на месте", async () => {
+    const shown = () => d.exec("return [...document.querySelectorAll('nav.side .item .name')].map((n) => n.innerText.trim())");
+    const toggles = () => d.exec("return [...document.querySelectorAll('nav.side .fold')].map((b) => b.getAttribute('aria-label'))");
+    const t = await toggles();
+    if (!t.some((l) => l.endsWith(": Работа"))) throw new Error(`нет треугольника у «Работы»: ${t}`);
+    if (t.some((l) => l.endsWith(": Корзина") || l.endsWith(": Проекты"))) throw new Error(`треугольник у папки без подпапок: ${t}`);
+    const before = await shown();
+    await d.click(await d.find("nav.side .fold[aria-label$=': Работа']"));
+    await d.until("branch folded", async () => !(await shown()).includes("Проекты"));
+    const after = await shown();
+    const lost = before.filter((n) => n !== "Проекты" && !after.includes(n));
+    if (lost.length) throw new Error(`пропали другие папки: ${lost}`);
+    // The folder itself still opens with a click on its name.
+    await openFolder("Работа");
+    await d.until("Работа open", async () => (await textOf(".list")).includes("Документы на проверку"));
+    await d.click(await d.find("nav.side .fold[aria-label$=': Работа']"));
+    await d.until("branch back", async () => (await shown()).includes("Проекты"));
+    await d.button("Входящие");
+  });
+
   await step("3.11", "офлайн: письма за 30 дней скачиваются сами, ход виден в «Фоновых задачах»", async () => {
     const overview = () => invoke("sync_overview");
     await d.until("offline download done", async () => {

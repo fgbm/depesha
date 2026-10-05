@@ -209,6 +209,8 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "search.serverFound": "На серверах найдено: {n}",
   "search.serverRunning": "Ищем на серверах…",
   "search.title": "Поиск",
+  "sidebar.foldFolder": "Свернуть подпапки",
+  "sidebar.unfoldFolder": "Показать подпапки",
   "settings.appearance": "Оформление",
   "settings.checkNow": "Проверить сейчас",
   "settings.checking": "Проверяю…",

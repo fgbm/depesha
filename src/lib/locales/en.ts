@@ -216,6 +216,8 @@ export const en = {
   "search.serverFound": "Found on the servers: {n}",
   "search.serverRunning": "Searching the servers…",
   "search.title": "Search",
+  "sidebar.foldFolder": "Fold subfolders",
+  "sidebar.unfoldFolder": "Show subfolders",
   "settings.appearance": "Appearance",
   "settings.checkNow": "Check now",
   "settings.checking": "Checking…",

@@ -20,6 +20,7 @@
   import Download from "@lucide/svelte/icons/download";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Activity from "@lucide/svelte/icons/activity";
   import { app, type View } from "../lib/store.svelte";
@@ -27,6 +28,7 @@
   import { when } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
   import { accountLabel, roleLabel } from "../lib/format";
+  import { unfolded, withChildren } from "../lib/folders";
   import { registry } from "../plugin-host/registry.svelte";
   import Popover from "./Popover.svelte";
   import FolderMenu from "./FolderMenu.svelte";
@@ -103,6 +105,27 @@
 
   function foldersOf(acc: AccountView): FolderInfo[] {
     return app.folders.filter((f) => f.account_id === acc.id && !f.hidden);
+  }
+
+  /** Folded folders with subfolders, by account and name; kept between launches, as mailboxes are. */
+  const FOLDED_KEY = "depesha.sidebar.folded";
+  let folded = $state<Record<string, boolean>>(readFolded());
+
+  function readFolded(): Record<string, boolean> {
+    try {
+      return JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  const foldKey = (f: FolderInfo) => `${f.account_id}\u0000${f.name}`;
+
+  function fold(f: FolderInfo) {
+    const key = foldKey(f);
+    if (folded[key]) delete folded[key];
+    else folded[key] = true;
+    localStorage.setItem(FOLDED_KEY, JSON.stringify(folded));
   }
 
   function depth(f: FolderInfo): number {
@@ -214,28 +237,44 @@
           </button>
         {/if}
         {#if !collapsed[acc.id]}
-          {#each foldersOf(acc) as f (f.name)}
+          {@const all = foldersOf(acc)}
+          {@const parents = withChildren(all)}
+          {#each unfolded(all, (name) => !!folded[`${acc.id}\u0000${name}`]) as f (f.name)}
             {@const v = { kind: "folder", account_id: acc.id, folder: f.name } as View}
             {@const Icon = f.role ? ROLE_ICON[f.role] : Folder}
-            <button
-              class="item"
-              class:active={isActive(v)}
-              class:disabled={!f.selectable}
-              disabled={!f.selectable}
-              style:padding-left="{14 + depth(f) * 14}px"
-              onclick={() => app.setView(v)}
-              oncontextmenu={(e) => f.selectable && contextMenu(e, acc, f)}
-              title={f.display_name}
-            >
-              <span class="icon"><Icon size={16} /></span>
-              <span class="name">{label(f)}</span>
-              <!-- Drafts count all of them: a draft is not "unread". -->
-              {#if f.role === "drafts"}
-                {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
-              {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
-                <span class="count">{f.unread}</span>
+            <div class="folder-row">
+              {#if parents.has(f.name)}
+                {@const open = !folded[foldKey(f)]}
+                <!-- A triangle of its own: a click on the name still opens the folder. -->
+                <button
+                  class="fold"
+                  style:left="{depth(f) * 14}px"
+                  onclick={() => fold(f)}
+                  aria-expanded={open}
+                  title={open ? t("sidebar.foldFolder") : t("sidebar.unfoldFolder")}
+                  aria-label={`${open ? t("sidebar.foldFolder") : t("sidebar.unfoldFolder")}: ${label(f)}`}
+                >{#if open}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}</button>
               {/if}
-            </button>
+              <button
+                class="item"
+                class:active={isActive(v)}
+                class:disabled={!f.selectable}
+                disabled={!f.selectable}
+                style:padding-left="{14 + depth(f) * 14}px"
+                onclick={() => app.setView(v)}
+                oncontextmenu={(e) => f.selectable && contextMenu(e, acc, f)}
+                title={f.display_name}
+              >
+                <span class="icon"><Icon size={16} /></span>
+                <span class="name">{label(f)}</span>
+                <!-- Drafts count all of them: a draft is not "unread". -->
+                {#if f.role === "drafts"}
+                  {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
+                {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
+                  <span class="count">{f.unread}</span>
+                {/if}
+              </button>
+            </div>
           {/each}
         {/if}
       </div>
@@ -354,6 +393,33 @@
 
   .group.collapsed + .group {
     margin-top: 2px;
+  }
+
+  .folder-row {
+    position: relative;
+  }
+
+  /* In the indent left of the folder's icon. */
+  .fold {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+    width: 14px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--side-muted);
+  }
+
+  .fold:hover {
+    color: var(--side-ink);
+    background: var(--side-2);
   }
 
   .item {
