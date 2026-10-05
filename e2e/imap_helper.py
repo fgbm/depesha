@@ -115,6 +115,24 @@ def docs(when):
     return "".join(parts).encode()
 
 
+def markdown(subject):
+    """A letter written in Markdown, as Depesha sends it: text, then the Markdown, then HTML."""
+    source = "# Итоги встречи\r\n\r\n- [x] договор подписан\r\n- [ ] подключить сканеры\r\n\r\n| Задача | Кто |\r\n|---|---|\r\n| Сканеры | Алексей |\r\n"
+    html = "<h1>Итоги встречи</h1><ul><li>&#9745; договор подписан</li><li>&#9744; подключить сканеры</li></ul>"
+    b64 = lambda text: base64.encodebytes(text.encode()).decode().replace("\n", "\r\n")
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    return (
+        f"From: Alexey <alexey@example.org>\r\nTo: {ME}\r\nSubject: {subj}\r\n"
+        f"Date: {email.utils.formatdate(time.time(), localtime=True)}\r\nMessage-ID: <md-{abs(hash(subject))}@example.org>\r\n"
+        'MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary="alt"\r\n\r\n'
+        f"--alt\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(source)}"
+        "--alt\r\nContent-Type: text/markdown; charset=utf-8; variant=CommonMark\r\n"
+        f"Content-Transfer-Encoding: base64\r\n\r\n{b64(source)}"
+        f"--alt\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{b64(html)}"
+        "--alt--\r\n"
+    ).encode()
+
+
 def seed():
     c = conn()
     # GreenMail's hierarchy delimiter is ".".
@@ -225,6 +243,12 @@ def main():
         c = conn()
         # Read: unread counters of later steps stay as they were.
         append(c, utf7_path(sys.argv[2]), big(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-markdown":
+        c = conn()
+        append(c, "INBOX", markdown(sys.argv[2]))
         c.logout()
         print("ok")
         return

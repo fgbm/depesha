@@ -1312,6 +1312,38 @@ try {
     if (badge !== "1") throw new Error(`счётчик «Отложенных»: ${badge}`);
   });
 
+  await step("4.12", "письмо с Markdown-частью: переключатель «HTML · Markdown · Текст», задачи галочками, настройка «Показывать письма»", async () => {
+    const subj = `Заметки ${stamp}`;
+    helper("deliver-markdown", subj);
+    await d.button("Входящие");
+    await openBySubject(subj);
+    const modes = async () =>
+      (await d.exec("return [...document.querySelectorAll('.reader .letter-view [role=radio]')].map((b) => b.textContent.trim() + (b.getAttribute('aria-checked') === 'true' ? '*' : ''))")).join(" ");
+    // As the sender sent it: the HTML, which Depesha puts last.
+    await d.until("switch", async () => (await modes()) === "HTML* Markdown Текст");
+    // The Markdown part is the letter's text, not an attachment.
+    if ((await d.findAll(".reader .files")).length) throw new Error("Markdown-часть показана вложением");
+    await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Markdown']"));
+    const md = await d.until("markdown drawn", () =>
+      d.exec(`const doc = document.querySelector('.reader iframe')?.contentDocument;
+        if (!doc?.querySelector('h1')) return null;
+        return { boxes: doc.querySelectorAll('input[type=checkbox][disabled]').length, done: doc.querySelectorAll('input[type=checkbox][checked]').length,
+                 table: !!doc.querySelector('table') };`),
+    );
+    if (md.boxes !== 2 || md.done !== 1 || !md.table) throw new Error(`Markdown нарисован не так: ${JSON.stringify(md)}`);
+    await screenshot("markdown-message");
+    await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Текст']"));
+    await d.until("plain text", async () => (await textOf(".reader .plain")).includes("- [x] договор подписан"));
+    // The choice in a letter holds while it is open; the setting decides for the next one.
+    const settings = await invoke("settings_get");
+    await invoke("settings_set", { settings: { ...settings, letter_view: "markdown" } });
+    await openBySubject("Счёт за октябрь");
+    if ((await d.findAll(".reader .letter-view")).length) throw new Error("переключатель у письма без Markdown");
+    await openBySubject(subj);
+    await d.until("markdown preferred", async () => (await modes()) === "HTML Markdown* Текст");
+    await invoke("settings_set", { settings: { ...settings, letter_view: "sender" } });
+  });
+
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");

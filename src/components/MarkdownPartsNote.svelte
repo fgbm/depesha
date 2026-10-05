@@ -5,7 +5,7 @@
   import { t } from "../lib/i18n.svelte";
 
   /** In the order they go: the recipient's program shows the last one it can. */
-  const PARTS = ["multipart/alternative", "├ text/plain; charset=utf-8", "├ text/markdown; charset=utf-8; variant=CommonMark", "└ text/html; charset=utf-8"];
+  const PARTS = ["multipart/alternative", "├ text/plain; charset=utf-8", "├ text/markdown; charset=utf-8; variant=GFM", "└ text/html; charset=utf-8"];
 
   let open = $state(false);
   let box = $state<HTMLDivElement | null>(null);

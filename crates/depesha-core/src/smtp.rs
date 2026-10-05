@@ -231,7 +231,7 @@ fn markdown_part(text: String) -> SinglePart {
 }
 
 /// The Content-Type of a letter's Markdown part.
-pub const MARKDOWN_TYPE: &str = "text/markdown; charset=utf-8; variant=CommonMark";
+pub const MARKDOWN_TYPE: &str = "text/markdown; charset=utf-8; variant=GFM";
 
 /// The HTML of a letter as it goes out: `text/html` alone, or `multipart/related` with
 /// the pictures of the HTML as parts of their own that it calls by `cid:`. Every picture
@@ -747,7 +747,7 @@ mod tests {
             .find(|l| l.starts_with("Content-Type: text/markdown"))
             .unwrap();
         assert!(
-            markdown.contains("charset=utf-8") && markdown.contains("variant=CommonMark"),
+            markdown.contains("charset=utf-8") && markdown.contains("variant=GFM"),
             "{markdown}"
         );
         assert!(raw.is_ascii(), "body must be 7-bit for servers without 8BITMIME");
