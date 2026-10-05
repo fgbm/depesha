@@ -17,7 +17,7 @@ export default {
     refresh();
     ctx.onBackend("counters-changed", () => {
       refresh();
-      if (ctx.mail.viewing("snooze")) ctx.mail.reload();
+      if (ctx.mail.viewing("snooze")) ctx.mail.scheduleReload(); // waits out a folder burst
     });
 
     ctx.ui.view({

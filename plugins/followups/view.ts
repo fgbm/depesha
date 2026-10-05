@@ -21,7 +21,7 @@ export function registerView(ctx: PluginContext) {
   refresh();
   ctx.onBackend("counters-changed", () => {
     refresh();
-    if (ctx.mail.viewing("followups")) ctx.mail.reload();
+    if (ctx.mail.viewing("followups")) ctx.mail.scheduleReload(); // waits out a folder burst
   });
 
   const show = (tab: "active" | "closed") => {

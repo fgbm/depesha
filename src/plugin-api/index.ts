@@ -188,6 +188,8 @@ export interface PluginContext {
     /** Takes messages out of the list, runs `run`, offers undo of the moves it returns. */
     perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string): Promise<void>;
     reload(): void;
+    /** Like `reload`, but for backend events in bursts: waits out the burst, then reloads once. */
+    scheduleReload(): void;
     showView(id: string): void;
     /** The list shows this plugin view now. */
     viewing(id: string): boolean;

@@ -13,7 +13,7 @@ function fakeContext(counters: { followups: number; followups_closed: number }) 
     backend: vi.fn(async () => counters),
     onBackend: (event: string, run: () => void) => event === "counters-changed" && (got.onCounters = run),
     settings: { get: <T,>(key: string, fallback: T) => (key in settings ? (settings[key] as T) : fallback), set: (k: string, v: unknown) => (settings[k] = v) },
-    mail: { reload: vi.fn(), viewing: () => true, showView: vi.fn() },
+    mail: { reload: vi.fn(), scheduleReload: vi.fn(), viewing: () => true, showView: vi.fn() },
     ui: { view: (v: View) => (got.view = v), command: (c: Command) => (got.command = c) },
   } as unknown as PluginContext;
   return { ctx, got };
@@ -56,6 +56,20 @@ describe("the Waiting for reply view", () => {
     got.onCounters!();
     await settle();
     expect(got.view!.shown!()).toBe(false);
+  });
+
+  it("a burst of counters changes reloads the open list once, debounced", async () => {
+    const { ctx, got } = fakeContext({ followups: 3, followups_closed: 0 });
+    registerView(ctx);
+    await settle();
+    // A full sync changes folders one after another: each event waits, none reloads at once.
+    got.onCounters!();
+    got.onCounters!();
+    got.onCounters!();
+    expect(ctx.mail.scheduleReload).toHaveBeenCalledTimes(3);
+    expect(ctx.mail.reload).not.toHaveBeenCalled();
+    // The counters still refresh on every event: only the list waits out the burst.
+    expect(ctx.backend).toHaveBeenCalledTimes(4);
   });
 
   it("the palette opens the closed ones", async () => {
