@@ -2,8 +2,9 @@
 
 import { addrFull, shortDateTime } from "./format";
 import { t } from "./i18n.svelte";
+import { takePictures, type Picture } from "./images";
 import { GAP, QUOTE_CLASS, QUOTE_STYLE, escapeHtml, hasFormatting, htmlLetterText, htmlToMarkdown, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
-import { sigBlock, sigHtml, splitPlain, withoutHtmlSignature } from "./signatures";
+import { sigBlock, sigHtml, splitHtmlSignature, splitPlain, withoutHtmlSignature } from "./signatures";
 import type { Account, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
 
 export function emptyDraft(from: Addr | null, format: BodyFormat = "plain"): ComposeDraft {
@@ -183,6 +184,17 @@ export function isDirty(d: ComposeDraft): boolean {
     text = body + rest;
   }
   return d.to.length + d.cc.length + d.bcc.length + d.attachments.length > 0 || d.subject.trim() !== "" || text.trim() !== "";
+}
+
+/**
+ * The letter's own `data:` pictures taken out of its HTML, for a format without pictures
+ * inside (Markdown): the signature block's pictures stay in place and go with its text.
+ */
+export function takeBodyPictures(html: string): { html: string; pictures: Picture[] } {
+  const { lead, sigBlock, rest } = splitHtmlSignature(html);
+  const above = takePictures(lead);
+  const below = takePictures(rest);
+  return { html: above.html + sigBlock + below.html, pictures: [...above.pictures, ...below.pictures] };
 }
 
 /** A letter split into what is typed and the quote; the signature between them is left out. */

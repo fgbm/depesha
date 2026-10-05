@@ -12,8 +12,9 @@ import {
   reply,
   replySubject,
   splitQuote,
+  takeBodyPictures,
 } from "./compose";
-import { putSignatureHtml, putSignatureText, withSignature } from "./signatures";
+import { putSignatureHtml, putSignatureText, sigHtml, withSignature } from "./signatures";
 import { htmlLetterText, htmlToText, splitHtmlQuote } from "./richtext";
 import { linkify, parseAddr, pluralRu } from "./format";
 import type { OpenedMessage, Signature } from "./types";
@@ -330,5 +331,24 @@ describe("formats", () => {
     const plain = await convertDraft(d, "plain", sig("Влад"), md);
     expect(plain.text).toBe("**да**\n\n-- \nВлад");
     expect((await convertDraft(plain, "markdown", sig("Влад"), md)).text).toBe(plain.text);
+  });
+
+  it("the signature's picture is not attached when the letter becomes Markdown", async () => {
+    const logo = "data:image/png;base64,LOGO";
+    const bodyPic = "data:image/png;base64,BODY";
+    const withLogo = { ...sig("Влад"), html: `<div><img src="${logo}"></div>`, text: "" };
+    const html = `<div><img src="${bodyPic}"></div>` + sigHtml(withLogo);
+    // What the window does before converting: only the letter's own picture is taken.
+    const { html: kept, pictures } = takeBodyPictures(html);
+    expect(pictures).toEqual([{ mime: "image/png", base64: "BODY" }]);
+    expect(kept).toContain(logo);
+    expect(kept).not.toContain(bodyPic);
+    // Converting: the body becomes text, the signature is put by `sigBlock` (none here).
+    const md2 = await convertDraft({ ...emptyDraft(me, "html"), html: kept }, "markdown", withLogo, md);
+    expect(md2.text).not.toContain("data:");
+    // Back to HTML the signature is put again, once, as `sigHtml` has it: no duplicate.
+    const back = await convertDraft(md2, "html", withLogo, md);
+    expect(back.html?.match(/depesha-signature/g)?.length).toBe(1);
+    expect(back.html?.match(/data:image\/png;base64,LOGO/g)?.length).toBe(1);
   });
 });

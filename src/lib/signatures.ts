@@ -128,6 +128,15 @@ function htmlBlock(html: string): { start: number; end: number; inner: string; b
   return { ...b, inner, block };
 }
 
+/**
+ * An HTML letter with its signature block marked off: what is above it, the block, and
+ * what follows. Used to keep the signature's own pictures out of the letter's.
+ */
+export function splitHtmlSignature(html: string): { lead: string; sigBlock: string; rest: string } {
+  const b = htmlBlock(html);
+  return b ? { lead: html.slice(0, b.start), sigBlock: b.block, rest: html.slice(b.end) } : { lead: html, sigBlock: "", rest: "" };
+}
+
 export function hasHtmlSignature(html: string): boolean {
   return htmlBlock(html) !== null;
 }

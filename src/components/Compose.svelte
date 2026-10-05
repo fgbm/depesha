@@ -14,11 +14,11 @@
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
-  import { convertDraft, isDirty, losesFormatting } from "../lib/compose";
+  import { convertDraft, isDirty, losesFormatting, takeBodyPictures } from "../lib/compose";
   import { GAP, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../lib/richtext";
   import { defaultSignature, hasHtmlSignature, putSignatureHtml, sigBlock, signatureIn, signaturesOf, splitPlain, withoutHtmlSignature } from "../lib/signatures";
   import { cleanEditorHtml } from "../lib/sanitize";
-  import { dataUrlSize, isPictureName, pictureName, picturesSize, takePictures } from "../lib/images";
+  import { dataUrlSize, isPictureName, pictureName, picturesSize } from "../lib/images";
   import { clipboardPictures, picturesFromBlobs, picturesFromFiles, picturesHtml, type FoundPicture } from "../lib/pictureInput";
   import type { BodyFormat, ComposeDraft, Signature } from "../lib/types";
   import RichEditor from "./RichEditor.svelte";
@@ -262,8 +262,8 @@
     switching = true;
     try {
       if (format === "html" && next === "markdown") {
-        // Markdown has no pictures inside: they go with the letter as files.
-        const { html, pictures } = takePictures(current.html ?? "");
+        // Markdown has no pictures inside: take the letter's own; the signature keeps its.
+        const { html, pictures } = takeBodyPictures(current.html ?? "");
         if (pictures.length) {
           const ok = await app.confirm({ text: t("compose.format.picturesAttach"), okLabel: t("compose.format.toMarkdown") });
           if (!ok) return;
