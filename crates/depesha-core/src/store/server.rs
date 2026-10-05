@@ -15,7 +15,7 @@ pub(super) fn v8_server_caps(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "-- The CAPABILITY list after login (space-separated) and the greeting's, with the
          -- time of the login; the answer to ENABLE QRESYNC once one was given.
-         CREATE TABLE server_caps (
+         CREATE TABLE IF NOT EXISTS server_caps (
              account_id    TEXT PRIMARY KEY,
              greeting      TEXT NOT NULL DEFAULT '',
              capabilities  TEXT NOT NULL DEFAULT '',
@@ -26,7 +26,7 @@ pub(super) fn v8_server_caps(conn: &Connection) -> Result<()> {
          ) WITHOUT ROWID;
 
          -- The last quota the server reported, in bytes; limit 0: no storage limit.
-         CREATE TABLE quotas (
+         CREATE TABLE IF NOT EXISTS quotas (
              account_id     TEXT PRIMARY KEY,
              root           TEXT NOT NULL,
              used           INTEGER NOT NULL,
@@ -37,7 +37,7 @@ pub(super) fn v8_server_caps(conn: &Connection) -> Result<()> {
          ) WITHOUT ROWID;
 
          -- Folder sizes as the user last had them counted; error: the folder was left out.
-         CREATE TABLE folder_sizes (
+         CREATE TABLE IF NOT EXISTS folder_sizes (
              account_id TEXT NOT NULL,
              folder     TEXT NOT NULL,
              bytes      INTEGER,

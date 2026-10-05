@@ -324,6 +324,8 @@ impl Store {
                 due = CASE WHEN repeat_secs > 0 THEN due + repeat_secs * ((?1 - due) / repeat_secs + 1) ELSE due END,
                 reminded = json_insert(CASE WHEN json_valid(reminded) THEN reminded ELSE '[]' END, '$[#]', ?1)
              WHERE status = 'waiting' AND notified = 0 AND due <= ?1
+               AND EXISTS (SELECT 1 FROM messages m
+                   WHERE m.account_id = followups.account_id AND m.message_id = followups.message_id)
              RETURNING account_id, message_id, subject, recipients, sent, due, deadline, repeat_secs, expect, kind",
         )?;
         let rows = stmt.query_map([now], |r| {
@@ -343,11 +345,15 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Letters still waiting for an answer, and waits kept after they ended.
+    /// Letters still waiting for an answer, and waits kept after they ended. A wait whose
+    /// letter is no longer in the cache is not counted: it is not in the list either, and
+    /// counting it would leave a badge pointing at nothing.
     pub fn followups_count(&self) -> Result<FollowupCounts> {
         Ok(self.conn().query_row(
-            "SELECT COUNT(*) FILTER (WHERE status = 'waiting'), COUNT(*) FILTER (WHERE status != 'waiting')
-             FROM followups",
+            "SELECT COUNT(*) FILTER (WHERE fu.status = 'waiting'), COUNT(*) FILTER (WHERE fu.status != 'waiting')
+             FROM followups fu
+             WHERE EXISTS (SELECT 1 FROM messages m
+                 WHERE m.account_id = fu.account_id AND m.message_id = fu.message_id)",
             [],
             |r| {
                 Ok(FollowupCounts {
@@ -509,6 +515,24 @@ mod tests {
         );
         assert_eq!(store.followups_resolve().unwrap(), 1);
         assert!(store.followups_due(10_000).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_wait_whose_letter_left_the_cache_is_not_counted_or_reminded() {
+        let store = mailbox();
+        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
+        wait_for(&store, "q@x", 500, |_| {});
+        assert_eq!(store.followups_count().unwrap().active, 1);
+        // The sent letter left the cache (a recreated folder, an expunge, a cleared Sent):
+        // the wait can no longer be shown or cancelled, so it must not be counted or remind.
+        store.remove_uids("a", "Sent", &[1]).unwrap();
+        assert!(listed(&store, FollowupFilter::Active).is_empty());
+        assert_eq!(store.followups_count().unwrap().active, 0);
+        assert!(store.followups_due(600).unwrap().is_empty());
+        // A letter with the same id coming back makes the wait visible and countable again.
+        put(&store, "Sent", 2, &with_ids("Вопрос", 100, "q@x", None), true);
+        assert_eq!(store.followups_count().unwrap().active, 1);
+        assert_eq!(store.followups_due(600).unwrap().len(), 1);
     }
 
     #[test]

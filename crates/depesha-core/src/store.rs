@@ -391,7 +391,7 @@ fn v5_lookups(conn: &Connection) -> Result<()> {
 /// EWS Size), so nothing is fetched again.
 fn v7_size_index(conn: &Connection) -> Result<()> {
     conn.execute_batch(
-        "CREATE INDEX messages_by_size ON messages (size, date, account_id, folder, has_attachments, seen, flagged);",
+        "CREATE INDEX IF NOT EXISTS messages_by_size ON messages (size, date, account_id, folder, has_attachments, seen, flagged);",
     )?;
     Ok(())
 }
@@ -3344,7 +3344,7 @@ mod tests {
             ('a', 'INBOX', 2, 'b@x', 'a@x', '[]', 'RE: Смета', NULL, '[]', '[]', '[]', 200, 1, 0, 0, 1, 0, 0);
         INSERT INTO outbox (account_id, draft, next_attempt, created) VALUES ('a', '{}', 300, 300);
         INSERT INTO snoozed (account_id, message_id, folder, return_to, until) VALUES ('a', 'c@x', 'Snoozed', 'INBOX', 400);
-        INSERT INTO followups (account_id, message_id, subject, recipients, sent, due) VALUES ('a', 'd@x', 'Отчёт', 'b@x', 1, 500);"#;
+        INSERT INTO followups (account_id, message_id, subject, recipients, sent, due) VALUES ('a', 'a@x', 'Отчёт', 'b@x', 1, 500);"#;
 
     /// A cache file left by an older version: its tables with the data, `version` steps done.
     fn old_cache(dir: &tempfile::TempDir, tables: impl Fn(&Connection), version: i64) -> std::path::PathBuf {
