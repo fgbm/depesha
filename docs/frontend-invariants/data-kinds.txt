@@ -1,0 +1,17 @@
+data-account
+data-consent
+data-count
+data-drop-zone
+data-ext
+data-folder
+data-item
+data-kind
+data-page
+data-placeholder
+data-plugin
+data-problem
+data-review
+data-section
+data-tauri-drag-region
+data-toc
+data-value
