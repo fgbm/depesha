@@ -15,6 +15,7 @@
   import Accounts from "./Accounts.svelte";
   import Plugins from "./Plugins.svelte";
   import Wizard from "./Wizard.svelte";
+  import AccountPage from "./account/AccountPage.svelte";
   import FolderPicker from "./FolderPicker.svelte";
   import { accountLabel } from "../lib/format";
   import { threshold } from "../lib/largeMail";
@@ -154,7 +155,10 @@
     </nav>
 
     <div class="pane">
-      <header><h2>{title}</h2></header>
+      <header>
+        <h2>{title}</h2>
+        {#if pageAccount}<span class="muted sub">{pageAccount.email}{pageAccount.ews ? " · Exchange" : ""}</span>{/if}
+      </header>
       <div class="content" class:flush={ownButtons} role="tabpanel" aria-label={title}>
         {#if current === "general"}
           <section>
@@ -274,9 +278,11 @@
           <Accounts onOpen={(p) => (page = p)} />
         {:else if current === "plugins"}
           <Plugins />
-        {:else if current === "account:new" || pageAccount}
+        {:else if current === "account:new"}
+          <Wizard embedded onDone={() => (page = "accounts")} />
+        {:else if pageAccount}
           {#key current}
-            <Wizard embedded mailbox={pageAccount} onDone={() => (page = "accounts")} />
+            <AccountPage account={pageAccount} onDone={() => (page = "accounts")} />
           {/key}
         {:else}
           {@const sec = sections[Number(current.slice(7))]}
@@ -401,7 +407,20 @@
   }
 
   header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
     padding: 18px 24px 6px;
+  }
+
+  /* A mailbox's address beside its name. */
+  .sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
   }
 
   h2 {

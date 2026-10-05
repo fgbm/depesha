@@ -1,19 +1,16 @@
 <script lang="ts">
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
-  import Check from "@lucide/svelte/icons/check";
   import Plus from "@lucide/svelte/icons/plus";
   import Settings from "@lucide/svelte/icons/settings";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
-  import { ACCOUNT_PALETTE, accountColor } from "../lib/format";
+  import { accountColor } from "../lib/format";
   import type { AccountView } from "../lib/types";
-  import Popover from "./Popover.svelte";
 
-  /** The mailbox manager: the order mailboxes are shown in, their names and colours. Changes apply at once. */
+  /** The mailbox manager: the order mailboxes are shown in and their names. Changes apply at once. */
   let { onOpen }: { onOpen: (page: string) => void } = $props();
-  let colorFor = $state<string | null>(null);
   /** Names being typed, by account id; saved on Enter or leaving the field. */
   let names = $state<Record<string, string>>({});
 
@@ -48,11 +45,6 @@
     if (name.trim() !== (acc.label ?? "")) look(acc, name, acc.color ?? "");
   }
 
-  function pick(acc: AccountView, color: string) {
-    colorFor = null;
-    look(acc, acc.label ?? "", color);
-  }
-
   function onRowKey(e: KeyboardEvent, i: number) {
     // Alt+↑/↓ in the name moves the mailbox, as lines move in editors.
     if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
@@ -78,23 +70,8 @@
             <button class="btn ghost icon" disabled={i === 0} onclick={() => arrange(i, i - 1)} title={t("accounts.up")} aria-label={t("accounts.up")}><ArrowUp size={14} /></button>
             <button class="btn ghost icon" disabled={i === app.accounts.length - 1} onclick={() => arrange(i, i + 1)} title={t("accounts.down")} aria-label={t("accounts.down")}><ArrowDown size={14} /></button>
           </div>
-          <span class="swatch-wrap">
-            <button class="swatch" style:background={color} onclick={() => (colorFor = colorFor === acc.id ? null : acc.id)} title={t("accounts.color")} aria-label={t("accounts.color")}></button>
-            <Popover bind:open={() => colorFor === acc.id, (v) => (colorFor = v ? acc.id : null)}>
-              <div class="mt">{t("accounts.color")}</div>
-              <div class="palette">
-                {#each ACCOUNT_PALETTE as c (c)}
-                  <button class="swatch" style:background={c} onclick={() => pick(acc, c)} aria-label={c} title={c}>
-                    {#if (acc.color || "") === c}<Check size={12} />{/if}
-                  </button>
-                {/each}
-              </div>
-              <button class="mi" onclick={() => pick(acc, "")}>
-                {#if !acc.color}<Check size={15} />{:else}<span class="pad"></span>{/if}
-                {t("accounts.colorAuto")}
-              </button>
-            </Popover>
-          </span>
+          <!-- The colour is chosen on the mailbox's page. -->
+          <span class="swatch" style:background={color} aria-hidden="true"></span>
           <div class="who">
             <input
               class="input name"
@@ -147,35 +124,12 @@
     padding: 1px 4px;
   }
 
-  .swatch-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-
   .swatch {
-    width: 22px;
-    height: 22px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    border: none;
-    padding: 0;
     flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 15%, transparent);
-  }
-
-  .palette {
-    display: grid;
-    grid-template-columns: repeat(5, 22px);
-    gap: 8px;
-    padding: 6px 10px 8px;
-  }
-
-  .pad {
-    width: 15px;
-    flex: none;
   }
 
   .who {

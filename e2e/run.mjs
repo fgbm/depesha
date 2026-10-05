@@ -897,11 +897,13 @@ try {
   await step("5.7", "подпись из настроек ящика попадает в новое письмо", async () => {
     await d.click(await d.find(".menu-btn"));
     await d.button("Настройки…");
-    await d.until("settings", async () => (await d.findAll(".wizard")).length === 1);
+    await d.until("settings", async () => (await d.findAll(".account-page")).length === 1);
     // WebKitWebDriver drops "\n" in typed text; Enter makes the line break.
-    await setInput(".wizard textarea.sig", "С уважением,\uE007Кэрол");
-    await d.button("Проверить и сохранить");
-    await d.until("saved", async () => (await d.findAll(".wizard")).length === 0, 20000);
+    await setInput(".account-page textarea.sig", "С уважением,\uE007Кэрол");
+    // The connection is as it was: saved without a login.
+    if ((await textOf(".account-page footer .btn.primary")).trim() !== "Сохранить") throw new Error("подпись просит проверки подключения");
+    await d.click(await d.find(".account-page footer .btn.primary"));
+    await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
     // A mailbox's page lives in the settings window: saved, it goes back to the list of mailboxes.
     if (!(await d.findAll(".prefs .accounts")).length) throw new Error("после сохранения нет списка ящиков");
     await closeSettings();
@@ -1414,7 +1416,7 @@ try {
       if (!tabs.includes(want)) throw new Error(`нет раздела «${want}»: ${tabs}`);
     }
     await d.click(await d.find(".prefs .tab[data-page^='account:']"));
-    await d.until("mailbox page", async () => (await d.findAll(".prefs .wizard")).length === 1);
+    await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
     await d.click(await d.find(".prefs .tab[data-page='plugins']"));
     await d.until("plugins page", async () => (await d.findAll(".prefs .plugins")).length === 1);
     await screenshot("settings-plugins");
@@ -1680,9 +1682,12 @@ try {
     await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
     await d.click((await d.findAll(".prefs .accounts .order .btn"))[1]);
     await d.until("order changed", async () => (await names())[0] === before[1]);
-    // The colour of the mailbox now first, and its name.
-    await d.click((await d.findAll(".prefs .accounts .swatch-wrap > .swatch"))[0]);
-    await d.click(await d.until("palette", () => d.find(".pop .palette .swatch[aria-label='#d0658f']")));
+    // The colour of the mailbox now first, on its own page, and its name.
+    await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[0]);
+    await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+    await d.click(await d.find(".account-page .colors label[title='#d0658f']"));
+    await d.click(await d.find(".account-page footer .btn.primary"));
+    await d.until("back to the manager", async () => (await d.findAll(".prefs .accounts")).length === 1, 20000);
     await d.until("dot coloured", async () =>
       (await d.exec("return getComputedStyle(document.querySelector('nav.side .account .dot')).backgroundColor")) === "rgb(208, 101, 143)");
     const input = (await d.findAll(".prefs .accounts .name"))[0];
