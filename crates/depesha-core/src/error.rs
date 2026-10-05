@@ -42,6 +42,9 @@ pub enum Error {
     },
     /// The web server offers none of the login methods we speak (EWS without Basic).
     HttpAuth(String),
+    /// The mailbox waits for the user (a wrong password): background work does not
+    /// knock on the server meanwhile.
+    Paused,
 }
 
 impl std::fmt::Display for Error {
@@ -95,6 +98,10 @@ impl std::fmt::Display for Error {
             Self::Compose(m) => tr!("the message could not be built: {m}", "письмо не собрано: {m}"),
             Self::Store(e) => tr!("local database: {e}", "локальная база: {e}"),
             Self::Closed => tr!("the server closed the connection", "сервер закрыл соединение"),
+            Self::Paused => tr!(
+                "the mailbox is paused until its settings are fixed",
+                "ящик приостановлен, пока не исправлены его настройки"
+            ),
             Self::Protocol(m) => tr!(
                 "unexpected answer from the server: {m}",
                 "сервер ответил непонятно: {m}"
@@ -186,6 +193,7 @@ impl Error {
             } if e == "4.4.2" => "rate-limited",
             Self::TooLarge { .. } => "too-large",
             Self::NotFound => "not-found",
+            Self::Paused => "paused",
             e if e.is_transient() => "network",
             _ => "other",
         }

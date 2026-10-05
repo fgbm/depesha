@@ -910,7 +910,11 @@ pub async fn avatar(
         let key = format!("photo:{account_id}:{email}");
         let uri = match state.store.avatar(&key)?.filter(fresh) {
             Some((uri, _)) => uri,
-            None => match state.worker(&account_id)?.run(Work::UserPhoto(email.clone())).await {
+            None => match state
+                .worker(&account_id)?
+                .run_background(Work::UserPhoto(email.clone()))
+                .await
+            {
                 Ok(Output::Body(bytes)) => {
                     let uri = avatar::data_uri(&bytes);
                     state.store.set_avatar(&key, Some(&uri), now)?;

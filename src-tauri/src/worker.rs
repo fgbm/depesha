@@ -110,6 +110,20 @@ impl Worker {
     pub async fn run(&self, work: Work) -> Result<Output> {
         // A user action is a reason to try again even after a fatal error.
         self.paused.store(false, Ordering::Relaxed);
+        self.call(work).await
+    }
+
+    /// Like `run`, for work nobody asked for just now (snoozed mail coming back, a
+    /// colleague's photo, the copy in Sent): a paused mailbox stays paused, so a
+    /// wrong password is not tried every few seconds and an AD account is not locked.
+    pub async fn run_background(&self, work: Work) -> Result<Output> {
+        if self.paused.load(Ordering::Relaxed) {
+            return Err(Error::Paused);
+        }
+        self.call(work).await
+    }
+
+    async fn call(&self, work: Work) -> Result<Output> {
         let (reply, rx) = oneshot::channel();
         self.tx.send((work, Some(reply))).await.map_err(|_| Error::Closed)?;
         rx.await.map_err(|_| Error::Closed)?
@@ -270,6 +284,7 @@ fn clone_error(e: &Error) -> Error {
         Error::ImapUnavailable => Error::ImapUnavailable,
         Error::Timeout(t) => Error::Timeout(t),
         Error::Closed => Error::Closed,
+        Error::Paused => Error::Paused,
         other => Error::Protocol(other.to_string()),
     }
 }

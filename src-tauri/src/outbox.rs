@@ -116,7 +116,7 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                         flags: "(\\Seen)".into(),
                         message_id,
                     };
-                    if let Err(e) = worker.run(work).await {
+                    if let Err(e) = worker.run_background(work).await {
                         tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
                         state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
                     }

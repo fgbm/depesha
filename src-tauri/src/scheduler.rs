@@ -35,7 +35,7 @@ async fn round(state: &AppState) -> depesha_core::Result<()> {
             to: s.return_to.clone(),
             unseen: true,
         };
-        match worker.run(work).await {
+        match worker.run_background(work).await {
             Ok(Output::Count(0)) => {
                 // Moved elsewhere by hand (another client): nothing to bring back.
                 state.store.snooze_remove(&s.account_id, &s.message_id)?;
