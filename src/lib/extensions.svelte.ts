@@ -99,6 +99,8 @@ class ExtensionHost {
   toast: (text: string, error?: boolean) => void = () => {};
   private runners = new Map<string, Runner>();
   private listening = false;
+  /** Letters the reader shows now: banners are kept for them only. */
+  private shown = new Set<number>();
 
   async load() {
     try {
@@ -249,6 +251,12 @@ class ExtensionHost {
     return this.enabled().filter((e) => e.hooks.includes(hook));
   }
 
+  /** The reader now shows these letters (the open one, its conversation): banners of others go. */
+  showing(ids: Iterable<number>) {
+    this.shown = new Set(ids);
+    if (this.banners.some((b) => !this.shown.has(b.messageId))) this.banners = this.banners.filter((b) => this.shown.has(b.messageId));
+  }
+
   /** Banners for the opened message. Runs beside opening, never in its way. */
   async messageOpen(msg: OpenedMessage, accountEmail: string) {
     const exts = this.with("messageOpen");
@@ -259,7 +267,8 @@ class ExtensionHost {
         try {
           const res = (await this.call(ext, "messageOpen", [data], HOOK_TIMEOUT)) as { banner?: Partial<Banner> & { actions?: { id: string; title: string }[] } } | null;
           const b = res?.banner;
-          if (!b || typeof b.text !== "string") return;
+          // A banner that comes after its letter was left is not kept.
+          if (!b || typeof b.text !== "string" || !this.shown.has(msg.row.id)) return;
           this.banners = [
             ...this.banners.filter((x) => !(x.ext === ext.id && x.messageId === msg.row.id)),
             {
