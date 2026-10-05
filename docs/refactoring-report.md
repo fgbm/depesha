@@ -81,7 +81,50 @@
 
 ## Фаза 1. Стор
 
-Статус: **не начато**.
+Статус: **выполнено**.
+
+### Что сделано
+
+`src/lib/store.svelte.ts` (563 → 241 строк) остался фасадом: он владеет контроллерами, объявляет
+реактивные поля окна письма (`windowOf`) и держит `app.*` единственной точкой входа. Состояние
+переехало в связные модули, а геттеры/сеттеры фасада возвращают его как было — публичный API и
+поведение не изменились. Хосты у всех модулей узкие, как у `ListController`:
+
+- `settings.svelte.ts` (114) — `SettingsController` / `SettingsHost` — настройки, настройки плагинов,
+  язык, тема, проверка и установка обновлений;
+- `mailboxes.svelte.ts` (80) — `MailboxController` / `MailboxHost` — ящики, папки, исходящие, версия,
+  адрес «домой» и отложенное чтение папок;
+- `ui.svelte.ts` (108) — `UiController` — тосты, диалог подтверждения, мастер, окно настроек, панель
+  задач и счётчик `track`; сюда же переехали `Toast` / `Confirmation` / `WizardState`;
+- `selection.svelte.ts` (186) — `SelectionController` / `SelectionHost` — вид списка, его порядок и
+  фильтр, выделение, открытие/перемещение по строкам, `flag`, `listed`, `takeOut`, `openWindow`.
+
+Поля `accounts`, `folders`, `outbox`, `version`, `settings`, `update`, `toasts`, `confirmation`,
+`wizard`, `busy`, `tasks`, `tasksOpen`, `settingsOpen`, `settingsPage`, `settingsSection`,
+`settingsTurn`, `focusSearch`, `selected`, `anchor` объявлены в модулях и открыты геттерами/сеттерами
+фасада. Контроллерные поля и `listed` получили явные аннотации типов: без них TypeScript ловит
+циклический вывод `AppStore` → `SelectionHost` → `AppStore`.
+
+### Проверка фазы
+
+| Проверка | Результат |
+| --- | --- |
+| `npm run lint` | зелёный (0 ошибок; подавлений не добавлено) |
+| `npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings` | 0 ошибок, 0 предупреждений |
+| `npx vite build` | зелёный (размер бандла не вырос) |
+| `npx vitest run` | 40 файлов, 271 тест — зелёные (`store.test.ts` в том числе) |
+| `scripts/frontend-metrics.sh` | регрессий нет |
+| `scripts/frontend-invariants.sh` | дрейфа нет (`app_members 85` идентичен) |
+| `git diff --name-only main -- '*.svelte' 'e2e'` | пусто |
+
+| Файл | Строк | Ответственность |
+| --- | --- | --- |
+| `store.svelte.ts` | 241 | фасад: контроллеры, `windowOf`, геттеры/сеттеры и делегаты `app.*` |
+| `selection.svelte.ts` | 186 | вид списка, порядок/фильтр, выделение, навигация, флаги |
+| `settings.svelte.ts` | 114 | настройки приложения и плагинов, язык, тема, обновления |
+| `ui.svelte.ts` | 108 | тосты, подтверждения, мастер, окно настроек, задачи, `track` |
+| `mailboxes.svelte.ts` | 80 | ящики, папки, исходящие, версия, `home` |
+
 
 ## Фаза 2. Compose
 
