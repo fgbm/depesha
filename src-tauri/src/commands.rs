@@ -948,12 +948,26 @@ pub async fn attachment_save(state: St<'_>, id: i64, index: u32, path: String) -
     Ok(())
 }
 
+/// Saves an attachment into the folder from the settings, without asking where:
+/// renamed on a name clash, the folder made again if it went away. Returns the path.
+#[tauri::command]
+pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32, dir: String) -> CmdResult<String> {
+    let row = row(&state, id)?;
+    let raw = raw_of(&state, &row).await?;
+    let (info, bytes) = message::attachment(&raw, index)?;
+    let folder = save_folder(&dir).await?;
+    let path = free_path(&folder, &safe_name(&info.name));
+    tokio::fs::write(&path, bytes).await.map_err(|e| save_error(&dir, e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Saves every attachment into a folder, renaming on name clashes. Returns how many.
 #[tauri::command]
 pub async fn attachments_save_all(state: St<'_>, id: i64, dir: String) -> CmdResult<usize> {
     let row = row(&state, id)?;
     let raw = raw_of(&state, &row).await?;
     let view = message::parse_view(&raw, false)?;
+    let folder = save_folder(&dir).await?;
     let mut saved = 0;
     for info in view
         .attachments
@@ -961,11 +975,30 @@ pub async fn attachments_save_all(state: St<'_>, id: i64, dir: String) -> CmdRes
         .filter(|a| !(a.inline && a.content_id.is_some()))
     {
         let (_, bytes) = message::attachment(&raw, info.index)?;
-        let path = free_path(&PathBuf::from(&dir), &safe_name(&info.name));
-        tokio::fs::write(path, bytes).await?;
+        let path = free_path(&folder, &safe_name(&info.name));
+        tokio::fs::write(path, bytes).await.map_err(|e| save_error(&dir, e))?;
         saved += 1;
     }
     Ok(saved)
+}
+
+async fn save_folder(dir: &str) -> CmdResult<PathBuf> {
+    let folder = PathBuf::from(dir);
+    tokio::fs::create_dir_all(&folder)
+        .await
+        .map_err(|e| save_error(dir, e))?;
+    Ok(folder)
+}
+
+/// A folder that cannot be written to: what to do about it, not just the system's words.
+fn save_error(dir: &str, e: std::io::Error) -> CmdError {
+    CmdError::new(
+        "save-folder",
+        tr!(
+            "could not save into “{dir}”: {e}. Choose another folder in Settings → Mail or use “Save as…”",
+            "не удалось сохранить в «{dir}»: {e}. Выберите другую папку в Настройках → «Почта» или «Сохранить как…»"
+        ),
+    )
 }
 
 /// Opens a letter in a window of its own (double click in the list); a letter already
@@ -1493,4 +1526,23 @@ pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::free_path;
+
+    #[test]
+    fn a_saved_file_never_replaces_another() {
+        let dir = std::env::temp_dir().join(format!("depesha-free-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт.pdf"));
+        std::fs::write(dir.join("счёт.pdf"), b"1").unwrap();
+        assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт (1).pdf"));
+        std::fs::write(dir.join("счёт (1).pdf"), b"2").unwrap();
+        assert_eq!(free_path(&dir, "счёт.pdf"), dir.join("счёт (2).pdf"));
+        std::fs::write(dir.join("README"), b"3").unwrap();
+        assert_eq!(free_path(&dir, "README"), dir.join("README (1)"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

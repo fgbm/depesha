@@ -15,6 +15,7 @@
   import Accounts from "./Accounts.svelte";
   import Plugins from "./Plugins.svelte";
   import Wizard from "./Wizard.svelte";
+  import FolderPicker from "./FolderPicker.svelte";
   import { accountLabel } from "../lib/format";
   import type { Settings } from "../lib/types";
 
@@ -72,7 +73,7 @@
 
   /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos } =
+    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos, attachments_dir } =
       $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
@@ -85,6 +86,7 @@
       offline,
       offline_attachments,
       sender_logos,
+      attachments_dir: (attachments_dir ?? "").trim(),
     });
     close();
   }
@@ -178,6 +180,11 @@
               <input type="checkbox" bind:checked={draft.sender_logos} />
               <span class="text">{t("settings.senderLogos")}<span class="note">{t("settings.senderLogosNote")}</span></span>
             </label>
+          </section>
+          <section>
+            <h4>{t("settings.attachmentsDir")}</h4>
+            <FolderPicker bind:value={() => draft.attachments_dir ?? "", (v) => (draft.attachments_dir = v)} label={t("settings.attachmentsDir")} placeholder={t("settings.askEveryTime")} />
+            <p class="hint">{t("settings.attachmentsDirNote")}</p>
           </section>
           <section>
             <h4>{t("settings.sending")}</h4>

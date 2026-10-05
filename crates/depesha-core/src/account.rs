@@ -57,6 +57,10 @@ pub struct Account {
     /// Added below new messages and replies, after the standard "-- " separator.
     #[serde(default)]
     pub signature: String,
+    /// Where this mailbox's attachments are saved without asking; empty takes the
+    /// folder from the settings.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub attachments_dir: String,
     /// How the account logs in. Accounts saved before OAuth use a password.
     #[serde(default, skip_serializing_if = "AuthMethod::is_password")]
     pub auth: AuthMethod,

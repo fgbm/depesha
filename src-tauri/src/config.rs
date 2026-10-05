@@ -51,6 +51,9 @@ pub struct Settings {
     /// Brand logos published with BIMI next to mail that passed DMARC: a DNS
     /// lookup and a download from the brand's site, once a week per domain.
     pub sender_logos: bool,
+    /// Where attachments are saved without asking; empty asks every time.
+    /// A mailbox may have its own (`Account::attachments_dir`).
+    pub attachments_dir: String,
     /// The order of lists without one of their own; newest first when empty.
     pub list_sort: Vec<SortKey>,
     /// Lists ordered their own way, by view key (`folder:<account>:<name>`, `unified:inbox`…).
@@ -75,6 +78,7 @@ impl Default for Settings {
             offline: "30".into(),
             offline_attachments: false,
             sender_logos: true,
+            attachments_dir: String::new(),
             list_sort: Vec::new(),
             view_sorts: Default::default(),
         }

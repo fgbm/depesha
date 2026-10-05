@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from "../lib/store.svelte";
   import Select from "./Select.svelte";
+  import FolderPicker from "./FolderPicker.svelte";
   import { api, asError } from "../lib/api";
   import { longDate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -58,6 +59,7 @@
   let smtp = $state<ServerConfig>(existing ? { ...existing.smtp } : { host: "", port: 587, security: "starttls" });
   let saveSent = $state(existing?.save_sent_copy ?? true);
   let signature = $state(existing?.signature ?? "");
+  let attachmentsDir = $state(existing?.attachments_dir ?? "");
   let source = $state("");
   let notes = $state<string[]>([]);
   let busy = $state(false);
@@ -211,6 +213,7 @@
       smtp: { ...smtp, host: smtp.host.trim(), port: Number(smtp.port) },
       save_sent_copy: mode === "ews" ? false : saveSent,
       signature,
+      attachments_dir: attachmentsDir.trim(),
     };
     if (mode === "oauth" && provider) acc.auth = { kind: "oauth", provider };
     if (mode === "ews") acc.ews = { url: ewsUrl.trim(), trusted_cert: ewsCert };
@@ -395,6 +398,12 @@
         <label class="field"><span>{t("wizard.signature")}</span>
           <textarea class="input sig" bind:value={signature} rows="3" placeholder={t("wizard.signaturePlaceholder")}></textarea>
         </label>
+
+        <div class="field"><span>{t("wizard.attachmentsDir")}</span>
+          <!-- The settings' folder is a hint, not the value: what is inherited stays visible as such. -->
+          <FolderPicker bind:value={attachmentsDir} label={t("wizard.attachmentsDir")} placeholder={app.settings.attachments_dir || t("settings.askEveryTime")} />
+          <p class="muted small inherit">{t("wizard.attachmentsDirInherit", { dir: app.settings.attachments_dir ? `: ${app.settings.attachments_dir}` : "" })}</p>
+        </div>
 
         {#if mode !== "ews"}<label class="check"><input type="checkbox" bind:checked={saveSent} /> {t("wizard.saveSent")}</label>{/if}
       {/if}
@@ -644,6 +653,10 @@
   .mono {
     font-family: var(--mono);
     font-size: 12px;
+  }
+
+  .inherit {
+    margin: 0;
   }
 
   .small {

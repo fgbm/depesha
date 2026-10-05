@@ -33,6 +33,8 @@ export interface Account {
   smtp: ServerConfig;
   save_sent_copy: boolean;
   signature: string;
+  /** Where this mailbox's attachments are saved without asking; empty takes the settings' folder. */
+  attachments_dir?: string;
   auth?: AuthMethod;
   ews?: EwsConfig;
 }
@@ -298,6 +300,8 @@ export interface Settings {
   offline_attachments: boolean;
   /** Brand logos (BIMI) next to mail that passed DMARC. */
   sender_logos: boolean;
+  /** Where attachments are saved without asking; empty asks every time. */
+  attachments_dir: string;
   /** The order of lists without one of their own; newest first when empty. */
   list_sort: SortKey[];
   /** Lists ordered their own way, by view key. */

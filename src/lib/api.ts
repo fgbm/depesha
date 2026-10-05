@@ -114,6 +114,7 @@ export const api = {
   addresses: (prefix: string) => call<Addr[]>("addresses", { prefix }),
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),
   attachmentsSaveAll: (id: number, dir: string) => call<number>("attachments_save_all", { id, dir }),
+  attachmentSaveIn: (id: number, index: number, dir: string) => call<string>("attachment_save_in", { id, index, dir }),
   attachmentOpen: (id: number, index: number) => call<void>("attachment_open", { id, index }),
   messageWindow: (id: number, title: string) => call<void>("message_window", { id, title }),
   /** Arrives as binary, not as JSON. */

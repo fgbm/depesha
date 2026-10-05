@@ -16,11 +16,12 @@
   import AppWindow from "@lucide/svelte/icons/app-window";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
+  import FolderOutput from "@lucide/svelte/icons/folder-output";
   import Pencil from "@lucide/svelte/icons/pencil";
   import ImageOff from "@lucide/svelte/icons/image-off";
   import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
   import { app } from "../lib/store.svelte";
-  import { api } from "../lib/api";
+  import { api, asError } from "../lib/api";
   import { accountLabel, addrFull, addrName, avatarColor, initials, linkify, listDate, longDate, size } from "../lib/format";
   import { emptyDraft, fromDraft, reply, withSignature } from "../lib/compose";
   import { t, tn } from "../lib/i18n.svelte";
@@ -146,7 +147,22 @@
     }
   }
 
+  /** The folder attachments go to without asking: the mailbox's own, else the settings'. */
+  const saveDir = $derived(account?.attachments_dir?.trim() || app.settings.attachments_dir?.trim() || "");
+
   async function saveAttachment(a: AttachmentInfo) {
+    if (!msg) return;
+    if (!saveDir) return saveAttachmentAs(a);
+    try {
+      const path = await app.track(api.attachmentSaveIn(msg.row.id, a.index, saveDir));
+      app.toast(t("file.savedTo", { name: path.split(/[\\/]/).pop() ?? a.name, dir: saveDir }));
+    } catch (e) {
+      // The folder is gone or closed to writing: the error says so, the file goes elsewhere.
+      app.toast(asError(e).message, true, { label: t("file.saveAs"), run: () => saveAttachmentAs(a) });
+    }
+  }
+
+  async function saveAttachmentAs(a: AttachmentInfo) {
     if (!msg) return;
     const path = await save({ defaultPath: a.name, title: t("file.saveTitle") });
     if (!path) return;
@@ -160,7 +176,7 @@
 
   async function saveAll() {
     if (!msg) return;
-    const dir = await openDialog({ directory: true, title: t("file.saveAllTitle") });
+    const dir = saveDir || (await openDialog({ directory: true, title: t("file.saveAllTitle") }));
     if (!dir || Array.isArray(dir)) return;
     try {
       const n = await app.track(api.attachmentsSaveAll(msg.row.id, dir));
@@ -513,7 +529,10 @@
             <div class="file" class:current>
               <button class="file-name" onclick={() => viewAttachment(a)} title={current ? t("viewer.close") : `${t("file.open")}: ${a.name}`} aria-pressed={current}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
               <span class="fsize muted">{size(a.size)}</span>
-              <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title={t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
+              <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title={saveDir ? t("file.saveIn", { dir: saveDir }) : t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
+              {#if saveDir}
+                <button class="btn ghost small-btn" onclick={() => saveAttachmentAs(a)} title={t("file.saveAs")} aria-label={t("file.saveAs")}><FolderOutput size={14} /></button>
+              {/if}
             </div>
           {/each}
           {#if files.length > 1}<button class="btn ghost small-btn" onclick={saveAll}>{t("file.saveAll")}</button>{/if}

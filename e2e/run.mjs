@@ -8,7 +8,7 @@
 // Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99).
 
 import { spawn, execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -367,6 +367,35 @@ try {
     if (res !== "ok") throw new Error(res);
     const head = readFileSync(target).subarray(0, 8).toString();
     if (head !== "%PDF-1.4") throw new Error(`содержимое: ${head}`);
+  });
+
+  await step("4.5", "папка для вложений: «Сохранить» и «Сохранить все» без диалога, имена не затираются", async () => {
+    const dir = join(profile, "Вложения");
+    const setDir = async (value) => {
+      await press(",", { ctrlKey: true });
+      await d.click(await d.until("mail page", () => d.find(".prefs .tab[data-page='mail']")));
+      const input = await d.until("folder field", () => d.find(".prefs .folder input"));
+      await d.clear(input);
+      if (value) await d.type(input, value);
+      await d.click(await d.find(".prefs footer .btn.primary"));
+      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+    };
+    await setDir(dir);
+    await d.button("Входящие");
+    await openBySubject("HTML-письмо с картинками");
+    const saveButton = () => d.xpath("//div[contains(@class,'file')][contains(., 'report.pdf')]//button[@aria-label='Сохранить']");
+    // The folder does not exist yet: it is made.
+    await d.click(await saveButton());
+    await d.until("saved without a dialog", async () => readdirSync(dir).includes("report.pdf"), 10000);
+    await d.click(await saveButton());
+    await d.until("second copy beside", async () => readdirSync(dir).includes("report (1).pdf"), 10000);
+    await openFolder("Работа");
+    await openBySubject("Документы на проверку");
+    await d.button("Сохранить все");
+    await d.until("all saved", async () => ["contract.pdf", "sums.csv"].every((f) => readdirSync(dir).includes(f)), 10000);
+    await d.button("Входящие");
+    if (readFileSync(join(dir, "report (1).pdf")).subarray(0, 8).toString() !== "%PDF-1.4") throw new Error("копия искажена");
+    await setDir("");
   });
 
   await step("4.10", "просмотрщик вложений в области чтения: PDF, Word, Excel, Markdown, CSV в cp1251; ←/→ и Esc", async () => {

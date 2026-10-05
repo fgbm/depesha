@@ -158,6 +158,7 @@ pub fn run() {
             commands::addresses,
             commands::attachment_save,
             commands::attachments_save_all,
+            commands::attachment_save_in,
             commands::attachment_open,
             commands::attachment_bytes,
             commands::message_window,

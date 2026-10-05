@@ -129,6 +129,7 @@ class AppStore {
     offline: "30",
     offline_attachments: false,
     sender_logos: true,
+    attachments_dir: "",
     list_sort: [],
     view_sorts: {},
   });
