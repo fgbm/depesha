@@ -141,16 +141,22 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
     }
     let id = account.id.clone();
     let key = sizes_task(&id);
-    if state.task_progress(&key).is_some() {
+    // The "counting" state is claimed before anything is spawned or announced, so a second
+    // "Count" finds it and returns at once, and a stop arriving in the meantime is not lost.
+    if !state.begin_count(&id) {
         return Ok(());
     }
-    let folders: Vec<String> = state
-        .store
-        .folders(Some(&id))?
-        .into_iter()
-        .filter(|f| f.folder.selectable && !f.folder.hidden)
-        .map(|f| f.folder.name)
-        .collect();
+    let folders: Vec<String> = match state.store.folders(Some(&id)) {
+        Ok(list) => list
+            .into_iter()
+            .filter(|f| f.folder.selectable && !f.folder.hidden)
+            .map(|f| f.folder.name)
+            .collect(),
+        Err(e) => {
+            state.abandon_count(&id);
+            return Err(e.into());
+        }
+    };
     let total = folders.len() as u64;
     let name = if account.label.is_empty() {
         account.email.clone()
@@ -163,7 +169,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
 
     let id_kept = id.clone();
     let task_state = state.clone();
-    // The count starts once its handle is kept, so its end finds the handle to let go.
+    // The count starts once its handle is kept (or the stop came first: then it does not).
     let (go, ready) = tokio::sync::oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
         let state = task_state;
@@ -198,8 +204,12 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
         state.forget_count(&id);
         changed(&state, &id);
     });
-    state.keep_count(&id_kept, handle.abort_handle());
-    let _ = go.send(());
+    if state.keep_count(&id_kept, handle.abort_handle()) {
+        let _ = go.send(());
+    } else {
+        // A stop arrived between the claim and the spawn: the count must not run.
+        handle.abort();
+    }
     Ok(())
 }
 

@@ -21,8 +21,9 @@ pub struct Tasks {
     synced: Mutex<HashMap<String, i64>>,
     /// Accounts whose offline download the user paused (until the app restarts).
     paused: Mutex<HashSet<String>>,
-    /// Folder size counts under way, by account, to be stopped.
-    counts: Mutex<HashMap<String, tokio::task::AbortHandle>>,
+    /// Folder size counts under way, by account: `None` while one is claimed but its task
+    /// has not been spawned yet, `Some` once its handle is kept, to be stopped.
+    counts: Mutex<HashMap<String, Option<tokio::task::AbortHandle>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -146,7 +147,7 @@ impl AppState {
         lock(&self.tasks.list).retain(|_, t| t.account_id.as_deref() != Some(account_id));
         lock(&self.tasks.synced).remove(account_id);
         lock(&self.tasks.paused).remove(account_id);
-        if let Some(count) = lock(&self.tasks.counts).remove(account_id) {
+        if let Some(count) = lock(&self.tasks.counts).remove(account_id).flatten() {
             count.abort();
         }
         self.emit_tasks();
@@ -160,12 +161,32 @@ impl AppState {
             .map(|t| (t.done, t.total))
     }
 
-    pub fn keep_count(&self, account_id: &str, handle: tokio::task::AbortHandle) {
-        lock(&self.tasks.counts).insert(account_id.to_owned(), handle);
+    /// Claims the account's count before its task is spawned, so a second "Count" cannot
+    /// start and a stop in the meantime is not lost. False when one is already under way.
+    pub fn begin_count(&self, account_id: &str) -> bool {
+        lock(&self.tasks.counts).insert(account_id.to_owned(), None).is_none()
     }
 
+    /// Gives up a claim whose task was never spawned (the window is gone, the connect failed).
+    pub fn abandon_count(&self, account_id: &str) {
+        lock(&self.tasks.counts).remove(account_id);
+    }
+
+    /// Keeps the running task's handle. False when a stop came first: the task must not run.
+    pub fn keep_count(&self, account_id: &str, handle: tokio::task::AbortHandle) -> bool {
+        let mut counts = lock(&self.tasks.counts);
+        match counts.get_mut(account_id) {
+            Some(slot) => {
+                *slot = Some(handle);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Takes the account's count out: the caller aborts the handle, if there is one.
     pub fn forget_count(&self, account_id: &str) -> Option<tokio::task::AbortHandle> {
-        lock(&self.tasks.counts).remove(account_id)
+        lock(&self.tasks.counts).remove(account_id).flatten()
     }
 
     pub fn mark_synced(&self, account_id: &str) {
