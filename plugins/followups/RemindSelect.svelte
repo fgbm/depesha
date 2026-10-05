@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Popover, Select, fromLocalInput, toLocalInput, when, type ComposeContext, type PluginContext, type Text } from "@depesha/plugin-api";
-  import { secondsAfter, type Remind, type Unit } from "./due";
+  import { Popover, Select, when, type ComposeContext, type PluginContext, type Text } from "@depesha/plugin-api";
+  import DueForm from "./DueForm.svelte";
+  import { labelOf, secondsAfter, type Due, type Remind, type Unit } from "./due";
   import { LABEL, S } from "./strings";
 
   let { compose, ctx }: { compose: ComposeContext; ctx: PluginContext } = $props();
@@ -36,22 +37,13 @@
     } else value = shown;
   });
 
-  let mode = $state<"amount" | "date">("amount");
-  let amount = $state(2);
-  let unit = $state<Unit>("workdays");
-  let date = $state(toLocalInput(Math.floor(Date.now() / 1000) + 2 * 86_400));
-  let keep = $state(false);
-  const dateAt = $derived(fromLocalInput(date));
-  const valid = $derived(mode === "amount" ? amount > 0 : !!dateAt && dateAt * 1000 > Date.now());
-
-  function apply() {
-    if (!valid) return;
-    if (mode === "amount" && keep) {
-      const p: Remind = { id: crypto.randomUUID(), label: label(amount, unit), amount, unit };
+  function apply(due: Due) {
+    if ("amount" in due && due.keep) {
+      const p: Remind = { id: crypto.randomUUID(), label: label(due.amount, due.unit), amount: due.amount, unit: due.unit, auto: true };
       ctx.settings.set("presets", [...saved, p]);
       shown = `p:${p.id}`;
     } else {
-      custom = mode === "amount" ? { amount, unit } : { at: dateAt! };
+      custom = "amount" in due ? { amount: due.amount, unit: due.unit } : { at: due.at };
       shown = "c";
     }
     open = false;
@@ -62,7 +54,7 @@
     { value: "d1", label: say(S.remind1) },
     { value: "d3", label: say(S.remind3) },
     { value: "d7", label: say(S.remind7) },
-    ...saved.map((p) => ({ value: `p:${p.id}`, label: p.label })),
+    ...saved.map((p) => ({ value: `p:${p.id}`, label: labelOf(p, label) })),
     ...(custom
       ? [{ value: "c", label: "at" in custom ? ctx.t(S.untilDate, { when: when(custom.at) }) : label(custom.amount, custom.unit) }]
       : []),
@@ -73,29 +65,7 @@
 <span class="remind-anchor">
   <Select class="remind" bind:value={shown} title={say(S.remindHint)} label={say(S.remindHint)} {options} />
   <Popover bind:open align="left">
-    <div class="mt">{say(S.customTitle)}</div>
-    <div class="custom">
-      <label class="row">
-        <input type="radio" bind:group={mode} value="amount" />
-        <span>{say(S.inAmount)}</span>
-        <input class="input num" type="number" min="1" bind:value={amount} onfocus={() => (mode = "amount")} />
-        <select class="input" bind:value={unit} onfocus={() => (mode = "amount")}>
-          {#each ["minutes", "hours", "days", "workdays"] as const as u (u)}<option value={u}>{say(S.unit[u])}</option>{/each}
-        </select>
-      </label>
-      <label class="row">
-        <input type="radio" bind:group={mode} value="date" />
-        <span>{say(S.onDate)}</span>
-        <input class="input" type="datetime-local" bind:value={date} onfocus={() => (mode = "date")} />
-      </label>
-      {#if mode === "amount"}
-        <label class="row keep"><input type="checkbox" bind:checked={keep} /> {say(S.keep)}</label>
-      {/if}
-      <div class="buttons">
-        <button class="btn ghost" onclick={() => (open = false)}>{say(S.cancel)}</button>
-        <button class="btn primary" disabled={!valid} onclick={apply}>{say(S.apply)}</button>
-      </div>
-    </div>
+    <DueForm {ctx} title={say(S.customTitle)} keepable onDone={apply} onCancel={() => (open = false)} />
   </Popover>
 </span>
 
@@ -108,33 +78,5 @@
   :global(.select.remind) {
     max-width: 260px;
     font-size: 13px;
-  }
-
-  .custom {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 4px 8px 8px;
-    min-width: 300px;
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .num {
-    width: 64px;
-  }
-
-  .keep {
-    font-size: 13px;
-  }
-
-  .buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
   }
 </style>

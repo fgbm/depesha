@@ -12,6 +12,7 @@
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
   import { host } from "./plugin-host/host.svelte";
+  import { registry } from "./plugin-host/registry.svelte";
 
   let { id }: { id: number } = $props();
 
@@ -74,6 +75,10 @@
 </div>
 
 <Dock />
+<!-- Dialogs plugins open from their banners, e.g. a new date for a reminder. -->
+{#each registry.lists.overlays as o (o)}
+  <o.item.component {...o.item.props ?? {}} />
+{/each}
 
 {#if app.confirmation}
   {#key app.confirmation}<Confirm q={app.confirmation} />{/key}

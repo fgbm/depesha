@@ -26,6 +26,12 @@ export const S = {
   },
   again: { en: "Write again", ru: "Написать ещё раз" },
   later: { en: "Remind tomorrow", ru: "Напомнить завтра" },
+  repick: { en: "Set a new date", ru: "Назначить новый срок" },
+  repickTitle: { en: "Remind again if nobody replies", ru: "Напомнить снова, если не ответят" },
+  due: { en: "No answer yet: {subject}", ru: "Нет ответа: {subject}" },
+  noSubject: { en: "(no subject)", ru: "(без темы)" },
+  openConversation: { en: "Open the conversation", ru: "Открыть переписку" },
+  gone: { en: "The letter is no longer waiting for a reply", ru: "Письмо уже не ждёт ответа" },
   custom: { en: "Custom…", ru: "Настроить…" },
   customTitle: { en: "Remind me if nobody replies", ru: "Напомнить, если не ответят" },
   inAmount: { en: "In", ru: "Через" },
@@ -46,6 +52,9 @@ export const S = {
     ru: "Свои варианты списка «Напомнить, если не ответят», после стандартных. Добавляются через «Настроить…» при написании письма.",
   },
   none: { en: "None yet.", ru: "Пока нет." },
+  presetName: { en: "Name", ru: "Название" },
+  amount: { en: "How many", ru: "Сколько" },
+  unitLabel: { en: "Of what", ru: "Чего" },
   up: { en: "Up", ru: "Выше" },
   down: { en: "Down", ru: "Ниже" },
   remove: { en: "Remove", ru: "Удалить" },
@@ -84,5 +93,36 @@ export const LABEL = {
       few: "Напомнить через {n} рабочих дня без ответа",
       other: "Напомнить через {n} рабочих дней без ответа",
     },
+  },
+};
+
+/** "2 days left" and "3 days overdue": the tag of a row waiting for a reply. */
+export const LEFT = {
+  minutes: {
+    en: { one: "{n} minute left", other: "{n} minutes left" },
+    ru: { one: "осталась {n} минута", few: "осталось {n} минуты", other: "осталось {n} минут" },
+  },
+  hours: {
+    en: { one: "{n} hour left", other: "{n} hours left" },
+    ru: { one: "остался {n} час", few: "осталось {n} часа", other: "осталось {n} часов" },
+  },
+  days: {
+    en: { one: "{n} day left", other: "{n} days left" },
+    ru: { one: "остался {n} день", few: "осталось {n} дня", other: "осталось {n} дней" },
+  },
+};
+
+export const LATE = {
+  minutes: {
+    en: { one: "{n} minute overdue", other: "{n} minutes overdue" },
+    ru: { one: "просрочено на {n} минуту", few: "просрочено на {n} минуты", other: "просрочено на {n} минут" },
+  },
+  hours: {
+    en: { one: "{n} hour overdue", other: "{n} hours overdue" },
+    ru: { one: "просрочено на {n} час", few: "просрочено на {n} часа", other: "просрочено на {n} часов" },
+  },
+  days: {
+    en: { one: "{n} day overdue", other: "{n} days overdue" },
+    ru: { one: "просрочено на {n} день", few: "просрочено на {n} дня", other: "просрочено на {n} дней" },
   },
 };

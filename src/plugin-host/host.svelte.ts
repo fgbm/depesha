@@ -47,6 +47,12 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       viewing: (view) => app.view.kind === "plugin" && app.view.id === view,
       compose: () => app.newMessage(),
       reply: (all) => app.replyTo(all),
+      open: async (id, view) => {
+        if (app.windowOf !== null) return;
+        if (view) await app.setView({ kind: "plugin", id: view });
+        await app.select(id);
+      },
+      main: () => app.windowOf === null,
     },
     backend: <T>(command: string, args?: Record<string, unknown>) => call<T>(command, args),
     onBackend: (event, run) => {

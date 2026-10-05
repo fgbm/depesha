@@ -174,6 +174,10 @@ export interface PluginContext {
     compose(): void;
     /** Answers the opened letter; to one's own sent letter, to its recipients again. */
     reply(all: boolean): void;
+    /** Opens a letter with its conversation, as a click on its row; with `view`, that plugin view's list is shown first. Main window only. */
+    open(id: number, view?: string): Promise<void>;
+    /** The main window, with the list; false in a window of one letter. */
+    main(): boolean;
   };
   /** Backend commands (see src-tauri/src/commands.rs); the core's IPC contract. */
   backend<T>(command: string, args?: Record<string, unknown>): Promise<T>;

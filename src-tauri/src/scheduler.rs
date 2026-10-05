@@ -73,6 +73,11 @@ async fn round(state: &AppState) -> depesha_core::Result<()> {
             &format!("{subject} — {}", f.recipients),
             false,
         );
+        // The notification cannot open the letter: the app offers to, in a toast.
+        state.emit(
+            "followup-due",
+            json!({ "account_id": f.account_id, "message_id": f.message_id, "subject": f.subject }),
+        );
         state.emit("counters-changed", json!({}));
     }
     Ok(())
