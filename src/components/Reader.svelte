@@ -77,7 +77,7 @@
     saveAllTitle: () => t("file.saveAllTitle"),
   });
   const viewing = $derived(viewer.viewingId !== null);
-  const files = viewer.files;
+  const files = $derived(viewer.files);
 
   const banners = $derived(msg ? extensions.banners.filter((b) => b.messageId === msg.row.id) : []);
   const pluginBanners = $derived(msg ? registry.collect<PluginBanner, typeof msg>("banners", msg) : []);
