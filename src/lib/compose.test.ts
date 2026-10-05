@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { i18n } from "./i18n.svelte";
-import { emptyDraft, forward, isDirty, forwardSubject, reply, replySubject, swapSignature, withSignature } from "./compose";
+import { emptyDraft, forward, isDirty, forwardSubject, reply, replySubject, splitQuote, swapSignature, withSignature } from "./compose";
 import { linkify, parseAddr, pluralRu } from "./format";
 import type { OpenedMessage } from "./types";
 
@@ -82,6 +82,24 @@ describe("reply", () => {
   it("reply to my own sent message goes to its recipients", () => {
     const d = reply(msg({ from: me, to: [{ name: null, email: "anna@example.org" }], cc: [] }), me, false);
     expect(d.to.map((a) => a.email)).toEqual(["anna@example.org"]);
+  });
+});
+
+describe("splitQuote", () => {
+  it("takes the quote of a reply off what is typed, losing nothing", () => {
+    const d = withSignature(reply(msg(), me, false), "Карл");
+    const typed = `Спасибо!${d.text}`;
+    const { head, quote } = splitQuote(typed);
+    expect(head).toBe("Спасибо!\n\n-- \nКарл");
+    expect(quote.startsWith("\n\n")).toBe(true);
+    expect(quote).toContain("пишет:\n> Добрый день!");
+    expect(head + quote).toBe(typed);
+  });
+
+  it("leaves text without a trailing quote whole", () => {
+    for (const text of ["", "Привет", "Итак:\n> вставка\nи мой ответ ниже", "> только цитата"]) {
+      expect(splitQuote(text)).toEqual({ head: text, quote: "" });
+    }
   });
 });
 

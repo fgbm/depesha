@@ -620,14 +620,24 @@ try {
     await d.until("reply compose", async () => (await d.findAll(".compose")).length === 1);
     const subj = await d.exec("return document.querySelector('.compose .subject').value");
     if (subj !== `Re: ${subject}`) throw new Error(`тема: ${subj}`);
+    // The quote is folded under the field, which shows only what is typed and the signature.
     const body = await d.exec("return document.querySelector('.compose textarea').value");
-    if (!body.includes("пишет:") || !body.includes("> Тестовое письмо")) throw new Error(`цитата: ${body}`);
+    if (body.includes("> Тестовое письмо")) throw new Error(`цитата в поле ввода: ${body}`);
+    if (!(await textOf(".compose .quote-bar")).includes("пишет:")) throw new Error("нет свёрнутой цитаты");
+    await d.click(await d.find(".compose .quote-bar"));
+    const quote = await d.exec("return document.querySelector('.compose .quote-text')?.value ?? ''");
+    if (!quote.includes("> Тестовое письмо")) throw new Error(`цитата: ${quote}`);
+    await d.click(await d.find(".compose .quote-bar"));
     await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); t.setSelectionRange(0, 0);");
     await d.type(await d.find(".compose textarea"), "Ответ получен.");
     await d.button("Отправить");
     await rowBySubject(`Re: ${subject}`, 60000);
     const irt = helper("header", "INBOX", `Re: ${subject}`, "In-Reply-To");
     if (!irt.includes("@")) throw new Error(`In-Reply-To: ${irt}`);
+    // The letter carries both the answer and the quote.
+    await openBySubject(`Re: ${subject}`);
+    const sent = await textOf(".reader .body");
+    if (!sent.includes("Ответ получен.") || !sent.includes("> Тестовое письмо")) throw new Error(`ушло: ${sent}`);
   });
 
   await step("6.1", "удаление переносит в корзину", async () => {
@@ -674,6 +684,9 @@ try {
     await d.until("draft on server", async () => helper("count", "Drafts", `Черновик ${stamp}`) === "1", 15000);
     const flags = helper("flags", "Drafts", `Черновик ${stamp}`);
     if (!flags.includes("\\Draft")) throw new Error(`флаги черновика: ${flags}`);
+    // Drafts count all of them, read ones too.
+    await d.until("drafts counter", async () =>
+      Number(await d.exec("return [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Черновики')?.querySelector('.count')?.innerText ?? 0")) >= 1);
   });
 
   await step("8", "цепочка: три письма — одна строка, в письме видна вся переписка", async () => {
@@ -684,9 +697,6 @@ try {
     await openBySubject("Бюджет на ноябрь");
     // The newest letter is opened; the two before it fold into cards above.
     await d.until("conversation cards", async () => (await d.findAll(".thread .card")).length === 2);
-    // Drafts count all of them, read ones too.
-    await d.until("drafts counter", async () =>
-      Number(await d.exec("return [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Черновики')?.querySelector('.count')?.innerText ?? 0")) >= 1);
     const t = await textOf(".thread");
     if (!t.includes("Мария Соколова")) throw new Error(`цепочка: ${t}`);
     await screenshot("conversation");
@@ -926,6 +936,15 @@ try {
     await d.until("schedule kept", async () => (await textOf(".compose .scheduled")).includes("Запланировано на"));
     await d.type((await d.findAll(".compose .box input"))[0], "carol@local.test");
     await setInput(".compose .subject", subj);
+    // Closed and opened again from Drafts: the time is still there.
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+    await d.until("draft on server", async () => helper("count", "Drafts", subj) === "1", 15000);
+    await openFolder("Черновики");
+    await openBySubject(subj);
+    await d.button("Продолжить");
+    await d.until("draft opened", async () => (await d.findAll(".compose")).length === 1);
+    await d.until("schedule restored", async () => (await textOf(".compose .scheduled")).includes("Запланировано на"));
     await d.until("main button schedules", async () => (await textOf(".compose .split-btn .main")).includes("Запланировать"));
     await d.click(await d.find(".compose .split-btn .main"));
     await composeClosed();
@@ -936,15 +955,6 @@ try {
     });
     if (helper("count", "INBOX", subj) !== "0") throw new Error("письмо ушло сразу");
     // The queue is left empty for the steps that count on it.
-    // Closed and opened again from Drafts: the time is still there.
-    await d.click(await d.find(".compose header button:last-child"));
-    await composeClosed();
-    await d.until("draft on server", async () => helper("count", "Drafts", subj) === "1", 15000);
-    await openFolder("Черновики");
-    await openBySubject(subj);
-    await d.button("Продолжить");
-    await d.until("draft opened", async () => (await d.findAll(".compose")).length === 1);
-    await d.until("schedule restored", async () => (await textOf(".compose .scheduled")).includes("Запланировано на"));
     await d.click(await d.xpath(`//div[contains(@class,'item')][contains(., ${JSON.stringify(subj)})]//button[contains(., 'Отправить сейчас')]`));
     await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
   });

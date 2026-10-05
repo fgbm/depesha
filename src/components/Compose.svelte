@@ -3,6 +3,7 @@
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import FileText from "@lucide/svelte/icons/file-text";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -13,7 +14,7 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import Clock from "@lucide/svelte/icons/clock";
   import { app, type ComposeWindow } from "../lib/store.svelte";
-  import { isDirty, swapSignature } from "../lib/compose";
+  import { isDirty, splitQuote, swapSignature } from "../lib/compose";
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { extensions } from "../lib/extensions.svelte";
@@ -31,6 +32,22 @@
   let ccInput = $state<AddressInput | null>(null);
   let bccInput = $state<AddressInput | null>(null);
   let body = $state<HTMLTextAreaElement | null>(null);
+
+  // A reply's quote stays folded under the field; the draft keeps the whole text.
+  const parts = untrack(() => splitQuote(c.draft.text));
+  let head = $state(parts.head);
+  let quote = $state(parts.quote);
+  let quoteOpen = $state(false);
+  const quoteHeader = $derived(quote.trim().split("\n")[0] ?? "");
+  $effect(() => {
+    const text = head + quote;
+    if (untrack(() => c.draft.text) !== text) c.draft.text = text;
+  });
+  // A plugin may set the text as a whole: split it again.
+  $effect(() => {
+    const text = c.draft.text;
+    if (untrack(() => head + quote) !== text) ({ head, quote } = splitQuote(text));
+  });
 
   const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0));
   /** Warnings the user has to look at before the message goes; null when not checked yet. */
@@ -69,7 +86,7 @@
 
   function insertText(text: string) {
     const at = body ? body.selectionStart : 0;
-    c.draft.text = c.draft.text.slice(0, at) + text + c.draft.text.slice(at);
+    head = head.slice(0, at) + text + head.slice(at);
     queueMicrotask(() => {
       body?.focus();
       body?.setSelectionRange(at + text.length, at + text.length);
@@ -103,7 +120,7 @@
   function setAccount(id: string) {
     const acc = app.account(id);
     if (!acc) return;
-    c.draft.text = swapSignature(c.draft.text, app.account(c.account_id)?.signature, acc.signature);
+    head = swapSignature(head, app.account(c.account_id)?.signature, acc.signature);
     c.account_id = id;
     c.draft.from = { name: acc.display_name, email: acc.email };
   }
@@ -324,7 +341,20 @@
       </div>
     </div>
 
-    <textarea bind:this={body} bind:value={c.draft.text} onfocus={onBodyFocus} spellcheck="true" placeholder={t("compose.bodyPlaceholder")}></textarea>
+    <textarea bind:this={body} bind:value={head} onfocus={onBodyFocus} spellcheck="true" placeholder={t("compose.bodyPlaceholder")}></textarea>
+
+    {#if quote}
+      <div class="quote" class:open={quoteOpen}>
+        <button class="quote-bar" onclick={() => (quoteOpen = !quoteOpen)} aria-expanded={quoteOpen}>
+          {#if quoteOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+          <span class="quote-who">{quoteHeader}</span>
+          <span class="quote-act">{quoteOpen ? t("compose.quoteHide") : t("compose.quoteShow")}</span>
+        </button>
+        {#if quoteOpen}
+          <textarea class="quote-text" bind:value={quote} spellcheck="false" aria-label={t("compose.quote")}></textarea>
+        {/if}
+      </div>
+    {/if}
 
     {#if c.draft.attachments.length}
       <div class="files">
@@ -524,6 +554,56 @@
     background: var(--paper);
     line-height: 1.55;
     user-select: text;
+  }
+
+  /* The quote of a reply: one line until asked for. */
+  .quote {
+    border-top: 1px solid var(--line);
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .quote.open {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .quote-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 18px;
+    border: none;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .quote-bar:hover .quote-act,
+  .quote-bar:focus-visible .quote-act {
+    text-decoration: underline;
+  }
+
+  .quote-who {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quote-act {
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .quote-text {
+    padding-top: 4px;
+    color: var(--muted);
   }
 
   .files {
