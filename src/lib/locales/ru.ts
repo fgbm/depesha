@@ -166,6 +166,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "list.to": "Кому: {who}",
   "loading": "Загрузка…",
   "menu.replyAll": "Ответить всем",
+  "nav.allDrafts": "Все черновики",
   "nav.allInboxes": "Все входящие",
   "nav.flagged": "С флагом",
   "nav.outbox": "Исходящие",

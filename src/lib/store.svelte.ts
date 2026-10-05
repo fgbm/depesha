@@ -505,7 +505,7 @@ class AppStore {
   private viewIncludes(accountId: string, folder: string): boolean {
     const v = this.view;
     if (v.kind === "folder") return v.account_id === accountId && v.folder === folder;
-    if (v.kind === "unified") return this.folder(accountId, folder)?.role === v.role || folder === "INBOX";
+    if (v.kind === "unified") return this.folder(accountId, folder)?.role === v.role || (v.role === "inbox" && folder === "INBOX");
     return v.kind === "search" || v.kind === "plugin";
   }
 

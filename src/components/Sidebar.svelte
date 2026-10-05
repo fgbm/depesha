@@ -46,12 +46,15 @@
     trash: Trash,
   };
 
-  // With one account "All inboxes" would repeat its Inbox.
+  // With one account "All inboxes" and "All drafts" would repeat its own folders.
   const SMART = $derived<{ view: View; label: string; icon: Component }[]>([
     ...(app.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "inbox" } as View, label: t("nav.allInboxes"), icon: Mails }]),
     { view: { kind: "unified", role: "inbox", unread: true }, label: t("nav.unread"), icon: Mail },
     { view: { kind: "unified", role: "inbox", flagged: true }, label: t("nav.flagged"), icon: Flag },
+    ...(app.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "drafts" } as View, label: t("nav.allDrafts"), icon: FilePen }]),
   ]);
+  /** Drafts of every mailbox, read or not, as next to each Drafts folder. */
+  const totalDrafts = $derived(app.folders.filter((f) => f.role === "drafts").reduce((n, f) => n + f.total, 0));
 
   let dndMenu = $state(false);
   const dnd = $derived(app.settings.dnd_until > Date.now() / 1000);
@@ -192,6 +195,7 @@
           <span class="icon"><s.icon size={16} /></span>
           <span class="name">{s.label}</span>
           {#if s.icon === Mails && totalUnread > 0}<span class="count">{totalUnread}</span>{/if}
+          {#if s.icon === FilePen && totalDrafts > 0}<span class="count quiet">{totalDrafts}</span>{/if}
         </button>
       {/each}
       {#each registry.items("views") as pv (pv.id)}

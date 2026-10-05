@@ -1250,6 +1250,30 @@ try {
     await screenshot("unified-two-accounts");
   });
 
+  await step("4.1", "«Все черновики»: черновики обоих ящиков, каждый открывается от своего отправителя", async () => {
+    const subj = `Черновик Боба ${stamp}`;
+    const accounts = await invoke("accounts");
+    const bob = accounts.find((a) => a.email === "bob@local.test");
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await setSelect(".compose .from", bob.id);
+    await setInput(".compose .subject", subj);
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+    await d.button("Все черновики");
+    // Carol's drafts from the steps before, and Bob's new one.
+    await rowBySubject(`Черновик ${stamp}`, 20000);
+    await rowBySubject(subj, 20000);
+    await openBySubject(subj);
+    await d.button("Продолжить");
+    await d.until("draft opened", async () => (await d.findAll(".compose")).length === 1);
+    const from = await textOf(".compose .from");
+    if (!from.includes("bob@local.test")) throw new Error(`отправитель: ${from}`);
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+    if (helper("count", "Drafts", subj) !== "0") throw new Error("черновик Боба попал в ящик Кэрол");
+  });
+
   await step("4.2", "менеджер ящиков: порядок, название и цвет; свёрнутый ящик без лишнего отступа", async () => {
     const names = () => d.exec("return [...document.querySelectorAll('nav.side .account-name .name')].map(n => n.innerText.trim())");
     const before = await names();

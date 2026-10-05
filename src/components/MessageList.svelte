@@ -55,6 +55,7 @@
   const isSentLike = $derived.by(() => {
     const v = app.view;
     if (v.kind === "plugin") return !!pluginView?.showRecipients;
+    if (v.kind === "unified") return v.role === "sent" || v.role === "drafts";
     if (v.kind !== "folder") return false;
     const role = app.folder(v.account_id, v.folder)?.role;
     return role === "sent" || role === "drafts";

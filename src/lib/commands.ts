@@ -70,6 +70,9 @@ export function coreCommands(): Command[] {
     { id: "core.go.unread", title: where(t("nav.unread")), run: go({ kind: "unified", role: "inbox", unread: true }) },
     { id: "core.go.flagged", title: where(t("nav.flagged")), run: go({ kind: "unified", role: "inbox", flagged: true }) },
   );
+  if (app.accounts.length > 1) {
+    list.push({ id: "core.go.drafts", title: where(t("nav.allDrafts")), run: go({ kind: "unified", role: "drafts" }) });
+  }
   for (const v of registry.items("views")) {
     list.push({ id: `core.go.${v.id}`, title: where(v.title()), run: go({ kind: "plugin", id: v.id }) });
   }

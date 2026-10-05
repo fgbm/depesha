@@ -173,6 +173,7 @@ export const en = {
   "list.to": "To: {who}",
   "loading": "Loading…",
   "menu.replyAll": "Reply all",
+  "nav.allDrafts": "All drafts",
   "nav.allInboxes": "All inboxes",
   "nav.flagged": "Flagged",
   "nav.outbox": "Outbox",
