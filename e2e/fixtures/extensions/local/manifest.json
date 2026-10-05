@@ -1,0 +1,7 @@
+{
+  "id": "test.local",
+  "name": { "en": "Local network" },
+  "version": "1.0.0",
+  "permissions": ["messages.read", "network:127.0.0.1"],
+  "hooks": ["messageOpen"]
+}

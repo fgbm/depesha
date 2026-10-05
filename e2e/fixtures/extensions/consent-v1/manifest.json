@@ -1,0 +1,8 @@
+{
+  "id": "test.consent",
+  "name": { "en": "Consent check" },
+  "version": "1.0.0",
+  "author": "Depesha tests",
+  "permissions": ["messages.read"],
+  "hooks": ["messageOpen"]
+}

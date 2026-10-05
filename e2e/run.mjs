@@ -8,7 +8,7 @@
 // Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99).
 
 import { spawn, execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1188,7 +1188,33 @@ try {
     await d.until("plugins", async () => (await d.findAll(".prefs .plugins")).length === 1);
   };
   const closeModules = closeSettings;
-  const install = (name, dir = "plugins/community") => invoke("extension_install", { path: join(root, dir, name) });
+  // Straight to the backend, agreeing to exactly what the manifest asks for.
+  const install = (name, dir = "plugins/community") => {
+    const path = join(root, dir, name);
+    const m = JSON.parse(readFileSync(join(path, "manifest.json"), "utf8"));
+    return invoke("extension_install", { path, permissions: m.permissions ?? [], hooks: m.hooks ?? [] });
+  };
+  const extensionsDir = join(profile, "data", "ru.depesha.mail", "extensions");
+  /** The next folder dialog answers `path` without showing up. */
+  const pickFolder = (path) =>
+    d.exec(`
+      const path = arguments[0];
+      const tauri = window.__TAURI_INTERNALS__;
+      const invoke = tauri.invoke;
+      tauri.invoke = (cmd, args, options) => {
+        if (cmd !== "plugin:dialog|open") return invoke(cmd, args, options);
+        tauri.invoke = invoke;
+        return Promise.resolve(path);
+      };`, path);
+  const installFromUi = async (name) => {
+    await pickFolder(join(root, "e2e/fixtures/extensions", name));
+    await d.click(await d.find(".prefs .plugins .head .btn"));
+  };
+  const consentDialog = () => d.until("consent dialog", async () => (await d.findAll(".consent[data-consent='test.consent']")).length === 1);
+  const answerConsent = async (ok) => {
+    await d.click(await d.find(`.consent .buttons .btn${ok ? ".primary" : ":not(.primary)"}`));
+    await d.until("consent closed", async () => (await d.findAll(".consent")).length === 0);
+  };
 
   await step("10.1", "плагины: выключенный плагин уносит свои кнопки, клавиши и разделы", async () => {
     await d.button("Входящие");
@@ -1258,6 +1284,64 @@ try {
     for (const id of ["test.hang", "test.probe", "examples.mail-rules", "examples.reading-time", "examples.external-sender"]) {
       await invoke("extension_remove", { id });
     }
+  });
+
+  await step("10.6", "согласие: до установки видны автор, версия и права словами; отказ ничего не ставит", async () => {
+    await openModules();
+    await installFromUi("consent-v1");
+    await consentDialog();
+    const text = await textOf(".consent");
+    for (const want of ["Consent check", "1.0.0", "Depesha tests", "Читать почту", "каждом открытом письме"]) {
+      if (!text.includes(want)) throw new Error(`в окне согласия нет «${want}»: ${text}`);
+    }
+    if ((await d.findAll(".consent .leak")).length) throw new Error("предупреждение о выгрузке без права на сеть");
+    await screenshot("extension-consent");
+    await answerConsent(false);
+    if ((await d.findAll(".prefs .plugins [data-ext='test.consent']")).length) throw new Error("плагин в списке после отказа");
+    if (existsSync(join(extensionsDir, "test.consent"))) throw new Error("плагин на диске после отказа");
+    await installFromUi("consent-v1");
+    await consentDialog();
+    await answerConsent(true);
+    await d.until("installed and on", async () => d.exec("return document.querySelector(\".prefs .plugins [data-ext='test.consent'] input[type=checkbox]\")?.checked === true"));
+  });
+
+  await step("10.7", "согласие: обновление с новым правом спрашивает снова и выделяет новое", async () => {
+    await installFromUi("consent-v2");
+    await consentDialog();
+    const added = await textOf(".consent li.added");
+    if (!added.includes("api.example.com")) throw new Error(`новое право не выделено: ${added}`);
+    if (!(await textOf(".consent .leak")).includes("api.example.com")) throw new Error("нет предупреждения о выгрузке писем");
+    await screenshot("extension-consent-update");
+    await answerConsent(false);
+    if (!(await textOf(".prefs .plugins [data-ext='test.consent']")).includes("1.0.0")) throw new Error("после отказа сменилась версия");
+    // The backend holds to consent too: a set other than the manifest's is refused.
+    const refused = await invoke("extension_install", {
+      path: join(root, "e2e/fixtures/extensions/consent-v2"),
+      permissions: ["messages.read"],
+      hooks: ["messageOpen"],
+    }).then(() => null, (e) => e.message);
+    if (!refused) throw new Error("установка в обход согласия прошла");
+    // The same rights again: no dialog, only a note.
+    await installFromUi("consent-v1");
+    await d.until("updated without asking", async () => (await textOf(".toasts")).includes("Обновлено"), 10000);
+    if ((await d.findAll(".consent")).length) throw new Error("согласие спрошено без новых прав");
+  });
+
+  await step("10.8", "плагин с локальным адресом в network: не запускается, причина видна", async () => {
+    cpSync(join(root, "e2e/fixtures/extensions/local"), join(extensionsDir, "test.local"), { recursive: true });
+    // Removing one plugin reloads the list.
+    await invoke("extension_remove", { id: "test.consent" });
+    const row = await d.until("refused plugin shown", async () => {
+      const t = await textOf(".prefs .plugins [data-ext='test.local'] [data-problem]");
+      return t.includes("127.0.0.1") ? t : null;
+    }, 10000);
+    console.log(`    ${row}`);
+    if (await d.exec("return document.querySelector(\".prefs .plugins [data-ext='test.local'] input[type=checkbox]\").checked")) {
+      throw new Error("плагин с локальным адресом включён");
+    }
+    if ((await d.findAll("iframe[src*='test.local']")).length) throw new Error("плагин с локальным адресом запущен");
+    await invoke("extension_remove", { id: "test.local" });
+    await closeModules();
   });
 
   await step("1.4, 2.2", "второй ящик по TLS: недоверенный сертификат принимается по отпечатку в мастере", async () => {

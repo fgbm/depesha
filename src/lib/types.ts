@@ -342,7 +342,7 @@ export interface ExtCommand {
   message: boolean;
 }
 
-export interface Extension {
+export interface ExtManifest {
   id: string;
   name: ExtText;
   description: ExtText | null;
@@ -352,7 +352,27 @@ export interface Extension {
   permissions: string[];
   hooks: string[];
   contributes: { commands: ExtCommand[] };
+}
+
+export interface Extension extends ExtManifest {
   enabled: boolean;
+  /** Why it is not loaded: its manifest or script fails the checks. */
+  problem: string | null;
+  /** Installed before consent was asked and able to send mail out: waits for approval. */
+  review: boolean;
+}
+
+/** Permissions and hooks, the set a user agrees to. */
+export interface ExtGrant {
+  permissions: string[];
+  hooks: string[];
+}
+
+/** An extension folder looked at before installing. */
+export interface ExtPreview {
+  manifest: ExtManifest;
+  /** The installed copy with the same id and what was agreed to for it. */
+  previous: { version: string; granted: ExtGrant } | null;
 }
 
 export interface UpdateStatus {

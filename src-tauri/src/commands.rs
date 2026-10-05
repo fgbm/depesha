@@ -1618,11 +1618,39 @@ pub fn extensions(app: tauri::AppHandle, state: St<'_>) -> CmdResult<Vec<crate::
     crate::extensions::list(&app, &state.settings().disabled_extensions)
 }
 
+/// An extension folder as it would be installed, for the user to agree to; copies nothing.
 #[tauri::command]
-pub fn extension_install(app: tauri::AppHandle, state: St<'_>, path: String) -> CmdResult<crate::extensions::Manifest> {
-    let m = crate::extensions::install(&app, std::path::Path::new(&path))?;
+pub fn extension_inspect(app: tauri::AppHandle, path: String) -> CmdResult<crate::extensions::Preview> {
+    crate::extensions::inspect(&app, std::path::Path::new(&path))
+}
+
+/// Installs an extension whose permissions and hooks are exactly the agreed ones.
+#[tauri::command]
+pub fn extension_install(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    path: String,
+    permissions: Vec<String>,
+    hooks: Vec<String>,
+) -> CmdResult<crate::extensions::Manifest> {
+    let grant = crate::extensions::Grant { permissions, hooks };
+    let m = crate::extensions::install(&app, std::path::Path::new(&path), grant)?;
     state.emit("extensions-changed", serde_json::json!({ "id": m.id }));
     Ok(m)
+}
+
+/// Approves the permissions of an installed extension that waits for it.
+#[tauri::command]
+pub fn extension_approve(
+    app: tauri::AppHandle,
+    state: St<'_>,
+    id: String,
+    permissions: Vec<String>,
+    hooks: Vec<String>,
+) -> CmdResult<()> {
+    crate::extensions::approve(&app, &id, crate::extensions::Grant { permissions, hooks })?;
+    state.emit("extensions-changed", serde_json::json!({ "id": id }));
+    Ok(())
 }
 
 #[tauri::command]
