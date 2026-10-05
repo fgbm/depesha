@@ -5,6 +5,12 @@
   import { longDate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import type { Account, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig } from "../lib/types";
+  // Official marks: Google and Yandex from Wikimedia Commons, Microsoft from its Entra branding guide.
+  import googleLogo from "../assets/providers/google.svg";
+  import yandexLogo from "../assets/providers/yandex.svg";
+  import microsoftLogo from "../assets/providers/microsoft.svg";
+
+  const LOGO: Record<OAuthProvider, string> = { google: googleLogo, yandex: yandexLogo, microsoft: microsoftLogo };
 
   const existing = app.wizard?.account ?? null;
 
@@ -63,6 +69,8 @@
   }
 
   const suggested = $derived(mode === "imap" ? oauthFor(email) : null);
+  /** Only providers with an OAuth client in this build or in Preferences get a button. */
+  const available = $derived(providers.filter((p) => p.configured).map((p) => p.provider));
 
   function providerTitle(p: OAuthProvider): string {
     return providers.find((x) => x.provider === p)?.title ?? { google: "Google", yandex: t("wizard.yandex"), microsoft: "Microsoft" }[p];
@@ -281,18 +289,24 @@
     <div class="content">
       {#if step === "start" && mode !== "ews"}
         <p class="muted lead">{t("wizard.lead")}</p>
-        <div class="oauth">
-          {#each (["google", "yandex", "microsoft"] as OAuthProvider[]) as p (p)}
-            <button class="btn" onclick={() => signIn(p)} disabled={busy}>{t("wizard.signInWith", { provider: providerTitle(p) })}</button>
-          {/each}
-        </div>
-        <p class="muted small or">{t("wizard.orPassword")}</p>
+        {#if available.length}
+          <div class="oauth">
+            {#each available as p (p)}
+              <button class="btn" onclick={() => signIn(p)} disabled={busy}>
+                <img src={LOGO[p]} alt="" width="18" height="18" />{t("wizard.signInWith", { provider: providerTitle(p) })}
+              </button>
+            {/each}
+          </div>
+          <p class="muted small or">{t("wizard.orPassword")}</p>
+        {/if}
         <label class="field"><span>{t("wizard.yourName")}</span><input class="input" bind:value={name} placeholder={t("wizard.namePlaceholder")} /></label>
         <label class="field"><span>{t("wizard.email")}</span>
           <!-- svelte-ignore a11y_autofocus -->
           <input class="input" bind:value={email} type="email" autofocus placeholder={t("wizard.emailPlaceholder")} onkeydown={(e) => e.key === "Enter" && next()} />
         </label>
-        {#if suggested}<p class="note">{t("wizard.oauthSuggested", { provider: providerTitle(suggested) })}</p>{/if}
+        {#if suggested && available.includes(suggested)}<p class="note">{t("wizard.oauthSuggested", { provider: providerTitle(suggested) })}</p>
+        <!-- Outlook.com has no app passwords any more: without OAuth there is nothing to suggest. -->
+        {:else if suggested && suggested !== "microsoft" && providers.length}<p class="note">{t("wizard.appPasswordSuggested", { provider: providerTitle(suggested) })}</p>{/if}
         <label class="field"><span>{t("wizard.password")}</span><input class="input" bind:value={password} type="password" onkeydown={(e) => e.key === "Enter" && next()} /></label>
         <p class="small"><button class="link" onclick={startExchange} disabled={busy}>{t("wizard.exchangeLink")}</button></p>
       {:else if step === "start"}
@@ -320,7 +334,7 @@
             <div class="field signed">
               <span>{t("wizard.signIn")}</span>
               <div class="signed-row">
-                <span>{grant ? t("wizard.signedInWith", { provider: providerTitle(provider) }) : t("wizard.viaProvider", { provider: providerTitle(provider) })}</span>
+                <span class="provider"><img src={LOGO[provider]} alt="" width="18" height="18" />{grant ? t("wizard.signedInWith", { provider: providerTitle(provider) }) : t("wizard.viaProvider", { provider: providerTitle(provider) })}</span>
                 <button class="btn ghost" onclick={() => provider && signIn(provider)} disabled={busy}>{t("wizard.signInAgain")}</button>
               </div>
             </div>
@@ -461,6 +475,21 @@
   .oauth .btn {
     flex: 1;
     min-width: 150px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .oauth img,
+  .provider img {
+    flex: none;
+  }
+
+  .provider {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .or {

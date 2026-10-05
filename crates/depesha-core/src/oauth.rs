@@ -63,6 +63,8 @@ struct Endpoints {
     auth: &'static str,
     token: &'static str,
     scope: &'static str,
+    /// The part of `scope` IMAP needs. Google lets the user untick it on the consent page.
+    mail_scope: &'static str,
     /// Host in the redirect URI: Microsoft registers `localhost`, the others take the IP.
     redirect_host: &'static str,
     extra: &'static [(&'static str, &'static str)],
@@ -74,6 +76,7 @@ fn endpoints(provider: OAuthProvider) -> Endpoints {
             auth: "https://accounts.google.com/o/oauth2/v2/auth",
             token: "https://oauth2.googleapis.com/token",
             scope: "https://mail.google.com/ openid email profile",
+            mail_scope: "https://mail.google.com/",
             redirect_host: "127.0.0.1",
             // Without consent on every sign-in Google returns no refresh token the second time.
             extra: &[("access_type", "offline"), ("prompt", "consent")],
@@ -82,6 +85,7 @@ fn endpoints(provider: OAuthProvider) -> Endpoints {
             auth: "https://oauth.yandex.ru/authorize",
             token: "https://oauth.yandex.ru/token",
             scope: "mail:imap_full mail:smtp login:email login:info",
+            mail_scope: "mail:imap_full",
             redirect_host: "127.0.0.1",
             extra: &[("force_confirm", "yes")],
         },
@@ -90,6 +94,7 @@ fn endpoints(provider: OAuthProvider) -> Endpoints {
             token: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
             scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send \
                     offline_access openid email profile",
+            mail_scope: "https://outlook.office.com/IMAP.AccessAsUser.All",
             redirect_host: "localhost",
             extra: &[("prompt", "select_account")],
         },
@@ -341,6 +346,7 @@ struct TokenAnswer {
     refresh_token: Option<String>,
     expires_in: Option<serde_json::Value>,
     id_token: Option<String>,
+    scope: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
 }
@@ -348,6 +354,8 @@ struct TokenAnswer {
 struct Exchanged {
     tokens: Tokens,
     id_token: Option<String>,
+    /// Granted scopes, space-separated; `None` when the provider does not say (Yandex).
+    scope: Option<String>,
 }
 
 async fn token_request(provider: OAuthProvider, client: &OAuthClient, params: &[(&str, &str)]) -> Result<Exchanged> {
@@ -407,7 +415,14 @@ async fn token_request(provider: OAuthProvider, client: &OAuthClient, params: &[
             expires_at: chrono::Utc::now().timestamp() + expires_in,
         },
         id_token: answer.id_token,
+        scope: answer.scope,
     })
+}
+
+/// False only when the provider listed the granted scopes and mail is not among them.
+fn grants_mail(provider: OAuthProvider, granted: Option<&str>) -> bool {
+    let want = endpoints(provider).mail_scope;
+    granted.is_none_or(|s| s.split_whitespace().any(|g| g.eq_ignore_ascii_case(want)))
 }
 
 async fn exchange(
@@ -432,6 +447,13 @@ async fn exchange(
         return Err(Error::Auth(tr!(
             "{} gave no refresh token; remove the app's access in the account settings and sign in again",
             "{} не выдал токен обновления; отзовите доступ приложения в настройках аккаунта и войдите снова",
+            provider.title()
+        )));
+    }
+    if !grants_mail(provider, ex.scope.as_deref()) {
+        return Err(Error::Auth(tr!(
+            "{} did not grant access to mail: sign in again and tick mail access on the permissions page",
+            "{} не дал доступ к почте: войдите заново и на странице разрешений отметьте доступ к почте",
             provider.title()
         )));
     }
@@ -546,6 +568,24 @@ mod tests {
         );
         assert!(ms.contains("IMAP.AccessAsUser.All") && ms.contains("offline_access"));
         assert!(!ms.contains("login_hint"));
+    }
+
+    #[test]
+    fn notices_unticked_mail_scope() {
+        let google = OAuthProvider::Google;
+        assert!(grants_mail(
+            google,
+            Some("openid https://mail.google.com/ https://www.googleapis.com/auth/userinfo.email")
+        ));
+        assert!(!grants_mail(
+            google,
+            Some("openid https://www.googleapis.com/auth/userinfo.email")
+        ));
+        assert!(grants_mail(OAuthProvider::Yandex, None));
+        assert!(grants_mail(
+            OAuthProvider::Microsoft,
+            Some("https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send")
+        ));
     }
 
     #[test]

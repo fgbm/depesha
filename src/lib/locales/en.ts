@@ -333,6 +333,7 @@ export const en = {
   "wizard.noTlsNote": "Ask the administrator to enable TLS on the server. For Exchange: a certificate on the “Client Frontend” receive connector and the IMAP4 service.",
   "wizard.oauthNotConfigured": "Sign-in with {provider} is not set up in this build. Use a password, or an app password where the provider asks for one.",
   "wizard.oauthSuggested": "{provider} accepts sign-in through the browser: use the button above instead of a password.",
+  "wizard.appPasswordSuggested": "{provider} does not accept your regular password: create an app password in the account settings and enter it here.",
   "wizard.orPassword": "or with a password",
   "wizard.otherAccount": "You signed in as {email}, but this account is {expected}. Sign in again with the right account.",
   "wizard.outgoing": "Outgoing mail (SMTP)",

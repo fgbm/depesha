@@ -135,13 +135,25 @@ impl async_imap::Authenticator for XOAuth2 {
     }
 }
 
-/// `{"status":"401","schemes":"Bearer","scope":"https://mail.google.com/"}` -> `401`.
+/// `{"status":"401","schemes":"Bearer","scope":"https://mail.google.com/"}` -> what to do, and the status.
+/// Gmail answers 400 when the token lacks the mail scope (the user left Gmail unticked
+/// on the consent page) and 401 when the token is expired or revoked.
 pub(crate) fn xoauth2_error(challenge: &[u8]) -> Option<String> {
     let v: serde_json::Value = serde_json::from_slice(challenge).ok()?;
-    let status = v.get("status")?;
-    Some(match status {
+    let status = match v.get("status")? {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
+    };
+    Some(match status.as_str() {
+        "400" => tr!(
+            "the sign-in does not allow mail access: sign in again and allow access to mail ({status})",
+            "вход не даёт доступа к почте: войдите заново и разрешите доступ к почте ({status})"
+        ),
+        "401" => tr!(
+            "the sign-in has expired: sign in again ({status})",
+            "вход устарел: войдите заново ({status})"
+        ),
+        _ => status,
     })
 }
 
@@ -778,6 +790,17 @@ mod tests {
             "LOGIN failed. Invalid login/password for user id carol"
         );
         assert_eq!(server_text("plain"), "plain");
+    }
+
+    #[test]
+    fn explains_xoauth2_refusals() {
+        let no_scope =
+            xoauth2_error(br#"{"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}"#).unwrap();
+        assert!(no_scope.ends_with("(400)") && no_scope.len() > 10);
+        let expired = xoauth2_error(br#"{"status":"401","schemes":"Bearer"}"#).unwrap();
+        assert!(expired.ends_with("(401)") && expired != no_scope);
+        assert_eq!(xoauth2_error(br#"{"status":503}"#).unwrap(), "503");
+        assert!(xoauth2_error(b"not json").is_none());
     }
 
     #[test]

@@ -326,6 +326,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "wizard.noTlsNote": "Попросите администратора включить TLS на сервере. Для Exchange: сертификат на receive-коннекторе «Client Frontend» и служба IMAP4.",
   "wizard.oauthNotConfigured": "Вход через {provider} не настроен в этой сборке. Войдите по паролю или по паролю приложения, если провайдер его требует.",
   "wizard.oauthSuggested": "{provider} принимает вход через браузер: нажмите кнопку выше вместо пароля.",
+  "wizard.appPasswordSuggested": "{provider} не пускает по обычному паролю: создайте пароль приложения в настройках аккаунта и введите его.",
   "wizard.orPassword": "или по паролю",
   "wizard.otherAccount": "Вы вошли как {email}, а это ящик {expected}. Войдите заново нужным аккаунтом.",
   "wizard.outgoing": "Исходящая почта (SMTP)",
