@@ -76,12 +76,21 @@ export function addrFull(a: Addr): string {
   return a.name?.trim() ? `${a.name} <${a.email}>` : a.email;
 }
 
-export function size(bytes: number): string {
-  const ru = i18n.lang === "ru";
-  if (bytes < 1024) return `${bytes} ${ru ? "Б" : "B"}`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ${ru ? "КБ" : "KB"}`;
-  const mb = (bytes / 1024 / 1024).toFixed(1);
-  return ru ? `${mb.replace(".", ",")} МБ` : `${mb} MB`;
+/**
+ * Bytes, kilobytes whole, megabytes and gigabytes to a tenth below 100 ("96,4 МБ", "148 МБ"),
+ * in the interface language. `digits` fixes the decimals ("25 МБ" for a threshold).
+ */
+export function size(bytes: number, digits?: number): string {
+  const units = i18n.lang === "ru" ? ["Б", "КБ", "МБ", "ГБ", "ТБ"] : ["B", "KB", "MB", "GB", "TB"];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  const d = digits ?? (i >= 2 && n < 99.95 ? 1 : 0);
+  const num = new Intl.NumberFormat(locale(), { minimumFractionDigits: d, maximumFractionDigits: d }).format(d ? n : Math.round(n));
+  return `${num} ${units[i]}`;
 }
 
 const EMAIL = /^[^\s@<>()",;]+@[^\s@<>()",;]+\.[^\s@<>()",;]+$/;

@@ -5,12 +5,14 @@
   import { app } from "../lib/store.svelte";
   import RowMenu from "./RowMenu.svelte";
   import ViewMenu from "./ViewMenu.svelte";
+  import SearchBox from "./SearchBox.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowTag } from "../plugin-api";
-  import { addrName, listDate } from "../lib/format";
+  import { addrName, listDate, size } from "../lib/format";
   import { layout } from "../lib/layout.svelte";
   import { viewTitle } from "../lib/titles";
-  import { i18n, t, tn } from "../lib/i18n.svelte";
+  import { i18n, locale, t, tn } from "../lib/i18n.svelte";
+  import { recentSearches } from "../lib/recentSearches.svelte";
   import type { Addr, MessageRow } from "../lib/types";
 
   let {
@@ -37,8 +39,6 @@
   let viewport = $state<HTMLDivElement | null>(null);
   let scrollTop = $state(0);
   let height = $state(600);
-  let searchText = $state("");
-  let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   const start = $derived(Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN));
   const end = $derived(Math.min(app.messages.length, Math.ceil((scrollTop + height) / ROW) + OVERSCAN));
@@ -49,6 +49,13 @@
   const count = $derived(tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` }));
 
   const showAccount = $derived(app.accounts.length > 1 && app.view.kind !== "folder");
+  /** Every row shows its size, quietly; ordered by size, the sizes are what is read. */
+  const bySize = $derived(app.sort()[0]?.by === "size");
+  const found = $derived.by(() => {
+    const totals = app.searchTotals;
+    if (!totals) return "";
+    return tn("search.found", totals.count, { n: new Intl.NumberFormat(locale()).format(totals.count), size: size(totals.size) });
+  });
   const isSentLike = $derived.by(() => {
     const v = app.view;
     if (v.kind === "plugin") return !!pluginView?.showRecipients;
@@ -64,24 +71,12 @@
     if (viewport.scrollTop + viewport.clientHeight > viewport.scrollHeight - ROW * 10) app.loadMore();
   }
 
-  function onSearch() {
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      const text = searchText.trim();
-      if (text) app.setView({ kind: "search", text });
-      else if (app.view.kind === "search") app.setView(app.home());
-    }, 250);
-  }
-
-  function clearSearch() {
-    searchText = "";
-    if (app.view.kind === "search") app.setView(app.home());
-  }
-
   function click(e: MouseEvent, m: MessageRow) {
     const mode = e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "single";
     // A plain click opens the letter; in a narrow window it takes the column.
     if (mode === "single") layout.showLetter();
+    // A result opened: the search was worth it, it goes among the recent ones.
+    if (app.view.kind === "search") recentSearches.remember(app.view.text);
     app.select(m.id, mode);
   }
 
@@ -129,10 +124,6 @@
     if (viewport) viewport.scrollTop = 0;
     scrollTop = 0;
   });
-
-  $effect(() => {
-    if (app.view.kind !== "search") searchText = "";
-  });
 </script>
 
 <!-- The number of messages says little at a glance: it stays in the title's tooltip. -->
@@ -140,17 +131,7 @@
   <!-- Work on the server after a click (move, flag, search) shows here, so a click never looks ignored. -->
   {#if app.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
   <header data-tauri-drag-region class:scrolled={scrollTop > 0} class:edge>
-    <div class="search">
-      <input
-        class="input"
-        placeholder={t("search.placeholder")}
-        bind:this={searchInput}
-        bind:value={searchText}
-        oninput={onSearch}
-        onkeydown={(e) => e.key === "Escape" && clearSearch()}
-      />
-      {#if searchText}<button class="btn ghost clear" onclick={clearSearch} aria-label={t("clear")}>×</button>{/if}
-    </div>
+    <SearchBox bind:input={searchInput} />
     <div class="title">
       <h2 title={count}>{title}</h2>
       {#if app.listKey()}<ViewMenu />{/if}
@@ -158,14 +139,18 @@
   </header>
 
   {#if app.view.kind === "search" && app.view.text.trim()}
+    <!-- Totals of what the cache has; the servers are asked on demand, for mail older than the cache. -->
     <div class="server">
+      <span class="totals">
+        {#if found}<span class="found">{found}</span>{/if}
+        <span class="muted">{app.serverRows ? t("search.withServer") : t("search.byCache")}</span>
+      </span>
       {#if app.serverSearching}
         <span class="muted">{t("search.serverRunning")}</span>
       {:else if app.serverRows}
-        <span class="muted">{t("search.serverFound", { n: app.serverRows.length })}</span>
+        <span class="muted" title={t("search.serverFound", { n: app.serverRows.length })}>{t("search.serverFoundShort", { n: app.serverRows.length })}</span>
       {:else}
-        <span class="muted">{t("search.localOnly")}</span>
-        <button class="btn ghost small" onclick={() => app.searchServer()}>{t("search.onServer")}</button>
+        <button class="btn ghost small" title={t("search.onServerHint")} onclick={() => app.searchServer()}>{t("search.onServer")}</button>
       {/if}
     </div>
   {/if}
@@ -177,7 +162,7 @@
           {t("search.nothing")}
           <div class="ops">
             {t("search.refine")}
-            {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "после:2026-09-01", "в:архив"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "after:2026-09-01", "in:archive"]) as op (op)}<code>{op}</code>{" "}{/each}
+            {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "после:2026-09-01", "год:2025", "старше:1г", "больше:25М", "в:Работа/*", "ящик:"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "after:2026-09-01", "year:2025", "older:1y", "larger:25M", "in:Work/*", "account:"]) as op (op)}<code>{op}</code>{" "}{/each}
           </div>
         {:else if pluginView}
           {pluginView.empty()}
@@ -221,6 +206,7 @@
             {#each tagsOf(m) as tag, ti (ti)}
               <span class="tag" class:due={tag.alert} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
             {/each}
+            <span class="size" class:strong={bySize} title={t("list.size")}>{size(m.thread_size ?? m.size)}</span>
           </div>
         </div>
       {/each}
@@ -288,24 +274,8 @@
   }
 
   /* The right edge stays clear for the window controls (WindowControls.svelte). */
-  header.edge .search {
+  header.edge :global(.search) {
     margin-right: 132px;
-  }
-
-  .search {
-    position: relative;
-  }
-
-  .search .input {
-    width: 100%;
-    padding-right: 30px;
-  }
-
-  .clear {
-    position: absolute;
-    right: 2px;
-    top: 2px;
-    padding: 3px 8px;
   }
 
   .title {
@@ -336,6 +306,19 @@
     border-bottom: 1px solid var(--line);
     font-size: 12px;
     background: var(--paper-2);
+  }
+
+  .totals {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .found {
+    color: var(--ink);
+    font-weight: 600;
+    margin-right: 4px;
   }
 
   .server .small {
@@ -483,6 +466,25 @@
   .tag.due {
     color: var(--accent);
     font-weight: 600;
+  }
+
+  /* The size, right in the second line: the subject gives way first in a narrow list. */
+  .size {
+    margin-left: auto;
+    flex: none;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .tag + .size {
+    margin-left: 0;
+  }
+
+  .size.strong {
+    color: var(--ink);
+    font-weight: 650;
   }
 
   .ops {

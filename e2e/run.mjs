@@ -303,7 +303,7 @@ try {
     await d.type(box, "Quarterly");
     await d.until("search view", async () => (await textOf(".list h2")).trim() === "Поиск");
     if ((await textOf(".list")).includes("Quarterly report archive")) throw new Error("письмо уже в кэше — тест ничего не проверит");
-    await d.button("Искать на сервере");
+    await d.button("На сервере");
     await rowBySubject("Quarterly report archive", 20000);
     await d.type(box, "\uE00C");
   });
@@ -602,7 +602,8 @@ try {
         subj,
       );
     }
-    await d.until("bulk panel", async () => (await d.bodyText()).includes("Выбрано писем: 3"));
+    // The panel names the count and the size of the selection.
+    await d.until("bulk panel", async () => /Выбрано 3 письма · [\d,]+ (Б|КБ|МБ)/.test(await d.bodyText()));
     await d.button("Не прочитано");
     for (const subj of subjects) {
       await d.until(`unseen ${subj}`, async () => !helper("flags", "INBOX", subj).includes("\\Seen"), 10000);
@@ -787,12 +788,79 @@ try {
       throw new Error("звёздочка не сброшена после меню");
 
     // Without favourites the mailbox folds whole again, as before.
-    for (const name of await favs()) await d.click(await star(name));
+    // A removed row slides out of the block for 150 ms and the tree moves up under it: the
+    // next star is clicked once the row is gone, or the click lands on the row below.
+    for (const name of await favs()) {
+      await d.click(await star(name));
+      await d.until(`${name} out of the block`, async () => (await d.findAll(`nav.side .favs .fav-row[data-folder=${JSON.stringify(name)}]`)).length === 0);
+    }
     await d.until("no favourites", async () => (await d.findAll("nav.side .fav-row")).length === 0);
     await d.click(await d.find("nav.side .account-name"));
     const left = await d.exec("return document.querySelector('nav.side .group.collapsed')?.querySelectorAll('.item').length ?? -1");
     await d.click(await d.find("nav.side .account-name"));
     if (left !== 0) throw new Error(`у свёрнутого ящика без избранного видно ${left} папок`);
+    await d.button("Входящие");
+  });
+
+  await step("6.4", "крупные письма: размер в каждой строке, готовый запрос из подсказок, в:Папка/*", async () => {
+    const subj = "Фото с праздника";
+    // About 1,6 MB: a 1200 KB attachment in base64.
+    helper("big", "Работа.Проекты", subj, "1200");
+    await openFolder("Проекты");
+    await rowBySubject(subj, 30000);
+    const sizes = () => d.exec("return [...document.querySelectorAll('.list .row')].map((r) => r.querySelector('.size')?.innerText.trim() ?? '')");
+    // Every row has its size, quiet while the list is ordered by date.
+    const shown = await sizes();
+    if (!shown.length || shown.some((s) => !/^[\d\s,]+ (Б|КБ|МБ|ГБ)$/.test(s))) throw new Error(`размеры в строках: ${shown}`);
+    if (!shown.some((s) => /^1,\d МБ$/.test(s))) throw new Error(`нет размера крупного письма: ${shown}`);
+    if ((await d.findAll(".list .row .size.strong")).length) throw new Error("размер выделен без сортировки по размеру");
+
+    // The threshold is a setting; 1 MB here, so the ready query finds the letter.
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await setInput(".prefs input.large", "1");
+    await d.click(await d.find(".prefs footer .btn.primary"));
+    await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+
+    // A ready query from the suggestions of the empty search box.
+    const box = await d.find(".list .search input");
+    await d.click(box);
+    const ready = await d.until("ready query", () =>
+      d.xpath("//div[contains(@class,'suggest')]//button[contains(., 'Крупные (больше 1 МБ)')]").catch(() => null),
+    );
+    await screenshot("search-suggestions");
+    await d.click(ready);
+    await rowBySubject(subj, 10000);
+    const query = await d.exec("return document.querySelector('.list .search input').value");
+    if (query.trim() !== "больше:1М") throw new Error(`в поле: «${query}»`);
+    // "больше:" puts the largest first by itself; totals of the cache above the results.
+    if (!(await textOf(".list .view .trigger")).includes("Крупные сначала")) throw new Error(`сортировка: ${await textOf(".list .view .trigger")}`);
+    if (!/\d+ пис\S* · [\d,\s]+ (КБ|МБ|ГБ)/.test(await textOf(".list .server")) || !(await textOf(".list .server")).includes("по кэшу")) {
+      throw new Error(`итоги: ${await textOf(".list .server")}`);
+    }
+    if (!(await d.findAll(".list .row .size.strong")).length) throw new Error("при сортировке по размеру размер не выделен");
+    await screenshot("large-mail");
+
+    // A folder with its subfolders, and the folder alone.
+    await d.clear(box);
+    await d.type(box, "больше:1М в:Работа/*\uE007");
+    await rowBySubject(subj, 10000);
+    await d.clear(box);
+    await d.type(box, "больше:1М в:Работа\uE007");
+    await d.until("the folder alone", async () => {
+      const value = await d.exec("return document.querySelector('.list .search input').value");
+      return value.trim() === "больше:1М в:Работа" && !(await textOf(".list .viewport")).includes(subj);
+    }, 10000);
+
+    // Nothing of this step stays for the next ones: the threshold, the letter, the recent searches.
+    const settings = await invoke("settings_get");
+    await invoke("settings_set", { settings: { ...settings, large_mb: 25 } });
+    await d.clear(box);
+    await d.type(box, "\uE00C");
+    await d.exec("localStorage.removeItem('depesha.search.recent')");
+    helper("delete", "Работа.Проекты", subj);
+    await openFolder("Проекты");
+    await d.until("letter gone", async () => !(await textOf(".list .viewport")).includes(subj), 30000);
     await d.button("Входящие");
   });
 

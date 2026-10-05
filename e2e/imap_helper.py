@@ -6,6 +6,8 @@
   imap_helper.py flags FOLDER SUBJECT
   imap_helper.py header FOLDER SUBJECT HEADER
   imap_helper.py flag FOLDER SUBJECT        set \\Flagged from "another client"
+  imap_helper.py big FOLDER SUBJECT KB      deliver a read letter with a KB-sized attachment
+  imap_helper.py delete FOLDER SUBJECT      expunge the letters with that subject
 """
 
 import base64
@@ -163,6 +165,28 @@ def imaplib_utf7(name):
     return f'"&{b64}-"'
 
 
+def big(subject, kb, when=None):
+    """A letter with one attachment of `kb` kilobytes of noise: large mail for #16."""
+    import os
+
+    data = base64.encodebytes(os.urandom(kb * 1024)).decode().replace("\n", "\r\n")
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    date = email.utils.formatdate(when or time.time(), localtime=True)
+    return (
+        f"From: =?utf-8?B?{base64.b64encode('Мария Соколова'.encode()).decode()}?= <maria@example.org>\r\n"
+        f"To: {ME}\r\nSubject: {subj}\r\nDate: {date}\r\nMessage-ID: <big-{kb}-{int(time.time())}@example.org>\r\n"
+        'MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="big"\r\n\r\n'
+        "--big\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nPhotos attached.\r\n"
+        '--big\r\nContent-Type: application/zip; name="photos.zip"\r\nContent-Disposition: attachment; filename="photos.zip"\r\n'
+        f"Content-Transfer-Encoding: base64\r\n\r\n{data}--big--\r\n"
+    ).encode()
+
+
+def utf7_path(name):
+    """Modified UTF-7 of a folder path: each level apart, GreenMail's "." left as it is."""
+    return '"' + ".".join(imaplib_utf7(part).strip('"') for part in name.split(".")) + '"'
+
+
 def find(c, folder, subject):
     """UIDs whose decoded subject contains `subject` (GreenMail has no SEARCH CHARSET)."""
     from email.header import decode_header, make_header
@@ -197,9 +221,30 @@ def main():
         c.logout()
         print("ok")
         return
+    if cmd == "big":
+        c = conn()
+        # Read: unread counters of later steps stay as they were.
+        append(c, utf7_path(sys.argv[2]), big(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
+        c.logout()
+        print("ok")
+        return
     folder, subject = sys.argv[2], sys.argv[3]
     c = conn()
     c._encoding = "utf-8"
+    if cmd == "delete":
+        c.select(utf7_path(folder))
+        typ, data = c.uid("FETCH", "1:*", "(UID BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+        from email.header import decode_header, make_header
+
+        for item in data:
+            if isinstance(item, tuple):
+                raw = item[1].decode("ascii", "replace").split(":", 1)[-1].replace("\r\n", "").strip()
+                if subject in str(make_header(decode_header(raw))):
+                    c.uid("STORE", item[0].split(b"UID ")[1].split()[0], "+FLAGS", "(\\Deleted)")
+        c.expunge()
+        c.logout()
+        print("ok")
+        return
     uids = find(c, folder, subject)
     if cmd == "count":
         print(len(uids))

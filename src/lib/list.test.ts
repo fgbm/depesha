@@ -55,6 +55,48 @@ describe("list reloads", () => {
     expect(s.messages.map((m) => m.id)).toEqual([7]);
   });
 
+  it("of a search by size put the largest first, keep their own order and count what they found", async () => {
+    const s = new AppStore();
+    await s.loadSettings();
+    api.search.mockResolvedValue([row(1)]);
+    api.searchTotals.mockResolvedValue({ count: 412, size: 9 * 1024 ** 3 });
+    await s.setView({ kind: "search", text: "larger:25MB year:2024" });
+    expect(s.listKey()).toBe("search:size");
+    expect(api.search).toHaveBeenLastCalledWith("larger:25MB year:2024", [{ by: "size", desc: true }]);
+    expect(s.searchTotals).toEqual({ count: 412, size: 9 * 1024 ** 3 });
+
+    // Another order for searches by size stays theirs; other searches keep theirs.
+    api.saveSettings.mockResolvedValue(undefined);
+    await s.setSort([{ by: "date", desc: false }], true);
+    expect(s.settings.view_sorts["search:size"]).toEqual([{ by: "date", desc: false }]);
+    await s.setView({ kind: "search", text: "invoice" });
+    expect(s.listKey()).toBe("search");
+    expect(api.search).toHaveBeenLastCalledWith("invoice", []);
+
+    // Only a lower bound asks for large letters: "smaller than" keeps the search's order.
+    await s.setView({ kind: "search", text: "меньше:1М" });
+    expect(s.listKey()).toBe("search");
+
+    // Without totals the list still shows what it found.
+    api.searchTotals.mockRejectedValue(new Error("old backend"));
+    await s.setView({ kind: "search", text: "larger:1MB" });
+    expect(s.messages.map((m) => m.id)).toEqual([1]);
+    expect(s.searchTotals).toBeNull();
+  });
+
+  it("sum the size of the selection and select everything found", async () => {
+    const s = new AppStore();
+    api.search.mockResolvedValue([row(1, { size: 30 * 1024 ** 2 }), row(2, { size: 10 * 1024 ** 2, thread_size: 10 * 1024 ** 2 }), row(3, { size: 5 })]);
+    api.searchTotals.mockResolvedValue({ count: 3, size: 40 * 1024 ** 2 + 5 });
+    await s.setView({ kind: "search", text: "larger:1M" });
+    await s.select(1);
+    await s.select(2, "toggle");
+    expect(s.selectedSize()).toBe(40 * 1024 ** 2);
+    s.selectAll();
+    expect([...s.selected]).toEqual([1, 2, 3]);
+    expect(s.selectedSize()).toBe(40 * 1024 ** 2 + 5);
+  });
+
   it("asked for by the previous view do not run after switching views", async () => {
     vi.useFakeTimers();
     const s = new AppStore();

@@ -90,6 +90,9 @@
     return all.to.length + all.cc.length > one.to.length + one.cc.length;
   });
   const bulk = $derived(app.selected.size > 1);
+  const selectedSize = $derived(app.selectedSize());
+  /** In search results the selection grows to everything found, the rows the list holds. */
+  const canSelectAll = $derived(app.view.kind === "search" && app.messages.length > app.selected.size);
   /** The letter with its toolbar is on screen, not a placeholder or an error. */
   const showsLetter = $derived(!bulk && !app.openError && !showOpening && !(app.opening && !msg) && !!msg);
   const bulkAccount = $derived.by(() => {
@@ -357,7 +360,7 @@
   {/if}
   {#if bulk}
     <div class="center">
-      <h3>{t("bulk.selected", { n: app.selected.size })}</h3>
+      <h3>{tn("bulk.selected", app.selected.size, { n: app.selected.size, size: size(selectedSize) })}</h3>
       <div class="actions">
         <button class="btn" onclick={() => app.archive()}><Archive size={15} /> {t("act.done")}</button>
         {#each registry.lists.bulkToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
@@ -379,6 +382,11 @@
           </span>
         {/if}
       </div>
+      {#if canSelectAll}
+        <button class="btn ghost select-all" onclick={() => app.selectAll()}>
+          {tn("bulk.selectAll", app.messages.length, { n: app.messages.length })} <kbd>Ctrl+A</kbd>
+        </button>
+      {/if}
     </div>
   {:else if app.openError}
     <div class="center">
@@ -495,6 +503,7 @@
           </div>
           <div class="date muted small">
             {longDate(msg.view.summary.date ?? msg.row.date)}
+            {#if msg.row.size}<div title={t("list.size")}>{size(msg.row.size)}</div>{/if}
             {#if app.accounts.length > 1 && account}<div>{accountLabel(account)}</div>{/if}
           </div>
         </div>
@@ -1104,6 +1113,18 @@
 
   .small {
     font-size: 12px;
+  }
+
+  .select-all {
+    margin-top: 12px;
+  }
+
+  .select-all kbd {
+    font-size: 11px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 4px;
+    color: var(--muted);
   }
 
   .banner {

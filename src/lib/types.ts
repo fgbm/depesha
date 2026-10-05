@@ -152,6 +152,8 @@ export interface MessageRow {
   thread_senders: Addr[];
   /** The conversation has a saved draft of an answer. */
   thread_draft: boolean;
+  /** Bytes of the conversation's letters in the list; the row's own size when not grouped. */
+  thread_size?: number;
   snoozed_until: number | null;
   followup_due: number | null;
 }
@@ -309,6 +311,14 @@ export interface Settings {
   list_sort: SortKey[];
   /** Lists ordered their own way, by view key. */
   view_sorts: Record<string, SortKey[]>;
+  /** What counts as a large letter in the ready queries (Settings → General → Search), megabytes. */
+  large_mb: number;
+}
+
+/** What a search found in the cache: letters and their bytes. */
+export interface SearchTotals {
+  count: number;
+  size: number;
 }
 
 /** Background work shown in the tasks window. */

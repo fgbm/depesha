@@ -29,6 +29,7 @@ import type {
   MessageView,
   OpenedMessage,
   OutboxItem,
+  SearchTotals,
   SortKey,
 } from "./types";
 
@@ -74,6 +75,8 @@ export const api = {
   messages: (query: ListQuery) => call<MessageRow[]>("messages", { query }),
   search: (text: string, sort: SortKey[] = [], accountId?: string) =>
     call<MessageRow[]>("search", { text, accountId: accountId ?? null, sort }),
+  searchTotals: (text: string, accountId?: string) =>
+    call<SearchTotals>("search_totals", { text, accountId: accountId ?? null }),
   serverSearch: (text: string, accountId?: string) =>
     call<MessageRow[]>("server_search", { text, accountId: accountId ?? null }),
   open: (id: number, allowRemote: boolean) => call<OpenedMessage>("message_open", { id, allowRemote }),

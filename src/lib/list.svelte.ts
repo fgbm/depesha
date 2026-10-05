@@ -6,9 +6,10 @@ import { api } from "./api";
 import { t } from "./i18n.svelte";
 import { debounce } from "./debounce";
 import { compareRows } from "./sort";
+import { LARGEST_FIRST, asksLarge } from "./largeMail";
 import { registry } from "../plugin-host/registry.svelte";
 import type { ListFilter, ListScope } from "../plugin-api";
-import type { FolderInfo, FolderRole, ListQuery, MessageRow, Pin, Settings, SortKey } from "./types";
+import type { FolderInfo, FolderRole, ListQuery, MessageRow, Pin, SearchTotals, Settings, SortKey } from "./types";
 
 export type View =
   | { kind: "unified"; role: FolderRole; unread?: boolean; flagged?: boolean }
@@ -47,6 +48,8 @@ export class ListController {
   /** Server-side search: running, and rows it found (kept across list reloads). */
   serverSearching = $state(false);
   serverRows = $state<MessageRow[] | null>(null);
+  /** How many letters the search finds in the cache and their size, beyond the rows shown. */
+  totals = $state<SearchTotals | null>(null);
   /** The server said the folder has nothing older: scrolling to the end does not ask again. */
   private noOlder = false;
   /** Messages read or (un)flagged in this view: "Unread" and "Flagged" keep them while they are in it. */
@@ -80,7 +83,8 @@ export class ListController {
     if (v.kind === "folder") return `folder:${v.account_id}:${v.folder}`;
     if (v.kind === "unified") return `unified:${v.role}${v.unread ? ":unread" : v.flagged ? ":flagged" : ""}`;
     if (v.kind === "plugin") return `plugin:${v.id}`;
-    if (v.kind === "search") return "search";
+    // A search for large letters keeps an order of its own: the largest first, unless changed.
+    if (v.kind === "search") return asksLarge(v.text) ? "search:size" : "search";
     return null;
   }
 
@@ -99,7 +103,7 @@ export class ListController {
   sort(): SortKey[] {
     const key = this.listKey();
     const s = this.host.settings;
-    return (key && s.view_sorts?.[key]) || s.list_sort || [];
+    return (key && s.view_sorts?.[key]) || (key === "search:size" ? LARGEST_FIRST : s.list_sort) || [];
   }
 
   /** The current list has an order of its own. */
@@ -175,9 +179,11 @@ export class ListController {
     const stale = () => seq !== this.reloadSeq || this.view !== v;
     try {
       if (v.kind === "search") {
-        const local = v.text.trim() ? await api.search(v.text, this.sort()) : [];
+        const text = v.text.trim();
+        const [local, totals] = text ? await Promise.all([api.search(v.text, this.sort()), this.countFound(v.text)]) : [[], null];
         if (stale()) return;
         this.messages = this.visible(this.merge(local, this.serverRows ?? []));
+        this.totals = totals;
         this.exhausted = true;
       } else if (v.kind === "outbox") {
         this.messages = [];
@@ -223,6 +229,15 @@ export class ListController {
     return [...a, ...extra].sort(compareRows(sort));
   }
 
+  /** The totals of a search; without them the list still shows what it found. */
+  private async countFound(text: string): Promise<SearchTotals | null> {
+    try {
+      return (await api.searchTotals(text)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Searches on the servers too: finds mail older than the local cache. */
   async searchServer() {
     const v = this.view;
@@ -233,6 +248,9 @@ export class ListController {
       if (this.view !== v) return;
       this.serverRows = rows;
       this.messages = this.visible(this.merge(this.messages, rows));
+      // What the servers found is in the cache now: the totals count it too.
+      const totals = await this.countFound(v.text);
+      if (this.view === v) this.totals = totals;
     } catch (e) {
       this.host.fail(e, t("search.server"));
     } finally {
@@ -280,6 +298,7 @@ export class ListController {
     this.keep = new Set();
     this.pins = new Map();
     this.serverRows = null;
+    this.totals = null;
     this.messages = [];
     this.exhausted = false;
   }

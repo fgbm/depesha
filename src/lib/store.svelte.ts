@@ -76,6 +76,7 @@ export class AppStore {
     attachments_dir: "",
     list_sort: [],
     view_sorts: {},
+    large_mb: 25,
   });
   update = $state<UpdateStatus | null>(null);
   /** One window for every setting: the app's, the mailboxes', the plugins'. */
@@ -107,6 +108,8 @@ export class AppStore {
   get serverSearching() { return this.list.serverSearching; }
   /** Rows the server-side search found, kept across list reloads. */
   get serverRows() { return this.list.serverRows; }
+  /** How many letters the search finds in the cache and their size. */
+  get searchTotals() { return this.list.totals; }
   /** The last move that can be taken back with "z". */
   get lastUndo() { return this.actions.lastUndo; }
   /** Compositions in progress, oldest first; at most one is unfolded. */
@@ -250,6 +253,17 @@ export class AppStore {
     this.list.unpin();
     await this.saveSettings({ ...this.settings, list_sort, view_sorts });
     this.reload();
+  }
+
+  /** Bytes of the selected rows: a conversation counts with its letters in the list. */
+  selectedSize(): number {
+    return this.messages.reduce((sum, m) => (this.selected.has(m.id) ? sum + (m.thread_size ?? m.size) : sum), 0);
+  }
+
+  /** Selects every row of the list: "Select all found" in a search, Ctrl+A. */
+  selectAll() {
+    if (this.windowOf !== null || !this.messages.length) return;
+    this.selected = new Set(this.messages.map((m) => m.id));
   }
 
   /** Asks in the app's own dialog; true when the user agreed. */

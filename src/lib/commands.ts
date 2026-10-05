@@ -7,10 +7,15 @@ import { api } from "./api";
 import { extensions, fromRow } from "./extensions.svelte";
 import { accountLabel, roleLabel } from "./format";
 import { t } from "./i18n.svelte";
+import { readyQueries } from "./largeMail";
+import { recentSearches } from "./recentSearches.svelte";
 import { PRESETS, RELEVANCE, reversed } from "./sort";
 import { app, type View } from "./store.svelte";
 
 const go = (v: View) => () => app.setView(v);
+
+/** "Largest letters" in the middle of a phrase; "MB" stays as it is. */
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 export function coreCommands(): Command[] {
   const msg = app.opened;
@@ -64,6 +69,22 @@ export function coreCommands(): Command[] {
   const where = (s: string) => () => t("cmd.go", { where: s.toLowerCase() });
   list.push(
     { id: "core.search", title: () => t("cmd.search"), hint: () => "/", run: () => app.focusSearch() },
+  );
+  // Ready queries, as the search box suggests them: each opens as a search, its text in
+  // the search box; the hint shows that text. In a folder, also its large mail with subfolders.
+  const v = app.view;
+  for (const q of readyQueries(app.settings.large_mb, new Date(), v.kind === "folder" ? v.folder : null)) {
+    list.push({
+      id: `core.ready.${q.id}`,
+      title: () => t("cmd.find", { what: lowerFirst(q.title) }),
+      hint: () => q.text,
+      run: () => {
+        recentSearches.remember(q.text);
+        app.setView({ kind: "search", text: q.text });
+      },
+    });
+  }
+  list.push(
     app.accounts.length > 1
       ? { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) }
       : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.setView(app.home()) },

@@ -96,6 +96,14 @@
         app.openSettings();
         return;
       }
+      // Ctrl+A in the list selects every row, as in any list; in a field it selects its text.
+      const target = e.target as HTMLElement | null;
+      const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (names.includes("Mod+a") && !e.altKey && !e.shiftKey && !typing && !app.settingsOpen && app.windowOf === null) {
+        e.preventDefault();
+        app.selectAll();
+        return;
+      }
       const run = pluginKey(names);
       if (run) {
         e.preventDefault();

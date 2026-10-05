@@ -17,9 +17,15 @@
   import Wizard from "./Wizard.svelte";
   import FolderPicker from "./FolderPicker.svelte";
   import { accountLabel } from "../lib/format";
+  import { threshold } from "../lib/largeMail";
   import type { Settings } from "../lib/types";
 
   let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
+  /** The large-letter threshold as typed: a number and its unit; saved in megabytes. */
+  const largeMb = threshold(app.settings.large_mb);
+  const inGb = largeMb >= 1024 && largeMb % 1024 === 0;
+  let largeUnit = $state<"mb" | "gb">(inGb ? "gb" : "mb");
+  let largeValue = $state(inGb ? largeMb / 1024 : largeMb);
 
   /**
    * Every setting in one window: the app's pages, the mailboxes (one page each),
@@ -87,6 +93,7 @@
       offline_attachments,
       sender_logos,
       attachments_dir: (attachments_dir ?? "").trim(),
+      large_mb: threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb),
     });
     close();
   }
@@ -168,6 +175,22 @@
               {/each}
             </div>
             {#if draft.theme === "system"}<p class="hint">{t("settings.theme.systemNote")}</p>{/if}
+          </section>
+          <section>
+            <h4>{t("settings.search")}</h4>
+            <div class="inline">
+              <span>{t("settings.largeMail")}</span>
+              <input class="input large" type="number" min="1" aria-label={t("settings.largeMail")} bind:value={largeValue} />
+              <Select
+                label={t("settings.largeMail")}
+                bind:value={largeUnit}
+                options={[
+                  { value: "mb", label: t("unit.mb") },
+                  { value: "gb", label: t("unit.gb") },
+                ]}
+              />
+            </div>
+            <p class="hint">{t("settings.largeMailNote")}</p>
           </section>
         {:else if current === "mail"}
           <section>
@@ -596,5 +619,8 @@
     .group {
       display: none;
     }
+  }
+  .large {
+    width: 72px;
   }
 </style>

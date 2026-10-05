@@ -57,6 +57,7 @@ export const settings = (): Settings => ({
   attachments_dir: "",
   list_sort: [],
   view_sorts: {},
+  large_mb: 25,
 });
 
 /** Answers of an empty mailbox; tests change what they look at. */

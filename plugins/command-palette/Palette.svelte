@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { matches, type Command, type PluginContext } from "@depesha/plugin-api";
+  import type { Command, PluginContext } from "@depesha/plugin-api";
   import { palette } from "./state.svelte";
+  import { rank, recency } from "./rank";
 
   let { ctx }: { ctx: PluginContext } = $props();
 
@@ -14,7 +15,8 @@
   let active = $state(0);
   let input = $state<HTMLInputElement | null>(null);
 
-  const shown = $derived(palette.open ? ctx.commands().filter((c) => matches(c.title(), query)).slice(0, 12) : []);
+  /** The best matches, the ones used last first among equals: what was run before is near. */
+  const shown = $derived(palette.open ? rank(ctx.commands(), query, recency).slice(0, 12) : []);
 
   $effect(() => {
     void query;
@@ -31,6 +33,7 @@
   function run(c: Command | undefined) {
     if (!c) return;
     palette.open = false;
+    recency.touch(c.id);
     c.run();
   }
 
