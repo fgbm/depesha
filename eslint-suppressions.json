@@ -31,12 +31,17 @@
     }
   },
   "src/components/account/ServerSection.svelte": {
-    "no-empty-pattern": {
+    "svelte/no-useless-mustaches": {
+      "count": 1
+    }
+  },
+  "src/components/account/SignaturesField.svelte": {
+    "svelte/no-unused-svelte-ignore": {
       "count": 1
     }
   },
   "src/components/account/StorageSection.svelte": {
-    "no-empty-pattern": {
+    "svelte/prefer-writable-derived": {
       "count": 1
     }
   },
@@ -50,11 +55,6 @@
   },
   "src/lib/compose.test.ts": {
     "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/lib/compose.ts": {
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
@@ -72,6 +72,21 @@
     "complexity": {
       "count": 1
     },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/lib/serverFeatures.test.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/lib/serverFeatures.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/lib/signatures.test.ts": {
     "max-lines-per-function": {
       "count": 1
     }

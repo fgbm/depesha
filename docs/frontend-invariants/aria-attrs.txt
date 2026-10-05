@@ -14,3 +14,6 @@ aria-multiline
 aria-orientation
 aria-pressed
 aria-selected
+aria-valuemax
+aria-valuemin
+aria-valuenow

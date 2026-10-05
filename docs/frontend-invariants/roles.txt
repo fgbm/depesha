@@ -4,9 +4,11 @@ combobox
 dialog
 document
 group
+img
 listbox
 menuitem
 menuitemradio
+meter
 note
 option
 presentation
@@ -15,6 +17,7 @@ radio
 radiogroup
 region
 separator
+status
 tab
 tablist
 tabpanel

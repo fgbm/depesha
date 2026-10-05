@@ -67,6 +67,8 @@ setView
 settings
 settingsOpen
 settingsPage
+settingsSection
+settingsTurn
 showCompose
 sort
 spam
