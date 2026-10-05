@@ -12,6 +12,7 @@
   import Popover from "./Popover.svelte";
 
   /** The mailbox manager: the order mailboxes are shown in, their names and colours. Changes apply at once. */
+  let { onOpen }: { onOpen: (page: string) => void } = $props();
   let colorFor = $state<string | null>(null);
   /** Names being typed, by account id; saved on Enter or leaving the field. */
   let names = $state<Record<string, string>>({});
@@ -60,25 +61,15 @@
     }
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape" && !colorFor) {
-      e.preventDefault();
-      app.accountsOpen = false;
-    }
-  }
-
+  /** A mailbox's own page in the same window. */
   function settings(acc: AccountView | null) {
-    app.accountsOpen = false;
-    app.wizard = { account: acc };
+    onOpen(acc ? `account:${acc.id}` : "account:new");
   }
 </script>
 
-<div class="modal-backdrop" role="presentation">
-  <div class="modal accounts" role="dialog" aria-label={t("accounts.title")} tabindex="-1" onkeydown={onKey}>
-    <header>
-      <h3>{t("accounts.title")}</h3>
-      <p class="muted small">{t("accounts.hint")}</p>
-    </header>
+<!-- A page of the settings window. -->
+<div class="accounts">
+    <p class="muted small hint">{t("accounts.hint")}</p>
     <div class="content">
       {#each app.accounts as acc, i (acc.id)}
         {@const color = accountColor(acc, i)}
@@ -120,35 +111,20 @@
         </div>
       {/each}
     </div>
-    <footer>
-      <button class="btn ghost" onclick={() => settings(null)}><Plus size={15} /> {t("account.add")}</button>
-      <span class="spacer"></span>
-      <button class="btn primary" onclick={() => (app.accountsOpen = false)}>{t("close")}</button>
-    </footer>
-  </div>
+    <button class="btn add" onclick={() => settings(null)}><Plus size={15} /> {t("account.add")}</button>
 </div>
 
 <style>
-  .accounts {
-    width: min(560px, calc(100vw - 40px));
-    max-height: calc(100vh - 60px);
-  }
-
-  header {
-    padding: 14px 20px 4px;
-  }
-
-  h3 {
-    margin: 0 0 4px;
-  }
-
-  header p {
-    margin: 0;
+  .hint {
+    margin: 14px 0 4px;
   }
 
   .content {
-    overflow-y: auto;
-    padding: 8px 20px 12px;
+    padding: 4px 0 12px;
+  }
+
+  .add {
+    margin-bottom: 14px;
   }
 
   .acc {
@@ -219,17 +195,5 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     padding-left: 2px;
-  }
-
-  footer {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 20px 14px;
-    border-top: 1px solid var(--line);
-  }
-
-  .spacer {
-    flex: 1;
   }
 </style>

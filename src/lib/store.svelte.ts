@@ -135,12 +135,10 @@ class AppStore {
   update = $state<UpdateStatus | null>(null);
   /** The opened message's conversation, oldest first; empty for a lone message. */
   conversation = $state<MessageRow[]>([]);
+  /** One window for every setting: the app's, the mailboxes', the plugins'. */
   settingsOpen = $state(false);
-  pluginsOpen = $state(false);
-  /** The page Preferences open on; back to the first one when they close. */
+  /** The page it opens on: "general", "offline", "accounts", "account:<id>", "account:new", "plugins"… */
   settingsPage = $state("general");
-  /** The mailbox manager: order, names and colours. */
-  accountsOpen = $state(false);
   tasksOpen = $state(false);
   /** Background work: running, and failed until dismissed. */
   tasks = $state<Task[]>([]);
@@ -968,6 +966,17 @@ class AppStore {
   async openLink(href: string) {
     const ok = await this.confirm({ text: t("link.open"), detail: href, okLabel: t("link.openButton") });
     if (ok) api.openLink(href).catch((e) => this.fail(e));
+  }
+
+  openSettings(page = "general") {
+    this.settingsPage = page;
+    this.settingsOpen = true;
+  }
+
+  /** A mailbox's page in the settings; the very first one is set up by the wizard alone. */
+  accountSettings(acc: AccountView | null) {
+    if (this.accounts.length === 0) this.wizard = { account: null };
+    else this.openSettings(acc ? `account:${acc.id}` : "account:new");
   }
 
   newMessage() {

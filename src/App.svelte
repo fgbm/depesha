@@ -12,9 +12,7 @@
   import Wizard from "./components/Wizard.svelte";
   import Outbox from "./components/Outbox.svelte";
   import Preferences from "./components/Preferences.svelte";
-  import Plugins from "./components/Plugins.svelte";
   import Tasks from "./components/Tasks.svelte";
-  import Accounts from "./components/Accounts.svelte";
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
   import { host } from "./plugin-host/host.svelte";
@@ -82,6 +80,12 @@
     const names = keyNames(e);
     // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box).
     if (e.ctrlKey || e.metaKey) {
+      // Ctrl+, opens the settings, as in most desktop programs (Obsidian, VS Code).
+      if (e.key === "," && !e.altKey && !app.settingsOpen) {
+        e.preventDefault();
+        app.openSettings();
+        return;
+      }
       const run = pluginKey(names);
       if (run) {
         e.preventDefault();
@@ -89,7 +93,7 @@
       }
       return;
     }
-    if (app.settingsOpen || app.pluginsOpen || app.tasksOpen || app.accountsOpen) return;
+    if (app.settingsOpen || app.tasksOpen) return;
     const t = e.target as HTMLElement;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) {
       if (e.key === "Escape") t.blur();
@@ -157,14 +161,8 @@
 {#if app.settingsOpen}
   <Preferences />
 {/if}
-{#if app.pluginsOpen}
-  <Plugins />
-{/if}
 {#if app.tasksOpen}
   <Tasks />
-{/if}
-{#if app.accountsOpen}
-  <Accounts />
 {/if}
 {#each registry.lists.overlays as o (o)}
   <o.item.component {...o.item.props ?? {}} />

@@ -5,17 +5,25 @@
   import CloudOff from "@lucide/svelte/icons/cloud-off";
   import Download from "@lucide/svelte/icons/download";
   import Puzzle from "@lucide/svelte/icons/puzzle";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import type { Component } from "svelte";
   import { app } from "../lib/store.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
   import { applyTheme, THEMES } from "../lib/theme";
   import Select from "./Select.svelte";
+  import Accounts from "./Accounts.svelte";
+  import Plugins from "./Plugins.svelte";
+  import Wizard from "./Wizard.svelte";
+  import { accountLabel } from "../lib/format";
   import type { Settings } from "../lib/types";
 
   let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
 
-  /** Pages of the core, then one per plugin section. */
+  /**
+   * Every setting in one window: the app's pages, the mailboxes (one page each),
+   * the plugins and a page per plugin section.
+   */
   const CORE: { id: string; title: () => string; icon: Component }[] = [
     { id: "general", title: () => t("settings.page.general"), icon: Settings2 },
     { id: "mail", title: () => t("settings.page.mail"), icon: Mail },
@@ -26,15 +34,32 @@
   const sections = $derived(registry.lists.settingsSections);
   const pages = $derived([
     ...CORE.map((p) => p.id),
+    "accounts",
+    ...app.accounts.map((a) => `account:${a.id}`),
+    "plugins",
     ...sections.map((_, i) => `plugin:${i}`),
   ]);
 
   let page = $state(app.settingsPage);
-  // A page that went away with its plugin falls back to the first one.
-  const current = $derived(pages.includes(page) ? page : "general");
-  const title = $derived(
-    CORE.find((p) => p.id === current)?.title() ?? sections[Number(current.slice(7))]?.item.title() ?? "",
+  // A page that went away (its plugin or mailbox) falls back to the first one.
+  const current = $derived(pages.includes(page) || page === "account:new" ? page : "general");
+  const pageAccount = $derived(
+    current.startsWith("account:") ? (app.accounts.find((a) => `account:${a.id}` === current) ?? null) : null,
   );
+  const title = $derived(
+    CORE.find((p) => p.id === current)?.title() ??
+      (current === "accounts"
+        ? t("accounts.title")
+        : current === "plugins"
+          ? t("ext.title")
+          : current === "account:new"
+            ? t("cmd.addAccount")
+            : pageAccount
+              ? `${accountLabel(pageAccount)}`
+              : (sections[Number(current.slice(7))]?.item.title() ?? "")),
+  );
+  /** A mailbox's page has its own buttons: it is checked and saved apart from the rest. */
+  const ownButtons = $derived(current.startsWith("account:"));
 
   /** A radio choice of the snippet below: the field and the value are its own. */
   function choose(group: "language" | "notify" | "updates", value: string) {
@@ -75,7 +100,8 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape") {
+    // A menu or a question on top closes first.
+    if (e.key === "Escape" && !app.confirmation && !document.querySelector(".pop")) {
       e.preventDefault();
       cancel();
     }
@@ -103,25 +129,24 @@
     <nav class="pages" aria-label={t("settings.title")}>
       <h3>{t("settings.title")}</h3>
       <div role="tablist" aria-orientation="vertical" tabindex="-1" onkeydown={onNavKey}>
-        {#each CORE as p (p.id)}
-          <button class="tab" role="tab" data-page={p.id} aria-selected={current === p.id} tabindex={current === p.id ? 0 : -1} onclick={() => (page = p.id)}>
-            <p.icon size={16} /><span>{p.title()}</span>
+        {#snippet tab(id: string, label: string, Icon: Component | null, sub = false)}
+          <button class="tab" class:sub role="tab" data-page={id} aria-selected={current === id} tabindex={current === id ? 0 : -1} onclick={() => (page = id)}>
+            {#if Icon}<Icon size={16} />{/if}<span>{label}</span>
           </button>
-        {/each}
-        {#if sections.length}
-          <div class="group">{t("settings.page.plugins")}</div>
-          {#each sections as sec, i (sec)}
-            <button class="tab" role="tab" data-page="plugin:{i}" aria-selected={current === `plugin:${i}`} tabindex={current === `plugin:${i}` ? 0 : -1} onclick={() => (page = `plugin:${i}`)}>
-              <Puzzle size={16} /><span>{sec.item.title()}</span>
-            </button>
-          {/each}
-        {/if}
+        {/snippet}
+        {#each CORE as p (p.id)}{@render tab(p.id, p.title(), p.icon)}{/each}
+        <div class="group">{t("accounts.title")}</div>
+        {@render tab("accounts", t("accounts.manageTitle"), Inbox)}
+        {#each app.accounts as acc (acc.id)}{@render tab(`account:${acc.id}`, accountLabel(acc), null, true)}{/each}
+        <div class="group">{t("settings.page.plugins")}</div>
+        {@render tab("plugins", t("ext.manageTitle"), Puzzle)}
+        {#each sections as sec, i (sec)}{@render tab(`plugin:${i}`, sec.item.title(), null, true)}{/each}
       </div>
     </nav>
 
     <div class="pane">
       <header><h2>{title}</h2></header>
-      <div class="content" role="tabpanel" aria-label={title}>
+      <div class="content" class:flush={ownButtons} role="tabpanel" aria-label={title}>
         {#if current === "general"}
           <section>
             <h4>{t("settings.language")}</h4>
@@ -215,6 +240,14 @@
             </div>
             <p class="hint">{t("settings.signedNote")}</p>
           </section>
+        {:else if current === "accounts"}
+          <Accounts onOpen={(p) => (page = p)} />
+        {:else if current === "plugins"}
+          <Plugins />
+        {:else if current === "account:new" || pageAccount}
+          {#key current}
+            <Wizard embedded mailbox={pageAccount} onDone={() => (page = "accounts")} />
+          {/key}
         {:else}
           {@const sec = sections[Number(current.slice(7))]}
           {#if sec}
@@ -224,11 +257,13 @@
           {/if}
         {/if}
       </div>
-      <footer>
-        <span class="spacer"></span>
-        <button class="btn ghost" onclick={cancel}>{t("cancel")}</button>
-        <button class="btn primary" onclick={save}>{t("file.save")}</button>
-      </footer>
+      {#if !ownButtons}
+        <footer>
+          <span class="spacer"></span>
+          <button class="btn ghost" onclick={cancel}>{t("cancel")}</button>
+          <button class="btn primary" onclick={save}>{t("file.save")}</button>
+        </footer>
+      {/if}
     </div>
   </div>
 </div>
@@ -298,6 +333,11 @@
     background: var(--hover);
   }
 
+  /* A mailbox or a plugin section: under its group's page, without an icon. */
+  .tab.sub {
+    padding-left: 36px;
+  }
+
   /* The open page: a quiet fill and the accent bar the sidebar uses. */
   .tab[aria-selected="true"] {
     background: var(--selected);
@@ -343,6 +383,14 @@
     flex: 1;
     overflow-y: auto;
     padding: 0 24px 12px;
+  }
+
+  /* A mailbox's page scrolls inside and keeps its own buttons in sight. */
+  .content.flush {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   section {

@@ -1,6 +1,6 @@
 # Plugins
 
-Depesha is built like Obsidian: the core does mail — accounts, sync, the list, the reader, compose, search, the outbox, settings — and everything beyond that is a plugin. Snooze, "Waiting for reply", newsletters, templates, the check before sending, send later and the command palette are plugins too, switched on and off in **Plugins** (the puzzle button at the bottom of the sidebar, or "Plugins" in the palette).
+Depesha is built like Obsidian: the core does mail — accounts, sync, the list, the reader, compose, search, the outbox, settings — and everything beyond that is a plugin. Snooze, "Waiting for reply", newsletters, templates, the check before sending, send later and the command palette are plugins too, switched on and off on the **Plugins** page of the settings (the gear at the bottom of the sidebar, `Ctrl+,`, or "Plugins" in the palette).
 
 All plugins live in this repository for now. Once the contract settles, they move to repositories of their own.
 
@@ -8,7 +8,7 @@ All plugins live in this repository for now. Once the contract settles, they mov
 
 | | Built-in | Community |
 | --- | --- | --- |
-| Where | `plugins/<id>/` | `plugins/community/<id>/`, or any folder installed from the Plugins window |
+| Where | `plugins/<id>/` | `plugins/community/<id>/`, or any folder installed from the Plugins page of the settings |
 | Language | TypeScript and Svelte, bundled with the app | plain JavaScript, `main.js` up to 512 KB |
 | Runs | in the window, trusted | in a Web Worker inside a sandboxed frame (`ext://`), no access to the app or IPC |
 | Sees | `@depesha/plugin-api` | the `depesha` object and the data its permissions allow |
@@ -87,4 +87,4 @@ depesha.on("command", (id, { message }) => {
 
 Permissions: `messages.read` (the text and headers of messages handed to the hooks), `messages.modify` (actions on new mail: `archive`, `read`, `unread`, `flag`, `delete`, `spam`, `move`), `storage` (`depesha.storage.get/set`), `network:<host>` (requests to that host only; enforced by the frame's CSP).
 
-Hooks, each started only when needed: `messageOpen` returns `{ banner: { text, tone, actions } }`; `newMail` returns `{ actions: [{ id, do, folder? }] }`; `beforeSend` returns `{ warnings: [string] }`. A hook has 1.5 s to answer, loading 5 s, a command 15 s. A plugin that takes longer is stopped and restarted, and the Plugins window counts its timeouts; an endless loop does not slow the window down because it runs on its own thread.
+Hooks, each started only when needed: `messageOpen` returns `{ banner: { text, tone, actions } }`; `newMail` returns `{ actions: [{ id, do, folder? }] }`; `beforeSend` returns `{ warnings: [string] }`. A hook has 1.5 s to answer, loading 5 s, a command 15 s. A plugin that takes longer is stopped and restarted, and the Plugins page of the settings counts its timeouts; an endless loop does not slow the window down because it runs on its own thread.

@@ -174,6 +174,13 @@ async function composeClosed() {
   await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
 }
 
+/** Closes the settings window without touching what it saves with its own button. */
+async function closeSettings() {
+  if ((await d.findAll(".prefs")).length === 0) return;
+  await d.click(await d.find(".prefs footer .btn.ghost"));
+  await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+}
+
 async function sidebarText() {
   return d.exec("return document.querySelector('nav.side').innerText");
 }
@@ -589,6 +596,9 @@ try {
     await setInput(".wizard textarea.sig", "С уважением,\uE007Кэрол");
     await d.button("Проверить и сохранить");
     await d.until("saved", async () => (await d.findAll(".wizard")).length === 0, 20000);
+    // A mailbox's page lives in the settings window: saved, it goes back to the list of mailboxes.
+    if (!(await d.findAll(".prefs .accounts")).length) throw new Error("после сохранения нет списка ящиков");
+    await closeSettings();
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
     const text = await d.exec("return document.querySelector('.compose textarea').value");
@@ -1021,6 +1031,22 @@ try {
     await d.button("Входящие");
   });
 
+  await step("7.9", "все настройки в одном окне: Ctrl+, ящики и плагины разделами", async () => {
+    if (await d.exec("return !!document.querySelector('nav.side .foot-btn[aria-label=\"Плагины\"]')")) throw new Error("в сайдбаре остался отдельный вход в плагины");
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    const tabs = await textOf(".prefs .pages");
+    for (const want of ["Общие", "Все ящики", "carol@local.test", "Все плагины"]) {
+      if (!tabs.includes(want)) throw new Error(`нет раздела «${want}»: ${tabs}`);
+    }
+    await d.click(await d.find(".prefs .tab[data-page^='account:']"));
+    await d.until("mailbox page", async () => (await d.findAll(".prefs .wizard")).length === 1);
+    await d.click(await d.find(".prefs .tab[data-page='plugins']"));
+    await d.until("plugins page", async () => (await d.findAll(".prefs .plugins")).length === 1);
+    await screenshot("settings-plugins");
+    await closeSettings();
+  });
+
   await step("7.8", "язык: английский включается в настройках сразу, без перезапуска", async () => {
     const setLanguage = async (search, value) => {
       await press("k", { ctrlKey: true });
@@ -1049,19 +1075,16 @@ try {
     await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
     await d.type(await d.find(".palette .q"), "плагины");
     await d.type(await d.find(".palette .q"), "\uE007");
-    await d.until("plugins", async () => (await d.findAll(".modal.plugins")).length === 1);
+    await d.until("plugins", async () => (await d.findAll(".prefs .plugins")).length === 1);
   };
-  const closeModules = async () => {
-    await d.click(await d.find(".modal.plugins footer .btn.primary"));
-    await d.until("plugins closed", async () => (await d.findAll(".modal.plugins")).length === 0);
-  };
+  const closeModules = closeSettings;
   const install = (name, dir = "plugins/community") => invoke("extension_install", { path: join(root, dir, name) });
 
   await step("10.1", "плагины: выключенный плагин уносит свои кнопки, клавиши и разделы", async () => {
     await d.button("Входящие");
     await openModules();
     await screenshot("plugins");
-    await d.click(await d.find(".modal.plugins input[data-plugin=snooze]"));
+    await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
     await closeModules();
     await openBySubject("Счёт за октябрь");
     await d.until("no snooze button", async () => !(await textOf(".reader .toolbar")).includes("Отложить"));
@@ -1069,7 +1092,7 @@ try {
     await new Promise((r) => setTimeout(r, 300));
     if ((await d.findAll(".reader .pop")).length) throw new Error("клавиша h работает при выключенном плагине");
     await openModules();
-    await d.click(await d.find(".modal.plugins input[data-plugin=snooze]"));
+    await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
     await closeModules();
     await d.until("snooze back", async () => (await textOf(".reader .toolbar")).includes("Отложить"));
   });
@@ -1120,7 +1143,7 @@ try {
     console.log(`    следующее письмо открылось через ${Date.now() - started} мс, пока расширение крутит цикл`);
     await new Promise((r) => setTimeout(r, 2500));
     await openModules();
-    await d.until("timeout recorded", async () => /таймаутов: [1-9]/.test(await textOf(".modal.plugins [data-ext='test.hang']")), 10000);
+    await d.until("timeout recorded", async () => /таймаутов: [1-9]/.test(await textOf(".prefs .plugins [data-ext='test.hang']")), 10000);
     await closeModules();
     for (const id of ["test.hang", "test.probe", "examples.mail-rules", "examples.reading-time", "examples.external-sender"]) {
       await invoke("extension_remove", { id });
@@ -1160,6 +1183,7 @@ try {
       if (r === "smtp") await d.button("Доверять этому сертификату");
     });
     await d.until("wizard closed", async () => (await d.findAll(".wizard")).length === 0, 20000);
+    await closeSettings();
     await d.until("second account in sidebar", async () => (await sidebarText()).includes("bob@local.test"), 20000);
   });
 
@@ -1182,29 +1206,29 @@ try {
     const before = await names();
     await d.exec("document.querySelector('nav.side .account .menu-btn').click()");
     await d.click(await d.until("manage item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Ящики…')]")));
-    await d.until("manager", async () => (await d.findAll(".modal.accounts")).length === 1);
-    await d.click((await d.findAll(".modal.accounts .order .btn"))[1]);
+    await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
+    await d.click((await d.findAll(".prefs .accounts .order .btn"))[1]);
     await d.until("order changed", async () => (await names())[0] === before[1]);
     // The colour of the mailbox now first, and its name.
-    await d.click((await d.findAll(".modal.accounts .swatch-wrap > .swatch"))[0]);
+    await d.click((await d.findAll(".prefs .accounts .swatch-wrap > .swatch"))[0]);
     await d.click(await d.until("palette", () => d.find(".pop .palette .swatch[aria-label='#d0658f']")));
     await d.until("dot coloured", async () =>
       (await d.exec("return getComputedStyle(document.querySelector('nav.side .account .dot')).backgroundColor")) === "rgb(208, 101, 143)");
-    const input = (await d.findAll(".modal.accounts .name"))[0];
-    const label = await d.exec("return document.querySelector('.modal.accounts .name').value");
+    const input = (await d.findAll(".prefs .accounts .name"))[0];
+    const label = await d.exec("return document.querySelector('.prefs .accounts .name').value");
     await d.clear(input);
     await d.type(input, "Тестовый\uE007");
     await d.until("renamed", async () => (await names())[0] === "Тестовый");
     await screenshot("accounts");
     // Back as it was, for the steps after this one.
     await d.exec(
-      "const i = document.querySelector('.modal.accounts .name'); i.focus(); i.value = arguments[0]; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();",
+      "const i = document.querySelector('.prefs .accounts .name'); i.focus(); i.value = arguments[0]; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();",
       label,
     );
     await d.until("name back", async () => (await names())[0] === before[1]);
-    await d.click((await d.findAll(".modal.accounts .order .btn"))[2]);
+    await d.click((await d.findAll(".prefs .accounts .order .btn"))[2]);
     await d.until("order back", async () => JSON.stringify(await names()) === JSON.stringify(before));
-    await d.click(await d.find(".modal.accounts footer .btn.primary"));
+    await closeSettings();
     // Folded: the next mailbox's name follows right under it.
     await d.exec("document.querySelector('nav.side .account-name').click()");
     const gap = await d.exec(`const g = document.querySelectorAll('nav.side .group');

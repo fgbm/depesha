@@ -12,7 +12,26 @@
 
   const LOGO: Record<OAuthProvider, string> = { google: googleLogo, yandex: yandexLogo, microsoft: microsoftLogo };
 
-  const existing = app.wizard?.account ?? null;
+  let {
+    embedded = false,
+    mailbox = null,
+    onDone,
+  }: {
+    /** A page of the settings window, not a window of its own. */
+    embedded?: boolean;
+    /** The mailbox a settings page is about; the window takes `app.wizard`'s. */
+    mailbox?: Account | null;
+    /** Saved or removed: the settings window goes back to its list of mailboxes. */
+    onDone?: () => void;
+  } = $props();
+
+  // svelte-ignore state_referenced_locally
+  const existing = embedded ? mailbox : (app.wizard?.account ?? null);
+
+  function done() {
+    if (embedded) onDone?.();
+    else app.wizard = null;
+  }
 
   /** `imap`: password over IMAP and SMTP; `oauth`: browser sign-in; `ews`: Exchange Web Services. */
   let mode = $state<"imap" | "oauth" | "ews">(
@@ -211,7 +230,7 @@
       await api.accountSave(acc, secret, grant);
       grant = null;
       await app.loadAccounts();
-      app.wizard = null;
+      done();
       app.toast(existing ? t("wizard.saved") : t("wizard.added", { email: acc.email }));
       app.scheduleFolders();
       if (!existing && app.accounts.length === 1) app.setView(app.home());
@@ -257,7 +276,7 @@
     try {
       await api.accountRemove(existing.id);
       await Promise.all([app.loadAccounts(), app.loadFolders()]);
-      app.wizard = null;
+      done();
       app.setView(app.home());
     } catch (e) {
       error = asError(e);
@@ -277,15 +296,7 @@
   );
 </script>
 
-<div class="modal-backdrop" role="presentation">
-  <div class="modal wizard" role="dialog" aria-label={t("wizard.label")}>
-    <header>
-      <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
-      {#if app.accounts.length > 0 || existing}
-        <button class="btn ghost" onclick={() => (app.wizard = null)} disabled={busy}>×</button>
-      {/if}
-    </header>
-
+{#snippet form()}
     <div class="content">
       {#if step === "start" && mode !== "ews"}
         <p class="muted lead">{t("wizard.lead")}</p>
@@ -424,12 +435,50 @@
         <button class="btn primary" onclick={checkAndSave} disabled={busy}>{busy ? t("wizard.checkingShort") : t("wizard.checkAndSave")}</button>
       {/if}
     </footer>
+{/snippet}
+
+{#if embedded}
+  <div class="wizard embedded" role="group" aria-label={existing ? existing.email : t("cmd.addAccount")}>
+    {@render form()}
+  </div>
+{:else}
+<div class="modal-backdrop" role="presentation">
+  <div class="modal wizard" role="dialog" aria-label={t("wizard.label")}>
+    <header>
+      <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
+      {#if app.accounts.length > 0 || existing}
+        <button class="btn ghost" onclick={() => (app.wizard = null)} disabled={busy}>×</button>
+      {/if}
+    </header>
+
+    {@render form()}
   </div>
 </div>
+{/if}
 
 <style>
   .wizard {
     width: min(640px, calc(100vw - 40px));
+  }
+
+  /* In the settings window: its page scrolls, the buttons stay at the bottom. */
+  .wizard.embedded {
+    width: auto;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .embedded .content {
+    flex: 1;
+    min-height: 0;
+    padding: 4px 24px 12px;
+  }
+
+  .embedded footer {
+    padding-left: 24px;
+    padding-right: 24px;
   }
 
   header {

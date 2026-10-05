@@ -17,7 +17,6 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
-  import Puzzle from "@lucide/svelte/icons/puzzle";
   import Download from "@lucide/svelte/icons/download";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
@@ -202,14 +201,14 @@
           <button class="menu-btn" onclick={() => (menuFor = menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
           <Popover bind:open={() => menuFor === acc.id, (v) => (menuFor = v ? acc.id : null)}>
             <button class="mi" onclick={() => refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>
-            <button class="mi" onclick={() => { menuFor = null; app.wizard = { account: acc }; }}><Settings size={15} /> {t("account.settings")}</button>
+            <button class="mi" onclick={() => { menuFor = null; app.accountSettings(acc); }}><Settings size={15} /> {t("account.settings")}</button>
             <hr />
-            <button class="mi" onclick={() => { menuFor = null; app.accountsOpen = true; }}><Inbox size={15} /> {t("accounts.manage")}</button>
-            <button class="mi" onclick={() => { menuFor = null; app.wizard = { account: null }; }}><Plus size={15} /> {t("account.add")}</button>
+            <button class="mi" onclick={() => { menuFor = null; app.openSettings("accounts"); }}><Inbox size={15} /> {t("accounts.manage")}</button>
+            <button class="mi" onclick={() => { menuFor = null; app.accountSettings(null); }}><Plus size={15} /> {t("account.add")}</button>
           </Popover>
         </div>
         {#if acc.status && (acc.status.state === "error" || acc.status.state === "paused")}
-          <button class="problem" onclick={() => (acc.status?.state === "paused" ? (app.wizard = { account: acc }) : refresh(acc))}>
+          <button class="problem" onclick={() => (acc.status?.state === "paused" ? app.accountSettings(acc) : refresh(acc))}>
             {statusText(acc)}
             <span class="fix">{acc.status.state === "paused" ? t("account.fix") : t("retry")}</span>
           </button>
@@ -263,7 +262,7 @@
   {/if}
 
   <div class="foot">
-    <button class="btn ghost settings" onclick={() => (app.settingsOpen = true)}><Settings size={15} /> {t("settings.title")}</button>
+    <button class="btn ghost settings" onclick={() => app.openSettings()}><Settings size={15} /> {t("settings.title")}</button>
     <span class="spacer"></span>
     <div class="dnd-wrap">
       <button
@@ -284,7 +283,6 @@
       <span class="idle"><Activity size={16} /></span>
       {#if tasksRunning > 0}<span class="spin"><RotateCw size={16} /></span>{/if}
     </button>
-    <button class="foot-btn" onclick={() => (app.pluginsOpen = true)} title={t("ext.title")} aria-label={t("ext.title")}><Puzzle size={16} /></button>
   </div>
 </nav>
 

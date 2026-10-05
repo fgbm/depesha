@@ -87,8 +87,8 @@
     <button class="mi" onclick={sync}><RotateCw size={15} /> {t("account.refresh")}</button>
     <button class="mi" onclick={() => (naming = true)}><FolderPlus size={15} /> {t("folder.new")}</button>
     <hr />
-    <button class="mi" onclick={() => run(() => (app.wizard = { account }))}><Settings size={15} /> {t("account.settings")}</button>
-    <button class="mi" onclick={() => run(() => (app.accountsOpen = true))}><Inbox size={15} /> {t("accounts.manage")}</button>
+    <button class="mi" onclick={() => run(() => app.accountSettings(account))}><Settings size={15} /> {t("account.settings")}</button>
+    <button class="mi" onclick={() => run(() => app.openSettings("accounts"))}><Inbox size={15} /> {t("accounts.manage")}</button>
     <button class="mi" onclick={() => run(() => (app.tasksOpen = true))}><Activity size={15} /> {t("tasks.title")}…</button>
   {/if}
 </Popover>

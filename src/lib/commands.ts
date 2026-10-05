@@ -96,9 +96,9 @@ export function coreCommands(): Command[] {
           run: () => app.saveSettings({ ...app.settings, dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
         },
     { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.fail(e)) },
-    { id: "core.settings", title: () => t("settings.title"), run: () => (app.settingsOpen = true) },
-    { id: "core.plugins", title: () => t("cmd.plugins"), run: () => (app.pluginsOpen = true) },
-    { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => (app.wizard = { account: null }) },
+    { id: "core.settings", title: () => t("settings.title"), hint: () => "Ctrl+,", run: () => app.openSettings() },
+    { id: "core.plugins", title: () => t("cmd.plugins"), run: () => app.openSettings("plugins") },
+    { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => app.accountSettings(null) },
   );
   return list;
 }

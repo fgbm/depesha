@@ -51,18 +51,10 @@
     if (p.startsWith("network:")) return t("ext.perm.network", { host: p.slice(8) });
     return p;
   }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      app.pluginsOpen = false;
-    }
-  }
 </script>
 
-<div class="modal-backdrop" role="presentation">
-  <div class="modal plugins" role="dialog" aria-label={t("ext.title")} tabindex="-1" onkeydown={onKey}>
-    <header><h3>{t("ext.title")}</h3></header>
+<!-- A page of the settings window. -->
+<div class="plugins">
     <div class="content">
       <section>
         <h4>{t("ext.builtIn")}</h4>
@@ -121,31 +113,9 @@
         {/each}
       </section>
     </div>
-    <footer>
-      <span class="spacer"></span>
-      <button class="btn primary" onclick={() => (app.pluginsOpen = false)}>{t("close")}</button>
-    </footer>
-  </div>
 </div>
 
 <style>
-  .plugins {
-    width: min(680px, calc(100vw - 40px));
-    max-height: calc(100vh - 60px);
-  }
-
-  header {
-    padding: 14px 20px 4px;
-  }
-
-  h3 {
-    margin: 0;
-  }
-
-  .content {
-    overflow-y: auto;
-    padding: 0 20px 10px;
-  }
 
   section {
     padding: 12px 0;
@@ -223,15 +193,5 @@
   .btn.danger {
     color: var(--accent);
     border-color: var(--accent);
-  }
-
-  footer {
-    display: flex;
-    padding: 10px 20px 14px;
-    border-top: 1px solid var(--line);
-  }
-
-  .spacer {
-    flex: 1;
   }
 </style>
