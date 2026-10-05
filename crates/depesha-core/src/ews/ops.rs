@@ -24,6 +24,8 @@ const UID_BASE: u32 = 1 << 31;
 const PAGE: usize = 500;
 /// Items per GetItem with headers.
 const FETCH_BATCH: usize = 50;
+/// Items written to the cache in one commit, as IMAP's fetches are.
+const WRITE_BATCH: usize = 200;
 
 const PR_TRANSPORT_HEADERS: &str = "0x007D";
 const PR_MESSAGE_FLAGS: &str = "0x0E07";
@@ -506,21 +508,26 @@ async fn add_items(
     uids: &HashMap<String, u32>,
 ) -> Result<usize> {
     let ids: Vec<String> = uids.keys().cloned().collect();
-    let mut added = 0;
-    for f in fetch(s, &ids).await? {
-        let Some(&uid) = uids.get(&f.id) else { continue };
-        let msg = NewMessage {
-            uid,
-            summary: &f.summary,
-            fallback_date: f.received,
-            size: f.size,
-            flags: f.flags,
-        };
-        store.insert_message(account_id, folder, &msg)?;
-        store.ews_item_add(account_id, folder, uid, &f.id, f.received)?;
-        added += 1;
+    let fetched = fetch(s, &ids).await?;
+    let items: Vec<_> = fetched
+        .iter()
+        .filter_map(|f| {
+            let &uid = uids.get(&f.id)?;
+            let msg = NewMessage {
+                uid,
+                summary: &f.summary,
+                fallback_date: f.received,
+                size: f.size,
+                flags: f.flags,
+            };
+            Some((msg, f.id.as_str(), f.received))
+        })
+        .collect();
+    // A commit per batch, not per item; batches keep the cache free for the window between.
+    for batch in items.chunks(WRITE_BATCH) {
+        store.ews_insert_items(account_id, folder, batch)?;
     }
-    Ok(added)
+    Ok(items.len())
 }
 
 /// UIDs for items found outside the synced window: below every UID in use.

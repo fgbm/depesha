@@ -37,4 +37,6 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 x509-parser = "0.18.1"
 
 [dev-dependencies]
+# Tests count the statements and commits an operation runs.
+rusqlite = { version = "0.40.2", features = ["bundled", "functions", "trace"] }
 tempfile = "3.27.0"

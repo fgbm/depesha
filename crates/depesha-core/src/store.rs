@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
@@ -13,14 +16,23 @@ use crate::query::SearchQuery;
 use crate::smtp::Draft;
 
 /// Settings of the connection, made at every open: not part of the cache itself.
-const PRAGMAS: &str = "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;";
+/// `synchronous = NORMAL`: in WAL mode a power cut may lose the last commits, never
+/// corrupt the file, and commits are lost from the end only: folder states are written
+/// after their mail, so they never run ahead of it, and the next sync fetches it again.
+const PRAGMAS: &str = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;";
 
 /// A change of the cache: run once, in one transaction with the new `user_version`.
 type Step = fn(&Connection) -> Result<()>;
 
 /// The cache's history, `PRAGMA user_version` counting the steps done. A released step
 /// is never edited: a new change of tables or data is a new step at the end.
-const MIGRATIONS: &[Step] = &[v1_tables_and_threads, v2_sort_keys, v3_unversioned_columns, v4_modseq];
+const MIGRATIONS: &[Step] = &[
+    v1_tables_and_threads,
+    v2_sort_keys,
+    v3_unversioned_columns,
+    v4_modseq,
+    v5_lookups,
+];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
 /// versions before numbered steps have these tables, maybe without the columns below.
@@ -234,6 +246,151 @@ fn v4_modseq(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Addresses of a message for completion: the sender and the To recipients, each as
+/// `(email, name)`, name '' when there is none. `{0}` is `new` or `old`.
+const MESSAGE_ADDRESSES: &str = "
+    SELECT email, name FROM (
+        SELECT json_extract({0}.from_addr, '$.email') AS email,
+            COALESCE(json_extract({0}.from_addr, '$.name'), '') AS name
+        WHERE json_valid({0}.from_addr)
+        UNION ALL
+        SELECT json_extract(j.value, '$.email'), COALESCE(json_extract(j.value, '$.name'), '')
+        FROM json_each(CASE WHEN json_valid({0}.to_addrs) THEN {0}.to_addrs ELSE '[]' END) j
+    ) WHERE email IS NOT NULL";
+
+/// Message-IDs a message refers to in References. `{0}` is `new` or `old`.
+const MESSAGE_REFS: &str = "
+    SELECT j.value FROM json_each(CASE WHEN json_valid({0}.refs) THEN {0}.refs ELSE '[]' END) j
+    WHERE j.type = 'text' AND j.value != ''";
+
+/// 5: what the frequent questions look up kept beside the messages, so they are not
+/// answered by reading every message: addresses for completion, References for the
+/// answers awaited, the window of offline reading.
+fn v5_lookups(conn: &Connection) -> Result<()> {
+    conn.execute_batch(&format!(
+        "-- Senders and To recipients of cached mail, each spelling with the count of
+         -- messages that carry it: completion reads these, not every message.
+         CREATE TABLE addresses (
+             email TEXT NOT NULL,
+             name  TEXT NOT NULL,
+             uses  INTEGER NOT NULL,
+             PRIMARY KEY (email, name)
+         ) WITHOUT ROWID;
+         INSERT INTO addresses (email, name, uses)
+             SELECT email, name, COUNT(*) FROM (
+                 SELECT json_extract(from_addr, '$.email') AS email,
+                     COALESCE(json_extract(from_addr, '$.name'), '') AS name
+                 FROM messages WHERE json_valid(from_addr)
+                 UNION ALL
+                 SELECT json_extract(j.value, '$.email'), COALESCE(json_extract(j.value, '$.name'), '')
+                 FROM messages m, json_each(CASE WHEN json_valid(m.to_addrs) THEN m.to_addrs ELSE '[]' END) j
+             ) WHERE email IS NOT NULL GROUP BY email, name;
+
+         -- The Message-IDs in References of each message: what it answers.
+         CREATE TABLE message_refs (
+             parent  TEXT NOT NULL,
+             message INTEGER NOT NULL,
+             PRIMARY KEY (parent, message)
+         ) WITHOUT ROWID;
+         INSERT OR IGNORE INTO message_refs (parent, message)
+             SELECT j.value, m.id FROM messages m, json_each(CASE WHEN json_valid(m.refs) THEN m.refs ELSE '[]' END) j
+             WHERE j.type = 'text' AND j.value != '';
+
+         CREATE TRIGGER messages_lookups_insert AFTER INSERT ON messages BEGIN
+             -- An upsert's SELECT needs a WHERE to be read as one.
+             INSERT INTO addresses (email, name, uses) SELECT email, name, 1 FROM ({new_addresses}) WHERE 1
+                 ON CONFLICT (email, name) DO UPDATE SET uses = uses + 1;
+             INSERT OR IGNORE INTO message_refs (parent, message) SELECT value, new.id FROM ({new_refs});
+         END;
+         CREATE TRIGGER messages_lookups_delete AFTER DELETE ON messages BEGIN
+             UPDATE addresses SET uses = uses - (
+                 SELECT COUNT(*) FROM ({old_addresses}) o WHERE o.email = addresses.email AND o.name = addresses.name)
+             WHERE (email, name) IN ({old_addresses});
+             DELETE FROM addresses WHERE uses <= 0 AND (email, name) IN ({old_addresses});
+             DELETE FROM message_refs WHERE message = old.id AND parent IN ({old_refs});
+         END;
+
+         -- The newest letters of each conversation, from every folder: what places it in
+         -- a list. incoming: outside Sent, Drafts, Trash and Junk; latest: outside the last three.
+         CREATE TABLE threads (
+             account_id TEXT NOT NULL,
+             thread     TEXT NOT NULL,
+             incoming   INTEGER,
+             latest     INTEGER,
+             PRIMARY KEY (account_id, thread)
+         ) WITHOUT ROWID;
+         {count_all}
+
+         -- A letter can only make its conversation newer.
+         CREATE TRIGGER messages_threads_insert AFTER INSERT ON messages BEGIN
+             INSERT INTO threads (account_id, thread, incoming, latest)
+                 SELECT new.account_id, new.thread,
+                     CASE WHEN COALESCE(f.role, '') NOT IN ('trash', 'junk', 'drafts', 'sent') THEN new.date END,
+                     CASE WHEN COALESCE(f.role, '') NOT IN ('trash', 'junk', 'drafts') THEN new.date END
+                 FROM folders f WHERE f.account_id = new.account_id AND f.name = new.folder
+                 ON CONFLICT (account_id, thread) DO UPDATE SET
+                     incoming = CASE WHEN incoming IS NULL OR excluded.incoming > incoming
+                         THEN excluded.incoming ELSE incoming END,
+                     latest = CASE WHEN latest IS NULL OR excluded.latest > latest
+                         THEN excluded.latest ELSE latest END;
+         END;
+         -- Counted again only when the letter gone was the newest or the last.
+         CREATE TRIGGER messages_threads_delete AFTER DELETE ON messages
+         WHEN EXISTS (SELECT 1 FROM threads WHERE account_id = old.account_id AND thread = old.thread
+                         AND (incoming = old.date OR latest = old.date))
+             OR NOT EXISTS (SELECT 1 FROM messages WHERE account_id = old.account_id AND thread = old.thread)
+         BEGIN
+             {count_old}
+         END;
+         -- Conversations merged when a letter linking them comes.
+         CREATE TRIGGER messages_threads_update AFTER UPDATE OF thread, folder, date ON messages
+         WHEN old.thread IS NOT new.thread OR old.folder IS NOT new.folder OR old.date IS NOT new.date
+         BEGIN
+             {count_old}
+             {count_new}
+         END;
+         CREATE TRIGGER folders_threads_role AFTER UPDATE OF role ON folders
+         WHEN old.role IS NOT new.role
+         BEGIN
+             {count_folder}
+         END;
+
+         -- A conversation list groups a folder by conversation from the index alone.
+         CREATE INDEX messages_by_folder_thread
+             ON messages (account_id, folder, thread, date, seen, flagged, size, has_attachments, bulk);
+
+         -- Offline reading: an account's mail by date, with what picks it.
+         CREATE INDEX messages_by_account_date ON messages (account_id, date, folder, has_attachments, size);",
+        new_addresses = MESSAGE_ADDRESSES.replace("{0}", "new"),
+        new_refs = MESSAGE_REFS.replace("{0}", "new"),
+        old_addresses = MESSAGE_ADDRESSES.replace("{0}", "old"),
+        old_refs = MESSAGE_REFS.replace("{0}", "old"),
+        count_all = count_threads("1"),
+        count_old = count_threads("{0}account_id = old.account_id AND {0}thread = old.thread"),
+        count_new = count_threads("{0}account_id = new.account_id AND {0}thread = new.thread"),
+        count_folder = count_threads(
+            "{0}account_id = new.account_id
+             AND {0}thread IN (SELECT thread FROM messages WHERE account_id = new.account_id AND folder = new.name)"
+        ),
+    ))?;
+    Ok(())
+}
+
+/// Counts again the rows of `threads` that match `which`, `{0}` standing for the table.
+fn count_threads(which: &str) -> String {
+    let rows = which.replace("{0}", "");
+    let which = which.replace("{0}", "x.");
+    format!(
+        "DELETE FROM threads WHERE {rows};
+         INSERT INTO threads (account_id, thread, incoming, latest)
+             SELECT x.account_id, x.thread,
+                 MAX(CASE WHEN COALESCE(f.role, '') NOT IN ('trash', 'junk', 'drafts', 'sent') THEN x.date END),
+                 MAX(CASE WHEN COALESCE(f.role, '') NOT IN ('trash', 'junk', 'drafts') THEN x.date END)
+             FROM messages x JOIN folders f ON f.account_id = x.account_id AND f.name = x.folder
+             WHERE {which} GROUP BY x.account_id, x.thread;"
+    )
+}
+
 fn user_version(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
 }
@@ -407,7 +564,7 @@ fn pinned(pins: &[Pin], state: fn(&Pin) -> bool, now: &str) -> String {
 
 /// The ORDER BY of a list. `expr` gives each key's SQL; the newest first and the id
 /// break ties, so pages follow each other without gaps or repeats.
-fn order_by(sort: &[SortKey], expr: impl Fn(SortField) -> Option<String>, date: &str) -> String {
+fn order_by(sort: &[SortKey], expr: impl Fn(SortField) -> Option<String>, date: &str, id: &str) -> String {
     let mut parts = Vec::new();
     let mut by_date = false;
     for k in sort {
@@ -420,9 +577,63 @@ fn order_by(sort: &[SortKey], expr: impl Fn(SortField) -> Option<String>, date: 
     if !by_date {
         parts.push(format!("{date} DESC"));
     }
-    parts.push("m.id DESC".into());
+    parts.push(format!("{id} DESC"));
     parts.join(", ")
 }
+
+/// The WHERE of a list over `messages m JOIN folders f`, with its parameters.
+fn list_filter(q: &ListQuery) -> (String, Vec<rusqlite::types::Value>) {
+    let mut cond = String::from("1");
+    let mut args: Vec<rusqlite::types::Value> = Vec::new();
+    if let Some(account) = &q.account_id {
+        cond.push_str(" AND m.account_id = ?");
+        args.push(account.clone().into());
+    }
+    if q.snoozed_only {
+        cond.push_str(
+            " AND EXISTS (SELECT 1 FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id)",
+        );
+    } else if q.followups_only {
+        cond.push_str(
+            " AND f.role = 'sent' AND EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)",
+        );
+    } else {
+        match (&q.folder, q.role) {
+            (Some(folder), _) => {
+                cond.push_str(" AND m.folder = ?");
+                args.push(folder.clone().into());
+            }
+            (None, role) => {
+                cond.push_str(" AND f.role = ?");
+                args.push(role.unwrap_or(FolderRole::Inbox).as_str().to_owned().into());
+            }
+        }
+    }
+    let mut only = Vec::new();
+    if q.unread_only {
+        only.push("m.seen = 0");
+    }
+    if q.flagged_only {
+        only.push("m.flagged = 1");
+    }
+    if !only.is_empty() {
+        let only = only.join(" AND ");
+        if q.keep_ids.is_empty() {
+            cond.push_str(&format!(" AND {only}"));
+        } else {
+            let marks = vec!["?"; q.keep_ids.len()].join(",");
+            cond.push_str(&format!(" AND ({only} OR m.id IN ({marks}))"));
+            args.extend(q.keep_ids.iter().map(|&id| id.into()));
+        }
+    }
+    if let Some(bulk) = q.bulk {
+        cond.push_str(if bulk { " AND m.bulk = 1" } else { " AND m.bulk = 0" });
+    }
+    (cond, args)
+}
+
+/// A letter of a conversation for its row in a list: id, Message-ID, sender, a draft.
+type Letter = (i64, Option<String>, Option<String>, bool);
 
 /// Keys that are a column of the message itself.
 fn message_sort_column(by: SortField) -> Option<&'static str> {
@@ -485,6 +696,37 @@ pub struct Store {
     /// Flags changed here and not yet stored on the server: a sync in between
     /// must not bring the old value back.
     pending: Mutex<HashMap<(String, String, u32), PendingFlags>>,
+    /// The longest the connection was held at once, nanoseconds: every other call waits
+    /// that long. See `take_longest_lock`.
+    longest_lock: AtomicU64,
+}
+
+/// The connection, held: the time it is held counts in `Store::longest_lock`.
+struct ConnGuard<'a> {
+    conn: MutexGuard<'a, Connection>,
+    since: Instant,
+    longest: &'a AtomicU64,
+}
+
+impl Deref for ConnGuard<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.conn
+    }
+}
+
+impl DerefMut for ConnGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+}
+
+impl Drop for ConnGuard<'_> {
+    fn drop(&mut self) {
+        let held = u64::try_from(self.since.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.longest.fetch_max(held, Ordering::Relaxed);
+    }
 }
 
 /// Values the user set on one message, and how many changes still wait for the server.
@@ -545,6 +787,7 @@ impl Store {
         Ok(Self {
             conn: Mutex::new(conn),
             pending: Mutex::new(HashMap::new()),
+            longest_lock: AtomicU64::new(0),
         })
     }
 
@@ -552,9 +795,19 @@ impl Store {
         self.pending.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn conn(&self) -> MutexGuard<'_, Connection> {
-        // A panic while holding the lock leaves SQLite consistent: every write is a transaction.
-        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    fn conn(&self) -> ConnGuard<'_> {
+        ConnGuard {
+            // A panic while holding the lock leaves SQLite consistent: every write is a transaction.
+            conn: self.conn.lock().unwrap_or_else(|e| e.into_inner()),
+            since: Instant::now(),
+            longest: &self.longest_lock,
+        }
+    }
+
+    /// The longest one call held the cache since the previous ask, the opening aside:
+    /// how long opening a letter could have waited.
+    pub fn take_longest_lock(&self) -> Duration {
+        Duration::from_nanos(self.longest_lock.swap(0, Ordering::Relaxed))
     }
 
     /// Stores the server's folder list; folders gone from the server lose their cache.
@@ -748,85 +1001,50 @@ impl Store {
     }
 
     pub fn insert_message(&self, account_id: &str, folder: &str, msg: &NewMessage<'_>) -> Result<i64> {
-        let NewMessage {
-            uid,
-            summary,
-            fallback_date,
-            size,
-            flags,
-        } = *msg;
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        let json = |v: &Vec<Addr>| serde_json::to_string(v).unwrap_or_else(|_| "[]".into());
-        let date = summary.date.unwrap_or(fallback_date);
-        let links = Links::of(summary, date);
-        let fallback = summary.thread_key().unwrap_or_else(|| format!("{folder}/{uid}"));
-        let thread = link_thread(&tx, account_id, &links, fallback)?;
-        let id: i64 = tx.query_row(
-            "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
-                to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe, topic, sort_sender, sort_subject)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24)
-             ON CONFLICT (account_id, folder, uid) DO UPDATE SET
-                seen = excluded.seen, answered = excluded.answered,
-                flagged = excluded.flagged, draft = excluded.draft
-             RETURNING id",
-            params![
-                account_id,
-                folder,
-                uid,
-                summary.message_id,
-                summary.in_reply_to,
-                serde_json::to_string(&summary.references).unwrap_or_else(|_| "[]".into()),
-                summary.subject,
-                summary.from.as_ref().and_then(|a| serde_json::to_string(a).ok()),
-                json(&summary.to),
-                json(&summary.cc),
-                json(&summary.reply_to),
-                date,
-                size,
-                flags.seen,
-                flags.answered,
-                flags.flagged,
-                flags.draft,
-                summary.has_attachments,
-                thread,
-                summary.bulk,
-                summary.unsubscribe.as_ref().and_then(|u| serde_json::to_string(u).ok()),
-                links.topic,
-                crate::message::sender_sort_key(summary.from.as_ref()),
-                crate::message::subject_sort_key(&summary.subject),
-            ],
-            |r| r.get(0),
-        )?;
-        let sender = summary.from.as_ref().map(addr_text).unwrap_or_default();
-        let recipients: Vec<String> = summary.to.iter().chain(&summary.cc).map(addr_text).collect();
-        tx.execute(
-            "INSERT OR REPLACE INTO search (rowid, subject, sender, recipients, body)
-             VALUES (?1, ?2, ?3, ?4, COALESCE((SELECT body FROM search WHERE rowid = ?1), ''))",
-            params![id, summary.subject, sender, recipients.join(", ")],
-        )?;
+        let id = insert_message(&tx, account_id, folder, msg)?;
         tx.commit()?;
         Ok(id)
+    }
+
+    /// Headers of one fetch in one commit, all or none of them: a failure half way
+    /// leaves no part of the batch, and the folder's state is written after it.
+    pub fn insert_messages(&self, account_id: &str, folder: &str, msgs: &[NewMessage<'_>]) -> Result<Vec<i64>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let ids = msgs
+            .iter()
+            .map(|m| insert_message(&tx, account_id, folder, m))
+            .collect::<Result<_>>()?;
+        tx.commit()?;
+        Ok(ids)
     }
 
     /// Flags from the server. A change the user made here and the server has not
     /// stored yet keeps its value: the server's is the one from before it.
     pub fn update_flags(&self, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
-        let flags: Vec<(u32, Flags)> = {
-            let pending = self.pending();
-            flags
-                .iter()
-                .map(|&(uid, mut f)| {
-                    if let Some(p) = pending.get(&(account_id.to_owned(), folder.to_owned(), uid)) {
-                        p.apply(&mut f);
-                    }
-                    (uid, f)
-                })
-                .collect()
-        };
-        self.write_flags(account_id, folder, &flags)
+        let flags = self.with_pending(account_id, folder, flags.iter().copied());
+        let conn = self.conn();
+        write_flags(&conn, account_id, folder, &flags)
+    }
+
+    /// Flags with the changes still waiting for the server on top.
+    fn with_pending(
+        &self,
+        account_id: &str,
+        folder: &str,
+        flags: impl Iterator<Item = (u32, Flags)>,
+    ) -> Vec<(u32, Flags)> {
+        let pending = self.pending();
+        flags
+            .map(|(uid, mut f)| {
+                if let Some(p) = pending.get(&(account_id.to_owned(), folder.to_owned(), uid)) {
+                    p.apply(&mut f);
+                }
+                (uid, f)
+            })
+            .collect()
     }
 
     /// A flag changed by the user: cached at once and held against syncs until
@@ -852,12 +1070,28 @@ impl Store {
                 p.waiting += 1;
             }
         }
-        let flags: Vec<(u32, Flags)> = uids
-            .iter()
-            .filter_map(|&uid| self.find_by_uid(account_id, folder, uid).ok().flatten())
-            .map(|r| (r.uid, r.flags))
-            .collect();
-        self.update_flags(account_id, folder, &flags)
+        // Read and written under one hold of the cache, the UIDs in one query.
+        let conn = self.conn();
+        let cached: Vec<(u32, Flags)> = conn
+            .prepare_cached(
+                "SELECT m.uid, m.seen, m.answered, m.flagged, m.draft FROM json_each(?3) j
+                 CROSS JOIN messages m ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value",
+            )?
+            .query_map(params![account_id, folder, json_list(uids)], |r| {
+                Ok((
+                    r.get(0)?,
+                    Flags {
+                        seen: r.get(1)?,
+                        answered: r.get(2)?,
+                        flagged: r.get(3)?,
+                        draft: r.get(4)?,
+                        deleted: false,
+                    },
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let flags = self.with_pending(account_id, folder, cached.into_iter());
+        write_flags(&conn, account_id, folder, &flags)
     }
 
     /// The server answered one `change_flags`: syncs bring its flags again.
@@ -872,24 +1106,6 @@ impl Store {
                 }
             }
         }
-    }
-
-    fn write_flags(&self, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        let mut changed = 0;
-        {
-            let mut stmt = tx.prepare(
-                "UPDATE messages SET seen = ?4, answered = ?5, flagged = ?6, draft = ?7
-                 WHERE account_id = ?1 AND folder = ?2 AND uid = ?3
-                   AND (seen, answered, flagged, draft) IS NOT (?4, ?5, ?6, ?7)",
-            )?;
-            for (uid, f) in flags {
-                changed += stmt.execute(params![account_id, folder, uid, f.seen, f.answered, f.flagged, f.draft])?;
-            }
-        }
-        tx.commit()?;
-        Ok(changed)
     }
 
     pub fn remove_uids(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<usize> {
@@ -907,50 +1123,7 @@ impl Store {
     }
 
     pub fn list(&self, q: &ListQuery) -> Result<Vec<MessageRow>> {
-        let mut cond = String::from("1");
-        let mut args: Vec<rusqlite::types::Value> = Vec::new();
-        if let Some(account) = &q.account_id {
-            cond.push_str(" AND m.account_id = ?");
-            args.push(account.clone().into());
-        }
-        if q.snoozed_only {
-            cond.push_str(" AND EXISTS (SELECT 1 FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id)");
-        } else if q.followups_only {
-            cond.push_str(
-                " AND f.role = 'sent' AND EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)",
-            );
-        } else {
-            match (&q.folder, q.role) {
-                (Some(folder), _) => {
-                    cond.push_str(" AND m.folder = ?");
-                    args.push(folder.clone().into());
-                }
-                (None, role) => {
-                    cond.push_str(" AND f.role = ?");
-                    args.push(role.unwrap_or(FolderRole::Inbox).as_str().to_owned().into());
-                }
-            }
-        }
-        let mut only = Vec::new();
-        if q.unread_only {
-            only.push("m.seen = 0");
-        }
-        if q.flagged_only {
-            only.push("m.flagged = 1");
-        }
-        if !only.is_empty() {
-            let only = only.join(" AND ");
-            if q.keep_ids.is_empty() {
-                cond.push_str(&format!(" AND {only}"));
-            } else {
-                let marks = vec!["?"; q.keep_ids.len()].join(",");
-                cond.push_str(&format!(" AND ({only} OR m.id IN ({marks}))"));
-                args.extend(q.keep_ids.iter().map(|&id| id.into()));
-            }
-        }
-        if let Some(bulk) = q.bulk {
-            cond.push_str(if bulk { " AND m.bulk = 1" } else { " AND m.bulk = 0" });
-        }
+        let (cond, mut args) = list_filter(q);
         args.push(i64::from(if q.limit == 0 { 100 } else { q.limit }).into());
         args.push(i64::from(q.offset).into());
 
@@ -971,6 +1144,7 @@ impl Store {
                     })
                 },
                 "m.date",
+                "m.id",
             );
             let sql = format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY {order} LIMIT ? OFFSET ?");
             let mut stmt = conn.prepare(&sql)?;
@@ -985,6 +1159,15 @@ impl Store {
         // Junk, Drafts), its newest letter does.
         // Sorting looks at the whole conversation: unread or flagged when any letter is,
         // its size is the sum; sender and subject are the newest letter's.
+        // The newest letters of the conversation in every folder come from `threads`,
+        // one lookup per conversation; the folder itself is grouped from its index.
+        // Ordering needs every conversation of the folder: the newest letter elsewhere
+        // can put any of them on top. Columns of the message itself are read only when
+        // the order looks at them, and for the page alone.
+        let by_message = q
+            .sort
+            .iter()
+            .any(|k| matches!(k.by, SortField::Sender | SortField::Subject | SortField::People));
         let order = order_by(
             &q.sort,
             |by| {
@@ -999,59 +1182,88 @@ impl Store {
                 })
             },
             "last",
+            "g.id",
         );
+        let message = if by_message {
+            "JOIN messages m ON m.id = g.id"
+        } else {
+            ""
+        };
+        // Folders first: each folder's messages come from the index that has every column
+        // the grouping reads, not row by row from the table.
         let sql = format!(
             "WITH g AS (
-                SELECT m.id AS id, MAX(m.date) AS newest, SUM(m.seen = 0) AS unread, SUM(m.flagged) AS flagged,
+                SELECT m.id AS id, m.account_id AS account_id, m.thread AS thread, f.role AS role,
+                    MAX(m.date) AS date, SUM(m.seen = 0) AS unread, SUM(m.flagged) AS flagged,
                     SUM({unread}) AS s_unread, SUM({flagged}) AS s_flagged, SUM(m.size) AS s_size,
                     SUM(m.has_attachments) AS s_files
-                FROM {from} WHERE {cond} GROUP BY m.account_id, m.thread
+                FROM folders f CROSS JOIN messages m ON m.account_id = f.account_id AND m.folder = f.name
+                WHERE {cond} GROUP BY m.account_id, m.thread
              )
-             SELECT {COLUMNS}, g.unread, g.flagged,
-                CASE WHEN COALESCE(mf.role, '') = 'sent' THEN m.date ELSE COALESCE(
-                    (SELECT MAX(x.date) FROM messages x
-                        JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
-                        WHERE x.account_id = m.account_id AND x.thread = m.thread
-                          AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts', 'sent')),
-                    (SELECT MAX(x.date) FROM messages x
-                        JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
-                        WHERE x.account_id = m.account_id AND x.thread = m.thread
-                          AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')),
-                    m.date) END AS last
-             FROM g JOIN messages m ON m.id = g.id
-                LEFT JOIN folders mf ON mf.account_id = m.account_id AND mf.name = m.folder
+             SELECT g.id, g.unread, g.flagged,
+                CASE WHEN COALESCE(g.role, '') = 'sent' THEN g.date
+                     ELSE COALESCE(t.incoming, t.latest, g.date) END AS last
+             FROM g LEFT JOIN threads t ON t.account_id = g.account_id AND t.thread = g.thread
+                {message}
              ORDER BY {order} LIMIT ? OFFSET ?"
         );
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_from_iter(args), |r| {
-            let mut row = message_row(r)?;
-            row.flags.seen = r.get::<_, i64>(COLUMN_COUNT)? == 0;
-            row.flags.flagged = r.get::<_, i64>(COLUMN_COUNT + 1)? > 0;
-            row.thread_date = r.get(COLUMN_COUNT + 2)?;
-            Ok(row)
-        })?;
-        let mut rows: Vec<MessageRow> = rows.collect::<Result<_, _>>()?;
-        drop(stmt);
-        let mut letters = conn.prepare_cached(
-            "SELECT m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts'
-             FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
-             WHERE m.account_id = ?1 AND m.thread = ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk')
-             ORDER BY m.date, m.id",
-        )?;
+        let page: Vec<(i64, i64, i64, i64)> = conn
+            .prepare(&sql)?
+            .query_map(params_from_iter(args), |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let ids: Vec<i64> = page.iter().map(|p| p.0).collect();
+        let mut rows: Vec<MessageRow> = conn
+            .prepare_cached(&format!(
+                "SELECT {COLUMNS} FROM json_each(?1) j CROSS JOIN messages m ON m.id = j.value ORDER BY j.key"
+            ))?
+            .query_map([json_list(&ids)], message_row)?
+            .collect::<rusqlite::Result<_>>()?;
+        for (row, &(_, unread, flagged, last)) in rows.iter_mut().zip(&page) {
+            row.flags.seen = unread == 0;
+            row.flags.flagged = flagged > 0;
+            row.thread_date = last;
+        }
+
+        // The letters of every conversation on the page, in one query.
+        let keys: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|r| (r.account_id.as_str(), r.thread.as_str()))
+            .collect();
+        let mut letters: HashMap<(String, String), Vec<Letter>> = HashMap::new();
+        let found = conn
+            .prepare_cached(
+                "SELECT m.account_id, m.thread, m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts'
+                 FROM json_each(?1) k
+                 CROSS JOIN messages m ON m.account_id = k.value ->> 0 AND m.thread = k.value ->> 1
+                 JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+                 WHERE COALESCE(f.role, '') NOT IN ('trash', 'junk')
+                 ORDER BY k.key, m.date, m.id",
+            )?
+            .query_map([json_list(&keys)], |r| {
+                Ok((
+                    (r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+                    (
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, bool>(5)?,
+                    ),
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (key, letter) in found {
+            letters.entry(key).or_default().push(letter);
+        }
         for row in &mut rows {
             let mut seen = HashSet::new();
             let (mut count, mut draft) = (0, false);
             let mut senders: Vec<Addr> = Vec::new();
-            let found = letters.query_map(params![row.account_id, row.thread], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, Option<String>>(2)?,
-                    r.get::<_, bool>(3)?,
-                ))
-            })?;
-            for letter in found {
-                let (id, mid, from, is_draft) = letter?;
+            let found = letters
+                .remove(&(row.account_id.clone(), row.thread.clone()))
+                .unwrap_or_default();
+            for (id, mid, from, is_draft) in found {
                 if is_draft {
                     draft = true;
                     continue;
@@ -1138,6 +1350,19 @@ impl Store {
             .optional()?)
     }
 
+    /// `get_at` of many messages in one query, in the order of `ids`; unknown ids are skipped.
+    pub fn get_many_at(&self, ids: &[i64]) -> Result<Vec<(MessageRow, u32)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT {COLUMNS}, f.uidvalidity FROM json_each(?1) j
+             CROSS JOIN messages m ON m.id = j.value
+             JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+             ORDER BY j.key"
+        ))?;
+        let rows = stmt.query_map([json_list(ids)], |r| Ok((message_row(r)?, r.get(COLUMN_COUNT)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn find_by_uid(&self, account_id: &str, folder: &str, uid: u32) -> Result<Option<MessageRow>> {
         Ok(self
             .conn()
@@ -1157,17 +1382,22 @@ impl Store {
     }
 
     /// Messages to keep for offline reading: newer than `since`, outside Trash and
-    /// Spam, without attachments unless `attachments`. The condition joins `m` and `f`.
+    /// Spam, without attachments unless `attachments`. Read from the index of the
+    /// account's mail by date alone; Trash and Spam are looked up once, not per message.
     fn offline_cond(attachments: bool) -> String {
         let files = if attachments {
             format!("m.size <= {OFFLINE_MAX_SIZE}")
         } else {
             format!("m.has_attachments = 0 AND m.size <= {OFFLINE_MAX_TEXT}")
         };
-        format!("m.account_id = ?1 AND m.date >= ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk') AND {files}")
+        format!(
+            "m.account_id = ?1 AND m.date >= ?2 AND {files}
+             AND m.folder NOT IN (SELECT name FROM folders WHERE account_id = ?1 AND role IN ('trash', 'junk'))"
+        )
     }
 
     /// Offline messages whose text is not downloaded yet, newest first: `(id, folder, uid)`.
+    /// Goes from the newest down and stops at `limit`.
     pub fn bodies_missing(
         &self,
         account_id: &str,
@@ -1177,31 +1407,30 @@ impl Store {
     ) -> Result<Vec<(i64, String, u32)>> {
         let sql = format!(
             "SELECT m.id, m.folder, m.uid FROM messages m
-             JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
              WHERE {} AND NOT EXISTS (SELECT 1 FROM bodies b WHERE b.message_id = m.id)
              ORDER BY m.date DESC LIMIT ?3",
             Self::offline_cond(attachments)
         );
         let conn = self.conn();
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map(params![account_id, since, limit], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Offline messages with their text downloaded, and all of them.
+    /// Offline messages with their text downloaded, and all of them. The downloaded
+    /// are counted from the texts, all of them from the index.
     pub fn offline_progress(&self, account_id: &str, since: i64, attachments: bool) -> Result<(u64, u64)> {
+        let cond = Self::offline_cond(attachments);
         let sql = format!(
-            "SELECT COUNT(b.message_id), COUNT(*) FROM messages m
-             JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
-             LEFT JOIN bodies b ON b.message_id = m.id
-             WHERE {}",
-            Self::offline_cond(attachments)
+            "SELECT (SELECT COUNT(*) FROM bodies b CROSS JOIN messages m ON m.id = b.message_id WHERE {cond}),
+                    (SELECT COUNT(*) FROM messages m WHERE {cond})"
         );
         let (done, total): (i64, i64) = self
             .conn()
-            .query_row(&sql, params![account_id, since], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            .prepare_cached(&sql)?
+            .query_row(params![account_id, since], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok((done as u64, total as u64))
     }
 
@@ -1298,6 +1527,7 @@ impl Store {
                 other => message_sort_column(other).map(Into::into),
             },
             "m.date",
+            "m.id",
         );
         let sql = if !words {
             format!("SELECT {COLUMNS} FROM messages m {join} WHERE {cond} ORDER BY {order} LIMIT ?{limit_arg}")
@@ -1383,15 +1613,19 @@ impl Store {
     }
 
     /// Drops reminders that got an answer: a message outside Sent and Drafts that
-    /// replies to the sent one. Returns how many were resolved.
+    /// replies to the sent one, its Message-ID in In-Reply-To or References exactly.
+    /// Returns how many were resolved.
     pub fn followups_resolve(&self) -> Result<usize> {
         Ok(self.conn().execute(
             "DELETE FROM followups WHERE EXISTS (
                 SELECT 1 FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
-                WHERE m.account_id = followups.account_id
+                WHERE m.account_id = followups.account_id AND m.in_reply_to = followups.message_id
                   AND COALESCE(f.role, '') NOT IN ('sent', 'drafts')
-                  AND (m.in_reply_to = followups.message_id
-                       OR m.refs LIKE '%\"' || followups.message_id || '\"%'))",
+             ) OR EXISTS (
+                SELECT 1 FROM message_refs r CROSS JOIN messages m ON m.id = r.message
+                    JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+                WHERE r.parent = followups.message_id AND m.account_id = followups.account_id
+                  AND COALESCE(f.role, '') NOT IN ('sent', 'drafts'))",
             [],
         )?)
     }
@@ -1552,6 +1786,27 @@ impl Store {
         Ok(())
     }
 
+    /// Exchange items with their ids `(message, item id, received)`, in one commit as
+    /// `insert_messages`: a message is never cached without the id that reaches it.
+    pub fn ews_insert_items(
+        &self,
+        account_id: &str,
+        folder: &str,
+        items: &[(NewMessage<'_>, &str, i64)],
+    ) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for (msg, item_id, received) in items {
+            insert_message(&tx, account_id, folder, msg)?;
+            tx.prepare_cached(
+                "INSERT OR REPLACE INTO ews_items (account_id, folder, uid, item_id, received) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?
+            .execute(params![account_id, folder, msg.uid, item_id, received])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn ews_items_remove(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -1568,18 +1823,13 @@ impl Store {
     /// Item ids for UIDs, in the same order; unknown UIDs are skipped.
     pub fn ews_item_ids(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<Vec<String>> {
         let conn = self.conn();
-        let mut stmt =
-            conn.prepare("SELECT item_id FROM ews_items WHERE account_id = ?1 AND folder = ?2 AND uid = ?3")?;
-        let mut out = Vec::with_capacity(uids.len());
-        for uid in uids {
-            if let Some(id) = stmt
-                .query_row(params![account_id, folder, uid], |r| r.get(0))
-                .optional()?
-            {
-                out.push(id);
-            }
-        }
-        Ok(out)
+        let mut stmt = conn.prepare_cached(
+            "SELECT e.item_id FROM json_each(?3) j
+             CROSS JOIN ews_items e ON e.account_id = ?1 AND e.folder = ?2 AND e.uid = j.value
+             ORDER BY j.key",
+        )?;
+        let rows = stmt.query_map(params![account_id, folder, json_list(uids)], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn ews_uid_of(&self, account_id: &str, folder: &str, item_id: &str) -> Result<Option<u32>> {
@@ -1695,19 +1945,14 @@ impl Store {
     }
 
     /// Distinct addresses from cached mail for recipient completion, most frequent first.
+    /// Reads the table of addresses the cache keeps: as long as the number of people,
+    /// not of messages.
     pub fn known_addresses(&self, prefix: &str, limit: u32) -> Result<Vec<Addr>> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "WITH a AS (
-                SELECT json_extract(from_addr, '$.email') AS email, json_extract(from_addr, '$.name') AS name
-                FROM messages WHERE from_addr IS NOT NULL
-                UNION ALL
-                SELECT json_extract(j.value, '$.email'), json_extract(j.value, '$.name')
-                FROM messages, json_each(messages.to_addrs) j
-             )
-             SELECT email, MAX(name) FROM a
+        let mut stmt = conn.prepare_cached(
+            "SELECT email, MAX(NULLIF(name, '')) FROM addresses
              WHERE fold(email) LIKE ?1 || '%' ESCAPE '\\' OR fold(name) LIKE '%' || ?1 || '%' ESCAPE '\\'
-             GROUP BY fold(email) ORDER BY COUNT(*) DESC LIMIT ?2",
+             GROUP BY fold(email) ORDER BY SUM(uses) DESC LIMIT ?2",
         )?;
         let escaped = prefix
             .to_lowercase()
@@ -1722,6 +1967,70 @@ impl Store {
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
+}
+
+fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMessage<'_>) -> Result<i64> {
+    let NewMessage {
+        uid,
+        summary,
+        fallback_date,
+        size,
+        flags,
+    } = *msg;
+    let json = |v: &Vec<Addr>| serde_json::to_string(v).unwrap_or_else(|_| "[]".into());
+    let date = summary.date.unwrap_or(fallback_date);
+    let links = Links::of(summary, date);
+    let fallback = summary.thread_key().unwrap_or_else(|| format!("{folder}/{uid}"));
+    let thread = link_thread(tx, account_id, &links, fallback)?;
+    let id: i64 = tx
+        .prepare_cached(
+            "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
+                to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
+                thread, bulk, unsubscribe, topic, sort_sender, sort_subject)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+                ?23, ?24)
+             ON CONFLICT (account_id, folder, uid) DO UPDATE SET
+                seen = excluded.seen, answered = excluded.answered,
+                flagged = excluded.flagged, draft = excluded.draft
+             RETURNING id",
+        )?
+        .query_row(
+            params![
+                account_id,
+                folder,
+                uid,
+                summary.message_id,
+                summary.in_reply_to,
+                serde_json::to_string(&summary.references).unwrap_or_else(|_| "[]".into()),
+                summary.subject,
+                summary.from.as_ref().and_then(|a| serde_json::to_string(a).ok()),
+                json(&summary.to),
+                json(&summary.cc),
+                json(&summary.reply_to),
+                date,
+                size,
+                flags.seen,
+                flags.answered,
+                flags.flagged,
+                flags.draft,
+                summary.has_attachments,
+                thread,
+                summary.bulk,
+                summary.unsubscribe.as_ref().and_then(|u| serde_json::to_string(u).ok()),
+                links.topic,
+                crate::message::sender_sort_key(summary.from.as_ref()),
+                crate::message::subject_sort_key(&summary.subject),
+            ],
+            |r| r.get(0),
+        )?;
+    let sender = summary.from.as_ref().map(addr_text).unwrap_or_default();
+    let recipients: Vec<String> = summary.to.iter().chain(&summary.cc).map(addr_text).collect();
+    tx.prepare_cached(
+        "INSERT OR REPLACE INTO search (rowid, subject, sender, recipients, body)
+         VALUES (?1, ?2, ?3, ?4, COALESCE((SELECT body FROM search WHERE rowid = ?1), ''))",
+    )?
+    .execute(params![id, summary.subject, sender, recipients.join(", ")])?;
+    Ok(id)
 }
 
 /// Answers matched by subject alone are looked for this close to the original.
@@ -1845,6 +2154,41 @@ fn link_thread(conn: &Connection, account_id: &str, l: &Links, fallback: String)
         merge.execute(params![account_id, other, thread])?;
     }
     Ok(thread)
+}
+
+/// Values as one JSON array: a set of any size is one parameter, read by `json_each`.
+/// Queries take it as the left side of a CROSS JOIN, which SQLite keeps as the outer
+/// loop: each item is found by an index, not each row of a folder matched to the list.
+fn json_list<T: Serialize>(items: &[T]) -> String {
+    serde_json::to_string(items).unwrap_or_else(|_| "[]".into())
+}
+
+/// Flags of many UIDs in one statement, rows already holding them untouched.
+/// Returns how many changed.
+fn write_flags(conn: &Connection, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
+    if flags.is_empty() {
+        return Ok(0);
+    }
+    let rows: Vec<[u32; 5]> = flags
+        .iter()
+        .map(|(uid, f)| [*uid, f.seen.into(), f.answered.into(), f.flagged.into(), f.draft.into()])
+        .collect();
+    // Each listed UID found by the index; left to itself the planner reads the whole
+    // folder once per UID.
+    Ok(conn
+        .prepare_cached(
+            "WITH s AS MATERIALIZED (
+                SELECT m.id AS id, j.value ->> 1 AS seen, j.value ->> 2 AS answered, j.value ->> 3 AS flagged,
+                    j.value ->> 4 AS draft
+                FROM json_each(?3) j CROSS JOIN messages m
+                    ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value ->> 0
+             )
+             UPDATE messages SET seen = s.seen, answered = s.answered, flagged = s.flagged, draft = s.draft
+             FROM s WHERE messages.id = s.id
+               AND (messages.seen, messages.answered, messages.flagged, messages.draft)
+                   IS NOT (s.seen, s.answered, s.flagged, s.draft)",
+        )?
+        .execute(params![account_id, folder, json_list(&rows)])?)
 }
 
 fn clear_folder(tx: &Connection, account_id: &str, folder: &str) -> Result<()> {
@@ -2965,26 +3309,41 @@ mod tests {
 
         let v0 = |conn: &Connection| conn.execute_batch(CACHE_V0).unwrap();
         type Tables = Box<dyn Fn(&Connection)>;
-        let olds: [(&str, Tables, i64); 3] = [
+        let v4 = |conn: &Connection| {
+            tables_of(2)(conn);
+            v4_modseq(conn).unwrap();
+        };
+        let olds: [(&str, Tables, i64); 5] = [
             ("v0", Box::new(v0), 0),
             ("v1", Box::new(tables_of(1)), 1),
             ("v2 (0.5.6)", Box::new(tables_of(2)), 2),
+            // Step 3 changes nothing a cache of 0.5.6 lacks: the same tables, numbered 3.
+            ("v3", Box::new(tables_of(2)), 3),
+            ("v4", Box::new(v4), 4),
         ];
         for (name, tables, version) in olds {
             let dir = tempfile::tempdir().unwrap();
             let store = Store::open(old_cache(&dir, tables, version)).unwrap();
+            // What step 5 keeps beside the messages is filled from the mail already there.
+            assert_eq!(store.known_addresses("ёлк", 8).unwrap()[0].email, "e@x", "{name}");
+            lookups_hold(&store);
             let conn = store.conn();
+            assert!(count(&conn, "SELECT COUNT(*) FROM threads") > 0, "{name}");
+            assert!(count(&conn, "SELECT COUNT(*) FROM addresses") > 0, "{name}");
             assert_eq!(shape(&conn), fresh_shape, "{name}");
             assert_eq!(user_version(&conn).unwrap(), MIGRATIONS.len() as i64, "{name}");
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM messages"), 2, "{name}");
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM outbox"), 1, "{name}");
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM snoozed"), 1, "{name}");
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM followups"), 1, "{name}");
-            assert_eq!(
-                count(&conn, "SELECT COUNT(*) FROM messages WHERE thread = ''"),
-                0,
-                "{name}"
-            );
+            // Mail of a cache numbered 3 or later was linked as it came; these rows were not.
+            if version < 3 {
+                assert_eq!(
+                    count(&conn, "SELECT COUNT(*) FROM messages WHERE thread = ''"),
+                    0,
+                    "{name}"
+                );
+            }
             if version == 0 {
                 // Linked into one conversation by the step it missed.
                 assert_eq!(count(&conn, "SELECT COUNT(DISTINCT thread) FROM messages"), 1, "{name}");
@@ -3381,5 +3740,722 @@ mod tests {
         store.set_modseq_mark("a", "INBOX", mark).unwrap();
         store.clear_folder("a", "INBOX").unwrap();
         assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0, "a new UIDVALIDITY");
+    }
+
+    // A large mailbox (#31): what each question costs, and that the answers stay.
+
+    thread_local! {
+        static RAN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// The statements `f` ran on the cache, the bodies of triggers aside.
+    fn statements<T>(store: &Store, f: impl FnOnce() -> T) -> (T, Vec<String>) {
+        use rusqlite::trace::{TraceEvent, TraceEventCodes};
+        store.conn().trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(|e| {
+                if let TraceEvent::Stmt(_, sql) = e
+                    && !sql.starts_with("--")
+                {
+                    RAN.with(|r| r.borrow_mut().push(sql.to_owned()));
+                }
+            }),
+        );
+        RAN.with(|r| r.borrow_mut().clear());
+        let out = f();
+        store.conn().trace_v2(TraceEventCodes::empty(), None);
+        (out, RAN.with(|r| r.take()))
+    }
+
+    /// How SQLite goes through the statements `f` ran: the lines of their query plans.
+    fn plans<T>(store: &Store, f: impl FnOnce() -> T) -> Vec<String> {
+        let (_, ran) = statements(store, f);
+        let conn = store.conn();
+        let mut out = Vec::new();
+        for sql in ran {
+            let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            let mut rows = stmt.raw_query();
+            while let Some(r) = rows.next().unwrap() {
+                out.push(r.get::<_, String>(3).unwrap());
+            }
+        }
+        out
+    }
+
+    /// A plan line that reads every message, or every message of a folder by its index.
+    fn reads_every_message(line: &str) -> bool {
+        ["SCAN m", "SCAN x", "SCAN messages"]
+            .iter()
+            .any(|scan| line == *scan || line.starts_with(&format!("{scan} ")))
+    }
+
+    fn rows_of(conn: &Connection, sql: &str) -> Vec<String> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let n = stmt.column_count();
+        stmt.query_map([], |r| {
+            (0..n)
+                .map(|i| r.get::<_, rusqlite::types::Value>(i).map(|v| format!("{v:?}")))
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map(|v| v.join(", "))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+    }
+
+    /// The tables of step 4 say what counting the messages again would say.
+    fn lookups_hold(store: &Store) {
+        let conn = store.conn();
+        assert_eq!(
+            rows_of(
+                &conn,
+                "SELECT account_id, thread, incoming, latest FROM threads ORDER BY 1, 2"
+            ),
+            rows_of(
+                &conn,
+                "SELECT x.account_id, x.thread,
+                    MAX(CASE WHEN COALESCE(f.role, '') NOT IN ('trash', 'junk', 'drafts', 'sent') THEN x.date END),
+                    MAX(CASE WHEN COALESCE(f.role, '') NOT IN ('trash', 'junk', 'drafts') THEN x.date END)
+                 FROM messages x JOIN folders f ON f.account_id = x.account_id AND f.name = x.folder
+                 GROUP BY 1, 2 ORDER BY 1, 2"
+            ),
+            "threads"
+        );
+        assert_eq!(
+            rows_of(&conn, "SELECT email, name, uses FROM addresses ORDER BY 1, 2"),
+            rows_of(
+                &conn,
+                "SELECT email, name, COUNT(*) FROM (
+                    SELECT json_extract(from_addr, '$.email') AS email,
+                        COALESCE(json_extract(from_addr, '$.name'), '') AS name
+                    FROM messages WHERE from_addr IS NOT NULL
+                    UNION ALL
+                    SELECT json_extract(j.value, '$.email'), COALESCE(json_extract(j.value, '$.name'), '')
+                    FROM messages m, json_each(m.to_addrs) j
+                 ) GROUP BY 1, 2 ORDER BY 1, 2"
+            ),
+            "addresses"
+        );
+        assert_eq!(
+            rows_of(&conn, "SELECT parent, message FROM message_refs ORDER BY 1, 2"),
+            rows_of(
+                &conn,
+                "SELECT DISTINCT j.value, m.id FROM messages m, json_each(m.refs) j WHERE j.value != '' ORDER BY 1, 2"
+            ),
+            "message_refs"
+        );
+    }
+
+    /// `Store::list` of conversations as it was before #31, for comparing: the newest
+    /// letters counted for each conversation of the folder, a query per row for the letters.
+    fn old_list(store: &Store, q: &ListQuery) -> Vec<MessageRow> {
+        let (cond, mut args) = list_filter(q);
+        args.push(i64::from(if q.limit == 0 { 100 } else { q.limit }).into());
+        args.push(i64::from(q.offset).into());
+        let from = "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
+        let unread = pinned(&q.pins, |p| p.unread, "(m.seen = 0)");
+        let flagged = pinned(&q.pins, |p| p.flagged, "m.flagged");
+        let order = order_by(
+            &q.sort,
+            |by| {
+                Some(match by {
+                    SortField::Date => "last".into(),
+                    SortField::Unread => "(g.s_unread > 0)".into(),
+                    SortField::Flagged => "(g.s_flagged > 0)".into(),
+                    SortField::Size => "g.s_size".into(),
+                    SortField::Attachments => "(g.s_files > 0)".into(),
+                    SortField::Relevance => return None,
+                    other => message_sort_column(other)?.into(),
+                })
+            },
+            "last",
+            "m.id",
+        );
+        let sql = format!(
+            "WITH g AS (
+                SELECT m.id AS id, MAX(m.date) AS newest, SUM(m.seen = 0) AS unread, SUM(m.flagged) AS flagged,
+                    SUM({unread}) AS s_unread, SUM({flagged}) AS s_flagged, SUM(m.size) AS s_size,
+                    SUM(m.has_attachments) AS s_files
+                FROM {from} WHERE {cond} GROUP BY m.account_id, m.thread
+             )
+             SELECT {COLUMNS}, g.unread, g.flagged,
+                CASE WHEN COALESCE(mf.role, '') = 'sent' THEN m.date ELSE COALESCE(
+                    (SELECT MAX(x.date) FROM messages x
+                        JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+                        WHERE x.account_id = m.account_id AND x.thread = m.thread
+                          AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts', 'sent')),
+                    (SELECT MAX(x.date) FROM messages x
+                        JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+                        WHERE x.account_id = m.account_id AND x.thread = m.thread
+                          AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')),
+                    m.date) END AS last
+             FROM g JOIN messages m ON m.id = g.id
+                LEFT JOIN folders mf ON mf.account_id = m.account_id AND mf.name = m.folder
+             ORDER BY {order} LIMIT ? OFFSET ?"
+        );
+        let conn = store.conn();
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let mut rows: Vec<MessageRow> = stmt
+            .query_map(params_from_iter(args), |r| {
+                let mut row = message_row(r)?;
+                row.flags.seen = r.get::<_, i64>(COLUMN_COUNT)? == 0;
+                row.flags.flagged = r.get::<_, i64>(COLUMN_COUNT + 1)? > 0;
+                row.thread_date = r.get(COLUMN_COUNT + 2)?;
+                Ok(row)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let mut letters = conn
+            .prepare(
+                "SELECT m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts'
+                 FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+                 WHERE m.account_id = ?1 AND m.thread = ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk')
+                 ORDER BY m.date, m.id",
+            )
+            .unwrap();
+        for row in &mut rows {
+            let mut seen = HashSet::new();
+            let (mut count, mut draft) = (0, false);
+            let mut senders: Vec<Addr> = Vec::new();
+            let found: Vec<(i64, Option<String>, Option<String>, bool)> = letters
+                .query_map(params![row.account_id, row.thread], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            for (id, mid, from, is_draft) in found {
+                if is_draft {
+                    draft = true;
+                    continue;
+                }
+                if !seen.insert(mid.unwrap_or_else(|| format!("#{id}"))) {
+                    continue;
+                }
+                count += 1;
+                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok())
+                    && !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email))
+                {
+                    senders.push(a);
+                }
+            }
+            row.thread_count = count.max(1);
+            row.thread_senders = senders;
+            row.thread_draft = draft;
+        }
+        rows
+    }
+
+    const BUSY_FOLDERS: [(&str, Option<FolderRole>); 8] = [
+        ("INBOX", Some(FolderRole::Inbox)),
+        ("Sent", Some(FolderRole::Sent)),
+        ("Drafts", Some(FolderRole::Drafts)),
+        ("Trash", Some(FolderRole::Trash)),
+        ("Archive", Some(FolderRole::Archive)),
+        ("Junk", Some(FolderRole::Junk)),
+        ("Snoozed", None),
+        ("Lists", None),
+    ];
+
+    /// Conversations of one to six letters spread over every kind of folder, of two
+    /// accounts, with letters to oneself, drafts, snoozes and awaited answers. Dates
+    /// differ: which letter is the newest is never a draw.
+    fn busy_mailbox(conversations: usize) -> Store {
+        let store = Store::open_in_memory().unwrap();
+        let folders: Vec<Folder> = BUSY_FOLDERS.iter().map(|&(n, r)| folder(n, r)).collect();
+        store.replace_folders("a", &folders).unwrap();
+        store.replace_folders("b", &folders[..2]).unwrap();
+        let mut k = 0usize;
+        let mut uid = HashMap::<(&str, &str), u32>::new();
+        let mut add = |account: &'static str, folder: &'static str, s: &Summary, k: usize| {
+            let next = uid.entry((account, folder)).or_insert(0);
+            *next += 1;
+            let msg = NewMessage {
+                uid: *next,
+                summary: s,
+                fallback_date: 0,
+                size: (k * 13 % 1000) as u32,
+                flags: Flags {
+                    seen: !k.is_multiple_of(3),
+                    flagged: k.is_multiple_of(5),
+                    ..Default::default()
+                },
+            };
+            store.insert_message(account, folder, &msg).unwrap()
+        };
+        let person = |p: usize| Addr {
+            name: Some(["Анна", "Борис", "Ёлкин", "Dana"][p % 4].into()),
+            email: format!("p{p}@example.org"),
+        };
+        for c in 0..conversations {
+            let account = if c % 7 == 6 { "b" } else { "a" };
+            let mut ids: Vec<String> = Vec::new();
+            for j in 0..1 + c % 6 {
+                k += 1;
+                let folder = match (c + j) % 9 {
+                    0 | 2 | 7 => "INBOX",
+                    1 | 8 => "Sent",
+                    3 => "Archive",
+                    4 => "Trash",
+                    5 => "Drafts",
+                    _ if j.is_multiple_of(2) => "Junk",
+                    _ => "Lists",
+                };
+                let folder = if account == "b" && folder != "Sent" {
+                    "INBOX"
+                } else {
+                    folder
+                };
+                let id = format!("c{c}.{j}@x");
+                let s = Summary {
+                    message_id: Some(id.clone()),
+                    in_reply_to: ids.last().cloned(),
+                    references: ids.clone(),
+                    subject: format!("{}Тема {c}", if j > 0 { "Re: " } else { "" }),
+                    from: Some(person(c + j)),
+                    to: vec![person(c + j + 1), person(c + 2)],
+                    date: Some(1_000 + (k * 7919 % 1000) as i64 * 10),
+                    has_attachments: k.is_multiple_of(4),
+                    bulk: c % 6 == 5,
+                    ..Default::default()
+                };
+                add(account, folder, &s, k);
+                // A letter to myself: the same one in Inbox and in Sent.
+                if folder == "Sent" && c.is_multiple_of(4) {
+                    add(account, "INBOX", &s, k);
+                }
+                ids.push(id);
+            }
+            if c.is_multiple_of(5) {
+                store
+                    .snooze_add(&Snooze {
+                        account_id: account.into(),
+                        message_id: format!("c{c}.0@x"),
+                        folder: "Snoozed".into(),
+                        return_to: "INBOX".into(),
+                        until: 5_000,
+                        subject: String::new(),
+                    })
+                    .unwrap();
+            }
+            if c % 3 == 1 {
+                store
+                    .followup_add(&Followup {
+                        account_id: account.into(),
+                        message_id: format!("c{c}.1@x"),
+                        subject: String::new(),
+                        recipients: String::new(),
+                        sent: 0,
+                        due: 9_000,
+                    })
+                    .unwrap();
+            }
+        }
+        store
+    }
+
+    #[test]
+    fn conversation_lists_are_what_they_were() {
+        let store = busy_mailbox(40);
+        let ids: Vec<i64> = store
+            .list(&ListQuery::default())
+            .unwrap()
+            .iter()
+            .map(|r| r.id)
+            .collect();
+        let base = ListQuery {
+            threads: true,
+            ..Default::default()
+        };
+        let mut queries = vec![base.clone()];
+        for (name, role) in BUSY_FOLDERS {
+            queries.push(ListQuery {
+                folder: Some(name.into()),
+                ..base.clone()
+            });
+            queries.push(ListQuery { role, ..base.clone() });
+        }
+        queries.extend([
+            ListQuery {
+                account_id: Some("b".into()),
+                ..base.clone()
+            },
+            ListQuery {
+                unread_only: true,
+                ..base.clone()
+            },
+            ListQuery {
+                flagged_only: true,
+                keep_ids: ids[..3].to_vec(),
+                ..base.clone()
+            },
+            ListQuery {
+                bulk: Some(true),
+                ..base.clone()
+            },
+            ListQuery {
+                bulk: Some(false),
+                ..base.clone()
+            },
+            ListQuery {
+                snoozed_only: true,
+                ..base.clone()
+            },
+            ListQuery {
+                followups_only: true,
+                ..base.clone()
+            },
+        ]);
+        use SortField::*;
+        for by in [
+            Date,
+            Unread,
+            Flagged,
+            People,
+            Sender,
+            Subject,
+            Size,
+            Attachments,
+            Relevance,
+        ] {
+            for desc in [false, true] {
+                queries.push(ListQuery {
+                    sort: vec![SortKey { by, desc }],
+                    ..base.clone()
+                });
+            }
+        }
+        queries.push(ListQuery {
+            sort: vec![
+                SortKey { by: Unread, desc: true },
+                SortKey {
+                    by: Sender,
+                    desc: false,
+                },
+            ],
+            pins: vec![Pin {
+                id: ids[1],
+                unread: true,
+                flagged: true,
+            }],
+            ..base.clone()
+        });
+        for offset in 0..12 {
+            queries.push(ListQuery {
+                limit: 3,
+                offset: offset * 3,
+                sort: vec![SortKey { by: Size, desc: true }],
+                ..base.clone()
+            });
+        }
+        for q in &queries {
+            let now = store.list(q).unwrap();
+            assert_eq!(now, old_list(&store, q), "{q:?}");
+        }
+        // The set has what the comparison is about.
+        let all = store.list(&base).unwrap();
+        assert!(all.iter().any(|r| r.thread_count > 2));
+        assert!(all.iter().any(|r| r.thread_draft));
+        assert!(all.iter().any(|r| r.thread_date != r.date));
+        assert!(all.iter().any(|r| r.thread_senders.len() > 1));
+    }
+
+    #[test]
+    fn a_conversation_page_is_three_queries_whatever_its_size() {
+        let store = busy_mailbox(300);
+        let page = |limit| {
+            statements(&store, || {
+                store
+                    .list(&ListQuery {
+                        threads: true,
+                        limit,
+                        ..Default::default()
+                    })
+                    .unwrap()
+                    .len()
+            })
+        };
+        let (small, few) = page(20);
+        let (large, many) = page(200);
+        assert_eq!((small, large), (20, 200));
+        assert_eq!(few.len(), 3, "{few:#?}");
+        assert_eq!(many.len(), few.len());
+    }
+
+    #[test]
+    fn group_actions_take_the_same_queries_for_ten_messages_or_three_hundred() {
+        let store = mailbox();
+        let mut ids = Vec::new();
+        for uid in 1..=300 {
+            ids.push(put(&store, "INBOX", uid, &summary("Отчёт", i64::from(uid)), false));
+            store.ews_item_add("a", "INBOX", uid, &format!("item{uid}"), 0).unwrap();
+        }
+        let uids: Vec<u32> = (1..=300).collect();
+        let costs = |n: usize, unread: usize| {
+            let (changed, flags) = statements(&store, || {
+                store
+                    .change_flags("a", "INBOX", &uids[..n], FlagChange::Seen(true))
+                    .unwrap()
+            });
+            assert_eq!(changed, unread);
+            store.settle_flags("a", "INBOX", &uids[..n]);
+            let (rows, read) = statements(&store, || store.get_many_at(&ids[..n]).unwrap());
+            assert_eq!(rows.len(), n);
+            let (items, found) = statements(&store, || store.ews_item_ids("a", "INBOX", &uids[..n]).unwrap());
+            assert_eq!(items.len(), n);
+            [flags.len(), read.len(), found.len()]
+        };
+        assert_eq!(costs(10, 10), [2, 1, 1]);
+        assert_eq!(costs(300, 290), [2, 1, 1]);
+
+        // In the order asked, unknown ones skipped.
+        let rows = store.get_many_at(&[ids[5], 999_999, ids[2]]).unwrap();
+        assert_eq!(rows.iter().map(|(r, _)| r.id).collect::<Vec<_>>(), [ids[5], ids[2]]);
+        assert_eq!(
+            store.ews_item_ids("a", "INBOX", &[7, 9_999, 3]).unwrap(),
+            ["item7", "item3"]
+        );
+        assert!(store.get_many_at(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_awaited_answer_is_one_to_exactly_that_letter() {
+        let store = mailbox();
+        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "a_b@x", None), true);
+        let waiting = || {
+            store
+                .followup_add(&Followup {
+                    account_id: "a".into(),
+                    message_id: "a_b@x".into(),
+                    subject: "Вопрос".into(),
+                    recipients: String::new(),
+                    sent: 100,
+                    due: 500,
+                })
+                .unwrap()
+        };
+        waiting();
+        // `_` and `%` are characters of the id, not wildcards.
+        let mut uid = 0;
+        for other in ["axb@x", "a%b@x"] {
+            uid += 1;
+            let mut s = with_ids("Re: Вопрос", 200, &format!("r{uid}@x"), None);
+            s.references = vec!["root@x".into(), other.into()];
+            put(&store, "INBOX", uid, &s, false);
+        }
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+        // In References, even not the last one.
+        let mut s = with_ids("Re: Вопрос", 300, "r3@x", None);
+        s.references = vec!["a_b@x".into(), "later@x".into()];
+        put(&store, "INBOX", 3, &s, false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        // In In-Reply-To alone.
+        waiting();
+        store.remove_uids("a", "INBOX", &[3]).unwrap();
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+        let mut s = with_ids("Re: Вопрос", 400, "r4@x", None);
+        s.in_reply_to = Some("a_b@x".into());
+        put(&store, "INBOX", 4, &s, false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_batch_of_headers_is_one_commit_or_nothing() {
+        let store = mailbox();
+        let mails: Vec<Summary> = (0..200)
+            .map(|i| from_to(with_ids("Счёт", 100 + i, &format!("m{i}@x"), None), "ivan@x", "me@x"))
+            .collect();
+        let batch = |base: u32| -> Vec<NewMessage<'_>> {
+            mails
+                .iter()
+                .enumerate()
+                .map(|(i, s)| NewMessage {
+                    uid: base + i as u32,
+                    summary: s,
+                    fallback_date: 0,
+                    size: 1,
+                    flags: Flags::default(),
+                })
+                .collect()
+        };
+        let commits = |ran: &[String]| ran.iter().filter(|s| s.trim().eq_ignore_ascii_case("COMMIT")).count();
+        let (ids, ran) = statements(&store, || store.insert_messages("a", "INBOX", &batch(1)).unwrap());
+        assert_eq!((ids.len(), commits(&ran)), (200, 1));
+        let items: Vec<(NewMessage<'_>, String, i64)> = batch(1_001)
+            .into_iter()
+            .map(|m| (m, format!("item{}", m.uid), 0))
+            .collect();
+        let items: Vec<(NewMessage<'_>, &str, i64)> = items.iter().map(|(m, id, r)| (*m, id.as_str(), *r)).collect();
+        let ((), ran) = statements(&store, || store.ews_insert_items("a", "Sent", &items).unwrap());
+        assert_eq!(commits(&ran), 1);
+        assert_eq!(
+            store.ews_item_ids("a", "Sent", &[1_001, 1_200]).unwrap(),
+            ["item1001", "item1200"]
+        );
+
+        // A failure half way leaves nothing of the batch: no message without its search row.
+        let before = dump(&store);
+        store
+            .conn()
+            .execute_batch(
+                "CREATE TEMP TRIGGER fail_half BEFORE INSERT ON messages WHEN new.uid = 2100
+                 BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+            )
+            .unwrap();
+        assert!(store.insert_messages("a", "Trash", &batch(2_001)).is_err());
+        assert_eq!(dump(&store), before);
+        lookups_hold(&store);
+        // The next sync brings it whole.
+        store.conn().execute_batch("DROP TRIGGER fail_half").unwrap();
+        assert_eq!(store.insert_messages("a", "Trash", &batch(2_001)).unwrap().len(), 200);
+        let conn = store.conn();
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM messages WHERE folder = 'Trash'"),
+            200
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM messages WHERE id NOT IN (SELECT rowid FROM search)"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn lookups_follow_every_change_of_the_mail() {
+        let store = busy_mailbox(60);
+        lookups_hold(&store);
+        // An answer that came first is joined by its original: conversations merge.
+        let mut c = with_ids("Re: План", 300, "late-c@x", None);
+        c.in_reply_to = Some("late-b@x".into());
+        put(&store, "INBOX", 900, &c, true);
+        put(&store, "INBOX", 901, &with_ids("План", 100, "late-a@x", None), true);
+        put(
+            &store,
+            "Sent",
+            900,
+            &with_ids("Re: План", 200, "late-b@x", Some("late-a@x")),
+            true,
+        );
+        lookups_hold(&store);
+        // Letters go, some of them the newest of their conversation, some the last one.
+        // As a sync takes them by UID: removals (VANISHED) and changed flags (CHANGEDSINCE).
+        store.remove_uids("a", "INBOX", &[1, 2, 3, 900]).unwrap();
+        lookups_hold(&store);
+        let read = Flags {
+            seen: true,
+            flagged: true,
+            ..Default::default()
+        };
+        store
+            .update_flags("a", "INBOX", &[(4, read), (5, read), (6, read)])
+            .unwrap();
+        lookups_hold(&store);
+        // A folder changes its role.
+        let renamed: Vec<Folder> = BUSY_FOLDERS
+            .iter()
+            .map(|&(n, r)| match n {
+                "Archive" => folder(n, Some(FolderRole::Trash)),
+                "Junk" => folder(n, None),
+                _ => folder(n, r),
+            })
+            .collect();
+        store.replace_folders("a", &renamed).unwrap();
+        lookups_hold(&store);
+        // A folder cleared, one gone from the server, an account forgotten.
+        store.clear_folder("a", "Sent").unwrap();
+        lookups_hold(&store);
+        store.replace_folders("a", &renamed[..4]).unwrap();
+        lookups_hold(&store);
+        store.forget_account("b").unwrap();
+        lookups_hold(&store);
+        // The same headers again change nothing.
+        let before = dump(&store);
+        put(&store, "INBOX", 901, &with_ids("План", 100, "late-a@x", None), true);
+        assert_eq!(dump(&store), before);
+        lookups_hold(&store);
+    }
+
+    #[test]
+    fn frequent_questions_go_by_index_not_through_every_message() {
+        let store = busy_mailbox(30);
+        store.ews_item_add("a", "INBOX", 1, "item", 0).unwrap();
+        let checked: Vec<(&str, Vec<String>)> = vec![
+            (
+                "offline_progress",
+                plans(&store, || store.offline_progress("a", 0, false)),
+            ),
+            (
+                "bodies_missing",
+                plans(&store, || store.bodies_missing("a", 0, true, 25)),
+            ),
+            ("followups_resolve", plans(&store, || store.followups_resolve())),
+            ("known_addresses", plans(&store, || store.known_addresses("ан", 8))),
+            (
+                "change_flags",
+                plans(&store, || {
+                    store.change_flags("a", "INBOX", &[1, 2], FlagChange::Seen(true))
+                }),
+            ),
+            ("get_many_at", plans(&store, || store.get_many_at(&[1, 2]))),
+            ("ews_item_ids", plans(&store, || store.ews_item_ids("a", "INBOX", &[1]))),
+            (
+                "folder conversations",
+                plans(&store, || {
+                    store.list(&ListQuery {
+                        folder: Some("INBOX".into()),
+                        threads: true,
+                        ..Default::default()
+                    })
+                }),
+            ),
+            (
+                "unified conversations",
+                plans(&store, || {
+                    store.list(&ListQuery {
+                        threads: true,
+                        ..Default::default()
+                    })
+                }),
+            ),
+        ];
+        for (name, plan) in checked {
+            assert!(!plan.is_empty(), "{name}");
+            assert!(!plan.iter().any(|l| reads_every_message(l)), "{name}: {plan:#?}");
+        }
+        // The conversations of a folder come from the index made for them.
+        let plan = plans(&store, || {
+            store.list(&ListQuery {
+                folder: Some("INBOX".into()),
+                threads: true,
+                ..Default::default()
+            })
+        });
+        assert!(
+            plan.iter()
+                .any(|l| l.contains("COVERING INDEX messages_by_folder_thread")),
+            "{plan:#?}"
+        );
+        let plan = plans(&store, || store.offline_progress("a", 0, false));
+        assert!(
+            plan.iter()
+                .any(|l| l.contains("COVERING INDEX messages_by_account_date")),
+            "{plan:#?}"
+        );
+    }
+
+    #[test]
+    fn the_cache_counts_how_long_it_was_held() {
+        let store = mailbox();
+        store.take_longest_lock();
+        assert_eq!(store.take_longest_lock(), Duration::ZERO);
+        {
+            let _held = store.conn();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(store.take_longest_lock() >= Duration::from_millis(5));
+        assert_eq!(store.take_longest_lock(), Duration::ZERO);
     }
 }

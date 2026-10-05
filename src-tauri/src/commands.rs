@@ -420,13 +420,11 @@ pub async fn message_open(state: St<'_>, id: i64, allow_remote: bool) -> CmdResu
 /// refuses UIDs of a folder renumbered since they were read.
 fn group_rows(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String, u32), Vec<MessageRow>>> {
     let mut groups: BTreeMap<(String, String, u32), Vec<MessageRow>> = BTreeMap::new();
-    for id in ids {
-        if let Some((r, validity)) = state.store.get_at(*id)? {
-            groups
-                .entry((r.account_id.clone(), r.folder.clone(), validity))
-                .or_default()
-                .push(r);
-        }
+    for (r, validity) in state.store.get_many_at(ids)? {
+        groups
+            .entry((r.account_id.clone(), r.folder.clone(), validity))
+            .or_default()
+            .push(r);
     }
     Ok(groups)
 }

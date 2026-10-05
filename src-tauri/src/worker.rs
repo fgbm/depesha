@@ -855,7 +855,8 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result
     if last {
         state.task_done(&key);
     } else {
-        let (done, total) = store.offline_progress(account_id, since, files)?;
+        // Counted once a batch: what it saved is added, not counted again.
+        let done = (done + saved as u64).min(total);
         state.task(&key, "prefetch", Some(account_id), label(), done, total);
     }
     // The cache got text to search in.

@@ -288,23 +288,28 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .await?
             .try_collect()
             .await?;
-        for f in &fetches {
-            let Some(uid) = f.uid else { continue };
-            let flags = Flags::from_imap(f.flags());
-            if flags.deleted {
-                continue;
-            }
-            let summary = message::parse_summary(f.header().unwrap_or_default());
-            let msg = NewMessage {
-                uid,
-                summary: &summary,
+        let headers: Vec<_> = fetches
+            .iter()
+            .filter_map(|f| {
+                let flags = Flags::from_imap(f.flags());
+                let uid = f.uid.filter(|_| !flags.deleted)?;
+                Some((uid, flags, f, message::parse_summary(f.header().unwrap_or_default())))
+            })
+            .collect();
+        let msgs: Vec<NewMessage<'_>> = headers
+            .iter()
+            .map(|(uid, flags, f, summary)| NewMessage {
+                uid: *uid,
+                summary,
                 fallback_date: f.internal_date().map(|d| d.timestamp()).unwrap_or(0),
                 size: f.size.unwrap_or(0),
-                flags,
-            };
-            store.insert_message(account_id, folder, &msg)?;
-            added += 1;
-        }
+                flags: *flags,
+            })
+            .collect();
+        // One commit for the batch: either all of it is cached or none, and the
+        // folder's state, written after, never claims what is missing.
+        store.insert_messages(account_id, folder, &msgs)?;
+        added += msgs.len();
     }
     Ok(added)
 }
