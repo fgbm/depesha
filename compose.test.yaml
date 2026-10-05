@@ -2,6 +2,8 @@
 #   docker compose -f compose.test.yaml up -d
 #   DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
 # Plain ports 3025/3143; TLS ports 3465/3993 use GreenMail's self-signed certificate.
+# Named so every checkout and worktree drives the same containers and ports.
+name: depesha
 services:
   greenmail:
     image: greenmail/standalone:latest
