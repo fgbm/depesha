@@ -94,6 +94,12 @@ describe("forward", () => {
     expect(d.text).toContain("Пересылаемое сообщение");
     expect(d.text).toContain("Добрый день!");
   });
+
+  it("stays in the conversation it came from", () => {
+    const d = forward(msg(), me);
+    expect(d.in_reply_to).toBe("m2@example.org");
+    expect(d.references).toEqual(["m1@example.org", "m2@example.org"]);
+  });
 });
 
 describe("format", () => {

@@ -15,6 +15,10 @@ export function replySubject(subject: string): string {
   return REPLY_PREFIX.test(subject) ? subject : `Re: ${subject}`;
 }
 
+export function isForward(subject: string): boolean {
+  return FWD_PREFIX.test(subject);
+}
+
 export function forwardSubject(subject: string): string {
   return FWD_PREFIX.test(subject) ? subject : `Fwd: ${subject}`;
 }
@@ -90,7 +94,8 @@ export function forward(msg: OpenedMessage, me: Addr): ComposeDraft {
   const attachments: AttachmentSource[] = msg.view.attachments
     .filter((a) => !(a.inline && a.content_id))
     .map((a) => ({ kind: "message", id: msg.row.id, index: a.index, name: a.name, size: a.size }));
-  return { ...emptyDraft(me), subject: forwardSubject(s.subject), text: lines.join("\n"), attachments };
+  // Threaded like a reply: the forward stays in the conversation it came from.
+  return { ...emptyDraft(me), subject: forwardSubject(s.subject), text: lines.join("\n"), attachments, ...threading(msg) };
 }
 
 /** Opens a server draft for editing. */

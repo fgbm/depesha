@@ -8,7 +8,7 @@ import { applyTheme } from "./theme";
 import { i18n, t, tn } from "./i18n.svelte";
 import { extensions, listenForMail, textOf, type MailAction } from "./extensions.svelte";
 import { registry } from "../plugin-host/registry.svelte";
-import { emptyDraft, forward, reply, withSignature } from "./compose";
+import { emptyDraft, forward, isForward, reply, withSignature } from "./compose";
 import { compareRows } from "./sort";
 import type { ListFilter, ListScope } from "../plugin-api";
 import type {
@@ -176,6 +176,7 @@ class AppStore {
       const role = this.folder(e.payload.account_id, e.payload.folder)?.role;
       const threadPart = this.settings.threads && (role === "sent" || role === "drafts");
       if (threadPart || this.viewIncludes(e.payload.account_id, e.payload.folder)) this.scheduleReload();
+      if (this.opened?.row.account_id === e.payload.account_id) this.scheduleConversation();
       this.scheduleFolders();
     });
     await listen("folders-changed", () => this.scheduleFolders());
@@ -725,15 +726,7 @@ class AppStore {
   private async loadConversation(id: number, seq: number, epoch: number, folder: string) {
     const conversation = await api.thread(id).catch(() => [] as MessageRow[]);
     if (seq !== this.openSeq) return;
-    // One entry per letter: a copy in this folder wins over the one in Sent.
-    const shown = new Map<string, MessageRow>();
-    for (const m of conversation) {
-      const key = m.message_id ?? `#${m.id}`;
-      const prev = shown.get(key);
-      if (!prev || m.id === id || (prev.id !== id && m.folder === folder)) shown.set(key, m);
-    }
-    const unique = [...shown.values()].sort((a, b) => a.date - b.date || a.id - b.id);
-    this.conversation = unique.length > 1 ? unique : [];
+    this.conversation = shownConversation(conversation, id, folder);
     // Reading a conversation reads all of it, unless the user changed flags meanwhile.
     const unread = conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
     if (unread.length && epoch === this.flagEpoch) {
@@ -742,6 +735,25 @@ class AppStore {
       api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.fail(e));
       for (const m of this.messages) if (unread.includes(m.id)) m.flags.seen = true;
     }
+  }
+
+  private conversationTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** A letter joined the open conversation (an answer, a forward, new mail): show it, flags untouched. */
+  private scheduleConversation() {
+    if (this.conversationTimer) clearTimeout(this.conversationTimer);
+    this.conversationTimer = setTimeout(async () => {
+      const opened = this.opened;
+      if (!opened) return;
+      const seq = this.openSeq;
+      const rows = await api.thread(opened.row.id).catch(() => []);
+      // A letter moved or deleted meanwhile keeps its conversation until opened again.
+      if (seq !== this.openSeq || rows.length === 0) return;
+      const next = shownConversation(rows, opened.row.id, opened.row.folder);
+      const same = (a: MessageRow[], b: MessageRow[]) =>
+        a.length === b.length && a.every((m, i) => m.id === b[i].id && m.flags.seen === b[i].flags.seen && m.flags.flagged === b[i].flags.flagged);
+      if (!same(next, this.conversation)) this.conversation = next;
+    }, 250);
   }
 
   move(step: 1 | -1) {
@@ -970,7 +982,10 @@ class AppStore {
     const acc = msg && this.account(msg.row.account_id);
     if (!msg || !acc) return;
     // An answer already being written to this letter comes back instead of a second one.
-    const same = this.composes.find((c) => c.draft.in_reply_to && c.draft.in_reply_to === msg.view.summary.message_id);
+    // A forward of it is threaded the same way and is not an answer.
+    const same = this.composes.find(
+      (c) => c.draft.in_reply_to && c.draft.in_reply_to === msg.view.summary.message_id && !isForward(c.draft.subject),
+    );
     if (same) return this.showCompose(same.id);
     const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all), acc.signature);
     this.openCompose({ account_id: acc.id, draft, draft_id: null });
@@ -1034,3 +1049,15 @@ class AppStore {
 }
 
 export const app = new AppStore();
+
+/** One entry per letter, oldest first: a copy in the folder of the opened one wins over the one in Sent. */
+function shownConversation(conversation: MessageRow[], id: number, folder: string): MessageRow[] {
+  const shown = new Map<string, MessageRow>();
+  for (const m of conversation) {
+    const key = m.message_id ?? `#${m.id}`;
+    const prev = shown.get(key);
+    if (!prev || m.id === id || (prev.id !== id && m.folder === folder)) shown.set(key, m);
+  }
+  const unique = [...shown.values()].sort((a, b) => a.date - b.date || a.id - b.id);
+  return unique.length > 1 ? unique : [];
+}
