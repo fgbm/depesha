@@ -183,4 +183,14 @@ describe("the signature in a letter", () => {
     const old = signatureIn({ ...emptyDraft(me, "html"), html: '<div>Да</div><div class="depesha-signature">-- <br>Мария, ООО «Север»</div>' }, workBox.signatures);
     expect(old?.id).toBe("s");
   });
+
+  it("tells one image-only signature from another by its HTML", () => {
+    const picture = (src: string): Signature => ({ id: src, name: src, html: `<div><img src="${src}"></div>`, text: "" });
+    const first = picture("data:image/png;base64,AAAA");
+    const second = picture("data:image/png;base64,BBBB");
+    const list = [first, second];
+    // No words to match: the HTML decides, not the first image-only one in the list.
+    expect(signatureIn(withSignature(emptyDraft(me, "html"), second), list)?.id).toBe(second.id);
+    expect(signatureIn(withSignature(emptyDraft(me, "html"), first), list)?.id).toBe(first.id);
+  });
 });

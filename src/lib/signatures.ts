@@ -179,21 +179,27 @@ export function withSignature(draft: ComposeDraft, sig: Signature | null): Compo
   return { ...draft, text: putSignatureText(draft.text, sig) };
 }
 
-/**
- * Which of the mailbox's signatures the letter has: the one with the same words. One
- * found in a letter but not among them (changed since, another program's) is kept as it is.
- */
-export function signatureIn(draft: ComposeDraft, list: Signature[]): Signature | null {
-  let found: Signature;
+/** The signature the letter itself carries, as a `Signature`, or none. */
+function foundSignature(draft: ComposeDraft): Signature | null {
   if (draft.format === "html") {
     const b = htmlBlock(draft.html ?? "");
     if (!b) return null;
     // As the plain part has it: a letter before #25 wrote "-- " into the block itself.
-    found = { id: "", name: "", html: b.inner, text: htmlToText(b.block).replace(/^-- \n/, "").trim() };
-  } else {
-    const text = splitPlain(draft.text).signature;
-    if (text === null) return null;
-    found = { id: "", name: "", html: textToHtml(text.trim()), text: text.trim() };
+    return { id: "", name: "", html: b.inner, text: htmlToText(b.block).replace(/^-- \n/, "").trim() };
   }
-  return list.find((s) => s.text.trim() === found.text) ?? found;
+  const text = splitPlain(draft.text).signature;
+  return text === null ? null : { id: "", name: "", html: textToHtml(text.trim()), text: text.trim() };
+}
+
+/**
+ * Which of the mailbox's signatures the letter has: the one with the same words, or — for
+ * one without words (a picture alone) — the same HTML. One found in a letter but not among
+ * them (changed since, another program's) is kept as it is.
+ */
+export function signatureIn(draft: ComposeDraft, list: Signature[]): Signature | null {
+  const found = foundSignature(draft);
+  if (!found) return null;
+  // An image-only signature has no words to tell it by: compare its HTML instead.
+  if (found.text) return list.find((s) => s.text.trim() === found.text) ?? found;
+  return list.find((s) => s.html.trim() === found.html.trim()) ?? found;
 }
