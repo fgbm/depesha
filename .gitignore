@@ -4,3 +4,11 @@ dist/
 e2e/screens/
 src-tauri/gen/
 .openchamber/
+.mcp.json
+.claude/
+.cursor/
+.codex/
+opencode.jsonc
+AGENTS.md
+.codegraph/
+__pycache__/
