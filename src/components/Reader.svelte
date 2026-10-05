@@ -113,8 +113,28 @@
     if (viewing && viewing.id !== msg?.row.id) viewing = null;
   });
 
+  /** The letter's place in the pane while an attachment is shown: it comes back as it was. */
+  let scrollBox = $state<HTMLElement | null>(null);
+  let scrollBefore = 0;
+
   function viewAttachment(a: AttachmentInfo) {
-    if (msg) viewing = { id: msg.row.id, at: Math.max(0, files.indexOf(a)) };
+    if (!msg) return;
+    const at = Math.max(0, files.indexOf(a));
+    // The row works as a switch: the shown attachment again takes back to the letter.
+    if (viewing?.at === at) return closeViewer();
+    if (!viewing) scrollBefore = scrollBox?.scrollTop ?? 0;
+    viewing = { id: msg.row.id, at };
+    if (scrollBox) scrollBox.scrollTop = 0;
+  }
+
+  function closeViewer() {
+    const at = viewing?.at;
+    viewing = null;
+    queueMicrotask(() => {
+      if (scrollBox) scrollBox.scrollTop = scrollBefore;
+      // Focus goes back to the attachment the viewer ended on.
+      if (at !== undefined) scrollBox?.querySelectorAll<HTMLElement>(".file-name")[at]?.focus({ preventScroll: true });
+    });
   }
 
   async function openAttachment(a: AttachmentInfo) {
@@ -398,7 +418,7 @@
       </span>
     </div>
 
-    <div class="scroll">
+    <div class="scroll" class:viewing bind:this={scrollBox}>
       {#snippet card(m: MessageRow)}
         {@const pic = avatarOf(m.account_id, m.from?.email, false)}
         <button class="card" class:unread={!m.flags.seen} onclick={() => app.open(m.id)}>
@@ -412,7 +432,7 @@
         </button>
       {/snippet}
 
-      {#if before.length}
+      {#if before.length && !viewing}
         <div class="thread" aria-label={t("conv.label")}>
           {#if folded}
             {@render card(before[0])}
@@ -489,8 +509,9 @@
       {#if files.length}
         <div class="files">
           {#each files as a (a.index)}
-            <div class="file">
-              <button class="file-name" onclick={() => viewAttachment(a)} title={`${t("file.open")}: ${a.name}`}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
+            {@const current = viewing !== null && files[viewing.at] === a}
+            <div class="file" class:current>
+              <button class="file-name" onclick={() => viewAttachment(a)} title={current ? t("viewer.close") : `${t("file.open")}: ${a.name}`} aria-pressed={current}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
               <span class="fsize muted">{size(a.size)}</span>
               <button class="btn ghost small-btn" onclick={() => saveAttachment(a)} title={t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
             </div>
@@ -499,7 +520,12 @@
         </div>
       {/if}
 
-      <div class="body">
+      {#if viewing && files.length}
+        <Viewer id={viewing.id} {files} bind:at={viewing.at} onClose={closeViewer} onSave={saveAttachment} onOpenApp={openAttachment} />
+      {/if}
+
+      <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
+      <div class="body" hidden={viewing !== null}>
         {#if msg.view.html}
           <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->
           {#key `${msg.row.id}:${app.allowRemote || msg.trusted_sender}`}
@@ -514,7 +540,7 @@
         {/if}
       </div>
 
-      {#if after.length}
+      {#if after.length && !viewing}
         <div class="thread after" aria-label={t("conv.label")}>
           {#each after as m (m.id)}{@render card(m)}{/each}
         </div>
@@ -522,7 +548,7 @@
     </div>
 
     <!-- Outside the scroll: the answer stays at the bottom of the pane while the letter scrolls. -->
-    {#if !isDraft}
+    {#if !isDraft && !viewing}
       <div class="quick">
         {#if quick}
           <div class="quick-box">
@@ -557,16 +583,6 @@
   {/if}
 </section>
 
-{#if viewing && msg && files.length}
-  <Viewer
-    id={viewing.id}
-    {files}
-    start={viewing.at}
-    onClose={() => (viewing = null)}
-    onSave={saveAttachment}
-    onOpenApp={openAttachment}
-  />
-{/if}
 
 <style>
   .reader {
@@ -1128,6 +1144,21 @@
   .small-btn {
     padding: 2px 6px;
     font-size: 12px;
+  }
+
+  /* An attachment in place of the text: the header and the attachments stay, the viewer takes the rest. */
+  .scroll.viewing {
+    overflow: hidden;
+  }
+
+  .body[hidden] {
+    display: none;
+  }
+
+  .file.current {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--paper));
   }
 
   /* Grows with plain text, so a long letter scrolls instead of running under the answer bar. */

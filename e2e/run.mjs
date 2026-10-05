@@ -362,7 +362,8 @@ try {
     if (head !== "%PDF-1.4") throw new Error(`содержимое: ${head}`);
   });
 
-  await step("4.10", "просмотрщик вложений: PDF, Word, Excel, Markdown, CSV в cp1251; ←/→ и Esc", async () => {
+  await step("4.10", "просмотрщик вложений в области чтения: PDF, Word, Excel, Markdown, CSV в cp1251; ←/→ и Esc", async () => {
+    const current = () => d.exec("return [...document.querySelectorAll('.reader .file.current .fname')].map((e) => e.innerText)");
     const frameText = () =>
       d.exec("return document.querySelector('.viewer iframe')?.contentDocument?.body?.innerText ?? ''");
     await openFolder("Работа");
@@ -371,6 +372,10 @@ try {
     await d.until("pdf page drawn", () => d.exec("return !!document.querySelector('.viewer .page canvas')"), 20000);
     await d.until("pdf text layer", async () => (await textOf(".viewer .page")).includes("Договор поставки"), 10000);
     await screenshot("viewer-pdf");
+    // In place of the letter's text: the list, the letter's header and its attachments stay.
+    if (!(await d.exec("return !!document.querySelector('.reader .viewer') && !!document.querySelector('.list .row') && !!document.querySelector('.reader h1')")))
+      throw new Error("просмотрщик не в области чтения");
+    if ((await current()).join() !== "contract.pdf") throw new Error(`подсвечено: ${await current()}`);
     await press("ArrowRight");
     await d.until("docx", async () => (await frameText()).includes("Поставщик обязуется"), 20000);
     await screenshot("viewer-docx");
@@ -383,8 +388,18 @@ try {
     await screenshot("viewer-markdown");
     await press("ArrowRight");
     await d.until("csv in cp1251", async () => (await textOf(".viewer table")).includes("Петров"));
+    const csv = await current();
+    if (csv.length !== 1 || !csv[0].endsWith(".csv")) throw new Error(`подсвечено: ${csv}`);
     await press("Escape");
     await d.until("viewer closed", async () => (await d.findAll(".viewer")).length === 0);
+    if ((await current()).length) throw new Error("подсветка осталась после Esc");
+    if (!(await textOf(".reader .body")).trim()) throw new Error("текст письма не вернулся");
+    // The shown attachment clicked again takes back to the letter.
+    const pdf = () => d.xpath("//button[contains(@class,'file-name')][contains(., 'contract.pdf')]");
+    await d.click(await pdf());
+    await d.until("viewer open", async () => (await d.findAll(".viewer")).length === 1);
+    await d.click(await pdf());
+    await d.until("viewer closed by its attachment", async () => (await d.findAll(".viewer")).length === 0);
     // A file that only pretends to be a PDF: the viewer says so and offers the application.
     await d.button("Входящие");
     await openBySubject("HTML-письмо с картинками");

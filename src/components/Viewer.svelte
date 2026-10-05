@@ -1,8 +1,8 @@
 <script lang="ts">
   // The attachment viewer: one shell for every format. The renderer comes from the
   // registry (src/lib/viewer.ts): the core's formats and plugins' are chosen alike.
-  // ←/→ go through the letter's attachments, Esc closes; what cannot be shown is
-  // offered to its application.
+  // It takes the place of the letter's text in the reading pane; ←/→ go through the
+  // letter's attachments, Esc closes; what cannot be shown is offered to its application.
   import X from "@lucide/svelte/icons/x";
   import Download from "@lucide/svelte/icons/download";
   import ExternalLink from "@lucide/svelte/icons/external-link";
@@ -20,7 +20,7 @@
   let {
     id,
     files,
-    start,
+    at = $bindable(),
     onClose,
     onSave,
     onOpenApp,
@@ -28,15 +28,16 @@
     /** The letter the attachments belong to. */
     id: number;
     files: AttachmentInfo[];
-    /** Position in `files` to show first. */
-    start: number;
+    /** Position in `files` shown; the attachments row highlights it. */
+    at: number;
     onClose: () => void;
     onSave: (a: AttachmentInfo) => void;
     onOpenApp: (a: AttachmentInfo) => void;
   } = $props();
 
-  // svelte-ignore state_referenced_locally
-  let at = $state(start);
+  let el = $state<HTMLElement | null>(null);
+  // Keys come here at once, not to the attachment that was clicked.
+  $effect(() => el?.focus({ preventScroll: true }));
   const a = $derived(files[Math.min(at, files.length - 1)]);
   const viewer = $derived(a ? pickViewer(registry.items("fileViewers"), a.name, a.mime) : null);
   /** Why the renderer gave up; the fallback offers the application instead. */
@@ -78,23 +79,25 @@
     at = (at + step + files.length) % files.length;
   }
 
-  // Capture on the window: the app's shortcuts underneath stay quiet while the viewer is open.
+  // Capture on the window takes only the viewer's own keys; the app's shortcuts
+  // (j/k, e, r…) keep working on the letter. Esc closes the top layer only:
+  // a dialog or a menu goes first, the viewer next, the letter's window last.
   function onKey(e: KeyboardEvent) {
     if (app.confirmation) return;
-    const typing = (e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]");
+    const target = e.target as HTMLElement | null;
+    const typing = target?.closest?.("input, textarea, select, [contenteditable]");
+    if (target?.closest?.(".compose")) return;
     if (e.key === "Escape") {
-      e.preventDefault();
+      if (document.querySelector(".pop, .modal, .palette")) return;
       onClose();
     } else if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      e.preventDefault();
       go(e.key === "ArrowLeft" ? -1 : 1);
-    } else if (!typing && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-      e.preventDefault();
+    } else if (!typing && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
       onSave(a);
     } else {
-      // Copy and select-all still work inside the renderer.
-      if ((e.ctrlKey || e.metaKey) && ["c", "a"].includes(e.key.toLowerCase())) return;
+      return;
     }
+    e.preventDefault();
     e.stopPropagation();
   }
 </script>
@@ -102,17 +105,17 @@
 <svelte:window onkeydowncapture={onKey} />
 
 {#if a}
-  <div class="viewer" role="dialog" aria-modal="true" aria-label={a.name}>
-    <header data-tauri-drag-region>
+  <div class="viewer" role="region" aria-label={a.name} tabindex="-1" bind:this={el}>
+    <header>
       {#if files.length > 1}
         <button class="btn ghost icon" onclick={() => go(-1)} title={t("viewer.prev")} aria-label={t("viewer.prev")}><ChevronLeft size={17} /></button>
-        <span class="count muted" data-tauri-drag-region>{at + 1} / {files.length}</span>
+        <span class="count muted">{at + 1} / {files.length}</span>
         <button class="btn ghost icon" onclick={() => go(1)} title={t("viewer.next")} aria-label={t("viewer.next")}><ChevronRight size={17} /></button>
       {/if}
-      <span class="name" title={a.name} data-tauri-drag-region>{a.name}</span>
-      <span class="size muted" data-tauri-drag-region>{size(a.size)}</span>
+      <span class="name" title={a.name} aria-live="polite">{a.name}</span>
+      <span class="size muted">{size(a.size)}</span>
       {#if loading}<span class="dot" aria-label={t("loading")}></span>{/if}
-      <span class="sep" data-tauri-drag-region></span>
+      <span class="sep"></span>
       <button class="btn ghost" onclick={() => onSave(a)} title={t("file.save")}><Download size={15} /><span class="lbl">{t("file.save")}</span></button>
       <button class="btn ghost" onclick={() => onOpenApp(a)} title={t("viewer.openApp")}><ExternalLink size={15} /><span class="lbl">{t("viewer.openApp")}</span></button>
       <button class="btn ghost icon" onclick={onClose} title={t("viewer.close")} aria-label={t("viewer.close")}><X size={17} /></button>
@@ -139,24 +142,27 @@
 {/if}
 
 <style>
-  /* Over the whole window, under toasts (30), dialogs (50) and the window controls (60). */
+  /* In the reading pane, in place of the letter's text: what is left of its height. */
   .viewer {
-    position: fixed;
-    inset: 0;
-    z-index: 25;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
+    margin: 0 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
     background: var(--paper-2);
     container-type: inline-size;
+    outline: none;
   }
 
   header {
     display: flex;
     align-items: center;
     gap: 6px;
-    min-height: 46px;
-    /* The right edge stays clear for the window controls (WindowControls.svelte). */
-    padding: 6px 144px 6px 10px;
+    min-height: 42px;
+    padding: 4px 6px 4px 8px;
     border-bottom: 1px solid var(--line);
     background: var(--paper);
   }
@@ -186,7 +192,7 @@
     justify-content: center;
   }
 
-  @container (max-width: 640px) {
+  @container (max-width: 520px) {
     .lbl {
       display: none;
     }
