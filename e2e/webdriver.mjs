@@ -76,6 +76,15 @@ export class Driver {
     return this.req("POST", this.s("/execute/sync"), { script, args });
   }
 
+  /** The window's size and place. */
+  async rect() {
+    return this.req("GET", this.s("/window/rect"));
+  }
+
+  async setRect(width, height) {
+    return this.req("POST", this.s("/window/rect"), { width, height });
+  }
+
   async screenshot() {
     return Buffer.from(await this.req("GET", this.s("/screenshot")), "base64");
   }

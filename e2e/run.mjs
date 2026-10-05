@@ -1525,6 +1525,43 @@ try {
     if (gap > 8) throw new Error(`отступ под свёрнутым ящиком ${gap}px`);
   });
 
+  await step("7.10", "узкое окно: сайдбар в полосу, папки ящика сбоку, список и письмо по очереди", async () => {
+    const rect = await d.rect();
+    const shown = (css) => d.exec("const e = document.querySelector(arguments[0]); return !!e && getComputedStyle(e).visibility === 'visible'", css);
+    try {
+      await openFolder("Входящие");
+      await d.setRect(960, rect.height);
+      await d.until("strip", async () => (await d.findAll("nav.side.strip")).length === 1);
+      // A mailbox's folders open beside the strip by a click and close with the choice.
+      await d.click((await d.findAll("nav.side .circle"))[0]);
+      const inbox = await d.until("flyout", () =>
+        d.xpath("//div[contains(@class,'pop')]//button[contains(@class,'item')][.//span[contains(@class,'name') and normalize-space(.)='Входящие']]"),
+      );
+      await d.click(inbox);
+      await d.until("flyout closed", async () => (await d.findAll(".pop")).length === 0);
+      await screenshot("narrow-strip");
+
+      await d.setRect(640, rect.height);
+      await d.until("one column", async () => (await d.findAll(".layout.single")).length === 1);
+      await openBySubject("Счёт за октябрь");
+      if (await shown(".list")) throw new Error("список виден рядом с письмом");
+      const first = await textOf(".reader h1");
+      await press("j");
+      await d.until("next letter, still the letter", async () => (await textOf(".reader h1")) !== first && !(await shown(".list")));
+      await screenshot("narrow-letter");
+      await press("Escape");
+      await d.until("back to the list", async () => (await shown(".list")) && !(await shown(".reader")));
+      if ((await d.findAll(".row.selected")).length !== 1) throw new Error("выделение потерялось при возврате к списку");
+      await press("Enter");
+      await d.until("the letter again", async () => await shown(".reader"));
+      await d.click(await d.find(".reader .back"));
+      await d.until("back by the button", async () => await shown(".list"));
+    } finally {
+      await d.setRect(rect.width, rect.height);
+      await d.until("full sidebar again", async () => (await d.findAll("nav.side.strip")).length === 0).catch(() => {});
+    }
+  });
+
   await step("3.9", "не больше 3 IMAP-соединений на ящик", async () => {
     // Only connections to the published ports: docker-proxy's own leg to the container also has dport 3143.
     const out = execFileSync("ss", ["-tnH", "state", "established", "( dport = :3143 or dport = :3993 )"], { encoding: "utf-8" });
