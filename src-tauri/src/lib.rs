@@ -130,6 +130,7 @@ pub fn run() {
             commands::thread,
             commands::counters,
             commands::followup_cancel,
+            commands::followup_postpone,
             commands::unsubscribe,
             commands::settings_get,
             commands::settings_set,

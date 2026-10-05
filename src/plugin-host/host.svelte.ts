@@ -46,6 +46,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       showView: (view) => app.setView({ kind: "plugin", id: view }),
       viewing: (view) => app.view.kind === "plugin" && app.view.id === view,
       compose: () => app.newMessage(),
+      reply: (all) => app.replyTo(all),
     },
     backend: <T>(command: string, args?: Record<string, unknown>) => call<T>(command, args),
     onBackend: (event, run) => {

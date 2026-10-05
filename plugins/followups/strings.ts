@@ -20,4 +20,69 @@ export const S = {
     ru: "Вы ждёте ответа. Напомню {when}, если его не будет.",
   },
   stop: { en: "Stop waiting", ru: "Не ждать" },
+  overdue: {
+    en: "No reply yet: the reminder was due {when}.",
+    ru: "Ответа так и нет: напоминание было {when}.",
+  },
+  again: { en: "Write again", ru: "Написать ещё раз" },
+  later: { en: "Remind tomorrow", ru: "Напомнить завтра" },
+  custom: { en: "Custom…", ru: "Настроить…" },
+  customTitle: { en: "Remind me if nobody replies", ru: "Напомнить, если не ответят" },
+  inAmount: { en: "In", ru: "Через" },
+  onDate: { en: "On", ru: "В дату" },
+  keep: { en: "Keep in the list", ru: "Запомнить в списке" },
+  apply: { en: "Done", ru: "Готово" },
+  cancel: { en: "Cancel", ru: "Отмена" },
+  untilDate: { en: "Remind {when} without a reply", ru: "Напомнить {when} без ответа" },
+  unit: {
+    minutes: { en: "minutes", ru: "минут" },
+    hours: { en: "hours", ru: "часов" },
+    days: { en: "days", ru: "дней" },
+    workdays: { en: "working days", ru: "рабочих дней" },
+  },
+  settings: { en: "Reminders", ru: "Напоминания" },
+  settingsNote: {
+    en: "Your own choices of the “Remind me if nobody replies” list, after the standard ones. Add them with “Custom…” when writing.",
+    ru: "Свои варианты списка «Напомнить, если не ответят», после стандартных. Добавляются через «Настроить…» при написании письма.",
+  },
+  none: { en: "None yet.", ru: "Пока нет." },
+  up: { en: "Up", ru: "Выше" },
+  down: { en: "Down", ru: "Ниже" },
+  remove: { en: "Remove", ru: "Удалить" },
+};
+
+/** "In 2 working days without a reply": the label of a saved choice. */
+export const LABEL = {
+  minutes: {
+    en: { one: "Remind in {n} minute without a reply", other: "Remind in {n} minutes without a reply" },
+    ru: {
+      one: "Напомнить через {n} минуту без ответа",
+      few: "Напомнить через {n} минуты без ответа",
+      other: "Напомнить через {n} минут без ответа",
+    },
+  },
+  hours: {
+    en: { one: "Remind in {n} hour without a reply", other: "Remind in {n} hours without a reply" },
+    ru: {
+      one: "Напомнить через {n} час без ответа",
+      few: "Напомнить через {n} часа без ответа",
+      other: "Напомнить через {n} часов без ответа",
+    },
+  },
+  days: {
+    en: { one: "Remind in {n} day without a reply", other: "Remind in {n} days without a reply" },
+    ru: {
+      one: "Напомнить через {n} день без ответа",
+      few: "Напомнить через {n} дня без ответа",
+      other: "Напомнить через {n} дней без ответа",
+    },
+  },
+  workdays: {
+    en: { one: "Remind in {n} working day without a reply", other: "Remind in {n} working days without a reply" },
+    ru: {
+      one: "Напомнить через {n} рабочий день без ответа",
+      few: "Напомнить через {n} рабочих дня без ответа",
+      other: "Напомнить через {n} рабочих дней без ответа",
+    },
+  },
 };

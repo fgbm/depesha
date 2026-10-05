@@ -123,8 +123,8 @@ export const api = {
   letterView: (bytes: ArrayBuffer) => call<MessageView>("letter_view", new Uint8Array(bytes)),
   documentHtml: (text: string, markdown: boolean) => call<string>("document_html", { text, markdown }),
   openLink: (url: string) => call<void>("open_link", { url }),
-  send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupDays: number | null) =>
-    call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupDays }),
+  send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupSecs: number | null) =>
+    call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupSecs }),
   draftSave: (accountId: string, draft: ComposeDraft, replace: number | null) =>
     call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
   draftDiscard: (id: number) => call<void>("draft_discard", { id }),

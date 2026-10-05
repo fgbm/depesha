@@ -10,7 +10,7 @@ export type { ComposeDraft, FolderInfo, ListQuery, MessageRow, Moved, OpenedMess
 export { default as Popover } from "../components/Popover.svelte";
 export { default as LaterMenu } from "../components/LaterMenu.svelte";
 export { default as Select } from "../components/Select.svelte";
-export { sendLaterPresets, snoozePresets, when, type Preset } from "../lib/later";
+export { fromLocalInput, sendLaterPresets, snoozePresets, toLocalInput, when, type Preset } from "../lib/later";
 export { addrName, listDate, matches, size } from "../lib/format";
 export type { FileViewer, ViewedFile } from "../lib/viewer";
 import type { FileViewer } from "../lib/viewer";
@@ -141,7 +141,8 @@ export interface ComposeContext {
   /** Inserts at the caret. */
   insertText(text: string): void;
   /** Send parameters the core passes to the backend; plugins set them. */
-  options: { at: number | null; followupDays: number | null };
+  /** `followupSecs`: remind when no answer comes that long after sending; `followupDays` is the older form of it. */
+  options: { at: number | null; followupDays: number | null; followupSecs: number | null };
   /** Sends now, or at `at`, after the checks. */
   send(at?: number | null): void;
 }
@@ -169,6 +170,8 @@ export interface PluginContext {
     viewing(id: string): boolean;
     /** Opens an empty compose window. */
     compose(): void;
+    /** Answers the opened letter; to one's own sent letter, to its recipients again. */
+    reply(all: boolean): void;
   };
   /** Backend commands (see src-tauri/src/commands.rs); the core's IPC contract. */
   backend<T>(command: string, args?: Record<string, unknown>): Promise<T>;

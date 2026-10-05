@@ -900,8 +900,8 @@ class AppStore {
   }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
-  async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupDays: number | null) {
-    const queued = await api.send(accountId, draft, draftId, at, followupDays);
+  async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null) {
+    const queued = await api.send(accountId, draft, draftId, at, followupSecs);
     const undo = { label: t("undo"), run: () => this.reopenOutbox(queued.id) };
     const secs = Math.round(queued.at - Date.now() / 1000);
     if (at) this.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);

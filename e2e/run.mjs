@@ -1037,7 +1037,7 @@ try {
   await step("5.10", "«Ждут ответа»: напоминание снимается, когда приходит ответ", async () => {
     const subj = `Вопрос ${stamp}`;
     await newMessage("carol@local.test", subj, "Когда будет готово?");
-    await setSelect(".compose .remind", "3");
+    await setSelect(".compose .remind", "d3");
     await d.click(await d.find(".compose .split-btn .main"));
     await composeClosed();
     await d.until("waiting in sidebar", async () => (await sidebarText()).includes("Ждут ответа"), 60000, 1000);
@@ -1046,6 +1046,42 @@ try {
     await screenshot("followups");
     helper("reply", "Sent", subj);
     await d.until("resolved", async () => !(await sidebarText()).includes("Ждут ответа"), 60000, 1000);
+  });
+
+  await step("5.10", "«Ждут ответа»: свой срок через «Настроить…» запоминается в списке", async () => {
+    const subj = `Свой срок ${stamp}`;
+    await newMessage("carol@local.test", subj, "Жду ответа.");
+    await setSelect(".compose .remind", "custom");
+    await d.until("custom form", async () => (await textOf(".pop")).includes("Через"));
+    await setInput(".pop .num", "2");
+    await d.exec("const s = document.querySelector('.pop select'); s.value = 'workdays'; s.dispatchEvent(new Event('change', { bubbles: true }));");
+    await d.click(await d.find(".pop .keep input"));
+    await d.click(await d.find(".pop .btn.primary"));
+    await d.until("kept choice shown", async () => (await textOf(".compose .remind")).includes("через 2 рабочих дня"));
+    const started = Math.floor(Date.now() / 1000);
+    await d.click(await d.find(".compose .split-btn .main"));
+    await composeClosed();
+    await d.until("waiting in sidebar", async () => (await sidebarText()).includes("Ждут ответа"), 60000, 1000);
+    // The reminder is listed by the copy in Sent, which comes a moment after sending.
+    const due = await d.until("waiting row", async () => {
+      const rows = await invoke("messages", { query: { followups_only: true, threads: false, limit: 50 } });
+      return rows.find((m) => m.subject === subj)?.followup_due ?? 0;
+    }, 30000, 500);
+    // Two working days: at least two calendar days, at most four (over a weekend).
+    if (due < started + 2 * 86_400 - 60 || due > started + 4 * 86_400 + 600) throw new Error(`срок ${due - started} с`);
+    // The choice stays in the list of the next letter.
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.click(await d.find(".compose .remind .trigger"));
+    await d.until("kept in the list", async () => !!(await d.exec("return [...document.querySelectorAll('[role=option]')].some((o) => o.innerText.includes('через 2 рабочих дня'))")));
+    await d.click(await d.find(".compose .remind .trigger"));
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+    // Not waiting any more: the banner's button.
+    await d.button("Ждут ответа");
+    await openBySubject(subj);
+    await d.button("Не ждать");
+    await d.until("not waiting", async () => !(await sidebarText()).includes("Ждут ответа"), 20000);
   });
 
   await step("7.7", "палитра команд (Ctrl+K) и шаблоны ответов", async () => {

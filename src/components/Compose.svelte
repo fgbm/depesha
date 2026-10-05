@@ -57,6 +57,7 @@
   /** What plugins see of this window; they set the send options. */
   // The time belongs to the draft: it is saved with it and survives closing the window.
   let followupDays = $state<number | null>(null);
+  let followupSecs = $state<number | null>(null);
   const options: ComposeContext["options"] = {
     get at() {
       return c.draft.send_at ?? null;
@@ -69,6 +70,12 @@
     },
     set followupDays(v) {
       followupDays = v;
+    },
+    get followupSecs() {
+      return followupSecs;
+    },
+    set followupSecs(v) {
+      followupSecs = v;
     },
   };
   const composeCtx: ComposeContext = {
@@ -180,7 +187,7 @@
       // The saved draft goes away once the letter is sent: the latest copy must be known.
       cancelAutosave();
       await saving;
-      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupDays);
+      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupSecs ?? (options.followupDays ? options.followupDays * 86_400 : null));
       app.closeCompose(c.id);
     } catch (e) {
       error = (e as { message: string }).message;

@@ -1210,6 +1210,15 @@ impl Store {
         Ok(())
     }
 
+    /// A new time for a reminder; it is announced again when that comes.
+    pub fn followup_postpone(&self, account_id: &str, message_id: &str, due: i64) -> Result<()> {
+        self.conn().execute(
+            "UPDATE followups SET due = ?3, notified = 0 WHERE account_id = ?1 AND message_id = ?2",
+            params![account_id, message_id.trim_matches(['<', '>']), due],
+        )?;
+        Ok(())
+    }
+
     /// Drops reminders that got an answer: a message outside Sent and Drafts that
     /// replies to the sent one. Returns how many were resolved.
     pub fn followups_resolve(&self) -> Result<usize> {
@@ -2328,6 +2337,11 @@ mod tests {
         assert!(store.followups_due(400).unwrap().is_empty());
         assert_eq!(store.followups_due(600).unwrap().len(), 1);
         assert!(store.followups_due(700).unwrap().is_empty(), "announced once");
+        // Put off: it comes again at the new time, once.
+        store.followup_postpone("a", "<q@x>", 900).unwrap();
+        assert_eq!(store.list(&waiting).unwrap()[0].followup_due, Some(900));
+        assert!(store.followups_due(800).unwrap().is_empty());
+        assert_eq!(store.followups_due(900).unwrap().len(), 1);
 
         // My own follow-up in Sent is not an answer.
         put(

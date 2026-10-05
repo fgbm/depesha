@@ -676,6 +676,18 @@ pub fn counters(state: St<'_>) -> CmdResult<Counters> {
     })
 }
 
+/// No answer yet and not now: the reminder comes again `secs` from now.
+#[tauri::command]
+pub fn followup_postpone(state: St<'_>, id: i64, secs: i64) -> CmdResult<i64> {
+    let r = row(&state, id)?;
+    let due = chrono::Utc::now().timestamp() + secs.max(60);
+    if let Some(mid) = &r.message_id {
+        state.store.followup_postpone(&r.account_id, mid, due)?;
+    }
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(due)
+}
+
 #[tauri::command]
 pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<()> {
     let r = row(&state, id)?;
@@ -1271,8 +1283,9 @@ pub struct Queued {
 }
 
 /// Queues the message; the outbox task sends it at `at` (scheduled send) or after
-/// the undo delay from the settings. `followup_days` asks for a reminder when no
-/// answer comes. `discard_draft` removes the server draft it came from.
+/// the undo delay from the settings. `followup_secs` (or the older `followup_days`)
+/// asks for a reminder when no answer comes that long after sending.
+/// `discard_draft` removes the server draft it came from.
 #[tauri::command]
 pub async fn send(
     state: St<'_>,
@@ -1281,13 +1294,16 @@ pub async fn send(
     discard_draft: Option<i64>,
     at: Option<i64>,
     followup_days: Option<u32>,
+    followup_secs: Option<i64>,
 ) -> CmdResult<Queued> {
     let account = state.account(&account_id)?;
     let draft = resolve(&state, draft).await?;
     smtp::build(&draft)?; // validate addresses now, not in the background
     let now = chrono::Utc::now().timestamp();
     let at = at.unwrap_or(now + i64::from(state.settings().undo_send_secs));
-    let followup = i64::from(followup_days.unwrap_or(0)) * 86_400;
+    let followup = followup_secs
+        .unwrap_or(i64::from(followup_days.unwrap_or(0)) * 86_400)
+        .max(0);
     let id = state.store.outbox_add(&account.id, &draft, now, at, followup)?;
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
