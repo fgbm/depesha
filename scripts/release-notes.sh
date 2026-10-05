@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Release notes for a tag: the version's section of CHANGELOG.md, then the commits since
-# the previous tag grouped by their conventional-commit type.
+# Release notes for a tag: the body of the version bump ("chore: версия 0.5.3") as the
+# summary, then the commits since the previous tag grouped by their conventional-commit type.
 #
-#   scripts/release-notes.sh v0.5.1 > notes.md
+#   scripts/release-notes.sh v0.5.3 > notes.md
 #
 # Needs the full history with tags (actions/checkout with fetch-depth: 0).
 set -euo pipefail
@@ -15,20 +15,9 @@ repo_url=${REPO_URL:-https://github.com/fgbm/depesha}
 prev=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || true)
 range=${prev:+$prev..}$tag
 
-# "## 0.5.1 — 2026-10-03" without its heading, then every older section down to the
-# previous tag's (a version that never got a tag, like 0.5.0, ships with the next one).
-changes=$(awk -v v="$version" -v stop="${prev#v}" '
-  /^## / {
-    if (inside && ($2 == stop || stop == "")) exit
-    if (inside) { print; next }
-    if ($2 == v) { inside = 1; next }
-  }
-  inside { print }
-' CHANGELOG.md | sed -e '/./,$!d')
-if [ -z "$changes" ]; then
-  echo "CHANGELOG.md has no section \"## $version\"" >&2
-  exit 1
-fi
+# The summary is written once, in the version bump's body; a bump without one gives none.
+bump=$(git log --format='%H' -F --grep="chore: версия $version" -1 "$range")
+summary=${bump:+$(git log --format='%b' -1 "$bump")}
 
 # One file per group, in the order they are printed.
 work=$(mktemp -d)
@@ -61,8 +50,10 @@ while IFS=$'\t' read -r hash subject; do
   printf -- '- %s (%s)\n' "$text" "$hash" >>"$work/$type"
 done < <(git log --no-merges --reverse --format='%h%x09%s' "$range")
 
-echo "$changes"
-echo
+if [ -n "$summary" ]; then
+  echo "$summary"
+  echo
+fi
 echo "## Что сделано"
 for g in "${groups[@]}"; do
   [ -s "$work/$g" ] || continue
