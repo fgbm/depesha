@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from "svelte";
-  import { api } from "../lib/api";
+  import { untrack } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Paperclip from "@lucide/svelte/icons/paperclip";
-  import FileText from "@lucide/svelte/icons/file-text";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Minus from "@lucide/svelte/icons/minus";
   import Maximize from "@lucide/svelte/icons/maximize-2";
@@ -14,536 +12,185 @@
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
-  import { convertDraft, isDirty, losesFormatting, takeBodyPictures } from "../lib/compose";
-  import { GAP, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../lib/richtext";
-  import { defaultSignature, hasHtmlSignature, putSignatureHtml, sigBlock, signatureIn, signaturesOf, splitPlain, withoutHtmlSignature } from "../lib/signatures";
-  import { cleanEditorHtml } from "../lib/sanitize";
-  import { dataUrlSize, isPictureName, pictureName, picturesSize } from "../lib/images";
-  import { clipboardPictures, picturesFromBlobs, picturesFromFiles, picturesHtml, type FoundPicture } from "../lib/pictureInput";
-  import type { BodyFormat, ComposeDraft, Signature } from "../lib/types";
+  import { SIGNATURE_CLASS } from "../lib/richtext";
+  import { sigBlock } from "../lib/signatures";
+  import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
+  import type { BodyFormat, Signature } from "../lib/types";
   import RichEditor from "./RichEditor.svelte";
   import SignaturePicker from "./SignaturePicker.svelte";
   import FormatBar from "./FormatBar.svelte";
   import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
-  import { composeAction } from "../lib/composeKeys";
-  import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
-  import { sendWarnings } from "../lib/sendChecks";
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
-  import { registry } from "../plugin-host/registry.svelte";
-  import type { ComposeContext, FollowupPlan } from "../plugin-api";
+  import { ComposeFormat } from "../lib/compose/format.svelte";
+  import { ComposeAutosave } from "../lib/compose/autosave.svelte";
+  import { ComposeSending } from "../lib/compose/sending.svelte";
+  import { ComposeAttachments } from "../lib/compose/attachments.svelte";
 
   let { c }: { c: ComposeWindow } = $props();
-  // A window keeps its composition for life (keyed by id in App.svelte).
-  let showCc = $state(untrack(() => c.draft.cc.length > 0 || c.draft.bcc.length > 0));
-  let busy = $state(false);
+  // The window's own state, which the markup binds; the letter's logic lives in
+  // src/lib/compose/ (format, attachments, autosave, sending). A window keeps its
+  // composition for life (keyed by id in App.svelte).
   let error = $state("");
+  let showCc = $state(untrack(() => c.draft.cc.length > 0 || c.draft.bcc.length > 0));
   let toInput = $state<AddressInput | null>(null);
   let ccInput = $state<AddressInput | null>(null);
   let bccInput = $state<AddressInput | null>(null);
-  let body = $state<HTMLTextAreaElement | null>(null);
-
-  const format = $derived<BodyFormat>(c.draft.format ?? "plain");
   /** The window's width: the format switch and the formatting row fold in a narrow one. */
   let width = $state(640);
-
-  /** The mailbox's signatures, to choose from on the signature block. */
-  const signatures = $derived(signaturesOf(app.account(c.account_id)));
-  /**
-   * The signature under the letter: one of the mailbox's, a draft's own, or none. A block
-   * of its own, never edited in the letter: only put whole, swapped or taken away.
-   */
-  let signature = $state<Signature | null>(untrack(() => signatureIn(c.draft, signaturesOf(app.account(c.account_id)))));
-
-  // A plain letter: the field has what is typed, the signature stands under it, a reply's
-  // quote or the forwarded letter stays folded below. The draft keeps the whole text.
-  const parts = untrack(() => splitPlain(c.draft.text));
-  let head = $state(parts.body);
-  let quote = $state(parts.rest);
-  let quoteOpen = $state(false);
-  const quoteHeader = $derived(quote.trim().split("\n")[0] ?? "");
-  // An HTML letter is one editor: the quote of a reply stands in it, under the signature.
-  let htmlBody = $state(untrack(() => c.draft.html ?? ""));
-  /** The plain version last made of the HTML: a different text was set from outside. */
-  let plainOfHtml = untrack(() => c.draft.text);
-  /** The quote turned into text once, not on every key: a quoted letter may be long. */
-  let quoteText = { html: "", text: "" };
-  function plainOf(html: string): string {
-    const split = splitHtmlQuote(html);
-    if (split.quote !== quoteText.html) quoteText = { html: split.quote, text: htmlToText(split.quote) };
-    return letterText(split.head, quoteText.text);
-  }
-  $effect(() => {
-    if (format === "html") return;
-    const text = head + sigBlock(signature) + quote;
-    if (untrack(() => c.draft.text) !== text) c.draft.text = text;
-  });
-  $effect(() => {
-    if (format !== "html") return;
-    const html = htmlBody;
-    untrack(() => {
-      if (c.draft.html !== html) c.draft.html = html;
-      // The block was deleted with the text around it: the letter has no signature now.
-      if (signature && !hasHtmlSignature(html)) signature = null;
-      plainOfHtml = plainOf(html);
-      if (c.draft.text !== plainOfHtml) c.draft.text = plainOfHtml;
-    });
-  });
-  // A plugin may set the text as a whole: split it again.
-  $effect(() => {
-    const text = c.draft.text;
-    untrack(() => {
-      if (format !== "html") {
-        if (head + sigBlock(signature) + quote !== text) {
-          const p = splitPlain(text);
-          head = p.body;
-          quote = p.rest;
-          signature = signatureIn({ ...c.draft, format, text }, signatures);
-        }
-      } else if (text !== plainOfHtml) {
-        plainOfHtml = text;
-        htmlBody = textToHtml(text);
-      }
-    });
-  });
-
-  /** Files and the pictures in the text and the signature: all travel in the letter. */
-  const pictures = $derived(format === "html" ? picturesSize(htmlBody) : 0);
-  /** The signature's own pictures alone do not bring up the row of files. */
-  const textPictures = $derived(format === "html" && pictures > 0 ? picturesSize(withoutHtmlSignature(htmlBody)) : 0);
-  const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0) + pictures);
-  /** Warnings the user has to look at before the message goes; null when not checked yet. */
-  let warnings = $state<string[] | null>(null);
-  let pendingAt: number | null = null;
-
-  /** What plugins see of this window; they set the send options. */
-  // The time belongs to the draft: it is saved with it and survives closing the window.
-  let followupDays = $state<number | null>(null);
-  let followupSecs = $state<number | null>(null);
-  let followup = $state<FollowupPlan | null>(null);
-  const options: ComposeContext["options"] = {
-    get at() {
-      return c.draft.send_at ?? null;
-    },
-    set at(v) {
-      c.draft.send_at = v;
-    },
-    get followupDays() {
-      return followupDays;
-    },
-    set followupDays(v) {
-      followupDays = v;
-    },
-    get followupSecs() {
-      return followupSecs;
-    },
-    set followupSecs(v) {
-      followupSecs = v;
-    },
-    get followup() {
-      return followup;
-    },
-    set followup(v) {
-      followup = v;
-    },
-  };
-  const composeCtx: ComposeContext = {
-    get draft() {
-      return c.draft;
-    },
-    accountEmail: () => app.account(c.account_id)?.email ?? "",
-    insertText,
-    options,
-    send: (at) => send(at ?? null),
-  };
-  const controls = $derived(
-    [...registry.items("composeControls")].sort((a, b) => (a.order ?? 50) - (b.order ?? 50)),
-  );
-
-  function insertText(text: string) {
-    if (format === "html") return rich?.insertText(text);
-    const at = body ? body.selectionStart : 0;
-    head = head.slice(0, at) + text + head.slice(at);
-    queueMicrotask(() => {
-      body?.focus();
-      body?.setSelectionRange(at + text.length, at + text.length);
-    });
-  }
-
-  // Entering the body of a fresh message puts the caret above the signature, once.
-  let placed = false;
-  function onBodyFocus() {
-    if (placed || !body) return;
-    placed = true;
-    if (c.draft.text.startsWith("\n\n")) body.setSelectionRange(0, 0);
-  }
-
-  // Replies start typing above the quote and signature. Once, when the window opens:
-  // an effect would rerun on every keystroke and throw the caret back to the start.
-  // The field opens at its top, not at the end of a long quote: setting the value and
-  // focusing scroll it to the end in WebKit, and moving the caret does not scroll back.
-  onMount(() => {
-    if (format === "html") {
-      if (c.draft.to.length && htmlBody.startsWith(GAP)) {
-        placed = true;
-        rich?.focus(true);
-      }
-      return;
-    }
-    if (!body) return;
-    if (c.draft.text.startsWith("\n\n") && c.draft.to.length) {
-      placed = true;
-      body.focus();
-      body.setSelectionRange(0, 0);
-    }
-    body.scrollTop = 0;
-    const field = body;
-    requestAnimationFrame(() => (field.scrollTop = 0));
-  });
-
-  // With a signature under it, the plain field is as tall as its text, so the signature
-  // stands right under the words (frame 6) and the area scrolls; without one it fills the area.
-  let areaWidth = $state(0);
-  $effect(() => {
-    void head;
-    void areaWidth;
-    const field = body;
-    if (!field) return;
-    if (format === "html" || !signature) {
-      field.style.removeProperty("height");
-      return;
-    }
-    field.style.height = "auto";
-    field.style.height = `${field.scrollHeight}px`;
-  });
-
-  /** Puts this signature under the letter in place of the one it has; none takes it away. */
-  function putSignature(sig: Signature | null) {
-    signature = sig;
-    if (format === "html") htmlBody = putSignatureHtml(htmlBody, sig);
-  }
-
-  // Another sender: its default signature, even over one chosen by hand (frame 5).
-  function setAccount(id: string) {
-    const acc = app.account(id);
-    if (!acc) return;
-    putSignature(defaultSignature(acc));
-    c.account_id = id;
-    c.draft.from = { name: acc.display_name, email: acc.email };
-  }
-
-  /** The mailbox's signatures in the settings; a letter's own window has no settings. */
-  const signatureSettings = $derived(
-    app.windowOf === null ? () => app.openSettings(`account:${c.account_id}`, "letters") : undefined,
-  );
-
-  const FORMATS: { value: BodyFormat; label: () => string; short: () => string }[] = [
-    { value: "plain", label: () => t("format.short.plain"), short: () => t("format.short.plain") },
-    { value: "html", label: () => t("format.short.html"), short: () => t("format.short.html") },
-    { value: "markdown", label: () => t("format.short.markdown"), short: () => t("format.short.md") },
-  ];
-
-  let switching = false;
-
-  /** Rewrites the letter in another format; the settings stay as they are. */
-  async function setFormat(next: BodyFormat) {
-    if (next === format || switching) return;
-    let current = $state.snapshot(c.draft) as ComposeDraft;
-    if (losesFormatting(current, next)) {
-      const ok = await app.confirm({
-        title: t("compose.format.toPlainTitle"),
-        text: t("compose.format.loseHtml"),
-        okLabel: t("compose.format.toPlain"),
-        cancelLabel: t("compose.format.stayHtml"),
-      });
-      if (!ok) return;
-    }
-    switching = true;
-    try {
-      if (format === "html" && next === "markdown") {
-        // Markdown has no pictures inside: take the letter's own; the signature keeps its.
-        const { html, pictures } = takeBodyPictures(current.html ?? "");
-        if (pictures.length) {
-          const ok = await app.confirm({ text: t("compose.format.picturesAttach"), okLabel: t("compose.format.toMarkdown") });
-          if (!ok) return;
-          let n = c.draft.attachments.length;
-          for (const p of pictures) {
-            const name = pictureName(p.mime, ++n);
-            const path = await api.tempAttachment(name, p.base64);
-            c.draft.attachments.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
-          }
-          current = { ...current, html };
-        }
-      }
-      preview = false;
-      const d = await convertDraft(current, next, $state.snapshot(signature) as Signature | null, (text) => api.markdownHtml(text));
-      if (d.format === "html") {
-        htmlBody = d.html ?? "";
-        plainOfHtml = d.text;
-      } else {
-        const p = splitPlain(d.text);
-        head = p.body;
-        quote = p.rest;
-      }
-      c.draft.html = d.html ?? null;
-      c.draft.text = d.text;
-      c.draft.format = d.format;
-    } catch (e) {
-      app.fail(e);
-    } finally {
-      switching = false;
-    }
-  }
-
-  let rich = $state<RichEditor | null>(null);
-  let bar = $state<FormatBar | null>(null);
-  /** Markdown shown as it will look. */
-  let preview = $state(false);
-  let previewHtml = $state("");
-  $effect(() => {
-    if (!preview || format !== "markdown") return;
-    const text = c.draft.text;
-    api
-      .markdownHtml(text)
-      .then((html) => (previewHtml = cleanEditorHtml(html)))
-      .catch((e) => app.fail(e));
-  });
-
-  // Pictures in the text of an HTML letter. A large photo is made smaller first; one
-  // still too big goes as a file, as it would anyway.
-  async function addPictures(found: FoundPicture[]) {
-    const { html, tooBig, failed } = await picturesHtml(found);
-    for (const p of tooBig) {
-      try {
-        const base64 = p.dataUrl.slice(p.dataUrl.indexOf(",") + 1);
-        const path = await api.tempAttachment(p.name, base64);
-        c.draft.attachments.push({ kind: "file", path, name: p.name, size: dataUrlSize(p.dataUrl) });
-        app.toast(t("compose.picture.attachedBig", { name: p.name }));
-      } catch (e) {
-        app.fail(e);
-      }
-    }
-    for (const e of failed) app.fail(e);
-    if (html) rich?.insertHtml(html);
-  }
-
-  /** Picture files chosen or dropped "into the text"; a file that cannot go there is attached. */
-  async function insertPictureFiles(paths: string[]) {
-    const { found, refused } = await picturesFromFiles(paths);
-    for (const path of refused) {
-      const info = await api.fileInfo(path).catch(() => null);
-      if (info) c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
-      app.toast(t("compose.picture.attachedBig", { name: info?.name ?? path }));
-    }
-    await addPictures(found);
-  }
-
-  async function pictureFromFile() {
-    try {
-      const files = await api.pickFiles(t("compose.picture.pickTitle"), true);
-      for (const f of files.filter((f) => !isPictureName(f.name))) c.draft.attachments.push({ kind: "file", ...f });
-      await insertPictureFiles(files.filter((f) => isPictureName(f.name)).map((f) => f.path));
-    } catch (e) {
-      app.fail(e);
-    }
-  }
-
-  async function pastedPictures(blobs: Blob[]) {
-    await addPictures(await picturesFromBlobs(blobs));
-  }
-
-  async function pictureFromClipboard() {
-    const blobs = await clipboardPictures();
-    if (blobs === null) return app.toast(t("compose.picture.useCtrlV"));
-    if (!blobs.length) return app.toast(t("compose.picture.noneInClipboard"));
-    await pastedPictures(blobs);
-  }
-
-  // Dropped files go to the window's zones: "into the text" or "attach" (App.svelte).
-  onMount(() => {
-    app.compose.pictureTarget(c.id, insertPictureFiles);
-    return () => app.compose.pictureTarget(c.id, null);
-  });
-  const zones = $derived(format === "html" && c.mode !== "min" && !!app.compose.dragging?.zones && app.activeCompose()?.id === c.id);
-
-  async function attach() {
-    try {
-      for (const f of await api.pickFiles(t("compose.attachTitle"))) c.draft.attachments.push({ kind: "file", ...f });
-    } catch (e) {
-      app.fail(e);
-    }
-  }
 
   function commitAll(): boolean {
     const ok = [toInput, ccInput, bccInput].map((i) => i?.commit() ?? true);
     return ok.every(Boolean);
   }
 
-  /** One send at a time: Ctrl+Enter pressed again while the checks run must not queue the letter twice. */
-  let sending = false;
-
-  /** `at`: scheduled time; `force`: the warnings were seen and accepted. */
-  async function send(at: number | null = null, force = false) {
-    if (sending) return;
-    sending = true;
-    try {
-      await sendOnce(at, force);
-    } finally {
-      sending = false;
-    }
-  }
-
-  async function sendOnce(at: number | null, force: boolean) {
-    error = "";
-    if (!commitAll()) {
-      error = t("compose.badAddresses");
-      return;
-    }
-    if (c.draft.to.length + c.draft.cc.length + c.draft.bcc.length === 0) {
-      error = t("compose.noRecipients");
-      return;
-    }
-    if (!force) {
-      const email = app.account(c.account_id)?.email ?? "";
-      const draft = $state.snapshot(c.draft);
-      busy = true;
-      const found = await sendWarnings(draft, email);
-      busy = false;
-      if (found.length) {
-        warnings = found;
-        pendingAt = at;
-        return;
-      }
-    }
-    warnings = null;
-    busy = true;
-    try {
-      // The saved draft goes away once the letter is sent: the latest copy must be known.
-      cancelAutosave();
-      await saving;
-      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupSecs ?? (options.followupDays ? options.followupDays * 86_400 : null), options.followup);
-      app.closeCompose(c.id);
-    } catch (e) {
-      error = (e as { message: string }).message;
-    } finally {
-      busy = false;
-    }
-  }
-
-  // Drafts save themselves a moment after typing stops, as in Gmail and Yandex Mail:
-  // closing or folding the window never loses the letter.
-  const AUTOSAVE_MS = 3000;
-  /** The content as it was last saved; the opening content counts as saved unless it is kept nowhere. */
-  let lastSaved = untrack(() => (c.unsaved ? "" : JSON.stringify($state.snapshot(c.draft))));
-  let saving: Promise<boolean> | null = null;
-  let savingNow = $state(false);
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  function cancelAutosave() {
-    if (timer) clearTimeout(timer);
-    timer = null;
-  }
-
-  $effect(() => {
-    const now = JSON.stringify($state.snapshot(c.draft));
-    cancelAutosave();
-    if (now !== lastSaved) timer = setTimeout(() => saveDraft(), AUTOSAVE_MS);
+  const fmt = new ComposeFormat({
+    get win() {
+      return c;
+    },
+    get windowOf() {
+      return app.windowOf;
+    },
+    account: (id) => app.account(id),
+    openSettings: (page, section) => app.openSettings(page, section),
+    fail: (e, prefix) => app.fail(e, prefix),
+    confirmToPlain: () =>
+      app.confirm({
+        title: t("compose.format.toPlainTitle"),
+        text: t("compose.format.loseHtml"),
+        okLabel: t("compose.format.toPlain"),
+        cancelLabel: t("compose.format.stayHtml"),
+      }),
+    confirmPicturesAttach: () => app.confirm({ text: t("compose.format.picturesAttach"), okLabel: t("compose.format.toMarkdown") }),
   });
-  onDestroy(cancelAutosave);
 
-  /** Saves the draft on the server unless nothing changed; one save at a time. */
-  async function saveDraft(): Promise<boolean> {
-    cancelAutosave();
-    while (saving) await saving;
-    const draft = $state.snapshot(c.draft);
-    const text = JSON.stringify(draft);
-    if (text === lastSaved) return true;
-    if (!isDirty(draft) && c.draft_id === null) return true;
-    savingNow = true;
-    saving = (async () => {
-      try {
-        c.draft_id = await api.draftSave(c.account_id, draft, c.draft_id);
-        lastSaved = text;
-        c.unsaved = false;
-        c.savedAt = Date.now();
-        error = "";
-        return true;
-      } catch (e) {
-        error = t("compose.draftNotSaved", { error: (e as { message: string }).message });
-        return false;
-      } finally {
-        saving = null;
-        savingNow = false;
-      }
-    })();
-    return saving;
-  }
+  const auto = new ComposeAutosave({
+    get win() {
+      return c;
+    },
+    setError: (m) => (error = m),
+    clearError: () => (error = ""),
+    draftNotSaved: (err) => t("compose.draftNotSaved", { error: err }),
+  });
 
-  async function close() {
-    if (busy) return;
-    commitAll();
-    const changed = JSON.stringify($state.snapshot(c.draft)) !== lastSaved;
-    if (changed && !(await saveDraft())) {
-      const drop = await app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
-      if (!drop) return;
-    }
-    if (c.draft_id !== null) app.toast(t("compose.draftSaved"));
-    app.closeCompose(c.id);
-  }
+  const sending = new ComposeSending({
+    get win() {
+      return c;
+    },
+    format: fmt,
+    autosave: auto,
+    account: (id) => app.account(id),
+    fail: (e, prefix) => app.fail(e, prefix),
+    toast: (text) => app.toast(text),
+    sendApp: (a, d, id, at, secs, f) => app.send(a, d, id, at, secs, f),
+    closeCompose: (id) => app.closeCompose(id),
+    showCompose: (id, mode) => app.showCompose(id, mode),
+    commitAll,
+    setError: (m) => (error = m),
+    clearError: () => (error = ""),
+    badAddresses: () => t("compose.badAddresses"),
+    noRecipients: () => t("compose.noRecipients"),
+    draftSaved: () => t("compose.draftSaved"),
+    confirmClose: () => app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }),
+    confirmDiscard: () => app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true }),
+  });
 
-  async function discard() {
-    if (busy) return;
-    if (isDirty(c.draft)) {
-      const ok = await app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true });
-      if (!ok) return;
-    }
-    cancelAutosave();
-    await saving;
-    if (c.draft_id !== null) api.draftDiscard(c.draft_id).catch((e) => app.fail(e));
-    app.closeCompose(c.id);
-  }
+  const files = new ComposeAttachments({
+    get win() {
+      return c;
+    },
+    format: fmt,
+    fail: (e, prefix) => app.fail(e, prefix),
+    toastBig: (name) => app.toast(t("compose.picture.attachedBig", { name })),
+    useCtrlV: () => app.toast(t("compose.picture.useCtrlV")),
+    noneInClipboard: () => app.toast(t("compose.picture.noneInClipboard")),
+    pickTitle: () => t("compose.picture.pickTitle"),
+    attachTitle: () => t("compose.attachTitle"),
+    get dragging() {
+      return app.compose.dragging;
+    },
+    activeComposeId: () => app.activeCompose()?.id,
+    pictureTarget: (id, insert) => app.compose.pictureTarget(id, insert),
+  });
 
-  function minimize() {
-    commitAll();
-    c.mode = "min";
-    saveDraft();
-  }
+  // What the markup reads and writes: the window's own state, the letter's (fmt) and the
+  // controllers' — one name for each, as the markup always had.
+  const m = {
+    get width() { return width; },
+    set width(v: number) { width = v; },
+    get error() { return error; },
+    get showCc() { return showCc; },
+    set showCc(v: boolean) { showCc = v; },
+    get toInput() { return toInput; },
+    set toInput(v: AddressInput | null) { toInput = v; },
+    get ccInput() { return ccInput; },
+    set ccInput(v: AddressInput | null) { ccInput = v; },
+    get bccInput() { return bccInput; },
+    set bccInput(v: AddressInput | null) { bccInput = v; },
+    get rich() { return fmt.rich; },
+    set rich(v: RichEditor | null) { fmt.rich = v; },
+    get bar() { return fmt.bar; },
+    set bar(v: FormatBar | null) { fmt.bar = v; },
+    get body() { return fmt.body; },
+    set body(v: HTMLTextAreaElement | null) { fmt.body = v; },
+    get areaWidth() { return fmt.areaWidth; },
+    set areaWidth(v: number) { fmt.areaWidth = v; },
+    get head() { return fmt.head; },
+    set head(v: string) { fmt.head = v; },
+    get htmlBody() { return fmt.htmlBody; },
+    set htmlBody(v: string) { fmt.htmlBody = v; },
+    get quote() { return fmt.quote; },
+    set quote(v: string) { fmt.quote = v; },
+    get quoteOpen() { return fmt.quoteOpen; },
+    set quoteOpen(v: boolean) { fmt.quoteOpen = v; },
+    get preview() { return fmt.preview; },
+    set preview(v: boolean) { fmt.preview = v; },
+    get format() { return fmt.format; },
+    get previewHtml() { return fmt.previewHtml; },
+    get signature() { return fmt.signature; },
+    get signatures() { return fmt.signatures; },
+    get quoteHeader() { return fmt.quoteHeader; },
+    get signatureSettings() { return fmt.signatureSettings; },
+    get textPictures() { return fmt.textPictures; },
+    get total() { return c.draft.attachments.reduce((n, a) => n + a.size, 0) + fmt.pictures; },
+    get zones() { return files.zones; },
+    get savedText() { return c.savedAt ? t("compose.savedAt", { time: listDate(Math.floor(c.savedAt / 1000)) }) : ""; },
+    get savingNow() { return auto.savingNow; },
+    get busy() { return sending.busy; },
+    get warnings() { return sending.warnings; },
+    set warnings(v: string[] | null) { sending.warnings = v; },
+    get pendingAt() { return sending.pendingAt; },
+    get options() { return sending.options; },
+    get controls() { return sending.controls; },
+    get composeCtx() { return sending.composeCtx; },
+    get FORMATS() { return FORMATS; },
+    putSignature: (sig: Signature | null) => fmt.putSignature(sig),
+    setAccount: (id: string) => fmt.setAccount(id),
+    setFormat: (next: BodyFormat) => fmt.setFormat(next),
+    onBodyFocus: () => fmt.onBodyFocus(),
+    onKey: (e: KeyboardEvent) => sending.onKey(e),
+    close: () => sending.close(),
+    discard: () => sending.discard(),
+    minimize: () => sending.minimize(),
+    toggleMax: () => sending.toggleMax(),
+    send: (at: number | null = null, force = false) => sending.send(at, force),
+    pictureFromFile: () => files.pictureFromFile(),
+    pictureFromClipboard: () => files.pictureFromClipboard(),
+    pastedPictures: (blobs: Blob[]) => files.pastedPictures(blobs),
+    attach: () => files.attach(),
+  };
 
-  function toggleMax() {
-    if (c.mode === "max") c.mode = "open";
-    else app.showCompose(c.id, "max");
-  }
-
-  const savedText = $derived(c.savedAt ? t("compose.savedAt", { time: listDate(Math.floor(c.savedAt / 1000)) }) : "");
-
-  // The window's keys come from one table (lib/composeKeys.ts); Ctrl+K is left to the palette.
-  function onKey(e: KeyboardEvent) {
-    const action = composeAction(e);
-    if (action === "send") {
-      e.preventDefault();
-      send(null, warnings !== null);
-    } else if (action === "fold") {
-      // Gmail's way: Esc leaves full screen, then folds the window; the draft stays.
-      e.preventDefault();
-      if (c.mode === "max") c.mode = "open";
-      else minimize();
-    } else if (action === "link" && format !== "plain") {
-      e.preventDefault();
-      bar?.startLink();
-    } else if (action === "preview" && format === "markdown") {
-      e.preventDefault();
-      preview = !preview;
-    } else if ((action === "bold" || action === "italic" || action === "underline") && format === "markdown" && !preview) {
-      // The HTML editor does these itself; in Markdown they type the markup.
-      e.preventDefault();
-      bar?.run(action);
-    }
-  }
+  const FORMATS: { value: BodyFormat; label: () => string; short: () => string }[] = [
+    { value: "plain", label: () => t("format.short.plain"), short: () => t("format.short.plain") },
+    { value: "html", label: () => t("format.short.html"), short: () => t("format.short.html") },
+    { value: "markdown", label: () => t("format.short.markdown"), short: () => t("format.short.md") },
+  ];
 </script>
 
+
 {#snippet signatureChip()}
-  <SignaturePicker variant="chip" {signatures} current={signature} onpick={putSignature} onsettings={signatureSettings} />
+  <SignaturePicker variant="chip" signatures={m.signatures} current={m.signature} onpick={m.putSignature} onsettings={m.signatureSettings} />
 {/snippet}
 
 {#if c.mode === "max"}
@@ -553,24 +200,24 @@
   class="compose"
   class:min={c.mode === "min"}
   class:max={c.mode === "max"}
-  bind:clientWidth={width}
+  bind:clientWidth={m.width}
   role="dialog"
   aria-label={c.draft.subject.trim() || t("compose.newMessage")}
   tabindex="-1"
-  onkeydown={onKey}
+  onkeydown={m.onKey}
 >
   <header>
-    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : minimize())} title={c.mode === "min" ? "" : t("compose.minimize")}>
+    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? "" : t("compose.minimize")}>
       {c.draft.subject.trim() || t("compose.newMessage")}
     </button>
-    {#if c.mode !== "min"}<span class="saved" aria-live="polite">{savingNow ? t("compose.saving") : savedText}</span>{/if}
-    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : minimize())} title={c.mode === "min" ? t("compose.restore") : t("compose.minimize")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
+    {#if c.mode !== "min"}<span class="saved" aria-live="polite">{m.savingNow ? t("compose.saving") : m.savedText}</span>{/if}
+    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? t("compose.restore") : t("compose.minimize")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
       <Minus size={15} />
     </button>
-    <button class="hb" onclick={toggleMax} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>
+    <button class="hb" onclick={m.toggleMax} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>
       {#if c.mode === "max"}<Minimize size={14} />{:else}<Maximize size={14} />{/if}
     </button>
-    <button class="hb" onclick={close} title={t("compose.closeHint")} aria-label={t("close")}><X size={15} /></button>
+    <button class="hb" onclick={m.close} title={t("compose.closeHint")} aria-label={t("close")}><X size={15} /></button>
   </header>
 
   <div class="panel" hidden={c.mode === "min"}>
@@ -585,13 +232,13 @@
             value: a.id,
             label: (a.label?.trim() ? `${accountLabel(a)} — ` : "") + (a.display_name ? `${a.display_name} <${a.email}>` : a.email),
           }))}
-          onchange={setAccount}
+          onchange={m.setAccount}
         />
-        {#if width >= 360}
+        {#if m.width >= 360}
           <div class="modes" role="radiogroup" aria-label={t("compose.format.title")}>
-            {#each FORMATS as f (f.value)}
-              <button role="radio" aria-checked={format === f.value} class:on={format === f.value} disabled={busy} onclick={() => setFormat(f.value)}>
-                {width >= 460 ? f.label() : f.short()}
+            {#each m.FORMATS as f (f.value)}
+              <button role="radio" aria-checked={m.format === f.value} class:on={m.format === f.value} disabled={m.busy} onclick={() => m.setFormat(f.value)}>
+                {m.width >= 460 ? f.label() : f.short()}
               </button>
             {/each}
           </div>
@@ -599,17 +246,17 @@
           <Select
             class="mode-select"
             label={t("compose.format.title")}
-            bind:value={() => format, (v) => void setFormat(v)}
-            options={FORMATS.map((f) => ({ value: f.value, label: f.label() }))}
-            disabled={busy}
+            bind:value={() => m.format, (v) => void m.setFormat(v)}
+            options={m.FORMATS.map((f) => ({ value: f.value, label: f.label() }))}
+            disabled={m.busy}
           />
         {/if}
-        {#if !showCc}<button class="btn ghost small" onclick={() => (showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
+        {#if !m.showCc}<button class="btn ghost small" onclick={() => (m.showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
       </div>
-      <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} />
-      {#if showCc}
-        <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={ccInput} />
-        <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={bccInput} />
+      <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} />
+      {#if m.showCc}
+        <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={m.ccInput} />
+        <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={m.bccInput} />
       {/if}
       <div class="row">
         <span class="label">{t("compose.fwd.subject")}</span>
@@ -617,58 +264,58 @@
       </div>
     </div>
 
-    {#if format !== "plain"}
+    {#if m.format !== "plain"}
       <FormatBar
-        bind:this={bar}
-        {format}
-        {width}
-        {rich}
-        field={body}
-        bind:preview
-        onpicturefile={pictureFromFile}
-        onpictureclipboard={pictureFromClipboard}
+        bind:this={m.bar}
+        format={m.format}
+        width={m.width}
+        rich={m.rich}
+        field={m.body}
+        bind:preview={m.preview}
+        onpicturefile={m.pictureFromFile}
+        onpictureclipboard={m.pictureFromClipboard}
       />
     {/if}
 
-    <div class="body-area" bind:clientWidth={areaWidth} class:signed={format !== "html" && !!signature && !(format === "markdown" && preview)}>
-      {#if format === "html"}
+    <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature && !(m.format === "markdown" && m.preview)}>
+      {#if m.format === "html"}
         <RichEditor
-          bind:this={rich}
-          bind:html={htmlBody}
+          bind:this={m.rich}
+          bind:html={m.htmlBody}
           class="body"
           label={t("compose.body")}
           placeholder={t("compose.bodyPlaceholder")}
-          onselection={() => bar?.refresh()}
-          onpictures={pastedPictures}
+          onselection={() => m.bar?.refresh()}
+          onpictures={m.pastedPictures}
           locked={SIGNATURE_CLASS}
-          lockedBar={signature ? signatureChip : undefined}
+          lockedBar={m.signature ? signatureChip : undefined}
         />
-      {:else if format === "markdown" && preview}
+      {:else if m.format === "markdown" && m.preview}
         <!-- Cleaned twice: by the backend that renders it and here. -->
-        <div class="md-preview" role="document" aria-label={t("compose.markdown.preview")}>{@html previewHtml}</div>
+        <div class="md-preview" role="document" aria-label={t("compose.markdown.preview")}>{@html m.previewHtml}</div>
       {:else}
         <textarea
-          bind:this={body}
-          bind:value={head}
-          onfocus={onBodyFocus}
+          bind:this={m.body}
+          bind:value={m.head}
+          onfocus={m.onBodyFocus}
           spellcheck="true"
           aria-label={t("compose.body")}
-          placeholder={format === "markdown" ? t("compose.markdownPlaceholder") : t("compose.bodyPlaceholder")}
+          placeholder={m.format === "markdown" ? t("compose.markdownPlaceholder") : t("compose.bodyPlaceholder")}
         ></textarea>
-        {#if signature}
+        {#if m.signature}
           <!-- The version a letter in text or Markdown gets, under "-- ": shown, not edited. -->
           <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
-            <div class="sig-text">{sigBlock(signature).replace(/^\n\n/, "") || t("compose.signature.noText")}</div>
+            <div class="sig-text">{sigBlock(m.signature).replace(/^\n\n/, "") || t("compose.signature.noText")}</div>
             <div class="sig-bar">{@render signatureChip()}</div>
           </div>
         {/if}
       {/if}
-      {#if !signature && signatures.length && !(format === "markdown" && preview)}
+      {#if !m.signature && m.signatures.length && !(m.format === "markdown" && m.preview)}
         <div class="sig-none">
-          <SignaturePicker variant="line" {signatures} current={null} onpick={putSignature} onsettings={signatureSettings} />
+          <SignaturePicker variant="line" signatures={m.signatures} current={null} onpick={m.putSignature} onsettings={m.signatureSettings} />
         </div>
       {/if}
-      {#if zones}
+      {#if m.zones}
         <div class="zones">
           <div class="zone inline" class:hover={app.compose.dragging?.zone === "inline"} data-drop-zone="inline">
             <ImageIcon size={22} />
@@ -683,63 +330,63 @@
         </div>
       {/if}
     </div>
-    {#if format === "markdown"}<MarkdownPartsNote />{/if}
+    {#if m.format === "markdown"}<MarkdownPartsNote />{/if}
 
-    {#if format !== "html" && quote}
-      <div class="quote" class:open={quoteOpen}>
-        <button class="quote-bar" onclick={() => (quoteOpen = !quoteOpen)} aria-expanded={quoteOpen}>
-          {#if quoteOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-          <span class="quote-who">{quoteHeader}</span>
-          <span class="quote-act">{quoteOpen ? t("compose.quoteHide") : t("compose.quoteShow")}</span>
+    {#if m.format !== "html" && m.quote}
+      <div class="quote" class:open={m.quoteOpen}>
+        <button class="quote-bar" onclick={() => (m.quoteOpen = !m.quoteOpen)} aria-expanded={m.quoteOpen}>
+          {#if m.quoteOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+          <span class="quote-who">{m.quoteHeader}</span>
+          <span class="quote-act">{m.quoteOpen ? t("compose.quoteHide") : t("compose.quoteShow")}</span>
         </button>
-        {#if quoteOpen}
-          <textarea class="quote-text" bind:value={quote} spellcheck="false" aria-label={t("compose.quote")}></textarea>
+        {#if m.quoteOpen}
+          <textarea class="quote-text" bind:value={m.quote} spellcheck="false" aria-label={t("compose.quote")}></textarea>
         {/if}
       </div>
     {/if}
 
-    {#if c.draft.attachments.length || textPictures}
+    {#if c.draft.attachments.length || m.textPictures}
       <div class="files">
         {#each c.draft.attachments as a, i (i)}
           <span class="file"><Paperclip size={12} /> {a.name} <span class="muted">{size(a.size)}</span>
             <button onclick={() => c.draft.attachments.splice(i, 1)} aria-label={t("remove")}>×</button></span>
         {/each}
-        <span class="muted total" class:danger-text={total > 25 * 1024 * 1024}>
-          {t("compose.total", { size: size(total) })}{total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
+        <span class="muted total" class:danger-text={m.total > 25 * 1024 * 1024}>
+          {t("compose.total", { size: size(m.total) })}{m.total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
         </span>
       </div>
     {/if}
 
-    {#if error}<div class="error danger-text selectable">{error}</div>{/if}
+    {#if m.error}<div class="error danger-text selectable">{m.error}</div>{/if}
 
-    {#if warnings}
+    {#if m.warnings}
       <div class="warnings" role="alert">
         <TriangleAlert size={18} />
         <div class="list">
-          {#each warnings as w, i (i)}<div>{w}</div>{/each}
+          {#each m.warnings as w, i (i)}<div>{w}</div>{/each}
         </div>
-        <button class="btn" onclick={() => (warnings = null)}>{t("compose.fix")}</button>
-        <button class="btn primary" onclick={() => send(pendingAt, true)}>{t("compose.sendAnyway")}</button>
+        <button class="btn" onclick={() => (m.warnings = null)}>{t("compose.fix")}</button>
+        <button class="btn primary" onclick={() => m.send(m.pendingAt, true)}>{t("compose.sendAnyway")}</button>
       </div>
     {/if}
 
-    {#each controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
+    {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
     <footer>
       <span class="split-btn anchor">
-        <button class="btn primary main" onclick={() => send()} disabled={busy}>{options.at ? t("compose.schedule") : t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
-        {#each controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
+        <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+        {#each m.controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       </span>
-      {#if options.at}
+      {#if m.options.at}
         <span class="scheduled">
           <Clock size={14} />
-          {t("compose.scheduledFor", { when: shortDateTime(options.at) })}
-          <button class="btn ghost icon" onclick={() => (options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
+          {t("compose.scheduledFor", { when: shortDateTime(m.options.at) })}
+          <button class="btn ghost icon" onclick={() => (m.options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
         </span>
       {/if}
-      <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if width >= 460} {t("compose.files")}{/if}</button>
-      {#each controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
+      <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
+      {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       <span class="spacer"></span>
-      <button class="btn ghost icon" onclick={discard} disabled={busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
+      <button class="btn ghost icon" onclick={m.discard} disabled={m.busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
     </footer>
   </div>
 </div>

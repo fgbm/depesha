@@ -128,7 +128,53 @@
 
 ## Фаза 2. Compose
 
-Статус: **не начато**.
+Статус: **выполнено**.
+
+### Что сделано
+
+Логика `src/components/Compose.svelte` (1190 → 837 строк, скрипт 542 → 188) вынесена в
+`src/lib/compose/`; разметка и scoped-стили не менялись (`git diff` по разметке пуст, кроме
+переименования ссылок на вынесенное состояние). Компонент остался окном: разметка, поля
+адресов, ширина окна, тосты и `t("…")` его сообщений. Хосты у всех модулей узкие, как у
+`ListController`; ни один не видит весь `AppStore` или весь компонент.
+
+- `format.svelte.ts` (281) — `ComposeFormat` / `ComposeFormatHost` — тело письма: что
+  набрано, подпись под ним и цитата, в своём формате; переключение plain/HTML/Markdown
+  (`convertDraft`, `takeBodyPictures`), предпросмотр Markdown, вставка картинок в текст;
+- `sending.svelte.ts` (223) — `ComposeSending` / `ComposeSendHost` — проверки перед
+  отправкой (`sendWarnings`), параметры отправки для плагинов (`options`, `followup*`),
+  `composeCtx`, клавиши окна (`composeAction`), закрытие, удаление, сворачивание;
+- `attachments.svelte.ts` (110) — `ComposeAttachments` / `ComposeAttachHost` — файлы и
+  картинки: выбор, вставка из буфера, drag&drop и зоны окна;
+- `autosave.svelte.ts` (86) — `ComposeAutosave` / `ComposeAutosaveHost` — автосохранение
+  черновика через 3 с, одно сохранение за раз.
+
+`setFormat` остался в `format.svelte.ts`; из компонента убран только мёртвый импорт
+`FileText` (иконка не использовалась) — это не функция и не поведение, а чистка.
+
+### Проверка фазы
+
+| Проверка | Результат |
+| --- | --- |
+| `npm run lint` | зелёный (0 ошибок; подавление неиспользуемого импорта `Compose.svelte` снято `--prune-suppressions`) |
+| `npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings` | 0 ошибок, 0 предупреждений |
+| `npx vite build` | зелёный |
+| `npx vitest run` | 40 файлов, 277 тестов — зелёные |
+| `cargo fmt --all --check` | чисто |
+| `cargo clippy --workspace --all-targets -- -D warnings` | зелёный |
+| `cargo test -p depesha-core` / `-p depesha --lib` | зелёные |
+| `scripts/frontend-metrics.sh` | регрессий нет (`Compose.svelte` 1190 → 837) |
+| `scripts/frontend-invariants.sh` | дрейфа нет (`t_keys 559`, `app_members 85`, `role/aria 238`) |
+| `git diff --name-only main -- '*.svelte' 'e2e'` | только `Compose.svelte` |
+
+| Файл | Строк | Ответственность |
+| --- | --- | --- |
+| `components/Compose.svelte` | 837 (скрипт 188) | окно, разметка, scoped-стили, поля адресов, ширина, тосты и тексты |
+| `lib/compose/format.svelte.ts` | 281 | тело, подпись, цитата, форматы, картинки в тексте |
+| `lib/compose/sending.svelte.ts` | 223 | проверки, отправка, параметры плагинов, клавиши, закрытие |
+| `lib/compose/attachments.svelte.ts` | 110 | вложения и картинки: выбор, буфер, drag&drop |
+| `lib/compose/autosave.svelte.ts` | 86 | автосохранение черновика |
+
 
 ## Фаза 3. Preferences
 
