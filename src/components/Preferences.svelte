@@ -402,6 +402,8 @@
   .pane {
     flex: 1;
     min-width: 0;
+    /* Under the row of tabs in a narrow window: the page scrolls, its buttons stay in the window. */
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }
