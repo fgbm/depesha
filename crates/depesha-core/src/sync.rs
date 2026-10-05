@@ -65,6 +65,9 @@ pub async fn sync_folder(
     opts: SyncOptions,
 ) -> Result<FolderSync> {
     let mailbox = imap::select_for_sync(conn, folder).await?;
+    if let Some(enabled) = conn.enabled.take() {
+        store.save_server_enable(account_id, &enabled, chrono::Utc::now().timestamp())?;
+    }
     let uidvalidity = mailbox.uid_validity.unwrap_or(0);
     let (known_validity, mut last_uid) = store.folder_state(account_id, folder)?;
     if known_validity != uidvalidity {

@@ -10,6 +10,7 @@ import { ListController, type View } from "./list.svelte";
 import { ActionRunner } from "./actions.svelte";
 import { Reader } from "./reader.svelte";
 import { ComposeManager, type ComposeState, type ComposeWindow } from "./composes.svelte";
+import { rooms } from "./room.svelte";
 import type { AccountView, Account, ComposeDraft, FolderInfo, FollowupPlan, MessageRow, Moved, OutboxItem, Settings, SortKey, Task, UpdateStatus } from "./types";
 
 export type { View } from "./list.svelte";
@@ -143,6 +144,7 @@ export class AppStore {
       api.updateStatus().then((u) => (this.update = u), (e) => this.fail(e)),
     ]);
     this.list.view = this.home();
+    rooms.start(this);
     await this.reload();
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
     if (accounts && this.accounts.length === 0) this.wizard = { account: null };

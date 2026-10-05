@@ -1583,6 +1583,36 @@ try {
     await closeSettings();
   });
 
+  await step("11", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.click(await d.find(".prefs .tab[data-page^='account:']"));
+    await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+    await d.click(await d.find(".account-page .toc a[data-toc='server']"));
+    // What the login found is in the cache: the table shows without asking the server.
+    await d.until("features", async () => (await d.findAll(".account-page tr[data-feature='idle']")).length === 1, 15000);
+    const idle = await textOf(".account-page tr[data-feature='idle']");
+    if (!idle.includes("IDLE") || !idle.includes("используется")) throw new Error(`IDLE: ${idle}`);
+    const head = await textOf(".account-page section[data-section='server']");
+    if (!head.includes("127.0.0.1:3143") || !head.includes("Определено")) throw new Error(`шапка раздела: ${head.slice(0, 300)}`);
+    // GreenMail has IDLE and MOVE: nothing to look at in the contents.
+    if ((await d.findAll(".account-page .toc a[data-toc='server'] .look")).length) throw new Error("точка у «Сервер» при IDLE и MOVE");
+    await d.click(await d.find(".account-page details.tech summary"));
+    const tech = await textOf(".account-page details.tech");
+    if (!tech.includes("* CAPABILITY IMAP4rev1")) throw new Error(`технические подробности: ${tech.slice(0, 300)}`);
+    if (/secret|carol:secret/i.test(tech)) throw new Error("в подробностях пароль");
+    const before = (await invoke("server_info", { accountId: (await invoke("accounts"))[0].id })).caps.detected;
+    await new Promise((r) => setTimeout(r, 1100));
+    await d.click(await d.find(".account-page [data-action='server-check']"));
+    await d.until(
+      "checked again",
+      async () => (await invoke("server_info", { accountId: (await invoke("accounts"))[0].id })).caps.detected > before,
+      20000,
+    );
+    await screenshot("account-server");
+    await closeSettings();
+  });
+
   await step("7.8", "язык: английский включается в настройках сразу, без перезапуска", async () => {
     const setLanguage = async (search, value) => {
       await press("k", { ctrlKey: true });

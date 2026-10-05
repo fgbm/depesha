@@ -31,6 +31,7 @@ import type {
   OpenedMessage,
   OutboxItem,
   SearchTotals,
+  ServerView,
   SortKey,
 } from "./types";
 
@@ -115,6 +116,8 @@ export const api = {
   folderCreate: (accountId: string, parent: string | null, name: string) =>
     call<void>("folder_create", { accountId, parent, name }),
   offlinePause: (accountId: string, paused: boolean) => call<void>("offline_pause", { accountId, paused }),
+  serverInfo: (accountId: string) => call<ServerView>("server_info", { accountId }),
+  serverCheck: (accountId: string) => call<ServerView>("server_check", { accountId }),
   tasks: () => call<Task[]>("tasks_list"),
   taskDismiss: (key: string) => call<void>("task_dismiss", { key }),
   trustSender: (email: string) => call<void>("trust_sender", { email }),

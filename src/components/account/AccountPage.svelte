@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
+  import { rooms } from "../../lib/room.svelte";
   import { AccountForm } from "../../lib/accountForm.svelte";
   import { currentSection } from "../../lib/toc";
   import type { AccountView } from "../../lib/types";
@@ -41,12 +42,20 @@
     if (!scroller || !target) return;
     scroller.scrollTo({ top: target.offsetTop, behavior: "smooth" });
   }
+
+  onMount(() => {
+    // What the server can do, from the cache: the section and the contents' dot read it.
+    if (!account.ews) rooms.loadInfo(account.id);
+  });
 </script>
 
 <div class="account-page" role="group" aria-label={account.email}>
   <nav class="toc" aria-label={t("account.contents")}>
     {#each sections as s, i (s.id)}
-      <a href="#account-{s.id}" data-toc={s.id} aria-current={current === i ? "location" : undefined} onclick={(e) => go(e, s.id)}>{s.title()}</a>
+      {@const look = s.attention?.(account) ?? false}
+      <a href="#account-{s.id}" data-toc={s.id} aria-current={current === i ? "location" : undefined} onclick={(e) => go(e, s.id)}
+        >{s.title()}{#if look}<span class="look" role="img" aria-label={t("account.attention")} title={t("account.attention")}></span>{/if}</a
+      >
     {/each}
   </nav>
 
@@ -116,6 +125,17 @@
     background: var(--selected);
     color: var(--ink);
     font-weight: 600;
+  }
+
+  /* Something in the section deserves a look; nowhere else does it show. */
+  .look {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 5px;
+    border-radius: 50%;
+    background: var(--warn);
+    vertical-align: middle;
   }
 
   .toc a:focus-visible {

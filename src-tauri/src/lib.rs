@@ -7,6 +7,7 @@ mod outbox;
 mod paths;
 mod scheduler;
 mod secrets;
+mod server;
 mod state;
 mod tasks;
 mod updater;
@@ -191,6 +192,8 @@ pub fn run() {
             commands::update_restart,
             commands::load_older,
             commands::sync_now,
+            commands::server_info,
+            commands::server_check,
             commands::sync_overview,
             commands::folder_create,
             commands::offline_pause,
@@ -312,6 +315,7 @@ mod tests {
             "offline_pause",
             "settings_set",
             "message_window",
+            "server_check",
         ] {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");

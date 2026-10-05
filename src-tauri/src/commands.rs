@@ -1093,6 +1093,20 @@ pub async fn sync_now(state: St<'_>, account_id: Option<String>, folder: Option<
     Ok(())
 }
 
+/// The "Server" section of a mailbox's page, as the cache knows it.
+#[tauri::command(async)]
+pub fn server_info(state: St<'_>, account_id: String) -> CmdResult<crate::server::ServerView> {
+    crate::server::view(&state, &account_id)
+}
+
+/// "Check again": a fresh login reads the server's capabilities.
+#[tauri::command]
+pub async fn server_check(state: St<'_>, account_id: String) -> CmdResult<crate::server::ServerView> {
+    let account = state.account(&account_id)?;
+    crate::server::check(&state, &account).await?;
+    crate::server::view(&state, &account_id)
+}
+
 /// Pictures are looked for again after a week, missing ones after a day.
 const AVATAR_TTL: i64 = 7 * 86_400;
 const AVATAR_MISS_TTL: i64 = 86_400;

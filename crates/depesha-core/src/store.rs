@@ -19,6 +19,8 @@ mod followups;
 pub use followups::{
     DEFAULT_KEEP_DAYS, Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupPlan, FollowupStatus,
 };
+mod server;
+pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 
 /// Settings of the connection, made at every open: not part of the cache itself.
 /// `synchronous = NORMAL`: in WAL mode a power cut may lose the last commits, never
@@ -39,6 +41,7 @@ const MIGRATIONS: &[Step] = &[
     v5_lookups,
     followups::v6_followups_history,
     v7_size_index,
+    server::v8_server_caps,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -1687,6 +1690,7 @@ impl Store {
         tx.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM ews_folders WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM ews_items WHERE account_id = ?1", [account_id])?;
+        Self::forget_server(&tx, account_id)?;
         tx.execute(
             "DELETE FROM avatars WHERE substr(key, 1, length(?1) + 7) = 'photo:' || ?1 || ':'",
             [account_id],
@@ -3640,6 +3644,32 @@ mod tests {
                 .unwrap();
             store
                 .outbox_add(account, &Draft::default(), 1, 1, 0, &FollowupPlan::default())
+                .unwrap();
+            store
+                .save_server_caps(
+                    account,
+                    &ServerCaps {
+                        capabilities: vec!["IMAP4rev1".into()],
+                        detected: 1,
+                        ..ServerCaps::default()
+                    },
+                )
+                .unwrap();
+            store
+                .save_quota(account, Some(&crate::quota::Quota::default()), 1)
+                .unwrap();
+            store
+                .save_folder_sizes(
+                    account,
+                    &FolderSizes {
+                        counted: 1,
+                        method: crate::quota::SizeMethod::Fetch,
+                        folders: vec![crate::quota::FolderSize {
+                            folder: "INBOX".into(),
+                            ..Default::default()
+                        }],
+                    },
+                )
                 .unwrap();
             store
                 .snooze_add(&Snooze {

@@ -579,3 +579,54 @@ async fn idle_wakes_up_on_an_expunge_while_another_session_uses_qresync() {
         .expect("no wakeup");
     assert!(matches!(outcome.unwrap().unwrap(), IdleOutcome::Changed));
 }
+
+/// What the login lists is kept, ENABLE QRESYNC is answered, and folder sizes add up
+/// to the messages put there, by STATUS=SIZE and by RFC822.SIZE alike. The test image
+/// runs Dovecot without the quota plugin (compose.test.yaml): QUOTA is not listed, and
+/// the mailbox has no quota to show rather than a full or an empty one.
+#[tokio::test]
+async fn capabilities_quota_and_folder_sizes() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("sizes").await;
+    assert!(conn.capabilities.iter().any(|c| c.eq_ignore_ascii_case("IMAP4rev1")));
+    assert!(conn.capabilities.iter().any(|c| c.eq_ignore_ascii_case("IDLE")));
+    assert_eq!(depesha_core::imap::Caps::from_names(&conn.capabilities), conn.caps);
+    imap::enable_qresync(&mut conn).await.unwrap();
+    let enabled = conn.enabled.clone().expect("Dovecot offers QRESYNC");
+    assert!(enabled.ok, "{enabled:?}");
+
+    let quota = depesha_core::quota::quota(&mut conn).await.unwrap();
+    if conn.caps.quota {
+        let q = quota.expect("a root for INBOX");
+        assert!(q.limit == 0 || q.used <= q.limit, "{q:?}");
+    } else {
+        assert_eq!(quota, None);
+    }
+
+    conn.session.create("Sizes").await.unwrap();
+    let mut total = 0;
+    for i in 0..3 {
+        let raw = mail(&format!("Размер {i}"), i);
+        total += raw.len() as u64;
+        imap::append(&mut conn, "Sizes", &raw, "").await.unwrap();
+    }
+    conn.session.logout().await.unwrap();
+
+    let folders = ["Sizes".to_owned(), "INBOX".to_owned(), "Nonexistent".to_owned()];
+    for status_size in [true, false] {
+        let mut conn = connect("sizes").await;
+        if status_size && !conn.caps.status_size {
+            continue;
+        }
+        conn.caps.status_size = status_size;
+        let (_, sizes) = depesha_core::quota::folder_sizes(&mut conn, &folders, |_| {})
+            .await
+            .unwrap();
+        assert_eq!(sizes[0].bytes, Some(total), "STATUS=SIZE {status_size}: {sizes:?}");
+        assert_eq!(sizes[0].messages, Some(3));
+        assert_eq!(sizes[1].bytes, Some(0));
+        assert!(sizes[2].bytes.is_none() && sizes[2].error.is_some(), "{sizes:?}");
+    }
+}

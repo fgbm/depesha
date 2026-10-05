@@ -45,6 +45,39 @@ pub struct Caps {
     /// Expunged UIDs reported as VANISHED (RFC 7162), once ENABLEd on a session.
     #[serde(default)]
     pub qresync: bool,
+    /// How full the mailbox is (RFC 9208, RFC 2087): GETQUOTAROOT.
+    #[serde(default)]
+    pub quota: bool,
+    /// A folder's size in one STATUS (RFC 8438).
+    #[serde(default)]
+    pub status_size: bool,
+}
+
+impl Caps {
+    /// What Depesha uses out of a CAPABILITY list; names are compared ignoring case.
+    pub fn from_names<S: AsRef<str>>(names: &[S]) -> Self {
+        let has = |name: &str| names.iter().any(|n| n.as_ref().eq_ignore_ascii_case(name));
+        Self {
+            idle: has("IDLE"),
+            move_: has("MOVE"),
+            uidplus: has("UIDPLUS"),
+            special_use: has("SPECIAL-USE"),
+            literal_plus: has("LITERAL+"),
+            // QRESYNC implies CONDSTORE (RFC 7162, 3.2).
+            condstore: has("CONDSTORE") || has("QRESYNC"),
+            qresync: has("QRESYNC"),
+            quota: has("QUOTA"),
+            status_size: has("STATUS=SIZE"),
+        }
+    }
+}
+
+/// The answer to ENABLE QRESYNC on the session that syncs folders.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Enabled {
+    pub ok: bool,
+    /// The server's words: `ENABLED QRESYNC`, or why it refused.
+    pub answer: String,
 }
 
 /// An authenticated IMAP connection and what the server supports.
@@ -54,10 +87,16 @@ pub struct Conn {
     /// QRESYNC is enabled on this session: its expunges come as VANISHED, not EXPUNGE.
     /// Only a connection that syncs folders enables it; IDLE keeps plain EXPUNGE.
     pub qresync: bool,
+    /// The CAPABILITY list after login, as the server named it.
+    pub capabilities: Vec<String>,
+    /// The greeting's line when it lists capabilities before login, as received.
+    pub greeting: Option<String>,
+    /// How ENABLE went on this session, until the cache takes it (`take`).
+    pub enabled: Option<Enabled>,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
-    let client = open(server).await?;
+    let (client, greeting) = open(server).await?;
     let mut session = match creds.xoauth2() {
         Some(initial) => {
             let detail = Arc::new(Mutex::new(None));
@@ -79,44 +118,77 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
             .map_err(|(err, _)| login_error(err))?,
     };
 
-    let caps = session.capabilities().await.map_err(login_error)?;
-    let caps = Caps {
-        idle: caps.has_str("IDLE"),
-        move_: caps.has_str("MOVE"),
-        uidplus: caps.has_str("UIDPLUS"),
-        special_use: caps.has_str("SPECIAL-USE"),
-        literal_plus: caps.has_str("LITERAL+"),
-        // QRESYNC implies CONDSTORE (RFC 7162, 3.2).
-        condstore: caps.has_str("CONDSTORE") || caps.has_str("QRESYNC"),
-        qresync: caps.has_str("QRESYNC"),
-    };
+    let listed = session.capabilities().await.map_err(login_error)?;
+    let capabilities = capability_names(listed.iter().map(|c| match c {
+        async_imap::types::Capability::Imap4rev1 => "IMAP4rev1".to_owned(),
+        async_imap::types::Capability::Auth(m) => format!("AUTH={m}"),
+        async_imap::types::Capability::Atom(a) => a.clone(),
+    }));
     Ok(Conn {
         session,
-        caps,
+        caps: Caps::from_names(&capabilities),
         qresync: false,
+        capabilities,
+        greeting,
+        enabled: None,
     })
+}
+
+/// A CAPABILITY list in a steady order (the library keeps it as a set): the protocol
+/// versions first, then the rest by name.
+pub(crate) fn capability_names(names: impl Iterator<Item = String>) -> Vec<String> {
+    let mut names: Vec<String> = names.collect();
+    names.sort_by_cached_key(|n| (!n.to_ascii_uppercase().starts_with("IMAP4"), n.to_ascii_uppercase()));
+    names.dedup();
+    names
+}
+
+/// The greeting as a line, when it lists capabilities: `* OK [CAPABILITY ...] text`.
+fn greeting_line(resp: &Response<'_>) -> Option<String> {
+    use async_imap::imap_proto::{Capability, ResponseCode, Status};
+    let Response::Data { status, outcome } = resp else {
+        return None;
+    };
+    let Some(ResponseCode::Capabilities(caps)) = &outcome.code else {
+        return None;
+    };
+    let information = &outcome.information;
+    let status = match status {
+        Status::PreAuth => "PREAUTH",
+        Status::Bye => "BYE",
+        _ => "OK",
+    };
+    let caps = capability_names(caps.iter().map(|c| match c {
+        Capability::Imap4rev1 => "IMAP4rev1".to_owned(),
+        Capability::Auth(m) => format!("AUTH={m}"),
+        Capability::Atom(a) => a.to_string(),
+    }));
+    let text = information.as_deref().map(|i| format!(" {i}")).unwrap_or_default();
+    Some(format!("* {status} [CAPABILITY {}]{text}", caps.join(" ")))
 }
 
 /// Checks that an IMAP server answers on this address with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<()> {
-    let mut client = open(server).await?;
+    let (mut client, _) = open(server).await?;
     let _ = client.run_command_and_check_ok("LOGOUT", None).await;
     Ok(())
 }
 
-/// Connected and greeted (and secured, for STARTTLS), not yet logged in.
-async fn open(server: &ServerConfig) -> Result<Client<Box<dyn Io>>> {
+/// Connected and greeted (and secured, for STARTTLS), not yet logged in; with the
+/// greeting's line when it lists capabilities.
+async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<String>)> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
         .map_err(|_| Error::Timeout("connecting"))??;
     let pinned = server.trusted_cert.as_deref();
+    let mut greeting = None;
 
     let stream: Box<dyn Io> = match server.security {
         Security::Plain => Box::new(tcp),
         Security::Tls => Box::new(tls::wrap(&server.host, pinned, tcp).await?),
         Security::StartTls => {
             let mut client = Client::new(tcp);
-            read_greeting(&mut client).await?;
+            greeting = read_greeting(&mut client).await?;
             client
                 .run_command_and_check_ok("STARTTLS", None)
                 .await
@@ -132,9 +204,9 @@ async fn open(server: &ServerConfig) -> Result<Client<Box<dyn Io>>> {
     let mut client = Client::new(stream);
     // There is no second greeting after STARTTLS.
     if server.security != Security::StartTls {
-        read_greeting(&mut client).await?;
+        greeting = read_greeting(&mut client).await?;
     }
-    Ok(client)
+    Ok((client, greeting))
 }
 
 /// SASL XOAUTH2. A refused token comes back as a continuation with a JSON error,
@@ -207,12 +279,12 @@ pub(crate) fn server_text(raw: &str) -> String {
     rest[..end].replace("\\\"", "\"")
 }
 
-async fn read_greeting<T: Io>(client: &mut Client<T>) -> Result<()> {
-    timeout(CONNECT_TIMEOUT, client.read_response())
+async fn read_greeting<T: Io>(client: &mut Client<T>) -> Result<Option<String>> {
+    let resp = timeout(CONNECT_TIMEOUT, client.read_response())
         .await
         .map_err(|_| Error::Timeout("server greeting"))??
         .ok_or(Error::Closed)?;
-    Ok(())
+    Ok(greeting_line(resp.parsed()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -612,13 +684,7 @@ macro_rules! next_response {
 /// session. A server that refuses either is synced the plain way.
 pub async fn select_for_sync(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
     use async_imap::error::Error as E;
-    if conn.caps.qresync && !conn.qresync {
-        match conn.session.run_command_and_check_ok("ENABLE QRESYNC").await {
-            Ok(()) => conn.qresync = true,
-            Err(E::Bad(_) | E::No(_)) => conn.caps.qresync = false,
-            Err(e) => return Err(e.into()),
-        }
-    }
+    enable_qresync(conn).await?;
     if conn.caps.condstore {
         match conn.session.select_condstore(folder).await {
             Ok(mailbox) => return Ok(mailbox),
@@ -628,6 +694,33 @@ pub async fn select_for_sync(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
         }
     }
     Ok(conn.session.select(folder).await?)
+}
+
+/// Enables QRESYNC once per session when the server offers it; a refusal leaves the
+/// session without it. The answer waits in `Conn::enabled` for the cache.
+pub async fn enable_qresync(conn: &mut Conn) -> Result<()> {
+    use async_imap::error::Error as E;
+    if !conn.caps.qresync || conn.qresync {
+        return Ok(());
+    }
+    match conn.session.run_command_and_check_ok("ENABLE QRESYNC").await {
+        Ok(()) => {
+            conn.qresync = true;
+            conn.enabled = Some(Enabled {
+                ok: true,
+                answer: "ENABLED QRESYNC".into(),
+            });
+        }
+        Err(E::Bad(m) | E::No(m)) => {
+            conn.caps.qresync = false;
+            conn.enabled = Some(Enabled {
+                ok: false,
+                answer: server_text(&m),
+            });
+        }
+        Err(e) => return Err(e.into()),
+    }
+    Ok(())
 }
 
 /// What changed in the selected folder after a mod-sequence.
@@ -864,8 +957,15 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
         ));
     }
 
-    let caps = conn.caps;
-    let mut handle = conn.session.idle();
+    let Conn {
+        session,
+        caps,
+        capabilities,
+        greeting,
+        enabled,
+        ..
+    } = conn;
+    let mut handle = session.idle();
     handle.init().await?;
     let (wait, _stop) = handle.wait_with_timeout(IDLE_RENEW);
     let response = wait.await?;
@@ -885,6 +985,9 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
             session,
             caps,
             qresync: false,
+            capabilities,
+            greeting,
+            enabled,
         },
         outcome,
     ))
@@ -969,6 +1072,53 @@ mod tests {
         assert_eq!(changes.vanished, [5..=7, 9..=9]);
         assert!(changes.vanished(6) && changes.vanished(9));
         assert!(!changes.vanished(8) && !changes.vanished(12));
+    }
+
+    #[test]
+    fn reads_what_the_capability_list_offers() {
+        let names = capability_names(
+            "SORT QUOTA IDLE status=size IMAP4rev1 MOVE AUTH=PLAIN UIDPLUS LITERAL+ X-UNKNOWN QRESYNC IDLE"
+                .split(' ')
+                .map(str::to_owned),
+        );
+        // Protocol first, the rest by name, each once.
+        assert_eq!(
+            names,
+            [
+                "IMAP4rev1",
+                "AUTH=PLAIN",
+                "IDLE",
+                "LITERAL+",
+                "MOVE",
+                "QRESYNC",
+                "QUOTA",
+                "SORT",
+                "status=size",
+                "UIDPLUS",
+                "X-UNKNOWN"
+            ]
+        );
+        let caps = Caps::from_names(&names);
+        assert!(caps.idle && caps.move_ && caps.uidplus && caps.literal_plus && caps.quota && caps.status_size);
+        // QRESYNC implies CONDSTORE.
+        assert!(caps.qresync && caps.condstore);
+        assert!(!caps.special_use);
+        assert_eq!(Caps::from_names(&["IMAP4rev1"]), Caps::default());
+    }
+
+    #[test]
+    fn keeps_the_greetings_capabilities() {
+        let (_, resp) = Response::parse(
+            b"* OK [CAPABILITY IMAP4rev1 SASL-IR ID ENABLE IDLE AUTH=PLAIN] mail.example.com ready.\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            greeting_line(&resp).as_deref(),
+            Some("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN ENABLE ID IDLE SASL-IR] mail.example.com ready.")
+        );
+        // A greeting without the list says nothing about the server.
+        let (_, resp) = Response::parse(b"* OK Dovecot ready.\r\n").unwrap();
+        assert_eq!(greeting_line(&resp), None);
     }
 
     #[test]

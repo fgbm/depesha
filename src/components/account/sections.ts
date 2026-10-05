@@ -6,6 +6,8 @@ import type { Component } from "svelte";
 import { t } from "../../lib/i18n.svelte";
 import type { AccountForm } from "../../lib/accountForm.svelte";
 import type { AccountView } from "../../lib/types";
+import { rooms } from "../../lib/room.svelte";
+import { needsAttention } from "../../lib/serverFeatures";
 import GeneralSection from "./GeneralSection.svelte";
 import LettersSection from "./LettersSection.svelte";
 import StorageSection from "./StorageSection.svelte";
@@ -24,13 +26,22 @@ export interface AccountSection {
   component: Component<SectionProps>;
   /** IMAP's own: an Exchange mailbox has no such section. */
   imapOnly?: boolean;
+  /** Something in the section deserves a look: a dot beside its name in the contents. */
+  attention?: (account: AccountView) => boolean;
 }
 
 export const ACCOUNT_SECTIONS: AccountSection[] = [
   { id: "general", title: () => t("account.section.general"), component: GeneralSection },
   { id: "letters", title: () => t("account.section.letters"), component: LettersSection },
   { id: "storage", title: () => t("account.section.storage"), component: StorageSection },
-  { id: "server", title: () => t("account.section.server"), component: ServerSection, imapOnly: true },
+  {
+    id: "server",
+    title: () => t("account.section.server"),
+    component: ServerSection,
+    imapOnly: true,
+    // No IDLE or no MOVE: the server slows Depesha down where the user sees it.
+    attention: (a) => needsAttention(rooms.infos[a.id]?.caps?.capabilities),
+  },
 ];
 
 export function sectionsFor(account: AccountView): AccountSection[] {

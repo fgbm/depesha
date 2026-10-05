@@ -29,7 +29,8 @@ const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Messages downloaded for offline reading per round: user actions wait for a
 /// round at most, they are queued between rounds.
 const PREFETCH_BATCH: u32 = 25;
-const POLL_WITHOUT_IDLE: Duration = Duration::from_secs(120);
+/// How often INBOX is checked on a server without IDLE; the "Server" section says so.
+pub const POLL_WITHOUT_IDLE: Duration = Duration::from_secs(120);
 /// Pause after "server busy" (Exchange throttling) when the server names none; it
 /// doubles while the server stays busy.
 const BUSY_PAUSE: Duration = Duration::from_secs(5);
@@ -703,7 +704,11 @@ fn clone_error(e: &Error) -> Error {
 }
 
 async fn connect(state: &AppState, account: &Account) -> Result<Conn> {
-    state.connect(account).await
+    let conn = state.connect(account).await?;
+    if let Conn::Imap(c) = &conn {
+        crate::server::keep_login(state, &account.id, c);
+    }
+    Ok(conn)
 }
 
 async fn perform(

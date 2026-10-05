@@ -48,6 +48,8 @@ const COMMANDS: &[&str] = &[
     "update_restart",
     "load_older",
     "sync_now",
+    "server_info",
+    "server_check",
     "sync_overview",
     "folder_create",
     "offline_pause",

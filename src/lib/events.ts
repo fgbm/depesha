@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { extensions, listenForMail } from "./extensions.svelte";
 import { t } from "./i18n.svelte";
 import { applyRules } from "./rules";
+import { rooms } from "./room.svelte";
 import type { Undoable } from "./actions.svelte";
 import type { View } from "./list.svelte";
 import type { AppStore } from "./store.svelte";
@@ -58,6 +59,7 @@ export function listenMain(app: AppStore) {
     // Mail rules run in the main window only, or they would run twice.
     listenForMail((ids) => applyRules(app, ids)),
     listen<UpdateStatus>("update-status", (e) => (app.update = e.payload)),
+    listen<{ account_id: string }>("server-changed", (e) => rooms.changed(e.payload.account_id)),
     // A message window hands over what concerns the list.
     listen<Undoable>("window-moved", (e) => {
       app.actions.lastUndo = e.payload;

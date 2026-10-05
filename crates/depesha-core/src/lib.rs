@@ -14,6 +14,7 @@ pub mod message;
 pub mod ntlm;
 pub mod oauth;
 pub mod query;
+pub mod quota;
 pub mod smtp;
 pub mod store;
 pub mod sync;

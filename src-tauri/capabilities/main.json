@@ -60,6 +60,8 @@
     "allow-update-restart",
     "allow-load-older",
     "allow-sync-now",
+    "allow-server-info",
+    "allow-server-check",
     "allow-sync-overview",
     "allow-folder-create",
     "allow-offline-pause",

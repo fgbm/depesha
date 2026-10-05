@@ -508,3 +508,28 @@ export type Unsubscribed =
   | { kind: "done" }
   | { kind: "mail-sent"; to: string }
   | { kind: "confirm"; plan: UnsubscribePlan; reason: string };
+
+/** The last quota a server reported, in bytes; limit 0: no storage limit. */
+export interface QuotaSeen {
+  root: string;
+  used: number;
+  limit: number;
+  messages?: [number, number];
+  checked: number;
+}
+
+export interface FolderSize {
+  folder: string;
+  bytes: number | null;
+  messages: number | null;
+  error?: string;
+}
+
+/** What the cache knows about a mailbox's server, for the "Server" section. */
+export interface ServerView {
+  caps: { greeting: string; capabilities: string[]; detected: number } | null;
+  enable: { ok: boolean; answer: string; at: number } | null;
+  quota: QuotaSeen | null;
+  sizes: { counted: number; method: "status" | "fetch"; folders: FolderSize[] } | null;
+  poll_secs: number;
+}
