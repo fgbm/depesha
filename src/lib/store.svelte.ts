@@ -80,14 +80,19 @@ export class AppStore {
     view_sorts: {},
     large_mb: 25,
     compose_format: "html",
+    quota_warn: true,
+    quota_levels: [90, 95],
+    quota_repeat: "threshold",
   });
   update = $state<UpdateStatus | null>(null);
   /** One window for every setting: the app's, the mailboxes', the plugins'. */
   settingsOpen = $state(false);
   /** The page it opens on: "general", "offline", "accounts", "account:<id>", "account:new", "plugins"… */
   settingsPage = $state("general");
-  /** A section of a mailbox's page to open the settings at (`letters`), once. */
+  /** A section of a mailbox's page to open the settings at (`storage`), once. */
   settingsSection: string | null = null;
+  /** Counts `openSettings` calls: an already open settings window turns to the page asked for. */
+  settingsTurn = $state(0);
   tasksOpen = $state(false);
   /** Background work: running, and failed until dismissed. */
   tasks = $state<Task[]>([]);
@@ -144,6 +149,7 @@ export class AppStore {
       api.updateStatus().then((u) => (this.update = u), (e) => this.fail(e)),
     ]);
     this.list.view = this.home();
+    // Mailboxes filling up warn once the accounts and the settings are read.
     rooms.start(this);
     await this.reload();
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
@@ -500,6 +506,7 @@ export class AppStore {
   openSettings(page = "general", section: string | null = null) {
     this.settingsPage = page;
     this.settingsSection = section;
+    this.settingsTurn++;
     this.settingsOpen = true;
   }
 

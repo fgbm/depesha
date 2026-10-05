@@ -38,6 +38,8 @@
   import { registry } from "../plugin-host/registry.svelte";
   import Popover from "./Popover.svelte";
   import FolderMenu from "./FolderMenu.svelte";
+  import QuotaLine from "./QuotaLine.svelte";
+  import { rooms } from "../lib/room.svelte";
   import type { AccountView, FolderInfo, FolderRole } from "../lib/types";
 
   let { onCompose }: { onCompose: () => void } = $props();
@@ -441,6 +443,7 @@
               aria-expanded={flyout === acc.id}
             >
               {accountInitials(acc)}
+              {#if rooms.level(acc) > 0}<span class="ring" class:full={rooms.level(acc) === 3}></span>{/if}
               <span class="status {state}"></span>
               {#if unread > 0}<span class="badge">{badge(unread)}</span>{/if}
             </button>
@@ -464,6 +467,7 @@
                   {@render folderRows(acc, () => (flyout = null))}
                 {/if}
               </div>
+              <QuotaLine account={acc} fly onopen={() => (flyout = null)} />
             </Popover>
           </div>
         {/each}
@@ -551,6 +555,7 @@
             {#if favourites.of(acc.id).length}<div class="all-label">{t("favourites.allFolders")}</div>{/if}
             {@render folderRows(acc)}
           {/if}
+          <QuotaLine account={acc} />
         </div>
       {/each}
     </div>
@@ -1225,6 +1230,19 @@
     box-shadow:
       0 0 0 2px var(--side),
       0 0 0 4px var(--accent);
+  }
+
+  /* A mailbox past a warning level: a ring round its circle; the corners keep the status and the count. */
+  .ring {
+    position: absolute;
+    inset: -4px;
+    border: 2px solid var(--side-warn);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .ring.full {
+    border-color: var(--side-alert);
   }
 
   .status {

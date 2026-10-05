@@ -77,6 +77,13 @@ pub struct Account {
     /// Exchange Web Services instead of IMAP and SMTP: `imap` and `smtp` are then unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ews: Option<EwsConfig>,
+    /// Warn when the mailbox fills up (the levels are in the settings).
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub quota_warn: bool,
+    /// The user's own limit for the warnings, in megabytes; 0 takes the server's quota.
+    /// The quota on the server stays as it is.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub quota_limit_mb: u64,
 }
 
 impl Account {
@@ -139,6 +146,14 @@ fn text_html(text: &str) -> String {
 
 fn yes() -> bool {
     true
+}
+
+fn is_yes(v: &bool) -> bool {
+    *v
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

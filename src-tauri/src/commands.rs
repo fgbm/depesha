@@ -1093,18 +1093,52 @@ pub async fn sync_now(state: St<'_>, account_id: Option<String>, folder: Option<
     Ok(())
 }
 
-/// The "Server" section of a mailbox's page, as the cache knows it.
+/// The "Server" and "Storage" sections of a mailbox's page, as the cache knows them.
 #[tauri::command(async)]
 pub fn server_info(state: St<'_>, account_id: String) -> CmdResult<crate::server::ServerView> {
     crate::server::view(&state, &account_id)
 }
 
-/// "Check again": a fresh login reads the server's capabilities.
+/// "Check again": a fresh login reads the server's capabilities and quota.
 #[tauri::command]
 pub async fn server_check(state: St<'_>, account_id: String) -> CmdResult<crate::server::ServerView> {
     let account = state.account(&account_id)?;
     crate::server::check(&state, &account).await?;
     crate::server::view(&state, &account_id)
+}
+
+/// Reads the quota again on the mailbox's connection, unless the mailbox is paused.
+#[tauri::command]
+pub async fn quota_refresh(state: St<'_>, account_id: String) -> CmdResult<()> {
+    if state.account(&account_id)?.is_ews() {
+        return Ok(());
+    }
+    state.worker(&account_id)?.run_background(Work::Quota).await?;
+    Ok(())
+}
+
+/// Every IMAP mailbox's room, for the sidebar.
+#[tauri::command(async)]
+pub fn quotas(state: St<'_>) -> CmdResult<Vec<crate::server::QuotaView>> {
+    crate::server::quotas(&state)
+}
+
+/// Counts the size of every folder in the background (the tasks window shows it).
+#[tauri::command]
+pub async fn folder_sizes_count(state: St<'_>, account_id: String) -> CmdResult<()> {
+    let account = state.account(&account_id)?;
+    crate::server::count_sizes(state.inner().clone(), account)
+}
+
+#[tauri::command]
+pub fn folder_sizes_stop(state: St<'_>, account_id: String) {
+    crate::server::stop_count(&state, &account_id);
+}
+
+/// A full mailbox: a desktop notification when the window is out of sight.
+#[tauri::command]
+pub fn notify_full(state: St<'_>, title: String, body: String) {
+    crate::server::notify_full(&state, &title, &body);
 }
 
 /// Pictures are looked for again after a week, missing ones after a day.

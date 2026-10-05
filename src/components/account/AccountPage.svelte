@@ -1,7 +1,7 @@
 <script lang="ts">
   // A mailbox's page in the settings window: one page of sections under a table of contents
   // that stays in sight and marks the section being read, and the page's own buttons.
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { rooms } from "../../lib/room.svelte";
@@ -38,14 +38,22 @@
 
   function go(e: MouseEvent, id: string) {
     e.preventDefault();
+    scrollTo(id, "smooth");
+  }
+
+  function scrollTo(id: string, behavior: ScrollBehavior) {
     const target = scroller?.querySelector<HTMLElement>(`section[data-section="${id}"]`);
     if (!scroller || !target) return;
-    scroller.scrollTo({ top: target.offsetTop, behavior: "smooth" });
+    scroller.scrollTo({ top: target.offsetTop, behavior });
   }
 
   onMount(() => {
-    // What the server can do, from the cache: the section and the contents' dot read it.
-    if (!account.ews) rooms.loadInfo(account.id);
+    // What the server can do and its room, from the cache: the sections and the contents' dot read it.
+    rooms.loadInfo(account.id);
+    // Opened for one section (the sidebar's quota line opens «Storage»).
+    const section = app.settingsSection;
+    app.settingsSection = null;
+    if (section) tick().then(() => scrollTo(section, "instant"));
   });
 </script>
 

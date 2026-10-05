@@ -1,18 +1,26 @@
-//! The account's server as the settings show it: what a login found, kept in the cache
-//! as the worker logs in, so the settings work without a network; a check on request.
+//! The account's server as the settings show it: what a login found and the quota,
+//! kept in the cache as the worker logs in and syncs, so the settings work without a
+//! network; a check on request; the folder sizes counted at the user's request as a
+//! background task in the tasks window.
+
+use std::sync::Arc;
 
 use depesha_core::account::Account;
-use depesha_core::imap;
 use depesha_core::mail::Conn;
-use depesha_core::store::{ServerCaps, ServerInfo};
+use depesha_core::store::{FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
+use depesha_core::{Error, imap, quota, tr};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::error::CmdResult;
+use crate::error::{CmdError, CmdResult};
 use crate::state::AppState;
 
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
+}
+
+fn sizes_task(account_id: &str) -> String {
+    format!("sizes:{account_id}")
 }
 
 /// The windows read the server's state again.
@@ -34,7 +42,16 @@ pub fn keep_login(state: &AppState, account_id: &str, conn: &imap::Conn) {
     }
 }
 
-/// "Check again": a fresh login, and ENABLE as the syncing session does it.
+/// Reads the quota again on this connection: a full sync's, not every IDLE wakeup's.
+pub async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut imap::Conn) -> depesha_core::Result<()> {
+    let quota = quota::quota(conn).await?;
+    state.store.save_quota(account_id, quota.as_ref(), now())?;
+    // The time of the reading changed, if nothing else did.
+    changed(state, account_id);
+    Ok(())
+}
+
+/// "Check again": a fresh login, ENABLE as the syncing session does it, and the quota.
 pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<()> {
     let Conn::Imap(mut conn) = state.connect(account).await? else {
         return Ok(());
@@ -44,23 +61,166 @@ pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<
     if let Some(enabled) = conn.enabled.take() {
         state.store.save_server_enable(&account.id, &enabled, now())?;
     }
+    refresh_quota(state, &account.id, &mut conn).await?;
     let _ = conn.session.logout().await;
     changed(state, &account.id);
     Ok(())
 }
 
-/// The "Server" section of a mailbox's page.
+/// The "Server" and "Storage" sections of a mailbox's page.
 #[derive(Serialize)]
 pub struct ServerView {
     #[serde(flatten)]
     info: ServerInfo,
+    /// The account's mail kept whole on this computer: not on the server, not in the quota.
+    cache_bytes: u64,
     /// How often INBOX is checked on a server without IDLE.
     poll_secs: u64,
+    /// A folder size count under way: folders done and all of them.
+    counting: Option<(u64, u64)>,
 }
 
 pub fn view(state: &AppState, account_id: &str) -> CmdResult<ServerView> {
     Ok(ServerView {
         info: state.store.server_info(account_id)?,
+        cache_bytes: state.store.cache_bytes(account_id)?,
         poll_secs: crate::worker::POLL_WITHOUT_IDLE.as_secs(),
+        counting: state.task_progress(&sizes_task(account_id)),
     })
+}
+
+/// What the sidebar shows of a mailbox's room: the server's quota, or the sum of the
+/// folder sizes the user had counted.
+#[derive(Serialize)]
+pub struct QuotaView {
+    account_id: String,
+    quota: Option<QuotaSeen>,
+    /// The folders counted, in bytes; `partial` when some could not be.
+    estimate: Option<Estimate>,
+}
+
+#[derive(Serialize)]
+pub struct Estimate {
+    bytes: u64,
+    partial: bool,
+    counted: i64,
+}
+
+pub fn quotas(state: &AppState) -> CmdResult<Vec<QuotaView>> {
+    state
+        .accounts()
+        .into_iter()
+        .filter(|a| !a.is_ews())
+        .map(|a| {
+            let estimate = state.store.folder_sizes(&a.id)?.map(|s| Estimate {
+                bytes: s.folders.iter().filter_map(|f| f.bytes).sum(),
+                partial: s.folders.iter().any(|f| f.error.is_some()),
+                counted: s.counted,
+            });
+            Ok(QuotaView {
+                quota: state.store.quota(&a.id)?,
+                account_id: a.id,
+                estimate,
+            })
+        })
+        .collect()
+}
+
+/// Starts counting the size of every folder, unless a count of this mailbox is under
+/// way. It runs on a connection of its own (`quota::folder_sizes`), so syncing and the
+/// user's actions do not wait for it.
+pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
+    if account.is_ews() {
+        return Err(CmdError::new(
+            "input",
+            tr!(
+                "Exchange mailboxes are not counted yet",
+                "размер папок Exchange пока не считается"
+            ),
+        ));
+    }
+    let id = account.id.clone();
+    let key = sizes_task(&id);
+    if state.task_progress(&key).is_some() {
+        return Ok(());
+    }
+    let folders: Vec<String> = state
+        .store
+        .folders(Some(&id))?
+        .into_iter()
+        .filter(|f| f.folder.selectable && !f.folder.hidden)
+        .map(|f| f.folder.name)
+        .collect();
+    let total = folders.len() as u64;
+    let name = if account.label.is_empty() {
+        account.email.clone()
+    } else {
+        account.label.clone()
+    };
+    let label = tr!("Folder sizes: {name}", "Размер папок: {name}");
+    state.task(&key, "sizes", Some(&id), label.clone(), 0, total);
+    changed(&state, &id);
+
+    let id_kept = id.clone();
+    let task_state = state.clone();
+    // The count starts once its handle is kept, so its end finds the handle to let go.
+    let (go, ready) = tokio::sync::oneshot::channel::<()>();
+    let handle = tokio::spawn(async move {
+        let state = task_state;
+        let _ = ready.await;
+        let result = async {
+            let Conn::Imap(mut conn) = state.connect(&account).await? else {
+                return Err(Error::NotFound);
+            };
+            let (method, sizes) = quota::folder_sizes(&mut conn, &folders, |done| {
+                state.task(&key, "sizes", Some(&id), label.clone(), done as u64, total);
+            })
+            .await?;
+            // The connection was read past the IMAP library: it is not used again.
+            drop(conn);
+            state.store.save_folder_sizes(
+                &id,
+                &FolderSizes {
+                    counted: now(),
+                    method,
+                    folders: sizes,
+                },
+            )
+        }
+        .await;
+        match result {
+            Ok(()) => state.task_done(&key),
+            Err(e) => {
+                tracing::warn!(account = %id, "folder sizes not counted: {e}");
+                state.task_failed(&key, CmdError::from(e));
+            }
+        }
+        state.forget_count(&id);
+        changed(&state, &id);
+    });
+    state.keep_count(&id_kept, handle.abort_handle());
+    let _ = go.send(());
+    Ok(())
+}
+
+/// Stops a count under way; what was counted before stays.
+pub fn stop_count(state: &AppState, account_id: &str) {
+    if let Some(handle) = state.forget_count(account_id) {
+        handle.abort();
+    }
+    state.task_done(&sizes_task(account_id));
+    changed(state, account_id);
+}
+
+/// A full mailbox while the window is out of sight: a desktop notification, as the
+/// in-app warning would go unseen. The window decides when the mailbox became full.
+pub fn notify_full(state: &AppState, title: &str, body: &str) {
+    use tauri::Manager;
+    let hidden = state
+        .app
+        .get_webview_window("main")
+        .is_none_or(|w| !w.is_visible().unwrap_or(true) || w.is_minimized().unwrap_or(false));
+    if hidden {
+        state.notify(title, body, false);
+    }
 }

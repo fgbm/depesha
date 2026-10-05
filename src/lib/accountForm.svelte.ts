@@ -22,6 +22,12 @@ export function oauthFor(address: string): OAuthProvider | null {
   return null;
 }
 
+/** The own limit typed in GB ("4", "2,5") in MB; 0 when empty or not a number. */
+export function limitMb(gb: string): number {
+  const n = Number(gb.trim().replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 1024) : 0;
+}
+
 export function fingerprint(sha: string): string {
   return sha.toUpperCase().match(/.{1,2}/g)?.join(":") ?? sha;
 }
@@ -59,6 +65,10 @@ export class AccountForm {
   /** How new letters from this mailbox are written; "" takes the format from the settings. */
   composeFormat = $state<BodyFormat | "">("");
   attachmentsDir = $state("");
+  /** Warn when the mailbox fills up. */
+  quotaWarn = $state(true);
+  /** The own limit for the warnings in GB as typed; empty takes the server's quota. */
+  quotaLimitGb = $state("");
   source = $state("");
   notes = $state<string[]>([]);
   busy = $state(false);
@@ -99,6 +109,8 @@ export class AccountForm {
       this.defaultSignature = e.default_signature ?? null;
       this.composeFormat = e.compose_format ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
+      this.quotaWarn = e.quota_warn !== false;
+      this.quotaLimitGb = e.quota_limit_mb ? String(Math.round((e.quota_limit_mb / 1024) * 100) / 100).replace(".", ",") : "";
     }
     api.oauthProviders().then((p) => (this.providers = p)).catch(() => {});
   }
@@ -240,6 +252,8 @@ export class AccountForm {
       signatures: this.signatures.map((s) => ({ ...s })),
       default_signature: this.defaultSignature,
       attachments_dir: this.attachmentsDir.trim(),
+      quota_warn: this.quotaWarn,
+      quota_limit_mb: limitMb(this.quotaLimitGb),
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;
     if (this.mode === "oauth" && this.provider) acc.auth = { kind: "oauth", provider: this.provider };

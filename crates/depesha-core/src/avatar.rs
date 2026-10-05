@@ -351,6 +351,8 @@ mod tests {
             attachments_dir: String::new(),
             auth: Default::default(),
             ews: None,
+            quota_warn: true,
+            quota_limit_mb: 0,
         }
     }
 

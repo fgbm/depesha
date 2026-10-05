@@ -3,7 +3,8 @@
 // `Caps` in crates/depesha-core/src/imap.rs and where it is read. A new feature is a row
 // of FEATURES with its texts in the locales; nothing else changes.
 
-import { i18n, t, tn, type Key } from "./i18n.svelte";
+import { t, tn, type Key } from "./i18n.svelte";
+import { gb } from "./quota";
 
 /** What the server says about a feature. */
 export type ServerMark = "yes" | "base" | "no" | "enabled" | "refused";
@@ -87,11 +88,6 @@ export function protocol(caps: string[]): string {
   return caps.some((c) => c.toUpperCase() === "IMAP4REV2") ? "IMAP4rev2" : "IMAP4rev1";
 }
 
-/** Bytes as the APPENDLIMIT line says them: `50 МБ`. */
-function megabytes(bytes: number): string {
-  return `${Math.round(bytes / 1024 / 1024)} ${i18n.lang === "ru" ? "МБ" : "MB"}`;
-}
-
 /** The table, in the order of FEATURES; rows the server lacks and nobody misses are left out. */
 export function features(caps: string[], enable: Enable | null, pollSecs: number, time: (unix: number) => string): FeatureRow[] {
   const rev2 = caps.some((c) => c.toUpperCase() === "IMAP4REV2");
@@ -106,7 +102,7 @@ export function features(caps: string[], enable: Enable | null, pollSecs: number
     let gives = t(`server.f.${f.id}.gives` as Key);
     if (f.id === "appendLimit") {
       const limit = Number(listed?.split("=")[1]);
-      gives = limit > 0 ? t("server.f.appendLimit.givesSize", { size: megabytes(limit) }) : gives;
+      gives = limit > 0 ? t("server.f.appendLimit.givesSize", { size: gb(limit) }) : gives;
     }
     const row: FeatureRow = {
       id: f.id,

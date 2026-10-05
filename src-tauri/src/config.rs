@@ -68,6 +68,12 @@ pub struct Settings {
     /// Which form of a letter the reader shows: `sender` (the one the sender put last,
     /// default), `markdown` or `text` when the letter has it. A letter's switch overrides it.
     pub letter_view: String,
+    /// Warn when a mailbox fills up: at the two levels, in percent, and when full.
+    /// The same for every mailbox; a mailbox may set its own limit (`Account::quota_limit_mb`).
+    pub quota_warn: bool,
+    pub quota_levels: [u8; 2],
+    /// `threshold`: once per level crossed (default); `daily`: again every day while above.
+    pub quota_repeat: String,
 }
 
 fn plain() -> BodyFormat {
@@ -98,6 +104,9 @@ impl Default for Settings {
             large_mb: 25,
             compose_format: BodyFormat::Html,
             letter_view: "sender".into(),
+            quota_warn: true,
+            quota_levels: [90, 95],
+            quota_repeat: "threshold".into(),
         }
     }
 }

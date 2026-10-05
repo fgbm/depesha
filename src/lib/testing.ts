@@ -60,6 +60,9 @@ export const settings = (): Settings => ({
   view_sorts: {},
   large_mb: 25,
   compose_format: "plain",
+  quota_warn: true,
+  quota_levels: [90, 95],
+  quota_repeat: "threshold",
 });
 
 /** Answers of an empty mailbox; tests change what they look at. */

@@ -42,6 +42,10 @@ export interface Account {
   attachments_dir?: string;
   auth?: AuthMethod;
   ews?: EwsConfig;
+  /** Warn when the mailbox fills up; on unless set off. */
+  quota_warn?: boolean;
+  /** The mailbox's own limit for the warnings, in MB; 0 or none takes the server's quota. */
+  quota_limit_mb?: number;
 }
 
 /** A signature of a mailbox: under the letter in a block of its own, put in whole. */
@@ -387,6 +391,11 @@ export interface Settings {
   compose_format: BodyFormat;
   /** Which form of a letter the reader shows; a letter's switch overrides it. */
   letter_view: LetterViewPref;
+  /** Warn when a mailbox fills up: at these two levels (percent) and when full. */
+  quota_warn: boolean;
+  quota_levels: [number, number];
+  /** Once per level crossed, or again every day while above it. */
+  quota_repeat: "threshold" | "daily";
 }
 
 /** What a search found in the cache: letters and their bytes. */
@@ -404,7 +413,7 @@ export type BodyView = "text" | "html" | "markdown";
 /** Background work shown in the tasks window. */
 export interface Task {
   key: string;
-  kind: "sync" | "prefetch" | "older" | "search" | "send";
+  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes";
   account_id?: string;
   label: string;
   done: number;
@@ -518,6 +527,13 @@ export interface QuotaSeen {
   checked: number;
 }
 
+/** A mailbox's room for the sidebar: the quota, or the folder sizes counted. */
+export interface QuotaView {
+  account_id: string;
+  quota: QuotaSeen | null;
+  estimate: { bytes: number; partial: boolean; counted: number } | null;
+}
+
 export interface FolderSize {
   folder: string;
   bytes: number | null;
@@ -525,11 +541,14 @@ export interface FolderSize {
   error?: string;
 }
 
-/** What the cache knows about a mailbox's server, for the "Server" section. */
+/** What the cache knows about a mailbox's server, for the "Server" and "Storage" sections. */
 export interface ServerView {
   caps: { greeting: string; capabilities: string[]; detected: number } | null;
   enable: { ok: boolean; answer: string; at: number } | null;
   quota: QuotaSeen | null;
   sizes: { counted: number; method: "status" | "fetch"; folders: FolderSize[] } | null;
+  cache_bytes: number;
   poll_secs: number;
+  /** A folder size count under way: done and all. */
+  counting: [number, number] | null;
 }

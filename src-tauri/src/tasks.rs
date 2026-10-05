@@ -21,12 +21,14 @@ pub struct Tasks {
     synced: Mutex<HashMap<String, i64>>,
     /// Accounts whose offline download the user paused (until the app restarts).
     paused: Mutex<HashSet<String>>,
+    /// Folder size counts under way, by account, to be stopped.
+    counts: Mutex<HashMap<String, tokio::task::AbortHandle>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Task {
     pub key: String,
-    /// `sync`, `prefetch`, `older`, `search`, `send`.
+    /// `sync`, `prefetch`, `older`, `search`, `send`, `sizes`.
     pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
@@ -144,7 +146,26 @@ impl AppState {
         lock(&self.tasks.list).retain(|_, t| t.account_id.as_deref() != Some(account_id));
         lock(&self.tasks.synced).remove(account_id);
         lock(&self.tasks.paused).remove(account_id);
+        if let Some(count) = lock(&self.tasks.counts).remove(account_id) {
+            count.abort();
+        }
         self.emit_tasks();
+    }
+
+    /// How far a running task is: done and total.
+    pub fn task_progress(&self, key: &str) -> Option<(u64, u64)> {
+        lock(&self.tasks.list)
+            .get(key)
+            .filter(|t| t.state == "running")
+            .map(|t| (t.done, t.total))
+    }
+
+    pub fn keep_count(&self, account_id: &str, handle: tokio::task::AbortHandle) {
+        lock(&self.tasks.counts).insert(account_id.to_owned(), handle);
+    }
+
+    pub fn forget_count(&self, account_id: &str) -> Option<tokio::task::AbortHandle> {
+        lock(&self.tasks.counts).remove(account_id)
     }
 
     pub fn mark_synced(&self, account_id: &str) {

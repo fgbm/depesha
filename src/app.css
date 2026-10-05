@@ -13,6 +13,9 @@
   --side-2: #263444;
   --side-ink: #d5dde6;
   --side-muted: #8c99a8;
+  /* A warning and an alarm readable on the sidebar (a mailbox filling up). */
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
   --ok: #2e7d4f;
   --warn: #b26a00;
   --radius: 8px;
@@ -67,6 +70,8 @@
   --side-2: #e5e7eb;
   --side-ink: #1f2937;
   --side-muted: #6b7280;
+  --side-warn: #9a5c00;
+  --side-alert: #c4302b;
   color-scheme: light;
 }
 

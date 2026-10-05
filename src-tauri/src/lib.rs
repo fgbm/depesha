@@ -194,6 +194,11 @@ pub fn run() {
             commands::sync_now,
             commands::server_info,
             commands::server_check,
+            commands::quota_refresh,
+            commands::quotas,
+            commands::folder_sizes_count,
+            commands::folder_sizes_stop,
+            commands::notify_full,
             commands::sync_overview,
             commands::folder_create,
             commands::offline_pause,
@@ -316,6 +321,9 @@ mod tests {
             "settings_set",
             "message_window",
             "server_check",
+            "folder_sizes_count",
+            "folder_sizes_stop",
+            "notify_full",
         ] {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");

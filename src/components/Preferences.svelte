@@ -6,7 +6,7 @@
   import Download from "@lucide/svelte/icons/download";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Inbox from "@lucide/svelte/icons/inbox";
-  import type { Component } from "svelte";
+  import { untrack, type Component } from "svelte";
   import { app } from "../lib/store.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
@@ -19,6 +19,7 @@
   import FolderPicker from "./FolderPicker.svelte";
   import { accountLabel } from "../lib/format";
   import { threshold } from "../lib/largeMail";
+  import { levels } from "../lib/quota";
   import type { Settings } from "../lib/types";
 
   let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
@@ -49,6 +50,11 @@
   ]);
 
   let page = $state(app.settingsPage);
+  // A link inside the settings (a mailbox's «Storage» to «Notifications») turns the page.
+  $effect(() => {
+    void app.settingsTurn;
+    page = untrack(() => app.settingsPage);
+  });
   // A page that went away (its plugin or mailbox) falls back to the first one.
   const current = $derived(pages.includes(page) || page === "account:new" ? page : "general");
   const pageAccount = $derived(
@@ -80,8 +86,23 @@
 
   /** Only the core's fields: plugins save their own sections as they go. */
   async function save() {
-    const { language, notify, undo_send_secs, threads, updates, theme, offline, offline_attachments, sender_logos, attachments_dir, compose_format, letter_view } =
-      $state.snapshot(draft);
+    const {
+      language,
+      notify,
+      undo_send_secs,
+      threads,
+      updates,
+      theme,
+      offline,
+      offline_attachments,
+      sender_logos,
+      attachments_dir,
+      compose_format,
+      letter_view,
+      quota_warn,
+      quota_levels,
+      quota_repeat,
+    } = $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
       language,
@@ -97,6 +118,9 @@
       large_mb: threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb),
       compose_format,
       letter_view,
+      quota_warn,
+      quota_levels: levels(quota_levels).sort((a, b) => a - b) as [number, number],
+      quota_repeat,
     });
     close();
   }
@@ -256,6 +280,33 @@
             {@render option("notify", "all", t("settings.notifyAll"))}
             {@render option("notify", "none", t("settings.notifyNone"))}
             <p class="hint">{t("settings.dndNote")}</p>
+          </section>
+          <section data-settings="quota">
+            <h4>{t("settings.quota")}</h4>
+            <label class="option">
+              <input type="checkbox" bind:checked={draft.quota_warn} />
+              <span class="text">{t("settings.quotaWarn")}</span>
+            </label>
+            <div class="inline levels" class:disabled={!draft.quota_warn}>
+              <span>{t("settings.quotaLevels")}</span>
+              {#each [0, 1] as i (i)}
+                <input class="input pct" type="number" min="1" max="99" bind:value={draft.quota_levels[i]} disabled={!draft.quota_warn} aria-label="{t('settings.quotaLevels')} {i + 1}" />
+                <span>%</span>
+              {/each}
+              <span>{t("settings.quotaFull")}</span>
+            </div>
+            <div class="inline" class:disabled={!draft.quota_warn}>
+              <span>{t("settings.quotaRepeat")}</span>
+              <Select
+                label={t("settings.quotaRepeat")}
+                bind:value={draft.quota_repeat}
+                options={[
+                  { value: "threshold", label: t("settings.quotaRepeatThreshold") },
+                  { value: "daily", label: t("settings.quotaRepeatDaily") },
+                ]}
+              />
+            </div>
+            <p class="hint">{t("settings.quotaNote")}</p>
           </section>
         {:else if current === "offline"}
           <section>
@@ -536,6 +587,16 @@
 
   .small {
     font-size: 12px;
+  }
+
+  .inline.disabled {
+    color: var(--muted);
+  }
+
+  .pct {
+    width: 56px;
+    padding: 4px 6px;
+    text-align: right;
   }
 
   .update-row {

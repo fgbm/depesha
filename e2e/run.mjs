@@ -1613,6 +1613,44 @@ try {
     await closeSettings();
   });
 
+  await step("15", "«Хранилище»: квота или «не сообщает», локальный кэш отдельно, размер папок фоном, строка в сайдбаре", async () => {
+    const id = (await invoke("accounts"))[0].id;
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.click(await d.find(`.prefs .tab[data-page='account:${id}']`));
+    await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+    await d.click(await d.find(".account-page .toc a[data-toc='storage']"));
+    const storage = await textOf(".account-page section[data-section='storage']");
+    if (!/Занято|Сервер не сообщает квоту/.test(storage)) throw new Error(`ни квоты, ни «не сообщает»: ${storage.slice(0, 300)}`);
+    if (!storage.includes("Кэш Депеши") || !storage.includes("не входит в квоту")) throw new Error("локальный кэш не подписан как локальный");
+    // Counting is a background task with its progress in the tasks window; the result stays in the cache.
+    await d.click(await d.find(".account-page [data-action='sizes-count']"));
+    await d.until("counted", async () => !!(await invoke("server_info", { accountId: id })).sizes, 60000);
+    await d.until("table", async () => (await d.findAll(".account-page table.sizes tr")).length > 1, 10000);
+    const sizes = await textOf(".account-page table.sizes");
+    if (!sizes.includes("Входящие") && !sizes.includes("INBOX")) throw new Error(`нет «Входящих» в размерах: ${sizes}`);
+    if (!sizes.includes("Итого")) throw new Error("нет итога");
+    // An own limit makes the folder sizes an estimate to compare with: the sidebar shows it.
+    await setInput(".account-page input.own", "0,001");
+    await d.click(await d.find(".account-page footer .btn.primary"));
+    await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
+    await closeSettings();
+    await d.until("quota line", async () => (await d.findAll(`nav.side .quota[data-account='${id}']`)).length === 1, 10000);
+    const line = await textOf(`nav.side .quota[data-account='${id}']`);
+    if (!line.includes("1 МБ")) throw new Error(`строка квоты: ${line}`);
+    await screenshot("sidebar-quota");
+    // A click opens the mailbox's «Storage».
+    await d.click(await d.find(`nav.side .quota[data-account='${id}']`));
+    await d.until("storage opened", async () => (await d.findAll(".prefs .account-page section[data-section='storage']")).length === 1);
+    await setInput(".account-page input.own", "");
+    await d.exec("const i = document.querySelector('.account-page input.own'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
+    await d.click(await d.find(".account-page footer .btn.primary"));
+    await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
+    await closeSettings();
+    // Messages from the toasts this left (a full mailbox) go before the next steps.
+    for (const t of await d.findAll(".toast .close")) await d.click(t).catch(() => {});
+  });
+
   await step("7.8", "язык: английский включается в настройках сразу, без перезапуска", async () => {
     const setLanguage = async (search, value) => {
       await press("k", { ctrlKey: true });

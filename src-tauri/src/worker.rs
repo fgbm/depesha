@@ -93,6 +93,8 @@ pub enum Work {
         to: String,
         unseen: bool,
     },
+    /// Reads the mailbox's quota again (the "Storage" section opened).
+    Quota,
 }
 
 pub enum Output {
@@ -711,6 +713,20 @@ async fn connect(state: &AppState, account: &Account) -> Result<Conn> {
     Ok(conn)
 }
 
+/// The quota once per full sync: often enough for a warning, not on every change IDLE
+/// reports. A refusal does not stop the sync; a dropped connection does.
+async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> Result<()> {
+    let Conn::Imap(c) = conn else { return Ok(()) };
+    match crate::server::refresh_quota(state, account_id, c).await {
+        Err(e) if e.is_transient() => Err(e),
+        Err(e) => {
+            tracing::warn!(account = %account_id, "quota not read: {e}");
+            Ok(())
+        }
+        Ok(()) => Ok(()),
+    }
+}
+
 async fn perform(
     state: &AppState,
     account: &Account,
@@ -738,6 +754,7 @@ async fn perform(
         Work::SyncAll => {
             let folders = mail::sync_folder_list(conn, store, id).await?;
             state.emit("folders-changed", json!({ "account_id": id }));
+            refresh_quota(state, id, conn).await?;
             let mut order: Vec<_> = folders.iter().filter(|f| f.selectable && !f.hidden).collect();
             order.sort_by_key(|f| match f.role {
                 Some(FolderRole::Inbox) => 0,
@@ -752,6 +769,10 @@ async fn perform(
             ))
         }
         Work::Prefetch => prefetch(state, conn, id).await,
+        Work::Quota => {
+            refresh_quota(state, id, conn).await?;
+            Ok(Output::None)
+        }
         Work::SyncFolder(folder) => Ok(Output::Count(
             sync_one(state, account, conn, folder, *notify_new).await?,
         )),
