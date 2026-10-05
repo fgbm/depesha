@@ -81,6 +81,7 @@ export class Favourites {
     const k = key(account, folder.name);
     if (this.leaving[k]) {
       this.cancel(k);
+      this.save();
       return;
     }
     if (this.of(account).some((f) => f.name === folder.name)) return;
@@ -89,12 +90,14 @@ export class Favourites {
   }
 
   /** Wherever unstarred, the row of the block stays and fades, so neither the rows after it nor
-   *  the tree below slide under the pointer; starring it again meanwhile keeps it. */
+   *  the tree below slide under the pointer; starring it again meanwhile keeps it. The unstar is
+   *  saved at once: were the window closed mid-fade, the folder must not be back next launch. */
   remove(account: string, name: string) {
     const k = key(account, name);
     if (!this.of(account).some((f) => f.name === name)) return;
     if (this.leaving[k]) return;
     this.leaving[k] = true;
+    this.save();
     this.timers.set(
       k,
       setTimeout(() => {
@@ -126,8 +129,15 @@ export class Favourites {
     this.save();
   }
 
+  /** The favourites as kept, without the rows fading out: an unstar is saved the moment it
+   *  is made, so closing the window mid-fade cannot bring the folder back. */
   private save() {
-    this.storage.set(JSON.stringify(this.all));
+    const kept: Record<string, Favourite[]> = {};
+    for (const [account, list] of Object.entries(this.all)) {
+      const rest = list.filter((f) => !this.leaving[key(account, f.name)]);
+      if (rest.length) kept[account] = rest;
+    }
+    this.storage.set(JSON.stringify(kept));
   }
 }
 

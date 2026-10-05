@@ -54,7 +54,8 @@ describe("unstarring in the tree", () => {
     expect(favs.has("a", "INBOX")).toBe(false);
     expect(favs.isLeaving("a", "INBOX")).toBe(true);
     expect(favs.of("a").map((f) => f.name)).toEqual(["INBOX", "Archive"]);
-    expect(saved().a).toHaveLength(2);
+    // The row stays for the fade, but the unstar is already kept: only Archive is saved.
+    expect(saved().a?.map((f) => f.name)).toEqual(["Archive"]);
     vi.advanceTimersByTime(FADE_MS - 1);
     expect(favs.of("a")).toHaveLength(2);
     vi.advanceTimersByTime(1);
@@ -71,12 +72,26 @@ describe("unstarring in the tree", () => {
     favs.toggle("a", folder("B"));
     favs.toggle("a", folder("A"));
     vi.advanceTimersByTime(FADE_MS - 100);
+    // The unstar is saved at once; starring again puts the folder back in the kept list.
+    expect(saved().a.map((f) => f.name)).toEqual(["B"]);
     favs.toggle("a", folder("A"));
     expect(favs.has("a", "A")).toBe(true);
     expect(favs.isLeaving("a", "A")).toBe(false);
+    expect(saved().a.map((f) => f.name)).toEqual(["A", "B"]);
     vi.advanceTimersByTime(FADE_MS * 3);
     expect(favs.of("a").map((f) => f.name)).toEqual(["A", "B"]);
     expect(saved().a.map((f) => f.name)).toEqual(["A", "B"]);
+  });
+
+  it("an unstar survives a reload before the fade ends", () => {
+    const { favs, saved } = make();
+    favs.add("a", folder("A"));
+    favs.add("a", folder("B"));
+    favs.remove("a", "A");
+    // The window closes mid-fade: a fresh instance reads the storage as it stands.
+    const again = make(JSON.stringify(saved())).favs;
+    expect(again.of("a").map((f) => f.name)).toEqual(["B"]);
+    expect(again.has("a", "A")).toBe(false);
   });
 
   it("the same press again after the row is gone adds it at the end", () => {
