@@ -38,6 +38,7 @@
   import MailFrame from "./MailFrame.svelte";
   import Viewer from "./Viewer.svelte";
   import Popover from "./Popover.svelte";
+  import PluginBannerView from "./PluginBanner.svelte";
   import type { Addr, AttachmentInfo, ComposeDraft, MessageRow } from "../lib/types";
   import { untrack } from "svelte";
   import { avatarOf } from "../lib/avatars.svelte";
@@ -532,18 +533,7 @@
           {#each b.actions as a (a.id)}<button class="btn ghost" onclick={() => bannerAction(b.ext, a.id)}>{a.title}</button>{/each}
         </div>
       {/each}
-      {#each pluginBanners as b, i (i)}
-        <div class="banner" class:info={b.tone !== "warn"}>
-          {#if b.icon}<b.icon size={15} />{/if}
-          <span>{b.text}</span>
-          {#if b.details?.length}
-            <dl class="details selectable">
-              {#each b.details as d, j (j)}<dt>{d.label}</dt><dd>{d.value}</dd>{/each}
-            </dl>
-          {/if}
-          {#each b.actions ?? [] as a (a.title)}<button class="btn" class:primary={a.primary} class:ghost={!a.primary} onclick={a.run}>{a.title}</button>{/each}
-        </div>
-      {/each}
+      {#each pluginBanners as b, i (i)}<PluginBannerView banner={b} />{/each}
       <!-- A quiet line, not a warning: hidden images are the normal state. -->
       {#if showRemoteBanner}
         <div class="remote" title={t("reader.remoteWhy")}>
@@ -1148,26 +1138,6 @@
   .banner span {
     flex: 1;
     min-width: 200px;
-  }
-
-  .banner .details {
-    flex-basis: 100%;
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 2px 10px;
-    margin: 0;
-    max-height: 160px;
-    overflow: auto;
-  }
-
-  .banner .details dt {
-    color: var(--muted);
-  }
-
-  .banner .details dd {
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
 
   .remote {

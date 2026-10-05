@@ -15,6 +15,11 @@ use crate::message::{Addr, Summary, Unsubscribe};
 use crate::query::SearchQuery;
 use crate::smtp::Draft;
 
+mod followups;
+pub use followups::{
+    DEFAULT_KEEP_DAYS, Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupPlan, FollowupStatus,
+};
+
 /// Settings of the connection, made at every open: not part of the cache itself.
 /// `synchronous = NORMAL`: in WAL mode a power cut may lose the last commits, never
 /// corrupt the file, and commits are lost from the end only: folder states are written
@@ -32,6 +37,7 @@ const MIGRATIONS: &[Step] = &[
     v3_unversioned_columns,
     v4_modseq,
     v5_lookups,
+    followups::v6_followups_history,
     v7_size_index,
 ];
 
@@ -447,6 +453,8 @@ pub struct OutboxItem {
     pub created: i64,
     /// Remind about a missing answer this long after sending; 0 for no reminder.
     pub followup_secs: i64,
+    /// The rest of that wait.
+    pub followup: FollowupPlan,
 }
 
 /// A snoozed message that is due to come back.
@@ -458,16 +466,6 @@ pub struct Snooze {
     pub return_to: String,
     pub until: i64,
     pub subject: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Followup {
-    pub account_id: String,
-    pub message_id: String,
-    pub subject: String,
-    pub recipients: String,
-    pub sent: i64,
-    pub due: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -514,8 +512,11 @@ pub struct MessageRow {
     #[serde(default)]
     pub thread_draft: bool,
     pub snoozed_until: Option<i64>,
-    /// The sender waits for an answer to this message until then.
+    /// The sender waits for an answer to this message: the next reminder.
     pub followup_due: Option<i64>,
+    /// The wait for an answer to this message, also when it is over.
+    #[serde(default)]
+    pub followup: Option<FollowupInfo>,
 }
 
 /// Largest message downloaded for offline reading with attachments, bytes.
@@ -608,9 +609,7 @@ fn list_filter(q: &ListQuery) -> (String, Vec<rusqlite::types::Value>) {
             " AND EXISTS (SELECT 1 FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id)",
         );
     } else if q.followups_only {
-        cond.push_str(
-            " AND f.role = 'sent' AND EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)",
-        );
+        cond.push_str(&followups::list_condition(q.followup_status));
     } else {
         match (&q.folder, q.role) {
             (Some(folder), _) => {
@@ -806,8 +805,9 @@ pub struct ListQuery {
     pub threads: bool,
     /// Snoozed mail of every account, wherever it waits.
     pub snoozed_only: bool,
-    /// Sent mail still waiting for an answer.
+    /// Sent mail with a wait for an answer: those still waiting, or `followup_status`.
     pub followups_only: bool,
+    pub followup_status: FollowupFilter,
     /// The order, first key first; newest first when empty.
     pub sort: Vec<SortKey>,
     /// Rows changed in the open list: they sort by their earlier state.
@@ -1675,76 +1675,6 @@ impl Store {
         Ok(self.conn().query_row(sql, [], |r| r.get(0))?)
     }
 
-    pub fn followup_add(&self, f: &Followup) -> Result<()> {
-        self.conn().execute(
-            "INSERT OR REPLACE INTO followups (account_id, message_id, subject, recipients, sent, due)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![f.account_id, f.message_id, f.subject, f.recipients, f.sent, f.due],
-        )?;
-        Ok(())
-    }
-
-    pub fn followup_remove(&self, account_id: &str, message_id: &str) -> Result<()> {
-        self.conn().execute(
-            "DELETE FROM followups WHERE account_id = ?1 AND message_id = ?2",
-            params![account_id, message_id.trim_matches(['<', '>'])],
-        )?;
-        Ok(())
-    }
-
-    /// A new time for a reminder; it is announced again when that comes.
-    pub fn followup_postpone(&self, account_id: &str, message_id: &str, due: i64) -> Result<()> {
-        self.conn().execute(
-            "UPDATE followups SET due = ?3, notified = 0 WHERE account_id = ?1 AND message_id = ?2",
-            params![account_id, message_id.trim_matches(['<', '>']), due],
-        )?;
-        Ok(())
-    }
-
-    /// Drops reminders that got an answer: a message outside Sent and Drafts that
-    /// replies to the sent one, its Message-ID in In-Reply-To or References exactly.
-    /// Returns how many were resolved.
-    pub fn followups_resolve(&self) -> Result<usize> {
-        Ok(self.conn().execute(
-            "DELETE FROM followups WHERE EXISTS (
-                SELECT 1 FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
-                WHERE m.account_id = followups.account_id AND m.in_reply_to = followups.message_id
-                  AND COALESCE(f.role, '') NOT IN ('sent', 'drafts')
-             ) OR EXISTS (
-                SELECT 1 FROM message_refs r CROSS JOIN messages m ON m.id = r.message
-                    JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
-                WHERE r.parent = followups.message_id AND m.account_id = followups.account_id
-                  AND COALESCE(f.role, '') NOT IN ('sent', 'drafts'))",
-            [],
-        )?)
-    }
-
-    /// Reminders due now that were not announced yet; marks them announced.
-    pub fn followups_due(&self, now: i64) -> Result<Vec<Followup>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "UPDATE followups SET notified = 1 WHERE due <= ?1 AND notified = 0
-             RETURNING account_id, message_id, subject, recipients, sent, due",
-        )?;
-        let rows = stmt.query_map([now], |r| {
-            Ok(Followup {
-                account_id: r.get(0)?,
-                message_id: r.get(1)?,
-                subject: r.get(2)?,
-                recipients: r.get(3)?,
-                sent: r.get(4)?,
-                due: r.get(5)?,
-            })
-        })?;
-        Ok(rows.collect::<Result<_, _>>()?)
-    }
-
-    pub fn followups_count(&self) -> Result<u32> {
-        Ok(self
-            .conn()
-            .query_row("SELECT COUNT(*) FROM followups", [], |r| r.get(0))?)
-    }
-
     /// Everything cached for an account, all or none of it; shared data (trusted senders,
     /// brand logos) stays.
     pub fn forget_account(&self, account_id: &str) -> Result<()> {
@@ -1941,12 +1871,32 @@ impl Store {
     }
 
     /// Queues a message to go out at `at` (now, after the undo delay, or a scheduled time).
-    pub fn outbox_add(&self, account_id: &str, draft: &Draft, now: i64, at: i64, followup_secs: i64) -> Result<i64> {
+    /// `followup_secs`: wait for an answer and remind that long after sending, as `followup` asks.
+    pub fn outbox_add(
+        &self,
+        account_id: &str,
+        draft: &Draft,
+        now: i64,
+        at: i64,
+        followup_secs: i64,
+        followup: &FollowupPlan,
+    ) -> Result<i64> {
         let json = serde_json::to_string(draft).map_err(|e| crate::Error::Compose(e.to_string()))?;
         Ok(self.conn().query_row(
-            "INSERT INTO outbox (account_id, draft, next_attempt, created, followup_secs)
-             VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id",
-            params![account_id, json, at.max(now), now, followup_secs],
+            "INSERT INTO outbox (account_id, draft, next_attempt, created, followup_secs,
+                followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id",
+            params![
+                account_id,
+                json,
+                at.max(now),
+                now,
+                followup_secs,
+                followup.deadline_secs,
+                followup.repeat_secs,
+                followup.expect,
+                followup.kind
+            ],
             |r| r.get(0),
         )?)
     }
@@ -1954,7 +1904,8 @@ impl Store {
     pub fn outbox(&self) -> Result<Vec<OutboxItem>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, created, followup_secs
+            "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, created, followup_secs,
+                followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind
              FROM outbox ORDER BY next_attempt, id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -1968,6 +1919,12 @@ impl Store {
                 failed: r.get(6)?,
                 created: r.get(7)?,
                 followup_secs: r.get(8)?,
+                followup: FollowupPlan {
+                    deadline_secs: r.get(9)?,
+                    repeat_secs: r.get(10)?,
+                    expect: r.get(11)?,
+                    kind: r.get(12)?,
+                },
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -2378,7 +2335,13 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
     m.from_addr, m.to_addrs, m.cc_addrs, m.reply_to, m.date, m.size,
     m.seen, m.answered, m.flagged, m.draft, m.has_attachments, m.thread, m.bulk,
     (SELECT s.until FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id),
-    (SELECT fu.due FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)";
+    (SELECT json_object('status', fu.status, 'due', fu.due,
+            'deadline', fu.deadline, 'own_deadline', json(CASE WHEN fu.own_deadline THEN 'true' ELSE 'false' END),
+            'repeat_secs', fu.repeat_secs, 'expect', fu.expect, 'kind', fu.kind,
+            'ended', fu.ended, 'answered_by', CASE WHEN json_valid(fu.answered_by) THEN json(fu.answered_by) END,
+            'answer', (SELECT a.id FROM messages a WHERE a.account_id = fu.account_id AND a.message_id = fu.answer_id LIMIT 1),
+            'reminded', CASE WHEN json_valid(fu.reminded) THEN json(fu.reminded) ELSE json('[]') END)
+        FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)";
 const COLUMN_COUNT: usize = 23;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
@@ -2410,6 +2373,7 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
     let addrs = |i: usize| -> rusqlite::Result<Vec<Addr>> {
         Ok(serde_json::from_str(&r.get::<_, String>(i)?).unwrap_or_default())
     };
+    let followup = followups::info_of(r.get(22)?);
     Ok(MessageRow {
         id: r.get(0)?,
         account_id: r.get(1)?,
@@ -2443,7 +2407,8 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         thread_senders: Vec::new(),
         thread_draft: false,
         snoozed_until: r.get(21)?,
-        followup_due: r.get(22)?,
+        followup_due: followups::waiting_due(followup.as_ref()),
+        followup,
     })
 }
 
@@ -2631,7 +2596,7 @@ mod tests {
         );
     }
 
-    fn with_ids(subject: &str, date: i64, id: &str, parent: Option<&str>) -> Summary {
+    pub(super) fn with_ids(subject: &str, date: i64, id: &str, parent: Option<&str>) -> Summary {
         Summary {
             message_id: Some(id.into()),
             in_reply_to: parent.map(Into::into),
@@ -2640,7 +2605,7 @@ mod tests {
         }
     }
 
-    fn put(store: &Store, folder: &str, uid: u32, s: &Summary, seen: bool) -> i64 {
+    pub(super) fn put(store: &Store, folder: &str, uid: u32, s: &Summary, seen: bool) -> i64 {
         let msg = NewMessage {
             uid,
             summary: s,
@@ -2723,7 +2688,7 @@ mod tests {
         assert!(!ids(false).contains(&old));
     }
 
-    fn mailbox() -> Store {
+    pub(super) fn mailbox() -> Store {
         let store = Store::open_in_memory().unwrap();
         store
             .replace_folders(
@@ -2777,7 +2742,7 @@ mod tests {
         assert_eq!(conv.iter().map(|m| m.date).collect::<Vec<_>>(), [100, 200, 300]);
     }
 
-    fn from_to(mut s: Summary, from: &str, to: &str) -> Summary {
+    pub(super) fn from_to(mut s: Summary, from: &str, to: &str) -> Summary {
         s.from = Some(Addr {
             name: None,
             email: from.into(),
@@ -3042,54 +3007,6 @@ mod tests {
         assert_eq!(store.search_totals("larger:25M", Some("b")).unwrap().count, 1);
         assert_eq!(store.search_totals("", None).unwrap(), SearchTotals::default());
         assert_eq!(store.search_totals("фото", None).unwrap().count, 1);
-    }
-
-    #[test]
-    fn followup_is_resolved_by_an_answer() {
-        let store = mailbox();
-        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
-        store
-            .followup_add(&Followup {
-                account_id: "a".into(),
-                message_id: "q@x".into(),
-                subject: "Вопрос".into(),
-                recipients: "ivan@example.org".into(),
-                sent: 100,
-                due: 500,
-            })
-            .unwrap();
-        let waiting = ListQuery {
-            followups_only: true,
-            ..Default::default()
-        };
-        assert_eq!(store.list(&waiting).unwrap()[0].followup_due, Some(500));
-        assert!(store.followups_due(400).unwrap().is_empty());
-        assert_eq!(store.followups_due(600).unwrap().len(), 1);
-        assert!(store.followups_due(700).unwrap().is_empty(), "announced once");
-        // Put off: it comes again at the new time, once.
-        store.followup_postpone("a", "<q@x>", 900).unwrap();
-        assert_eq!(store.list(&waiting).unwrap()[0].followup_due, Some(900));
-        assert!(store.followups_due(800).unwrap().is_empty());
-        assert_eq!(store.followups_due(900).unwrap().len(), 1);
-
-        // My own follow-up in Sent is not an answer.
-        put(
-            &store,
-            "Sent",
-            2,
-            &with_ids("Re: Вопрос", 150, "q2@x", Some("q@x")),
-            true,
-        );
-        assert_eq!(store.followups_resolve().unwrap(), 0);
-        put(
-            &store,
-            "INBOX",
-            1,
-            &with_ids("Re: Вопрос", 200, "r@x", Some("q@x")),
-            false,
-        );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
-        assert!(store.list(&waiting).unwrap().is_empty());
     }
 
     #[test]
@@ -3493,13 +3410,18 @@ mod tests {
             tables_of(2)(conn);
             v4_modseq(conn).unwrap();
         };
-        let olds: [(&str, Tables, i64); 5] = [
+        let v5 = move |conn: &Connection| {
+            v4(conn);
+            v5_lookups(conn).unwrap();
+        };
+        let olds: [(&str, Tables, i64); 6] = [
             ("v0", Box::new(v0), 0),
             ("v1", Box::new(tables_of(1)), 1),
             ("v2 (0.5.6)", Box::new(tables_of(2)), 2),
             // Step 3 changes nothing a cache of 0.5.6 lacks: the same tables, numbered 3.
             ("v3", Box::new(tables_of(2)), 3),
             ("v4", Box::new(v4), 4),
+            ("v5 (0.5.7)", Box::new(v5), 5),
         ];
         for (name, tables, version) in olds {
             let dir = tempfile::tempdir().unwrap();
@@ -3516,6 +3438,23 @@ mod tests {
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM outbox"), 1, "{name}");
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM snoozed"), 1, "{name}");
             assert_eq!(count(&conn, "SELECT COUNT(*) FROM followups"), 1, "{name}");
+            // The awaited answer is still awaited, by the time of its reminder.
+            assert_eq!(
+                rows_of(
+                    &conn,
+                    "SELECT status, due, deadline, repeat_secs, expect, ended, reminded FROM followups"
+                ),
+                ["Text(\"waiting\"), Integer(500), Integer(500), Integer(0), Text(\"\"), Null, Text(\"[]\")"],
+                "{name}"
+            );
+            assert_eq!(
+                rows_of(&conn, "SELECT followup_repeat_secs, followup_expect FROM outbox"),
+                ["Integer(0), Text(\"\")"],
+                "{name}"
+            );
+            drop(conn);
+            assert_eq!(store.followups_count().unwrap().active, 1, "{name}");
+            let conn = store.conn();
             // Mail of a cache numbered 3 or later was linked as it came; these rows were not.
             if version < 3 {
                 assert_eq!(
@@ -3699,7 +3638,9 @@ mod tests {
             store
                 .set_avatar(&format!("photo:{account}:boss@x"), Some("data:"), 1)
                 .unwrap();
-            store.outbox_add(account, &Draft::default(), 1, 1, 0).unwrap();
+            store
+                .outbox_add(account, &Draft::default(), 1, 1, 0, &FollowupPlan::default())
+                .unwrap();
             store
                 .snooze_add(&Snooze {
                     account_id: account.into(),
@@ -3718,6 +3659,7 @@ mod tests {
                     recipients: String::new(),
                     sent: 1,
                     due: 2,
+                    ..Default::default()
                 })
                 .unwrap();
         }
@@ -4229,6 +4171,7 @@ mod tests {
                         recipients: String::new(),
                         sent: 0,
                         due: 9_000,
+                        ..Default::default()
                     })
                     .unwrap();
             }
@@ -4401,47 +4344,6 @@ mod tests {
     }
 
     #[test]
-    fn an_awaited_answer_is_one_to_exactly_that_letter() {
-        let store = mailbox();
-        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "a_b@x", None), true);
-        let waiting = || {
-            store
-                .followup_add(&Followup {
-                    account_id: "a".into(),
-                    message_id: "a_b@x".into(),
-                    subject: "Вопрос".into(),
-                    recipients: String::new(),
-                    sent: 100,
-                    due: 500,
-                })
-                .unwrap()
-        };
-        waiting();
-        // `_` and `%` are characters of the id, not wildcards.
-        let mut uid = 0;
-        for other in ["axb@x", "a%b@x"] {
-            uid += 1;
-            let mut s = with_ids("Re: Вопрос", 200, &format!("r{uid}@x"), None);
-            s.references = vec!["root@x".into(), other.into()];
-            put(&store, "INBOX", uid, &s, false);
-        }
-        assert_eq!(store.followups_resolve().unwrap(), 0);
-        // In References, even not the last one.
-        let mut s = with_ids("Re: Вопрос", 300, "r3@x", None);
-        s.references = vec!["a_b@x".into(), "later@x".into()];
-        put(&store, "INBOX", 3, &s, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
-        // In In-Reply-To alone.
-        waiting();
-        store.remove_uids("a", "INBOX", &[3]).unwrap();
-        assert_eq!(store.followups_resolve().unwrap(), 0);
-        let mut s = with_ids("Re: Вопрос", 400, "r4@x", None);
-        s.in_reply_to = Some("a_b@x".into());
-        put(&store, "INBOX", 4, &s, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
-    }
-
-    #[test]
     fn a_batch_of_headers_is_one_commit_or_nothing() {
         let store = mailbox();
         let mails: Vec<Summary> = (0..200)
@@ -4573,6 +4475,18 @@ mod tests {
                 plans(&store, || store.bodies_missing("a", 0, true, 25)),
             ),
             ("followups_resolve", plans(&store, || store.followups_resolve())),
+            ("followups_due", plans(&store, || store.followups_due(1))),
+            ("followups_prune", plans(&store, || store.followups_prune(1, 90))),
+            (
+                "closed followups",
+                plans(&store, || {
+                    store.list(&ListQuery {
+                        followups_only: true,
+                        followup_status: FollowupFilter::Closed,
+                        ..Default::default()
+                    })
+                }),
+            ),
             ("known_addresses", plans(&store, || store.known_addresses("ан", 8))),
             (
                 "change_flags",
@@ -4619,6 +4533,9 @@ mod tests {
                 .any(|l| l.contains("COVERING INDEX messages_by_folder_thread")),
             "{plan:#?}"
         );
+        // Ended waits are forgotten by the index of their end, not by reading every wait.
+        let plan = plans(&store, || store.followups_prune(1, 90));
+        assert!(plan.iter().any(|l| l.contains("followups_by_end")), "{plan:#?}");
         let plan = plans(&store, || store.offline_progress("a", 0, false));
         assert!(
             plan.iter()

@@ -1,21 +1,33 @@
 //! Timed work: snoozed mail coming back, reminders about sent mail without an answer.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use crate::followups;
 use crate::state::AppState;
 use crate::worker::{Output, Work};
 use depesha_core::lang::pick;
 
 const TICK: Duration = Duration::from_secs(10);
+/// Closed waits for an answer are forgotten in days: an hour apart is soon enough.
+const PRUNE_EVERY: Duration = Duration::from_secs(3600);
 
 pub async fn run(state: Arc<AppState>) {
+    let mut pruned: Option<Instant> = None;
     loop {
         tokio::select! {
             _ = state.scheduler_notify.notified() => {}
             _ = tokio::time::sleep(TICK) => {}
+        }
+        if pruned.is_none_or(|t| t.elapsed() >= PRUNE_EVERY) {
+            pruned = Some(Instant::now());
+            match followups::prune(&state, chrono::Utc::now().timestamp()) {
+                Ok(true) => state.emit("counters-changed", json!({})),
+                Ok(false) => {}
+                Err(e) => tracing::warn!("scheduler: {e}"),
+            }
         }
         if let Err(e) = round(&state).await {
             tracing::warn!("scheduler: {e}");

@@ -24,6 +24,7 @@ import type {
   OAuthProvider,
   OAuthProviderView,
   FolderInfo,
+  FollowupPlan,
   ListQuery,
   MessageRow,
   MessageView,
@@ -137,8 +138,8 @@ export const api = {
   /** A letter in Markdown as the HTML it goes out as. */
   markdownHtml: (text: string) => call<string>("markdown_html", { text }),
   openLink: (url: string) => call<void>("open_link", { url }),
-  send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupSecs: number | null) =>
-    call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupSecs }),
+  send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) =>
+    call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupSecs, followup }),
   draftSave: (accountId: string, draft: ComposeDraft, replace: number | null) =>
     call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
   draftDiscard: (id: number) => call<void>("draft_discard", { id }),

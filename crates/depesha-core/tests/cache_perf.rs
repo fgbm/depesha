@@ -286,6 +286,7 @@ fn large_cache() {
                 recipients: "sender@example.org".into(),
                 sent: 0,
                 due: w as i64,
+                ..Default::default()
             })
             .unwrap();
     }
@@ -333,7 +334,7 @@ fn large_cache() {
     store.followups_resolve().unwrap();
     // Conversations of two letters end with mine: nobody answered them either.
     let unanswered = WAITING + (0..30usize).filter(|c| c.is_multiple_of(9)).count();
-    assert_eq!(store.followups_count().unwrap() as usize, unanswered);
+    assert_eq!(store.followups_count().unwrap().active as usize, unanswered);
     let (resolve, resolved) = time(&store, "followups_resolve", &mut longest, || {
         store.followups_resolve().unwrap()
     });

@@ -408,10 +408,10 @@
         {/each}
         {#each registry.items("views") as pv (pv.id)}
           {@const n = pv.count()}
-          {#if n > 0}
+          {#if n > 0 || pv.shown?.()}
             <button class="tile" class:active={isActive({ kind: "plugin", id: pv.id })} onclick={() => app.setView({ kind: "plugin", id: pv.id })} title={pv.title()} aria-label={pv.title()}>
               <pv.icon size={18} />
-              <span class="badge quiet">{badge(n)}</span>
+              {#if n > 0}<span class="badge quiet">{badge(n)}</span>{/if}
             </button>
           {/if}
         {/each}
@@ -511,11 +511,11 @@
         {/each}
         {#each registry.items("views") as pv (pv.id)}
           {@const n = pv.count()}
-          {#if n > 0}
+          {#if n > 0 || pv.shown?.()}
             <button class="item" class:active={isActive({ kind: "plugin", id: pv.id })} onclick={() => app.setView({ kind: "plugin", id: pv.id })}>
               <span class="icon"><pv.icon size={16} /></span>
               <span class="name">{pv.title()}</span>
-              <span class="count quiet">{n}</span>
+              {#if n > 0}<span class="count quiet">{n}</span>{/if}
             </button>
           {/if}
         {/each}

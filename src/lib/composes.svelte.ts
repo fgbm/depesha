@@ -6,7 +6,7 @@ import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
 import { emptyDraft, formatFor, forward, isForward, reply, withSignature } from "./compose";
 import { dropPlan, offersZones, type DropZone } from "./images";
-import type { Account, AccountView, AttachmentSource, ComposeDraft, OpenedMessage, OutboxItem, Settings } from "./types";
+import type { Account, AccountView, AttachmentSource, ComposeDraft, FollowupPlan, OpenedMessage, OutboxItem, Settings } from "./types";
 
 export interface ComposeState {
   account_id: string;
@@ -145,8 +145,8 @@ export class ComposeManager {
   }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
-  async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null) {
-    const queued = await api.send(accountId, draft, draftId, at, followupSecs);
+  async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
+    const queued = await api.send(accountId, draft, draftId, at, followupSecs, followup);
     const undo = { label: t("undo"), run: () => void this.reopenOutbox(queued.id) };
     const secs = Math.round(queued.at - Date.now() / 1000);
     if (at) this.host.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);

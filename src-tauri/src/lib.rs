@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod error;
 mod extensions;
+mod followups;
 mod outbox;
 mod paths;
 mod scheduler;

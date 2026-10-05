@@ -4,6 +4,7 @@
   import Reply from "@lucide/svelte/icons/reply";
   import { app } from "../lib/store.svelte";
   import RowMenu from "./RowMenu.svelte";
+  import Segments from "./Segments.svelte";
   import ViewMenu from "./ViewMenu.svelte";
   import SearchBox from "./SearchBox.svelte";
   import { registry } from "../plugin-host/registry.svelte";
@@ -30,6 +31,10 @@
   function tagsOf(m: MessageRow): RowTag[] {
     return registry.collect<RowTag, MessageRow>("rowTags", m).slice(0, 1);
   }
+
+  /** Below this the quiet notes of the first line give their room to the names. */
+  const NOTES_FROM = 420;
+  const notes = $derived(!layout.single && layout.listWidth >= NOTES_FROM);
 
   /** Account colour stripe in lists that mix accounts. */
 
@@ -132,6 +137,7 @@
   {#if app.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
   <header data-tauri-drag-region class:scrolled={scrollTop > 0} class:edge>
     <SearchBox bind:input={searchInput} />
+    {#if pluginView?.tabs}<Segments tabs={pluginView.tabs} />{/if}
     <div class="title">
       <h2 title={count}>{title}</h2>
       {#if app.listKey()}<ViewMenu />{/if}
@@ -177,6 +183,7 @@
     {/if}
     <div class="spacer" style:height="{app.messages.length * ROW}px">
       {#each visible as m, i (m.id)}
+        {@const tags = tagsOf(m)}
         <div
           class="row"
           class:unread={!m.flags.seen}
@@ -194,6 +201,11 @@
         >
           <div class="line1">
             <span class="from">{who(m)}</span>
+            {#if notes}
+              {#each tags as tag, ti (ti)}
+                {#if tag.note}<span class="note" title={tag.title}>{#if tag.note.icon}<tag.note.icon size={11} />{/if}<span class="note-text">{tag.note.text}</span></span>{/if}
+              {/each}
+            {/if}
             {#if m.thread_count > 1}<span class="count" title={t("list.inThread")}>{m.thread_count}</span>{/if}
             {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
             {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
@@ -203,8 +215,8 @@
           <div class="line2">
             {#if m.flags.answered}<span class="answered" title={t("list.answered")}><Reply size={13} /></span>{/if}
             <span class="subject">{m.subject || t("noSubject")}</span>
-            {#each tagsOf(m) as tag, ti (ti)}
-              <span class="tag" class:due={tag.alert} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
+            {#each tags as tag, ti (ti)}
+              <span class="tag" class:due={tag.alert} class:good={tag.good} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
             {/each}
             <span class="size" class:strong={bySize} title={t("list.size")}>{size(m.thread_size ?? m.size)}</span>
           </div>
@@ -461,6 +473,29 @@
     font-size: 11px;
     color: var(--muted);
     white-space: nowrap;
+  }
+
+  /* The kind of a reminder before the date: gives way to the names first. */
+  .note {
+    flex: 0 1000 auto;
+    min-width: 0;
+    max-width: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    overflow: hidden;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .note-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tag.good {
+    color: var(--ok);
   }
 
   .tag.due {

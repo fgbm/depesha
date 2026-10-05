@@ -12,7 +12,7 @@ use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, BodyFormat, Draft, OutgoingAttachment};
-use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, SearchTotals, Snooze, SortKey};
+use depesha_core::store::{FolderInfo, FollowupPlan, ListQuery, MessageRow, OutboxItem, SearchTotals, Snooze, SortKey};
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
@@ -777,34 +777,49 @@ pub fn thread(state: St<'_>, id: i64) -> CmdResult<Vec<MessageRow>> {
 #[derive(Serialize)]
 pub struct Counters {
     snoozed: u32,
+    /// Letters waiting for an answer: the badge.
     followups: u32,
+    /// Waits kept after they ended: the view stays in the sidebar for them.
+    followups_closed: u32,
 }
 
 #[tauri::command(async)]
 pub fn counters(state: St<'_>) -> CmdResult<Counters> {
+    let followups = state.store.followups_count()?;
     Ok(Counters {
         snoozed: state.store.snoozed_count(state.settings().threads)?,
-        followups: state.store.followups_count()?,
+        followups: followups.active,
+        followups_closed: followups.closed,
     })
 }
 
-/// No answer yet and not now: the reminder comes again `secs` from now.
+/// No answer yet and not now: the reminder comes again `secs` from now. With `deadline`
+/// ("Set a new date", "Wait for a reply again") the answer is expected by then too, and a
+/// wait that ended is waiting again for an answer from now on.
 #[tauri::command(async)]
-pub fn followup_postpone(state: St<'_>, id: i64, secs: i64) -> CmdResult<i64> {
+pub fn followup_postpone(state: St<'_>, id: i64, secs: i64, deadline: Option<bool>) -> CmdResult<i64> {
     let r = row(&state, id)?;
-    let due = chrono::Utc::now().timestamp() + secs.max(60);
+    let now = chrono::Utc::now().timestamp();
+    let due = now + secs.max(60);
+    let deadline = deadline.unwrap_or(false);
     if let Some(mid) = &r.message_id {
-        state.store.followup_postpone(&r.account_id, mid, due)?;
+        state.store.followup_postpone(&r.account_id, mid, due, deadline)?;
+        if deadline {
+            state.store.followup_reopen(&r.account_id, mid, due, now)?;
+        }
     }
     state.emit("counters-changed", serde_json::json!({}));
     Ok(due)
 }
 
+/// Stops waiting for an answer: the wait is closed by hand and kept in the history.
 #[tauri::command(async)]
 pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<()> {
     let r = row(&state, id)?;
     if let Some(mid) = &r.message_id {
-        state.store.followup_remove(&r.account_id, mid)?;
+        state
+            .store
+            .followup_close(&r.account_id, mid, chrono::Utc::now().timestamp())?;
     }
     state.emit("counters-changed", serde_json::json!({}));
     Ok(())
@@ -916,7 +931,9 @@ pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsub
             };
             smtp::build(&draft)?;
             let now = chrono::Utc::now().timestamp();
-            state.store.outbox_add(&account.id, &draft, now, now, 0)?;
+            state
+                .store
+                .outbox_add(&account.id, &draft, now, now, 0, &FollowupPlan::default())?;
             state.outbox_notify.notify_one();
             state.emit("outbox-changed", serde_json::json!({}));
             Ok(Unsubscribed::MailSent { to })
@@ -1638,9 +1655,11 @@ pub struct Queued {
 
 /// Queues the message; the outbox task sends it at `at` (scheduled send) or after
 /// the undo delay from the settings. `followup_secs` (or the older `followup_days`)
-/// asks for a reminder when no answer comes that long after sending.
+/// asks for a reminder when no answer comes that long after sending; `followup` says the
+/// rest of that wait: a deadline, repeats, the awaited recipient, the choice's name.
 /// `discard_draft` removes the server draft it came from.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn send(
     state: St<'_>,
     account_id: String,
@@ -1649,16 +1668,24 @@ pub async fn send(
     at: Option<i64>,
     followup_days: Option<u32>,
     followup_secs: Option<i64>,
+    followup: Option<FollowupPlan>,
 ) -> CmdResult<Queued> {
     let account = state.account(&account_id)?;
     let draft = resolve(&state, draft).await?;
     smtp::build(&draft)?; // validate addresses now, not in the background
     let now = chrono::Utc::now().timestamp();
     let at = at.unwrap_or(now + i64::from(state.settings().undo_send_secs));
-    let followup = followup_secs
+    let followup_secs = followup_secs
         .unwrap_or(i64::from(followup_days.unwrap_or(0)) * 86_400)
         .max(0);
-    let id = state.store.outbox_add(&account.id, &draft, now, at, followup)?;
+    let id = state.store.outbox_add(
+        &account.id,
+        &draft,
+        now,
+        at,
+        followup_secs,
+        &followup.unwrap_or_default(),
+    )?;
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {

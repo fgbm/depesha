@@ -52,11 +52,11 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `readerToolbar`, `bulkToolbar`, `readerHeader` | components in the reader toolbar, in the panel for several selected messages, next to the sender |
 | `messageAction` | an item in the reader's "More" menu |
 | `rowAction` | an item in the context menu of list rows, or a submenu (`menu`) |
-| `banner` | a line above the opened message, with buttons |
-| `rowTag` | a tag in a list row |
-| `view` | a list of its own with a sidebar entry |
+| `banner` | a line above the opened message, with buttons; in a narrow window the first stays and the rest fold into «⋯» (`detailsTitle` folds the details too) |
+| `rowTag` | a tag in a list row (`alert` red, `good` green), with an optional quiet `note` in the first line |
+| `view` | a list of its own with a sidebar entry (shown while `count` or `shown` says so); `tabs` puts a segmented switch over its list |
 | `listFilter` | a choice in the list's "View" menu that narrows its query (People / Newsletters); each list keeps its own |
-| `composeControl` | a control in the compose window; `slot: "send"` joins it to the Send button |
+| `composeControl` | a control in the compose window; `slot: "send"` joins it to the Send button, `slot: "line"` makes it a quiet line above the buttons |
 | `sendCheck` | warnings before sending |
 | `settingsSection` | a section in Settings |
 | `overlay` | a component on top of the window, in the main window and in a window of one letter |

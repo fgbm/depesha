@@ -157,7 +157,45 @@ export interface MessageRow {
   /** Bytes of the conversation's letters in the list; the row's own size when not grouped. */
   thread_size?: number;
   snoozed_until: number | null;
+  /** The next reminder while the sender waits for an answer to this letter. */
   followup_due: number | null;
+  /** The wait for an answer to this letter, also when it is over. */
+  followup?: FollowupInfo | null;
+}
+
+/** Overdue is a waiting one past its deadline. */
+export type FollowupStatus = "waiting" | "answered" | "closed";
+
+export interface FollowupInfo {
+  status: FollowupStatus;
+  /** The next reminder. */
+  due: number;
+  /** When the answer is expected by. */
+  deadline: number;
+  /** The deadline was given apart from the reminder ("a day before the deadline"). */
+  own_deadline: boolean;
+  /** Reminded again this often until an answer comes; 0: once. */
+  repeat_secs: number;
+  /** Only an answer from this address counts; empty: from anyone. */
+  expect: string;
+  /** The name of the reminder choice. */
+  kind: string;
+  /** When it ended: the date of the answer, or when it was closed by hand. */
+  ended: number | null;
+  answered_by: Addr | null;
+  /** The answer in the cache, when it is there. */
+  answer: number | null;
+  /** When the reminders came, oldest first. */
+  reminded: number[];
+}
+
+/** What a wait asks besides its first reminder; sent with the letter. */
+export interface FollowupPlan {
+  /** The answer is expected by this long after sending; 0: by the first reminder. */
+  deadline_secs: number;
+  repeat_secs: number;
+  expect: string;
+  kind: string;
 }
 
 export interface Unsubscribe {
@@ -225,6 +263,8 @@ export interface ListQuery {
   threads?: boolean;
   snoozed_only?: boolean;
   followups_only?: boolean;
+  /** Which of them: still waiting (the default), or answered and closed by hand. */
+  followup_status?: "active" | "closed";
   /** The order, first key first; newest first when empty. */
   sort?: SortKey[];
   /** Rows changed in the open list: they keep their place by the earlier state. */
@@ -289,6 +329,7 @@ export interface OutboxItem {
   failed: boolean;
   created: number;
   followup_secs: number;
+  followup: FollowupPlan;
 }
 
 export interface Template {

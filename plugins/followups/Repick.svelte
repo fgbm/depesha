@@ -1,8 +1,9 @@
 <script lang="ts">
-  // "Set a new date" on a letter still without an answer: the same choice as "Custom…".
+  // "Set a new date" on a letter still without an answer, or "Wait for a reply again" on one
+  // that ended: the date of "Custom…" alone. The answer is expected by then.
   import type { PluginContext } from "@depesha/plugin-api";
   import DueForm from "./DueForm.svelte";
-  import { secondsAfter, type Due } from "./due";
+  import { planOf, type Due } from "./due";
   import { followups } from "./state.svelte";
   import { S } from "./strings";
 
@@ -14,10 +15,10 @@
     const letter = followups.repick;
     if (!letter) return;
     close();
-    const now = new Date();
-    const secs = "at" in due ? due.at - Math.floor(now.getTime() / 1000) : secondsAfter(now, due.amount, due.unit);
+    const made = planOf("at" in due ? due : { spec: due.spec, deadline: null }, new Date(), "", "");
+    if (!made) return;
     ctx
-      .backend<number>("followup_postpone", { id: letter.id, secs })
+      .backend<number>("followup_postpone", { id: letter.id, secs: made.secs, deadline: true })
       .then(letter.set)
       .catch((e) => ctx.fail(e));
   }

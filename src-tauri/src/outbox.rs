@@ -85,22 +85,14 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 if item.followup_secs > 0
                     && let Some(message_id) = message::parse_summary(&raw).message_id
                 {
-                    let sent = chrono::Utc::now().timestamp();
-                    let recipients: Vec<String> = item
-                        .draft
-                        .to
-                        .iter()
-                        .chain(&item.draft.cc)
-                        .map(|a| a.email.clone())
-                        .collect();
-                    state.store.followup_add(&Followup {
-                        account_id: account.id.clone(),
+                    state.store.followup_add(&Followup::after_sending(
+                        &account.id,
                         message_id,
-                        subject: item.draft.subject.clone(),
-                        recipients: recipients.join(", "),
-                        sent,
-                        due: sent + item.followup_secs,
-                    })?;
+                        &item.draft,
+                        chrono::Utc::now().timestamp(),
+                        item.followup_secs,
+                        &item.followup,
+                    ))?;
                     state.emit("counters-changed", json!({}));
                 }
                 // Exchange Web Services already put the copy into Sent Items.

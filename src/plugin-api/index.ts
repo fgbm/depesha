@@ -4,9 +4,9 @@
 // removed by the core when the plugin is switched off.
 
 import type { Component } from "svelte";
-import type { ComposeDraft, FolderInfo, ListQuery, MessageRow, Moved, OpenedMessage } from "../lib/types";
+import type { ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage } from "../lib/types";
 
-export type { ComposeDraft, FolderInfo, ListQuery, MessageRow, Moved, OpenedMessage };
+export type { ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage };
 export { default as Popover } from "../components/Popover.svelte";
 export { default as LaterMenu } from "../components/LaterMenu.svelte";
 export { default as Select } from "../components/Select.svelte";
@@ -86,18 +86,26 @@ export interface RowAction {
 
 export interface Banner {
   text: string;
-  tone?: "info" | "warn";
+  /** `good`: something went as hoped, e.g. the awaited answer came. */
+  tone?: "info" | "warn" | "good";
   icon?: Component;
   /** Lines under the text, shown as they are (line breaks kept): what an action will send. */
   details?: { label: string; value: string }[];
+  /** In a narrow window the details fold into the "⋯" menu under this title; without it they stay shown. */
+  detailsTitle?: string;
+  /** In a narrow window the first one stays a button, the others fold into "⋯". */
   actions?: { title: string; run: () => void; primary?: boolean }[];
 }
 
 export interface RowTag {
   icon?: Component;
   text: string;
+  /** Small and quiet in the first line, before the date, e.g. the kind of a reminder; hidden in a narrow list. */
+  note?: { text: string; icon?: Component };
   title?: string;
   alert?: boolean;
+  /** Green: e.g. an answer came. */
+  good?: boolean;
 }
 
 /** A list view of its own, e.g. "Snoozed": a sidebar entry and a query. */
@@ -111,6 +119,16 @@ export interface View {
   /** Recipients instead of senders in the list (sent mail). */
   showRecipients?: boolean;
   empty: () => string;
+  /** A segmented switch over the list, e.g. Active / Closed; `query` reads what it chose. */
+  tabs?: ViewTabs;
+  /** The sidebar entry shows while this holds, even with nothing to count. */
+  shown?: () => boolean;
+}
+
+export interface ViewTabs {
+  options: () => { id: string; title: string; count?: number }[];
+  current: () => string;
+  select: (id: string) => void;
 }
 
 /** The list a filter applies to: each list keeps its own choice. */
@@ -143,8 +161,11 @@ export interface ComposeContext {
   /** Inserts at the caret. */
   insertText(text: string): void;
   /** Send parameters the core passes to the backend; plugins set them. */
-  /** `followupSecs`: remind when no answer comes that long after sending; `followupDays` is the older form of it. */
-  options: { at: number | null; followupDays: number | null; followupSecs: number | null };
+  /**
+   * `followupSecs`: remind when no answer comes that long after sending; `followupDays` is the older form of it.
+   * `followup`: the rest of that wait (a deadline, repeats, the awaited recipient, the choice's name).
+   */
+  options: { at: number | null; followupDays: number | null; followupSecs: number | null; followup: FollowupPlan | null };
   /** Sends now, or at `at`, after the checks. */
   send(at?: number | null): void;
 }
@@ -217,8 +238,8 @@ export interface PluginContext {
       component: Component<{ compose: ComposeContext; ctx: PluginContext }>;
       props: { ctx: PluginContext };
       order?: number;
-      /** `send`: joined to the Send button; `footer` (default): after the core's buttons. */
-      slot?: "send" | "footer";
+      /** `send`: joined to the Send button; `footer` (default): after the core's buttons; `line`: a quiet line above them. */
+      slot?: "send" | "footer" | "line";
     }): void;
     /** Warnings before sending; returning any stops sending until the user confirms. */
     sendCheck(check: (draft: ComposeDraft, accountEmail: string) => string[]): void;

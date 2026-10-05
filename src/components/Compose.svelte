@@ -39,7 +39,7 @@
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
   import { registry } from "../plugin-host/registry.svelte";
-  import type { ComposeContext } from "../plugin-api";
+  import type { ComposeContext, FollowupPlan } from "../plugin-api";
 
   let { c }: { c: ComposeWindow } = $props();
   // A window keeps its composition for life (keyed by id in App.svelte).
@@ -110,6 +110,7 @@
   // The time belongs to the draft: it is saved with it and survives closing the window.
   let followupDays = $state<number | null>(null);
   let followupSecs = $state<number | null>(null);
+  let followup = $state<FollowupPlan | null>(null);
   const options: ComposeContext["options"] = {
     get at() {
       return c.draft.send_at ?? null;
@@ -128,6 +129,12 @@
     },
     set followupSecs(v) {
       followupSecs = v;
+    },
+    get followup() {
+      return followup;
+    },
+    set followup(v) {
+      followup = v;
     },
   };
   const composeCtx: ComposeContext = {
@@ -400,7 +407,7 @@
       // The saved draft goes away once the letter is sent: the latest copy must be known.
       cancelAutosave();
       await saving;
-      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupSecs ?? (options.followupDays ? options.followupDays * 86_400 : null));
+      await app.send(c.account_id, $state.snapshot(c.draft), c.draft_id, at ?? options.at, options.followupSecs ?? (options.followupDays ? options.followupDays * 86_400 : null), options.followup);
       app.closeCompose(c.id);
     } catch (e) {
       error = (e as { message: string }).message;
@@ -683,6 +690,7 @@
       </div>
     {/if}
 
+    {#each controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
     <footer>
       <span class="split-btn anchor">
         <button class="btn primary main" onclick={() => send()} disabled={busy}>{options.at ? t("compose.schedule") : t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
@@ -696,7 +704,7 @@
         </span>
       {/if}
       <button class="btn" onclick={attach} disabled={busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if width >= 460} {t("compose.files")}{/if}</button>
-      {#each controls.filter((x) => x.slot !== "send") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
+      {#each controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={composeCtx} />{/each}
       <span class="spacer"></span>
       <button class="btn ghost icon" onclick={discard} disabled={busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
     </footer>

@@ -10,7 +10,7 @@ import { ListController, type View } from "./list.svelte";
 import { ActionRunner } from "./actions.svelte";
 import { Reader } from "./reader.svelte";
 import { ComposeManager, type ComposeState, type ComposeWindow } from "./composes.svelte";
-import type { AccountView, Account, ComposeDraft, FolderInfo, MessageRow, Moved, OutboxItem, Settings, SortKey, Task, UpdateStatus } from "./types";
+import type { AccountView, Account, ComposeDraft, FolderInfo, FollowupPlan, MessageRow, Moved, OutboxItem, Settings, SortKey, Task, UpdateStatus } from "./types";
 
 export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
@@ -461,8 +461,8 @@ export class AppStore {
   undo() { return this.actions.undo(); }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
-  send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null) {
-    return this.compose.send(accountId, draft, draftId, at, followupSecs);
+  send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
+    return this.compose.send(accountId, draft, draftId, at, followupSecs, followup);
   }
 
   /** Takes a queued message back into the composer. */

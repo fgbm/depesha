@@ -1390,7 +1390,13 @@ try {
     await rowBySubject(subj, 20000);
     await screenshot("followups");
     helper("reply", "Sent", subj);
-    await d.until("resolved", async () => !(await sidebarText()).includes("Ждут ответа"), 60000, 1000);
+    // Answered: out of the active ones, kept among the closed with who replied.
+    await d.until("resolved", async () => (await invoke("counters")).followups === 0, 60000, 1000);
+    if (!(await sidebarText()).includes("Ждут ответа")) throw new Error("«Ждут ответа» пропал, хотя закрытое ожидание есть");
+    await d.button("Закрытые");
+    await rowBySubject(subj, 20000);
+    await screenshot("followups-closed");
+    await d.button("Активные");
   });
 
   await step("5.10", "«Ждут ответа»: свой срок через «Настроить…» запоминается в списке", async () => {
@@ -1406,7 +1412,7 @@ try {
     const started = Math.floor(Date.now() / 1000);
     await d.click(await d.find(".compose .split-btn .main"));
     await composeClosed();
-    await d.until("waiting in sidebar", async () => (await sidebarText()).includes("Ждут ответа"), 60000, 1000);
+    await d.until("waiting", async () => (await invoke("counters")).followups > 0, 60000, 1000);
     // The reminder is listed by the copy in Sent, which comes a moment after sending.
     const due = await d.until("waiting row", async () => {
       const rows = await invoke("messages", { query: { followups_only: true, threads: false, limit: 50 } });
@@ -1426,7 +1432,12 @@ try {
     await d.button("Ждут ответа");
     await openBySubject(subj);
     await d.button("Не ждать");
-    await d.until("not waiting", async () => !(await sidebarText()).includes("Ждут ответа"), 20000);
+    await d.until("not waiting", async () => (await invoke("counters")).followups === 0, 20000);
+    // Closed by hand: among the closed, and the banner offers to wait again.
+    await d.until("closed banner", async () => (await textOf(".reader")).includes("Снова ждать ответа"), 20000);
+    await d.button("Закрытые");
+    await rowBySubject(subj, 20000);
+    await d.button("Активные");
   });
 
   await step("7.7", "палитра команд (Ctrl+K) и шаблоны ответов", async () => {
