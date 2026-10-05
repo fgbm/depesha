@@ -676,6 +676,19 @@ try {
     await d.until("sent toast", async () => (await d.bodyText()).includes(`Отправлено: ${subject}`), 30000);
   });
 
+  await step("5.1", "Ctrl+Enter, нажатый дважды, отправляет письмо один раз", async () => {
+    const subj = `Дважды ${stamp}`;
+    await newMessage("carol@local.test", subj, "Одно письмо.");
+    // Both presses land before the first send is through the checks.
+    await d.exec(`const t = document.querySelector('.compose textarea');
+      for (let i = 0; i < 2; i++) t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));`);
+    await composeClosed();
+    await d.until("delivered", async () => helper("count", "INBOX", subj) !== "0", 60000, 1000);
+    await new Promise((r) => setTimeout(r, 3000));
+    const n = helper("count", "INBOX", subj);
+    if (n !== "1") throw new Error(`писем пришло: ${n}`);
+  });
+
   await step("3.5", "новое письмо появляется само (IDLE), меньше чем за 60 с", async () => {
     await d.button("Входящие");
     await rowBySubject(subject, 60000);

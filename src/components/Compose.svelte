@@ -150,8 +150,21 @@
     return ok.every(Boolean);
   }
 
+  /** One send at a time: Ctrl+Enter pressed again while the checks run must not queue the letter twice. */
+  let sending = false;
+
   /** `at`: scheduled time; `force`: the warnings were seen and accepted. */
   async function send(at: number | null = null, force = false) {
+    if (sending) return;
+    sending = true;
+    try {
+      await sendOnce(at, force);
+    } finally {
+      sending = false;
+    }
+  }
+
+  async function sendOnce(at: number | null, force: boolean) {
     error = "";
     if (!commitAll()) {
       error = t("compose.badAddresses");
