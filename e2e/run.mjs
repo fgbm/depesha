@@ -680,6 +680,122 @@ try {
     await d.button("Входящие");
   });
 
+  await step("7.11", "избранные папки: звёздочка в строке, блок над деревом, свёрнутый ящик и ветка, полоса", async () => {
+    const accountId = (await invoke("accounts"))[0].id;
+    // Rows carry the server's name of the folder (modified UTF-7), not what it reads as.
+    const nameOf = async (...path) =>
+      (await invoke("folders")).find((f) => f.account_id === accountId && f.display_name === path.join(f.delimiter ?? ""))?.name;
+    // A folder on the third level: Работа / Проекты / 2026.
+    await invoke("folder_create", { accountId, parent: await nameOf("Работа", "Проекты"), name: "2026" });
+    const tree = "nav.side .group .folder-row:not(.fav-row)";
+    const starrable = () => d.exec(`return [...document.querySelectorAll(arguments[0])].filter((r) => r.querySelector('.star')).map((r) => r.dataset.folder)`, tree);
+    const deep = await d.until("third level folder", async () => {
+      const name = await nameOf("Работа", "Проекты", "2026");
+      return name && (await starrable()).includes(name) ? name : null;
+    }, 15000);
+    const work = await nameOf("Работа");
+    // Ten folders to star: enough of them made up top-level if the mailbox has fewer.
+    for (let i = 1, n = (await starrable()).length; n < 10; i++, n++) {
+      await invoke("folder_create", { accountId, parent: null, name: `Звезда ${i}` });
+      await d.until(`folder ${i}`, async () => (await starrable()).length > n, 15000);
+    }
+    const all = await starrable();
+    const ten = [deep, work, ...all.filter((n) => n !== deep && n !== work).slice(0, 8)];
+    const star = (name, where = tree) => d.find(`${where}[data-folder=${JSON.stringify(name)}] .star`);
+    const favs = () => d.exec("return [...document.querySelectorAll('nav.side .favs .fav-row')].map((r) => r.dataset.folder)");
+    const active = () => d.exec("return document.querySelector('nav.side .item.active')?.innerText ?? ''");
+    const before = await active();
+    // Straight down the star column, one click per row.
+    for (const name of ten) await d.click(await star(name));
+    await d.until("ten favourites", async () => (await favs()).length === 10);
+    // A star again on a starred folder takes it off; once more puts it back: still ten, no copy.
+    await d.click(await star(ten[1]));
+    await d.until("unstarred in the tree", async () => (await favs()).length === 9);
+    await d.click(await star(ten[1]));
+    await d.until("starred again", async () => (await favs()).length === 10);
+    if (new Set(await favs()).size !== 10) throw new Error(`повтор в избранном: ${await favs()}`);
+    if ((await active()) !== before) throw new Error("звёздочка открыла папку");
+    const pressed = await d.exec(`return [...document.querySelectorAll(arguments[0])].filter((r) => r.querySelector('.star[aria-pressed=true]')).length`, tree);
+    if (pressed !== 10) throw new Error(`в дереве отмечено ${pressed}`);
+    // One column of stars and one of counters, the shared sections included.
+    const columns = await d.exec(`const x = (css, side) => new Set([...document.querySelectorAll(css)].map((e) => Math.round(e.getBoundingClientRect()[side])));
+      return { stars: [...x('nav.side .star', 'right')], counts: [...x('nav.side .count', 'right')] };`);
+    if (columns.stars.length !== 1 || columns.counts.length !== 1) throw new Error(`столбцы съехали: ${JSON.stringify(columns)}`);
+    const path = await d.exec("return document.querySelector(`nav.side .fav-row[data-folder=${JSON.stringify(arguments[0])}] .path`)?.innerText ?? ''", deep);
+    if (path !== "Работа / Проекты") throw new Error(`путь вложенной: «${path}»`);
+    await screenshot("favourites-tree");
+
+    // A folded branch keeps its favourite in the block.
+    await d.click(await d.find("nav.side .fold[aria-label$=': Работа']"));
+    await d.until("branch folded", async () => !(await starrable()).includes(deep));
+    if (!(await favs()).includes(deep)) throw new Error("вложенная избранная пропала со свёрнутой веткой");
+    await d.click(await d.find("nav.side .fold[aria-label$=': Работа']"));
+    // A folded mailbox: the tree goes, the favourites stay and open their folders.
+    await d.click(await d.find("nav.side .account-name"));
+    await d.until("tree hidden", async () => (await d.findAll(tree)).length === 0);
+    if ((await favs()).length !== 10) throw new Error("избранное скрылось со свёрнутым ящиком");
+    await d.click(await d.find(`nav.side .fav-row[data-folder=${JSON.stringify(work)}] .item`));
+    await d.until("Работа from favourites", async () => (await textOf(".list")).includes("Документы на проверку"));
+    if ((await d.findAll(tree)).length !== 0) throw new Error("ящик развернулся");
+    await screenshot("favourites-collapsed");
+    await d.click(await d.find("nav.side .account-name"));
+    const inboxCounts = await d.exec(`return [...document.querySelectorAll('nav.side .group [data-folder="INBOX"] .count')].map((c) => c.innerText)`);
+    if (inboxCounts.length === 2 && inboxCounts[0] !== inboxCounts[1]) throw new Error(`счётчики «Входящих» разные: ${inboxCounts}`);
+    await openFolder("Работа");
+    await d.until("Работа from the tree", async () => (await textOf(".list")).includes("Документы на проверку"));
+
+    // In the strip the favourites come first; the whole tree under «All folders».
+    const rect = await d.rect();
+    try {
+      await d.setRect(960, rect.height);
+      await d.until("strip", async () => (await d.findAll("nav.side.strip")).length === 1);
+      await d.click((await d.findAll("nav.side .circle"))[0]);
+      await d.until("flyout favourites", async () => (await d.findAll(".pop .favs .fav-row")).length === 10);
+      await screenshot("favourites-strip");
+      await d.click(await d.find(".pop .all-folders"));
+      await d.until("tree in the flyout", async () => (await d.findAll(".pop .folder-row:not(.fav-row)")).length > 0);
+      await press("Escape");
+    } finally {
+      await d.setRect(rect.width, rect.height);
+      await d.until("full sidebar again", async () => (await d.findAll("nav.side.strip")).length === 0).catch(() => {});
+    }
+
+    // Unstarred in the block: the row fades in place, a second press keeps it.
+    const second = (await favs())[1];
+    await d.click(await star(second, "nav.side .fav-row"));
+    if (!(await d.exec("return !!document.querySelector('nav.side .fav-row.leaving')"))) throw new Error("строка не затухает");
+    await d.click(await star(second, "nav.side .fav-row"));
+    await new Promise((r) => setTimeout(r, 1200));
+    if (!(await favs()).includes(second)) throw new Error("повторное нажатие не вернуло папку");
+    // From the keyboard: Space on the star, and the focus goes to the next row's star.
+    const list = await favs();
+    await d.type(await star(list[0], "nav.side .fav-row"), "");
+    await d.until("first one gone", async () => !(await favs()).includes(list[0]), 3000);
+    const focused = await d.exec("const e = document.activeElement; return e.classList.contains('star') ? e.closest('.fav-row')?.dataset.folder : e.className");
+    if (focused !== list[1]) throw new Error(`фокус ушёл на «${focused}»`);
+    // The folder itself stays on the server and in the tree.
+    if ((await d.findAll(`${tree}[data-folder=${JSON.stringify(list[0])}]`)).length !== 1) throw new Error("папка пропала из дерева");
+    // The folder's menu says the same as the star.
+    await d.exec(
+      `const item = document.querySelector('${tree}[data-folder="' + arguments[0] + '"] .item'); const r = item.getBoundingClientRect();
+       item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10 }));`,
+      list[1],
+    );
+    await d.click(await d.until("menu item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Убрать из избранного')]")));
+    await d.until("removed by the menu", async () => !(await favs()).includes(list[1]));
+    if (await d.exec(`return document.querySelector('${tree}[data-folder="' + arguments[0] + '"] .star').getAttribute('aria-pressed')`, list[1]) !== "false")
+      throw new Error("звёздочка не сброшена после меню");
+
+    // Without favourites the mailbox folds whole again, as before.
+    for (const name of await favs()) await d.click(await star(name));
+    await d.until("no favourites", async () => (await d.findAll("nav.side .fav-row")).length === 0);
+    await d.click(await d.find("nav.side .account-name"));
+    const left = await d.exec("return document.querySelector('nav.side .group.collapsed')?.querySelectorAll('.item').length ?? -1");
+    await d.click(await d.find("nav.side .account-name"));
+    if (left !== 0) throw new Error(`у свёрнутого ящика без избранного видно ${left} папок`);
+    await d.button("Входящие");
+  });
+
   await step("3.11", "офлайн: письма за 30 дней скачиваются сами, ход виден в «Фоновых задачах»", async () => {
     const overview = () => invoke("sync_overview");
     await d.until("offline download done", async () => {
