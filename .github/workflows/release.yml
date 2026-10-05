@@ -52,7 +52,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Депеша ${{ github.ref_name }}"
-          releaseBody: "См. CHANGELOG.md. Сборки не подписаны: Windows SmartScreen и macOS Gatekeeper предупредят при первом запуске."
+          releaseBody: "Описание соберётся из коммитов, когда пройдут все сборки. Сборки не подписаны: Windows SmartScreen и macOS Gatekeeper предупредят при первом запуске."
           releaseDraft: true
           # latest.json: what installed copies check (releases/latest/download/latest.json).
           uploadUpdaterJson: true
@@ -71,7 +71,7 @@ jobs:
         with:
           # The previous tag and the commits since it.
           fetch-depth: 0
-      - name: Release notes from CHANGELOG.md and the commits
+      - name: Release notes from the commits
         run: scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
       - name: Publish
         env:
