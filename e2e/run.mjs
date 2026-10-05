@@ -209,7 +209,12 @@ async function composeClosed() {
 /** Closes the settings window without touching what it saves with its own button. */
 async function closeSettings() {
   if ((await d.findAll(".prefs")).length === 0) return;
-  await d.click(await d.find(".prefs footer .btn.ghost"));
+  // A mailbox's page keeps its own footer and hides the shared one, so its «Cancel»
+  // would only go back to the list. Escape closes the window from anywhere inside it,
+  // and its handler sits on the window element: the event must start there.
+  await d.exec(
+    "document.querySelector('.modal.prefs')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
+  );
   await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
 }
 
