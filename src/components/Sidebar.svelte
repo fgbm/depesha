@@ -25,7 +25,10 @@
   import Activity from "@lucide/svelte/icons/activity";
   import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
   import ChevronsRight from "@lucide/svelte/icons/chevrons-right";
+  import Star from "@lucide/svelte/icons/star";
+  import { slide } from "svelte/transition";
   import { app, type View } from "../lib/store.svelte";
+  import { favourites, neighbour, splitPath, type Favourite } from "../lib/favourites.svelte";
   import { api } from "../lib/api";
   import { when } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
@@ -176,11 +179,43 @@
 
   /** The mailbox whose folders open beside the strip; a click opens them, hovering does not. */
   let flyout = $state<string | null>(null);
+  /** The flyout of a mailbox with favourites shows them; the whole tree opens under «All folders». */
+  let flyoutTree = $state(false);
 
   // The full sidebar shows the folders itself: an open flyout does not come back with the strip.
   $effect(() => {
     if (!layout.strip) flyout = null;
   });
+
+  $effect(() => {
+    void flyout;
+    flyoutTree = false;
+  });
+
+  const favouriteOf = (f: FolderInfo): Favourite => ({ name: f.name, display: f.display_name, delimiter: f.delimiter });
+
+  /** The folder list of the mailbox has been read: a favourite missing from it is gone, not just not loaded yet. */
+  function listed(acc: AccountView): boolean {
+    return app.folders.some((f) => f.account_id === acc.id);
+  }
+
+  // A row leaving the favourites with the focus on its star hands the focus on: to the next
+  // row's star, else the one before, else the mailbox's name (the flyout's «All folders»).
+  favourites.onleave = (account, name) => {
+    const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".fav-row");
+    if (!row || row.dataset.account !== account || row.dataset.folder !== name) return;
+    const block = row.closest<HTMLElement>(".favs");
+    const rows = [...(block?.querySelectorAll<HTMLElement>(".fav-row") ?? [])];
+    const next = neighbour(rows, rows.indexOf(row))?.querySelector<HTMLElement>(".star");
+    const around = block?.closest<HTMLElement>(".group, .fly-folders");
+    (next ?? around?.querySelector<HTMLElement>(".account-name, .all-folders"))?.focus();
+  };
+
+  /** The height of a removed favourite goes to zero shortly; at once when motion is reduced. */
+  function closing(node: Element) {
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return slide(node, { duration: reduced ? 0 : 150 });
+  }
 
   function inboxUnread(acc: AccountView): number {
     return app.folders.filter((f) => f.account_id === acc.id && f.role === "inbox").reduce((n, f) => n + f.unread, 0);
@@ -210,7 +245,7 @@
   {#each unfolded(all, (name) => !!folded[`${acc.id}\u0000${name}`]) as f (f.name)}
     {@const v = { kind: "folder", account_id: acc.id, folder: f.name } as View}
     {@const Icon = f.role ? ROLE_ICON[f.role] : Folder}
-    <div class="folder-row">
+    <div class="folder-row" data-folder={f.name}>
       {#if parents.has(f.name)}
         {@const open = !folded[foldKey(f)]}
         <!-- A triangle of its own: a click on the name still opens the folder. -->
@@ -239,15 +274,70 @@
       >
         <span class="icon"><Icon size={16} /></span>
         <span class="name">{label(f)}</span>
-        <!-- Drafts count all of them: a draft is not "unread". -->
-        {#if f.role === "drafts"}
-          {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
-        {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
-          <span class="count">{f.unread}</span>
-        {/if}
+        {@render count(f)}
       </button>
+      {#if f.selectable}{@render star(acc, favouriteOf(f), false)}{/if}
     </div>
   {/each}
+{/snippet}
+
+{#snippet count(f: FolderInfo)}
+  <!-- Drafts count all of them: a draft is not "unread". -->
+  {#if f.role === "drafts"}
+    {#if f.total > 0}<span class="count quiet">{f.total}</span>{/if}
+  {:else if f.unread > 0 && f.role !== "sent" && f.role !== "trash"}
+    <span class="count">{f.unread}</span>
+  {/if}
+{/snippet}
+
+<!-- The star in the last column of a row: its place does not depend on the name, the depth or the counter.
+     Quick actions of the row, when there are some, go left of it. -->
+{#snippet star(acc: AccountView, fav: Favourite, inBlock: boolean)}
+  {@const on = favourites.has(acc.id, fav.name)}
+  <button
+    class="star"
+    class:on
+    aria-pressed={on}
+    title={on ? t("favourites.remove") : t("favourites.add")}
+    aria-label={on ? t("favourites.remove") : t("favourites.add")}
+    onclick={() => favourites.toggle(acc.id, fav, inBlock)}
+  ><Star size={15} fill={on ? "currentColor" : "none"} /></button>
+{/snippet}
+
+<!-- The mailbox's favourites, in the order added, whatever is folded; a nested one shows its path. -->
+{#snippet favouriteRows(acc: AccountView, picked?: () => void)}
+  {@const list = favourites.of(acc.id)}
+  {#if list.length}
+    <div class="favs" role="group" aria-label={t("favourites.title")}>
+      {#each list as fav (fav.name)}
+        {@const f = app.folder(acc.id, fav.name)}
+        {@const gone = listed(acc) && !f?.selectable}
+        {@const v = { kind: "folder", account_id: acc.id, folder: fav.name } as View}
+        {@const Icon = f?.role ? ROLE_ICON[f.role] : Folder}
+        {@const where = splitPath(f?.display_name ?? fav.display, f?.delimiter ?? fav.delimiter)}
+        <div class="folder-row fav-row" class:leaving={favourites.isLeaving(acc.id, fav.name)} data-account={acc.id} data-folder={fav.name} out:closing>
+          <button
+            class="item"
+            class:active={!gone && isActive(v)}
+            class:disabled={gone}
+            disabled={gone}
+            role={picked ? "menuitem" : undefined}
+            onclick={() => {
+              picked?.();
+              app.setView(v);
+            }}
+            oncontextmenu={(e) => f && !gone && contextMenu(e, acc, f)}
+            title={gone ? t("favourites.gone", { name: fav.display }) : (f?.display_name ?? fav.display)}
+          >
+            <span class="icon"><Icon size={16} /></span>
+            <span class="name">{f?.role ? roleLabel(f.role) : where.leaf}{#if where.path}<span class="path">{where.path}</span>{/if}</span>
+            {#if f && !gone}{@render count(f)}{/if}
+          </button>
+          {@render star(acc, fav, true)}
+        </div>
+      {/each}
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet problem(acc: AccountView, picked?: () => void)}
@@ -361,7 +451,19 @@
               </div>
               {#if acc.label?.trim()}<div class="fly-mail">{acc.email}</div>{/if}
               {@render problem(acc, () => (flyout = null))}
-              <div class="fly-folders">{@render folderRows(acc, () => (flyout = null))}</div>
+              <div class="fly-folders">
+                {#if favourites.of(acc.id).length}
+                  {@render favouriteRows(acc, () => (flyout = null))}
+                  <button class="item all-folders" role="menuitem" aria-expanded={flyoutTree} onclick={() => (flyoutTree = !flyoutTree)}>
+                    <span class="icon"><Folder size={16} /></span>
+                    <span class="name">{t("favourites.allFolders")}</span>
+                    <span class="disclose" class:open={flyoutTree}><ChevronRight size={14} /></span>
+                  </button>
+                  {#if flyoutTree}{@render folderRows(acc, () => (flyout = null))}{/if}
+                {:else}
+                  {@render folderRows(acc, () => (flyout = null))}
+                {/if}
+              </div>
             </Popover>
           </div>
         {/each}
@@ -444,7 +546,9 @@
             </Popover>
           </div>
           {@render problem(acc)}
+          {@render favouriteRows(acc)}
           {#if !collapsed[acc.id]}
+            {#if favourites.of(acc.id).length}<div class="all-label">{t("favourites.allFolders")}</div>{/if}
             {@render folderRows(acc)}
           {/if}
         </div>
@@ -593,12 +697,20 @@
     background: var(--side-2);
   }
 
+  /* Every row keeps the star's column on its right, the sections without stars too:
+     counters stand in one column, stars in another. */
+  .side {
+    --star: 24px;
+    --star-right: 8px;
+    --tail: calc(var(--star) + var(--star-right) + 6px);
+  }
+
   .item {
     width: 100%;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 14px;
+    padding: 5px var(--tail) 5px 14px;
     background: none;
     border: none;
     color: var(--side-ink);
@@ -636,6 +748,109 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* The same distance from the right edge in every row, whatever the panel's width. */
+  .star {
+    position: absolute;
+    top: 50%;
+    right: var(--star-right);
+    transform: translateY(-50%);
+    z-index: 1;
+    width: var(--star);
+    height: var(--star);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: none;
+    /* An empty star shows on the row under the pointer or in focus; hidden by colour, as the account's chevron. */
+    color: transparent;
+  }
+
+  .folder-row:hover .star,
+  .folder-row:focus-within .star,
+  .fav-row.leaving .star {
+    color: var(--side-muted);
+  }
+
+  .star:hover {
+    color: var(--side-ink);
+    background: color-mix(in srgb, var(--side-ink) 10%, transparent);
+  }
+
+  .star.on,
+  .folder-row:hover .star.on {
+    color: #e0b040;
+  }
+
+  .star:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--side-ink) 55%, transparent);
+    outline-offset: -1px;
+  }
+
+  /* An unstarred favourite stays in its place and fades; its star stays, a second press keeps it. */
+  .fav-row.leaving .item {
+    opacity: 0;
+    transition: opacity 0.7s ease-in;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fav-row.leaving .item {
+      opacity: 1;
+      transition: none;
+    }
+  }
+
+  .favs {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .path {
+    margin-left: 7px;
+    font-size: 12px;
+    color: var(--side-muted);
+  }
+
+  /* Gone from the server: the record stays until it is unstarred, plainly not a folder to open. */
+  .fav-row .item.disabled .name {
+    text-decoration: line-through;
+  }
+
+  /* «All folders» under the favourites: a quiet caption with a line, the tree follows. */
+  .all-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px var(--tail) 3px 40px;
+    font-size: 11.5px;
+    color: var(--side-muted);
+  }
+
+  .all-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: color-mix(in srgb, var(--side-ink) 12%, transparent);
+  }
+
+  .fly-folders .all-folders {
+    margin-top: 4px;
+    color: var(--side-muted);
+    border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, transparent);
+    border-radius: 0 0 5px 5px;
+  }
+
+  .disclose {
+    display: inline-flex;
+    transition: transform 0.12s;
+  }
+
+  .disclose.open {
+    transform: rotate(90deg);
   }
 
   .count {

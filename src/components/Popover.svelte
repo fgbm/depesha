@@ -76,6 +76,14 @@
     }
   });
 
+  // A flyout grows in place (the folder tree under «All folders»): it is placed again to stay in the window.
+  $effect(() => {
+    if (!open || !box || !beside) return;
+    const watch = new MutationObserver(() => place());
+    watch.observe(box, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  });
+
   function outside(e: PointerEvent) {
     // The trigger toggles by itself; clicks inside stay inside. A context menu has no trigger.
     const inside = at ? box : box?.parentElement;

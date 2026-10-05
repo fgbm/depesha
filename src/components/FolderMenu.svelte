@@ -6,10 +6,12 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Activity from "@lucide/svelte/icons/activity";
+  import Star from "@lucide/svelte/icons/star";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { accountLabel } from "../lib/format";
+  import { favourites } from "../lib/favourites.svelte";
   import type { AccountView, FolderInfo } from "../lib/types";
   import Popover from "./Popover.svelte";
   import { untrack } from "svelte";
@@ -81,6 +83,11 @@
     <button class="mi" onclick={sync}><RotateCw size={15} /> {t("folder.sync")}</button>
     <button class="mi" disabled={folder.unread === 0} onclick={markAllRead}><MailOpen size={15} /> {t("folder.markAllRead")}</button>
     <hr />
+    <!-- The same as the star in the folder's row: from the menu the favourite goes at once. -->
+    {@const starred = favourites.has(account.id, folder.name)}
+    <button class="mi" onclick={() => run(() => favourites.toggle(account.id, { name: folder.name, display: folder.display_name, delimiter: folder.delimiter }))}
+      ><Star size={15} fill={starred ? "currentColor" : "none"} /> {starred ? t("favourites.remove") : t("favourites.add")}</button
+    >
     <button class="mi" onclick={() => (naming = true)}><FolderPlus size={15} /> {t("folder.newInside")}</button>
   {:else}
     <div class="mt">{accountLabel(account)}</div>
