@@ -3,7 +3,7 @@
 //
 //   docker compose -f compose.test.yaml up -d --force-recreate && python3 e2e/imap_helper.py seed
 //   npx tauri build --debug --no-bundle
-//   node e2e/run.mjs
+//   e2e/keyring.sh node e2e/run.mjs   (a throwaway keyring, see e2e/README.md)
 //
 // Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99).
 
@@ -53,16 +53,35 @@ async function screenshot(name) {
   await d.exec("document.querySelector('.toasts')?.style.removeProperty('visibility')").catch(() => {});
 }
 
-async function step(criteria, name, fn) {
+/** Failed steps in a row: past this many the rest only waits out its timeouts, so the run stops. */
+const CASCADE = 3;
+let failedInRow = 0;
+
+class Abort extends Error {}
+
+/** `critical`: the steps after it cannot pass without it (the account is not set up). */
+async function step(criteria, name, fn, { critical = false } = {}) {
   const started = Date.now();
   try {
     await fn();
+    failedInRow = 0;
     results.push({ criteria, name, ok: true, ms: Date.now() - started });
     console.log(`  ✓ [${criteria}] ${name} (${Date.now() - started} мс)`);
   } catch (e) {
-    results.push({ criteria, name, ok: false, error: e.message });
+    results.push({ criteria, name, ok: false, error: e.message, ms: Date.now() - started });
     console.log(`  ✗ [${criteria}] ${name}: ${e.message}`);
     await screenshot(`FAIL-${name.replace(/[^\p{L}\d]+/gu, "_")}`).catch(() => {});
+    if (critical) throw new Abort(`без шага «${name}» дальше идти нельзя`);
+    if (++failedInRow >= CASCADE) throw new Abort(`${CASCADE} шага подряд не прошли, остальные упадут по таймаутам`);
+    await tidyUp();
+  }
+}
+
+/** Closes what a failed step left open (menus, the viewer, dialogs): it would cover the next step's clicks. */
+async function tidyUp() {
+  for (let i = 0; i < 3; i++) {
+    await press("Escape").catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
   }
 }
 
@@ -177,7 +196,7 @@ try {
   await step("1.1", "мастер открывается на пустом профиле", async () => {
     await d.until("wizard", async () => (await d.bodyText()).includes("Добавить почтовый ящик"));
     await screenshot("wizard");
-  });
+  }, { critical: true });
 
   await step("1.1", "автоопределение и ручная правка параметров", async () => {
     await setInput(".wizard input[placeholder='Иван Петров']", "Кэрол Тестова");
@@ -197,7 +216,7 @@ try {
       await d.type(ports[i], String(port));
     }
     await screenshot("wizard-settings");
-  });
+  }, { critical: true });
 
   await step("1.2", "неверный пароль даёт понятную ошибку", async () => {
     await setInput(".wizard .grid input[type=password]", "wrong");
@@ -210,7 +229,7 @@ try {
     await setInput(".wizard .grid input[type=password]", "secret");
     await d.button("Проверить и сохранить");
     await d.until("wizard closed", async () => (await d.findAll(".wizard")).length === 0, 30000);
-  });
+  }, { critical: true });
 
   await step("1.3", "пароль не попал в файлы профиля", async () => {
     const cfg = readFileSync(join(profile, "config/ru.depesha.mail/accounts.json"), "utf-8");
@@ -1257,7 +1276,8 @@ try {
 
   await screenshot("final");
 } catch (e) {
-  console.error("Прогон прерван:", e);
+  if (e instanceof Abort) console.error(`\nПрогон остановлен: ${e.message}.`);
+  else console.error("Прогон прерван:", e);
   results.push({ criteria: "-", name: "прогон", ok: false, error: e.message });
 } finally {
   await d.quit();

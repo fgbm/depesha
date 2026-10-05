@@ -49,4 +49,4 @@ for i in $(seq 10); do
   sleep 2
 done
 npx tauri build --debug --no-bundle
-node e2e/run.mjs
+e2e/keyring.sh node e2e/run.mjs

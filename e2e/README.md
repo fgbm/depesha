@@ -20,23 +20,13 @@ cargo install tauri-driver --locked
 docker compose -f compose.test.yaml up -d --force-recreate
 python3 e2e/imap_helper.py seed
 npx tauri build --debug --no-bundle
-node e2e/run.mjs
+e2e/keyring.sh node e2e/run.mjs
 ```
 
 Переменные: `DEPESHA_APP` (путь к бинарнику, например релизный `target/release/depesha`), `WEBKIT_DRIVER`, `E2E_DISPLAY`.
 
-Если связка ключей пользователя заблокирована, мастер не сохранит пароль («SS error: prompt dismissed»). Тогда прогон запускается в отдельной сессии D-Bus с одноразовой связкой, основная не трогается:
+`e2e/keyring.sh` запускает команду в отдельной сессии D-Bus с одноразовой разблокированной связкой ключей: пароли тестовых ящиков не попадают в связку пользователя, а заблокированная связка не мешает мастеру («SS error: prompt dismissed»). Так прогон запускает `scripts/check.sh`; вручную — `e2e/keyring.sh node e2e/run.mjs`. С `E2E_SYSTEM_KEYRING=1` используется связка текущей сессии.
 
-```
-cat > /tmp/e2e-keyring.sh <<'SH'
-#!/bin/bash
-export XDG_DATA_HOME="$(mktemp -d)"
-echo -n x | gnome-keyring-daemon --login >/dev/null 2>&1
-eval "$(gnome-keyring-daemon --start --components=secrets)"
-unset XDG_DATA_HOME
-node e2e/run.mjs
-SH
-chmod +x /tmp/e2e-keyring.sh && dbus-run-session -- /tmp/e2e-keyring.sh
-```
+Прогон останавливается, если не прошёл шаг, без которого остальные не имеют смысла (мастер, вход в ящик), или три шага подряд: дальше они только ждали бы свои таймауты. После провала шаг закрывает открытые меню и окна клавишей Esc, чтобы они не перекрывали следующие шаги.
 
-Тест работает во временном профиле (`XDG_*` во временном каталоге) и отключает системные уведомления (`DEPESHA_NO_NOTIFICATIONS=1`). Пароли тестовых ящиков попадают в связку ключей пользователя и удаляются в конце прогона по id тестовой учётной записи.
+Тест работает во временном профиле (`XDG_*` во временном каталоге) и отключает системные уведомления (`DEPESHA_NO_NOTIFICATIONS=1`). В конце прогона пароли тестовых ящиков удаляются из связки по id тестовой учётной записи.
