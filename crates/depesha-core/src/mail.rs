@@ -107,17 +107,33 @@ pub async fn prefetch_bodies(conn: &mut Conn, store: &Store, folder: &str, messa
     Ok(saved)
 }
 
+/// Exchange UIDs are the cache's own: they name other items once the folder is
+/// cached anew, which gives it a new UIDVALIDITY.
+fn ews_check(store: &Store, account_id: &str, folder: &str, validity: u32) -> Result<()> {
+    if store.folder_state(account_id, folder)?.0 != validity {
+        return Err(Error::FolderChanged);
+    }
+    Ok(())
+}
+
+/// Changes a flag by UIDs read from the cache under `validity` (`Store::folder_state`);
+/// refused with `FolderChanged` when the folder has been renumbered since. The same for
+/// moving and deleting.
 pub async fn set_flag(
     conn: &mut Conn,
     store: &Store,
     account_id: &str,
     folder: &str,
+    validity: u32,
     uids: &[u32],
     change: FlagChange,
 ) -> Result<()> {
     match conn {
-        Conn::Imap(c) => imap::set_flag(c, folder, uids, change).await,
-        Conn::Ews(s) => ews::set_flag(s, store, account_id, folder, uids, change).await,
+        Conn::Imap(c) => imap::set_flag(c, folder, Some(validity), uids, change).await,
+        Conn::Ews(s) => {
+            ews_check(store, account_id, folder, validity)?;
+            ews::set_flag(s, store, account_id, folder, uids, change).await
+        }
     }
 }
 
@@ -126,12 +142,16 @@ pub async fn move_messages(
     store: &Store,
     account_id: &str,
     from: &str,
+    validity: u32,
     uids: &[u32],
     to: &str,
 ) -> Result<()> {
     match conn {
-        Conn::Imap(c) => imap::move_messages(c, from, uids, to).await,
-        Conn::Ews(s) => ews::move_messages(s, store, account_id, from, uids, to).await,
+        Conn::Imap(c) => imap::move_messages(c, from, Some(validity), uids, to).await,
+        Conn::Ews(s) => {
+            ews_check(store, account_id, from, validity)?;
+            ews::move_messages(s, store, account_id, from, uids, to).await
+        }
     }
 }
 
@@ -140,11 +160,15 @@ pub async fn delete_permanently(
     store: &Store,
     account_id: &str,
     folder: &str,
+    validity: u32,
     uids: &[u32],
 ) -> Result<()> {
     match conn {
-        Conn::Imap(c) => imap::delete_permanently(c, folder, uids).await,
-        Conn::Ews(s) => ews::delete_permanently(s, store, account_id, folder, uids).await,
+        Conn::Imap(c) => imap::delete_permanently(c, folder, Some(validity), uids).await,
+        Conn::Ews(s) => {
+            ews_check(store, account_id, folder, validity)?;
+            ews::delete_permanently(s, store, account_id, folder, uids).await
+        }
     }
 }
 
@@ -213,24 +237,31 @@ pub async fn move_by_message_id(
 ) -> Result<usize> {
     match conn {
         Conn::Imap(c) => {
+            let (validity, _) = store.folder_state(account_id, from)?;
             let mut uids = Vec::new();
+            let mut cached = false;
             for mid in message_ids {
                 // The cache has the UID: the move that put the message here synced the
                 // folder. The server's search may not have it yet: Yandex indexes moved
                 // mail with a delay, and "z" right after "e" found nothing.
                 match store.find_by_message_id(account_id, from, mid)? {
-                    Some(row) => uids.push(row.uid),
+                    Some(row) => {
+                        uids.push(row.uid);
+                        cached = true;
+                    }
                     None => uids.extend(imap::find_by_message_id(c, from, mid).await?),
                 }
             }
             if uids.is_empty() {
                 return Ok(0);
             }
+            // UIDs from the cache hold only while the folder keeps its UIDVALIDITY.
+            let validity = cached.then_some(validity);
             // Flags travel with the message: unread before the move, no search after it.
             if unseen {
-                imap::set_flag(c, from, &uids, FlagChange::Seen(false)).await?;
+                imap::set_flag(c, from, validity, &uids, FlagChange::Seen(false)).await?;
             }
-            imap::move_messages(c, from, &uids, to).await?;
+            imap::move_messages(c, from, validity, &uids, to).await?;
             Ok(uids.len())
         }
         Conn::Ews(s) => ews::move_by_message_id(s, store, account_id, from, message_ids, to, unseen).await,
@@ -261,5 +292,37 @@ pub async fn wait_for_changes(
             let outcome = ews::wait_for_changes(&mut s, store, account_id, poll).await?;
             Ok((Conn::Ews(s), outcome))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// UIDs read before an Exchange folder was cached anew name other items: refused.
+    #[test]
+    fn exchange_actions_on_uids_of_a_cleared_folder_are_refused() {
+        let store = Store::open_in_memory().unwrap();
+        let inbox = Folder {
+            name: "INBOX".into(),
+            display_name: "INBOX".into(),
+            delimiter: Some("/".into()),
+            role: None,
+            selectable: true,
+            hidden: false,
+        };
+        store.replace_folders("a", &[inbox]).unwrap();
+        store.ews_set_folders("a", &[("INBOX".into(), "id-1".into())]).unwrap();
+        store.set_folder_state("a", "INBOX", 1, 1000).unwrap();
+        let (validity, _) = store.folder_state("a", "INBOX").unwrap();
+        ews_check(&store, "a", "INBOX", validity).unwrap();
+
+        store.ews_clear_folder("a", "INBOX").unwrap();
+        assert!(matches!(
+            ews_check(&store, "a", "INBOX", validity),
+            Err(Error::FolderChanged)
+        ));
+        let (fresh, _) = store.folder_state("a", "INBOX").unwrap();
+        ews_check(&store, "a", "INBOX", fresh).unwrap();
     }
 }

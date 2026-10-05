@@ -121,7 +121,7 @@ async fn send_sync_read_flag_move() {
     assert_eq!(again, Default::default(), "second sync must be a no-op");
 
     // Flag on the server, read back through sync.
-    imap::set_flag(&mut conn, "INBOX", &[row.uid], FlagChange::Seen(true))
+    imap::set_flag(&mut conn, "INBOX", None, &[row.uid], FlagChange::Seen(true))
         .await
         .unwrap();
     let report = sync::sync_folder(&mut conn, &store, "bob", "INBOX", SyncOptions::default())
@@ -131,7 +131,7 @@ async fn send_sync_read_flag_move() {
     assert!(store.get(row.id).unwrap().unwrap().flags.seen);
 
     // Move to Trash: gone from INBOX, present in Trash.
-    imap::move_messages(&mut conn, "INBOX", &[row.uid], "Trash")
+    imap::move_messages(&mut conn, "INBOX", None, &[row.uid], "Trash")
         .await
         .unwrap();
     let report = sync::sync_folder(&mut conn, &store, "bob", "INBOX", SyncOptions::default())
@@ -161,7 +161,9 @@ async fn send_sync_read_flag_move() {
         .unwrap()
         .uid;
     conn.caps.move_ = false;
-    imap::move_messages(&mut conn, "INBOX", &[uid2], "Trash").await.unwrap();
+    imap::move_messages(&mut conn, "INBOX", None, &[uid2], "Trash")
+        .await
+        .unwrap();
     let report = sync::sync_folder(&mut conn, &store, "bob", "INBOX", SyncOptions::default())
         .await
         .unwrap();
@@ -183,7 +185,7 @@ async fn send_sync_read_flag_move() {
         "fallback-moved message in Trash"
     );
 
-    imap::delete_permanently(&mut conn, "Trash", &[trashed.uid])
+    imap::delete_permanently(&mut conn, "Trash", None, &[trashed.uid])
         .await
         .unwrap();
     let report = sync::sync_folder(&mut conn, &store, "bob", "Trash", SyncOptions::default())

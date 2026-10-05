@@ -39,6 +39,22 @@ fn init_logging(dir: &std::path::Path) -> Option<tracing_appender::non_blocking:
     Some(guard)
 }
 
+/// The cache cannot be opened (one from a newer version, a broken file): say why and
+/// quit, instead of starting without the mail, outbox and reminders kept in it.
+fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    tracing::error!(kind = e.kind(), "the cache did not open: {e}");
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+    let handle = app.handle().clone();
+    app.dialog()
+        .message(e.to_string())
+        .title(depesha_core::lang::pick("Depesha", "Депеша"))
+        .kind(MessageDialogKind::Error)
+        .show(move |_| handle.exit(1));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -73,12 +89,21 @@ pub fn run() {
             }
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
 
-            let store = Store::open(data_dir.join("mail.sqlite"))?;
             let config_path = config_dir.join("accounts.json");
+            let config = config::load(&config_path);
+            // The language before the cache opens: its refusal is shown to the user.
+            depesha_core::lang::set(config.settings.lang());
+            let store = match Store::open(data_dir.join("mail.sqlite")) {
+                Ok(store) => store,
+                Err(e) => {
+                    refuse_to_start(app, &e);
+                    return Ok(());
+                }
+            };
             let state = Arc::new(AppState {
                 app: app.handle().clone(),
                 store: Arc::new(store),
-                config: Mutex::new(config::load(&config_path)),
+                config: Mutex::new(config),
                 config_path,
                 workers: Mutex::new(HashMap::new()),
                 statuses: Mutex::new(HashMap::new()),

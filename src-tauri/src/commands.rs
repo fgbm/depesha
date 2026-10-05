@@ -13,7 +13,7 @@ use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
 use depesha_core::store::{FolderInfo, ListQuery, MessageRow, OutboxItem, Snooze, SortKey};
 use depesha_core::unsubscribe::Way;
-use depesha_core::{avatar, mail, oauth};
+use depesha_core::{Error, avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -174,8 +174,10 @@ pub async fn account_save(
 pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
     state.set_worker(&id, None);
     state.tasks_forget_account(&id);
-    state.remove_account(&id)?;
+    // The cache first: while the account is in the settings, a failed removal can be
+    // repeated; after that nothing would remove its leftovers.
     state.store.forget_account(&id)?;
+    state.remove_account(&id)?;
     state.forget_token(&id);
     secrets::delete(&id).await?;
     Ok(())
@@ -376,12 +378,14 @@ async fn raw_of(state: &AppState, row: &MessageRow) -> CmdResult<Vec<u8>> {
 }
 
 fn row(state: &AppState, id: i64) -> CmdResult<MessageRow> {
-    state.store.get(id)?.ok_or_else(|| {
-        CmdError::new(
-            "not-found",
-            tr!("the message was deleted or moved", "письмо уже удалено или перемещено"),
-        )
-    })
+    state.store.get(id)?.ok_or_else(gone)
+}
+
+fn gone() -> CmdError {
+    CmdError::new(
+        "not-found",
+        tr!("the message was deleted or moved", "письмо уже удалено или перемещено"),
+    )
 }
 
 #[tauri::command]
@@ -404,20 +408,14 @@ pub async fn message_open(state: St<'_>, id: i64, allow_remote: bool) -> CmdResu
     })
 }
 
-/// Groups message ids by (account, folder) for server operations.
-fn group(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String), Vec<u32>>> {
-    Ok(group_rows(state, ids)?
-        .into_iter()
-        .map(|(k, rows)| (k, rows.iter().map(|r| r.uid).collect()))
-        .collect())
-}
-
-fn group_rows(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String), Vec<MessageRow>>> {
-    let mut groups: BTreeMap<(String, String), Vec<MessageRow>> = BTreeMap::new();
+/// Message rows by (account, folder, UIDVALIDITY) for server operations: the worker
+/// refuses UIDs of a folder renumbered since they were read.
+fn group_rows(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, String, u32), Vec<MessageRow>>> {
+    let mut groups: BTreeMap<(String, String, u32), Vec<MessageRow>> = BTreeMap::new();
     for id in ids {
-        if let Some(r) = state.store.get(*id)? {
+        if let Some((r, validity)) = state.store.get_at(*id)? {
             groups
-                .entry((r.account_id.clone(), r.folder.clone()))
+                .entry((r.account_id.clone(), r.folder.clone(), validity))
                 .or_default()
                 .push(r);
         }
@@ -434,11 +432,17 @@ pub struct Moved {
     message_ids: Vec<String>,
 }
 
-async fn move_group(state: &AppState, account_id: &str, from: &str, rows: &[MessageRow], to: &str) -> CmdResult<Moved> {
+async fn move_group(
+    state: &AppState,
+    (account_id, from, validity): &(String, String, u32),
+    rows: &[MessageRow],
+    to: &str,
+) -> CmdResult<Moved> {
     state
         .worker(account_id)?
         .run(Work::Move {
             from: from.to_owned(),
+            validity: *validity,
             uids: rows.iter().map(|r| r.uid).collect(),
             to: to.to_owned(),
         })
@@ -508,22 +512,13 @@ async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name:
 
 #[tauri::command]
 pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdResult<()> {
-    for ((account_id, folder), uids) in group(&state, &ids)? {
+    for ((account_id, folder, validity), rows) in group_rows(&state, &ids)? {
         let worker = state.worker(&account_id)?;
-        // Local first so the list reacts at once; syncs keep it until the server answers.
-        state.store.change_flags(&account_id, &folder, &uids, change)?;
-        state.emit(
-            "mail-changed",
-            serde_json::json!({ "account_id": account_id, "folder": folder }),
-        );
-        let done = worker
-            .run(Work::SetFlag {
-                folder: folder.clone(),
-                uids: uids.clone(),
-                change,
-            })
-            .await;
-        state.store.settle_flags(&account_id, &folder, &uids);
+        let uids: Vec<u32> = rows.iter().map(|r| r.uid).collect();
+        let mut done = flag_group(&state, &worker, &account_id, &folder, validity, &uids, change).await;
+        if matches!(done, Err(Error::FolderChanged)) {
+            done = reflag(&state, &worker, &account_id, &folder, &rows, change).await;
+        }
         if done.is_err() {
             // Refused or not sent: the list shows the server's state again.
             worker.kick(Work::SyncFolder(folder));
@@ -533,12 +528,76 @@ pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdRe
     Ok(())
 }
 
+async fn flag_group(
+    state: &AppState,
+    worker: &worker::Worker,
+    account_id: &str,
+    folder: &str,
+    validity: u32,
+    uids: &[u32],
+    change: FlagChange,
+) -> depesha_core::Result<()> {
+    // Local first so the list reacts at once; syncs keep it until the server answers.
+    state.store.change_flags(account_id, folder, uids, change)?;
+    state.emit(
+        "mail-changed",
+        serde_json::json!({ "account_id": account_id, "folder": folder }),
+    );
+    let done = worker
+        .run(Work::SetFlag {
+            folder: folder.to_owned(),
+            validity,
+            uids: uids.to_vec(),
+            change,
+        })
+        .await;
+    state.store.settle_flags(account_id, folder, uids);
+    done.map(|_| ())
+}
+
+/// The server renumbered the folder before the flag was set: the same letters are
+/// found by Message-ID in the folder synced anew and flagged there. A flag set twice
+/// does no harm; moves and deletes are not repeated by such a guess.
+async fn reflag(
+    state: &AppState,
+    worker: &worker::Worker,
+    account_id: &str,
+    folder: &str,
+    rows: &[MessageRow],
+    change: FlagChange,
+) -> depesha_core::Result<()> {
+    worker.run(Work::SyncFolder(folder.to_owned())).await?;
+    let mut found: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    let mut missing = false;
+    for r in rows {
+        let again = match &r.message_id {
+            Some(mid) => match state.store.find_by_message_id(account_id, folder, mid)? {
+                Some(again) => state.store.get_at(again.id)?,
+                None => None,
+            },
+            None => None,
+        };
+        match again {
+            Some((again, validity)) => found.entry(validity).or_default().push(again.uid),
+            None => missing = true,
+        }
+    }
+    for (validity, uids) in found {
+        flag_group(state, worker, account_id, folder, validity, &uids, change).await?;
+    }
+    // Letters without a Message-ID, or gone: the user sees that not all were changed.
+    if missing {
+        return Err(Error::FolderChanged);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
-    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
-        if folder != to {
-            done.push(move_group(&state, &account_id, &folder, &rows, &to).await?);
+    for (key, rows) in group_rows(&state, &ids)? {
+        if key.1 != to {
+            done.push(move_group(&state, &key, &rows, &to).await?);
         }
     }
     Ok(done)
@@ -548,10 +607,10 @@ pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResul
 #[tauri::command]
 pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
-    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
-        let archive = role_folder(&state, &account_id, FolderRole::Archive, pick("Archive", "Архив")).await?;
-        if folder != archive {
-            done.push(move_group(&state, &account_id, &folder, &rows, &archive).await?);
+    for (key, rows) in group_rows(&state, &ids)? {
+        let archive = role_folder(&state, &key.0, FolderRole::Archive, pick("Archive", "Архив")).await?;
+        if key.1 != archive {
+            done.push(move_group(&state, &key, &rows, &archive).await?);
         }
     }
     Ok(done)
@@ -561,10 +620,10 @@ pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
 #[tauri::command]
 pub async fn mark_spam(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
-    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
-        let junk = role_folder(&state, &account_id, FolderRole::Junk, pick("Junk", "Спам")).await?;
-        if folder != junk {
-            done.push(move_group(&state, &account_id, &folder, &rows, &junk).await?);
+    for (key, rows) in group_rows(&state, &ids)? {
+        let junk = role_folder(&state, &key.0, FolderRole::Junk, pick("Junk", "Спам")).await?;
+        if key.1 != junk {
+            done.push(move_group(&state, &key, &rows, &junk).await?);
         }
     }
     Ok(done)
@@ -574,12 +633,20 @@ pub async fn mark_spam(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
 #[tauri::command]
 pub async fn delete_messages(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
-    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
-        match state.store.folder_by_role(&account_id, FolderRole::Trash)? {
-            Some(trash) if trash != folder => done.push(move_group(&state, &account_id, &folder, &rows, &trash).await?),
+    for (key, rows) in group_rows(&state, &ids)? {
+        let (account_id, folder, validity) = &key;
+        match state.store.folder_by_role(account_id, FolderRole::Trash)? {
+            Some(trash) if trash != *folder => done.push(move_group(&state, &key, &rows, &trash).await?),
             _ => {
                 let uids = rows.iter().map(|r| r.uid).collect();
-                state.worker(&account_id)?.run(Work::Delete { folder, uids }).await?;
+                state
+                    .worker(account_id)?
+                    .run(Work::Delete {
+                        folder: folder.clone(),
+                        validity: *validity,
+                        uids,
+                    })
+                    .await?;
             }
         }
     }
@@ -591,7 +658,8 @@ pub async fn delete_messages(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Move
 #[tauri::command]
 pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
-    for ((account_id, folder), rows) in group_rows(&state, &ids)? {
+    for (key, rows) in group_rows(&state, &ids)? {
+        let (account_id, folder, _) = &key;
         let rows: Vec<MessageRow> = rows.into_iter().filter(|r| r.message_id.is_some()).collect();
         if rows.is_empty() {
             return Err(CmdError::new(
@@ -602,13 +670,13 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
                 ),
             ));
         }
-        let snoozed = role_folder(&state, &account_id, FolderRole::Snoozed, pick("Snoozed", "Отложенные")).await?;
+        let snoozed = role_folder(&state, account_id, FolderRole::Snoozed, pick("Snoozed", "Отложенные")).await?;
         // Snoozing again from the Snoozed folder keeps the original destination.
         for r in &rows {
             let mid = r.message_id.clone().unwrap_or_default();
             let return_to = state
                 .store
-                .snooze_remove(&account_id, &mid)?
+                .snooze_remove(account_id, &mid)?
                 .map(|s| s.return_to)
                 .unwrap_or_else(|| folder.clone());
             state.store.snooze_add(&Snooze {
@@ -624,8 +692,8 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
                 subject: r.subject.clone(),
             })?;
         }
-        if folder != snoozed {
-            done.push(move_group(&state, &account_id, &folder, &rows, &snoozed).await?);
+        if *folder != snoozed {
+            done.push(move_group(&state, &key, &rows, &snoozed).await?);
         }
     }
     state.scheduler_notify.notify_one();
@@ -1496,11 +1564,12 @@ pub async fn send(
 }
 
 async fn discard(state: &AppState, id: i64) -> CmdResult<()> {
-    let r = row(state, id)?;
+    let (r, validity) = state.store.get_at(id)?.ok_or_else(gone)?;
     state
         .worker(&r.account_id)?
         .run(Work::Delete {
             folder: r.folder,
+            validity,
             uids: vec![r.uid],
         })
         .await?;

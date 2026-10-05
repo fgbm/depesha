@@ -12,10 +12,19 @@ use crate::message::{Addr, Summary, Unsubscribe};
 use crate::query::SearchQuery;
 use crate::smtp::Draft;
 
-const SCHEMA: &str = r#"
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
+/// Settings of the connection, made at every open: not part of the cache itself.
+const PRAGMAS: &str = "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;";
 
+/// A change of the cache: run once, in one transaction with the new `user_version`.
+type Step = fn(&Connection) -> Result<()>;
+
+/// The cache's history, `PRAGMA user_version` counting the steps done. A released step
+/// is never edited: a new change of tables or data is a new step at the end.
+const MIGRATIONS: &[Step] = &[v1_tables_and_threads, v2_sort_keys, v3_unversioned_columns];
+
+/// Tables as step 1 creates them; later columns are added by their steps. Caches of the
+/// versions before numbered steps have these tables, maybe without the columns below.
+const TABLES: &str = r#"
 CREATE TABLE IF NOT EXISTS folders (
     account_id   TEXT NOT NULL,
     name         TEXT NOT NULL,
@@ -144,6 +153,99 @@ CREATE TABLE IF NOT EXISTS ews_items (
 );
 CREATE INDEX IF NOT EXISTS ews_items_by_id ON ews_items (account_id, folder, item_id);
 "#;
+
+/// Columns added at every start before the steps were numbered, in the order they came:
+/// a cache of those versions may lack any of them.
+const UNVERSIONED_COLUMNS: [(&str, &str, &str); 6] = [
+    ("folders", "oldest_uid", "INTEGER NOT NULL DEFAULT 0"),
+    ("messages", "thread", "TEXT NOT NULL DEFAULT ''"),
+    ("messages", "bulk", "INTEGER NOT NULL DEFAULT 0"),
+    ("messages", "unsubscribe", "TEXT"),
+    ("outbox", "followup_secs", "INTEGER NOT NULL DEFAULT 0"),
+    ("messages", "topic", "TEXT NOT NULL DEFAULT ''"),
+];
+
+const SORT_COLUMNS: [(&str, &str, &str); 2] = [
+    ("messages", "sort_sender", "TEXT NOT NULL DEFAULT ''"),
+    ("messages", "sort_subject", "TEXT NOT NULL DEFAULT ''"),
+];
+
+/// Rows of caches from before conversations: each is its own until resynced.
+const THREADS: &str = "
+UPDATE messages SET thread = COALESCE(message_id, folder || '/' || uid) WHERE thread = '';
+CREATE INDEX IF NOT EXISTS messages_by_thread ON messages (account_id, thread);
+CREATE INDEX IF NOT EXISTS messages_by_message_id ON messages (account_id, message_id);
+CREATE INDEX IF NOT EXISTS messages_by_parent ON messages (account_id, in_reply_to);
+CREATE INDEX IF NOT EXISTS messages_by_topic ON messages (account_id, topic, date);";
+
+/// Adds a column unless the table has it. Returns whether it was added.
+fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<bool> {
+    let exists = conn
+        .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?
+        .exists([column])?;
+    if !exists {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+    }
+    Ok(!exists)
+}
+
+/// 1: the tables with the columns of the versions before numbered steps, and threads
+/// linked again: they were keyed by the headers of each message alone and split apart
+/// when a client dropped References.
+fn v1_tables_and_threads(conn: &Connection) -> Result<()> {
+    conn.execute_batch(TABLES)?;
+    for (table, column, decl) in UNVERSIONED_COLUMNS {
+        add_column(conn, table, column, decl)?;
+    }
+    conn.execute_batch(THREADS)?;
+    rethread(conn)
+}
+
+/// 2: sort keys of sender and subject, filled for the mail cached before them.
+fn v2_sort_keys(conn: &Connection) -> Result<()> {
+    for (table, column, decl) in SORT_COLUMNS {
+        add_column(conn, table, column, decl)?;
+    }
+    fill_sort_keys(conn)
+}
+
+/// 3: versions 1 and 2 were set by builds that also added columns at every start,
+/// outside the count: a cache of number 1 or 2 is not sure to have them all.
+fn v3_unversioned_columns(conn: &Connection) -> Result<()> {
+    for (table, column, decl) in UNVERSIONED_COLUMNS {
+        add_column(conn, table, column, decl)?;
+    }
+    let mut sort_added = false;
+    for (table, column, decl) in SORT_COLUMNS {
+        sort_added |= add_column(conn, table, column, decl)?;
+    }
+    if sort_added {
+        fill_sort_keys(conn)?;
+    }
+    conn.execute_batch(THREADS)?;
+    Ok(())
+}
+
+fn user_version(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
+}
+
+/// Runs the steps the cache has not had yet. A cache from a newer version is refused
+/// and left as it is: this version does not know what its steps changed.
+fn migrate(conn: &mut Connection, steps: &[Step]) -> Result<()> {
+    let version = user_version(conn)?;
+    let known = steps.len() as i64;
+    if version > known {
+        return Err(crate::Error::CacheTooNew { found: version, known });
+    }
+    for (done, step) in steps.iter().enumerate().skip(version.max(0) as usize) {
+        let tx = conn.transaction()?;
+        step(&tx)?;
+        tx.pragma_update(None, "user_version", done as i64 + 1)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboxItem {
@@ -400,8 +502,16 @@ impl Store {
         Self::init(Connection::open_in_memory()?)
     }
 
-    fn init(conn: Connection) -> Result<Self> {
-        conn.execute_batch(SCHEMA)?;
+    fn init(mut conn: Connection) -> Result<Self> {
+        // Before anything writes to the file: a newer cache is left untouched.
+        let version = user_version(&conn)?;
+        if version > MIGRATIONS.len() as i64 {
+            return Err(crate::Error::CacheTooNew {
+                found: version,
+                known: MIGRATIONS.len() as i64,
+            });
+        }
+        conn.execute_batch(PRAGMAS)?;
         // SQLite's lower() and LIKE fold only ASCII: "иван" would not find "Иван".
         conn.create_scalar_function(
             "fold",
@@ -409,49 +519,7 @@ impl Store {
             FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
             |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|s| s.to_lowercase())),
         )?;
-        // Databases created by older versions.
-        for (table, column, decl) in [
-            ("folders", "oldest_uid", "INTEGER NOT NULL DEFAULT 0"),
-            ("messages", "thread", "TEXT NOT NULL DEFAULT ''"),
-            ("messages", "bulk", "INTEGER NOT NULL DEFAULT 0"),
-            ("messages", "unsubscribe", "TEXT"),
-            ("outbox", "followup_secs", "INTEGER NOT NULL DEFAULT 0"),
-            ("messages", "topic", "TEXT NOT NULL DEFAULT ''"),
-            ("messages", "sort_sender", "TEXT NOT NULL DEFAULT ''"),
-            ("messages", "sort_subject", "TEXT NOT NULL DEFAULT ''"),
-        ] {
-            let exists = conn
-                .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?
-                .exists([column])?;
-            if !exists {
-                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
-            }
-        }
-        // Old rows had no thread: each is its own conversation until resynced.
-        conn.execute_batch(
-            "UPDATE messages SET thread = COALESCE(message_id, folder || '/' || uid) WHERE thread = '';
-             CREATE INDEX IF NOT EXISTS messages_by_thread ON messages (account_id, thread);
-             CREATE INDEX IF NOT EXISTS messages_by_message_id ON messages (account_id, message_id);
-             CREATE INDEX IF NOT EXISTS messages_by_parent ON messages (account_id, in_reply_to);
-             CREATE INDEX IF NOT EXISTS messages_by_topic ON messages (account_id, topic, date);",
-        )?;
-        let mut conn = conn;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version < 1 {
-            // Threads were keyed by the headers of each message alone and split apart
-            // when a client dropped References: link them again, once.
-            let tx = conn.transaction()?;
-            rethread(&tx)?;
-            tx.execute_batch("PRAGMA user_version = 1")?;
-            tx.commit()?;
-        }
-        if version < 2 {
-            // Sort keys of sender and subject for the mail cached before they existed.
-            let tx = conn.transaction()?;
-            fill_sort_keys(&tx)?;
-            tx.execute_batch("PRAGMA user_version = 2")?;
-            tx.commit()?;
-        }
+        migrate(&mut conn, MIGRATIONS)?;
         Ok(Self {
             conn: Mutex::new(conn),
             pending: Mutex::new(HashMap::new()),
@@ -569,17 +637,21 @@ impl Store {
         Ok(())
     }
 
+    /// Forgets the messages of a folder, all or none of them. Flags the user set on them
+    /// no longer hold: a new message may come under the same UID.
     pub fn clear_folder(&self, account_id: &str, folder: &str) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "DELETE FROM messages WHERE account_id = ?1 AND folder = ?2",
-            params![account_id, folder],
-        )?;
-        conn.execute(
-            "UPDATE folders SET oldest_uid = 0 WHERE account_id = ?1 AND name = ?2",
-            params![account_id, folder],
-        )?;
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        clear_folder(&tx, account_id, folder)?;
+        tx.commit()?;
+        drop(conn);
+        self.forget_pending(account_id, Some(folder));
         Ok(())
+    }
+
+    fn forget_pending(&self, account_id: &str, folder: Option<&str>) {
+        self.pending()
+            .retain(|(a, f, _), _| a != account_id || folder.is_some_and(|folder| f != folder));
     }
 
     /// Lowest UID of the contiguous range synced from the newest end. Messages below it
@@ -695,7 +767,17 @@ impl Store {
 
     /// A flag changed by the user: cached at once and held against syncs until
     /// `settle_flags` reports the server's answer.
+    /// Nothing is held when the cache could not be written: the change never reaches
+    /// the server, and syncs must not hide the server's flags.
     pub fn change_flags(&self, account_id: &str, folder: &str, uids: &[u32], change: FlagChange) -> Result<usize> {
+        let written = self.hold_flags(account_id, folder, uids, change);
+        if written.is_err() {
+            self.settle_flags(account_id, folder, uids);
+        }
+        written
+    }
+
+    fn hold_flags(&self, account_id: &str, folder: &str, uids: &[u32], change: FlagChange) -> Result<usize> {
         {
             let mut pending = self.pending();
             for &uid in uids {
@@ -971,6 +1053,23 @@ impl Store {
                 &format!("SELECT {COLUMNS} FROM messages m WHERE m.id = ?1"),
                 [id],
                 message_row,
+            )
+            .optional()?)
+    }
+
+    /// A message with the UIDVALIDITY of its folder, read at once: a sync renumbering the
+    /// folder cannot come between them. For actions on the server by UID.
+    pub fn get_at(&self, id: i64) -> Result<Option<(MessageRow, u32)>> {
+        Ok(self
+            .conn()
+            .query_row(
+                &format!(
+                    "SELECT {COLUMNS}, f.uidvalidity FROM messages m
+                     JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+                     WHERE m.id = ?1"
+                ),
+                [id],
+                |r| Ok((message_row(r)?, r.get(COLUMN_COUNT)?)),
             )
             .optional()?)
     }
@@ -1259,19 +1358,32 @@ impl Store {
             .query_row("SELECT COUNT(*) FROM followups", [], |r| r.get(0))?)
     }
 
+    /// Everything cached for an account, all or none of it; shared data (trusted senders,
+    /// brand logos) stays.
     pub fn forget_account(&self, account_id: &str) -> Result<()> {
-        let conn = self.conn();
-        conn.execute("DELETE FROM folders WHERE account_id = ?1", [account_id])?;
-        conn.execute("DELETE FROM outbox WHERE account_id = ?1", [account_id])?;
-        conn.execute("DELETE FROM snoozed WHERE account_id = ?1", [account_id])?;
-        conn.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
-        conn.execute("DELETE FROM ews_folders WHERE account_id = ?1", [account_id])?;
-        conn.execute("DELETE FROM ews_items WHERE account_id = ?1", [account_id])?;
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        // Messages, bodies and search go with their folders.
+        tx.execute("DELETE FROM folders WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM outbox WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM snoozed WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM ews_folders WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM ews_items WHERE account_id = ?1", [account_id])?;
+        tx.execute(
+            "DELETE FROM avatars WHERE substr(key, 1, length(?1) + 7) = 'photo:' || ?1 || ':'",
+            [account_id],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        self.forget_pending(account_id, None);
         Ok(())
     }
 
-    /// Records the EWS id of every folder name. Returns names whose id changed (the
-    /// folder was deleted and created again): their cache no longer matches the server.
+    /// Records the EWS id of every folder name. A folder whose id changed was deleted and
+    /// created again: its cache no longer matches the server and is cleared with the new
+    /// id at once, so an interruption cannot keep the old cache under the new id.
+    /// Returns the names of the cleared folders.
     pub fn ews_set_folders(&self, account_id: &str, folders: &[(String, String)]) -> Result<Vec<String>> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -1284,10 +1396,11 @@ impl Store {
             )?;
             for (name, id) in folders {
                 let old: Option<String> = get.query_row(params![account_id, name], |r| r.get(0)).optional()?;
+                upsert.execute(params![account_id, name, id])?;
                 if old.as_ref().is_some_and(|o| o != id) {
+                    ews_clear_folder(&tx, account_id, name)?;
                     changed.push(name.clone());
                 }
-                upsert.execute(params![account_id, name, id])?;
             }
             let names: Vec<&str> = folders.iter().map(|(n, _)| n.as_str()).collect();
             let existing: Vec<String> = tx
@@ -1306,6 +1419,10 @@ impl Store {
             }
         }
         tx.commit()?;
+        drop(conn);
+        for name in &changed {
+            self.forget_pending(account_id, Some(name));
+        }
         Ok(changed)
     }
 
@@ -1340,22 +1457,17 @@ impl Store {
         Ok(())
     }
 
-    /// Forgets the cache of a folder: messages, item ids and the synced window.
+    /// Forgets the cache of a folder, all or none of it: messages, item ids and the
+    /// synced window. UIDs start again from the bottom and name other items, so the
+    /// folder gets a new UIDVALIDITY, as IMAP would give it: actions on the old UIDs
+    /// still waiting in the queue are refused.
     pub fn ews_clear_folder(&self, account_id: &str, name: &str) -> Result<()> {
-        self.clear_folder(account_id, name)?;
-        let conn = self.conn();
-        conn.execute(
-            "DELETE FROM ews_items WHERE account_id = ?1 AND folder = ?2",
-            params![account_id, name],
-        )?;
-        conn.execute(
-            "UPDATE ews_folders SET window_date = -1 WHERE account_id = ?1 AND name = ?2",
-            params![account_id, name],
-        )?;
-        conn.execute(
-            "UPDATE folders SET last_uid = 0 WHERE account_id = ?1 AND name = ?2",
-            params![account_id, name],
-        )?;
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        ews_clear_folder(&tx, account_id, name)?;
+        tx.commit()?;
+        drop(conn);
+        self.forget_pending(account_id, Some(name));
         Ok(())
     }
 
@@ -1669,6 +1781,35 @@ fn link_thread(conn: &Connection, account_id: &str, l: &Links, fallback: String)
         merge.execute(params![account_id, other, thread])?;
     }
     Ok(thread)
+}
+
+fn clear_folder(tx: &Connection, account_id: &str, folder: &str) -> Result<()> {
+    tx.execute(
+        "DELETE FROM messages WHERE account_id = ?1 AND folder = ?2",
+        params![account_id, folder],
+    )?;
+    tx.execute(
+        "UPDATE folders SET oldest_uid = 0 WHERE account_id = ?1 AND name = ?2",
+        params![account_id, folder],
+    )?;
+    Ok(())
+}
+
+fn ews_clear_folder(tx: &Connection, account_id: &str, name: &str) -> Result<()> {
+    clear_folder(tx, account_id, name)?;
+    tx.execute(
+        "DELETE FROM ews_items WHERE account_id = ?1 AND folder = ?2",
+        params![account_id, name],
+    )?;
+    tx.execute(
+        "UPDATE ews_folders SET window_date = -1 WHERE account_id = ?1 AND name = ?2",
+        params![account_id, name],
+    )?;
+    tx.execute(
+        "UPDATE folders SET last_uid = 0, uidvalidity = uidvalidity + 1 WHERE account_id = ?1 AND name = ?2",
+        params![account_id, name],
+    )?;
+    Ok(())
 }
 
 /// Links every cached message again, oldest first, as if it had just arrived.
@@ -2633,5 +2774,499 @@ mod tests {
             )
             .unwrap();
         assert_eq!(keys, ("елкин".into(), "отчет".into()));
+    }
+
+    // Versions of the cache.
+
+    /// A cache before numbered steps, as the first versions left it: without the
+    /// columns added later, the avatars and the Exchange tables.
+    const CACHE_V0: &str = "
+        CREATE TABLE folders (
+            account_id TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT NOT NULL, delimiter TEXT,
+            role TEXT, selectable INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0,
+            uidvalidity INTEGER NOT NULL DEFAULT 0, last_uid INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (account_id, name)
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY, account_id TEXT NOT NULL, folder TEXT NOT NULL, uid INTEGER NOT NULL,
+            message_id TEXT, in_reply_to TEXT, refs TEXT NOT NULL, subject TEXT NOT NULL, from_addr TEXT,
+            to_addrs TEXT NOT NULL, cc_addrs TEXT NOT NULL, reply_to TEXT NOT NULL, date INTEGER NOT NULL,
+            size INTEGER NOT NULL, seen INTEGER NOT NULL, answered INTEGER NOT NULL, flagged INTEGER NOT NULL,
+            draft INTEGER NOT NULL, has_attachments INTEGER NOT NULL,
+            UNIQUE (account_id, folder, uid),
+            FOREIGN KEY (account_id, folder) REFERENCES folders (account_id, name) ON DELETE CASCADE
+        );
+        CREATE INDEX messages_by_date ON messages (date DESC);
+        CREATE INDEX messages_by_folder ON messages (account_id, folder, date DESC);
+        CREATE TABLE bodies (
+            message_id INTEGER PRIMARY KEY REFERENCES messages (id) ON DELETE CASCADE,
+            raw BLOB NOT NULL
+        );
+        CREATE VIRTUAL TABLE search USING fts5 (
+            subject, sender, recipients, body, tokenize = 'unicode61 remove_diacritics 2'
+        );
+        CREATE TRIGGER messages_search_delete AFTER DELETE ON messages BEGIN
+            DELETE FROM search WHERE rowid = old.id;
+        END;
+        CREATE TABLE outbox (
+            id INTEGER PRIMARY KEY, account_id TEXT NOT NULL, draft TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL, last_error TEXT,
+            failed INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL
+        );
+        CREATE TABLE snoozed (
+            account_id TEXT NOT NULL, message_id TEXT NOT NULL, folder TEXT NOT NULL,
+            return_to TEXT NOT NULL, until INTEGER NOT NULL, subject TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (account_id, message_id)
+        );
+        CREATE TABLE followups (
+            account_id TEXT NOT NULL, message_id TEXT NOT NULL, subject TEXT NOT NULL,
+            recipients TEXT NOT NULL, sent INTEGER NOT NULL, due INTEGER NOT NULL,
+            notified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, message_id)
+        );
+        CREATE TABLE trusted_senders (email TEXT PRIMARY KEY);";
+
+    /// Mail, outbox, snoozed and awaited answers in the columns every version has.
+    const OLD_DATA: &str = r#"
+        INSERT INTO folders (account_id, name, display_name, selectable) VALUES ('a', 'INBOX', 'INBOX', 1);
+        INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
+            to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments)
+        VALUES
+            ('a', 'INBOX', 1, 'a@x', NULL, '[]', 'Смета', '{"name":"Ёлкин","email":"e@x"}', '[]', '[]', '[]', 100, 1, 1, 0, 0, 0, 0),
+            ('a', 'INBOX', 2, 'b@x', 'a@x', '[]', 'RE: Смета', NULL, '[]', '[]', '[]', 200, 1, 0, 0, 1, 0, 0);
+        INSERT INTO outbox (account_id, draft, next_attempt, created) VALUES ('a', '{}', 300, 300);
+        INSERT INTO snoozed (account_id, message_id, folder, return_to, until) VALUES ('a', 'c@x', 'Snoozed', 'INBOX', 400);
+        INSERT INTO followups (account_id, message_id, subject, recipients, sent, due) VALUES ('a', 'd@x', 'Отчёт', 'b@x', 1, 500);"#;
+
+    /// A cache file left by an older version: its tables with the data, `version` steps done.
+    fn old_cache(dir: &tempfile::TempDir, tables: impl Fn(&Connection), version: i64) -> std::path::PathBuf {
+        let path = dir.path().join("mail.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        tables(&conn);
+        conn.execute_batch(OLD_DATA).unwrap();
+        conn.pragma_update(None, "user_version", version).unwrap();
+        path
+    }
+
+    /// Tables of version 1 and 2 as their builds left them: the tables, the columns and
+    /// indexes added at every start, the sort keys with version 2.
+    fn tables_of(version: i64) -> impl Fn(&Connection) {
+        move |conn| {
+            conn.execute_batch(TABLES).unwrap();
+            for (table, column, decl) in UNVERSIONED_COLUMNS {
+                add_column(conn, table, column, decl).unwrap();
+            }
+            if version >= 2 {
+                for (table, column, decl) in SORT_COLUMNS {
+                    add_column(conn, table, column, decl).unwrap();
+                }
+            }
+            conn.execute_batch(THREADS).unwrap();
+        }
+    }
+
+    /// Columns of every table, indexes and triggers: what makes the cache's shape.
+    fn shape(conn: &Connection) -> Vec<String> {
+        let mut out: Vec<String> = conn
+            .prepare(
+                "SELECT t.name || '.' || c.name || ' ' || c.type || ' ' || c.\"notnull\" || ' '
+                        || COALESCE(c.dflt_value, 'NULL') || ' ' || c.pk
+                 FROM sqlite_schema t JOIN pragma_table_info(t.name) c
+                 WHERE t.type = 'table' ORDER BY t.name, c.name",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let objects: Vec<String> = conn
+            .prepare("SELECT type || ' ' || name FROM sqlite_schema WHERE type IN ('index', 'trigger') ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        out.extend(objects);
+        out
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn caches_of_every_version_reach_the_same_shape_with_their_data() {
+        let fresh = Store::open_in_memory().unwrap();
+        let fresh_shape = shape(&fresh.conn());
+        assert_eq!(user_version(&fresh.conn()).unwrap(), MIGRATIONS.len() as i64);
+
+        let v0 = |conn: &Connection| conn.execute_batch(CACHE_V0).unwrap();
+        type Tables = Box<dyn Fn(&Connection)>;
+        let olds: [(&str, Tables, i64); 3] = [
+            ("v0", Box::new(v0), 0),
+            ("v1", Box::new(tables_of(1)), 1),
+            ("v2 (0.5.6)", Box::new(tables_of(2)), 2),
+        ];
+        for (name, tables, version) in olds {
+            let dir = tempfile::tempdir().unwrap();
+            let store = Store::open(old_cache(&dir, tables, version)).unwrap();
+            let conn = store.conn();
+            assert_eq!(shape(&conn), fresh_shape, "{name}");
+            assert_eq!(user_version(&conn).unwrap(), MIGRATIONS.len() as i64, "{name}");
+            assert_eq!(count(&conn, "SELECT COUNT(*) FROM messages"), 2, "{name}");
+            assert_eq!(count(&conn, "SELECT COUNT(*) FROM outbox"), 1, "{name}");
+            assert_eq!(count(&conn, "SELECT COUNT(*) FROM snoozed"), 1, "{name}");
+            assert_eq!(count(&conn, "SELECT COUNT(*) FROM followups"), 1, "{name}");
+            assert_eq!(
+                count(&conn, "SELECT COUNT(*) FROM messages WHERE thread = ''"),
+                0,
+                "{name}"
+            );
+            if version == 0 {
+                // Linked into one conversation by the step it missed.
+                assert_eq!(count(&conn, "SELECT COUNT(DISTINCT thread) FROM messages"), 1, "{name}");
+            }
+            if version < 2 {
+                let sender: String = conn
+                    .query_row("SELECT sort_sender FROM messages WHERE uid = 1", [], |r| r.get(0))
+                    .unwrap();
+                assert_eq!(sender, "елкин", "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_failed_step_changes_nothing_and_the_next_start_goes_on() {
+        fn broken(conn: &Connection) -> Result<()> {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN doomed TEXT")?;
+            Err(crate::Error::Parse)
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open(old_cache(&dir, tables_of(2), 2)).unwrap();
+        let before = shape(&conn);
+        let steps: Vec<Step> = MIGRATIONS.iter().copied().chain([broken as Step]).collect();
+        assert!(migrate(&mut conn, &steps).is_err());
+        // Step 3 went through; the broken step left neither its column nor its number.
+        assert_eq!(user_version(&conn).unwrap(), 3);
+        assert_eq!(shape(&conn), before);
+
+        // A step interrupted in the middle of the history: the same.
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open(old_cache(&dir, tables_of(1), 1)).unwrap();
+        let steps: [Step; 2] = [v1_tables_and_threads, broken];
+        assert!(migrate(&mut conn, &steps).is_err());
+        assert_eq!(user_version(&conn).unwrap(), 1);
+        assert!(
+            !conn
+                .prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = 'doomed'")
+                .unwrap()
+                .exists([])
+                .unwrap()
+        );
+        migrate(&mut conn, MIGRATIONS).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), MIGRATIONS.len() as i64);
+        assert_eq!(shape(&conn), shape(&Store::open_in_memory().unwrap().conn()));
+    }
+
+    #[test]
+    fn an_up_to_date_cache_runs_no_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        let store = Store::open(&path).unwrap();
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        let id = put(&store, "INBOX", 1, &with_ids("Смета", 100, "a@x", None), false);
+        // A row the old fill at every start would have changed.
+        store
+            .conn()
+            .execute("UPDATE messages SET thread = '', sort_sender = '' WHERE id = ?1", [id])
+            .unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        let (thread, sender): (String, String) = store
+            .conn()
+            .query_row("SELECT thread, sort_sender FROM messages WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((thread.as_str(), sender.as_str()), ("", ""));
+    }
+
+    #[test]
+    fn a_cache_of_a_newer_version_is_refused_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE future (x TEXT); INSERT INTO future VALUES ('outbox');")
+                .unwrap();
+            conn.pragma_update(None, "user_version", 99).unwrap();
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        let err = Store::open(&path).err().expect("refused");
+        assert!(
+            matches!(err, crate::Error::CacheTooNew { found: 99, known } if known == MIGRATIONS.len() as i64),
+            "{err:?}"
+        );
+        assert_eq!(err.kind(), "cache-too-new");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no journal next to it"
+        );
+    }
+
+    // Clearing.
+
+    /// Makes the statement on `table` fail as a full disk would.
+    fn fail_on(store: &Store, op: &str, table: &str) {
+        store
+            .conn()
+            .execute_batch(&format!(
+                "CREATE TEMP TRIGGER fail_{table} BEFORE {op} ON {table} BEGIN SELECT RAISE(ABORT, 'disk full'); END;"
+            ))
+            .unwrap();
+    }
+
+    fn heal(store: &Store, table: &str) {
+        store
+            .conn()
+            .execute_batch(&format!("DROP TRIGGER fail_{table}"))
+            .unwrap();
+    }
+
+    /// Every row of the tables an account has data in, for comparing before and after.
+    fn dump(store: &Store) -> Vec<String> {
+        let conn = store.conn();
+        let mut out = Vec::new();
+        for table in [
+            "folders",
+            "messages",
+            "bodies",
+            "outbox",
+            "snoozed",
+            "followups",
+            "trusted_senders",
+            "avatars",
+            "ews_folders",
+            "ews_items",
+        ] {
+            let mut stmt = conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
+            let n = stmt.column_count();
+            let rows = stmt
+                .query_map([], |r| {
+                    (0..n)
+                        .map(|i| r.get::<_, rusqlite::types::Value>(i).map(|v| format!("{v:?}")))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .unwrap();
+            for row in rows {
+                out.push(format!("{table}: {}", row.unwrap().join(", ")));
+            }
+        }
+        out.push(format!("search: {}", count(&conn, "SELECT COUNT(*) FROM search")));
+        out
+    }
+
+    /// Accounts "a" (Exchange-like, with item ids and photos) and "ab" with mail of their own.
+    fn two_accounts() -> Store {
+        let store = mailbox();
+        store
+            .replace_folders("ab", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        for (account, uid) in [("a", 1), ("ab", 1)] {
+            let s = with_ids("Смета", 100, &format!("{account}@x"), None);
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Flags::default(),
+            };
+            let id = store.insert_message(account, "INBOX", &msg).unwrap();
+            store.save_body(id, b"raw", "текст").unwrap();
+            store
+                .ews_set_folders(account, &[("INBOX".into(), format!("{account}-inbox"))])
+                .unwrap();
+            store
+                .ews_item_add(account, "INBOX", uid, &format!("{account}-item"), 100)
+                .unwrap();
+            store.ews_set_window(account, "INBOX", 0).unwrap();
+            store.set_folder_state(account, "INBOX", 1, uid).unwrap();
+            store
+                .set_avatar(&format!("photo:{account}:boss@x"), Some("data:"), 1)
+                .unwrap();
+            store.outbox_add(account, &Draft::default(), 1, 1, 0).unwrap();
+            store
+                .snooze_add(&Snooze {
+                    account_id: account.into(),
+                    message_id: format!("{account}@x"),
+                    folder: "Snoozed".into(),
+                    return_to: "INBOX".into(),
+                    until: 10,
+                    subject: String::new(),
+                })
+                .unwrap();
+            store
+                .followup_add(&Followup {
+                    account_id: account.into(),
+                    message_id: format!("{account}@x"),
+                    subject: String::new(),
+                    recipients: String::new(),
+                    sent: 1,
+                    due: 2,
+                })
+                .unwrap();
+        }
+        store.set_avatar("bimi:example.org", None, 1).unwrap();
+        store.trust_sender("friend@example.org").unwrap();
+        store
+    }
+
+    #[test]
+    fn clearing_is_all_or_nothing() {
+        let store = two_accounts();
+        let before = dump(&store);
+
+        fail_on(&store, "UPDATE", "folders");
+        assert!(store.clear_folder("a", "INBOX").is_err());
+        assert_eq!(dump(&store), before);
+
+        fail_on(&store, "UPDATE", "ews_folders");
+        heal(&store, "folders");
+        assert!(store.ews_clear_folder("a", "INBOX").is_err());
+        assert_eq!(dump(&store), before);
+        // A folder created again on the server: the new id is kept only with the cleared cache.
+        assert!(
+            store
+                .ews_set_folders("a", &[("INBOX".into(), "a-inbox-2".into())])
+                .is_err()
+        );
+        assert_eq!(dump(&store), before);
+        heal(&store, "ews_folders");
+
+        fail_on(&store, "DELETE", "avatars");
+        assert!(store.forget_account("a").is_err());
+        assert_eq!(dump(&store), before);
+        heal(&store, "avatars");
+
+        store.clear_folder("a", "INBOX").unwrap();
+        assert!(store.known_uids("a", "INBOX").unwrap().is_empty());
+        assert_eq!(store.known_uids("ab", "INBOX").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_forgotten_account_leaves_nothing_behind() {
+        let store = two_accounts();
+        store.change_flags("a", "INBOX", &[1], FlagChange::Seen(true)).unwrap();
+        store.forget_account("a").unwrap();
+        let conn = store.conn();
+        let tables: Vec<String> = conn
+            .prepare(
+                "SELECT t.name FROM sqlite_schema t JOIN pragma_table_info(t.name) c
+                 WHERE t.type = 'table' AND c.name = 'account_id'",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(tables.len() >= 7, "{tables:?}");
+        for table in &tables {
+            let sql = format!("SELECT COUNT(*) FROM {table} WHERE account_id = ?1");
+            let left = |account: &str| -> i64 { conn.query_row(&sql, [account], |r| r.get(0)).unwrap() };
+            assert_eq!(left("a"), 0, "{table}");
+            assert!(left("ab") > 0, "{table}");
+        }
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM bodies"), 1);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM search"), 1);
+        let avatars: Vec<String> = conn
+            .prepare("SELECT key FROM avatars ORDER BY key")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(avatars, ["bimi:example.org", "photo:ab:boss@x"]);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM trusted_senders"), 1);
+        drop(conn);
+        assert!(store.pending().is_empty());
+    }
+
+    #[test]
+    fn an_exchange_folder_cleared_gets_a_new_uidvalidity() {
+        let store = two_accounts();
+        let (validity, _) = store.folder_state("a", "INBOX").unwrap();
+        store.ews_clear_folder("a", "INBOX").unwrap();
+        let (cleared, last_uid) = store.folder_state("a", "INBOX").unwrap();
+        assert_ne!(cleared, validity);
+        assert_eq!(last_uid, 0);
+        assert!(store.ews_item_ids("a", "INBOX", &[1]).unwrap().is_empty());
+
+        // Deleted and created again on the server: cleared with the new id.
+        assert_eq!(
+            store
+                .ews_set_folders("ab", &[("INBOX".into(), "ab-inbox-2".into())])
+                .unwrap(),
+            ["INBOX"]
+        );
+        assert_ne!(store.folder_state("ab", "INBOX").unwrap().0, 1);
+        assert!(store.known_uids("ab", "INBOX").unwrap().is_empty());
+        assert_eq!(store.ews_window("ab", "INBOX").unwrap(), -1);
+    }
+
+    // Flags held against syncs.
+
+    #[test]
+    fn a_flag_of_a_cleared_folder_does_not_pass_to_a_new_message() {
+        let store = mailbox();
+        put(&store, "INBOX", 7, &summary("Старое", 100), false);
+        store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).unwrap();
+        // UIDVALIDITY changed before the server answered: another letter comes as UID 7.
+        store.clear_folder("a", "INBOX").unwrap();
+        let id = put(&store, "INBOX", 7, &summary("Новое", 200), false);
+        store.update_flags("a", "INBOX", &[(7, Flags::default())]).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().flags.seen);
+        // The answer to the old change comes later and touches nothing.
+        store.settle_flags("a", "INBOX", &[7]);
+        assert!(store.pending().is_empty());
+    }
+
+    #[test]
+    fn a_flag_the_cache_could_not_take_is_not_held() {
+        let store = mailbox();
+        let id = put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        fail_on(&store, "UPDATE", "messages");
+        assert!(store.change_flags("a", "INBOX", &[7], FlagChange::Seen(true)).is_err());
+        heal(&store, "messages");
+        assert!(store.pending().is_empty());
+        // The server's flags show again: still unread there.
+        store.update_flags("a", "INBOX", &[(7, Flags::default())]).unwrap();
+        assert!(!store.get(id).unwrap().unwrap().flags.seen);
+        store
+            .update_flags(
+                "a",
+                "INBOX",
+                &[(
+                    7,
+                    Flags {
+                        seen: true,
+                        ..Default::default()
+                    },
+                )],
+            )
+            .unwrap();
+        assert!(store.get(id).unwrap().unwrap().flags.seen);
+    }
+
+    #[test]
+    fn actions_read_the_uidvalidity_with_the_message() {
+        let store = mailbox();
+        let id = put(&store, "INBOX", 7, &summary("Отчёт", 100), false);
+        store.set_folder_state("a", "INBOX", 42, 7).unwrap();
+        let (row, validity) = store.get_at(id).unwrap().unwrap();
+        assert_eq!((row.uid, validity), (7, 42));
+        assert!(store.get_at(id + 1).unwrap().is_none());
     }
 }

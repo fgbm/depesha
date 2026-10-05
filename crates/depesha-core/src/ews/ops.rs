@@ -275,9 +275,8 @@ pub async fn sync_folder_list(s: &mut Session, store: &Store, account_id: &str) 
     let folders: Vec<Folder> = list.iter().map(|(f, _)| f.clone()).collect();
     store.replace_folders(account_id, &folders)?;
     let ids: Vec<(String, String)> = list.into_iter().map(|(f, id)| (f.name, id)).collect();
-    for name in store.ews_set_folders(account_id, &ids)? {
-        store.ews_clear_folder(account_id, &name)?;
-    }
+    // Folders deleted and created again lose their cache here.
+    store.ews_set_folders(account_id, &ids)?;
     Ok(folders)
 }
 
@@ -609,7 +608,8 @@ pub async fn sync_folder(
         .filter(|i| i.received >= new_window && !known.contains_key(i.id.as_str()))
         .collect();
     fresh.sort_by_key(|i| i.received);
-    let (_, last_uid) = store.folder_state(account_id, folder)?;
+    // UIDVALIDITY changes only when the cache is cleared: UIDs start again then.
+    let (validity, last_uid) = store.folder_state(account_id, folder)?;
     let mut next = if last_uid == 0 { UID_BASE } else { last_uid + 1 };
     let mut uids = HashMap::new();
     for i in fresh {
@@ -617,7 +617,7 @@ pub async fn sync_folder(
         next += 1;
     }
     report.added = add_items(s, store, account_id, folder, &uids).await?;
-    store.set_folder_state(account_id, folder, 1, next - 1)?;
+    store.set_folder_state(account_id, folder, validity.max(1), next - 1)?;
     store.ews_set_window(account_id, folder, new_window)?;
     Ok(report)
 }

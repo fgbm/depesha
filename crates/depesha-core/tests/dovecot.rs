@@ -7,7 +7,7 @@ use depesha_core::imap::{self, Conn, FlagChange, FolderRole, IdleOutcome};
 use depesha_core::query::{self, SearchQuery};
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::{self, SyncOptions};
-use depesha_core::{Error, utf7};
+use depesha_core::{Error, mail, utf7};
 
 fn enabled() -> bool {
     std::env::var("DEPESHA_IT").is_ok_and(|v| v == "1")
@@ -108,7 +108,7 @@ async fn starttls_sync_move_and_fallbacks() {
     let raw = sync::load_body(&mut conn, &store, rows[0].id).await.unwrap();
     assert!(String::from_utf8_lossy(&raw).contains("Тело"));
 
-    imap::set_flag(&mut conn, "INBOX", &[rows[0].uid], FlagChange::Flagged(true))
+    imap::set_flag(&mut conn, "INBOX", None, &[rows[0].uid], FlagChange::Flagged(true))
         .await
         .unwrap();
     assert_eq!(
@@ -120,7 +120,7 @@ async fn starttls_sync_move_and_fallbacks() {
     );
 
     // MOVE.
-    imap::move_messages(&mut conn, "INBOX", &[rows[1].uid], "Trash")
+    imap::move_messages(&mut conn, "INBOX", None, &[rows[1].uid], "Trash")
         .await
         .unwrap();
     assert_eq!(
@@ -134,7 +134,7 @@ async fn starttls_sync_move_and_fallbacks() {
     // Old server without MOVE and UIDPLUS: COPY + \Deleted, no EXPUNGE that could hit others' mail.
     conn.caps.move_ = false;
     conn.caps.uidplus = false;
-    imap::move_messages(&mut conn, "INBOX", &[rows[2].uid], "Trash")
+    imap::move_messages(&mut conn, "INBOX", None, &[rows[2].uid], "Trash")
         .await
         .unwrap();
     let r = sync::sync_folder(&mut conn, &store, "d", "INBOX", small).await.unwrap();
@@ -156,9 +156,14 @@ async fn starttls_sync_move_and_fallbacks() {
         })
         .unwrap();
     assert_eq!(trash.len(), 2);
-    imap::delete_permanently(&mut conn, "Trash", &trash.iter().map(|m| m.uid).collect::<Vec<_>>())
-        .await
-        .unwrap();
+    imap::delete_permanently(
+        &mut conn,
+        "Trash",
+        None,
+        &trash.iter().map(|m| m.uid).collect::<Vec<_>>(),
+    )
+    .await
+    .unwrap();
     assert_eq!(conn.session.select("Trash").await.unwrap().exists, 0);
     conn.session.logout().await.unwrap();
 }
@@ -252,14 +257,14 @@ async fn search_operators_and_snoozed_folder() {
     let uids = imap::find_by_message_id(&mut conn, "INBOX", "<act@example.org>")
         .await
         .unwrap();
-    imap::move_messages(&mut conn, "INBOX", &uids, &snoozed.name)
+    imap::move_messages(&mut conn, "INBOX", None, &uids, &snoozed.name)
         .await
         .unwrap();
     let back = imap::find_by_message_id(&mut conn, &snoozed.name, "act@example.org")
         .await
         .unwrap();
     assert_eq!(back.len(), 1);
-    imap::move_messages(&mut conn, &snoozed.name, &back, "INBOX")
+    imap::move_messages(&mut conn, &snoozed.name, None, &back, "INBOX")
         .await
         .unwrap();
     assert_eq!(
@@ -290,4 +295,80 @@ async fn idle_wakes_up_on_append_from_another_session() {
         .await
         .expect("no wakeup");
     assert!(matches!(outcome.unwrap().unwrap(), IdleOutcome::Changed));
+}
+
+/// The folder is deleted and created again between reading UIDs from the cache and
+/// acting on them: the same UIDs name other letters, and nothing is done to them.
+#[tokio::test]
+async fn actions_on_uids_of_a_recreated_folder_are_refused() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("renumbered").await;
+    for name in ["Box", "Trash"] {
+        conn.session.create(name).await.unwrap();
+    }
+    for i in 0..3 {
+        imap::append(&mut conn, "Box", &mail(&format!("Старое {i}"), i), "")
+            .await
+            .unwrap();
+    }
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+    sync::sync_folder(&mut conn, &store, "d", "Box", SyncOptions::default())
+        .await
+        .unwrap();
+    let (validity, _) = store.folder_state("d", "Box").unwrap();
+    let uids = store.known_uids("d", "Box").unwrap();
+    assert_eq!(uids.len(), 3);
+
+    conn.session.select("INBOX").await.unwrap();
+    conn.session.delete("Box").await.unwrap();
+    conn.session.create("Box").await.unwrap();
+    for i in 0..3 {
+        imap::append(&mut conn, "Box", &mail(&format!("Новое {i}"), i + 10), "")
+            .await
+            .unwrap();
+    }
+
+    let mut conn = mail::Conn::Imap(conn);
+    let refused = |r: depesha_core::Result<()>| assert!(matches!(r, Err(Error::FolderChanged)), "{r:?}");
+    refused(
+        mail::set_flag(
+            &mut conn,
+            &store,
+            "d",
+            "Box",
+            validity,
+            &uids,
+            FlagChange::Flagged(true),
+        )
+        .await,
+    );
+    refused(mail::move_messages(&mut conn, &store, "d", "Box", validity, &uids, "Trash").await);
+    refused(mail::delete_permanently(&mut conn, &store, "d", "Box", validity, &uids).await);
+    let mail::Conn::Imap(mut conn) = conn else {
+        unreachable!()
+    };
+
+    // The new letters are all in place, none flagged, and the trash is empty.
+    sync::sync_folder(&mut conn, &store, "d", "Box", SyncOptions::default())
+        .await
+        .unwrap();
+    assert_ne!(store.folder_state("d", "Box").unwrap().0, validity, "a new UIDVALIDITY");
+    let box_ = store
+        .list(&ListQuery {
+            account_id: Some("d".into()),
+            folder: Some("Box".into()),
+            limit: 100,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(box_.len(), 3);
+    assert!(box_.iter().all(|m| m.subject.starts_with("Новое") && !m.flags.flagged));
+    let trash = sync::sync_folder(&mut conn, &store, "d", "Trash", SyncOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(trash.added, 0);
+    conn.session.logout().await.unwrap();
 }

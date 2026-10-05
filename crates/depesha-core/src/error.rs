@@ -48,6 +48,15 @@ pub enum Error {
     /// A link from a letter leads into a private network (loopback, LAN, link-local…):
     /// Depesha does not go there on a stranger's word.
     PrivateAddress(String),
+    /// The local cache was written by a newer version: its format number and the
+    /// newest this version knows. The cache is left as it is.
+    CacheTooNew {
+        found: i64,
+        known: i64,
+    },
+    /// The server renumbered the folder (a new UIDVALIDITY, or an Exchange folder
+    /// cached anew) after the UIDs of an action were read: they name other messages.
+    FolderChanged,
 }
 
 impl std::fmt::Display for Error {
@@ -110,6 +119,16 @@ impl std::fmt::Display for Error {
                 "сервер ответил непонятно: {m}"
             ),
             Self::NotFound => tr!("message not found", "письмо не найдено"),
+            Self::CacheTooNew { found, known } => tr!(
+                "the local mail cache was saved by a newer version of Depesha (format {found}, this version \
+                 reads up to {known}). Install the newer version; the cache was left as it is",
+                "локальный кэш почты сохранён более новой версией Депеши (формат {found}, эта версия \
+                 читает до {known}). Установите новую версию; кэш оставлен как есть"
+            ),
+            Self::FolderChanged => tr!(
+                "the folder changed on the server before the action ran; nothing was done, try again",
+                "папка изменилась на сервере, пока действие ждало очереди; ничего не сделано, повторите действие"
+            ),
             Self::Parse => tr!("the message could not be parsed", "не удалось разобрать письмо"),
             Self::PrivateAddress(host) => tr!(
                 "{host} is an address in a private network; Depesha does not send requests there from a letter",
@@ -201,6 +220,8 @@ impl Error {
             Self::TooLarge { .. } => "too-large",
             Self::NotFound => "not-found",
             Self::Paused => "paused",
+            Self::CacheTooNew { .. } => "cache-too-new",
+            Self::FolderChanged => "folder-changed",
             e if e.is_transient() => "network",
             _ => "other",
         }

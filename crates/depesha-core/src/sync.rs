@@ -57,6 +57,9 @@ pub async fn sync_folder(
     let (known_validity, mut last_uid) = store.folder_state(account_id, folder)?;
     if known_validity != uidvalidity {
         store.clear_folder(account_id, folder)?;
+        // The new number at once: the cache never has UIDs of one UIDVALIDITY under
+        // another, and actions read before the change are refused (`imap::set_flag`).
+        store.set_folder_state(account_id, folder, uidvalidity, 0)?;
         last_uid = 0;
     }
 

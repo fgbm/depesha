@@ -443,11 +443,28 @@ impl FlagChange {
     }
 }
 
-pub async fn set_flag(conn: &mut Conn, folder: &str, uids: &[u32], change: FlagChange) -> Result<()> {
+/// Selects a folder to change messages by UID. `validity` is the UIDVALIDITY the UIDs
+/// were read under, `None` for UIDs just found on the server: when the folder has a
+/// different one now, the UIDs name other messages and nothing is changed.
+async fn select_at(conn: &mut Conn, folder: &str, validity: Option<u32>) -> Result<()> {
+    let mailbox = conn.session.select(folder).await?;
+    match validity {
+        Some(v) if mailbox.uid_validity.unwrap_or(0) != v => Err(Error::FolderChanged),
+        _ => Ok(()),
+    }
+}
+
+pub async fn set_flag(
+    conn: &mut Conn,
+    folder: &str,
+    validity: Option<u32>,
+    uids: &[u32],
+    change: FlagChange,
+) -> Result<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    conn.session.select(folder).await?;
+    select_at(conn, folder, validity).await?;
     let _: Vec<_> = conn
         .session
         .uid_store(uid_set(uids), change.command())
@@ -496,11 +513,11 @@ pub async fn fetch_raw_many(conn: &mut Conn, folder: &str, uids: &[u32]) -> Resu
 /// Moves messages. Without MOVE (RFC 6851): COPY, then \Deleted, then
 /// UID EXPUNGE. Without UIDPLUS the originals keep \Deleted: a plain EXPUNGE
 /// would also wipe messages another client marked deleted.
-pub async fn move_messages(conn: &mut Conn, from: &str, uids: &[u32], to: &str) -> Result<()> {
+pub async fn move_messages(conn: &mut Conn, from: &str, validity: Option<u32>, uids: &[u32], to: &str) -> Result<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    conn.session.select(from).await?;
+    select_at(conn, from, validity).await?;
     let set = uid_set(uids);
     if conn.caps.move_ {
         conn.session.uid_mv(&set, to).await?;
@@ -511,11 +528,11 @@ pub async fn move_messages(conn: &mut Conn, from: &str, uids: &[u32], to: &str) 
 }
 
 /// Removes messages for good. Used for the trash folder itself.
-pub async fn delete_permanently(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> {
+pub async fn delete_permanently(conn: &mut Conn, folder: &str, validity: Option<u32>, uids: &[u32]) -> Result<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    conn.session.select(folder).await?;
+    select_at(conn, folder, validity).await?;
     remove(conn, &uid_set(uids)).await
 }
 

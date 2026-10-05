@@ -33,18 +33,23 @@ pub enum Work {
     SyncAll,
     SyncFolder(String),
     LoadBody(i64),
+    /// `validity`: the folder's UIDVALIDITY when the UIDs were read from the cache; the
+    /// server refuses the action when the folder was renumbered since (`FolderChanged`).
     SetFlag {
         folder: String,
+        validity: u32,
         uids: Vec<u32>,
         change: FlagChange,
     },
     Move {
         from: String,
+        validity: u32,
         uids: Vec<u32>,
         to: String,
     },
     Delete {
         folder: String,
+        validity: u32,
         uids: Vec<u32>,
     },
     /// Puts a message into a folder unless one with the same Message-ID is already there.
@@ -405,18 +410,28 @@ async fn perform(
             Ok(Output::None)
         }
         Work::LoadBody(msg_id) => Ok(Output::Body(mail::load_body(conn, store, *msg_id).await?)),
-        Work::SetFlag { folder, uids, change } => {
-            mail::set_flag(conn, store, id, folder, uids, *change).await?;
+        Work::SetFlag {
+            folder,
+            validity,
+            uids,
+            change,
+        } => {
+            mail::set_flag(conn, store, id, folder, *validity, uids, *change).await?;
             Ok(Output::None)
         }
-        Work::Move { from, uids, to } => {
-            mail::move_messages(conn, store, id, from, uids, to).await?;
+        Work::Move {
+            from,
+            validity,
+            uids,
+            to,
+        } => {
+            mail::move_messages(conn, store, id, from, *validity, uids, to).await?;
             sync_one(state, account, conn, from, false).await?;
             sync_one(state, account, conn, to, false).await?;
             Ok(Output::None)
         }
-        Work::Delete { folder, uids } => {
-            mail::delete_permanently(conn, store, id, folder, uids).await?;
+        Work::Delete { folder, validity, uids } => {
+            mail::delete_permanently(conn, store, id, folder, *validity, uids).await?;
             sync_one(state, account, conn, folder, false).await?;
             Ok(Output::None)
         }
