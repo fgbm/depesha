@@ -1,0 +1,719 @@
+.side {
+    background: var(--side);
+    color: var(--side-ink);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .side .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 8px;
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: 0.02em;
+  }
+
+  /* Service information: there when looked for, never competing with the mail. */
+  .side .version {
+    align-self: flex-end;
+    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--side-muted);
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Drag the window by the logo and name too: the drag region only counts direct hits on itself. */
+  .side .brand > *:not(button) {
+    pointer-events: none;
+  }
+
+  /* «: quiet, as the version beside it; the panel folds into the strip. */
+  .side .fold-side {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--side-ink) 18%, transparent);
+    border-radius: 5px;
+    background: none;
+    color: var(--side-muted);
+  }
+
+  .side .fold-side:hover {
+    color: var(--side-ink);
+    background: var(--side-2);
+  }
+
+  .side .compose-btn {
+    margin: 8px 14px 10px;
+    justify-content: center;
+    padding: 8px;
+  }
+
+  .side .compose-btn svg {
+    flex: none;
+  }
+
+  .side .scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 8px;
+  }
+
+  /* Groups are set apart by space, not lines. */
+  .side .group {
+    padding: 4px 0;
+  }
+
+  .side .group + .group {
+    margin-top: 10px;
+  }
+
+  /* A folded mailbox is one line: no room kept for folders it does not show. */
+  .side .group.collapsed {
+    padding-bottom: 0;
+  }
+
+  .side .group.collapsed + .group {
+    margin-top: 2px;
+  }
+
+  .side .folder-row {
+    position: relative;
+  }
+
+  /* In the indent left of the folder's icon. */
+  .side .fold {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+    width: 14px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--side-muted);
+  }
+
+  .side .fold:hover {
+    color: var(--side-ink);
+    background: var(--side-2);
+  }
+
+  /* Every row keeps the star's column on its right, the sections without stars too:
+  .side counters stand in one column, .side stars in another. */ .side {
+    --star: 24px;
+    --star-right: 8px;
+    --tail: calc(var(--star) + var(--star-right) + 6px);
+  }
+
+  .side .item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px var(--tail) 5px 14px;
+    background: none;
+    border: none;
+    color: var(--side-ink);
+    text-align: left;
+  }
+
+  .side .item:hover:not(:disabled) {
+    background: var(--side-2);
+  }
+
+  .side .item.active {
+    background: var(--side-2);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .side .item.disabled {
+    color: var(--side-muted);
+    cursor: default;
+  }
+
+  .side .icon {
+    width: 18px;
+    display: inline-flex;
+    justify-content: center;
+    opacity: 0.8;
+  }
+
+  .side .item.active .icon {
+    opacity: 1;
+  }
+
+  .side .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The same distance from the right edge in every row, whatever the panel's width. */
+  .side .star {
+    position: absolute;
+    top: 50%;
+    right: var(--star-right);
+    transform: translateY(-50%);
+    z-index: 1;
+    width: var(--star);
+    height: var(--star);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: none;
+    /* An empty star shows on the row under the pointer or in focus; hidden by colour, as the account's chevron. */
+    color: transparent;
+  }
+
+  .side .folder-row:hover .star, .side .folder-row:focus-within .star, .side .fav-row.leaving .star {
+    color: var(--side-muted);
+  }
+
+  .side .star:hover {
+    color: var(--side-ink);
+    background: color-mix(in srgb, var(--side-ink) 10%, transparent);
+  }
+
+  .side .star.on, .side .folder-row:hover .star.on {
+    color: #e0b040;
+  }
+
+  .side .star:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--side-ink) 55%, transparent);
+    outline-offset: -1px;
+  }
+
+  /* An unstarred favourite stays in its place and fades; its star stays, a second press keeps it. */
+  .side .fav-row.leaving .item {
+    opacity: 0;
+    transition: opacity 0.7s ease-in;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .side .fav-row.leaving .item {
+      opacity: 1;
+      transition: none;
+    }
+  }
+
+  .side .favs {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .side .path {
+    margin-left: 7px;
+    font-size: 12px;
+    color: var(--side-muted);
+  }
+
+  /* Gone from the server: the record stays until it is unstarred, plainly not a folder to open. */
+  .side .fav-row .item.disabled .name {
+    text-decoration: line-through;
+  }
+
+  /* «All folders» under the favourites: a quiet caption with a line, the tree follows. */
+  .side .all-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px var(--tail) 3px 40px;
+    font-size: 11.5px;
+    color: var(--side-muted);
+  }
+
+  .side .all-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: color-mix(in srgb, var(--side-ink) 12%, transparent);
+  }
+
+  .side .fly-folders .all-folders {
+    margin-top: 4px;
+    color: var(--side-muted);
+    border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, transparent);
+    border-radius: 0 0 5px 5px;
+  }
+
+  .side .disclose {
+    display: inline-flex;
+    transition: transform 0.12s;
+  }
+
+  .side .disclose.open {
+    transform: rotate(90deg);
+  }
+
+  .side .count {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--side-ink);
+    background: color-mix(in srgb, var(--side-ink) 12%, transparent);
+    border-radius: 10px;
+    padding: 0 7px;
+  }
+
+  .side .count.alert {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .side .count.quiet {
+    font-weight: 500;
+    color: var(--side-muted);
+  }
+
+  .side .account {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding-right: 6px;
+  }
+
+  .side .account-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    color: var(--side-muted);
+    padding: 6px 4px 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .side .account-name:hover {
+    color: var(--side-ink);
+  }
+
+  /* The chevron and the menu show up on hover; a folded account keeps its chevron. */
+  .side .chev {
+    display: inline-flex;
+    transform: rotate(90deg);
+    transition: transform 0.12s;
+  }
+
+  .side .account.collapsed .chev {
+    transform: none;
+  }
+
+  /* Hidden by colour, not opacity: WebDriver takes an element with opacity 0 for hidden. */
+  .side .chev, .side .menu-btn {
+    color: transparent;
+  }
+
+  .side .account:hover .chev, .side .account:hover .menu-btn, .side .account:focus-within .chev, .side .account:focus-within .menu-btn, .side .account.open .menu-btn, .side .account.collapsed .chev {
+    color: var(--side-muted);
+  }
+
+  .side .menu-btn {
+    display: inline-flex;
+    background: none;
+    border: none;
+    padding: 3px 5px;
+    border-radius: 4px;
+  }
+
+  .side .menu-btn:hover {
+    background: var(--side-2);
+    color: var(--side-ink);
+  }
+
+  /* The mailbox's colour; how it is connected shows as a ring around it. */
+  .side .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--dot, var(--side-muted));
+  }
+
+  .side .dot.connecting {
+    opacity: 0.45;
+  }
+
+  .side .dot.error {
+    box-shadow: 0 0 0 2px #e0a030;
+  }
+
+  .side .dot.paused {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .side .problem {
+    margin: 2px 12px 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--side-ink);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border: none;
+    border-radius: 6px;
+    text-align: left;
+    width: calc(100% - 24px);
+  }
+
+  .side .problem .fix {
+    display: block;
+    margin-top: 3px;
+    font-weight: 600;
+  }
+
+  .side .update {
+    margin: 0 10px 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--side-2);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .side .update .btn {
+    justify-content: center;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .side .foot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px 10px;
+  }
+
+  .side .spacer {
+    flex: 1;
+  }
+
+  .side .foot-btn {
+    background: none;
+    border: none;
+    color: var(--side-muted);
+    padding: 6px;
+    border-radius: 6px;
+    display: inline-flex;
+  }
+
+  .side .foot-btn:hover {
+    background: var(--side-2);
+    color: var(--side-ink);
+  }
+
+  .side .foot-btn.on {
+    color: #e0a030;
+  }
+
+  .side .dnd-wrap {
+    position: relative;
+  }
+
+  .side .tasks-btn {
+    position: relative;
+  }
+
+  /* Short syncs (a folder in a blink) do not make the button flicker: it spins only after a moment. */
+  .side .tasks-btn .idle {
+    display: inline-flex;
+  }
+
+  .side .tasks-btn.busy .idle {
+    animation: vanish 0s 0.6s forwards;
+  }
+
+  .side .tasks-btn.busy .spin {
+    position: absolute;
+    inset: 6px;
+    display: inline-flex;
+    opacity: 0;
+    animation:
+      appear 0s 0.6s forwards,
+      spin 1.2s linear infinite;
+  }
+
+  @keyframes vanish {
+    to {
+      opacity: 0;
+    }
+  }
+
+  .side .tasks-btn.failed::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  @keyframes appear {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .side .tasks-btn.busy .spin {
+      animation: appear 0s 0.6s forwards;
+    }
+  }
+
+  /* The strip: the sidebar folded into a column of icons. */
+  .side.strip {
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .side.strip .brand {
+    justify-content: center;
+    padding: 14px 0 8px;
+    align-self: stretch;
+  }
+
+  .side .tile-compose {
+    width: 38px;
+    height: 36px;
+    padding: 0;
+    margin: 6px 0 10px;
+    justify-content: center;
+    flex: none;
+  }
+
+  .side.strip .scroll {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* No scrollbar eating the narrow column; the wheel and the keyboard still scroll it. */
+    scrollbar-width: none;
+  }
+
+  .side .tiles, .side .circles {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+  }
+
+  .side .circles {
+    gap: 10px;
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, transparent);
+  }
+
+  .side .tile {
+    position: relative;
+    flex: none;
+    width: 38px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: var(--side-ink);
+    opacity: 0.85;
+  }
+
+  .side .tile:hover {
+    background: var(--side-2);
+    opacity: 1;
+  }
+
+  .side .tile.active {
+    background: var(--side-2);
+    opacity: 1;
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .side .update-tile {
+    margin-bottom: 4px;
+    color: var(--accent-ink);
+    background: var(--accent);
+    opacity: 1;
+  }
+
+  .side .update-tile:hover {
+    background: var(--accent);
+    filter: brightness(1.1);
+  }
+
+  /* A count on an icon, in its upper right corner. */
+  .side .badge {
+    position: absolute;
+    top: -3px;
+    right: -5px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 9px;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 17px;
+    text-align: center;
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: 0 0 0 2px var(--side);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .side .badge.quiet {
+    background: color-mix(in srgb, var(--side-ink) 22%, var(--side));
+    color: var(--side-ink);
+    font-weight: 600;
+  }
+
+  .side .circle-wrap {
+    position: relative;
+  }
+
+  /* A mailbox: its colour and initials; how it is connected is the dot at the bottom. */
+  .side .circle {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--acc);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .side .circle:hover, .side .circle.open {
+    box-shadow:
+      0 0 0 2px var(--side),
+      0 0 0 4px color-mix(in srgb, var(--side-ink) 45%, transparent);
+  }
+
+  .side .circle.current:not(.open) {
+    box-shadow:
+      0 0 0 2px var(--side),
+      0 0 0 4px var(--accent);
+  }
+
+  /* A mailbox past a warning level: a ring round its circle; the corners keep the status and the count. */
+  .side .ring {
+    position: absolute;
+    inset: -4px;
+    border: 2px solid var(--side-warn);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .side .ring.full {
+    border-color: var(--side-alert);
+  }
+
+  .side .status {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--side-muted);
+    box-shadow: 0 0 0 2px var(--side);
+  }
+
+  .side .status.online {
+    background: var(--ok);
+  }
+
+  .side .status.error, .side .status.paused {
+    background: var(--accent);
+  }
+
+  .side .strip-foot {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 0 10px;
+  }
+
+  /* The flyout beside the strip: the mailbox's folders, as in the full sidebar. */
+  .side .fly-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 2px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--side-muted);
+  }
+
+  .side .fly-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .side .fly-mail {
+    padding: 0 10px 6px 26px;
+    font-size: 12px;
+    color: var(--side-muted);
+  }
+
+  .side .fly-folders {
+    min-width: 220px;
+    padding-top: 4px;
+  }
+
+  .side .fly-folders .item {
+    border-radius: 5px;
+  }
+
+  .side .settings {
+    color: var(--side-muted);
+    justify-content: flex-start;
+    padding: 5px 8px;
+  }
+
+  .side .settings:hover {
+    color: var(--side-ink);
+    background: var(--side-2) !important;
+  }
