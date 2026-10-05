@@ -121,6 +121,19 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                         state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
                     }
                 }
+                // The server keeps the copy itself (Exchange, Gmail): Sent is synced now, so the
+                // answer joins its conversation at once, and again a moment later for servers
+                // that file it with a delay.
+                if (!account.save_sent_copy || account.is_ews())
+                    && let Some(sent) = state.store.folder_by_role(&account.id, FolderRole::Sent)?
+                    && let Ok(worker) = state.worker(&account.id)
+                {
+                    worker.kick(Work::SyncFolder(sent.clone()));
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                        worker.kick(Work::SyncFolder(sent));
+                    });
+                }
             }
             Err(e) => {
                 let transient = e.is_transient();

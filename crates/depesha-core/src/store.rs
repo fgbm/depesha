@@ -834,7 +834,9 @@ impl Store {
         // The newest message stands for its conversation: SQLite takes bare columns
         // from the row that holds the MAX, as long as it is the only MIN/MAX in the
         // query (hence SUM for flags). The row is unread or flagged when any message is.
-        // The conversation moves up when I answer, as in Gmail: my answer in Sent counts.
+        // A conversation stands where its last incoming letter puts it: my answer does not
+        // move it up. In Sent my letters date it; where nothing counts as incoming (Trash,
+        // Junk, Drafts), its newest letter does.
         // Sorting looks at the whole conversation: unread or flagged when any letter is,
         // its size is the sum; sender and subject are the newest letter's.
         let order = order_by(
@@ -860,11 +862,18 @@ impl Store {
                 FROM {from} WHERE {cond} GROUP BY m.account_id, m.thread
              )
              SELECT {COLUMNS}, g.unread, g.flagged,
-                MAX(m.date, COALESCE((SELECT MAX(x.date) FROM messages x
-                    JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
-                    WHERE x.account_id = m.account_id AND x.thread = m.thread
-                      AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')), 0)) AS last
+                CASE WHEN COALESCE(mf.role, '') = 'sent' THEN m.date ELSE COALESCE(
+                    (SELECT MAX(x.date) FROM messages x
+                        JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+                        WHERE x.account_id = m.account_id AND x.thread = m.thread
+                          AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts', 'sent')),
+                    (SELECT MAX(x.date) FROM messages x
+                        JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+                        WHERE x.account_id = m.account_id AND x.thread = m.thread
+                          AND COALESCE(xf.role, '') NOT IN ('trash', 'junk', 'drafts')),
+                    m.date) END AS last
              FROM g JOIN messages m ON m.id = g.id
+                LEFT JOIN folders mf ON mf.account_id = m.account_id AND mf.name = m.folder
              ORDER BY {order} LIMIT ? OFFSET ?"
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -2215,17 +2224,35 @@ mod tests {
             true,
         );
         put(&store, "INBOX", 2, &summary("Другое", 300), true);
-        let rows = store
-            .list(&ListQuery {
-                threads: true,
-                ..Default::default()
-            })
-            .unwrap();
-        // My answer at 500 moves the conversation above the letter of 300.
-        assert_eq!(rows[0].subject, "Отпуск");
-        assert_eq!((rows[0].date, rows[0].thread_date), (100, 500));
-        let who: Vec<_> = rows[0].thread_senders.iter().map(|a| a.email.as_str()).collect();
+        let list = |folder: Option<&str>| {
+            store
+                .list(&ListQuery {
+                    folder: folder.map(Into::into),
+                    threads: true,
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+        // My answer at 500 does not move the conversation above the letter of 300.
+        let rows = list(None);
+        assert_eq!(rows[1].subject, "Отпуск");
+        assert_eq!((rows[1].date, rows[1].thread_date), (100, 100));
+        let who: Vec<_> = rows[1].thread_senders.iter().map(|a| a.email.as_str()).collect();
         assert_eq!(who, ["ivan@x", "me@x"]);
+        // In Sent, my letters date it.
+        assert_eq!(list(Some("Sent"))[0].thread_date, 500);
+
+        // A new letter at 600 in it does.
+        put(
+            &store,
+            "INBOX",
+            3,
+            &from_to(with_ids("Re: Отпуск", 600, "c@x", Some("b@x")), "ivan@x", "me@x"),
+            true,
+        );
+        let rows = list(None);
+        assert_eq!(rows[0].subject, "Re: Отпуск");
+        assert_eq!(rows[0].thread_date, 600);
     }
 
     #[test]
