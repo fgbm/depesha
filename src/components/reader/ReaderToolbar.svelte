@@ -142,26 +142,6 @@
     display: inline-flex;
   }
 
-  /* A narrow window: the way back and the neighbours come first, the actions keep only their icons. */
-  .toolbar.compact :global(.lbl),
-  .toolbar.compact :global(.lbl2) {
-    display: none;
-  }
-
-  /* A narrow reader keeps one toolbar row: secondary labels go, tooltips stay. */
-  /* Plugins' toolbar buttons use the same classes, hence :global. */
-  @container (max-width: 720px) {
-    .toolbar :global(.lbl) {
-      display: none;
-    }
-  }
-
-  @container (max-width: 520px) {
-    .toolbar :global(.lbl2) {
-      display: none;
-    }
-  }
-
   .folder-list {
     max-height: 320px;
     overflow-y: auto;
