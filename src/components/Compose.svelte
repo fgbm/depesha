@@ -17,7 +17,7 @@
   import { isDirty, splitQuote, swapSignature } from "../lib/compose";
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
-  import { extensions } from "../lib/extensions.svelte";
+  import { sendWarnings } from "../lib/sendChecks";
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
   import { registry } from "../plugin-host/registry.svelte";
@@ -177,16 +177,8 @@
     if (!force) {
       const email = app.account(c.account_id)?.email ?? "";
       const draft = $state.snapshot(c.draft);
-      const found: string[] = [];
-      for (const check of registry.items("sendChecks")) {
-        try {
-          found.push(...check(draft, email));
-        } catch (err) {
-          console.error("send check failed:", err);
-        }
-      }
       busy = true;
-      found.push(...(await extensions.beforeSend(draft, email)));
+      const found = await sendWarnings(draft, email);
       busy = false;
       if (found.length) {
         warnings = found;

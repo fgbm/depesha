@@ -28,6 +28,7 @@
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import { extensions, fromRow } from "../lib/extensions.svelte";
   import { registry } from "../plugin-host/registry.svelte";
+  import { sendWarnings } from "../lib/sendChecks";
   import type { Banner as PluginBanner } from "../plugin-api";
   import MailFrame from "./MailFrame.svelte";
   import Viewer from "./Viewer.svelte";
@@ -294,15 +295,7 @@
     const draft = quickDraft(q);
     quickBusy = true;
     try {
-      const found: string[] = [];
-      for (const check of registry.items("sendChecks")) {
-        try {
-          found.push(...check(draft, q.email));
-        } catch (err) {
-          console.error("send check failed:", err);
-        }
-      }
-      found.push(...(await extensions.beforeSend(draft, q.email)));
+      const found = await sendWarnings(draft, q.email);
       // Warnings are read and answered in the full window.
       if (found.length) return quickToWindow();
       await app.send(q.account_id, draft, null, null, null);
