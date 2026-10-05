@@ -936,6 +936,15 @@ try {
     });
     if (helper("count", "INBOX", subj) !== "0") throw new Error("письмо ушло сразу");
     // The queue is left empty for the steps that count on it.
+    // Closed and opened again from Drafts: the time is still there.
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+    await d.until("draft on server", async () => helper("count", "Drafts", subj) === "1", 15000);
+    await openFolder("Черновики");
+    await openBySubject(subj);
+    await d.button("Продолжить");
+    await d.until("draft opened", async () => (await d.findAll(".compose")).length === 1);
+    await d.until("schedule restored", async () => (await textOf(".compose .scheduled")).includes("Запланировано на"));
     await d.click(await d.xpath(`//div[contains(@class,'item')][contains(., ${JSON.stringify(subj)})]//button[contains(., 'Отправить сейчас')]`));
     await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
   });

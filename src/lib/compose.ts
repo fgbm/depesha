@@ -114,6 +114,8 @@ export function fromDraft(msg: OpenedMessage, me: Addr): ComposeDraft {
     in_reply_to: s.in_reply_to,
     references: s.references,
     attachments,
+    // A time already past is no schedule: the letter waited as a draft.
+    send_at: msg.view.send_at && msg.view.send_at * 1000 > Date.now() ? msg.view.send_at : null,
   };
 }
 

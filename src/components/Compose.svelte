@@ -38,7 +38,22 @@
   let pendingAt: number | null = null;
 
   /** What plugins see of this window; they set the send options. */
-  const options = $state<ComposeContext["options"]>({ at: null, followupDays: null });
+  // The time belongs to the draft: it is saved with it and survives closing the window.
+  let followupDays = $state<number | null>(null);
+  const options: ComposeContext["options"] = {
+    get at() {
+      return c.draft.send_at ?? null;
+    },
+    set at(v) {
+      c.draft.send_at = v;
+    },
+    get followupDays() {
+      return followupDays;
+    },
+    set followupDays(v) {
+      followupDays = v;
+    },
+  };
   const composeCtx: ComposeContext = {
     get draft() {
       return c.draft;

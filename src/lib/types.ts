@@ -192,6 +192,8 @@ export interface MessageView {
   /** The receiving server says it passed DMARC for its From domain: a brand logo may show. */
   authenticated: boolean;
   attachments: AttachmentInfo[];
+  /** A draft's scheduled sending time, unix seconds. */
+  send_at?: number | null;
 }
 
 export interface OpenedMessage {
@@ -250,6 +252,8 @@ export interface ComposeDraft {
   in_reply_to: string | null;
   references: string[];
   attachments: AttachmentSource[];
+  /** Scheduled sending time, unix seconds: it stays with the draft until sent or cancelled. */
+  send_at?: number | null;
 }
 
 export interface OutboxItem {

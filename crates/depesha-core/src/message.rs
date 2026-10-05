@@ -175,7 +175,13 @@ pub struct MessageView {
     /// a brand logo may stand next to it.
     pub authenticated: bool,
     pub attachments: Vec<AttachmentInfo>,
+    /// A draft's scheduled sending time (`SEND_AT_HEADER`), unix seconds.
+    #[serde(default)]
+    pub send_at: Option<i64>,
 }
+
+/// Where Depesha keeps a draft's scheduled time; only drafts carry it, sent mail never does.
+pub const SEND_AT_HEADER: &str = "X-Depesha-Send-At";
 
 pub fn parse_summary(raw: &[u8]) -> Summary {
     match MessageParser::default().parse_headers(raw) {
@@ -216,6 +222,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         .map(|(_, d)| d);
     let authenticated = from_domain
         .is_some_and(|d| crate::avatar::dmarc_passed(topmost_header(&msg, "Authentication-Results").as_deref(), d));
+    let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
     Ok(MessageView {
         summary,
         text,
@@ -223,6 +230,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         has_remote_content,
         authenticated,
         attachments,
+        send_at,
     })
 }
 
@@ -625,6 +633,18 @@ JVBERi0xLjQK\r\n\
                 .authenticated
         );
         assert!(!parse_view(mail("").as_bytes(), false).unwrap().authenticated);
+    }
+
+    #[test]
+    fn a_draft_keeps_its_scheduled_time() {
+        let mail =
+            |extra: &str| format!("{extra}From: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n");
+        let draft = mail(&format!("{SEND_AT_HEADER}: 1790000000\r\n"));
+        assert_eq!(
+            parse_view(draft.as_bytes(), false).unwrap().send_at,
+            Some(1_790_000_000)
+        );
+        assert_eq!(parse_view(mail("").as_bytes(), false).unwrap().send_at, None);
     }
 
     #[test]

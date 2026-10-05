@@ -1139,6 +1139,9 @@ pub struct ComposeDraft {
     references: Vec<String>,
     #[serde(default)]
     attachments: Vec<AttachmentSource>,
+    /// Scheduled sending time: kept with a saved draft, the send takes `at` instead.
+    #[serde(default)]
+    send_at: Option<i64>,
 }
 
 async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
@@ -1295,6 +1298,7 @@ pub async fn draft_save(
             tr!("the server has no Drafts folder", "на сервере нет папки «Черновики»"),
         ));
     };
+    let send_at = draft.send_at;
     let mut draft = resolve(&state, draft).await?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         // A draft may have no recipients yet; the builder insists on one.
@@ -1303,7 +1307,11 @@ pub async fn draft_save(
             email: account.email.clone(),
         }));
     }
-    let raw = smtp::build(&draft)?.formatted();
+    let mut raw = smtp::build(&draft)?.formatted();
+    if let Some(at) = send_at {
+        // A header line on top is as good as any other place for it.
+        raw.splice(0..0, format!("{}: {at}\r\n", message::SEND_AT_HEADER).into_bytes());
+    }
     let message_id = message::parse_summary(&raw).message_id;
     let worker = state.worker(&account.id)?;
     worker

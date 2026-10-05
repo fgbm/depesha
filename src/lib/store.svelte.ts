@@ -912,6 +912,7 @@ class AppStore {
   /** Takes a queued message back into the composer. */
   async reopenOutbox(id: number) {
     try {
+      const item = this.outbox.find((i) => i.id === id);
       const back = await api.outboxCancel(id);
       if (!back) {
         this.toast(t("toast.alreadySent"), true);
@@ -935,6 +936,8 @@ class AppStore {
           in_reply_to: d.in_reply_to,
           references: d.references,
           attachments,
+          // A scheduled letter comes back with its time (as the Outbox tells them apart).
+          send_at: item && item.attempts === 0 && item.next_attempt - item.created > 60 && item.next_attempt * 1000 > Date.now() ? item.next_attempt : null,
         },
         draft_id: null,
         unsaved: true,
