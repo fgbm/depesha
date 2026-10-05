@@ -1,10 +1,12 @@
 use std::fmt::Debug;
+use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_imap::Client;
 use async_imap::extensions::idle::IdleResponse;
-use async_imap::types::{Flag, NameAttribute, UnsolicitedResponse};
+use async_imap::imap_proto::{AttributeValue, Response};
+use async_imap::types::{Flag, Mailbox, NameAttribute, UnsolicitedResponse};
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -37,12 +39,21 @@ pub struct Caps {
     pub special_use: bool,
     #[serde(default)]
     pub literal_plus: bool,
+    /// Mod-sequences (RFC 7162): only changed flags are fetched again.
+    #[serde(default)]
+    pub condstore: bool,
+    /// Expunged UIDs reported as VANISHED (RFC 7162), once ENABLEd on a session.
+    #[serde(default)]
+    pub qresync: bool,
 }
 
 /// An authenticated IMAP connection and what the server supports.
 pub struct Conn {
     pub session: Session,
     pub caps: Caps,
+    /// QRESYNC is enabled on this session: its expunges come as VANISHED, not EXPUNGE.
+    /// Only a connection that syncs folders enables it; IDLE keeps plain EXPUNGE.
+    pub qresync: bool,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
@@ -75,8 +86,15 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         uidplus: caps.has_str("UIDPLUS"),
         special_use: caps.has_str("SPECIAL-USE"),
         literal_plus: caps.has_str("LITERAL+"),
+        // QRESYNC implies CONDSTORE (RFC 7162, 3.2).
+        condstore: caps.has_str("CONDSTORE") || caps.has_str("QRESYNC"),
+        qresync: caps.has_str("QRESYNC"),
     };
-    Ok(Conn { session, caps })
+    Ok(Conn {
+        session,
+        caps,
+        qresync: false,
+    })
 }
 
 /// Checks that an IMAP server answers on this address with the configured security, without logging in.
@@ -549,10 +567,23 @@ async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
     Ok(())
 }
 
+/// `flags` as `(\Seen)` or `\Seen`; empty for none.
 pub async fn append(conn: &mut Conn, folder: &str, raw: &[u8], flags: &str) -> Result<()> {
-    let flags = (!flags.is_empty()).then_some(flags);
-    conn.session.append(folder, flags, None, raw).await?;
+    let flags = append_flags(flags);
+    conn.session.append(folder, flags.as_deref(), None, raw).await?;
     Ok(())
+}
+
+/// The flag list of APPEND (RFC 3501) is parenthesized. Dovecot does not refuse bare
+/// flags before the message: it waits for the literal without "+", and the client
+/// waiting for "+" hangs until the watchdog gives up.
+fn append_flags(flags: &str) -> Option<String> {
+    let flags = flags.trim();
+    match flags {
+        "" => None,
+        f if f.starts_with('(') => Some(f.to_owned()),
+        f => Some(format!("({f})")),
+    }
 }
 
 /// UIDs of messages with this Message-ID in the folder.
@@ -566,11 +597,105 @@ pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str)
 /// Next server response; async-imap keeps the response type private, hence a macro.
 macro_rules! next_response {
     ($conn:expr) => {
+        next_response!($conn, "search answer")
+    };
+    ($conn:expr, $what:expr) => {
         timeout(Duration::from_secs(120), $conn.session.read_response())
             .await
-            .map_err(|_| Error::Timeout("search answer"))??
+            .map_err(|_| Error::Timeout($what))??
             .ok_or(Error::Closed)?
     };
+}
+
+/// Selects a folder to sync it. With CONDSTORE the answer carries HIGHESTMODSEQ, or
+/// none when the folder keeps no mod-sequences (NOMODSEQ). QRESYNC is enabled once per
+/// session. A server that refuses either is synced the plain way.
+pub async fn select_for_sync(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
+    use async_imap::error::Error as E;
+    if conn.caps.qresync && !conn.qresync {
+        match conn.session.run_command_and_check_ok("ENABLE QRESYNC").await {
+            Ok(()) => conn.qresync = true,
+            Err(E::Bad(_) | E::No(_)) => conn.caps.qresync = false,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    if conn.caps.condstore {
+        match conn.session.select_condstore(folder).await {
+            Ok(mailbox) => return Ok(mailbox),
+            // A missing folder fails the plain SELECT below as well.
+            Err(E::Bad(_) | E::No(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(conn.session.select(folder).await?)
+}
+
+/// What changed in the selected folder after a mod-sequence.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Changes {
+    pub flags: Vec<(u32, Flags)>,
+    /// Expunged UIDs (QRESYNC); may name UIDs that were never cached.
+    pub vanished: Vec<RangeInclusive<u32>>,
+}
+
+impl Changes {
+    pub fn vanished(&self, uid: u32) -> bool {
+        self.vanished.iter().any(|r| r.contains(&uid))
+    }
+
+    /// Takes in a FETCH or VANISHED answer; the rest is not about changes.
+    fn take(&mut self, resp: &Response<'_>) {
+        match resp {
+            Response::Fetch(_, attrs) => {
+                let mut uid = None;
+                let mut flags = None;
+                for a in attrs {
+                    match a {
+                        AttributeValue::Uid(u) => uid = Some(*u),
+                        AttributeValue::Flags(f) => {
+                            flags = Some(Flags::from_imap(f.iter().map(|s| Flag::from(s.to_string()))));
+                        }
+                        _ => {}
+                    }
+                }
+                if let (Some(uid), Some(flags)) = (uid, flags) {
+                    self.flags.push((uid, flags));
+                }
+            }
+            Response::Vanished { uids, .. } => self.vanished.extend(uids.iter().cloned()),
+            _ => {}
+        }
+    }
+}
+
+/// Flags of messages among `uids` of the selected folder changed after `modseq`
+/// (`CHANGEDSINCE`, RFC 7162); with QRESYNC enabled, also the UIDs expunged since.
+/// A refusal is `Error::Imap` with NO or BAD.
+pub async fn changed_since(conn: &mut Conn, uids: &str, modseq: u64) -> Result<Changes> {
+    use async_imap::error::Error as E;
+    use async_imap::imap_proto::Status;
+    let vanished = if conn.qresync { " VANISHED" } else { "" };
+    let id = conn
+        .session
+        .run_command(format!(
+            "UID FETCH {uids} (UID FLAGS) (CHANGEDSINCE {modseq}{vanished})"
+        ))
+        .await?;
+    let mut changes = Changes::default();
+    loop {
+        let resp = next_response!(conn, "changed flags");
+        match resp.parsed() {
+            Response::Done { tag, status, outcome } if *tag == id => {
+                let text = outcome.information.as_deref().unwrap_or_default().to_owned();
+                return match status {
+                    Status::Ok => Ok(changes),
+                    Status::No => Err(E::No(text).into()),
+                    _ => Err(E::Bad(text).into()),
+                };
+            }
+            other => changes.take(other),
+        }
+    }
 }
 
 /// Server-side search in one folder (IMAP `SEARCH TEXT`): subject, addresses and body,
@@ -623,7 +748,7 @@ pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Re
     }
     if segments.is_empty() {
         let id = conn.session.run_command(line).await?;
-        return read_search(conn, id).await;
+        return read_search(conn, id, search_refused).await;
     }
 
     let mut parts = segments.into_iter();
@@ -658,7 +783,14 @@ pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Re
             }
         }
     }
-    read_search(conn, id).await
+    read_search(conn, id, search_refused).await
+}
+
+/// `UID SEARCH {query}` in the selected folder. async-imap's `uid_search` takes a
+/// refusal or a dropped connection for "nothing found"; here they are errors.
+pub async fn uid_search(conn: &mut Conn, query: &str) -> Result<Vec<u32>> {
+    let id = conn.session.run_command(format!("UID SEARCH {query}")).await?;
+    read_search(conn, id, |info| async_imap::error::Error::No(info.to_owned()).into()).await
 }
 
 /// Creates a folder; one that already exists is fine.
@@ -670,7 +802,11 @@ pub async fn create_folder(conn: &mut Conn, name: &str) -> Result<()> {
     }
 }
 
-async fn read_search(conn: &mut Conn, id: async_imap::imap_proto::RequestId) -> Result<Vec<u32>> {
+async fn read_search(
+    conn: &mut Conn,
+    id: async_imap::imap_proto::RequestId,
+    refused: fn(&str) -> Error,
+) -> Result<Vec<u32>> {
     use async_imap::imap_proto::{MailboxDatum, Response, Status};
     let mut uids = Vec::new();
     loop {
@@ -683,7 +819,7 @@ async fn read_search(conn: &mut Conn, id: async_imap::imap_proto::RequestId) -> 
                     uids.dedup();
                     return Ok(uids);
                 }
-                return Err(search_refused(outcome.information.as_deref().unwrap_or_default()));
+                return Err(refused(outcome.information.as_deref().unwrap_or_default()));
             }
             _ => {}
         }
@@ -741,17 +877,27 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
             }
         }
     };
-    Ok((Conn { session, caps }, outcome))
+    Ok((
+        Conn {
+            session,
+            caps,
+            qresync: false,
+        },
+        outcome,
+    ))
 }
 
 /// Empties the unsolicited response queue; returns whether it had mailbox changes.
+/// VANISHED stands for EXPUNGE on a session with QRESYNC enabled.
 fn drain_unsolicited(session: &Session) -> bool {
+    use async_imap::imap_proto::Response;
     let mut changed = false;
     while let Ok(r) = session.unsolicited_responses.try_recv() {
-        changed |= matches!(
-            r,
-            UnsolicitedResponse::Exists(_) | UnsolicitedResponse::Expunge(_) | UnsolicitedResponse::Recent(_)
-        );
+        changed |= match &r {
+            UnsolicitedResponse::Exists(_) | UnsolicitedResponse::Expunge(_) | UnsolicitedResponse::Recent(_) => true,
+            UnsolicitedResponse::Other(data) => matches!(data.parsed(), Response::Vanished { .. }),
+            _ => false,
+        };
     }
     changed
 }
@@ -792,6 +938,42 @@ mod tests {
         assert_eq!(uid_set(&[7, 1, 2, 3, 3, 9, 10]), "1:3,7,9:10");
         assert_eq!(uid_set(&[5]), "5");
         assert_eq!(uid_set(&[]), "");
+    }
+
+    #[test]
+    fn reads_changed_flags_and_vanished_uids() {
+        let mut changes = Changes::default();
+        for line in [
+            &b"* 3 FETCH (UID 12 MODSEQ (90060115205545359) FLAGS (\\Seen \\Deleted))\r\n"[..],
+            b"* 4 FETCH (FLAGS (\\Flagged $Label) UID 14 MODSEQ (90060115205545360))\r\n",
+            b"* VANISHED (EARLIER) 5:7,9\r\n",
+            b"* 5 EXISTS\r\n",
+            b"* 5 FETCH (MODSEQ (1))\r\n",
+        ] {
+            let (_, resp) = Response::parse(line).unwrap();
+            changes.take(&resp);
+        }
+        let seen_deleted = Flags {
+            seen: true,
+            deleted: true,
+            ..Flags::default()
+        };
+        let flagged = Flags {
+            flagged: true,
+            ..Flags::default()
+        };
+        assert_eq!(changes.flags, [(12, seen_deleted), (14, flagged)]);
+        assert_eq!(changes.vanished, [5..=7, 9..=9]);
+        assert!(changes.vanished(6) && changes.vanished(9));
+        assert!(!changes.vanished(8) && !changes.vanished(12));
+    }
+
+    #[test]
+    fn append_flags_are_parenthesized() {
+        assert_eq!(append_flags(""), None);
+        assert_eq!(append_flags("\\Seen").as_deref(), Some("(\\Seen)"));
+        assert_eq!(append_flags("\\Draft \\Seen").as_deref(), Some("(\\Draft \\Seen)"));
+        assert_eq!(append_flags("(\\Seen)").as_deref(), Some("(\\Seen)"));
     }
 
     #[test]

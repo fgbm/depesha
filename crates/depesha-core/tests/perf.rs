@@ -73,6 +73,22 @@ async fn fifty_thousand_messages() {
         .await
         .unwrap();
     println!("resync with {N} cached: {:.2} s ({r:?})", t.elapsed().as_secs_f32());
+    if conn.caps.condstore {
+        assert_eq!(r.fetched_flags, 0, "CONDSTORE: no flags of unchanged mail");
+    }
+
+    // The same without CONDSTORE, for comparison: a new session that does not enable it.
+    let mut plain = imap::connect(&server, &user).await.unwrap();
+    plain.caps.condstore = false;
+    plain.caps.qresync = false;
+    let t = Instant::now();
+    let r = sync::sync_folder(&mut plain, &store, "p", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    println!(
+        "resync with {N} cached, no CONDSTORE: {:.2} s ({r:?})",
+        t.elapsed().as_secs_f32()
+    );
 
     let t = Instant::now();
     let rows = store

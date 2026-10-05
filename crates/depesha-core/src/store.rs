@@ -20,7 +20,7 @@ type Step = fn(&Connection) -> Result<()>;
 
 /// The cache's history, `PRAGMA user_version` counting the steps done. A released step
 /// is never edited: a new change of tables or data is a new step at the end.
-const MIGRATIONS: &[Step] = &[v1_tables_and_threads, v2_sort_keys, v3_unversioned_columns];
+const MIGRATIONS: &[Step] = &[v1_tables_and_threads, v2_sort_keys, v3_unversioned_columns, v4_modseq];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
 /// versions before numbered steps have these tables, maybe without the columns below.
@@ -226,6 +226,14 @@ fn v3_unversioned_columns(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 4: where incremental sync of a folder resumes (`ModSeqMark`); zero, a full pass, for all.
+fn v4_modseq(conn: &Connection) -> Result<()> {
+    for column in ["highest_modseq", "modseq_exists", "modseq_uidnext"] {
+        add_column(conn, "folders", column, "INTEGER NOT NULL DEFAULT 0")?;
+    }
+    Ok(())
+}
+
 fn user_version(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)
 }
@@ -245,6 +253,17 @@ fn migrate(conn: &mut Connection, steps: &[Step]) -> Result<()> {
         tx.commit()?;
     }
     Ok(())
+}
+
+/// A folder as the last complete sync found it when selected (CONDSTORE, RFC 7162).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModSeqMark {
+    /// HIGHESTMODSEQ: flags changed after it are fetched again. 0: the next pass is full.
+    pub modseq: u64,
+    /// Messages the folder had (EXISTS), all of them with UIDs below `uid_next`
+    /// (UIDNEXT): fewer of those later means some were expunged.
+    pub exists: u32,
+    pub uid_next: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -520,6 +539,9 @@ impl Store {
             |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|s| s.to_lowercase())),
         )?;
         migrate(&mut conn, MIGRATIONS)?;
+        // The first pass over a folder after start is full: a mod-sequence the server or
+        // this client got wrong is not carried from one run to the next.
+        conn.execute("UPDATE folders SET highest_modseq = 0 WHERE highest_modseq != 0", [])?;
         Ok(Self {
             conn: Mutex::new(conn),
             pending: Mutex::new(HashMap::new()),
@@ -635,6 +657,48 @@ impl Store {
             params![account_id, folder, uidvalidity, last_uid],
         )?;
         Ok(())
+    }
+
+    /// Where incremental sync of the folder resumes; `modseq == 0` when the next pass is full.
+    pub fn modseq_mark(&self, account_id: &str, folder: &str) -> Result<ModSeqMark> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT highest_modseq, modseq_exists, modseq_uidnext FROM folders
+                 WHERE account_id = ?1 AND name = ?2",
+                params![account_id, folder],
+                |r| {
+                    Ok(ModSeqMark {
+                        modseq: r.get::<_, i64>(0)? as u64,
+                        exists: r.get(1)?,
+                        uid_next: r.get(2)?,
+                    })
+                },
+            )
+            .optional()?
+            .unwrap_or_default())
+    }
+
+    /// Saved after a pass has done all it read: an interrupted one is repeated.
+    pub fn set_modseq_mark(&self, account_id: &str, folder: &str, mark: ModSeqMark) -> Result<()> {
+        // RFC 7162 keeps mod-sequences below 2^63; a larger one would read back negative.
+        let modseq = i64::try_from(mark.modseq).unwrap_or(0);
+        self.conn().execute(
+            "UPDATE folders SET highest_modseq = ?3, modseq_exists = ?4, modseq_uidnext = ?5
+             WHERE account_id = ?1 AND name = ?2",
+            params![account_id, folder, modseq, mark.exists, mark.uid_next],
+        )?;
+        Ok(())
+    }
+
+    /// Lowest and highest cached UID of the folder.
+    pub fn uid_range(&self, account_id: &str, folder: &str) -> Result<Option<(u32, u32)>> {
+        let (min, max): (Option<u32>, Option<u32>) = self.conn().query_row(
+            "SELECT min(uid), max(uid) FROM messages WHERE account_id = ?1 AND folder = ?2",
+            params![account_id, folder],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok(min.zip(max))
     }
 
     /// Forgets the messages of a folder, all or none of them. Flags the user set on them
@@ -1789,7 +1853,7 @@ fn clear_folder(tx: &Connection, account_id: &str, folder: &str) -> Result<()> {
         params![account_id, folder],
     )?;
     tx.execute(
-        "UPDATE folders SET oldest_uid = 0 WHERE account_id = ?1 AND name = ?2",
+        "UPDATE folders SET oldest_uid = 0, highest_modseq = 0 WHERE account_id = ?1 AND name = ?2",
         params![account_id, folder],
     )?;
     Ok(())
@@ -2942,12 +3006,11 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let mut conn = Connection::open(old_cache(&dir, tables_of(2), 2)).unwrap();
-        let before = shape(&conn);
         let steps: Vec<Step> = MIGRATIONS.iter().copied().chain([broken as Step]).collect();
         assert!(migrate(&mut conn, &steps).is_err());
-        // Step 3 went through; the broken step left neither its column nor its number.
-        assert_eq!(user_version(&conn).unwrap(), 3);
-        assert_eq!(shape(&conn), before);
+        // The real steps went through; the broken one left neither its column nor its number.
+        assert_eq!(user_version(&conn).unwrap(), MIGRATIONS.len() as i64);
+        assert_eq!(shape(&conn), shape(&Store::open_in_memory().unwrap().conn()));
 
         // A step interrupted in the middle of the history: the same.
         let dir = tempfile::tempdir().unwrap();
@@ -3268,5 +3331,55 @@ mod tests {
         let (row, validity) = store.get_at(id).unwrap().unwrap();
         assert_eq!((row.uid, validity), (7, 42));
         assert!(store.get_at(id + 1).unwrap().is_none());
+    }
+
+    // Mod-sequences (CONDSTORE).
+
+    #[test]
+    fn a_cache_of_version_3_syncs_its_folders_in_full_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = old_cache(&dir, tables_of(2), 3);
+        Connection::open(&path)
+            .unwrap()
+            .execute("UPDATE folders SET uidvalidity = 9, last_uid = 2", [])
+            .unwrap();
+        let store = Store::open(&path).unwrap();
+        assert_eq!(shape(&store.conn()), shape(&Store::open_in_memory().unwrap().conn()));
+        assert_eq!(store.folder_state("a", "INBOX").unwrap(), (9, 2));
+        assert_eq!(store.uid_range("a", "INBOX").unwrap(), Some((1, 2)));
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), ModSeqMark::default());
+    }
+
+    #[test]
+    fn a_mod_sequence_is_forgotten_with_the_folder_and_at_the_next_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        let store = Store::open(&path).unwrap();
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        assert_eq!(store.uid_range("a", "INBOX").unwrap(), None);
+        let mark = ModSeqMark {
+            modseq: 90_060_115_205_545_359,
+            exists: 30,
+            uid_next: 31,
+        };
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        store.set_folder_state("a", "INBOX", 5, 30).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+        // The folder list comes again: the mark stays.
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap(), mark);
+
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0, "a new start");
+        assert_eq!(store.folder_state("a", "INBOX").unwrap(), (5, 30));
+
+        store.set_modseq_mark("a", "INBOX", mark).unwrap();
+        store.clear_folder("a", "INBOX").unwrap();
+        assert_eq!(store.modseq_mark("a", "INBOX").unwrap().modseq, 0, "a new UIDVALIDITY");
     }
 }
