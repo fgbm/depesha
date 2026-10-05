@@ -37,6 +37,7 @@ jobs:
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
       - run: npx vitest run
       - run: cargo test -p depesha-core
+      - run: cargo test -p depesha --lib
 
   integration:
     name: Integration (GreenMail, Dovecot)

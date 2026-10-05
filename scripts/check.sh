@@ -22,6 +22,7 @@ step "vitest"
 npx vitest run
 step "cargo test (unit + scripted Exchange SMTP)"
 cargo test -p depesha-core
+cargo test -p depesha --lib
 
 if [[ "${1:-}" == "--fast" ]]; then
   exit 0
