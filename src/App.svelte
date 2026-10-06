@@ -55,6 +55,10 @@
     void app.view;
     untrack(() => layout.showList());
   });
+  $effect(() => {
+    const has = hasLetter;
+    untrack(() => layout.follow(has));
+  });
 
   onMount(() => {
     app.init().catch((e) => app.fail(e, t("startup")));

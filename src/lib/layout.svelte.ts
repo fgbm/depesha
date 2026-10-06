@@ -150,6 +150,15 @@ export class Layout {
     this.pane = "list";
   }
 
+  /**
+   * Whether there is a letter to show. When it goes away with none in its place (the last
+   * row taken out, the letter gone from the server), the column is the list's again: the
+   * next j/k then moves along the list instead of jumping into a letter.
+   */
+  follow(hasLetter: boolean) {
+    if (!hasLetter) this.showList();
+  }
+
   /** Enter in a narrow window: the selected letter takes the column. True when handled. */
   enter(selected: number): boolean {
     if (!this.single || selected !== 1) return false;

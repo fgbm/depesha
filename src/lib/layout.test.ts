@@ -141,6 +141,16 @@ describe("a narrow window: the list and the letter in turn", () => {
     expect(l.back(true)).toBe(false);
   });
 
+  it("goes back to the list when the letter goes away with none in its place", () => {
+    const { l } = make(null, 640);
+    l.enter(1);
+    l.follow(true);
+    expect(l.column(true)).toBe("message");
+    l.follow(false);
+    // The next letter opened by j/k stays in the list's column.
+    expect(l.column(true)).toBe("list");
+  });
+
   it("keeps the letter on screen across a resize back to narrow", () => {
     const { l } = make(null, 640);
     l.enter(1);
