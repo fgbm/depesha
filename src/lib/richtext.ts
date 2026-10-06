@@ -81,6 +81,11 @@ function escapeMarkdown(s: string): string {
     .replace(/_/g, (m, at: number, all: string) => (word.test(all[at - 1] ?? "") && word.test(all[at + 1] ?? "") ? m : "\\_"));
 }
 
+/** An address as the target of a Markdown link: brackets and spaces would end it early. */
+export function markdownUrl(url: string): string {
+  return url.replace(/[()\s]/g, (c) => (c === "(" ? "%28" : c === ")" ? "%29" : encodeURIComponent(c)));
+}
+
 /**
  * Walks the HTML and writes it as lines of text, or as Markdown when `markdown` is set:
  * paragraphs apart by an empty line, lines of a quote under "> ", list items under
@@ -280,7 +285,7 @@ function render(html: string, markdown: boolean): string {
       const shown = link.text.trim();
       const address = href.replace(/^mailto:/i, "");
       if (markdown) {
-        if (/^(https?:|mailto:)/i.test(href)) write(`](${href.replace(/[()\s]/g, encodeURIComponent)})`);
+        if (/^(https?:|mailto:)/i.test(href)) write(`](${markdownUrl(href)})`);
         else if (started) cur = cur.slice(0, link.at) + cur.slice(link.at + 1);
       } else if (/^(https?:|mailto:)/i.test(href) && shown !== address && shown !== href) {
         write(` <${address}>`);

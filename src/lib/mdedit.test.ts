@@ -37,6 +37,13 @@ describe("Markdown buttons", () => {
     expect(apply("", linkEdit("", 0, 0, "mailto:a@example.com"))).toBe("[a@example.com](mailto:a@example.com)");
   });
 
+  it("keeps brackets of the address and the text inside the link", () => {
+    expect(apply("Вики", linkEdit("Вики", 0, 4, "https://ru.wikipedia.org/wiki/Ключ_(значения) x"))).toBe(
+      "[Вики](https://ru.wikipedia.org/wiki/Ключ_%28значения%29%20x)",
+    );
+    expect(apply("см. [1]", linkEdit("см. [1]", 0, 7, "https://example.com"))).toBe("[см. \\[1\\]](https://example.com)");
+  });
+
   it("clears the markup and keeps the words", () => {
     const text = "- **всё** *сходится*, см. [таблицу](https://example.com) <u>сейчас</u>";
     expect(apply(text, clearEdit(text, 0, text.length))).toBe("всё сходится, см. таблицу сейчас");

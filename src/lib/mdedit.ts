@@ -2,6 +2,8 @@
 // Each returns an edit of the text; the field applies it as typing, so Ctrl+Z undoes it.
 // Covered by mdedit.test.ts.
 
+import { markdownUrl } from "./richtext";
+
 export interface Edit {
   /** The part of the text replaced… */
   from: number;
@@ -54,8 +56,9 @@ export function linesEdit(text: string, start: number, end: number, kind: LineKi
 
 /** `[text](address)`; with nothing selected the address is the text. */
 export function linkEdit(text: string, start: number, end: number, url: string): Edit {
-  const shown = text.slice(start, end) || url.replace(/^mailto:/i, "");
-  const insert = `[${shown}](${url.replace(/[()\s]/g, encodeURIComponent)})`;
+  // A bracket in the text would close the link's text early.
+  const shown = (text.slice(start, end) || url.replace(/^mailto:/i, "")).replace(/[[\]]/g, "\\$&");
+  const insert = `[${shown}](${markdownUrl(url)})`;
   return { from: start, to: end, insert, select: [start + insert.length, start + insert.length] };
 }
 

@@ -59,6 +59,10 @@ describe("htmlToMarkdown", () => {
     expect(htmlToMarkdown("<blockquote>да</blockquote>")).toBe("> да");
   });
 
+  it("keeps brackets of a link's address inside it", () => {
+    expect(htmlToMarkdown('<a href="https://example.com/a_(b)">ссылка</a>')).toBe("[ссылка](https://example.com/a_%28b%29)");
+  });
+
   it("does not let plain text turn into formatting", () => {
     expect(htmlToMarkdown("<div>2*3 = 6</div><div># не заголовок</div><div>- не список</div>")).toBe("2\\*3 = 6\n\\# не заголовок\n\\- не список");
   });
