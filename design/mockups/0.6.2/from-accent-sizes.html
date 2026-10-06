@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Строка «От»: размеры и формы акцента ящика (0.6.2)</title>
+<style>
+/* ============================================================================
+   Узкий макет-сравнение. Код приложения не тронут: переменные темы — из
+   src/app.css, разметка и стили строки «От», поля «От» и кнопки — из
+   src/components/Compose.svelte и src/components/Select.svelte, ровно как в
+   соседнем макете compose-account-color.html. Акцент — тот же приём, что в
+   plugins/account-color/FromTint.svelte: нулевая по ширине коробка с
+   margin: 0 -4px, а видимая метка нарисована внутри уже существующего зазора 8px.
+   ============================================================================ */
+
+/* --- src/app.css: :root (тема paper) --- */
+.theme {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --ok: #2e7d4f;
+  --warn: #b26a00;
+  --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color-scheme: light;
+}
+
+/* --- src/app.css: :root[data-theme="night"] --- */
+.theme.dark {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #8f97a2;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #2e3742;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html { background: #cfc9be; }
+body {
+  margin: 0;
+  font-family: var(--font, system-ui, sans-serif);
+  font-size: 14px;
+  color: #1d232b;
+  background: #cfc9be;
+  -webkit-font-smoothing: antialiased;
+  padding: 32px 0 96px;
+}
+
+.doc { width: 1180px; margin: 0 auto; }
+h1 { font-size: 27px; margin: 0 0 8px; }
+.lead { color: #3e4650; line-height: 1.6; margin: 0 0 10px; max-width: 1100px; }
+.lead b { color: #1d232b; }
+.lead code { font-family: var(--mono); font-size: 12.5px; }
+
+.legend {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  margin: 14px 0 4px; padding: 12px 16px; background: #f3eee4;
+  border: 1px solid #ddd4c4; border-radius: 8px; max-width: 1100px;
+}
+.legend .item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.legend .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+.legend .note { color: #6b7480; font-size: 12.5px; }
+
+section.theme {
+  margin-top: 44px;
+  padding: 26px 28px 34px;
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+}
+section.theme > h2 {
+  font-size: 20px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px;
+}
+section.theme > h2 .pill {
+  font: 600 11px/1.6 var(--font); padding: 0 8px; border-radius: 10px;
+  background: var(--paper-2); color: var(--muted); border: 1px solid var(--line);
+}
+section.theme > .sub { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+
+.variant {
+  margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line);
+}
+.variant > h3 { font-size: 16px; margin: 0 0 4px; }
+.variant > h3 .idx {
+  display: inline-block; min-width: 22px; height: 22px; line-height: 22px;
+  text-align: center; border-radius: 6px; background: var(--paper-2);
+  color: var(--muted); font-size: 12px; margin-right: 8px; vertical-align: 1px;
+}
+.variant > p { margin: 0 0 4px; line-height: 1.55; color: var(--ink); max-width: 1100px; }
+.variant > p .good { color: var(--ok); font-weight: 600; }
+.variant > p .bad { color: #b3261e; font-weight: 600; }
+.variant > p.caption { color: var(--muted); font-size: 12.5px; }
+
+.pair { display: flex; gap: 30px; margin-top: 12px; flex-wrap: wrap; }
+.slot { display: flex; flex-direction: column; gap: 8px; }
+.slot .who {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted);
+}
+.slot .who .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.slot .who code { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+/* ============================================================================
+   Строка «От» — src/components/Compose.svelte (.row, .label, .from-trigger,
+   .btn) и src/components/Select.svelte (.trigger). Размеры окна уменьшены до
+   ширины строки: цвета, отступы и радиусы — как в приложении.
+   ============================================================================ */
+.fields { width: 560px; padding: 4px 18px 0; }
+.row {
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--line); padding: 4px 0;
+}
+.label { width: 64px; color: var(--muted); flex: none; }
+.from-trigger {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 4px 9px 4px 0;
+  color: var(--ink); cursor: pointer; user-select: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.from-trigger .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.from-trigger svg { flex: none; margin-left: auto; color: var(--muted); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border-radius: 6px; padding: 5px 11px; line-height: 1.3; white-space: nowrap;
+  font: inherit;
+}
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.small { font-size: 12px; padding: 3px 9px; }
+
+/* ------------------------------------------------------------------
+   Акцент ящика (plugins/account-color/FromTint.svelte). Коробка нулевой
+   ширины в зазоре 8px; поля -4px гасят один лишний зазор, поэтому строка
+   не сдвигается. Метка нарисована внутри коробки.
+   ------------------------------------------------------------------ */
+.acc { position: relative; flex: none; align-self: center; width: 0; margin: 0 -4px; }
+
+/* Полоски */
+.acc-bar { height: var(--h); }
+.acc-bar .mark {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: var(--w); border-radius: var(--r); background: var(--acct);
+  pointer-events: none;
+}
+
+/* Кружки: центр метки — центр зазора 8px (label.right + 4px) */
+.acc-circle { height: var(--d); }
+.acc-circle .mark {
+  position: absolute; top: 50%; left: calc(var(--d) / -2);
+  width: var(--d); height: var(--d); border-radius: 50%;
+  transform: translateY(-50%); background: var(--acct);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------
+   Измерения под строкой
+   ------------------------------------------------------------------ */
+.meas {
+  display: flex; flex-wrap: wrap; gap: 6px 14px;
+  font-size: 12px; color: var(--muted);
+}
+.meas span { white-space: nowrap; }
+.meas b { font-family: var(--mono); font-size: 11.5px; }
+.meas b.ok { color: var(--ok); }
+.meas b.tight { color: var(--warn); }
+.meas b.bad { color: #b3261e; }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>Строка «От»: размер и форма цветового акцента ящика</h1>
+  <p class="lead">
+    Тот же акцент, что в соседнем макете, — только крупным планом и в семи размерах: полоски
+    (<b>3×18</b> как сейчас, <b>4×20</b>, <b>5×22</b>, <b>4×32 во всю строку</b>) и кружки
+    (<b>8</b>, <b>10</b>, <b>12px</b>). Каждый вариант показан в двух цветах ящика из
+    <code>ACCOUNT_PALETTE</code> (<code>src/lib/format.ts</code>) и в обеих темах. Приём — как в
+    <code>plugins/account-color/FromTint.svelte</code>: коробка нулевой ширины, <code>margin: 0 -4px</code>,
+    метка нарисована в уже существующем зазоре <b>8px</b> между «От» и адресом.
+    Под каждой строкой — фактические замеры: помещается ли метка в зазор и не сдвинулась ли строка.
+  </p>
+  <div class="legend">
+    <div class="item"><span class="sw" style="background:#3f7cc4"></span> Ящик 1 «Работа» — <code>#3f7cc4</code> (синий, тёмный)</div>
+    <div class="item"><span class="sw" style="background:#c77d1a"></span> Ящик 2 «Личная» — <code>#c77d1a</code> (охристый, светлый)</div>
+    <div class="note">«зазор 8px» — нынешнее расстояние между текстом «От» и адресом. Отрицательный зазор = наезд.</div>
+  </div>
+
+  <section class="theme light" id="light" data-theme="light">
+    <h2>Светлая тема <span class="pill">paper</span></h2>
+    <p class="sub">«Бумажная» тема по умолчанию.</p>
+    <div class="variants"></div>
+  </section>
+
+  <section class="theme dark" id="dark" data-theme="dark">
+    <h2>Тёмная тема <span class="pill">night</span></h2>
+    <p class="sub">Ночная тема.</p>
+    <div class="variants"></div>
+  </section>
+</div>
+
+<script>
+// Цвета ящиков — первые два из ACCOUNT_PALETTE (src/lib/format.ts).
+const ACCOUNTS = [
+  { color: "#3f7cc4", label: "Работа", addr: "Иван Петров <ivan@example.com>" },
+  { color: "#c77d1a", label: "Личная", addr: "П. Иванов <petr@example.com>" },
+];
+
+const CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+
+const VARIANTS = [
+  {
+    key: "b3", idx: "1", n: "Полоска 3 × 18, скругление 2",
+    shape: "bar", w: 3, h: 18, r: "2px",
+    title: "Как сейчас — точка отсчёта",
+    good: "Ничего не двигает, не спорит с оформлением, одинакова во всех темах.",
+    bad: "Боковым зрением не читается: полоску надо искать глазами.",
+  },
+  {
+    key: "b4", idx: "2", n: "Полоска 4 × 20, скругление 2",
+    shape: "bar", w: 4, h: 20, r: "2px",
+    title: "На шаг больше",
+    good: "Заметнее примерно на треть по площади, строку по-прежнему не двигает.",
+    bad: "Разница с «Сейчас» почти не видна без сравнения рядом; по правому краю зазор до адреса схлопывается в 0.",
+  },
+  {
+    key: "b5", idx: "3", n: "Полоска 5 × 22, скругление 2.5",
+    shape: "bar", w: 5, h: 22, r: "2.5px",
+    title: "Ещё заметнее",
+    good: "Площадь вдвое против «Сейчас» — читается увереннее, форма всё ещё «штрих».",
+    bad: "Наезжает на адрес на 1px (полоска растёт вправо, а зазор всего 8px). Близко к пределу.",
+  },
+  {
+    key: "bfull", idx: "4", n: "Полоска 4 × 32 во всю высоту поля «От»",
+    shape: "bar", w: 4, h: 32, r: "2px",
+    title: "Метка поля, а не штрих",
+    good: "32px — ровно высота поля «От» (from-trigger), до нижней линии остаётся ещё 4px паддинга: читается как цвет всего поля и не путается с разделителем.",
+    bad: "Площадь как у выделения строки: при быстром письме перетягивает взгляд на себя сильнее, чем «тихий» акцент.",
+  },
+  {
+    key: "c8", idx: "5", n: "Кружок 8px",
+    shape: "circle", d: 8,
+    title: "Форма точки",
+    good: "В нынешний зазор 8px влезает впритык; точка читается боковым зрением как статус.",
+    bad: "Зазор до «От» и до адреса — 0px: метка соприкасается с обоими, «дышит» хуже полоски.",
+  },
+  {
+    key: "c10", idx: "6", n: "Кружок 10px",
+    shape: "circle", d: 10,
+    title: "На 2px больше зазора",
+    good: "Заметнее 8px, но форму всё ещё держит.",
+    bad: "Не влезает: наезжает на «От» на 1px и на адрес на 1px. Чтобы развести — расширять зазор, и адрес сдвинется.",
+  },
+  {
+    key: "c12", idx: "7", n: "Кружок 12px",
+    shape: "circle", d: 12,
+    title: "Предел",
+    good: "Самая заметная точка.",
+    bad: "Наезд 2px с каждой стороны — метка уже полноценный элемент строки, а не акцент.",
+  },
+];
+
+function accentHTML(v) {
+  if (v.shape === "circle") {
+    return `<span class="acc acc-circle" data-variant="${v.key}" style="--d:${v.d}px"><span class="mark"></span></span>`;
+  }
+  return `<span class="acc acc-bar" data-variant="${v.key}" style="--w:${v.w}px;--h:${v.h}px;--r:${v.r}"><span class="mark"></span></span>`;
+}
+
+function rowHTML(v, acc) {
+  return `
+  <div class="fields">
+    <div class="row from-row" style="--acct:${acc.color}">
+      <span class="label">От</span>
+      ${accentHTML(v)}
+      <span class="from-trigger"><span class="txt">${acc.label} — ${acc.addr}</span>${CHEV}</span>
+      <button class="btn ghost small">Копия</button>
+    </div>
+  </div>`;
+}
+
+function slotHTML(v, acc, theme) {
+  return `
+  <div class="slot" data-variant="${v.key}" data-acct="${acc.color}" data-theme="${theme}">
+    <div class="who">
+      <span class="sw" style="background:${acc.color}"></span>
+      ящик «${acc.label}» — <code>${acc.color}</code>
+    </div>
+    ${rowHTML(v, acc)}
+    <div class="meas" aria-live="off"></div>
+  </div>`;
+}
+
+function render() {
+  for (const sec of document.querySelectorAll("section.theme")) {
+    const theme = sec.dataset.theme;
+    const host = sec.querySelector(".variants");
+    host.innerHTML = VARIANTS.map((v) => `
+      <div class="variant" id="${theme}-${v.key}">
+        <h3><span class="idx">${v.idx}</span>${v.n} — ${v.title}</h3>
+        <p><span class="good">Хорошо:</span> ${v.good}</p>
+        <p><span class="bad">Плохо:</span> ${v.bad}</p>
+        <div class="pair">${ACCOUNTS.map((a) => slotHTML(v, a, theme)).join("")}</div>
+      </div>`).join("");
+  }
+}
+
+// Фактические замеры после раскладки: помещается ли метка в зазор и не
+// сдвинулась ли строка относительно эталона «3 × 18».
+function px(n) { return Math.round(n * 10) / 10; }
+function measureAll() {
+  const slots = [...document.querySelectorAll(".slot")];
+  const baseline = {};
+  for (const slot of slots) {
+    if (slot.dataset.variant !== "b3") continue;
+    const trig = slot.querySelector(".from-trigger");
+    baseline[slot.dataset.theme + "|" + slot.dataset.acct] = trig.getBoundingClientRect().left;
+  }
+  for (const slot of slots) {
+    const key = slot.dataset.theme + "|" + slot.dataset.acct;
+    const row = slot.querySelector(".row");
+    const label = slot.querySelector(".label");
+    const mark = slot.querySelector(".mark");
+    const txt = slot.querySelector(".txt");
+    const trig = slot.querySelector(".from-trigger");
+    const mr = mark.getBoundingClientRect();
+    const lr = label.getBoundingClientRect();
+    const tr = txt.getBoundingClientRect();
+    const rr = row.getBoundingClientRect();
+
+    const gapLeft = mr.left - lr.right;
+    const gapRight = tr.left - mr.right;
+    const vDelta = (mr.top + mr.bottom) / 2 - (tr.top + tr.bottom) / 2;
+    const shift = trig.getBoundingClientRect().left - (baseline[key] ?? trig.getBoundingClientRect().left);
+    const topGap = mr.top - rr.top;
+    const botGap = rr.bottom - mr.bottom;
+
+    const cls = (n) => (n < -0.5 ? "bad" : n < 1 ? "tight" : "ok");
+    const host = slot.querySelector(".meas");
+    host.innerHTML =
+      `<span>зазор до «От»: <b class="${cls(gapLeft)}">${px(gapLeft)}</b> px</span>` +
+      `<span>зазор до адреса: <b class="${cls(gapRight)}">${px(gapRight)}</b> px</span>` +
+      `<span>осевое смещение: <b class="${Math.abs(vDelta) < 0.6 ? "ok" : "bad"}">${px(vDelta)}</b> px</span>` +
+      `<span>сдвиг адреса: <b class="${Math.abs(shift) < 0.6 ? "ok" : "bad"}">${px(shift)}</b> px</span>` +
+      `<span>верх/низ строки: <b>${px(topGap)}/${px(botGap)}</b> px</span>`;
+  }
+}
+
+render();
+measureAll();
+</script>
+</body>
+</html>

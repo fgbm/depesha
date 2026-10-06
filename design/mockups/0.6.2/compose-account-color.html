@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Окно письма: цвет ящика — сравнение вариантов (0.6.2)</title>
+<style>
+/* ============================================================================
+   Одноразовый макет-сравнение. Код приложения не тронут: переменные темы и
+   стили окна письма скопированы из src/app.css и src/components/Compose.svelte,
+   разметка шапки, строки «От» и футера — из того же компонента.
+   ============================================================================ */
+
+/* --- src/app.css: :root (тема paper) --- */
+.theme {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --ok: #2e7d4f;
+  --warn: #b26a00;
+  --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color-scheme: light;
+}
+
+/* --- src/app.css: :root[data-theme="night"] --- */
+.theme.dark {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #8f97a2;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #2e3742;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html { background: #cfc9be; }
+body {
+  margin: 0;
+  font-family: var(--font, system-ui, sans-serif);
+  font-size: 14px;
+  color: #1d232b;
+  background: #cfc9be;
+  -webkit-font-smoothing: antialiased;
+  padding: 32px 0 96px;
+}
+
+.doc { width: 1240px; margin: 0 auto; }
+h1 { font-size: 27px; margin: 0 0 8px; }
+.lead { color: #3e4650; line-height: 1.6; margin: 0 0 10px; max-width: 1140px; }
+.lead b { color: #1d232b; }
+
+.legend {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  margin: 14px 0 4px; padding: 12px 16px; background: #f3eee4;
+  border: 1px solid #ddd4c4; border-radius: 8px; max-width: 1140px;
+}
+.legend .item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.legend .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+.legend .note { color: #6b7480; font-size: 12.5px; }
+
+section.theme {
+  margin-top: 44px;
+  padding: 26px 28px 34px;
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+}
+section.theme > h2 {
+  font-size: 20px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px;
+}
+section.theme > h2 .pill {
+  font: 600 11px/1.6 var(--font); padding: 0 8px; border-radius: 10px;
+  background: var(--paper-2); color: var(--muted); border: 1px solid var(--line);
+}
+section.theme > .sub { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+
+.variant {
+  margin-top: 34px; padding-top: 24px; border-top: 1px solid var(--line);
+}
+.variant > h3 { font-size: 17px; margin: 0 0 6px; }
+.variant > h3 .idx {
+  display: inline-block; min-width: 22px; height: 22px; line-height: 22px;
+  text-align: center; border-radius: 6px; background: var(--paper-2);
+  color: var(--muted); font-size: 12px; margin-right: 8px; vertical-align: 1px;
+}
+.variant > p { margin: 0 0 6px; line-height: 1.55; color: var(--ink); max-width: 1140px; }
+.variant > p .good { color: var(--ok); font-weight: 600; }
+.variant > p .bad { color: #b3261e; font-weight: 600; }
+.variant > p.caption { color: var(--muted); font-size: 13px; }
+
+.pair { display: flex; gap: 26px; margin-top: 16px; flex-wrap: wrap; }
+.slot { display: flex; flex-direction: column; gap: 8px; }
+.slot .who {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted);
+}
+.slot .who .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.slot .who code { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+/* ============================================================================
+   .compose — src/components/Compose.svelte (размеры уменьшены до ширины макета;
+   цвета, отступы, радиусы и тени — как в приложении).
+   ============================================================================ */
+.compose {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  height: 388px;
+  background: var(--paper);
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 8px 40px rgb(0 0 0 / 28%), 0 0 0 1px rgb(0 0 0 / 6%);
+  overflow: hidden;
+}
+
+/* header — «тёмная полоса письма Gmail» из Compose.svelte */
+.compose > header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 4px;
+  background: var(--side);
+  color: var(--side-ink);
+  flex: none;
+}
+.compose .title {
+  flex: 1; min-width: 0;
+  border: none; background: none; color: inherit; text-align: left;
+  padding: 6px 10px; font-size: 14px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: inherit;
+}
+.compose .saved { font-size: 12px; white-space: nowrap; color: var(--side-muted); padding: 0 6px; }
+.compose .hb {
+  border: none; background: none; color: var(--side-muted);
+  width: 28px; height: 28px; border-radius: 6px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.compose .hb svg { display: block; }
+
+.compose .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.compose .fields { padding: 4px 18px 0; }
+.compose .row {
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--line); padding: 4px 0;
+}
+.compose .label { width: 64px; color: var(--muted); flex: none; }
+.compose .subject {
+  flex: 1; border: none; outline: none; background: transparent;
+  padding: 6px 2px; font-weight: 600;
+}
+.compose .from-trigger {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 4px 9px 4px 0;
+  color: var(--ink); cursor: pointer; user-select: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.compose .from-trigger .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compose .from-trigger svg { flex: none; margin-left: auto; color: var(--muted); }
+
+.compose .btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border-radius: 6px; padding: 5px 11px; line-height: 1.3; white-space: nowrap;
+  font: inherit;
+}
+.compose .btn.ghost { border-color: transparent; background: transparent; }
+.compose .btn.small { font-size: 12px; padding: 3px 9px; }
+.compose .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.compose .btn.icon { min-width: 32px; justify-content: center; padding: 5px 7px; }
+.compose kbd {
+  font-family: var(--mono); font-size: 11px; border: 1px solid rgb(255 255 255 / 40%);
+  border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--accent-ink);
+}
+
+/* FormatBar.svelte */
+.compose .bar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 14px; border-bottom: 1px solid var(--line);
+}
+.compose .tb {
+  height: 28px; min-width: 28px; border: none; border-radius: 6px;
+  background: none; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  font: inherit;
+}
+.compose .sep { width: 1px; height: 16px; margin: 0 5px; background: var(--line); }
+.compose .bar .spacer { flex: 1; }
+
+/* тело письма */
+.compose .body-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.compose .body {
+  flex: 1; padding: 14px 18px; line-height: 1.55; color: var(--ink);
+  white-space: pre-wrap;
+}
+.compose .body .sig {
+  margin-top: 16px; padding-top: 8px; border-top: 1px dashed var(--line); opacity: 0.9;
+}
+
+/* footer — Compose.svelte */
+.compose > .panel > footer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 18px 14px; border-top: 1px solid var(--line);
+}
+.compose .split-btn { display: inline-flex; align-items: center; }
+.compose .spacer { flex: 1; }
+
+/* ------------------------------------------------------------------
+   Полоска плагина account-color (FromTint.svelte) — вариант «Сейчас»
+   ------------------------------------------------------------------ */
+.compose .tint { position: relative; flex: none; align-self: center; height: 18px; width: 0; margin: 0 -4px; }
+.compose .tint::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0;
+  width: 3px; border-radius: 2px; background: var(--acct); pointer-events: none;
+}
+
+/* ------------------------------------------------------------------
+   Варианты заливки
+   ------------------------------------------------------------------ */
+
+/* А — шапка окна залита цветом ящика */
+.compose.v-a > header { background: var(--acct); color: var(--on-acct); }
+.compose.v-a > header .saved { color: color-mix(in srgb, var(--on-acct) 72%, transparent); }
+.compose.v-a > header .hb { color: color-mix(in srgb, var(--on-acct) 78%, transparent); }
+
+/* Б — строка «От» залита цветом ящика (заливка во всю ширину окна: отрицательные
+   отступы снимают padding .fields, внутренний отступ возвращает выравнивание) */
+.compose.v-b .row.from-row {
+  background: var(--acct); color: var(--on-acct);
+  border-bottom-color: color-mix(in srgb, var(--on-acct) 24%, transparent);
+  margin: 0 -18px; padding-left: 18px; padding-right: 18px;
+}
+.compose.v-b .row.from-row .label { color: color-mix(in srgb, var(--on-acct) 78%, transparent); }
+.compose.v-b .row.from-row .from-trigger { color: var(--on-acct); }
+.compose.v-b .row.from-row .from-trigger svg { color: color-mix(in srgb, var(--on-acct) 78%, transparent); }
+.compose.v-b .row.from-row .btn.ghost { color: var(--on-acct); }
+
+/* В — шапка и строка «От» вместе */
+.compose.v-v > header { background: var(--acct); color: var(--on-acct); }
+.compose.v-v > header .saved { color: color-mix(in srgb, var(--on-acct) 72%, transparent); }
+.compose.v-v > header .hb { color: color-mix(in srgb, var(--on-acct) 78%, transparent); }
+.compose.v-v .row.from-row {
+  background: var(--acct); color: var(--on-acct);
+  border-bottom-color: color-mix(in srgb, var(--on-acct) 24%, transparent);
+  margin: 0 -18px; padding-left: 18px; padding-right: 18px;
+}
+.compose.v-v .row.from-row .label { color: color-mix(in srgb, var(--on-acct) 78%, transparent); }
+.compose.v-v .row.from-row .from-trigger { color: var(--on-acct); }
+.compose.v-v .row.from-row .from-trigger svg { color: color-mix(in srgb, var(--on-acct) 78%, transparent); }
+.compose.v-v .row.from-row .btn.ghost { color: var(--on-acct); }
+
+/* Г — цветная рамка всего окна */
+.compose.v-g { border: 3px solid var(--acct); border-bottom: none; }
+
+/* Пометка о контрасте текста на заливке */
+.slot .ratio { font-size: 11.5px; color: var(--muted); }
+.slot .ratio.lo { color: #b3261e; }
+.slot .ratio.ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="doc">
+  <h1>От какого ящика уходит письмо: варианты для окна письма</h1>
+  <p class="lead">
+    Сейчас выбранный ящик виден только как <b>вертикальная полоска 3px</b> у поля «От» (плагин
+    <code>account-color</code>, <code>plugins/account-color/FromTint.svelte</code>). Полоску надо искать
+    глазами — боковым зрением она не читается, и письмо уходит не от того ящика. Ниже — та же форма письма
+    в нескольких состояниях: <b>Сейчас</b>, <b>А</b> — шапка окна, <b>Б</b> — строка «От», <b>В</b> — то и другое,
+    <b>Г</b> — рамка всего окна. Каждый вариант показан с двумя цветами из <code>ACCOUNT_PALETTE</code>
+    (<code>src/lib/format.ts</code>) и в обеих темах.
+  </p>
+  <div class="legend">
+    <div class="item"><span class="sw" style="background:#3f7cc4"></span> Ящик 1 «Работа» — <code>#3f7cc4</code> (синий, тёмный)</div>
+    <div class="item"><span class="sw" style="background:#c77d1a"></span> Ящик 2 «Личная» — <code>#c77d1a</code> (охристый, светлый)</div>
+    <div class="note">Под каждым окном — фактический контраст текста на заливке (выбран лучший из белого и <code>#1d232b</code>).</div>
+  </div>
+
+  <section class="theme light" id="light">
+    <h2>Светлая тема <span class="pill">paper</span></h2>
+    <p class="sub">«Бумажная» тема по умолчанию; полоска ящика в списке писем и точки в сайдбаре — тех же цветов.</p>
+    <div class="variants"></div>
+  </section>
+
+  <section class="theme dark" id="dark">
+    <h2>Тёмная тема <span class="pill">night</span></h2>
+    <p class="sub">Ночная тема. Шапка окна здесь почти чёрная, поэтому заливка шапки цветом ящика особенно заметна.</p>
+    <div class="variants"></div>
+  </section>
+</div>
+
+<script>
+// Цвета ящиков — первые два из ACCOUNT_PALETTE (src/lib/format.ts), как их получают
+// первые два настроенных ящика.
+const ACCOUNTS = [
+  { color: "#3f7cc4", label: "Работа", addr: "Иван Петров <ivan@example.com>" },
+  { color: "#c77d1a", label: "Личная", addr: "П. Иванов <petr@example.com>" },
+];
+
+const VARIANTS = [
+  {
+    key: "now", idx: "1", n: "Сейчас", title: "Тонкая полоска у поля «От» (как сейчас)",
+    good: "Ничего не двигает, не спорит с оформлением, работает во всех темах.",
+    bad: "Слишком тихо: полоску надо искать глазами, боковым зрением её не видно — задачу она не решает.",
+  },
+  {
+    key: "a", idx: "А", n: "Вариант А", title: "Шапка окна залита цветом ящика",
+    good: "Большая площадь цвета — читается мгновенно и боковым зрением; в тёмной теме особенно заметно на фоне почти чёрной шапки.",
+    bad: "Ящик виден, даже когда строка «От» прокручена/свёрнута — но текст шапки (заголовок, «Сохранено», кнопки окна) приходится подбирать под заливку; на светлых цветах палитры контраст на грани.",
+  },
+  {
+    key: "b", idx: "Б", n: "Вариант Б", title: "Строка «От» залита цветом ящика",
+    good: "Цвет ровно там, где выбор ящика; шапка и остальное окно не тронуты.",
+    bad: "Строка «От» — всего 40px высоты: площадь меньше, чем у шапки, и при быстром письме взгляд реже возвращается к ней. Сильно зависит от светлоты цвета.",
+  },
+  {
+    key: "v", idx: "В", n: "Вариант В", title: "Шапка и строка «От» вместе",
+    good: "Два сигнала одного цвета: и при взгляде на окно целиком, и у самой строки выбора. Максимальная считываемость.",
+    bad: "Много цвета — окно выглядит «пёстрым», особенно при частых письмах с разных ящиков. Двойная работа по контрасту текста.",
+  },
+  {
+    key: "g", idx: "Г", n: "Вариант Г", title: "Цветная рамка всего окна (добавлен)",
+    good: "Читается по контуру окна — периферийным зрением, не требует искать элемент внутри. Не трогает текст вообще, поэтому не бывает проблем с контрастом текста.",
+    bad: "Цвет 3px по краю легко спутать с фокусом/свечением; в тёмной теме тонкая цветная линия на почти чёрном фоне слабее, чем полная заливка шапки.",
+  },
+];
+
+function srgb(c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+function lum(hex) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b);
+}
+function contrast(a, b) {
+  const la = lum(a), lb = lum(b), hi = Math.max(la, lb), lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+// Лучший текст на заливке: белый или тёмный #1d232b — по фактическому контрасту.
+function onColor(hex) {
+  return contrast(hex, "#ffffff") >= contrast(hex, "#1d232b") ? "#ffffff" : "#1d232b";
+}
+
+const ICON = {
+  minus: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  max: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+  x: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+  chev: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  clip: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+  dots: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
+  trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>',
+  bold: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/></svg>',
+  ital: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="5" x2="18" y2="5"/><line x1="6" y1="19" x2="14" y2="19"/><line x1="14" y1="5" x2="10" y2="19"/></svg>',
+  ul: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="9" y1="7" x2="20" y2="7"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="17" x2="20" y2="17"/><circle cx="4.5" cy="7" r="1.4" fill="currentColor"/><circle cx="4.5" cy="12" r="1.4" fill="currentColor"/><circle cx="4.5" cy="17" r="1.4" fill="currentColor"/></svg>',
+  link: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 15l6-6"/><path d="M11 6l1-1a5 5 0 0 1 7 7l-1 1"/><path d="M13 18l-1 1a5 5 0 0 1-7-7l1-1"/></svg>',
+  img: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-9 9"/></svg>',
+};
+
+function composeHTML(v, acc) {
+  const on = onColor(acc.color);
+  // Полоска «Сейчас» есть только у варианта now; у остальных вариантов её нет.
+  const tint = v.key === "now" ? '<span class="tint" aria-hidden="true"></span>' : "";
+  return `
+  <div class="compose v-${v.key}" data-acct="${acc.color}" style="--acct:${acc.color};--on-acct:${on}">
+    <header>
+      <button class="title">Новое письмо</button>
+      <span class="saved">Сохранено в 14:32</span>
+      <button class="hb">${ICON.minus}</button>
+      <button class="hb">${ICON.max}</button>
+      <button class="hb">${ICON.x}</button>
+    </header>
+    <div class="panel">
+      <div class="fields">
+        <div class="row from-row">
+          <span class="label">От</span>
+          ${tint}
+          <span class="from-trigger"><span class="txt">${acc.label} — ${acc.addr}</span>${ICON.chev}</span>
+          <button class="btn ghost small">Копия</button>
+        </div>
+        <div class="row">
+          <span class="label">Кому</span>
+          <span class="from-trigger"><span class="txt">anna@example.com</span></span>
+        </div>
+        <div class="row">
+          <span class="label">Тема</span>
+          <input class="subject" value="Отчёт за сентябрь" readonly>
+        </div>
+      </div>
+      <div class="bar">
+        <button class="tb">${ICON.bold}</button>
+        <button class="tb">${ICON.ital}</button>
+        <span class="sep"></span>
+        <button class="tb">${ICON.ul}</button>
+        <span class="sep"></span>
+        <button class="tb">${ICON.link}</button>
+        <button class="tb">${ICON.img}</button>
+        <span class="spacer"></span>
+      </div>
+      <div class="body-area">
+        <div class="body">Анна, добрый день!
+
+Отправляю отчёт за сентябрь, как договаривались. Если будут вопросы — я на связи.
+
+<div class="sig">--
+Иван Петров
+Работа · ivan@example.com</div></div>
+      </div>
+      <footer>
+        <span class="split-btn"><button class="btn primary">Отправить <kbd>Ctrl+Enter</kbd></button></span>
+        <button class="btn">${ICON.clip} Файлы</button>
+        <span class="spacer"></span>
+        <button class="btn ghost icon">${ICON.dots}</button>
+        <button class="btn ghost icon">${ICON.trash}</button>
+      </footer>
+    </div>
+  </div>`;
+}
+
+function slotHTML(v, acc) {
+  const on = onColor(acc.color);
+  const r = Math.max(contrast(acc.color, "#ffffff"), contrast(acc.color, "#1d232b"));
+  const cls = r >= 4.5 ? "ok" : "lo";
+  const word = on === "#ffffff" ? "белый" : "тёмный";
+  const verdict = r >= 4.5 ? "AA ok" : "AA ниже нормы";
+  // У «Сейчас» и «Г» заливки нет — текст не трогается, и контраст считать не с чем.
+  const filled = v.key !== "now" && v.key !== "g";
+  const line = filled
+    ? `текст на заливке: ${word} · контраст ${r.toFixed(2)}:1 — ${verdict}`
+    : v.key === "now"
+      ? "заливки нет: только полоска 3px, текст не затронут"
+      : "заливки нет: рамка по краю, текст не затронут";
+  return `
+  <div class="slot">
+    <div class="who">
+      <span class="sw" style="background:${acc.color}"></span>
+      ящик «${acc.label}» — <code>${acc.color}</code>
+    </div>
+    ${composeHTML(v, acc)}
+    <div class="ratio ${filled ? cls : ""}">${line}</div>
+  </div>`;
+}
+
+function render() {
+  for (const sec of document.querySelectorAll("section.theme")) {
+    const host = sec.querySelector(".variants");
+    host.innerHTML = VARIANTS.map((v) => `
+      <div class="variant" id="${sec.id}-${v.key}">
+        <h3><span class="idx">${v.idx}</span>${v.n} — ${v.title}</h3>
+        <p><span class="good">Идея:</span> ${v.good}</p>
+        <p><span class="bad">Плохо:</span> ${v.bad}</p>
+        <div class="pair">${ACCOUNTS.map((a) => slotHTML(v, a)).join("")}</div>
+      </div>`).join("");
+  }
+}
+render();
+</script>
+</body>
+</html>
