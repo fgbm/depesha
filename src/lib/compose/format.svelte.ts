@@ -8,7 +8,7 @@
 import { onMount, untrack } from "svelte";
 import { api } from "../api";
 import { convertDraft, losesFormatting, takeBodyPictures } from "../compose";
-import { GAP, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../richtext";
+import { GAP, htmlToText, letterText, splitHtmlQuote } from "../richtext";
 import { cleanEditorHtml } from "../sanitize";
 import { pictureName, picturesSize, type Picture } from "../images";
 import {
@@ -114,7 +114,9 @@ export class ComposeFormat {
         if (draft.text !== this.plainOfHtml) draft.text = this.plainOfHtml;
       });
     });
-    // A plugin may set the text as a whole: split it again.
+    // A plugin may set the text as a whole: split it again. An HTML letter's text is only
+    // its plain version: rebuilt from it, the letter would lose its pictures, links and
+    // signature block, so the text goes back to what the HTML says.
     $effect(() => {
       const text = this.host.win.draft.text;
       untrack(() => {
@@ -126,8 +128,7 @@ export class ComposeFormat {
             this.signature = signatureIn({ ...this.host.win.draft, format: this.format, text }, this.signatures);
           }
         } else if (text !== this.plainOfHtml) {
-          this.plainOfHtml = text;
-          this.htmlBody = textToHtml(text);
+          this.host.win.draft.text = this.plainOfHtml;
         }
       });
     });

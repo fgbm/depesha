@@ -156,6 +156,11 @@ export interface ListFilter {
 
 /** The compose window as plugins see it. */
 export interface ComposeContext {
+  /**
+   * The letter being written. In a plain or Markdown letter `draft.text` may be set as a
+   * whole; in an HTML letter (`draft.format === "html"`) it is only the plain version of
+   * the HTML and is read-only: a value set there is put back. Use `insertText` instead.
+   */
   readonly draft: ComposeDraft;
   accountEmail(): string;
   /** Inserts at the caret. */
