@@ -102,7 +102,9 @@ print_report() {
   printf '== Компоненты (всего/скрипт/разметка/стиль)\n'
   awk -F'\t' '$1=="component"{printf "%6d  %6d %6d %6d  %s\n", $3, $4, $5, $6, $2}' "$tmp" | sort -rn
   printf '\n== Топ-%d длинных функций\n' "$TOP_FUNCS"
-  awk -F'\t' '$1=="function"{printf "%6d  %s\n", $3, $2}' "$tmp" | sort -rn | head -n "$TOP_FUNCS"
+  # `head` here would close the pipe early and make `sort` die of SIGPIPE, failing the
+  # whole script under `set -o pipefail` (racy: it passed locally, broke in CI).
+  awk -F'\t' '$1=="function"{printf "%6d  %s\n", $3, $2}' "$tmp" | sort -rn | awk -v n="$TOP_FUNCS" 'NR<=n'
 }
 
 case "$mode" in
