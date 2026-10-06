@@ -9,10 +9,30 @@
     html,
     allowRemote,
     onLink,
-  }: { html: string; allowRemote: boolean; onLink: (href: string) => void } = $props();
+    themed = false,
+  }: {
+    html: string;
+    allowRemote: boolean;
+    onLink: (href: string) => void;
+    /** Drawn in the theme's colours on the page behind it (Depesha's own Markdown); else on white, as the sender wrote it. */
+    themed?: boolean;
+  } = $props();
 
   let frame = $state<HTMLIFrameElement | null>(null);
   let hover = $state("");
+
+  /** The theme's colours a themed frame takes from the window, which the frame's document cannot see. */
+  const THEME_VARS = ["--ink", "--muted", "--line", "--link"];
+
+  function themeCss(): string {
+    const css = getComputedStyle(document.documentElement);
+    // The same color-scheme as the window, or WebView2 paints the frame opaque.
+    const vars = THEME_VARS.map((v) => `${v}:${css.getPropertyValue(v).trim()}`).join(";");
+    return `:root{color-scheme:${css.colorScheme || "light"};${vars}}
+html{background:transparent;color:var(--ink)}
+blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
+a{color:var(--link)}`;
+  }
 
   const srcdoc = $derived(`<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:">
@@ -24,7 +44,29 @@ table{max-width:100%}
 pre{white-space:pre-wrap}
 blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid #d8cfbd;color:#55606c}
 a{color:#1f5fa8}
+${themed ? themeCss() : ""}
 </style></head><body>${html}</body></html>`);
+
+  /** Another theme picked, or the system's changed: a themed frame follows without reloading. */
+  function repaint() {
+    const root = frame?.contentDocument?.documentElement;
+    if (!root) return;
+    const css = getComputedStyle(document.documentElement);
+    root.style.colorScheme = css.colorScheme || "light";
+    for (const v of THEME_VARS) root.style.setProperty(v, css.getPropertyValue(v).trim());
+  }
+
+  $effect(() => {
+    if (!themed) return;
+    const theme = new MutationObserver(repaint);
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const system = matchMedia("(prefers-color-scheme: dark)");
+    system.addEventListener("change", repaint);
+    return () => {
+      theme.disconnect();
+      system.removeEventListener("change", repaint);
+    };
+  });
 
   function attach() {
     const doc = frame?.contentDocument;
@@ -63,7 +105,7 @@ a{color:#1f5fa8}
 </script>
 
 <div class="wrap">
-  <iframe bind:this={frame} title={t("reader.message")} sandbox="allow-same-origin" {srcdoc} onload={attach}></iframe>
+  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-same-origin" {srcdoc} onload={attach}></iframe>
   {#if hover}<div class="status" title={hover}>{hover}</div>{/if}
 </div>
 
@@ -80,6 +122,10 @@ a{color:#1f5fa8}
     border: none;
     background: #fff;
     border-radius: 6px;
+  }
+
+  iframe.themed {
+    background: transparent;
   }
 
   .status {

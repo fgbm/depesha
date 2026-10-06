@@ -73,7 +73,7 @@
 <div class="body" hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
     {#key `${msg.row.id}:md:${app.allowRemote || msg.trusted_sender}`}
-      <MailFrame html={MARKDOWN_CSS + msg.view.markdown} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
+      <MailFrame themed html={MARKDOWN_CSS + msg.view.markdown} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
     {/key}
   {:else if shown === "html" && msg.view.html}
     <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->
@@ -94,21 +94,31 @@
     display: none;
   }
 
-  /* Grows with plain text, so a long letter scrolls instead of running under the answer bar. */
+  /* One card for every form of the letter, so switching the form changes only the text.
+     Grows with plain text, so a long letter scrolls instead of running under the answer bar. */
   .body {
     flex: 1 0 auto;
     min-height: 420px;
     display: flex;
     margin: 0 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper);
+    overflow: hidden;
   }
 
-  /* Plain text reads as a column under the header, not as a card across the pane. */
+  /* The card's corners are the frame's. */
+  .body :global(iframe) {
+    border-radius: 0;
+  }
+
+  /* Plain text in the theme's colours, with the frame's margins; lines stay readable on a wide card. */
   .plain {
     flex: 1;
-    max-width: 72ch;
+    max-width: calc(72ch + 44px);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    padding: 4px 6px 24px;
+    padding: 18px 22px 24px;
     line-height: 1.6;
   }
 
