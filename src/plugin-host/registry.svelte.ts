@@ -21,8 +21,8 @@ export interface ComposeControl {
   component: Component<{ compose: ComposeContext; ctx: PluginContext }>;
   props: { ctx: PluginContext };
   order?: number;
-  /** `send`: joined to the Send button; `footer` (default): after it; `line`: a quiet line above the buttons. */
-  slot?: "send" | "footer" | "line";
+  /** `send`: joined to the Send button; `footer` (default): after it; `line`: a quiet line above the buttons; `from`: in the "From" row. */
+  slot?: "send" | "footer" | "line" | "from";
 }
 
 export interface SettingsSection {

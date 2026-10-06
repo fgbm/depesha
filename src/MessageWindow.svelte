@@ -33,6 +33,7 @@
   // Plugins add their buttons and banners to the reader here as in the main window.
   $effect(() => {
     void app.settings.disabled_plugins;
+    void app.settings.enabled_plugins;
     host.sync();
   });
 

@@ -182,6 +182,7 @@
   // Built-in plugins follow the settings: switched on and off at once.
   $effect(() => {
     void app.settings.disabled_plugins;
+    void app.settings.enabled_plugins;
     host.sync();
   });
 

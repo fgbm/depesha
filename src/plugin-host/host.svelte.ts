@@ -91,7 +91,13 @@ class Host {
   readonly plugins: Plugin[] = BUILTIN;
   private active = new Map<string, (() => void)[]>();
 
+  /** A plugin off until the user switches it on: its id is listed in `enabled_plugins` while on. */
+  private defaultOff(id: string): boolean {
+    return this.plugins.find((p) => p.manifest.id === id)?.manifest.defaultOff === true;
+  }
+
   enabled(id: string): boolean {
+    if (this.defaultOff(id)) return (app.settings.enabled_plugins ?? []).includes(id);
     return !(app.settings.disabled_plugins ?? []).includes(id);
   }
 
@@ -130,8 +136,15 @@ class Host {
   }
 
   setEnabled(id: string, on: boolean) {
-    const off = (app.settings.disabled_plugins ?? []).filter((x) => x !== id);
-    app.saveSettings({ ...app.settings, disabled_plugins: on ? off : [...off, id] });
+    // A default-off plugin lists its id in `enabled_plugins` while the user wants it on;
+    // the others list theirs in `disabled_plugins` while off.
+    if (this.defaultOff(id)) {
+      const rest = (app.settings.enabled_plugins ?? []).filter((x) => x !== id);
+      app.saveSettings({ ...app.settings, enabled_plugins: on ? [...rest, id] : rest });
+      return;
+    }
+    const rest = (app.settings.disabled_plugins ?? []).filter((x) => x !== id);
+    app.saveSettings({ ...app.settings, disabled_plugins: on ? rest : [...rest, id] });
   }
 }
 

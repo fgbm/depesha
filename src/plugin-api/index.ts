@@ -35,6 +35,8 @@ export interface PluginManifest {
   id: string;
   name: Text;
   description: Text;
+  /** Off until the user switches it on in Settings → Plugins; without it a plugin is on from the start. */
+  defaultOff?: boolean;
 }
 
 export interface Plugin {
@@ -163,6 +165,10 @@ export interface ComposeContext {
    */
   readonly draft: ComposeDraft;
   accountEmail(): string;
+  /** The mailbox the letter is written from, as chosen in "From". */
+  accountId(): string;
+  /** The colour that marks that mailbox: a plugin may tint the "From" field with it. */
+  accountColor(): string;
   /** Inserts at the caret. */
   insertText(text: string): void;
   /** Send parameters the core passes to the backend; plugins set them. */
@@ -245,8 +251,11 @@ export interface PluginContext {
       component: Component<{ compose: ComposeContext; ctx: PluginContext }>;
       props: { ctx: PluginContext };
       order?: number;
-      /** `send`: joined to the Send button; `footer` (default): after the core's buttons; `line`: a quiet line above them. */
-      slot?: "send" | "footer" | "line";
+      /**
+       * `send`: joined to the Send button; `footer` (default): after the core's buttons;
+       * `line`: a quiet line above them; `from`: in the "From" row, beside the mailbox list.
+       */
+      slot?: "send" | "footer" | "line" | "from";
     }): void;
     /** Warnings before sending; returning any stops sending until the user confirms. */
     sendCheck(check: (draft: ComposeDraft, accountEmail: string) => string[]): void;

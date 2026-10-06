@@ -38,6 +38,9 @@ pub struct Settings {
     /// Built-in plugins switched off, by id (`plugins/<id>`).
     #[serde(alias = "disabled_modules")]
     pub disabled_plugins: Vec<String>,
+    /// Built-in plugins the user switched on, by id; only those off by default
+    /// (`PluginManifest::default_off`) use it.
+    pub enabled_plugins: Vec<String>,
     /// Settings of built-in plugins, by plugin id; each plugin owns its object.
     pub plugin_settings: std::collections::BTreeMap<String, serde_json::Value>,
     /// Installed extensions switched off, by id.
@@ -92,6 +95,7 @@ impl Default for Settings {
             language: "auto".into(),
             theme: "system".into(),
             disabled_plugins: Vec::new(),
+            enabled_plugins: Vec::new(),
             plugin_settings: Default::default(),
             disabled_extensions: Vec::new(),
             oauth_clients: Default::default(),
@@ -212,6 +216,7 @@ mod tests {
         assert_eq!(old.settings.compose_format, BodyFormat::Plain);
         assert_eq!(old.settings.undo_send_secs, 5);
         assert_eq!(old.settings.letter_view, "sender");
+        assert!(old.settings.enabled_plugins.is_empty());
         let chosen: Settings = serde_json::from_str(r#"{"compose_format":"markdown"}"#).unwrap();
         assert_eq!(chosen.compose_format, BodyFormat::Markdown);
     }

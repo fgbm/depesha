@@ -48,6 +48,7 @@ export const settings = (): Settings => ({
   language: "auto",
   theme: "system",
   disabled_plugins: [],
+  enabled_plugins: [],
   plugin_settings: {},
   disabled_extensions: [],
   oauth_clients: {},

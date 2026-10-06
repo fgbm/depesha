@@ -87,6 +87,7 @@
     format: fmt,
     autosave: auto,
     account: (id) => app.account(id),
+    accountColor: (id) => app.accountColor(id),
     fail: (e, prefix) => app.fail(e, prefix),
     toast: (text) => app.toast(text),
     sendApp: (a, d, id, at, secs, f) => app.send(a, d, id, at, secs, f),
@@ -234,6 +235,7 @@
     <div class="fields">
       <div class="row">
         <span class="label">{t("compose.fwd.from")}</span>
+        {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
         <Select
           class="from"
           label={t("compose.fwd.from")}

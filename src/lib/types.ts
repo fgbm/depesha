@@ -375,6 +375,8 @@ export interface Settings {
   language: "auto" | "en" | "ru";
   theme: Theme;
   disabled_plugins: string[];
+  /** Plugins the user switched on explicitly; only those off by default use it. */
+  enabled_plugins: string[];
   plugin_settings: Record<string, Record<string, unknown>>;
   disabled_extensions: string[];
   oauth_clients: Partial<Record<OAuthProvider, OAuthClient>>;

@@ -21,6 +21,8 @@ export interface ComposeSendHost {
   /** The draft saves itself; sending waits for the save it started. */
   readonly autosave: ComposeAutosave;
   account(id: string): AccountView | undefined;
+  /** The colour marking a mailbox, from the store; changes when the mailbox does. */
+  accountColor(id: string): string;
   fail(e: unknown, prefix?: string): void;
   toast(text: string): void;
   /** Sends the letter through the outbox and closes the window when it is queued. */
@@ -230,6 +232,8 @@ function makeContext(host: ComposeSendHost, me: ComposeSending): ComposeContext 
       return host.win.draft;
     },
     accountEmail: () => host.account(host.win.account_id)?.email ?? "",
+    accountId: () => host.win.account_id,
+    accountColor: () => host.accountColor(host.win.account_id),
     insertText: (text: string) => host.format.insertText(text),
     options: me.options,
     send: (at) => void me.send(at ?? null),
