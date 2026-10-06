@@ -2,7 +2,7 @@
 
 import { addrFull, shortDateTime } from "./format";
 import { t } from "./i18n.svelte";
-import { takePictures, type Picture } from "./images";
+import { MAX_PICTURE, PICTURE_TYPES, takePictures, type Picture } from "./images";
 import { GAP, QUOTE_CLASS, QUOTE_STYLE, escapeHtml, hasFormatting, htmlLetterText, htmlToMarkdown, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
 import { sigBlock, sigHtml, splitHtmlSignature, splitPlain, withoutHtmlSignature } from "./signatures";
 import type { Account, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
@@ -131,11 +131,21 @@ function forwardHeader(msg: OpenedMessage): string[] {
   ].filter(Boolean);
 }
 
+/**
+ * A picture of the letter that travels inside a forward's HTML: the reader put it in as
+ * a `data:` image (`MAX_INLINE_IMAGE`) and the editor keeps that kind. Any other part goes
+ * as a file, or it would be lost.
+ */
+function forwardedInside(msg: OpenedMessage, a: OpenedMessage["view"]["attachments"][number], format: BodyFormat): boolean {
+  if (format !== "html" || !msg.view.html || !a.inline || !a.content_id) return false;
+  return PICTURE_TYPES.includes(a.mime.toLowerCase()) && a.size <= MAX_PICTURE;
+}
+
 export function forward(msg: OpenedMessage, me: Addr, format: BodyFormat = "plain"): ComposeDraft {
   const s = msg.view.summary;
   const lines = ["", "", ...forwardHeader(msg), "", (msg.view.text ?? "").replace(/\r\n/g, "\n").trimEnd(), ""];
   const attachments: AttachmentSource[] = msg.view.attachments
-    .filter((a) => !(a.inline && a.content_id))
+    .filter((a) => !forwardedInside(msg, a, format))
     .map((a) => ({ kind: "message", id: msg.row.id, index: a.index, name: a.name, size: a.size }));
   // Threaded like a reply: the forward stays in the conversation it came from.
   const draft = { ...emptyDraft(me, format), subject: forwardSubject(s.subject), text: lines.join("\n"), attachments, ...threading(msg) };

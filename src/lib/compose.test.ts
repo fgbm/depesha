@@ -124,11 +124,30 @@ describe("splitQuote", () => {
 });
 
 describe("forward", () => {
-  it("keeps real attachments, drops inline images", () => {
+  it("keeps attachments; a plain forward carries the letter's pictures as files", () => {
     const d = forward(msg(), me);
     expect(d.subject).toBe("Fwd: Счёт");
     expect(d.to).toEqual([]);
-    expect(d.attachments).toEqual([{ kind: "message", id: 7, index: 0, name: "счёт.pdf", size: 10 }]);
+    expect(d.attachments).toEqual([
+      { kind: "message", id: 7, index: 0, name: "счёт.pdf", size: 10 },
+      { kind: "message", id: 7, index: 1, name: "logo.png", size: 5 },
+    ]);
+    expect(forward(msg(), me, "markdown").attachments).toHaveLength(2);
+    // A plain-text letter has no HTML to carry its picture in.
+    expect(forward(msg(), me, "html").attachments).toHaveLength(2);
+  });
+
+  it("an HTML forward attaches only the pictures its HTML cannot carry", () => {
+    const m = msg();
+    const big = { index: 2, name: "big.png", mime: "image/png", size: 6 * 1024 * 1024, content_id: "big", inline: true };
+    const tiff = { index: 3, name: "scan.tiff", mime: "image/tiff", size: 5, content_id: "scan", inline: true };
+    const view = { ...m.view, html: '<p>да</p><img src="data:image/png;base64,AA">', attachments: [...m.view.attachments, big, tiff] };
+    const d = forward({ ...m, view }, me, "html");
+    expect(d.attachments.map((a) => a.name)).toEqual(["счёт.pdf", "big.png", "scan.tiff"]);
+  });
+
+  it("carries the letter below its header", () => {
+    const d = forward(msg(), me);
     expect(d.text).toContain("Пересылаемое сообщение");
     expect(d.text).toContain("Добрый день!");
   });
