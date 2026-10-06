@@ -8,6 +8,7 @@ import type { Account, QuotaView } from "./types";
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
+const TB = 1024 * GB;
 const DAY = 86_400_000;
 
 /** The threshold of "large mail" until the setting of its own (#16) is there. */
@@ -103,18 +104,28 @@ function number(n: number, digits: number): string {
   return n.toLocaleString(i18n.lang === "ru" ? "ru-RU" : "en-GB", { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 }
 
-/** A size in GB with one decimal (MB under 1 GB): `3,1 ГБ`. */
-export function gb(bytes: number): string {
+/** The unit a size is shown in: MB under 1 GB, TB from 1 TB (a 5 TB quota is not "5 120 GB"). */
+function unitOf(bytes: number): { size: number; digits: number; name: string } {
   const ru = i18n.lang === "ru";
-  if (bytes < GB) return `${number(Math.round(bytes / MB), 0)} ${ru ? "МБ" : "MB"}`;
-  return `${number(Math.round((bytes / GB) * 10) / 10, 1)} ${ru ? "ГБ" : "GB"}`;
+  if (bytes < GB) return { size: MB, digits: 0, name: ru ? "МБ" : "MB" };
+  if (bytes < TB) return { size: GB, digits: 1, name: ru ? "ГБ" : "GB" };
+  return { size: TB, digits: 1, name: ru ? "ТБ" : "TB" };
+}
+
+function inUnit(bytes: number, u: { size: number; digits: number }): string {
+  const step = 10 ** u.digits;
+  return number(Math.round((bytes / u.size) * step) / step, u.digits);
+}
+
+/** A size in GB with one decimal (MB under 1 GB, TB from 1 TB): `3,1 ГБ`. */
+export function gb(bytes: number): string {
+  const u = unitOf(bytes);
+  return `${inUnit(bytes, u)} ${u.name}`;
 }
 
 /** "3,1 of 10 GB": the used part in the limit's unit, without repeating it. */
 export function usedOf(used: number, limit: number): { used: string; limit: string } {
-  const ru = i18n.lang === "ru";
-  if (limit < GB) return { used: number(Math.round(used / MB), 0), limit: `${number(Math.round(limit / MB), 0)} ${ru ? "МБ" : "MB"}` };
-  return { used: number(Math.round((used / GB) * 10) / 10, 1), limit: gb(limit) };
+  return { used: inUnit(used, unitOf(limit)), limit: gb(limit) };
 }
 
 /** A whole percent that does not show 100 before the mailbox is full. */

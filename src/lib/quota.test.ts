@@ -102,6 +102,9 @@ describe("figures", () => {
     expect(usedOf(3.1 * GB, 10 * GB)).toEqual({ used: "3,1", limit: "10 ГБ" });
     expect(usedOf(300 * MB, 500 * MB)).toEqual({ used: "300", limit: "500 МБ" });
     expect(gb(1.4 * GB)).toBe("1,4 ГБ");
+    // A 5 TB quota is 5 TB, not "5 120 ГБ".
+    expect(usedOf(0, 5 * 1024 * GB)).toEqual({ used: "0", limit: "5 ТБ" });
+    expect(usedOf(512 * GB, 2 * 1024 * GB)).toEqual({ used: "0,5", limit: "2 ТБ" });
     i18n.lang = "en";
     expect(usedOf(9.2 * GB, 10 * GB)).toEqual({ used: "9.2", limit: "10 GB" });
   });
@@ -111,6 +114,10 @@ describe("figures", () => {
     expect(limitMb("2,5")).toBe(2560);
     expect(limitMb("")).toBe(0);
     expect(limitMb("много")).toBe(0);
+    // Digit groups as the app shows them (a no-break space in ru-RU) or as typed.
+    expect(limitMb("5 120")).toBe(5120 * 1024);
+    expect(limitMb("5 120")).toBe(5120 * 1024);
+    expect(limitMb("5 120,5")).toBe(5120.5 * 1024);
   });
 
   it("finds large mail with the threshold", () => {

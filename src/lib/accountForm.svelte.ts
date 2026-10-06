@@ -22,9 +22,12 @@ export function oauthFor(address: string): OAuthProvider | null {
   return null;
 }
 
-/** The own limit typed in GB ("4", "2,5") in MB; 0 when empty or not a number. */
+/**
+ * The own limit typed in GB ("4", "2,5", "5 120" as the app shows sizes) in MB; 0 when
+ * empty or not a number. Digit groups may be split by any space, the no-break ones too.
+ */
 export function limitMb(gb: string): number {
-  const n = Number(gb.trim().replace(",", "."));
+  const n = Number(gb.replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(n) && n > 0 ? Math.round(n * 1024) : 0;
 }
 
