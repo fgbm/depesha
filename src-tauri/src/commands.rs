@@ -252,14 +252,12 @@ pub async fn oauth_sign_in(
             ))
         })
     };
-    let grant = oauth::sign_in(
-        provider,
-        &client,
-        login_hint.as_deref(),
-        open,
-        state.oauth_cancel.notified(),
-    )
-    .await?;
+    // Listening from the start: a cancel that comes while the browser opens is not lost
+    // (notify_waiters wakes only the waiters already there).
+    let cancel = state.oauth_cancel.notified();
+    tokio::pin!(cancel);
+    cancel.as_mut().enable();
+    let grant = oauth::sign_in(provider, &client, login_hint.as_deref(), open, cancel).await?;
     let id = format!("{}-{}", provider.as_str(), chrono::Utc::now().timestamp_millis());
     let (imap, smtp) = provider.servers();
     let view = OAuthGrantView {

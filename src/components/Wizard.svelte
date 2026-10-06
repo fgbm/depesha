@@ -34,7 +34,8 @@
         {#if form.available.length}
           <div class="oauth">
             {#each form.available as p (p)}
-              <button class="btn" onclick={() => form.signIn(p)} disabled={form.busy}>
+              <!-- While another provider is awaited, this one stays open: a click switches to it. -->
+              <button class="btn" onclick={() => form.signIn(p)} disabled={form.busy && (form.waitingFor === null || form.waitingFor === p)}>
                 <img src={PROVIDER_LOGO[p]} alt="" width="18" height="18" />{t("wizard.signInWith", { provider: form.providerTitle(p) })}
               </button>
             {/each}

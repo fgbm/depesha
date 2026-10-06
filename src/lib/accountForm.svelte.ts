@@ -46,7 +46,14 @@ export class AccountForm {
   /** A browser sign-in not saved yet. */
   grant = $state<string | null>(null);
   providers = $state<OAuthProviderView[]>([]);
-  waitingBrowser = $state(false);
+  /** The provider whose sign-in page is open in the browser; the form waits for it. */
+  waitingFor = $state<OAuthProvider | null>(null);
+  get waitingBrowser(): boolean {
+    return this.waitingFor !== null;
+  }
+  /** The sign-in under way, so a click on another provider can end it first. */
+  private attempt: Promise<void> | null = null;
+  private attempts = 0;
   ewsUrl = $state("");
   ewsCert = $state<string | undefined>(undefined);
   ewsServer = $state("");
@@ -148,17 +155,35 @@ export class AccountForm {
   }
 
   async signIn(p: OAuthProvider) {
+    if (this.waitingFor === p) return;
+    // Another provider's sign-in still waiting: the user changed their mind, it ends first.
+    if (this.attempt) {
+      const before = this.attempt;
+      this.attempts++;
+      api.oauthCancel();
+      await before;
+    }
+    this.attempt = this.signInWith(p);
+    await this.attempt;
+  }
+
+  private async signInWith(p: OAuthProvider) {
+    const seq = ++this.attempts;
+    /** A newer sign-in took over: this one leaves the form to it. */
+    const superseded = () => seq !== this.attempts;
     this.error = null;
     if (this.providers.length && !this.providers.find((x) => x.provider === p)?.configured) {
       this.error = { kind: "input", message: t("wizard.oauthNotConfigured", { provider: this.providerTitle(p) }) };
       return;
     }
     const existing = this.existing;
+    const waiting = t("wizard.waitingBrowser", { provider: this.providerTitle(p) });
     this.busy = true;
-    this.waitingBrowser = true;
-    this.status = t("wizard.waitingBrowser", { provider: this.providerTitle(p) });
+    this.waitingFor = p;
+    this.status = waiting;
     try {
       const g = await api.oauthSignIn(p, existing?.email ?? (this.email.trim() || null));
+      if (superseded()) return;
       if (existing && g.email.toLowerCase() !== existing.email.toLowerCase()) {
         this.error = { kind: "auth", message: t("wizard.otherAccount", { email: g.email, expected: existing.email }) };
         return;
@@ -176,14 +201,18 @@ export class AccountForm {
       }
       this.password = "";
       this.step = "settings";
-      this.waitingBrowser = false;
+      this.waitingFor = null;
       await this.checkAndSave();
     } catch (e) {
-      this.error = asError(e);
+      if (!superseded()) this.error = asError(e);
     } finally {
-      this.busy = false;
-      this.waitingBrowser = false;
-      if (!this.error) this.status = "";
+      if (!superseded()) {
+        this.busy = false;
+        this.waitingFor = null;
+        this.attempt = null;
+        // "Waiting for the browser" is over either way; a check's own words stay with its error.
+        if (!this.error || this.status === waiting) this.status = "";
+      }
     }
   }
 

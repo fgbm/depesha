@@ -148,3 +148,65 @@ describe("leaving a mailbox's page", () => {
     expect(app.confirmation).toBeNull();
   });
 });
+
+describe("signing in through the browser", () => {
+  beforeEach(() => {
+    api.oauthProviders.mockResolvedValue([
+      { provider: "google", title: "Google", configured: true },
+      { provider: "yandex", title: "Yandex", configured: true },
+    ]);
+  });
+
+  /** A sign-in that waits for the browser until cancelled, as oauth_sign_in does. */
+  function waitingBrowser() {
+    let cancel = () => {};
+    api.oauthCancel.mockImplementation(async () => cancel());
+    return () =>
+      new Promise<never>((_, reject) => {
+        cancel = () => reject({ kind: "auth", message: "sign-in cancelled" });
+      });
+  }
+
+  it("a click on another provider ends the wait and starts its sign-in", async () => {
+    const pending = waitingBrowser();
+    api.oauthSignIn.mockImplementationOnce(pending).mockImplementationOnce(pending);
+    const form = new AccountForm(null, () => {});
+    const google = form.signIn("google");
+    expect(form.waitingFor).toBe("google");
+    expect(form.busy).toBe(true);
+
+    const yandex = form.signIn("yandex");
+    await google;
+    await vi.waitFor(() => expect(api.oauthSignIn).toHaveBeenCalledTimes(2));
+    expect(api.oauthCancel).toHaveBeenCalledTimes(1);
+    expect(api.oauthSignIn).toHaveBeenLastCalledWith("yandex", null);
+    expect(form.waitingFor).toBe("yandex");
+    // The cancelled Google sign-in leaves no error behind.
+    expect(form.error).toBeNull();
+    expect(form.status).toContain("Yandex");
+
+    form.cancelSignIn();
+    await yandex;
+    expect(form.waitingFor).toBeNull();
+    expect(form.busy).toBe(false);
+  });
+
+  it("a click on the provider already awaited starts nothing", async () => {
+    api.oauthSignIn.mockImplementation(waitingBrowser());
+    const form = new AccountForm(null, () => {});
+    const first = form.signIn("google");
+    await form.signIn("google");
+    expect(api.oauthSignIn).toHaveBeenCalledTimes(1);
+    form.cancelSignIn();
+    await first;
+  });
+
+  it("a failed sign-in does not keep saying it waits for the browser", async () => {
+    api.oauthSignIn.mockRejectedValue({ kind: "auth", message: "access denied" });
+    const form = new AccountForm(null, () => {});
+    await form.signIn("google");
+    expect(form.error?.message).toBe("access denied");
+    expect(form.status).toBe("");
+    expect(form.waitingBrowser).toBe(false);
+  });
+});
