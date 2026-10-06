@@ -32,10 +32,14 @@ export class ComposeAutosave {
   constructor(private host: ComposeAutosaveHost) {
     const { win } = host;
     this.lastSaved = untrack(() => (win.unsaved ? "" : JSON.stringify($state.snapshot(win.draft))));
+    // Any change of the letter restarts the wait; whether it differs from what was saved
+    // is told by `save`. Serializing the draft on every key would copy its pictures, megabytes.
+    let first = !untrack(() => win.unsaved);
     $effect(() => {
-      const now = JSON.stringify($state.snapshot(this.host.win.draft));
+      $state.snapshot(this.host.win.draft);
       this.cancel();
-      if (now !== this.lastSaved) this.timer = setTimeout(() => this.save(), AUTOSAVE_MS);
+      if (first) first = false;
+      else this.timer = setTimeout(() => this.save(), AUTOSAVE_MS);
     });
     onDestroy(() => this.cancel());
   }

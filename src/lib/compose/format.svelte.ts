@@ -40,6 +40,9 @@ export interface ComposeFormatHost {
   confirmPicturesAttach(): Promise<boolean>;
 }
 
+/** The pictures of an HTML letter are weighed this long after typing pauses. */
+const PICTURES_MS = 300;
+
 export class ComposeFormat {
   /** A plain letter: the field has what is typed, the signature stands under it, a reply's
    * quote or the forwarded letter stays folded below. The draft keeps the whole text. */
@@ -62,9 +65,9 @@ export class ComposeFormat {
   /** The mailbox's signatures, to choose from on the signature block. */
   readonly signatures: Signature[];
   /** Files and the pictures in the text and the signature: all travel in the letter. */
-  readonly pictures: number;
+  pictures = $state(0);
   /** The signature's own pictures alone do not bring up the row of files. */
-  readonly textPictures: number;
+  textPictures = $state(0);
   /** The signature under the letter: one of the mailbox's, a draft's own, or none. A block
    * of its own, never edited in the letter: only put whole, swapped or taken away. */
   signature = $state<Signature | null>(null);
@@ -82,8 +85,6 @@ export class ComposeFormat {
   constructor(host: ComposeFormatHost) {
     this.host = host;
     this.signatures = $derived(signaturesOf(host.account(host.win.account_id)));
-    this.pictures = $derived(this.format === "html" ? picturesSize(this.htmlBody) : 0);
-    this.textPictures = $derived(this.format === "html" && this.pictures > 0 ? picturesSize(withoutHtmlSignature(this.htmlBody)) : 0);
     const { draft } = host.win;
     this.signature = untrack(() => signatureIn(draft, signaturesOf(host.account(host.win.account_id))));
     const parts = untrack(() => splitPlain(draft.text));
@@ -92,7 +93,30 @@ export class ComposeFormat {
     this.htmlBody = untrack(() => draft.html ?? "");
     this.plainOfHtml = untrack(() => draft.text);
     this.followDraft();
+    this.followPictures();
     onMount(() => this.placeCaret());
+  }
+
+  /**
+   * What the pictures weigh walks the whole HTML, megabytes with photos in it: weighed
+   * when the window opens and then once typing pauses, not on every key.
+   */
+  private followPictures() {
+    let first = true;
+    $effect(() => {
+      const html = this.format === "html" ? this.htmlBody : "";
+      const weigh = () => {
+        this.pictures = picturesSize(html);
+        this.textPictures = this.pictures > 0 ? picturesSize(withoutHtmlSignature(html)) : 0;
+      };
+      if (first) {
+        first = false;
+        untrack(weigh);
+        return;
+      }
+      const timer = setTimeout(weigh, PICTURES_MS);
+      return () => clearTimeout(timer);
+    });
   }
 
   /** The letter's text follows its format: the plain parts, or the HTML, or the draft's own. */

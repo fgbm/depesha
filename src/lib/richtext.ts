@@ -53,7 +53,9 @@ function tokens(html: string): Token[] {
     if (m.index > at) out.push({ text: decode(html.slice(at, m.index)) });
     at = m.index + m[0].length;
     if (!m[1]) continue;
-    out.push({ tag: { name: m[1].toLowerCase(), close: m[0][1] === "/", attrs: attrsOf(m[2] ?? "") } });
+    const name = m[1].toLowerCase();
+    // A picture's attributes are never read, and its `data:` source may be megabytes.
+    out.push({ tag: { name, close: m[0][1] === "/", attrs: name === "img" ? {} : attrsOf(m[2] ?? "") } });
   }
   if (at < html.length) out.push({ text: decode(html.slice(at)) });
   return out;
