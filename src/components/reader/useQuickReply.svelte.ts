@@ -38,14 +38,20 @@ export class QuickReplyState {
   constructor() {
     // Another letter opened with an answer half-written: it waits folded in the corner.
     $effect(() => {
-      const id = this.msg?.row.id;
-      untrack(() => {
-        if (!this.quick || this.quick.to === id) return;
-        if (this.text.trim()) this.toWindow("min");
-        this.quick = null;
-        this.text = "";
-      });
+      void this.msg?.row.id;
+      untrack(() => this.leaveIfMoved());
     });
+  }
+
+  /**
+   * The answer belongs to a letter no longer open: it goes folded into a window. Not while
+   * it is being sent, or it would be sent and kept as a draft too; `send` looks again.
+   */
+  private leaveIfMoved() {
+    if (!this.quick || this.busy || this.quick.to === this.msg?.row.id) return;
+    if (this.text.trim()) this.toWindow("min");
+    this.quick = null;
+    this.text = "";
   }
 
   openQuick(all: boolean) {
@@ -99,6 +105,8 @@ export class QuickReplyState {
       app.fail(e);
     } finally {
       this.busy = false;
+      // Not sent and another letter opened meanwhile: the answer is kept in a window.
+      this.leaveIfMoved();
     }
   }
 
