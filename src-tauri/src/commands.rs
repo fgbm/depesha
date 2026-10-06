@@ -1407,15 +1407,16 @@ pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
     Ok(message::parse_view(bytes, false)?)
 }
 
-/// An attached HTML or Markdown file, cleaned like a letter for the viewer.
-#[tauri::command]
+/// An attached HTML or Markdown file, cleaned like a letter for the viewer. A big file
+/// takes a while to render and clean: off the main thread, which draws the window.
+#[tauri::command(async)]
 pub fn document_html(text: String, markdown: bool) -> String {
     message::document_html(&text, markdown)
 }
 
 /// A letter in Markdown as the HTML it would go out as: the composer switching to the
-/// visual editor takes it from here, so both agree.
-#[tauri::command]
+/// visual editor takes it from here, so both agree. Off the main thread, as above.
+#[tauri::command(async)]
 pub fn markdown_html(text: String) -> String {
     message::markdown_html(&text)
 }
