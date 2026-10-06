@@ -1,5 +1,7 @@
 <script lang="ts">
   import { t, tn } from "../../lib/i18n.svelte";
+  import { app } from "../../lib/store.svelte";
+  import { accountLabel } from "../../lib/format";
   import Select from "../Select.svelte";
   import FolderPicker from "../FolderPicker.svelte";
   import type { Settings } from "../../lib/types";
@@ -46,6 +48,21 @@
       />
     </div>
     <p class="hint">{t("settings.composeFormatNote")}</p>
+    <div class="inline">
+      <span>{t("settings.defaultAccount")}</span>
+      <!-- A removed mailbox is read as «By context», as the store treats it: the list must not
+           show an empty trigger for an id no mailbox carries. -->
+      <Select
+        class="default-account"
+        label={t("settings.defaultAccount")}
+        bind:value={() => (app.accounts.some((a) => a.id === draft.default_account_id) ? (draft.default_account_id ?? "") : ""), (v) => (draft.default_account_id = v || null)}
+        options={[
+          { value: "", label: t("settings.defaultAccountContext") },
+          ...app.accounts.map((a) => ({ value: a.id, label: accountLabel(a) })),
+        ]}
+      />
+    </div>
+    <p class="hint">{t("settings.defaultAccountNote")}</p>
   </section>
   <section>
     <h4>{t("settings.reading")}</h4>

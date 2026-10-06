@@ -71,6 +71,9 @@ pub struct Settings {
     /// Which form of a letter the reader shows: `sender` (the one the sender put last,
     /// default), `markdown` or `text` when the letter has it. A letter's switch overrides it.
     pub letter_view: String,
+    /// Which mailbox new letters are written from; none follows the context (the open
+    /// folder or letter, else the first mailbox). Answers and forwards are unaffected.
+    pub default_account_id: Option<String>,
     /// Warn when a mailbox fills up: at the two levels, in percent, and when full.
     /// The same for every mailbox; a mailbox may set its own limit (`Account::quota_limit_mb`).
     pub quota_warn: bool,
@@ -108,6 +111,7 @@ impl Default for Settings {
             large_mb: 25,
             compose_format: BodyFormat::Html,
             letter_view: "sender".into(),
+            default_account_id: None,
             quota_warn: true,
             quota_levels: [90, 95],
             quota_repeat: "threshold".into(),
@@ -216,6 +220,9 @@ mod tests {
         assert_eq!(old.settings.compose_format, BodyFormat::Plain);
         assert_eq!(old.settings.undo_send_secs, 5);
         assert_eq!(old.settings.letter_view, "sender");
+        // A config from before the choice existed has no default mailbox.
+        assert_eq!(old.settings.default_account_id, None);
+        assert_eq!(Settings::default().default_account_id, None);
         assert!(old.settings.enabled_plugins.is_empty());
         let chosen: Settings = serde_json::from_str(r#"{"compose_format":"markdown"}"#).unwrap();
         assert_eq!(chosen.compose_format, BodyFormat::Markdown);

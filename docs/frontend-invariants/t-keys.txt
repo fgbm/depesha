@@ -337,6 +337,9 @@ settings.checking
 settings.chooseFolder
 settings.composeFormat
 settings.composeFormatNote
+settings.defaultAccount
+settings.defaultAccountContext
+settings.defaultAccountNote
 settings.dndNote
 settings.installed
 settings.language

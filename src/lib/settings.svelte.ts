@@ -35,6 +35,7 @@ export class SettingsController {
     offline_attachments: false,
     sender_logos: true,
     letter_view: "sender",
+    default_account_id: null,
     attachments_dir: "",
     list_sort: [],
     view_sorts: {},

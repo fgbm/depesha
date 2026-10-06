@@ -96,6 +96,18 @@ export class ComposeManager {
     this.open({ account_id: acc.id, draft, draft_id: null });
   }
 
+  /** A `mailto:` link in a letter: a new letter to its address, from the default mailbox. */
+  openMailto(href: string) {
+    const acc = this.host.defaultAccount();
+    if (!acc) return;
+    const draft = emptyDraft({ name: acc.display_name, email: acc.email }, this.format(acc));
+    const to = decoded(href.slice(7).split("?")[0]);
+    draft.to = to ? to.split(",").map((email) => ({ name: null, email: email.trim() })) : [];
+    const subject = new URLSearchParams(href.split("?")[1] ?? "").get("subject");
+    if (subject) draft.subject = subject;
+    this.open({ account_id: acc.id, draft: withSignature(draft, defaultSignature(acc)), draft_id: null });
+  }
+
   /** Files dragged over the window: the HTML letter offers its two zones, the one under the pointer. */
   dragging = $state<{ zones: boolean; zone: DropZone | null } | null>(null);
   /** Where each window puts pictures dropped "into the text". */
@@ -197,4 +209,13 @@ export class ComposeManager {
 
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** A link's escapes read; a stray "%" leaves the link as written. */
+function decoded(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
 }

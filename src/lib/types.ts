@@ -397,6 +397,8 @@ export interface Settings {
   compose_format: BodyFormat;
   /** Which form of a letter the reader shows; a letter's switch overrides it. */
   letter_view: LetterViewPref;
+  /** The mailbox new letters are written from; null follows the open folder or letter. */
+  default_account_id: string | null;
   /** Warn when a mailbox fills up: at these two levels (percent) and when full. */
   quota_warn: boolean;
   quota_levels: [number, number];

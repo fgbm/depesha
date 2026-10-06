@@ -41,6 +41,7 @@ open
 openCompose
 openError
 openLink
+openMailto
 openSettings
 openWindow
 opened

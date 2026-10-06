@@ -195,6 +195,14 @@ pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
     // repeated; after that nothing would remove its leftovers.
     state.store.forget_account(&id)?;
     state.remove_account(&id)?;
+    // The removed mailbox cannot be the default any more: a stale id would leave the
+    // settings with nothing to show and would live on through every save.
+    let mut settings = state.settings();
+    if settings.default_account_id.as_deref() == Some(id.as_str()) {
+        settings.default_account_id = None;
+        state.save_settings(settings)?;
+        state.emit("settings-changed", serde_json::json!({}));
+    }
     state.forget_token(&id);
     secrets::delete(&id).await?;
     Ok(())

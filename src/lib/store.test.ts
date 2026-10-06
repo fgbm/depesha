@@ -6,11 +6,12 @@ vi.mock("@tauri-apps/api/app", () => import("./testing").then((m) => m.appModule
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
-import { AppStore } from "./store.svelte";
+import { AppStore, app } from "./store.svelte";
 import { extensions } from "./extensions.svelte";
 import { i18n } from "./i18n.svelte";
-import { api, emit, eventModule, flush, handlers, opened, resetFakes, row } from "./testing";
-import type { Extension } from "./types";
+import { QuickReplyState } from "../components/reader/useQuickReply.svelte";
+import { api, emit, eventModule, flush, handlers, opened, resetFakes, row, settings } from "./testing";
+import type { AccountView, Extension } from "./types";
 
 beforeEach(() => {
   resetFakes();
@@ -62,6 +63,93 @@ describe("the main window starting", () => {
     const s = new AppStore();
     await s.init();
     expect(s.wizard).toEqual({ account: null });
+  });
+});
+
+/** A mailbox as the store lists one, with nothing the choice below reads. */
+const acc = (id: string): AccountView =>
+  ({ id, display_name: id, email: `${id}@example.com`, username: id, imap: { host: "h", port: 993, security: "tls" }, smtp: { host: "h", port: 465, security: "tls" }, save_sent_copy: true, status: null }) as unknown as AccountView;
+
+describe("the mailbox of a new message", () => {
+  it("is the default one even when another mailbox's folder is open", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: "b" };
+    s.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
+    expect(s.defaultAccount()?.id).toBe("b");
+  });
+
+  it("follows the context when none is chosen", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: null };
+    s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
+    expect(s.defaultAccount()?.id).toBe("b");
+    s.list.view = { kind: "unified", role: "inbox" };
+    expect(s.defaultAccount()?.id).toBe("a");
+  });
+
+  it("treats a removed or unknown default as none", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: "gone" };
+    s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
+    expect(s.defaultAccount()?.id).toBe("b");
+  });
+});
+
+describe("the mailbox an answer, a forward or a link goes from", () => {
+  it("leaves an answer going from the mailbox the letter arrived in", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: "a" };
+    s.reader.opened = opened(row(1, { account_id: "b" }));
+    s.replyTo(false);
+    expect(s.compose.windows.at(-1)?.account_id).toBe("b");
+  });
+
+  it("leaves «Reply all» and a forward going from the mailbox the letter arrived in", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: "a" };
+    s.reader.opened = opened(row(1, { account_id: "b" }));
+    s.replyTo(true);
+    expect(s.compose.windows.at(-1)?.account_id).toBe("b");
+    s.forwardOpened();
+    expect(s.compose.windows.at(-1)?.account_id).toBe("b");
+  });
+
+  it("leaves a quick answer going from the mailbox the letter arrived in", () => {
+    // The quick answer reads the running store, not a host of its own.
+    app.accounts = [acc("a"), acc("b")];
+    app.settings = { ...settings(), default_account_id: "a" };
+    app.reader.opened = opened(row(1, { account_id: "b" }));
+    const quick = new QuickReplyState({ keptAsDraft: () => {} });
+    quick.openQuick(false);
+    expect(quick.quick?.account_id).toBe("b");
+  });
+
+  it("writes a mailto link from the default mailbox, not the letter's", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: "a" };
+    s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
+    s.reader.opened = opened(row(1, { account_id: "b" }));
+    s.openMailto("mailto:someone@example.org?subject=Hi%20there");
+    const win = s.compose.windows.at(-1);
+    expect(win?.account_id).toBe("a");
+    expect(win?.draft.to.map((a) => a.email)).toEqual(["someone@example.org"]);
+    expect(win?.draft.subject).toBe("Hi there");
+  });
+
+  it("writes a mailto link from the open letter when no default is set", () => {
+    const s = new AppStore();
+    s.accounts = [acc("a"), acc("b")];
+    s.settings = { ...settings(), default_account_id: null };
+    s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
+    s.reader.opened = opened(row(1, { account_id: "b" }));
+    s.openMailto("mailto:someone@example.org");
+    expect(s.compose.windows.at(-1)?.account_id).toBe("b");
   });
 });
 

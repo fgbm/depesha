@@ -215,6 +215,8 @@ export class AppStore {
   newMessage() { this.compose.newMessage(); }
   replyTo(all: boolean) { this.compose.replyTo(all); }
   forwardOpened() { this.compose.forwardOpened(); }
+  /** A `mailto:` link in a letter: a new letter to its address, from the default mailbox. */
+  openMailto(href: string) { this.compose.openMailto(href); }
 
   /** A mailbox's page in the settings; the very first one is set up by the wizard alone. */
   accountSettings(acc: AccountView | null) {
@@ -233,6 +235,10 @@ export class AppStore {
   activeCompose(): ComposeWindow | undefined { return this.compose.active(); }
 
   defaultAccount() {
+    // A mailbox chosen as the default wins everywhere, the open folder included.
+    const chosen = this.settings.default_account_id;
+    const fixed = chosen ? this.account(chosen) : undefined;
+    if (fixed) return fixed;
     const v = this.view;
     if (v.kind === "folder") return this.account(v.account_id);
     if (this.opened) return this.account(this.opened.row.account_id);

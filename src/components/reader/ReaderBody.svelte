@@ -7,21 +7,16 @@
   import LetterViewSwitch from "../LetterViewSwitch.svelte";
   import MailFrame from "../MailFrame.svelte";
   import { app } from "../../lib/store.svelte";
-  import { emptyDraft, formatFor } from "../../lib/compose";
-  import { defaultSignature, withSignature } from "../../lib/signatures";
   import { MARKDOWN_CSS } from "../../lib/prose";
   import { preferredView, switchViews } from "../../lib/letterView";
   import { linkify } from "../../lib/format";
-  import type { AccountView, BodyView, OpenedMessage } from "../../lib/types";
+  import type { BodyView, OpenedMessage } from "../../lib/types";
 
   let {
     msg,
-    account,
     viewing,
   }: {
     msg: OpenedMessage;
-    /** The letter's mailbox; a mailto link answers from it. */
-    account: AccountView | undefined;
     /** An attachment is shown in place of the letter. */
     viewing: boolean;
   } = $props();
@@ -41,25 +36,10 @@
   const switchable = $derived(switchViews(msg.view, app.settings.letter_view));
   const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, app.settings.letter_view));
 
-  /** A link's escapes read; a stray "%" in a letter's link leaves it as written. */
-  function decoded(s: string): string {
-    try {
-      return decodeURIComponent(s);
-    } catch {
-      return s;
-    }
-  }
-
+  /** A `mailto:` link becomes a new letter; any other link opens after a confirmation. */
   async function link(href: string) {
     if (href.toLowerCase().startsWith("mailto:")) {
-      const acc = account ?? app.accounts[0];
-      if (!acc) return;
-      const to = decoded(href.slice(7).split("?")[0]);
-      const draft = emptyDraft({ name: acc.display_name, email: acc.email }, formatFor(acc, app.settings));
-      draft.to = to ? to.split(",").map((email) => ({ name: null, email: email.trim() })) : [];
-      const subject = new URLSearchParams(href.split("?")[1] ?? "").get("subject");
-      if (subject) draft.subject = subject;
-      app.openCompose({ account_id: acc.id, draft: withSignature(draft, defaultSignature(acc)), draft_id: null });
+      app.openMailto(href);
       return;
     }
     await app.openLink(href);

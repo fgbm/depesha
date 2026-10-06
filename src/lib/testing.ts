@@ -56,6 +56,7 @@ export const settings = (): Settings => ({
   offline_attachments: false,
   sender_logos: true,
   letter_view: "sender",
+  default_account_id: null,
   attachments_dir: "",
   list_sort: [],
   view_sorts: {},
@@ -126,7 +127,31 @@ export function rows(from: number, n: number): MessageRow[] {
 }
 
 export function opened(r: MessageRow): OpenedMessage {
-  return { row: structuredClone(r), view: { text: "", summary: { message_id: r.message_id } }, trusted_sender: false } as unknown as OpenedMessage;
+  return {
+    row: structuredClone(r),
+    view: {
+      summary: {
+        message_id: r.message_id,
+        in_reply_to: r.in_reply_to,
+        references: r.references,
+        subject: r.subject,
+        from: r.from,
+        to: r.to,
+        cc: r.cc,
+        reply_to: r.reply_to,
+        date: r.date,
+        has_attachments: r.has_attachments,
+        bulk: r.bulk,
+        unsubscribe: null,
+      },
+      text: "",
+      html: null,
+      has_remote_content: false,
+      authenticated: false,
+      attachments: [],
+    },
+    trusted_sender: false,
+  };
 }
 
 /** A promise settled from the outside. */

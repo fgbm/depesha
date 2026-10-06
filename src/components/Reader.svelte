@@ -195,7 +195,7 @@
         <Viewer id={msg.row.id} {files} bind:at={viewer.at} onClose={() => viewer.closeViewer()} onSave={(a) => viewer.saveAttachment(a)} onOpenApp={(a) => viewer.openAttachment(a)} />
       {/if}
 
-      <ReaderBody {msg} {account} {viewing} />
+      <ReaderBody {msg} {viewing} />
 
       {#if after.length && !viewing}
         <div class="thread after" aria-label={t("conv.label")}>

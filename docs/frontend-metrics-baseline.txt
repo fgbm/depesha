@@ -18,7 +18,7 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	409	178	52	179
+component	src/components/Preferences.svelte	411	180	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
 component	src/components/Recipients.svelte	70	28	20	22
@@ -49,12 +49,12 @@ component	src/components/account/SignaturesField.svelte	257	108	51	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
-component	src/components/prefs/MailPanel.svelte	181	15	97	69
+component	src/components/prefs/MailPanel.svelte	198	17	112	69
 component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
 component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/QuickReply.svelte	216	55	31	130
-component	src/components/reader/ReaderBody.svelte	128	66	26	36
+component	src/components/reader/ReaderBody.svelte	108	46	26	36
 component	src/components/reader/ReaderHeader.svelte	267	64	44	159
 component	src/components/reader/ReaderStates.svelte	231	33	68	130
 component	src/components/reader/ReaderToolbar.svelte	161	63	48	50
@@ -214,7 +214,7 @@ function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
 function	src/components/Preferences.svelte::start	5
-function	src/components/Preferences.svelte::save	39
+function	src/components/Preferences.svelte::save	41
 function	src/components/Preferences.svelte::cancel	4
 function	src/components/Preferences.svelte::close	4
 function	src/components/Preferences.svelte::mayLeave	3
@@ -310,8 +310,7 @@ function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
 function	src/components/reader/QuickReply.svelte::grab	17
 function	src/components/reader/QuickReply.svelte::nudge	8
-function	src/components/reader/ReaderBody.svelte::decoded	7
-function	src/components/reader/ReaderBody.svelte::link	14
+function	src/components/reader/ReaderBody.svelte::link	7
 function	src/components/reader/ReaderHeader.svelte::fromSender	3
 function	src/components/reader/ReaderToolbar.svelte::editDraft	8
 function	src/components/reader/useAttachmentViewer.svelte.ts::useAttachmentViewer	3
@@ -381,6 +380,7 @@ function	src/lib/composeKeys.ts::names	4
 function	src/lib/composeKeys.ts::composeAction	7
 function	src/lib/composeKeys.ts::keyLabel	6
 function	src/lib/composes.svelte.ts::baseName	3
+function	src/lib/composes.svelte.ts::decoded	7
 function	src/lib/connection.test.ts::edit	1
 function	src/lib/connection.test.ts::title	1
 function	src/lib/connection.ts::sameServer	8
@@ -602,12 +602,13 @@ function	src/lib/sort.ts::subjectKey	5
 function	src/lib/sort.ts::senderKey	4
 function	src/lib/sort.ts::value	23
 function	src/lib/sort.ts::compareRows	14
+function	src/lib/store.test.ts::acc	2
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	27
+function	src/lib/testing.ts::settings	28
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3
-function	src/lib/testing.ts::opened	3
+function	src/lib/testing.ts::opened	27
 function	src/lib/testing.ts::deferred	9
 function	src/lib/testing.ts::flush	3
 function	src/lib/theme.ts::applyTheme	7
