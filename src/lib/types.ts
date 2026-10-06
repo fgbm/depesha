@@ -500,7 +500,10 @@ export interface Moved {
 
 export interface Counters {
   snoozed: number;
+  /** Letters waiting for an answer: the badge. */
   followups: number;
+  /** Waits kept after they ended. */
+  followups_closed: number;
 }
 
 export type UnsubscribeWay =
