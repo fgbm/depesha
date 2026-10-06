@@ -35,17 +35,34 @@ def append(c, folder, raw, flags="", when=None):
     assert typ == "OK", data
 
 
-def msg(subject, body, sender="Иван Петров <ivan@example.org>", when=None, extra="", mid=None):
+def msg(subject, body, sender="Иван Петров <ivan@example.org>", when=None, extra="", mid=None, to=ME, attach=None):
+    """A text letter. `attach` is (filename, content-type, bytes) for one attachment."""
     date = email.utils.formatdate(when or time.time(), localtime=True)
     mid = mid or f"{abs(hash(subject + str(when)))}@example.org"
     subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
     frm_name, frm_addr = sender.split(" <")
     frm = "=?utf-8?B?" + base64.b64encode(frm_name.encode()).decode() + "?= <" + frm_addr
-    return (
-        f"From: {frm}\r\nTo: {ME}\r\nSubject: {subj}\r\nDate: {date}\r\n"
+    head = (
+        f"From: {frm}\r\nTo: {to}\r\nSubject: {subj}\r\nDate: {date}\r\n"
         f"Message-ID: <{mid}>\r\nMIME-Version: 1.0\r\n{extra}"
-        f"Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
-        + base64.encodebytes(body.encode()).decode().replace("\n", "\r\n")
+    )
+    b64 = lambda text: base64.encodebytes(text).decode().replace("\n", "\r\n")
+    if attach is None:
+        return (
+            head
+            + "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+            + b64(body.encode())
+        ).encode()
+    name, ctype, data = attach
+    return (
+        head
+        + 'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        + "--mix\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + b64(body.encode())
+        + f'--mix\r\nContent-Type: {ctype}; name="{name}"\r\nContent-Disposition: attachment; filename="{name}"\r\n'
+        + "Content-Transfer-Encoding: base64\r\n\r\n"
+        + b64(data)
+        + "--mix--\r\n"
     ).encode()
 
 
@@ -94,6 +111,8 @@ DOCS_TYPES = {
     "notes.md": "text/markdown",
     "sums.csv": "text/csv",
 }
+# The sample documents, read once: the demo letters attach them from memory.
+DOCS_ATTACH = {name: (FIXTURES / name).read_bytes() for name in DOCS_TYPES}
 
 
 def docs(when):
@@ -164,6 +183,65 @@ def seed():
     c.logout()
 
 
+def demo_seed():
+    """Tidy, reproducible mail for the README screenshots (e2e/shots.mjs).
+
+    Addresses are only on example.com / example.org. The inbox and «Отправленные»
+    are emptied first, so re-shooting gives the same pictures; inbox dates are fixed
+    so the list shows the same times every time.
+    """
+    c = conn()
+    # Start clean: these also drop the 620 letters of the acceptance seed.
+    for folder in ("INBOX", "Sent", "Drafts", "Trash", "Архив", "Отложенные", "Работа", "Работа.Сметы", "Отчёты"):
+        typ, _ = c.select(imaplib_utf7(folder))
+        if typ != "OK":
+            c.create(imaplib_utf7(folder))
+            c.select(imaplib_utf7(folder))
+        c.store("1:*", "+FLAGS", "(\\Deleted)")
+        c.expunge()
+
+    base = 1_788_000_000  # 2026-08-28 10:40 UTC
+    day = 86_400
+    me = "carol@example.org"
+
+    def put(folder, subject, sender, body, when, mid, refs=None, extra="", seen=True, attach=None):
+        reply = f"In-Reply-To: <{refs[-1]}>\r\nReferences: {' '.join(f'<{r}>' for r in refs)}\r\n" if refs else ""
+        append(c, folder, msg(subject, body, sender=sender, to=me, when=when, mid=mid, extra=reply + extra, attach=attach),
+               "(\\Seen)" if seen else "", when)
+
+    # INBOX: one conversation of three letters, two people, one newsletter.
+    put("INBOX", "Смета на монтаж", "Пётр Сидоров <petr@example.com>",
+        "Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.",
+        base - 7200, "c-1@example.com", seen=False)
+    put("INBOX", "Re: Смета на монтаж", "Пётр Сидоров <petr@example.com>",
+        "Согласен, тогда жду финальную смету до пятницы. Со своей стороны всё согласовал.",
+        base - 3600, "c-2@example.com", refs=["c-1@example.com"], seen=True)
+    put("INBOX", "Re: Смета на монтаж", "Подрядчик <estimate@example.com>",
+        "Смету пересчитали, сумма выросла на 40 000 ₽. Приложил новую таблицу к ответу.",
+        base - 1800, "c-3@example.com", refs=["c-1@example.com", "c-2@example.com"], seen=False)
+    put("INBOX", "Отчёт за сентябрь", "Мария Соколова <maria@example.org>",
+        "Отчёт за сентябрь готов, замечания во вложении.", base - day, "report-9@example.org",
+        attach=("report.pdf", "application/pdf", DOCS_ATTACH["contract.pdf"]))
+    put("INBOX", "Счёт на оплату", "Бухгалтерия <billing@example.org>",
+        "Просим оплатить счёт до 15 октября.", base - 2 * day, "invoice-15@example.org")
+    put("INBOX", "Монтаж и освещение: ноябрьские скидки", "Магазин «Свет и монтаж» <news@shop.example.org>",
+        "Скидки на монтаж и освещение до конца ноября.",
+        base - 3 * day, "weekly-44@example.org",
+        extra="List-Id: <weekly.shop.example.org>\r\n"
+              "List-Unsubscribe: <mailto:unsubscribe@shop.example.org?subject=unsubscribe>\r\n")
+
+    # «Отправленные»: answers the user waits for (the wait itself is added by shots.mjs).
+    now = int(time.time())
+    put("Sent", "Проверка датчиков на складе", f"Кэрол Тестова <{me}>",
+        "Коллеги, когда закончите проверку датчиков?", now - 10 * day, "f-done@example.org")
+    put("Sent", "Заявка на пропуск для подрядчиков", f"Кэрол Тестова <{me}>",
+        "Прошу продлить пропуска для подрядчиков на ноябрь.", now - 5400, "f-wait@example.org")
+    # A draft, as if a letter were being written and left for later.
+    put("Drafts", "Re: Смета на монтаж", f"Кэрол Тестова <{me}>",
+        "Коллеги, посмотрела смету — по-моему, завышена доставка.", now - 3 * day, "draft-1@example.org")
+    c.logout()
+
+
 def reply(folder, subject):
     """Answers the message from `folder` into INBOX, as the other side would."""
     c = conn()
@@ -228,6 +306,9 @@ def main():
     cmd = sys.argv[1]
     if cmd == "seed":
         seed()
+        return
+    if cmd == "demo-seed":
+        demo_seed()
         return
     if cmd == "reply":
         reply(sys.argv[2], sys.argv[3])
