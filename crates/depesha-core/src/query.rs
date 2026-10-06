@@ -4,7 +4,7 @@
 //! a calendar year `year:2024` and a mailbox `account:`, with Russian synonyms.
 //! Everything else is free text.
 
-use chrono::{DateTime, Duration, Local, Months, NaiveDate, TimeZone};
+use chrono::{DateTime, Duration, Local, Months, NaiveDate, NaiveDateTime, TimeZone};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchQuery {
@@ -175,16 +175,30 @@ fn year_start(year: i32) -> Option<i64> {
 
 /// `30d`, `2w`, `6m`, `1y` (`30д`, `2н`, `6м`, `1г`) back from `now`, as Unix time.
 fn ago(value: &str, now: DateTime<Local>) -> Option<i64> {
+    ago_in(&Local, value, now)
+}
+
+fn ago_in<Tz: TimeZone>(tz: &Tz, value: &str, now: DateTime<Tz>) -> Option<i64> {
     let digits = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
     let n: u32 = value[..digits].parse().ok()?;
-    let then = match value[digits..].to_lowercase().as_str() {
-        "d" | "д" => now.checked_sub_signed(Duration::days(n.into()))?,
-        "w" | "н" => now.checked_sub_signed(Duration::weeks(n.into()))?,
-        "m" | "м" | "мес" => now.checked_sub_months(Months::new(n))?,
-        "y" | "г" | "л" => now.checked_sub_months(Months::new(n.checked_mul(12)?))?,
-        _ => return None,
-    };
-    Some(then.timestamp())
+    let months = |m: u32| local_time(tz, now.naive_local().checked_sub_months(Months::new(m))?);
+    match value[digits..].to_lowercase().as_str() {
+        "d" | "д" => Some(now.checked_sub_signed(Duration::days(n.into()))?.timestamp()),
+        "w" | "н" => Some(now.checked_sub_signed(Duration::weeks(n.into()))?.timestamp()),
+        // Months back on the calendar, at the same wall-clock time.
+        "m" | "м" | "мес" => months(n),
+        "y" | "г" | "л" => months(n.checked_mul(12)?),
+        _ => None,
+    }
+}
+
+/// A wall-clock time as Unix time. One a clock change skipped (the spring gap) is
+/// taken an hour later, as the clock showed it then; a repeated one, the earlier.
+fn local_time<Tz: TimeZone>(tz: &Tz, at: NaiveDateTime) -> Option<i64> {
+    tz.from_local_datetime(&at)
+        .earliest()
+        .or_else(|| tz.from_local_datetime(&(at + Duration::hours(1))).earliest())
+        .map(|d| d.timestamp())
 }
 
 /// `25M`, `1.5G`, `500K`, `25МБ`, `1,5ГБ`; a bare number is bytes, as in Gmail.
@@ -396,5 +410,57 @@ mod tests {
         assert!(imap_criteria(&SearchQuery::parse("smaller:5G")).is_empty());
         let q = SearchQuery::parse("smaller:4294967295");
         assert_eq!(imap_criteria(&q)[0].value.as_deref(), Some("4294967295"));
+    }
+
+    /// Central Europe around 29 March 2026: at 02:00 the clock jumps to 03:00.
+    #[derive(Clone)]
+    struct Spring;
+
+    impl TimeZone for Spring {
+        type Offset = chrono::FixedOffset;
+
+        fn from_offset(_: &Self::Offset) -> Self {
+            Spring
+        }
+
+        fn offset_from_local_date(&self, _: &NaiveDate) -> chrono::LocalResult<Self::Offset> {
+            unimplemented!()
+        }
+
+        fn offset_from_local_datetime(&self, local: &NaiveDateTime) -> chrono::LocalResult<Self::Offset> {
+            let gap = NaiveDate::from_ymd_opt(2026, 3, 29)
+                .unwrap()
+                .and_hms_opt(2, 0, 0)
+                .unwrap();
+            let hour = |h| chrono::FixedOffset::east_opt(h * 3600).unwrap();
+            if *local < gap {
+                chrono::LocalResult::Single(hour(1))
+            } else if *local < gap + Duration::hours(1) {
+                chrono::LocalResult::None
+            } else {
+                chrono::LocalResult::Single(hour(2))
+            }
+        }
+
+        fn offset_from_utc_date(&self, _: &NaiveDate) -> Self::Offset {
+            unimplemented!()
+        }
+
+        fn offset_from_utc_datetime(&self, utc: &NaiveDateTime) -> Self::Offset {
+            let change = NaiveDate::from_ymd_opt(2026, 3, 29)
+                .unwrap()
+                .and_hms_opt(1, 0, 0)
+                .unwrap();
+            chrono::FixedOffset::east_opt(if *utc < change { 3600 } else { 7200 }).unwrap()
+        }
+    }
+
+    #[test]
+    fn an_age_landing_in_the_spring_gap_still_counts() {
+        // A month before 29 April 02:30 is 29 March 02:30, a time the clock skipped.
+        let now = Spring.with_ymd_and_hms(2026, 4, 29, 2, 30, 0).unwrap();
+        let then = Spring.with_ymd_and_hms(2026, 3, 29, 3, 30, 0).unwrap();
+        assert_eq!(ago_in(&Spring, "1m", now), Some(then.timestamp()));
+        assert_eq!(ago_in(&Spring, "1м", now), Some(then.timestamp()));
     }
 }
