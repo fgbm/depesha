@@ -196,7 +196,9 @@ nav.side {
     background: color-mix(in srgb, var(--side-ink) 10%, transparent);
   }
 
-  .side .star.on, .side .folder-row:hover .star.on {
+  /* The tree keeps its filled star: starred folders are gold at all times, the tree does
+     not say what is a favourite otherwise. */
+  .side .folder-row:not(.fav-row) .star.on {
     color: #e0b040;
   }
 

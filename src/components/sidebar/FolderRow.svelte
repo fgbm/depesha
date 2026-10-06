@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  // The counter and the star are shared with FavouriteRow, so a favourite looks the same.
+  // The counter and the star are shared with FavouriteRow; the `block` flag keeps the block's star an outline one, the tree's filled.
   import Star from "@lucide/svelte/icons/star";
   import { t } from "../../lib/i18n.svelte";
   import { favourites, type Favourite } from "../../lib/favourites.svelte";
@@ -40,7 +40,7 @@
   {/if}
 {/snippet}
 
-{#snippet star(acc: AccountView, fav: Favourite)}
+{#snippet star(acc: AccountView, fav: Favourite, block = false)}
   {@const on = favourites.has(acc.id, fav.name)}
   <button
     class="star"
@@ -49,7 +49,7 @@
     title={on ? t("favourites.remove") : t("favourites.add")}
     aria-label={on ? t("favourites.remove") : t("favourites.add")}
     onclick={() => favourites.toggle(acc.id, fav)}
-  ><Star size={15} fill={on ? "currentColor" : "none"} /></button>
+  ><Star size={15} fill={on && !block ? "currentColor" : "none"} /></button>
 {/snippet}
 
 <div class="folder-row" data-folder={folder.name}>

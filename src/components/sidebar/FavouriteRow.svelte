@@ -52,5 +52,5 @@
     <span class="name">{found?.role ? roleLabel(found.role) : where.leaf}{#if where.path}<span class="path">{where.path}</span>{/if}</span>
     {#if found && !gone}{@render count(found)}{/if}
   </button>
-  {@render star(account, fav)}
+  {@render star(account, fav, true)}
 </div>

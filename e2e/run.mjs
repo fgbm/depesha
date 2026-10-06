@@ -772,6 +772,22 @@ try {
     const path = await d.exec("return document.querySelector(`nav.side .fav-row[data-folder=${JSON.stringify(arguments[0])}] .path`)?.innerText ?? ''", deep);
     if (path !== "Работа / Проекты") throw new Error(`путь вложенной: «${path}»`);
     await screenshot("favourites-tree");
+    // The block's star is outline and only under the pointer or in focus; the tree's is gold at rest.
+    const colorIn = (where, name) =>
+      d.exec(`const s = document.querySelector(arguments[0] + '[data-folder="' + arguments[1] + '"] .star'); return s ? getComputedStyle(s).color : null`, where, name);
+    const block = "nav.side .favs .fav-row";
+    // Park the pointer on neutral chrome first: where the last click left it is not a promise.
+    await d.moveTo(await d.find("nav.side .brand"));
+    const blockIdle = await colorIn(block, ten[0]);
+    if (blockIdle !== "rgba(0, 0, 0, 0)") throw new Error(`звезда блока видна в покое: «${blockIdle}»`);
+    await d.moveTo(await d.find(`${block}[data-folder=${JSON.stringify(ten[0])}] .item`));
+    await d.until("звезда блока проявилась", async () => (await colorIn(block, ten[0])) !== blockIdle);
+    // The keyboard half of the rule: with the pointer away again, focus shows the block's star too.
+    await d.moveTo(await d.find("nav.side .brand"));
+    await d.until("звезда блока снова невидима", async () => (await colorIn(block, ten[0])) === blockIdle);
+    await d.exec("document.querySelector(arguments[0] + ' .star').focus()", `${block}[data-folder=${JSON.stringify(ten[0])}]`);
+    await d.until("звезда блока проявилась в фокусе", async () => (await colorIn(block, ten[0])) !== blockIdle);
+    if ((await colorIn(tree, ten[0])) !== "rgb(224, 176, 64)") throw new Error("звезда избранной папки в дереве не золотая");
 
     // A folded branch keeps its favourite in the block.
     await d.click(await d.find("nav.side .fold[aria-label$=': Работа']"));
@@ -799,6 +815,16 @@ try {
       await d.until("strip", async () => (await d.findAll("nav.side.strip")).length === 1);
       await d.click((await d.findAll("nav.side .circle"))[0]);
       await d.until("flyout favourites", async () => (await d.findAll(".pop .favs .fav-row")).length === 10);
+      // The same in the strip's flyout: outline at rest, shown under the pointer on the row.
+      const fly = ".pop .favs .fav-row";
+      const flyColor = () =>
+        d.exec("const s = document.querySelector(arguments[0] + ' .star'); return s ? getComputedStyle(s).color : null", fly);
+      // Neutral chrome again, not wherever the circle's click left the pointer.
+      await d.moveTo(await d.find("nav.side .brand"));
+      const flyIdle = await flyColor();
+      if (flyIdle !== "rgba(0, 0, 0, 0)") throw new Error(`звезда блока в полосе видна в покое: «${flyIdle}»`);
+      await d.moveTo(await d.find(`${fly} .item`));
+      await d.until("звезда блока в полосе проявилась", async () => (await flyColor()) !== flyIdle);
       await screenshot("favourites-strip");
       await d.click(await d.find(".pop .all-folders"));
       await d.until("tree in the flyout", async () => (await d.findAll(".pop .folder-row:not(.fav-row)")).length > 0);

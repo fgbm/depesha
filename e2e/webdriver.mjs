@@ -68,6 +68,22 @@ export class Driver {
     await this.req("POST", this.s(`/element/${el}/clear`), {});
   }
 
+  /** Hovers an element with a real pointer, so CSS :hover applies. */
+  async moveTo(el) {
+    // An origin element outside the viewport makes pointerMove fail with «move target out of bounds».
+    await this.reveal(el);
+    await this.req("POST", this.s("/actions"), {
+      actions: [
+        {
+          type: "pointer",
+          id: "mouse",
+          parameters: { pointerType: "mouse" },
+          actions: [{ type: "pointerMove", duration: 100, origin: { [ELEMENT]: el }, x: 0, y: 0 }],
+        },
+      ],
+    });
+  }
+
   async text(el) {
     return this.req("GET", this.s(`/element/${el}/text`));
   }
