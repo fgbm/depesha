@@ -143,9 +143,9 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
     let key = sizes_task(&id);
     // The "counting" state is claimed before anything is spawned or announced, so a second
     // "Count" finds it and returns at once, and a stop arriving in the meantime is not lost.
-    if !state.begin_count(&id) {
+    let Some(generation) = state.begin_count(&id) else {
         return Ok(());
-    }
+    };
     let folders: Vec<String> = match state.store.folders(Some(&id)) {
         Ok(list) => list
             .into_iter()
@@ -153,7 +153,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
             .map(|f| f.folder.name)
             .collect(),
         Err(e) => {
-            state.abandon_count(&id);
+            state.abandon_count(&id, generation);
             return Err(e.into());
         }
     };
@@ -164,7 +164,9 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
         account.label.clone()
     };
     let label = tr!("Folder sizes: {name}", "Размер папок: {name}");
-    state.task(&key, "sizes", Some(&id), label.clone(), 0, total);
+    state.while_count(&id, Some(generation), || {
+        state.task(&key, "sizes", Some(&id), label.clone(), 0, total)
+    });
     changed(&state, &id);
 
     let id_kept = id.clone();
@@ -179,7 +181,10 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
                 return Err(Error::NotFound);
             };
             let (method, sizes) = quota::folder_sizes(&mut conn, &folders, |done| {
-                state.task(&key, "sizes", Some(&id), label.clone(), done as u64, total);
+                // A stopped count says nothing more: its task is gone from the list.
+                state.while_count(&id, Some(generation), || {
+                    state.task(&key, "sizes", Some(&id), label.clone(), done as u64, total)
+                });
             })
             .await?;
             // The connection was read past the IMAP library: it is not used again.
@@ -194,20 +199,21 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
             )
         }
         .await;
-        match result {
-            Ok(()) => state.task_done(&key),
-            Err(e) => {
-                tracing::warn!(account = %id, "folder sizes not counted: {e}");
-                state.task_failed(&key, CmdError::from(e));
-            }
+        if let Err(e) = &result {
+            tracing::warn!(account = %id, "folder sizes not counted: {e}");
         }
-        state.forget_count(&id);
+        // After a stop the task is not this count's to end: a new one may have its key.
+        state.end_count(&id, generation, || match result {
+            Ok(()) => state.task_done(&key),
+            Err(e) => state.task_failed(&key, CmdError::from(e)),
+        });
         changed(&state, &id);
     });
-    if state.keep_count(&id_kept, handle.abort_handle()) {
+    if state.keep_count(&id_kept, generation, handle.abort_handle()) {
         let _ = go.send(());
     } else {
-        // A stop arrived between the claim and the spawn: the count must not run.
+        // A stop arrived between the claim and the spawn: the count must not run. Its task
+        // is gone already: the stop took it away, or it was never announced (above).
         handle.abort();
     }
     Ok(())
@@ -215,10 +221,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
 
 /// Stops a count under way; what was counted before stays.
 pub fn stop_count(state: &AppState, account_id: &str) {
-    if let Some(handle) = state.forget_count(account_id) {
-        handle.abort();
-    }
-    state.task_done(&sizes_task(account_id));
+    state.stop_count(account_id, || state.task_done(&sizes_task(account_id)));
     changed(state, account_id);
 }
 

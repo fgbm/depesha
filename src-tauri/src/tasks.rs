@@ -21,9 +21,58 @@ pub struct Tasks {
     synced: Mutex<HashMap<String, i64>>,
     /// Accounts whose offline download the user paused (until the app restarts).
     paused: Mutex<HashSet<String>>,
-    /// Folder size counts under way, by account: `None` while one is claimed but its task
-    /// has not been spawned yet, `Some` once its handle is kept, to be stopped.
-    counts: Mutex<HashMap<String, Option<tokio::task::AbortHandle>>>,
+    /// Folder size counts under way, by account.
+    counts: Mutex<Counts>,
+}
+
+/// Folder size counts by account, each with its generation: the tail of a stopped count
+/// (abort does not cut synchronous code short) must not end the count started after it.
+#[derive(Default)]
+struct Counts {
+    next: u64,
+    /// The handle is `None` while a count is claimed but its task has not been spawned
+    /// yet, `Some` once it is kept, to be stopped.
+    by_account: HashMap<String, (u64, Option<tokio::task::AbortHandle>)>,
+}
+
+impl Counts {
+    fn begin(&mut self, account_id: &str) -> Option<u64> {
+        if self.by_account.contains_key(account_id) {
+            return None;
+        }
+        self.next += 1;
+        self.by_account.insert(account_id.to_owned(), (self.next, None));
+        Some(self.next)
+    }
+
+    /// The account's count is the one of `generation`; `None`: there is none.
+    fn is(&self, account_id: &str, generation: Option<u64>) -> bool {
+        self.by_account.get(account_id).map(|c| c.0) == generation
+    }
+
+    fn keep(&mut self, account_id: &str, generation: u64, handle: tokio::task::AbortHandle) -> bool {
+        match self.by_account.get_mut(account_id) {
+            Some(count) if count.0 == generation => {
+                count.1 = Some(handle);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Removes the count of `generation`; false when it was stopped or replaced.
+    fn end(&mut self, account_id: &str, generation: u64) -> bool {
+        let ours = self.is(account_id, Some(generation));
+        if ours {
+            self.by_account.remove(account_id);
+        }
+        ours
+    }
+
+    /// Removes whatever count the account has: the caller aborts the handle, if there is one.
+    fn stop(&mut self, account_id: &str) -> Option<tokio::task::AbortHandle> {
+        self.by_account.remove(account_id).and_then(|c| c.1)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -147,7 +196,7 @@ impl AppState {
         lock(&self.tasks.list).retain(|_, t| t.account_id.as_deref() != Some(account_id));
         lock(&self.tasks.synced).remove(account_id);
         lock(&self.tasks.paused).remove(account_id);
-        if let Some(count) = lock(&self.tasks.counts).remove(account_id).flatten() {
+        if let Some(count) = lock(&self.tasks.counts).stop(account_id) {
             count.abort();
         }
         self.emit_tasks();
@@ -162,31 +211,49 @@ impl AppState {
     }
 
     /// Claims the account's count before its task is spawned, so a second "Count" cannot
-    /// start and a stop in the meantime is not lost. False when one is already under way.
-    pub fn begin_count(&self, account_id: &str) -> bool {
-        lock(&self.tasks.counts).insert(account_id.to_owned(), None).is_none()
+    /// start and a stop in the meantime is not lost. `None` when one is already under way;
+    /// otherwise the count's generation, for the calls below.
+    pub fn begin_count(&self, account_id: &str) -> Option<u64> {
+        lock(&self.tasks.counts).begin(account_id)
     }
 
     /// Gives up a claim whose task was never spawned (the window is gone, the connect failed).
-    pub fn abandon_count(&self, account_id: &str) {
-        lock(&self.tasks.counts).remove(account_id);
+    pub fn abandon_count(&self, account_id: &str, generation: u64) {
+        lock(&self.tasks.counts).end(account_id, generation);
     }
 
     /// Keeps the running task's handle. False when a stop came first: the task must not run.
-    pub fn keep_count(&self, account_id: &str, handle: tokio::task::AbortHandle) -> bool {
+    pub fn keep_count(&self, account_id: &str, generation: u64, handle: tokio::task::AbortHandle) -> bool {
+        lock(&self.tasks.counts).keep(account_id, generation, handle)
+    }
+
+    /// Runs `f` while the account's count is the one of `generation` (`None`: there is no
+    /// count), so that a stop or a new count cannot come in between; false when it is not.
+    pub fn while_count(&self, account_id: &str, generation: Option<u64>, f: impl FnOnce()) -> bool {
+        let counts = lock(&self.tasks.counts);
+        let ours = counts.is(account_id, generation);
+        if ours {
+            f();
+        }
+        ours
+    }
+
+    /// Ends the count of `generation` after running `f`, unless it was stopped or replaced.
+    pub fn end_count(&self, account_id: &str, generation: u64, f: impl FnOnce()) {
         let mut counts = lock(&self.tasks.counts);
-        match counts.get_mut(account_id) {
-            Some(slot) => {
-                *slot = Some(handle);
-                true
-            }
-            None => false,
+        if counts.is(account_id, Some(generation)) {
+            f();
+            counts.end(account_id, generation);
         }
     }
 
-    /// Takes the account's count out: the caller aborts the handle, if there is one.
-    pub fn forget_count(&self, account_id: &str) -> Option<tokio::task::AbortHandle> {
-        lock(&self.tasks.counts).remove(account_id).flatten()
+    /// Stops the account's count, if any, and runs `f` before another can begin.
+    pub fn stop_count(&self, account_id: &str, f: impl FnOnce()) {
+        let mut counts = lock(&self.tasks.counts);
+        if let Some(handle) = counts.stop(account_id) {
+            handle.abort();
+        }
+        f();
     }
 
     pub fn mark_synced(&self, account_id: &str) {
@@ -208,5 +275,30 @@ impl AppState {
         } else {
             set.remove(account_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_stopped_counts_tail_leaves_the_next_count_alone() {
+        let handle = || tokio::spawn(async {}).abort_handle();
+        let mut counts = Counts::default();
+        let a = counts.begin("acc").unwrap();
+        assert_eq!(counts.begin("acc"), None, "one count per account");
+        assert!(counts.keep("acc", a, handle()));
+        assert!(counts.stop("acc").is_some());
+        assert!(counts.is("acc", None));
+        // "Count" again right after "Stop": a new generation.
+        let b = counts.begin("acc").unwrap();
+        assert_ne!(a, b);
+        // The first task's tail neither keeps its handle nor ends the new count.
+        assert!(!counts.keep("acc", a, handle()));
+        assert!(!counts.end("acc", a));
+        assert!(counts.is("acc", Some(b)));
+        assert!(counts.end("acc", b));
+        assert!(counts.is("acc", None));
     }
 }
