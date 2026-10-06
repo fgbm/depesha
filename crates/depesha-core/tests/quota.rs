@@ -25,6 +25,8 @@ struct Server {
     bad_status_size: bool,
     /// Never answers GETQUOTAROOT.
     hang_quota: bool,
+    /// Answers GETQUOTAROOT with NO.
+    refuse_quota: bool,
     log: Vec<String>,
 }
 
@@ -87,6 +89,9 @@ fn respond(server: &Server, tag: &str, cmd: &str) -> String {
     if upper.starts_with("GETQUOTAROOT INBOX") {
         if server.hang_quota {
             return String::new();
+        }
+        if server.refuse_quota {
+            return format!("{tag} NO [UNAVAILABLE] Quota backend is down\r\n");
         }
         return ok("* QUOTAROOT INBOX \"User quota\"\r\n\
                    * QUOTA \"User quota\" (STORAGE 3250585 10485760 MESSAGE 1200 0)\r\n"
@@ -309,4 +314,20 @@ async fn a_server_stuck_on_the_quota_times_out() {
     assert!(err.is_transient());
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert!(quota::QUOTA_TIMEOUT <= std::time::Duration::from_secs(30));
+}
+
+#[tokio::test]
+async fn a_refused_quota_is_an_error_not_an_empty_quota() {
+    // "No quota" would forget the last one known; a refusal says nothing about it.
+    let (_, mut conn) = fixture(Server {
+        caps: "QUOTA",
+        folders: folders(),
+        refuse_quota: true,
+        ..Server::default()
+    })
+    .await;
+    let err = quota::quota(&mut conn).await.unwrap_err();
+    assert!(err.to_string().contains("Quota backend is down"), "{err}");
+    // Not transient: the connection is fine and the sync goes on.
+    assert!(!err.is_transient());
 }

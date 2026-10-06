@@ -86,8 +86,9 @@ impl Roots {
     }
 }
 
-/// The quota of INBOX's root (GETQUOTAROOT). `None` when the server names no root or
-/// refuses: such a mailbox has no quota to show, which is not a full one.
+/// The quota of INBOX's root (GETQUOTAROOT). `None` when the server has no QUOTA or
+/// names no root: such a mailbox has no quota to show, which is not a full one. A refusal
+/// (NO, BAD) is an error: it says nothing of the quota, and the last one known stays.
 /// A server silent for `QUOTA_TIMEOUT` gives `Error::Timeout`: drop the connection, its
 /// answer may still come.
 pub async fn quota(conn: &mut Conn) -> Result<Option<Quota>> {
@@ -112,11 +113,14 @@ async fn quota_root(conn: &mut Conn) -> Result<Option<Quota>> {
     loop {
         let resp = conn.session.read_response().await?.ok_or(Error::Closed)?;
         match resp.parsed() {
-            Response::Done { tag, status, .. } if *tag == id => {
-                return Ok(match status {
-                    Status::Ok => roots.tightest(),
-                    _ => None,
-                });
+            Response::Done { tag, status, outcome } if *tag == id => {
+                use async_imap::error::Error as E;
+                let text = outcome.information.as_deref().unwrap_or_default().to_owned();
+                return match status {
+                    Status::Ok => Ok(roots.tightest()),
+                    Status::No => Err(E::No(text).into()),
+                    _ => Err(E::Bad(text).into()),
+                };
             }
             other => roots.take(other),
         }
