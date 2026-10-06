@@ -19,5 +19,6 @@ data-section
 data-settings
 data-signature
 data-tauri-drag-region
+data-theme
 data-toc
 data-value

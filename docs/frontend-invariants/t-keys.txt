@@ -283,11 +283,15 @@ quota.lineTitle
 reader.alwaysFor
 reader.choose
 reader.downloading
+reader.foldRecipients
 reader.fromSender
 reader.loading
 reader.message
+reader.moreRecipients
+reader.quickKept
 reader.remoteHidden
 reader.remoteWhy
+reader.resizeAnswer
 reader.show
 reader.stuck
 reader.toWindow
