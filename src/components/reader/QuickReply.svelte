@@ -10,7 +10,7 @@
   import type { QuickReplyState } from "./useQuickReply.svelte";
 
   let {
-    state,
+    state: answer,
     manyRecipients,
   }: {
     state: QuickReplyState;
@@ -18,7 +18,41 @@
     manyRecipients: boolean;
   } = $props();
 
-  const q = $derived(state.quick);
+  const q = $derived(answer.quick);
+
+  // The box grows upwards, so its grip is at the top: dragged up, the answer gets taller.
+  const MIN = 96;
+  const STEP = 24;
+  let height = $state<number | null>(null);
+  const max = () => Math.max(MIN, Math.round(window.innerHeight * 0.6));
+  const fit = (h: number) => Math.min(max(), Math.max(MIN, Math.round(h)));
+
+  function grab(e: PointerEvent) {
+    if (e.button !== 0 || !answer.box) return;
+    e.preventDefault();
+    const grip = e.currentTarget as HTMLElement;
+    const y0 = e.clientY;
+    const h0 = answer.box.offsetHeight;
+    grip.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => (height = fit(h0 + y0 - m.clientY));
+    const done = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", done);
+      grip.removeEventListener("pointercancel", done);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", done);
+    grip.addEventListener("pointercancel", done);
+  }
+
+  function nudge(e: KeyboardEvent) {
+    const by = e.key === "ArrowUp" ? STEP : e.key === "ArrowDown" ? -STEP : 0;
+    if (!by || !answer.box) return;
+    // The arrows are the grip's here, not the list's: the letter stays.
+    e.preventDefault();
+    e.stopPropagation();
+    height = fit(answer.box.offsetHeight + by);
+  }
 </script>
 
 <div class="quick">
@@ -28,19 +62,24 @@
         {#if q.all}<ReplyAll size={14} />{:else}<Reply size={14} />{/if}
         <span class="quick-who">{[...q.draft.to, ...q.draft.cc].map(addrFull).join(", ")}</span>
         {#if manyRecipients}
-          <button class="quick-all" class:on={q.all} aria-pressed={q.all} onclick={() => state.setAll(!q.all)} title={t("act.replyAllHint")}>{t("act.replyAll")}</button>
+          <button class="quick-all" class:on={q.all} aria-pressed={q.all} onclick={() => answer.setAll(!q.all)} title={t("act.replyAllHint")}>{t("act.replyAll")}</button>
         {/if}
       </div>
-      <textarea bind:this={state.box} bind:value={state.text} onkeydown={(e) => state.onKey(e)} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
+      <div class="answer">
+        <!-- A focusable separator is a splitter (ARIA): it moves with the arrow keys. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+        <div class="grip" role="separator" aria-orientation="horizontal" aria-label={t("reader.resizeAnswer")} title={t("reader.resizeAnswer")} aria-valuenow={height ?? MIN} aria-valuemin={MIN} tabindex="0" onpointerdown={grab} onkeydown={nudge}></div>
+        <textarea style:height={height === null ? null : `${height}px`} bind:this={answer.box} bind:value={answer.text} onkeydown={(e) => answer.onKey(e)} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
+      </div>
       <div class="quick-actions">
-        <button class="btn primary" onclick={() => state.send()} disabled={state.busy || !state.text.trim()}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
-        <button class="btn ghost" onclick={() => state.toWindow()}>{t("reader.toWindow")}</button>
+        <button class="btn primary" onclick={() => answer.send()} disabled={answer.busy || !answer.text.trim()}>{t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn ghost" onclick={() => answer.toWindow()}>{t("reader.toWindow")}</button>
         <span class="sep"></span>
-        <button class="btn ghost icon" onclick={() => { state.quick = null; state.text = ""; }} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
+        <button class="btn ghost icon" onclick={() => { answer.quick = null; answer.text = ""; }} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
       </div>
     </div>
   {:else}
-    <button class="quick-bar" onclick={() => state.openQuick(false)}><Reply size={16} /> {t("act.reply")}</button>
+    <button class="quick-bar" onclick={() => answer.openQuick(false)}><Reply size={16} /> {t("act.reply")}</button>
   {/if}
 </div>
 
@@ -123,15 +162,44 @@
     white-space: nowrap;
   }
 
+  .answer {
+    position: relative;
+    display: flex;
+  }
+
   .quick-box textarea {
+    width: 100%;
     border: none;
     outline: none;
-    resize: vertical;
+    resize: none;
     min-height: 96px;
-    padding: 10px 14px;
+    padding: 10px 26px 10px 14px;
     background: transparent;
     line-height: 1.55;
     user-select: text;
+  }
+
+  /* The native corner grip, mirrored to the top: two strokes across the corner. */
+  .grip {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    cursor: ns-resize;
+    touch-action: none;
+    color: var(--muted);
+    --stroke: linear-gradient(45deg, transparent calc(50% - 0.7px), currentColor calc(50% - 0.7px) calc(50% + 0.7px), transparent calc(50% + 0.7px));
+    background:
+      var(--stroke) top 2px right 2px / 10px 10px no-repeat,
+      var(--stroke) top 2px right 2px / 5px 5px no-repeat;
+    opacity: 0.6;
+  }
+
+  .grip:hover,
+  .grip:focus-visible {
+    opacity: 1;
   }
 
   .quick-actions {

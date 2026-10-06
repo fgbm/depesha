@@ -295,6 +295,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "reader.stuck": "Сервер долго не отвечает.",
   "reader.toWindow": "В окно",
   "reader.quickKept": "Ответ сохранён в черновиках",
+  "reader.resizeAnswer": "Потяните, чтобы изменить высоту",
   "reader.fromSender": "Все письма от этого отправителя",
   "reader.loading": "Загрузка письма…",
   "reader.message": "Письмо",

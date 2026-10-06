@@ -302,6 +302,7 @@ export const en = {
   "reader.stuck": "The server is slow to answer.",
   "reader.toWindow": "Open in window",
   "reader.quickKept": "The reply is saved in Drafts",
+  "reader.resizeAnswer": "Drag to change the height",
   "reader.fromSender": "All mail from this sender",
   "reader.loading": "Loading the message…",
   "reader.message": "Message",
