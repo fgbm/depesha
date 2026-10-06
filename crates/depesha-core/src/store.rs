@@ -667,6 +667,10 @@ struct SearchSql {
 }
 
 fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
+    // `account:` is resolved to an id by the caller; without one it would be no filter.
+    if q.account.is_some() && account_id.is_none() {
+        return None;
+    }
     let mut terms: Vec<String> = Vec::new();
     let mut column = |col: Option<&str>, value: &str| {
         for w in value.split_whitespace() {
@@ -3032,6 +3036,10 @@ mod tests {
         assert_eq!(store.search_totals("larger:25M", Some("b")).unwrap().count, 1);
         assert_eq!(store.search_totals("", None).unwrap(), SearchTotals::default());
         assert_eq!(store.search_totals("фото", None).unwrap().count, 1);
+        // A mailbox named but not resolved to an id finds nothing, not every mailbox.
+        assert!(subjects("ящик:work larger:25M", None).is_empty());
+        assert_eq!(store.search_totals("account:b", None).unwrap(), SearchTotals::default());
+        assert_eq!(subjects("account:b larger:25M", Some("b")), ["Видео"]);
     }
 
     #[test]
