@@ -96,17 +96,20 @@
   }
 
   // The conversation reads top to bottom around the opened letter, as in Gmail:
-  // earlier letters fold into cards above it, later ones below, the middle of a
-  // long conversation into "N more".
+  // earlier letters fold into cards above it, later ones below, the middle of
+  // each long side into its own "N more".
   const at = $derived(msg ? app.conversation.findIndex((m) => m.id === msg.row.id) : -1);
   const before = $derived(at > 0 ? app.conversation.slice(0, at) : []);
   const after = $derived(at >= 0 ? app.conversation.slice(at + 1) : []);
   let showAll = $state(false);
+  let showAllAfter = $state(false);
   $effect(() => {
     void msg?.view.summary.message_id;
     showAll = false;
+    showAllAfter = false;
   });
   const folded = $derived(!showAll && before.length > 3 ? before.length - 2 : 0);
+  const foldedAfter = $derived(!showAllAfter && after.length > 3 ? after.length - 2 : 0);
 
   // Quick reply under the conversation: write without leaving it, unfold into a window when it grows.
   const quick = useQuickReply();
@@ -194,7 +197,7 @@
 
       {#if after.length && !viewing}
         <div class="thread after" aria-label={t("conv.label")}>
-          <Conversation messages={after} />
+          <Conversation messages={after} folded={foldedAfter} onShowAll={() => (showAllAfter = true)} />
         </div>
       {/if}
     </div>
