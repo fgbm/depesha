@@ -203,6 +203,8 @@ export class AccountForm {
       this.notes = d.notes;
       this.saveSent = false;
       this.step = "settings";
+    } catch (e) {
+      this.error = asError(e);
     } finally {
       this.busy = false;
       this.status = "";
@@ -232,6 +234,8 @@ export class AccountForm {
       this.source = d.source;
       this.notes = d.notes;
       this.step = "settings";
+    } catch (e) {
+      this.error = asError(e);
     } finally {
       this.busy = false;
       this.status = "";

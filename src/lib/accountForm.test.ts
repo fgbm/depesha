@@ -86,3 +86,27 @@ describe("saving a mailbox's page", () => {
     expect(new AccountForm(null, () => {}).needsCheck).toBe(true);
   });
 });
+
+describe("detecting the servers", () => {
+  it("shows why Exchange was not found instead of failing silently", async () => {
+    api.exchangeDetect.mockRejectedValue({ kind: "network", message: "EWS: no autodiscover" });
+    const form = new AccountForm(null, () => {});
+    form.startExchange();
+    form.email = "jane@example.com";
+    form.password = "secret";
+    await form.next();
+    expect(form.error?.message).toBe("EWS: no autodiscover");
+    expect(form.step).toBe("start");
+    expect(form.busy).toBe(false);
+  });
+
+  it("shows why the IMAP servers were not found", async () => {
+    api.detect.mockRejectedValue({ kind: "network", message: "offline" });
+    const form = new AccountForm(null, () => {});
+    form.email = "jane@example.com";
+    form.password = "secret";
+    await form.next();
+    expect(form.error?.message).toBe("offline");
+    expect(form.busy).toBe(false);
+  });
+});
