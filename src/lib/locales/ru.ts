@@ -296,6 +296,8 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "reader.toWindow": "В окно",
   "reader.quickKept": "Ответ сохранён в черновиках",
   "reader.resizeAnswer": "Потяните, чтобы изменить высоту",
+  "reader.moreRecipients": { one: "и ещё {n}", few: "и ещё {n}", many: "и ещё {n}", other: "и ещё {n}" },
+  "reader.foldRecipients": "Свернуть",
   "reader.fromSender": "Все письма от этого отправителя",
   "reader.loading": "Загрузка письма…",
   "reader.message": "Письмо",

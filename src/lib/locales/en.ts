@@ -303,6 +303,8 @@ export const en = {
   "reader.toWindow": "Open in window",
   "reader.quickKept": "The reply is saved in Drafts",
   "reader.resizeAnswer": "Drag to change the height",
+  "reader.moreRecipients": { one: "and {n} more", other: "and {n} more" },
+  "reader.foldRecipients": "Show less",
   "reader.fromSender": "All mail from this sender",
   "reader.loading": "Loading the message…",
   "reader.message": "Message",
