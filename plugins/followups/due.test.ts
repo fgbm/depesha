@@ -69,7 +69,7 @@ describe("what the compose window asks", () => {
   it("an amount after sending, the deadline its time", () => {
     const made = planOf({ spec: { amount: 2, unit: "days" }, deadline: null }, friday, "", "In 2 days")!;
     expect(made.secs).toBe(2 * 86_400);
-    expect(made.plan).toEqual({ deadline_secs: 0, repeat_secs: 0, expect: "", kind: "In 2 days" });
+    expect(made.plan).toEqual({ deadline_secs: 0, due_at: 0, deadline_at: 0, repeat_secs: 0, expect: "", kind: "In 2 days" });
   });
 
   it("again every few days until a reply", () => {
@@ -82,6 +82,9 @@ describe("what the compose window asks", () => {
   it("next Monday at nine", () => {
     const made = planOf({ spec: { kind: "weekday", amount: 1, unit: "days", weekday: 1, time: "09:00" }, deadline: null }, friday, "", "")!;
     expect(made.secs).toBe(secs(new Date(2026, 9, 5, 9, 0)) - secs(friday));
+    // A time of the clock: the letter leaving later does not move it.
+    expect(made.plan.due_at).toBe(secs(new Date(2026, 9, 5, 9, 0)));
+    expect(planOf({ at: secs(friday) + 7200, repeat: null }, friday, "", "")!.plan.due_at).toBe(secs(friday) + 7200);
   });
 
   it("a day before the deadline, at its time; the deadline the end of its day", () => {
@@ -90,6 +93,7 @@ describe("what the compose window asks", () => {
     const made = planOf({ spec, deadline: thursday }, friday, "", "")!;
     expect(made.secs).toBe(secs(new Date(2026, 9, 7, 9, 0)) - secs(friday));
     expect(made.plan.deadline_secs).toBe(secs(new Date(2026, 9, 8, 23, 59, 59)) - secs(friday));
+    expect(made.plan).toMatchObject({ due_at: secs(new Date(2026, 9, 7, 9, 0)), deadline_at: secs(new Date(2026, 9, 8, 23, 59, 59)) });
     expect(endOfDay(thursday)).toBe(secs(new Date(2026, 9, 8, 23, 59, 59)));
     // Working days before Monday skip the weekend.
     expect(beforeDeadline({ ...spec, unit: "workdays" }, dayOf(secs(new Date(2026, 9, 12))))).toBe(secs(new Date(2026, 9, 9, 9, 0)));

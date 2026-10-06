@@ -17,7 +17,14 @@
   const c = $derived(choiceOf(compose));
   const saved = $derived(ctx.settings.get<Remind[]>("presets", []));
   const made = $derived(resolve(c, saved, labelMaker(ctx), ctx, when));
-  const sendAt = $derived(compose.options.at ? new Date(compose.options.at * 1000) : new Date());
+  // The clock: a reminder some time after sending moves while the letter is written, and
+  // so does what the line says; one at a time of the clock stays, as the backend keeps it.
+  let now = $state(Date.now());
+  $effect(() => {
+    const tick = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(tick);
+  });
+  const sendAt = $derived(compose.options.at ? new Date(compose.options.at * 1000) : new Date(now));
   const first = $derived(made ? firstAt(made.choice, sendAt) : null);
   const before = $derived(!!made?.spec && kindOf(made.spec) === "before");
   const repeat = $derived<Repeat | null>(made ? (("at" in made.choice ? made.choice.repeat : made.choice.spec.repeat) ?? null) : null);

@@ -42,6 +42,7 @@ const MIGRATIONS: &[Step] = &[
     followups::v6_followups_history,
     v7_size_index,
     server::v8_server_caps,
+    followups::v9_followup_times,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -1902,8 +1903,9 @@ impl Store {
         let json = serde_json::to_string(draft).map_err(|e| crate::Error::Compose(e.to_string()))?;
         Ok(self.conn().query_row(
             "INSERT INTO outbox (account_id, draft, next_attempt, created, followup_secs,
-                followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id",
+                followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
+                followup_due_at, followup_deadline_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id",
             params![
                 account_id,
                 json,
@@ -1913,7 +1915,9 @@ impl Store {
                 followup.deadline_secs,
                 followup.repeat_secs,
                 followup.expect,
-                followup.kind
+                followup.kind,
+                followup.due_at,
+                followup.deadline_at
             ],
             |r| r.get(0),
         )?)
@@ -1923,7 +1927,8 @@ impl Store {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, created, followup_secs,
-                followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind
+                followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
+                followup_due_at, followup_deadline_at
              FROM outbox ORDER BY next_attempt, id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -1942,6 +1947,8 @@ impl Store {
                     repeat_secs: r.get(10)?,
                     expect: r.get(11)?,
                     kind: r.get(12)?,
+                    due_at: r.get(13)?,
+                    deadline_at: r.get(14)?,
                 },
             })
         })?;

@@ -210,6 +210,10 @@ export interface FollowupInfo {
 export interface FollowupPlan {
   /** The answer is expected by this long after sending; 0: by the first reminder. */
   deadline_secs: number;
+  /** The first reminder at this time (unix seconds), not counted from sending; 0: `secs` after sending. */
+  due_at?: number;
+  /** The answer is expected by this time (unix seconds), not counted from sending; 0: none. */
+  deadline_at?: number;
   repeat_secs: number;
   expect: string;
   kind: string;

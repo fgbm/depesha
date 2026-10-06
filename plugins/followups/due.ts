@@ -154,20 +154,28 @@ export function firstAt(choice: Choice, from: Date): number | null {
   return Math.max(base + MIN_SECS, Math.floor(d.getTime() / 1000));
 }
 
+/** A choice reminds at a time of the clock (a date, a weekday, before a deadline), not some time after sending. */
+const fixed = (choice: Choice) => "at" in choice || kindOf(choice.spec) !== "after";
+
 /**
  * What the compose window asks of the backend for a choice made at `from` (the time the
- * letter leaves): the first reminder in seconds and the rest of the wait. A choice before
- * a deadline without one gives null: there is nothing to count from yet.
+ * letter leaves): the first reminder in seconds and the rest of the wait. A reminder or
+ * deadline at a time of the clock goes as that time too: the letter may leave later than
+ * `from` (writing, the outbox), and they must not move with it. A choice before a deadline
+ * without one gives null: there is nothing to count from yet.
  */
 export function planOf(choice: Choice, from: Date, expect: string, kind: string): { secs: number; plan: FollowupPlan } | null {
   const first = firstAt(choice, from);
   if (first === null) return null;
   const base = Math.floor(from.getTime() / 1000);
   const own = !("at" in choice) && kindOf(choice.spec) === "before" && choice.deadline;
+  const deadline = own ? endOfDay(choice.deadline!) : 0;
   return {
     secs: first - base,
     plan: {
-      deadline_secs: own ? endOfDay(choice.deadline!) - base : 0,
+      deadline_secs: deadline && deadline - base,
+      due_at: fixed(choice) ? first : 0,
+      deadline_at: deadline,
       repeat_secs: repeatSecs("at" in choice ? choice.repeat : choice.spec.repeat),
       expect,
       kind,

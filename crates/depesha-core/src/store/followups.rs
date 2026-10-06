@@ -18,6 +18,12 @@ use crate::smtp::Draft;
 pub struct FollowupPlan {
     /// The answer is expected by this long after sending; 0: by the first reminder.
     pub deadline_secs: i64,
+    /// The first reminder at this time (unix seconds) instead of `secs` after sending: a
+    /// day of the week, a date, a time before a deadline do not move with the sending.
+    /// 0: `secs` after sending.
+    pub due_at: i64,
+    /// The answer is expected by this time (unix seconds) instead of `deadline_secs`; 0: none.
+    pub deadline_at: i64,
     /// Remind again this often until an answer comes; 0: once.
     pub repeat_secs: i64,
     /// Only an answer from this address counts; empty: from anyone.
@@ -132,6 +138,14 @@ pub(super) fn v6_followups_history(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 9: the outbox keeps a reminder and a deadline set for a time, not counted from sending.
+pub(super) fn v9_followup_times(conn: &Connection) -> Result<()> {
+    for column in ["followup_due_at", "followup_deadline_at"] {
+        add_column(conn, "outbox", column, "INTEGER NOT NULL DEFAULT 0")?;
+    }
+    Ok(())
+}
+
 /// A wait as it is started and announced.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Followup {
@@ -154,10 +168,15 @@ pub struct Followup {
 /// Repeats closer than this would be a stream of notifications.
 pub(super) const MIN_REPEAT_SECS: i64 = 60;
 
+/// A reminder or deadline comes a minute after sending at the soonest: a time that passed
+/// while the letter waited in the outbox is not a reminder at once.
+const MIN_DUE_SECS: i64 = 60;
+
 impl Followup {
     /// The wait that begins when `draft` went out at `sent` as `message_id`: the first
-    /// reminder `secs` later, the rest as `plan` asks. An awaited address the letter did
-    /// not go to is dropped: no answer of theirs would come by it, so any answer counts.
+    /// reminder `secs` later or at `plan.due_at`, the rest as `plan` asks. An awaited
+    /// address the letter did not go to is dropped: no answer of theirs would come by it,
+    /// so any answer counts.
     pub fn after_sending(
         account_id: &str,
         message_id: String,
@@ -174,19 +193,27 @@ impl Followup {
             .chain(&draft.bcc)
             .any(|a| a.email.to_lowercase() == expect);
         let recipients: Vec<&str> = draft.to.iter().chain(&draft.cc).map(|a| a.email.as_str()).collect();
+        let soonest = sent + MIN_DUE_SECS;
+        let due = if plan.due_at > 0 {
+            plan.due_at.max(soonest)
+        } else {
+            sent + secs
+        };
+        let deadline = if plan.deadline_at > 0 {
+            plan.deadline_at.max(soonest)
+        } else if plan.deadline_secs > 0 {
+            sent + plan.deadline_secs
+        } else {
+            due
+        };
         Followup {
             account_id: account_id.to_owned(),
             message_id,
             subject: draft.subject.clone(),
             recipients: recipients.join(", "),
             sent,
-            due: sent + secs,
-            deadline: sent
-                + if plan.deadline_secs > 0 {
-                    plan.deadline_secs
-                } else {
-                    secs
-                },
+            due,
+            deadline,
             repeat_secs: if plan.repeat_secs > 0 {
                 plan.repeat_secs.max(MIN_REPEAT_SECS)
             } else {
@@ -725,6 +752,7 @@ mod tests {
             repeat_secs: 10,
             expect: " BOSS@example.org ".into(),
             kind: "За сутки до срока".into(),
+            ..Default::default()
         };
         let f = Followup::after_sending("a", "m@x".into(), &draft, 1_000, 3_600, &plan);
         assert_eq!(f.recipients, "ivan@example.org, Boss@Example.org");
@@ -751,10 +779,40 @@ mod tests {
     }
 
     #[test]
+    fn a_reminder_set_for_a_time_does_not_move_with_the_sending() {
+        let draft = Draft::default();
+        // "Monday 9:00" chosen at 1_000, the letter left 40 minutes later: still at 9:00,
+        // and so is the deadline set for a day.
+        let plan = FollowupPlan {
+            due_at: 90_000,
+            deadline_at: 100_000,
+            deadline_secs: 99_000,
+            ..Default::default()
+        };
+        let f = Followup::after_sending("a", "m@x".into(), &draft, 3_400, 89_000, &plan);
+        assert_eq!((f.due, f.deadline), (90_000, 100_000));
+        // Sent after both had passed (the outbox waited): a minute later, never at once.
+        let f = Followup::after_sending("a", "m@x".into(), &draft, 200_000, 89_000, &plan);
+        assert_eq!((f.due, f.deadline), (200_060, 200_060));
+        // A plan of an earlier version, only counted from sending, works as it did.
+        let old = FollowupPlan {
+            deadline_secs: 7_200,
+            ..Default::default()
+        };
+        let f = Followup::after_sending("a", "m@x".into(), &draft, 1_000, 3_600, &old);
+        assert_eq!((f.due, f.deadline), (4_600, 8_200));
+        let old: FollowupPlan =
+            serde_json::from_str(r#"{"deadline_secs":7200,"repeat_secs":0,"expect":"","kind":""}"#).unwrap();
+        assert_eq!((old.due_at, old.deadline_at), (0, 0));
+    }
+
+    #[test]
     fn the_outbox_keeps_what_the_wait_asks() {
         let store = mailbox();
         let plan = FollowupPlan {
             deadline_secs: 7_200,
+            due_at: 50_000,
+            deadline_at: 60_000,
             repeat_secs: 86_400,
             expect: "ivan@example.org".into(),
             kind: "Каждый день".into(),
