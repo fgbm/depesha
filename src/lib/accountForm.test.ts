@@ -8,6 +8,7 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AccountForm } from "./accountForm.svelte";
 import { i18n } from "./i18n.svelte";
+import { app } from "./store.svelte";
 import { api, resetFakes } from "./testing";
 import type { Account } from "./types";
 
@@ -108,5 +109,42 @@ describe("detecting the servers", () => {
     await form.next();
     expect(form.error?.message).toBe("offline");
     expect(form.busy).toBe(false);
+  });
+});
+
+describe("leaving a mailbox's page", () => {
+  it("is not dirty as opened, and is after a change, a password or a sign-in", () => {
+    const form = new AccountForm({ ...saved, signatures: [{ id: "s1", name: "Work", html: "<div>Jane</div>", text: "Jane" }] }, () => {});
+    expect(form.dirty).toBe(false);
+    form.signatures[0].text = "J.";
+    expect(form.dirty).toBe(true);
+    form.signatures[0].text = "Jane";
+    expect(form.dirty).toBe(false);
+    form.password = "secret";
+    expect(form.dirty).toBe(true);
+    form.password = "";
+    form.grant = "g1";
+    expect(form.dirty).toBe(true);
+  });
+
+  it("leaves an untouched page without asking", async () => {
+    expect(await new AccountForm(saved, () => {}).mayLeave()).toBe(true);
+    expect(app.confirmation).toBeNull();
+  });
+
+  it("asks before the changes are lost, and stays when told so", async () => {
+    const form = new AccountForm(saved, () => {});
+    form.name = "Jane Doe";
+    const left = form.mayLeave();
+    expect(app.confirmation?.text).toBe("The mailbox's page has unsaved changes. Leave without them?");
+    app.confirmation?.resolve(false);
+    expect(await left).toBe(false);
+  });
+
+  it("does not leave while a check or a sign-in is under way", async () => {
+    const form = new AccountForm(saved, () => {});
+    form.busy = true;
+    expect(await form.mayLeave()).toBe(false);
+    expect(app.confirmation).toBeNull();
   });
 });

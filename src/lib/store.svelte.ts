@@ -68,6 +68,8 @@ export class AppStore {
   get settingsSection() { return this.ui.settingsSection; }
   set settingsSection(v) { this.ui.settingsSection = v; }
   get settingsTurn() { return this.ui.settingsTurn; }
+  get settingsLeave() { return this.ui.settingsLeave; }
+  set settingsLeave(v) { this.ui.settingsLeave = v; }
   get focusSearch() { return this.ui.focusSearch; }
   set focusSearch(v) { this.ui.focusSearch = v; }
 

@@ -53,7 +53,7 @@
   // A link inside the settings (a mailbox's «Storage» to «Notifications») turns the page.
   $effect(() => {
     void app.settingsTurn;
-    page = untrack(() => app.settingsPage);
+    untrack(() => turn(app.settingsPage));
   });
   // A page that went away (its plugin or mailbox) falls back to the first one.
   const current = $derived(pages.includes(page) || page === "account:new" ? page : "general");
@@ -129,11 +129,21 @@
     app.settingsPage = "general";
   }
 
+  /** The open page's say before it goes: a mailbox's page keeps its unsaved changes and its check. */
+  function mayLeave(): Promise<boolean> {
+    return app.settingsLeave?.() ?? Promise.resolve(true);
+  }
+
+  async function turn(next: string) {
+    if (next === current || !(await mayLeave())) return;
+    page = next;
+  }
+
   function onKey(e: KeyboardEvent) {
     // A menu or a question on top closes first.
     if (e.key === "Escape" && !app.confirmation && !document.querySelector(".pop")) {
       e.preventDefault();
-      cancel();
+      mayLeave().then((ok) => ok && cancel());
     }
   }
 
@@ -142,8 +152,8 @@
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
     const i = pages.indexOf(current) + (e.key === "ArrowDown" ? 1 : -1);
-    page = pages[(i + pages.length) % pages.length];
-    (e.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-page="${page}"]`)?.focus();
+    const list = e.currentTarget as HTMLElement;
+    turn(pages[(i + pages.length) % pages.length]).then(() => list.querySelector<HTMLElement>(`[data-page="${current}"]`)?.focus());
   }
 </script>
 
@@ -153,7 +163,7 @@
       <h3>{t("settings.title")}</h3>
       <div role="tablist" aria-orientation="vertical" tabindex="-1" onkeydown={onNavKey}>
         {#snippet tab(id: string, label: string, Icon: Component | null, sub = false)}
-          <button class="tab" class:sub role="tab" data-page={id} aria-selected={current === id} tabindex={current === id ? 0 : -1} onclick={() => (page = id)}>
+          <button class="tab" class:sub role="tab" data-page={id} aria-selected={current === id} tabindex={current === id ? 0 : -1} onclick={() => turn(id)}>
             {#if Icon}<Icon size={16} />{/if}<span>{label}</span>
           </button>
         {/snippet}

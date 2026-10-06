@@ -19,6 +19,8 @@ export const en = {
   "account.contents": "Sections of the page",
   "account.failing": "connection error",
   "account.fix": "Fix…",
+  "account.leaveConfirm": "The mailbox's page has unsaved changes. Leave without them?",
+  "account.leaveDiscard": "Don't save",
   "account.loginAs": "login {login}",
   "account.menu": "Account menu",
   "account.online": "connected",

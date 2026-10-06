@@ -54,6 +54,12 @@
     const section = app.settingsSection;
     app.settingsSection = null;
     if (section) tick().then(() => scrollTo(section, "instant"));
+    // Unsaved changes and a check under way are asked about before the settings turn elsewhere.
+    const leave = () => form.mayLeave();
+    app.settingsLeave = leave;
+    return () => {
+      if (app.settingsLeave === leave) app.settingsLeave = null;
+    };
   });
 </script>
 

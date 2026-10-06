@@ -37,6 +37,8 @@ export class AccountForm {
   readonly existing: Account | null;
   /** Saved or removed. */
   private readonly done: () => void;
+  /** The mailbox as it was opened, to tell whether anything was changed since. */
+  private readonly initial: string;
 
   /** `imap`: password over IMAP and SMTP; `oauth`: browser sign-in; `ews`: Exchange Web Services. */
   mode = $state<"imap" | "oauth" | "ews">("imap");
@@ -112,7 +114,20 @@ export class AccountForm {
       this.quotaWarn = e.quota_warn !== false;
       this.quotaLimitGb = e.quota_limit_mb ? String(Math.round((e.quota_limit_mb / 1024) * 100) / 100).replace(".", ",") : "";
     }
+    this.initial = JSON.stringify(this.account());
     api.oauthProviders().then((p) => (this.providers = p)).catch(() => {});
+  }
+
+  /** Something was changed and not saved: a field, a password typed or a sign-in made. */
+  get dirty(): boolean {
+    return !!this.password || !!this.grant || JSON.stringify(this.account()) !== this.initial;
+  }
+
+  /** Whether the form may go away: never during a check or a sign-in; with changes, if the user agrees to lose them. */
+  async mayLeave(): Promise<boolean> {
+    if (this.busy) return false;
+    if (!this.dirty) return true;
+    return app.confirm({ text: t("account.leaveConfirm"), okLabel: t("account.leaveDiscard"), cancelLabel: t("compose.goBack"), danger: true });
   }
 
   /** Saving needs a login first: the server, the login or the secret changed. A new mailbox always does. */

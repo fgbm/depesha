@@ -12,6 +12,8 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "account.contents": "Разделы страницы",
   "account.failing": "ошибка подключения",
   "account.fix": "Исправить…",
+  "account.leaveConfirm": "Изменения на странице ящика не сохранены. Уйти без них?",
+  "account.leaveDiscard": "Не сохранять",
   "account.loginAs": "вход как {login}",
   "account.menu": "Меню ящика",
   "account.online": "подключён",

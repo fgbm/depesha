@@ -49,6 +49,8 @@ export class UiController {
   settingsSection: string | null = null;
   /** Counts `openSettings` calls: an already open settings window turns to the page asked for. */
   settingsTurn = $state(0);
+  /** Asked before the open settings page is left: a mailbox's page with unsaved changes or a check under way. */
+  settingsLeave: (() => Promise<boolean>) | null = null;
   /** Focuses the search box; set by the window that owns it. */
   focusSearch: () => void = () => {};
 

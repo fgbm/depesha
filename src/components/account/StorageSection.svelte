@@ -61,14 +61,16 @@
     queueMicrotask(() => ownInput?.focus());
   }
 
-  function findLarge() {
+  // Both close the settings: unsaved changes on the page are asked about first.
+  async function findLarge() {
+    if (!(await form.mayLeave())) return;
     app.settingsOpen = false;
     rooms.findLarge();
   }
 
-  function openTrash() {
+  async function openTrash() {
     const trash = app.folders.find((f) => f.account_id === account.id && f.role === "trash");
-    if (!trash) return;
+    if (!trash || !(await form.mayLeave())) return;
     app.settingsOpen = false;
     app.setView({ kind: "folder", account_id: account.id, folder: trash.name });
   }
