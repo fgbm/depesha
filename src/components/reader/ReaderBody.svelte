@@ -41,11 +41,20 @@
   const switchable = $derived(switchViews(msg.view, app.settings.letter_view));
   const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, app.settings.letter_view));
 
+  /** A link's escapes read; a stray "%" in a letter's link leaves it as written. */
+  function decoded(s: string): string {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+
   async function link(href: string) {
     if (href.toLowerCase().startsWith("mailto:")) {
       const acc = account ?? app.accounts[0];
       if (!acc) return;
-      const to = decodeURIComponent(href.slice(7).split("?")[0]);
+      const to = decoded(href.slice(7).split("?")[0]);
       const draft = emptyDraft({ name: acc.display_name, email: acc.email }, formatFor(acc, app.settings));
       draft.to = to ? to.split(",").map((email) => ({ name: null, email: email.trim() })) : [];
       const subject = new URLSearchParams(href.split("?")[1] ?? "").get("subject");
