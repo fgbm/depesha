@@ -97,3 +97,135 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .opening {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .head {
+    padding: 16px 22px 10px;
+  }
+
+  /* The same place and size as the opened message's title: nothing jumps when it arrives. */
+  .opening .title {
+    margin: 0 0 12px;
+    font-size: 20px;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  /* An indeterminate line: work is going on, its length is unknown. */
+  .progress {
+    height: 2px;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  .progress span {
+    display: block;
+    width: 30%;
+    height: 100%;
+    background: var(--accent);
+    animation: slide 1.1s ease-in-out infinite;
+  }
+
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
+  }
+
+  .skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 22px;
+  }
+
+  .skeleton i {
+    height: 10px;
+    border-radius: 5px;
+    background: var(--hover);
+  }
+
+  .skeleton i:nth-child(1) {
+    width: 72%;
+  }
+
+  .skeleton i:nth-child(2) {
+    width: 90%;
+  }
+
+  .skeleton i:nth-child(3) {
+    width: 64%;
+  }
+
+  .skeleton i:nth-child(4) {
+    width: 40%;
+  }
+
+  .slow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 22px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress span {
+      animation-duration: 3s;
+    }
+  }
+
+  .center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .hint .small {
+    max-width: 380px;
+    line-height: 1.9;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .anchor {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .folder-list {
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .select-all {
+    margin-top: 12px;
+  }
+
+  .select-all kbd {
+    font-size: 11px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 4px;
+    color: var(--muted);
+  }
+</style>

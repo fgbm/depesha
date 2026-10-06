@@ -45,6 +45,16 @@
 </div>
 
 <style>
+  .sep {
+    flex: 1;
+  }
+
+  .icon {
+    min-width: 32px;
+    justify-content: center;
+    font-size: 15px;
+  }
+
   .quick {
     flex: none;
     display: flex;
