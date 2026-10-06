@@ -1,8 +1,8 @@
-component	src/App.svelte	289	190	53	46
-component	src/MessageWindow.svelte	94	68	21	5
+component	src/App.svelte	290	191	53	46
+component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
-component	src/components/Compose.svelte	820	198	206	416
+component	src/components/Compose.svelte	822	199	207	416
 component	src/components/Confirm.svelte	95	30	17	48
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -46,7 +46,7 @@ component	src/components/account/LettersSection.svelte	11	7	4	0
 component	src/components/account/ServerSection.svelte	362	42	82	238
 component	src/components/account/SignatureEditor.svelte	252	101	44	107
 component	src/components/account/SignaturesField.svelte	257	108	51	98
-component	src/components/account/StorageSection.svelte	456	76	150	230
+component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
 component	src/components/prefs/MailPanel.svelte	181	15	97	69
@@ -76,6 +76,7 @@ component	src/components/viewer/LetterView.svelte	125	28	31	66
 component	src/components/viewer/MediaView.svelte	58	24	14	20
 component	src/components/viewer/PdfView.svelte	231	116	20	95
 component	src/components/viewer/TextView.svelte	54	24	8	22
+function	plugins/account-color/index.test.ts::fakeContext	5
 function	plugins/command-palette/Palette.svelte::run	6
 function	plugins/command-palette/Palette.svelte::onKey	15
 function	plugins/command-palette/rank.test.ts::cmd	1
@@ -371,7 +372,10 @@ function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
 function	src/lib/compose/format.svelte.ts::weigh	4
 function	src/lib/compose/sending.svelte.ts::makeOptions	28
-function	src/lib/compose/sending.svelte.ts::makeContext	11
+function	src/lib/compose/sending.svelte.ts::makeContext	13
+function	src/lib/compose/sending.test.ts::control	5
+function	src/lib/compose/sending.test.ts::win	3
+function	src/lib/compose/sending.test.ts::host	7
 function	src/lib/composeKeys.test.ts::press	8
 function	src/lib/composeKeys.ts::names	4
 function	src/lib/composeKeys.ts::composeAction	7
@@ -498,7 +502,6 @@ function	src/lib/pictureInput.ts::clipboardPictures	12
 function	src/lib/quota.test.ts::view	3
 function	src/lib/quota.ts::largeMailSearch	4
 function	src/lib/quota.ts::ownLimit	4
-function	src/lib/quota.ts::roomOf	10
 function	src/lib/quota.ts::percent	3
 function	src/lib/quota.ts::levelOf	7
 function	src/lib/quota.ts::levels	4
@@ -600,7 +603,7 @@ function	src/lib/sort.ts::senderKey	4
 function	src/lib/sort.ts::value	23
 function	src/lib/sort.ts::compareRows	14
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	26
+function	src/lib/testing.ts::settings	27
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3
@@ -624,5 +627,6 @@ function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
 function	src/plugin-host/host.svelte.ts::allCommands	3
 function	src/plugin-host/host.svelte.ts::context	63
-function	src/plugin-host/host.svelte.ts::off	2
+function	src/plugin-host/host.svelte.ts::rest#1	2
+function	src/plugin-host/host.svelte.ts::rest#2	2
 function	src/plugin-host/registry.svelte.ts::empty	18
