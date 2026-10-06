@@ -817,7 +817,12 @@ async fn perform(
             message_id,
         } => {
             mail::append_unless_exists(conn, store, id, folder, raw, flags, message_id.as_deref()).await?;
-            sync_one(state, account, conn, folder, false).await?;
+            // The message is on the server now: a failed sync after it is not a failed append
+            // (the caller would report a copy that was made, or append it twice). It shows in
+            // the cache with the folder's next sync.
+            if let Err(e) = sync_one(state, account, conn, folder, false).await {
+                tracing::warn!(account = %id, "sync after append to {folder} failed: {e}");
+            }
             Ok(Output::None)
         }
         Work::Search { folder, text } => Ok(Output::Ids(mail::search_server(conn, store, id, folder, text).await?)),
