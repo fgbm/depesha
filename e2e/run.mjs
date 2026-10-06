@@ -293,9 +293,11 @@ try {
     if (settings.compose_format !== "html") throw new Error(`формат новых писем: ${settings.compose_format}`);
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose .rich")).length === 1);
-    // The switch stands in the «From» row, the formatting row under the subject.
-    const modes = await d.exec("return [...document.querySelectorAll('.compose .modes [role=radio]')].map((b) => b.textContent.trim() + (b.getAttribute('aria-checked') === 'true' ? '*' : ''))");
-    if (modes.join(" ") !== "Текст HTML* Markdown") throw new Error(`переключатель режима: ${modes.join(" ")}`);
+    // The format is in the «⋯» menu of the footer, the formatting row under the subject.
+    await d.click(await d.find(".compose footer button[aria-haspopup=menu]"));
+    const modes = await d.exec("return [...document.querySelectorAll('.pop [role=menuitemradio]')].map((b) => b.textContent.trim() + (b.getAttribute('aria-checked') === 'true' ? '*' : ''))");
+    if (modes.join(" ") !== "Обычный текст HTML* Markdown") throw new Error(`формат письма в «⋯»: ${modes.join(" ")}`);
+    await d.click(await d.find(".compose footer button[aria-haspopup=menu]"));
     if ((await d.findAll(".compose [role=toolbar] button")).length < 9) throw new Error("нет строки оформления");
     await d.click(await d.find(".compose header button:last-child"));
     await composeClosed();
@@ -1024,7 +1026,8 @@ try {
     await menuItem("Рабочая");
     await d.until("back", async () => (await textOf(".compose .sig-plain .sig-text")).includes("С уважением,"));
     // In HTML the signature is a block of the editor that the caret does not enter.
-    await d.click(await d.xpath("//div[contains(@class,'compose')]//div[@role='radiogroup']//button[normalize-space(.)='HTML']"));
+    await d.click(await d.find(".compose footer button[aria-haspopup=menu]"));
+    await menuItem("HTML");
     await d.until("html signature", async () =>
       d.exec("const b = document.querySelector('.compose .rich .depesha-signature'); return !!b && b.isContentEditable === false && b.innerText.includes('Кэрол');"));
     await d.exec("const bar = document.querySelector('.compose .block-bar .chip'); bar.click();");

@@ -18,11 +18,13 @@ describe("keys of the composition window", () => {
     expect(composeAction(press("l", "KeyL", { meta: true }))).toBe("link");
     expect(composeAction(press("P", "KeyP", { ctrl: true, shift: true }))).toBe("preview");
     expect(composeAction(press("b", "KeyB", { ctrl: true }))).toBe("bold");
+    expect(composeAction(press("s", "KeyS", { ctrl: true }))).toBe("save");
   });
 
   it("works on the Russian layout by the physical key", () => {
     expect(composeAction(press("д", "KeyL", { ctrl: true }))).toBe("link");
     expect(composeAction(press("З", "KeyP", { ctrl: true, shift: true }))).toBe("preview");
+    expect(composeAction(press("ы", "KeyS", { ctrl: true }))).toBe("save");
   });
 
   it("leaves Ctrl+K to the command palette and other keys alone", () => {
@@ -37,5 +39,6 @@ describe("keys of the composition window", () => {
     expect(keyLabel("link")).toBe("Ctrl+L");
     expect(keyLabel("preview")).toBe("Ctrl+Shift+P");
     expect(keyLabel("send")).toBe("Ctrl+Enter");
+    expect(keyLabel("save")).toBe("Ctrl+S");
   });
 });

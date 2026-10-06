@@ -8,6 +8,7 @@ import { shortcutKeys, type KeyPress } from "./keys";
 export const COMPOSE_KEYS = {
   send: "Mod+Enter",
   fold: "Escape",
+  save: "Mod+s",
   bold: "Mod+b",
   italic: "Mod+i",
   underline: "Mod+u",

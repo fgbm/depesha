@@ -153,6 +153,12 @@ export class ComposeSending {
     void this.host.autosave.save();
   }
 
+  /** Saves the draft now, without waiting for the autosave: «⋯» → «Сохранить черновик», Ctrl+S. */
+  saveDraft() {
+    this.host.commitAll();
+    void this.host.autosave.save();
+  }
+
   toggleMax() {
     if (this.host.win.mode === "max") this.host.win.mode = "open";
     else this.host.showCompose(this.host.win.id, "max");
@@ -170,6 +176,9 @@ export class ComposeSending {
       e.preventDefault();
       if (win.mode === "max") win.mode = "open";
       else this.minimize();
+    } else if (action === "save") {
+      e.preventDefault();
+      this.saveDraft();
     } else if (action === "link" && format.format !== "plain") {
       e.preventDefault();
       format.bar?.startLink();

@@ -9,6 +9,8 @@
   import Minimize from "@lucide/svelte/icons/minimize-2";
   import X from "@lucide/svelte/icons/x";
   import Trash from "@lucide/svelte/icons/trash-2";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import Check from "@lucide/svelte/icons/check";
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
@@ -23,6 +25,8 @@
   import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
+  import Popover from "./Popover.svelte";
+  import { keyLabel } from "../lib/composeKeys";
   import { ComposeFormat } from "../lib/compose/format.svelte";
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
@@ -37,8 +41,10 @@
   let toInput = $state<AddressInput | null>(null);
   let ccInput = $state<AddressInput | null>(null);
   let bccInput = $state<AddressInput | null>(null);
-  /** The window's width: the format switch and the formatting row fold in a narrow one. */
+  /** The window's width: the formatting row folds in a narrow one. */
   let width = $state(640);
+  /** The «⋯» menu of the footer: the letter's format and the draft's actions. */
+  let menuOpen = $state(false);
 
   function commitAll(): boolean {
     const ok = [toInput, ccInput, bccInput].map((i) => i?.commit() ?? true);
@@ -173,6 +179,9 @@
     onKey: (e: KeyboardEvent) => sending.onKey(e),
     close: () => sending.close(),
     discard: () => sending.discard(),
+    saveDraft: () => sending.saveDraft(),
+    get menuOpen() { return menuOpen; },
+    set menuOpen(v: boolean) { menuOpen = v; },
     minimize: () => sending.minimize(),
     toggleMax: () => sending.toggleMax(),
     send: (at: number | null = null, force = false) => sending.send(at, force),
@@ -182,10 +191,10 @@
     attach: () => files.attach(),
   };
 
-  const FORMATS: { value: BodyFormat; label: () => string; short: () => string }[] = [
-    { value: "plain", label: () => t("format.short.plain"), short: () => t("format.short.plain") },
-    { value: "html", label: () => t("format.short.html"), short: () => t("format.short.html") },
-    { value: "markdown", label: () => t("format.short.markdown"), short: () => t("format.short.md") },
+  const FORMATS: { value: BodyFormat; label: () => string }[] = [
+    { value: "plain", label: () => t("format.plain") },
+    { value: "html", label: () => t("format.short.html") },
+    { value: "markdown", label: () => t("format.short.markdown") },
   ];
 </script>
 
@@ -235,23 +244,6 @@
           }))}
           onchange={m.setAccount}
         />
-        {#if m.width >= 360}
-          <div class="modes" role="radiogroup" aria-label={t("compose.format.title")}>
-            {#each m.FORMATS as f (f.value)}
-              <button role="radio" aria-checked={m.format === f.value} class:on={m.format === f.value} disabled={m.busy} onclick={() => m.setFormat(f.value)}>
-                {m.width >= 460 ? f.label() : f.short()}
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <Select
-            class="mode-select"
-            label={t("compose.format.title")}
-            bind:value={() => m.format, (v) => void m.setFormat(v)}
-            options={m.FORMATS.map((f) => ({ value: f.value, label: f.label() }))}
-            disabled={m.busy}
-          />
-        {/if}
         {#if !m.showCc}<button class="btn ghost small" onclick={() => (m.showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
       </div>
       <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} />
@@ -389,6 +381,21 @@
       <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
       {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       <span class="spacer"></span>
+      <!-- The format of this letter lives here, with the draft's actions: changing it is rare. -->
+      <span class="anchor">
+        <button class="btn ghost icon" onclick={() => (m.menuOpen = !m.menuOpen)} disabled={m.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={m.menuOpen}><Ellipsis size={15} /></button>
+        <Popover bind:open={m.menuOpen}>
+          <div class="mt">{t("compose.format.title")}</div>
+          {#each m.FORMATS as f (f.value)}
+            <button class="mi" role="menuitemradio" aria-checked={m.format === f.value} onclick={() => { m.menuOpen = false; void m.setFormat(f.value); }}>
+              <span class="tick">{#if m.format === f.value}<Check size={14} />{/if}</span>{f.label()}
+            </button>
+          {/each}
+          <hr />
+          <button class="mi" onclick={() => { m.menuOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}<span class="hint">{keyLabel("save")}</span></button>
+          <button class="mi danger-text" onclick={() => { m.menuOpen = false; m.discard(); }}>{t("compose.discardDraft")}</button>
+        </Popover>
+      </span>
       <button class="btn ghost icon" onclick={m.discard} disabled={m.busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
     </footer>
   </div>
@@ -599,38 +606,11 @@
     color: var(--muted);
   }
 
-  /* The format of this letter, beside its sender: segments, or a list in a narrow window. */
-  .modes {
+  /* The tick of the current format in the «⋯» menu. */
+  .tick {
     display: inline-flex;
-    flex: none;
-    padding: 2px;
-    gap: 2px;
-    border-radius: 8px;
-    background: var(--hover);
-  }
-
-  .modes button {
-    border: none;
-    background: none;
-    color: var(--muted);
-    font-size: 12.5px;
-    padding: 3px 9px;
-    border-radius: 6px;
-  }
-
-  .modes button.on {
-    background: var(--paper);
-    color: var(--ink);
-    font-weight: 600;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
-  }
-
-  .row :global(.mode-select) {
-    flex: none;
-  }
-
-  .row :global(.mode-select .trigger) {
-    border-color: transparent;
+    width: 14px;
+    color: var(--accent);
   }
 
   .body-area {

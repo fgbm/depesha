@@ -146,6 +146,7 @@ compose.quote
 compose.quoteHide
 compose.quoteShow
 compose.restore
+compose.saveDraft
 compose.savedAt
 compose.saving
 compose.schedule
@@ -236,10 +237,9 @@ folder.newIn
 folder.newInside
 folder.open
 folder.sync
+format.plain
 format.short.html
 format.short.markdown
-format.short.md
-format.short.plain
 keys.all
 later.custom
 letterView.title
