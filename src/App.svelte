@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { PhysicalPosition } from "@tauri-apps/api/dpi";
   import type { DropZone } from "./lib/images";
@@ -59,6 +59,24 @@
     const has = hasLetter;
     untrack(() => layout.follow(has));
   });
+
+  let listPane = $state<HTMLElement>();
+  let readerPane = $state<HTMLElement>();
+  let shownColumn: typeof column = null;
+  // Back on the list in a narrow window: the focus left with the hidden letter, so it goes
+  // to the selected row. Focus put elsewhere on purpose (the sidebar) stays there.
+  $effect(() => {
+    const was = shownColumn;
+    shownColumn = column;
+    if (was === "message" && column === "list") tick().then(refocusList);
+  });
+
+  function refocusList() {
+    const at = document.activeElement;
+    if (at && at !== document.body && !readerPane?.contains(at)) return;
+    const row = listPane?.querySelector<HTMLElement>(".row.selected, .row.opened") ?? listPane?.querySelector<HTMLElement>("[role=listbox]");
+    row?.focus({ preventScroll: true });
+  }
 
   onMount(() => {
     app.init().catch((e) => app.fail(e, t("startup")));
@@ -189,13 +207,13 @@
   {:else}
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
     <!-- Both stay in place in a narrow window, one of them hidden: the list keeps its scroll and selection. -->
-    <div class="pane" class:away={column === "message"} inert={column === "message"}>
+    <div class="pane" class:away={column === "message"} inert={column === "message"} bind:this={listPane}>
       <MessageList bind:searchInput edge={layout.single} />
     </div>
     {#if !layout.single}
       <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
     {/if}
-    <div class="pane" class:away={column === "list"} inert={column === "list"}>
+    <div class="pane" class:away={column === "list"} inert={column === "list"} bind:this={readerPane}>
       <Reader onReply={(all) => app.replyTo(all)} onForward={() => app.forwardOpened()} />
     </div>
   {/if}

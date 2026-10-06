@@ -18,6 +18,9 @@
   import { NEW_OPERATORS, OPERATORS, applyCompletion, completions, type Completion } from "../lib/searchSuggest";
 
   let { input = $bindable() }: { input: HTMLInputElement | null } = $props();
+  /** The box's own ids: the input names its listbox and the highlighted option by them. */
+  const uid = $props.id();
+  const optionId = (i: number) => `${uid}-option-${i}`;
 
   let text = $state("");
   let open = $state(false);
@@ -125,7 +128,7 @@
 </script>
 
 {#snippet query(item: Item & { kind: "query" }, i: number)}
-  <button class="sg" class:active={i === active} role="option" aria-selected={i === active} tabindex="-1" onpointermove={() => (active = i)} onclick={() => pick(item, true)}>
+  <button class="sg" class:active={i === active} id={optionId(i)} role="option" aria-selected={i === active} tabindex="-1" onpointermove={() => (active = i)} onclick={() => pick(item, true)}>
     {#if item.icon === "large"}<HardDrive size={14} />{:else if item.icon === "files"}<Paperclip size={14} />{:else}<History size={14} />{/if}
     <span class="title">{item.title}</span>
     {#if item.icon !== "recent"}<code>{item.text}</code>{/if}
@@ -145,13 +148,14 @@
     onkeydown={onKey}
     role="combobox"
     aria-expanded={shown}
-    aria-controls="search-suggestions"
+    aria-controls="{uid}-suggestions"
+    aria-activedescendant={shown && active >= 0 ? optionId(active) : undefined}
     aria-autocomplete="list"
   />
   {#if text}<button class="btn ghost clear" onclick={clear} aria-label={t("clear")}>×</button>{/if}
   {#if shown}
     <!-- Clicks inside keep the focus in the box: the list stays open until a choice. -->
-    <div class="suggest" id="search-suggestions" role="listbox" tabindex="-1" onpointerdown={(e) => e.preventDefault()}>
+    <div class="suggest" id="{uid}-suggestions" role="listbox" tabindex="-1" onpointerdown={(e) => e.preventDefault()}>
       {#if empty}
         <div class="head">{t("suggest.ready")}</div>
         {#each ready as item, i (item.text)}{@render query(item, i)}{/each}
@@ -174,7 +178,7 @@
       {:else}
         {#each typed as item, i (i)}
           {#if item.kind === "completion"}
-            <button class="sg" class:active={i === active} role="option" aria-selected={i === active} tabindex="-1" onpointermove={() => (active = i)} onclick={() => pick(item, false)}>
+            <button class="sg" class:active={i === active} id={optionId(i)} role="option" aria-selected={i === active} tabindex="-1" onpointermove={() => (active = i)} onclick={() => pick(item, false)}>
               {#if item.c.kind === "year"}<Calendar size={14} />{:else if item.c.kind === "folder"}<Folder size={14} />{:else if item.c.kind === "size"}<HardDrive size={14} />{/if}
               <code>{item.c.token}</code>
               <span class="detail">{item.c.detail}</span>
