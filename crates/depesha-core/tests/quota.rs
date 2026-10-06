@@ -27,6 +27,8 @@ struct Server {
     hang_quota: bool,
     /// Answers GETQUOTAROOT with NO.
     refuse_quota: bool,
+    /// Says something ending in braces before each STATUS answer.
+    braces_note: bool,
     log: Vec<String>,
 }
 
@@ -111,8 +113,13 @@ fn respond(server: &Server, tag: &str, cmd: &str) -> String {
         } else {
             format!("\"{name}\"")
         };
+        let note = if server.braces_note {
+            "* OK [ALERT] Over {80%} of quota {12}\r\n"
+        } else {
+            ""
+        };
         return ok(format!(
-            "* STATUS {mailbox} (MESSAGES {} SIZE {total})\r\n",
+            "{note}* STATUS {mailbox} (MESSAGES {} SIZE {total})\r\n",
             sizes.len()
         ));
     }
@@ -178,6 +185,7 @@ async fn a_modern_server_reports_its_quota_and_folder_sizes() {
         caps: "IDLE MOVE QUOTA STATUS=SIZE QRESYNC X-SECRET",
         folders: folders(),
         literal_names: true,
+        braces_note: true,
         ..Server::default()
     })
     .await;

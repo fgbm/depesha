@@ -258,6 +258,10 @@ impl<'a> Raw<'a> {
                 self.fill().await?;
             };
             let part: Vec<u8> = self.buf.drain(..end + 2).take(end).collect();
+            // OK, NO, BAD and BYE carry text, which may end in braces: no literal follows.
+            if line.is_empty() && is_text(&part) {
+                return Ok(part);
+            }
             line.extend_from_slice(&part);
             let Some(n) = literal_size(&part) else {
                 return Ok(line);
@@ -346,12 +350,38 @@ fn quoted(name: &str) -> String {
     format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// `{123}` or `{123+}` at the end of a line: a literal of that many bytes follows.
+/// `{123}` or `{123+}` closing a line, outside a quoted string: a literal of that many
+/// bytes follows.
 fn literal_size(line: &[u8]) -> Option<usize> {
-    let line = line.strip_suffix(b"}")?;
-    let open = line.iter().rposition(|&b| b == b'{')?;
-    let n = std::str::from_utf8(&line[open + 1..]).ok()?;
-    n.trim_end_matches('+').parse().ok()
+    let body = line.strip_suffix(b"}")?;
+    let open = body.iter().rposition(|&b| b == b'{')?;
+    let n: usize = std::str::from_utf8(&body[open + 1..])
+        .ok()?
+        .trim_end_matches('+')
+        .parse()
+        .ok()?;
+    let mut quoted = false;
+    let mut escaped = false;
+    for &b in &line[..open] {
+        match b {
+            _ if escaped => escaped = false,
+            b'\\' if quoted => escaped = true,
+            b'"' => quoted = !quoted,
+            _ => {}
+        }
+    }
+    (!quoted).then_some(n)
+}
+
+/// `* OK …`, `tag NO …` and the like: a status answer, whose rest is free text.
+fn is_text(line: &[u8]) -> bool {
+    let mut words = line.splitn(3, |&b| b == b' ');
+    let (Some(_), Some(word)) = (words.next(), words.next()) else {
+        return false;
+    };
+    ["OK", "NO", "BAD", "BYE", "PREAUTH"]
+        .iter()
+        .any(|w| word.eq_ignore_ascii_case(w.as_bytes()))
 }
 
 /// `* STATUS name (MESSAGES 4 SIZE 1234)`: the size and the message count named.
@@ -462,6 +492,15 @@ mod tests {
         assert_eq!(literal_size(b"* STATUS {7}"), Some(7));
         assert_eq!(literal_size(b"* LIST () \"/\" {12+}"), Some(12));
         assert_eq!(literal_size(b"* OK done"), None);
+        // Braces inside a quoted name are part of it; an escaped quote does not end it.
+        assert_eq!(literal_size(b"* STATUS \"Sent {12}\""), None);
+        assert_eq!(literal_size(b"* LIST () \"/\" \"a\\\" {3}\""), None);
+        assert_eq!(literal_size(b"* LIST () \"/\" {3}"), Some(3));
+        // Text answers end in whatever the server wrote.
+        assert!(is_text(b"* OK [ALERT] Quota warning {12}"));
+        assert!(is_text(b"dz4 no Mailbox {x}"));
+        assert!(!is_text(b"* STATUS {7}"));
+        assert!(!is_text(b"* 3 EXISTS"));
         assert_eq!(quoted("Отчёты \"старые\""), "\"Отчёты \\\"старые\\\"\"");
     }
 }
