@@ -23,6 +23,8 @@ struct Server {
     literal_names: bool,
     /// Answers STATUS (… SIZE) with BAD, though STATUS=SIZE is listed.
     bad_status_size: bool,
+    /// Never answers GETQUOTAROOT.
+    hang_quota: bool,
     log: Vec<String>,
 }
 
@@ -53,6 +55,9 @@ async fn session(stream: tokio::net::TcpStream, server: Shared) {
             server.log.push(cmd.to_owned());
             respond(&server, tag, cmd)
         };
+        if reply.is_empty() {
+            continue;
+        }
         w.write_all(reply.as_bytes()).await.unwrap();
         if cmd.starts_with("LOGOUT") {
             return;
@@ -80,6 +85,9 @@ fn respond(server: &Server, tag: &str, cmd: &str) -> String {
         };
     }
     if upper.starts_with("GETQUOTAROOT INBOX") {
+        if server.hang_quota {
+            return String::new();
+        }
         return ok("* QUOTAROOT INBOX \"User quota\"\r\n\
                    * QUOTA \"User quota\" (STORAGE 3250585 10485760 MESSAGE 1200 0)\r\n"
             .into());
@@ -281,4 +289,24 @@ async fn a_server_that_rejects_status_size_is_counted_by_fetch() {
     // One STATUS tried, then not again.
     let log = server.lock().unwrap().log.clone();
     assert_eq!(log.iter().filter(|c| c.starts_with("STATUS")).count(), 1, "{log:?}");
+}
+
+#[tokio::test]
+async fn a_server_stuck_on_the_quota_times_out() {
+    let (_, mut conn) = fixture(Server {
+        caps: "QUOTA",
+        folders: folders(),
+        hang_quota: true,
+        ..Server::default()
+    })
+    .await;
+    let started = std::time::Instant::now();
+    let err = quota::quota_within(&mut conn, std::time::Duration::from_millis(200))
+        .await
+        .unwrap_err();
+    // Transient: the worker drops the connection, whose answer may still come.
+    assert!(matches!(err, depesha_core::Error::Timeout("quota")), "{err}");
+    assert!(err.is_transient());
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(quota::QUOTA_TIMEOUT <= std::time::Duration::from_secs(30));
 }

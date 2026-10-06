@@ -61,7 +61,12 @@ pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<
     if let Some(enabled) = conn.enabled.take() {
         state.store.save_server_enable(&account.id, &enabled, now())?;
     }
-    refresh_quota(state, &account.id, &mut conn).await?;
+    // What the login found is the check; a quota the server is stuck on does not undo it.
+    if let Err(e) = refresh_quota(state, &account.id, &mut conn).await {
+        tracing::warn!(account = %account.id, "quota not read: {e}");
+        changed(state, &account.id);
+        return Ok(());
+    }
     let _ = conn.session.logout().await;
     changed(state, &account.id);
     Ok(())

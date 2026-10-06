@@ -436,7 +436,8 @@ impl Ops {
                         self.conn = None;
                     }
                     result = Err(e);
-                    if !(dropped && attempt == 0) {
+                    // A server stuck on GETQUOTAROOT would be stuck again on a fresh login.
+                    if !(dropped && attempt == 0) || matches!(op, Op::Work(Work::Quota)) {
                         break;
                     }
                 }
@@ -616,6 +617,9 @@ impl Ops {
         // Fresh headers: download their text for offline reading.
         self.notify_new = true;
         offer(&self.background, &self.queued, Work::Prefetch);
+        // The quota after the folders, as work of its own: a server stuck on it cannot
+        // hold up or fail the sync.
+        offer(&self.background, &self.queued, Work::Quota);
         for reply in pass.waiting {
             let _ = reply.send(Ok(Output::None));
         }
@@ -647,6 +651,11 @@ impl Ops {
                     offer(&self.background, &self.queued, Work::Prefetch);
                 }
                 self.online();
+            }
+            // The quota is a number in the settings: not reading it is no account error, and
+            // the next work logs in again if its connection was dropped.
+            Err(e) if matches!(work, Work::Quota) => {
+                tracing::warn!(account = %account.id, kind = e.kind(), "quota not read: {e}");
             }
             Err(e) => {
                 tracing::warn!(account = %account.id, kind = e.kind(), "operation failed: {e}");
@@ -713,8 +722,8 @@ async fn connect(state: &AppState, account: &Account) -> Result<Conn> {
     Ok(conn)
 }
 
-/// The quota once per full sync: often enough for a warning, not on every change IDLE
-/// reports. A refusal does not stop the sync; a dropped connection does.
+/// The quota once per full sync, after its folders: often enough for a warning, not on
+/// every change IDLE reports. A refusal is only logged; a timeout drops the connection.
 async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> Result<()> {
     let Conn::Imap(c) = conn else { return Ok(()) };
     match crate::server::refresh_quota(state, account_id, c).await {
@@ -754,7 +763,6 @@ async fn perform(
         Work::SyncAll => {
             let folders = mail::sync_folder_list(conn, store, id).await?;
             state.emit("folders-changed", json!({ "account_id": id }));
-            refresh_quota(state, id, conn).await?;
             let mut order: Vec<_> = folders.iter().filter(|f| f.selectable && !f.hidden).collect();
             order.sort_by_key(|f| match f.role {
                 Some(FolderRole::Inbox) => 0,

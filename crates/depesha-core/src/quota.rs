@@ -16,6 +16,10 @@ use crate::{Error, Result};
 /// A folder's size may take a while on a big mailbox; a server silent this long is gone.
 const LINE_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// GETQUOTAROOT is a lookup, not a count: a server this slow to answer it is stuck,
+/// and the connection is not kept waiting for it.
+pub const QUOTA_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// How full the mailbox is, by the quota root that limits INBOX.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quota {
@@ -84,18 +88,29 @@ impl Roots {
 
 /// The quota of INBOX's root (GETQUOTAROOT). `None` when the server names no root or
 /// refuses: such a mailbox has no quota to show, which is not a full one.
+/// A server silent for `QUOTA_TIMEOUT` gives `Error::Timeout`: drop the connection, its
+/// answer may still come.
 pub async fn quota(conn: &mut Conn) -> Result<Option<Quota>> {
-    use async_imap::imap_proto::Status;
+    quota_within(conn, QUOTA_TIMEOUT).await
+}
+
+/// `quota` with a timeout of the caller's: tests do not wait the real one out.
+#[doc(hidden)]
+pub async fn quota_within(conn: &mut Conn, wait: Duration) -> Result<Option<Quota>> {
     if !conn.caps.quota {
         return Ok(None);
     }
+    timeout(wait, quota_root(conn))
+        .await
+        .map_err(|_| Error::Timeout("quota"))?
+}
+
+async fn quota_root(conn: &mut Conn) -> Result<Option<Quota>> {
+    use async_imap::imap_proto::Status;
     let id = conn.session.run_command("GETQUOTAROOT INBOX").await?;
     let mut roots = Roots::default();
     loop {
-        let resp = timeout(LINE_TIMEOUT, conn.session.read_response())
-            .await
-            .map_err(|_| Error::Timeout("quota"))??
-            .ok_or(Error::Closed)?;
+        let resp = conn.session.read_response().await?.ok_or(Error::Closed)?;
         match resp.parsed() {
             Response::Done { tag, status, .. } if *tag == id => {
                 return Ok(match status {
