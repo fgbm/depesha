@@ -21,12 +21,33 @@
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
   import PluginsPanel from "./prefs/PluginsPanel.svelte";
 
-  let draft = $state<Settings>(structuredClone($state.snapshot(app.settings)));
+  /** What the window edits: a copy of the settings, and the large-letter threshold as a number and its unit. */
+  function start(s: Settings) {
+    const mb = threshold(s.large_mb);
+    const inGb = mb >= 1024 && mb % 1024 === 0;
+    return { draft: structuredClone(s), unit: (inGb ? "gb" : "mb") as "mb" | "gb", value: inGb ? mb / 1024 : mb };
+  }
+
+  const first = start($state.snapshot(app.settings));
+  let draft = $state<Settings>(first.draft);
   /** The large-letter threshold as typed: a number and its unit; saved in megabytes. */
-  const largeMb = threshold(app.settings.large_mb);
-  const inGb = largeMb >= 1024 && largeMb % 1024 === 0;
-  let largeUnit = $state<"mb" | "gb">(inGb ? "gb" : "mb");
-  let largeValue = $state(inGb ? largeMb / 1024 : largeMb);
+  let largeUnit = $state(first.unit);
+  let largeValue = $state(first.value);
+  /** The settings the window started from, to tell whether anything was changed in it. */
+  let base = JSON.stringify(first);
+
+  // Opened before the settings were read (Ctrl+, at startup), the window would save the
+  // defaults over them: it takes them when they come, unless something was changed already.
+  $effect(() => {
+    const next = start($state.snapshot(app.settings));
+    untrack(() => {
+      if (JSON.stringify({ draft: $state.snapshot(draft), unit: largeUnit, value: largeValue }) !== base) return;
+      base = JSON.stringify(next);
+      draft = next.draft;
+      largeUnit = next.unit;
+      largeValue = next.value;
+    });
+  });
 
   /**
    * Every setting in one window: the app's pages, the mailboxes (one page each),
