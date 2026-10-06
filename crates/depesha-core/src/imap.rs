@@ -58,10 +58,12 @@ impl Caps {
     /// IMAP4rev2 (RFC 9051) folds IDLE, MOVE, UIDPLUS, SPECIAL-USE and STATUS=SIZE into
     /// the base protocol (RFC 9051, 7.2.2 and Appendix E.2), so a server of that version
     /// has them without naming them. CONDSTORE and QRESYNC are not implied: they stay
-    /// recommended extensions (Appendix F.1).
+    /// recommended extensions (Appendix F.1). A server listing IMAP4rev1 too speaks rev1
+    /// until the client sends ENABLE IMAP4rev2 (RFC 9051, Appendix E), which Depesha
+    /// does not, so only a rev2-only server gets the base set.
     pub fn from_names<S: AsRef<str>>(names: &[S]) -> Self {
         let has = |name: &str| names.iter().any(|n| n.as_ref().eq_ignore_ascii_case(name));
-        let rev2 = has("IMAP4rev2");
+        let rev2 = has("IMAP4rev2") && !has("IMAP4rev1");
         Self {
             idle: rev2 || has("IDLE"),
             move_: rev2 || has("MOVE"),
@@ -1122,6 +1124,15 @@ mod tests {
         assert!(!caps.literal_plus && !caps.quota);
         // Case is ignored, as in the capability list.
         assert!(Caps::from_names(&["imap4rev2"]).idle);
+    }
+
+    #[test]
+    fn rev1_and_rev2_together_speak_rev1() {
+        // Without ENABLE IMAP4rev2 such a server (Dovecot 2.4, Stalwart, Cyrus) is rev1:
+        // only the names it lists count.
+        assert_eq!(Caps::from_names(&["IMAP4rev1", "IMAP4rev2"]), Caps::default());
+        let caps = Caps::from_names(&["IMAP4rev2", "imap4rev1", "IDLE"]);
+        assert!(caps.idle && !caps.move_ && !caps.uidplus && !caps.special_use && !caps.status_size);
     }
 
     #[test]

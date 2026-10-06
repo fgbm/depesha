@@ -151,7 +151,7 @@ pub async fn folder_sizes(
     folders: &[String],
     mut progress: impl FnMut(usize),
 ) -> Result<(SizeMethod, Vec<FolderSize>)> {
-    let method = if conn.caps.status_size {
+    let mut method = if conn.caps.status_size {
         SizeMethod::Status
     } else {
         SizeMethod::Fetch
@@ -160,7 +160,16 @@ pub async fn folder_sizes(
     let mut out = Vec::with_capacity(folders.len());
     for (i, folder) in folders.iter().enumerate() {
         let size = match method {
-            SizeMethod::Status => raw.status_size(folder).await?,
+            SizeMethod::Status => match raw.status_size(folder).await? {
+                // The first STATUS (SIZE) is not understood (a server naming STATUS=SIZE
+                // it gives only after ENABLE IMAP4rev2, say): every folder is counted the
+                // long way.
+                (_, true) if i == 0 => {
+                    method = SizeMethod::Fetch;
+                    raw.fetch_size(folder).await?
+                }
+                (size, _) => size,
+            },
             SizeMethod::Fetch => raw.fetch_size(folder).await?,
         };
         out.push(size);
@@ -179,7 +188,10 @@ struct Raw<'a> {
 /// What ended a command.
 enum Done {
     Ok,
+    /// NO: the server will not, for this mailbox.
     Refused(String),
+    /// BAD: the server did not understand the command.
+    Bad(String),
 }
 
 impl<'a> Raw<'a> {
@@ -208,6 +220,8 @@ impl<'a> Raw<'a> {
             let (status, info) = text.split_once(' ').unwrap_or((text.as_str(), ""));
             return Ok(if status.eq_ignore_ascii_case("OK") {
                 Done::Ok
+            } else if status.eq_ignore_ascii_case("BAD") {
+                Done::Bad(server_text(info.trim()))
             } else {
                 Done::Refused(server_text(info.trim()))
             });
@@ -248,7 +262,8 @@ impl<'a> Raw<'a> {
         Ok(())
     }
 
-    async fn status_size(&mut self, folder: &str) -> Result<FolderSize> {
+    /// The size, and whether the server answered BAD: it does not know STATUS (SIZE).
+    async fn status_size(&mut self, folder: &str) -> Result<(FolderSize, bool)> {
         let mut size = FolderSize {
             folder: folder.to_owned(),
             ..FolderSize::default()
@@ -261,10 +276,11 @@ impl<'a> Raw<'a> {
                 }
             })
             .await?;
-        if let Done::Refused(why) = done {
+        let bad = matches!(done, Done::Bad(_));
+        if let Done::Refused(why) | Done::Bad(why) = done {
             size.error = Some(why);
         }
-        Ok(size)
+        Ok((size, bad))
     }
 
     async fn fetch_size(&mut self, folder: &str) -> Result<FolderSize> {
@@ -280,7 +296,7 @@ impl<'a> Raw<'a> {
                 }
             })
             .await?;
-        if let Done::Refused(why) = done {
+        if let Done::Refused(why) | Done::Bad(why) = done {
             size.error = Some(why);
             return Ok(size);
         }
@@ -295,7 +311,7 @@ impl<'a> Raw<'a> {
                     }
                 })
                 .await?;
-            if let Done::Refused(why) = done {
+            if let Done::Refused(why) | Done::Bad(why) = done {
                 size.error = Some(why);
                 return Ok(size);
             }

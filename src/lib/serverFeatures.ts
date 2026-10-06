@@ -72,13 +72,22 @@ function feature(id: string): Feature {
  */
 function available(caps: string[], f: Feature): boolean {
   if (has(caps, f.tokens)) return true;
-  if (!f.rev2 || !caps.some((c) => c.toUpperCase() === "IMAP4REV2")) return false;
+  if (!f.rev2 || !rev2Only(caps)) return false;
   return f.id !== "condstore" || !!has(caps, ["QRESYNC"]);
+}
+
+/**
+ * The session speaks IMAP4rev2: a server listing IMAP4rev1 too stays rev1 until
+ * ENABLE IMAP4rev2 (RFC 9051, Appendix E), which Depesha does not send.
+ */
+function rev2Only(caps: string[]): boolean {
+  const upper = caps.map((c) => c.toUpperCase());
+  return upper.includes("IMAP4REV2") && !upper.includes("IMAP4REV1");
 }
 
 /** A feature from the rev2 base set: Depesha's `Caps` sets it even unnamed. */
 function inBase(caps: string[], f: Feature): boolean {
-  return !!f.rev2 && caps.some((c) => c.toUpperCase() === "IMAP4REV2");
+  return !!f.rev2 && rev2Only(caps);
 }
 
 export interface Enable {
@@ -103,9 +112,9 @@ export interface FeatureRow {
   group: Group;
 }
 
-/** The IMAP version the server speaks, for the section's first line. */
+/** The IMAP version Depesha's session speaks, for the section's first line. */
 export function protocol(caps: string[]): string {
-  return caps.some((c) => c.toUpperCase() === "IMAP4REV2") ? "IMAP4rev2" : "IMAP4rev1";
+  return rev2Only(caps) ? "IMAP4rev2" : "IMAP4rev1";
 }
 
 /** The table, in the order of FEATURES; rows the server lacks and nobody misses are left out. */

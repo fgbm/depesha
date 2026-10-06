@@ -21,6 +21,8 @@ struct Server {
     refuse_enable: bool,
     /// Names the mailbox of a STATUS answer as a literal.
     literal_names: bool,
+    /// Answers STATUS (… SIZE) with BAD, though STATUS=SIZE is listed.
+    bad_status_size: bool,
     log: Vec<String>,
 }
 
@@ -83,6 +85,9 @@ fn respond(server: &Server, tag: &str, cmd: &str) -> String {
             .into());
     }
     if upper.starts_with("STATUS ") {
+        if server.bad_status_size && upper.contains(" SIZE)") {
+            return format!("{tag} BAD Error in IMAP command STATUS: Unknown status item\r\n");
+        }
         let name = name_of(cmd);
         let Some(sizes) = server.folders.get(name) else {
             return format!("{tag} NO [NOPERM] Permission denied\r\n");
@@ -253,4 +258,27 @@ async fn an_old_server_has_no_quota_and_its_sizes_are_added_up() {
     let log = server.lock().unwrap().log.clone();
     assert_eq!(log.iter().filter(|c| c.starts_with("FETCH")).count(), 3, "{log:?}");
     assert!(!log.iter().any(|c| c.starts_with("STATUS")));
+}
+
+#[tokio::test]
+async fn a_server_that_rejects_status_size_is_counted_by_fetch() {
+    // IMAP4rev1 and IMAP4rev2 both listed: STATUS=SIZE is not implied, but this server
+    // names it and then answers BAD, as before ENABLE IMAP4rev2.
+    let (server, mut conn) = fixture(Server {
+        caps: "IMAP4rev2 STATUS=SIZE",
+        folders: folders(),
+        bad_status_size: true,
+        ..Server::default()
+    })
+    .await;
+    assert!(conn.caps.status_size && !conn.caps.move_ && !conn.caps.idle);
+    let (method, sizes) = quota::folder_sizes(&mut conn, &names(), |_| {}).await.unwrap();
+    assert_eq!(method, SizeMethod::Fetch);
+    assert_eq!(sizes[0], size("INBOX", 6000, 3));
+    assert_eq!(sizes[1], size("Archive", 50_000, 1));
+    assert_eq!(sizes[3], size("&BB4EQgRHBFEEQgRL-", 15, 2));
+    assert!(sizes[4].bytes.is_none() && sizes[4].error.is_some());
+    // One STATUS tried, then not again.
+    let log = server.lock().unwrap().log.clone();
+    assert_eq!(log.iter().filter(|c| c.starts_with("STATUS")).count(), 1, "{log:?}");
 }

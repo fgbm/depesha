@@ -88,6 +88,16 @@ describe("the server's features", () => {
     expect(needsAttention(["IMAP4rev1", "IDLE"])).toBe(true);
   });
 
+  it("a server listing IMAP4rev1 and IMAP4rev2 speaks rev1: only listed names count", () => {
+    // Without ENABLE IMAP4rev2 (which Depesha does not send) the session stays rev1.
+    const caps = ["IMAP4rev1", "IMAP4rev2", "IDLE"];
+    expect(protocol(caps)).toBe("IMAP4rev1");
+    expect(needsAttention(caps)).toBe(true);
+    const move = row(features(caps, null, 120, time), "move");
+    expect(move.server).toBe("no");
+    expect(move.group).toBe("missing");
+  });
+
   it("unknown names are kept apart and the report has no secrets in it", () => {
     expect(unknown(MODERN)).toEqual(["SASL-IR", "LOGIN-REFERRALS", "MULTIAPPEND"]);
     const text = report("imap.example.com:993", "* OK [CAPABILITY IMAP4rev1] ready", OLD, { ok: false, answer: "no", at: 1 });
