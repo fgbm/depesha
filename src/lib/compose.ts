@@ -232,13 +232,16 @@ export function losesFormatting(d: ComposeDraft, to: BodyFormat): boolean {
  * (`signature`, the window knows it) is put again in the new format's version, the quote
  * keeps its formatting where the format has it.
  * `markdownHtml` renders Markdown the way the backend sends it.
+ * A plain or Markdown letter comes with its `parts`: what is typed and what follows the
+ * signature, as the window shows them. Splitting the text again would not always find
+ * them: a quote of a picture alone is a "… wrote:" line with no ">" lines.
  */
 export async function convertDraft(
   d: ComposeDraft,
   to: BodyFormat,
   signature: Signature | null,
   markdownHtml: (text: string) => Promise<string>,
-): Promise<ComposeDraft> {
+): Promise<ComposeDraft & { parts?: { body: string; rest: string } }> {
   const from = d.format ?? "plain";
   if (from === to) return d;
   const { body, quote } = partsOf(d);
@@ -259,5 +262,5 @@ export async function convertDraft(
     text = body;
     quoteText = quote;
   }
-  return { ...d, format: to, html: null, text: text + sigBlock(signature) + quoteText };
+  return { ...d, format: to, html: null, text: text + sigBlock(signature) + quoteText, parts: { body: text, rest: quoteText } };
 }

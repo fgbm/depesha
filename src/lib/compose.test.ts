@@ -329,6 +329,14 @@ describe("formats", () => {
     expect(back.text).toMatch(/\n\n\S+ \S+, Иван/);
   });
 
+  it("keeps the header of a quote with no text apart from the signature", async () => {
+    const d = withSignature(reply(html({ html: '<img src="data:image/png;base64,AAAA">' }), me, false, "html"), sig("Влад"));
+    const plain = await convertDraft({ ...d, html: "<div>Смотрю</div>" + (d.html ?? "") }, "plain", sig("Влад"), md);
+    expect(plain.parts?.body).toBe("Смотрю");
+    expect(plain.parts?.rest).toMatch(/^\n\n.*Иван <ivan@example.org> пишет:\n$/);
+    expect(plain.text).toBe(plain.parts?.body + "\n\n-- \nВлад" + plain.parts?.rest);
+  });
+
   it("HTML becomes Markdown with its formatting", async () => {
     const d = { ...emptyDraft(me, "html"), html: "<div><b>жирный</b></div><ul><li>раз</li></ul>" };
     expect((await convertDraft(d, "markdown", null, md)).text).toBe("**жирный**\n\n- раз");

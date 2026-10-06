@@ -265,7 +265,7 @@ export class ComposeFormat {
         this.htmlBody = d.html ?? "";
         this.plainOfHtml = d.text;
       } else {
-        const p = splitPlain(d.text);
+        const p = d.parts ?? splitPlain(d.text);
         this.head = p.body;
         this.quote = p.rest;
       }
