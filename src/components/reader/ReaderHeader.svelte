@@ -7,10 +7,10 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
   import FolderOutput from "@lucide/svelte/icons/folder-output";
-  import { accountLabel, addrFull, addrName, avatarColor, initials, longDate, size } from "../../lib/format";
-  import { t, tn } from "../../lib/i18n.svelte";
-  import { foldLine, foldsRecipients } from "../../lib/recipients";
-  import type { AccountView, Addr, OpenedMessage } from "../../lib/types";
+  import { accountLabel, avatarColor, initials, longDate, size } from "../../lib/format";
+  import { t } from "../../lib/i18n.svelte";
+  import Recipients from "../Recipients.svelte";
+  import type { AccountView, OpenedMessage } from "../../lib/types";
   import type { Snippet } from "svelte";
   import type { AttachmentInfo } from "../../lib/types";
 
@@ -58,38 +58,11 @@
     return !!me && s.cc.length === 0 && s.to.length === 1 && s.to[0].email.toLowerCase() === me;
   });
 
-  /** A long list of recipients opens folded on every letter; one click shows it whole. */
-  const folds = $derived(foldsRecipients(msg.view.summary.to, msg.view.summary.cc));
-  let unfolded = $state(false);
-  $effect(() => {
-    void msg.row.id;
-    unfolded = false;
-  });
-  const folded = $derived(folds && !unfolded);
-
-  function list(addrs: Addr[]): string {
-    return addrs.map(addrFull).join(", ");
-  }
-
   /** Every letter of this sender, wherever it lies. */
   function fromSender() {
     if (from?.email) app.setView({ kind: "search", text: `from:${from.email}` });
   }
 </script>
-
-{#snippet recipients(label: string, addrs: Addr[], last: boolean)}
-  <div class="muted small">
-    {label}:
-    {#if folded}
-      {@const line = foldLine(addrs)}
-      <span title={list(addrs)}>{line.shown.map(addrName).join(", ")}</span>
-      {#if line.more}<button class="fold" aria-expanded="false" onclick={() => (unfolded = true)}>{tn("reader.moreRecipients", line.more, { n: line.more })}</button>{/if}
-    {:else}
-      {list(addrs)}
-      {#if folds && last}<button class="fold" aria-expanded="true" onclick={() => (unfolded = false)}>{t("reader.foldRecipients")}</button>{/if}
-    {/if}
-  </div>
-{/snippet}
 
 <div class="head selectable">
   <h1>{msg.view.summary.subject || t("noSubject")}</h1>
@@ -105,8 +78,7 @@
         {#if from?.name}<span class="muted">&lt;{from.email}&gt;</span>{/if}
         {@render headerActions?.()}
       </div>
-      {#if msg.view.summary.to.length && !onlyToMe}{@render recipients(t("compose.fwd.to"), msg.view.summary.to, !msg.view.summary.cc.length)}{/if}
-      {#if msg.view.summary.cc.length}{@render recipients(t("compose.fwd.cc"), msg.view.summary.cc, true)}{/if}
+      {#key msg.row.id}<Recipients to={msg.view.summary.to} cc={msg.view.summary.cc} showTo={!onlyToMe} />{/key}
     </div>
     <div class="date muted small">
       {longDate(msg.view.summary.date ?? msg.row.date)}
@@ -197,20 +169,6 @@
 
   .small {
     font-size: 12px;
-  }
-
-  /* A link in the line of recipients: it unfolds or folds them all. */
-  .fold {
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--accent);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .fold:hover {
-    text-decoration: underline;
   }
 
   .sender {

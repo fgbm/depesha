@@ -7,6 +7,7 @@
   import type { MessageView } from "../../lib/types";
   import type { ViewedFile } from "../../lib/viewer";
   import MailFrame from "../MailFrame.svelte";
+  import Recipients from "../Recipients.svelte";
 
   let { file }: { file: ViewedFile } = $props();
 
@@ -33,8 +34,7 @@
     <div class="head selectable">
       <h2>{s.subject || t("noSubject")}</h2>
       {#if s.from}<div><b>{addrFull(s.from)}</b></div>{/if}
-      {#if s.to.length}<div class="muted small">{t("compose.fwd.to")}: {s.to.map(addrFull).join(", ")}</div>{/if}
-      {#if s.cc.length}<div class="muted small">{t("compose.fwd.cc")}: {s.cc.map(addrFull).join(", ")}</div>{/if}
+      <Recipients to={s.to} cc={s.cc} />
       {#if s.date}<div class="muted small">{longDate(s.date)}</div>{/if}
       {#if files.length}
         <div class="files muted small">
