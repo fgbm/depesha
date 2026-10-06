@@ -138,11 +138,13 @@ pub(super) fn v6_followups_history(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// 9: the outbox keeps a reminder and a deadline set for a time, not counted from sending.
+/// 9: the outbox keeps a reminder and a deadline set for a time, not counted from sending;
+/// a wait notes since when its letter has been gone from the cache.
 pub(super) fn v9_followup_times(conn: &Connection) -> Result<()> {
     for column in ["followup_due_at", "followup_deadline_at"] {
         add_column(conn, "outbox", column, "INTEGER NOT NULL DEFAULT 0")?;
     }
+    add_column(conn, "followups", "missing", "INTEGER")?;
     Ok(())
 }
 
@@ -231,6 +233,11 @@ pub struct FollowupCounts {
     pub active: u32,
     pub closed: u32,
 }
+
+/// A waiting wait whose letter has been gone from the cache this long is forgotten: it can
+/// be neither shown nor cancelled, and the letter is not coming back (a folder resynced
+/// brings it back within minutes, and the wait with it).
+const GONE_SECS: i64 = 7 * 86_400;
 
 /// The reminders a wait remembers: the latest, not every one of a repeat that runs for months.
 const REMINDED_KEPT: i64 = 20;
@@ -417,12 +424,28 @@ impl Store {
         )?)
     }
 
-    /// Forgets waits that ended more than `keep_days` days before `now`. Returns how many.
+    /// Forgets waits that ended more than `keep_days` days before `now`, and waiting ones
+    /// whose letter has been gone from the cache for `GONE_SECS`; notes which letters are
+    /// gone now. Returns how many were forgotten.
     pub fn followups_prune(&self, now: i64, keep_days: u32) -> Result<usize> {
-        Ok(self.conn().execute(
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE followups SET missing = CASE WHEN missing IS NULL THEN ?1 END
+             WHERE status = 'waiting' AND (missing IS NULL) = NOT EXISTS (SELECT 1 FROM messages m
+                 WHERE m.account_id = followups.account_id AND m.message_id = followups.message_id)",
+            [now],
+        )?;
+        let gone = tx.execute(
+            "DELETE FROM followups WHERE status = 'waiting' AND missing < ?1",
+            [now - GONE_SECS],
+        )?;
+        let ended = tx.execute(
             "DELETE FROM followups WHERE status != 'waiting' AND ended < ?1",
             [now - i64::from(keep_days) * 86_400],
-        )?)
+        )?;
+        tx.commit()?;
+        Ok(gone + ended)
     }
 }
 
@@ -817,6 +840,31 @@ mod tests {
             store.followups_count().unwrap(),
             FollowupCounts { active: 1, closed: 0 }
         );
+    }
+
+    #[test]
+    fn a_wait_whose_letter_is_gone_for_good_is_forgotten() {
+        let store = mailbox();
+        let day = 86_400;
+        for (uid, id) in [(1, "kept@x"), (2, "gone@x")] {
+            put(&store, "Sent", uid, &with_ids(id, 100, id, None), true);
+            wait_for(&store, id, 500, |f| f.subject = id.into());
+        }
+        let now = 100 * day;
+        // Gone for a while: the wait waits a week for the letter to come back.
+        store.remove_uids("a", "Sent", &[2]).unwrap();
+        assert_eq!(store.followups_prune(now, 90).unwrap(), 0);
+        assert_eq!(store.followups_prune(now + 6 * day, 90).unwrap(), 0);
+        // Back (a resynced folder): it counts from the start when it goes again.
+        put(&store, "Sent", 3, &with_ids("gone@x", 100, "gone@x", None), true);
+        assert_eq!(store.followups_prune(now + 6 * day, 90).unwrap(), 0);
+        store.remove_uids("a", "Sent", &[3]).unwrap();
+        assert_eq!(store.followups_prune(now + 10 * day, 90).unwrap(), 0);
+        assert_eq!(store.followups_prune(now + 16 * day, 90).unwrap(), 0);
+        assert_eq!(store.followups_prune(now + 17 * day + 1, 90).unwrap(), 1);
+        // The one whose letter stayed stays, however old.
+        put(&store, "Sent", 4, &with_ids("gone@x", 100, "gone@x", None), true);
+        assert_eq!(subjects(&store, FollowupFilter::Active), ["kept@x"]);
     }
 
     #[test]

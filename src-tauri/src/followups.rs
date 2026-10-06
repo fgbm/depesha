@@ -20,7 +20,8 @@ pub fn keep_days(plugin_settings: &BTreeMap<String, serde_json::Value>) -> u32 {
         .map_or(DEFAULT_KEEP_DAYS, |d| d.clamp(1, 3650) as u32)
 }
 
-/// Forgets the closed waits past the retention; whether any went.
+/// Forgets the closed waits past the retention, and waiting ones whose letter is gone from
+/// the cache for good; whether any went.
 pub fn prune(state: &AppState, now: i64) -> depesha_core::Result<bool> {
     let days = keep_days(&state.settings().plugin_settings);
     Ok(state.store.followups_prune(now, days)? > 0)
