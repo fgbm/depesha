@@ -32,8 +32,11 @@
 - **Порядок в ящике.** Раздел «Сервер» показывает, что умеет ваш IMAP-сервер и что из этого использует Депеша (IDLE, MOVE, CONDSTORE, QRESYNC, QUOTA и другое), с техническими подробностями для письма в поддержку. Раздел «Хранилище» — сколько места ящик занимает на сервере и на этом компьютере, с предупреждением у порога.
 - **Входящие бывают в Markdown.** Если отправитель прислал письмо в Markdown, его можно прочитать как Markdown, HTML или текст; свои письма тоже можно писать в Markdown.
 
-<p align="center"><img src="docs/screenshots/snooze.png" width="420" alt="Меню «Отложить»"> <img src="docs/screenshots/preflight.png" width="420" alt="Проверка перед отправкой"></p>
-<p align="center"><img src="docs/screenshots/dark.png" width="420" alt="Тёмная тема, переписка"> <img src="docs/screenshots/certificate.png" width="420" alt="Доверие сертификату по отпечатку"></p>
+<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="Редактор письма: строка оформления и подпись"> <img src="docs/screenshots/signatures.png" width="420" alt="Подписи в настройках ящика"></p>
+<p align="center"><img src="docs/screenshots/followups.png" width="420" alt="«Ждут ответа»"> <img src="docs/screenshots/snooze.png" width="420" alt="Меню «Отложить»"></p>
+<p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Проверка перед отправкой"> <img src="docs/screenshots/dark.png" width="420" alt="Тёмная тема, переписка"></p>
+<p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="Узкое окно: боковая полоса и список"> <img src="docs/screenshots/narrow-message.png" width="300" alt="Узкое окно: письмо"></p>
+<p align="center"><img src="docs/screenshots/certificate.png" width="420" alt="Доверие сертификату по отпечатку"></p>
 
 ## Плагины
 

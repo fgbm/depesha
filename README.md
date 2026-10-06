@@ -34,8 +34,11 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 - **What your mailbox is made of.** The "Server" section shows what your IMAP server can do and what Depesha uses of it (IDLE, MOVE, CONDSTORE, QRESYNC, QUOTA and more), with technical details to paste into a support ticket. "Storage" shows how much room the mailbox takes on the server and on this computer, with a warning near the limit.
 - **Markdown in and out.** A letter that arrives in Markdown can be read as Markdown, HTML or plain text, and your own letters can be written in Markdown too.
 
-<p align="center"><img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"> <img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"></p>
-<p align="center"><img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"> <img src="docs/screenshots/certificate.png" width="420" alt="Trusting a certificate by fingerprint"></p>
+<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="The compose editor with the formatting bar and a signature"> <img src="docs/screenshots/signatures.png" width="420" alt="Signatures in the mailbox settings"></p>
+<p align="center"><img src="docs/screenshots/followups.png" width="420" alt="Waiting for reply"> <img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"></p>
+<p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"> <img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"></p>
+<p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="A narrow window: the sidebar as a strip, the list"> <img src="docs/screenshots/narrow-message.png" width="300" alt="A narrow window: the letter"></p>
+<p align="center"><img src="docs/screenshots/certificate.png" width="420" alt="Trusting a certificate by fingerprint"></p>
 
 ## Plugins
 
