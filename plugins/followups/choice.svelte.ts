@@ -2,7 +2,7 @@
 // above the buttons (when it reminds, the deadline, whose answer counts).
 
 import type { ComposeContext } from "@depesha/plugin-api";
-import { defaultDeadline, kindOf, type Choice, type Repeat, type Spec } from "./due";
+import { deadlineFor, kindOf, type Choice, type Repeat, type Spec } from "./due";
 import { labelOf, type LabelOf, type Remind } from "./presets";
 import { S } from "./strings";
 
@@ -51,7 +51,9 @@ export function resolve(
   return null;
 }
 
-/** A choice before a deadline gets one to start from. */
+/** A choice before a deadline gets one to start from, and a new one when sending moves past it. */
 export function withDeadline(c: ComposeChoice, spec: Spec | null, from: Date) {
-  if (spec && kindOf(spec) === "before" && !c.deadline) c.deadline = defaultDeadline(from, spec);
+  if (!spec || kindOf(spec) !== "before") return;
+  const day = deadlineFor(c.deadline, from, spec);
+  if (day !== c.deadline) c.deadline = day;
 }

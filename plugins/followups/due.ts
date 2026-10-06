@@ -121,6 +121,15 @@ export function defaultDeadline(from: Date, s: Spec): number {
   return dayOf(Math.floor(after(from, Math.max(1, s.amount) + 2, s.unit === "workdays" ? "workdays" : "days").getTime() / 1000));
 }
 
+/**
+ * The deadline's day for a choice before one, the letter leaving at `from`: the day kept,
+ * or a few days on when there is none yet or it is before the day of sending (a letter
+ * scheduled for later than the day picked).
+ */
+export function deadlineFor(day: number | null, from: Date, s: Spec): number {
+  return day !== null && day >= dayOf(Math.floor(from.getTime() / 1000)) ? day : defaultDeadline(from, s);
+}
+
 /** When a choice before a deadline reminds: `amount` days before the deadline's day, at its time. */
 export function beforeDeadline(s: Spec, day: number): number {
   const unit: Unit = s.unit === "workdays" ? "workdays" : "days";
@@ -148,7 +157,9 @@ export function firstAt(choice: Choice, from: Date): number | null {
   const k = kindOf(s);
   if (k === "before") {
     if (!choice.deadline) return null;
-    return Math.min(endOfDay(choice.deadline), Math.max(base + MIN_SECS, beforeDeadline(s, choice.deadline)));
+    // By the end of the deadline's day, but never before sending: a deadline already gone
+    // when the letter leaves (a scheduled one) reminds a minute later, not in the past.
+    return Math.max(base + MIN_SECS, Math.min(endOfDay(choice.deadline), beforeDeadline(s, choice.deadline)));
   }
   const d = k === "weekday" ? nextWeekday(from, s.weekday ?? 1, s.time ?? "09:00") : after(from, s.amount, s.unit);
   return Math.max(base + MIN_SECS, Math.floor(d.getTime() / 1000));
@@ -169,7 +180,7 @@ export function planOf(choice: Choice, from: Date, expect: string, kind: string)
   if (first === null) return null;
   const base = Math.floor(from.getTime() / 1000);
   const own = !("at" in choice) && kindOf(choice.spec) === "before" && choice.deadline;
-  const deadline = own ? endOfDay(choice.deadline!) : 0;
+  const deadline = own ? Math.max(base + MIN_SECS, endOfDay(choice.deadline!)) : 0;
   return {
     secs: first - base,
     plan: {

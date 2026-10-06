@@ -26,6 +26,7 @@
   });
   const sendAt = $derived(compose.options.at ? new Date(compose.options.at * 1000) : new Date(now));
   const first = $derived(made ? firstAt(made.choice, sendAt) : null);
+  const firstDay = $derived(dayOf(Math.floor(sendAt.getTime() / 1000)));
   const before = $derived(!!made?.spec && kindOf(made.spec) === "before");
   const repeat = $derived<Repeat | null>(made ? (("at" in made.choice ? made.choice.repeat : made.choice.spec.repeat) ?? null) : null);
   const recipients = $derived(awaitable(compose.draft.to, compose.draft.cc));
@@ -46,7 +47,8 @@
     const [y, m, d] = value.split("-").map(Number);
     if (!y || !m || !d) return;
     const day = dayOf(Math.floor(new Date(y, m - 1, d).getTime() / 1000));
-    if (day >= dayOf(Math.floor(Date.now() / 1000))) c.deadline = day;
+    // Not before the day the letter leaves: a scheduled one would be overdue at once.
+    if (day >= firstDay) c.deadline = day;
   }
 </script>
 
@@ -55,7 +57,7 @@
     {#if before}
       <CalendarDays size={13} />
       <span>{ctx.t(S.lineBy)}</span>
-      <input class="input deadline" type="date" value={c.deadline ? iso(c.deadline) : ""} min={iso(Math.floor(Date.now() / 1000))} aria-label={ctx.t(S.lineBy)} onchange={(e) => setDeadline(e.currentTarget.value)} />
+      <input class="input deadline" type="date" value={c.deadline ? iso(c.deadline) : ""} min={iso(firstDay)} aria-label={ctx.t(S.lineBy)} onchange={(e) => setDeadline(e.currentTarget.value)} />
       <span>{ctx.t(S.lineThen, { when: when(first) })}{repeat && repeatSecs(repeat) ? ctx.plural(repeat.amount, LINE_REPEAT[repeat.unit]) : ""},</span>
     {:else}
       <AlarmClock size={13} />

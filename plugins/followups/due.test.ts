@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { after, beforeDeadline, dayOf, defaultDeadline, endOfDay, firstAt, left, nextWeekday, planOf, secondsAfter } from "./due";
+import { after, beforeDeadline, dayOf, deadlineFor, defaultDeadline, endOfDay, firstAt, left, nextWeekday, planOf, secondsAfter } from "./due";
 import { sayIn } from "./fixtures";
 import { LATE, LEFT } from "./strings";
 
@@ -106,6 +106,22 @@ describe("what the compose window asks", () => {
   it("offers a deadline a few days after the reminder", () => {
     const spec = { kind: "before" as const, amount: 1, unit: "days" as const };
     expect(defaultDeadline(friday, spec)).toBe(dayOf(secs(new Date(2026, 9, 5))));
+  });
+
+  it("a deadline before the letter leaves is neither in the past nor kept", () => {
+    const spec = { kind: "before" as const, amount: 1, unit: "days" as const, time: "09:00" };
+    const thursday = dayOf(secs(new Date(2026, 9, 8, 12)));
+    // Scheduled for the Saturday after: the reminder and the deadline a minute after
+    // sending, never before it.
+    const later = new Date(2026, 9, 10, 10, 0);
+    const made = planOf({ spec, deadline: thursday }, later, "", "")!;
+    expect(made.secs).toBe(60);
+    expect(made.plan).toMatchObject({ deadline_secs: 60, deadline_at: secs(later) + 60, due_at: secs(later) + 60 });
+    // The compose window offers a new day then; one on or after the day of sending stays.
+    expect(deadlineFor(thursday, later, spec)).toBe(defaultDeadline(later, spec));
+    expect(deadlineFor(dayOf(secs(later)), later, spec)).toBe(dayOf(secs(later)));
+    expect(deadlineFor(thursday, friday, spec)).toBe(thursday);
+    expect(deadlineFor(null, friday, spec)).toBe(defaultDeadline(friday, spec));
   });
 });
 
