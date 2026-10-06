@@ -21,6 +21,7 @@ component	src/components/Popover.svelte	227	120	33	74
 component	src/components/Preferences.svelte	409	178	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
+component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	457	280	42	135
 component	src/components/RowMenu.svelte	128	72	49	7
 component	src/components/SearchBox.svelte	337	127	68	142
@@ -54,7 +55,7 @@ component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/QuickReply.svelte	216	55	31	130
 component	src/components/reader/ReaderBody.svelte	128	66	26	36
-component	src/components/reader/ReaderHeader.svelte	304	77	59	168
+component	src/components/reader/ReaderHeader.svelte	262	64	44	154
 component	src/components/reader/ReaderStates.svelte	231	33	68	130
 component	src/components/reader/ReaderToolbar.svelte	159	63	47	49
 component	src/components/reader/ReplyActions.svelte	65	19	11	35
@@ -71,7 +72,7 @@ component	src/components/sidebar/TasksButton.svelte	18	12	6	0
 component	src/components/viewer/CsvView.svelte	83	28	19	36
 component	src/components/viewer/DocView.svelte	108	51	19	38
 component	src/components/viewer/ImageView.svelte	86	35	19	32
-component	src/components/viewer/LetterView.svelte	115	27	32	56
+component	src/components/viewer/LetterView.svelte	125	28	31	66
 component	src/components/viewer/MediaView.svelte	58	24	14	20
 component	src/components/viewer/PdfView.svelte	231	116	20	95
 component	src/components/viewer/TextView.svelte	54	24	8	22
@@ -222,6 +223,7 @@ function	src/components/Preferences.svelte::onNavKey	7
 function	src/components/QuotaLine.svelte::open	4
 function	src/components/Reader.svelte::bannerAction	4
 function	src/components/Reader.svelte::trustSender	6
+function	src/components/Recipients.svelte::list	3
 function	src/components/RichEditor.svelte::measure	4
 function	src/components/RichEditor.svelte::unlocked	3
 function	src/components/RichEditor.svelte::lock	4
@@ -309,7 +311,6 @@ function	src/components/reader/QuickReply.svelte::grab	17
 function	src/components/reader/QuickReply.svelte::nudge	8
 function	src/components/reader/ReaderBody.svelte::decoded	7
 function	src/components/reader/ReaderBody.svelte::link	14
-function	src/components/reader/ReaderHeader.svelte::list	3
 function	src/components/reader/ReaderHeader.svelte::fromSender	3
 function	src/components/reader/ReaderToolbar.svelte::editDraft	8
 function	src/components/reader/useAttachmentViewer.svelte.ts::useAttachmentViewer	3
