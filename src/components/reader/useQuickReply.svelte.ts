@@ -16,8 +16,8 @@ import type { ComposeDraft } from "../../lib/types";
 
 /** What the answer needs from its component: the wording. */
 export interface QuickReplyHost {
-  /** An answer left behind was kept as a draft; `open` brings it back in a window. */
-  keptAsDraft(open: () => void): void;
+  /** An answer left behind was kept as a draft; `open` brings it back in a window, null when the saved copy is not known. */
+  keptAsDraft(open: (() => void) | null): void;
 }
 
 export class QuickReplyState {
@@ -66,7 +66,8 @@ export class QuickReplyState {
   private async keep(account_id: string, draft: ComposeDraft) {
     try {
       const draft_id = await api.draftSave(account_id, draft, null);
-      this.host.keptAsDraft(() => app.openCompose({ account_id, draft, draft_id }));
+      // Without the saved copy's id a window would save a second draft beside it.
+      this.host.keptAsDraft(draft_id === null ? null : () => app.openCompose({ account_id, draft, draft_id }));
     } catch {
       app.openCompose({ account_id, draft, draft_id: null, unsaved: true }, "min");
     }

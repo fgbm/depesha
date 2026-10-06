@@ -113,7 +113,7 @@
 
   // Quick reply under the conversation: write without leaving it, unfold into a window when it grows.
   const quick = useQuickReply({
-    keptAsDraft: (open) => app.toast(t("reader.quickKept"), false, { label: t("file.open"), run: open }),
+    keptAsDraft: (open) => app.toast(t("reader.quickKept"), false, open ? { label: t("file.open"), run: open } : undefined),
   });
 </script>
 
