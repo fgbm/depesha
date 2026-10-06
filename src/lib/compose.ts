@@ -210,9 +210,11 @@ function partsOf(d: ComposeDraft): { body: string; quote: string } {
 /**
  * Switching an HTML letter to plain text loses its formatting, links and pictures: worth
  * asking first, unless there is none. Markdown is plain text already and goes without asking.
+ * Only what is typed counts: the quote is always a styled block and the signature is put
+ * again in the new format's version.
  */
 export function losesFormatting(d: ComposeDraft, to: BodyFormat): boolean {
-  return to === "plain" && d.format === "html" && hasFormatting(d.html ?? "");
+  return to === "plain" && d.format === "html" && hasFormatting(partsOf(d).body);
 }
 
 /**

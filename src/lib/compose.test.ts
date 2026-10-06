@@ -273,6 +273,13 @@ describe("formats", () => {
     expect(losesFormatting({ ...emptyDraft(me, "markdown"), text: "**да**" }, "plain")).toBe(false);
   });
 
+  it("does not ask for the quote's style or the signature's picture", () => {
+    const logo = { ...sig("Влад"), html: '<div><img src="data:image/png;base64,LOGO"></div>' };
+    const d = withSignature(reply(html(), me, false, "html"), logo);
+    expect(losesFormatting({ ...d, html: "<div>Да</div>" + (d.html ?? "") }, "plain")).toBe(false);
+    expect(losesFormatting({ ...d, html: "<div><i>Да</i></div>" + (d.html ?? "") }, "plain")).toBe(true);
+  });
+
   it("HTML becomes plain text with the same words, signature and quote", async () => {
     const d = withSignature(reply(html(), me, false, "html"), sig("Влад"));
     const typed = { ...d, html: "<div>Ответ <b>жирный</b></div>" + (d.html ?? "") };
