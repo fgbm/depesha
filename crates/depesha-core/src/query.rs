@@ -251,10 +251,12 @@ pub fn imap_criteria(q: &SearchQuery) -> Vec<Criterion> {
             value: Some(imap_date(t)),
         });
     }
+    // Sizes in SEARCH are 32-bit (RFC 3501, number), and so is every message's size:
+    // "larger than 4 GiB" is "larger than the most", "smaller than 4 GiB" is no bound.
     if let Some(n) = q.larger {
-        out.push(Criterion::new("LARGER", n.to_string()));
+        out.push(Criterion::new("LARGER", n.min(u32::MAX.into()).to_string()));
     }
-    if let Some(n) = q.smaller {
+    if let Some(n) = q.smaller.filter(|&n| n <= u32::MAX.into()) {
         out.push(Criterion::new("SMALLER", n.to_string()));
     }
     out
@@ -383,5 +385,16 @@ mod tests {
             keys,
             [("LARGER", "26214400".to_owned()), ("SMALLER", "104857600".to_owned())]
         );
+
+        // Beyond 32 bits a server answers BAD: the bounds are kept within them.
+        let q = SearchQuery::parse("larger:5G");
+        let larger = imap_criteria(&q);
+        assert_eq!(
+            (larger[0].key, larger[0].value.as_deref()),
+            ("LARGER", Some("4294967295"))
+        );
+        assert!(imap_criteria(&SearchQuery::parse("smaller:5G")).is_empty());
+        let q = SearchQuery::parse("smaller:4294967295");
+        assert_eq!(imap_criteria(&q)[0].value.as_deref(), Some("4294967295"));
     }
 }
