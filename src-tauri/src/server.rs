@@ -8,7 +8,7 @@ use std::sync::Arc;
 use depesha_core::account::Account;
 use depesha_core::mail::Conn;
 use depesha_core::store::{FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
-use depesha_core::{Error, imap, quota, tr};
+use depesha_core::{Error, ews, imap, quota, tr};
 use serde::Serialize;
 use serde_json::json;
 
@@ -24,7 +24,7 @@ fn sizes_task(account_id: &str) -> String {
 }
 
 /// The windows read the server's state again.
-fn changed(state: &AppState, account_id: &str) {
+pub(crate) fn changed(state: &AppState, account_id: &str) {
     state.emit("server-changed", json!({ "account_id": account_id }));
 }
 
@@ -47,6 +47,28 @@ pub async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut imap::
     let quota = quota::quota(conn).await?;
     state.store.save_quota(account_id, quota.as_ref(), now())?;
     // The time of the reading changed, if nothing else did.
+    changed(state, account_id);
+    Ok(())
+}
+
+/// The occupied space of an Exchange mailbox: EWS has no store object, so no limit is
+/// read ([MS-OXCSTOR]) — the space is summed over every folder. Kept as the mailbox's
+/// quota with `limit` 0, which the frontend reads as "no server limit". The quota is
+/// written even when it is zero: "counted nothing" must not look like "not counted".
+pub async fn refresh_ews_quota(state: &AppState, account_id: &str, s: &mut ews::Session) -> depesha_core::Result<()> {
+    let (bytes, folders) = ews::mailbox_bytes(s).await?;
+    if bytes == 0 && folders > 0 {
+        // Folders walked but none reported `PR_MESSAGE_SIZE_EXTENDED`: the account would
+        // otherwise show a truthful zero with no sign the property was never there.
+        tracing::warn!(
+            account = %account_id,
+            folders,
+            "Exchange reported no folder size: the occupied space reads as zero"
+        );
+    }
+    state
+        .store
+        .save_quota(account_id, Some(&quota::ews_quota(bytes)), now())?;
     changed(state, account_id);
     Ok(())
 }
@@ -94,8 +116,8 @@ pub fn view(state: &AppState, account_id: &str) -> CmdResult<ServerView> {
     })
 }
 
-/// What the sidebar shows of a mailbox's room: the server's quota, or the sum of the
-/// folder sizes the user had counted.
+/// Every mailbox's room, for the sidebar: the server's quota, or (Exchange) the
+/// occupied space, or the sum of the folder sizes the user had counted.
 #[derive(Serialize)]
 pub struct QuotaView {
     account_id: String,
@@ -115,8 +137,8 @@ pub fn quotas(state: &AppState) -> CmdResult<Vec<QuotaView>> {
     state
         .accounts()
         .into_iter()
-        .filter(|a| !a.is_ews())
         .map(|a| {
+            // Exchange folders are not counted by request (no STATUS=SIZE): no estimate.
             let estimate = state.store.folder_sizes(&a.id)?.map(|s| Estimate {
                 bytes: s.folders.iter().filter_map(|f| f.bytes).sum(),
                 partial: s.folders.iter().any(|f| f.error.is_some()),

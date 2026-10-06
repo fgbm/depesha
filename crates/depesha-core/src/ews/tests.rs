@@ -140,3 +140,47 @@ fn autodiscover_signs_in_only_on_hosts_of_the_mail_domain() {
     assert!(!may_sign_in("autodiscover.example.org", "example.com"));
     assert!(!may_sign_in("evilexample.com", "example.com"));
 }
+
+#[test]
+fn adds_up_the_occupied_space_of_a_folder_page() {
+    // A FindFolder answer from Exchange 2019: folders carry their size as the extended
+    // property 0x0E08 (Long, bytes). This page holds three folders and says so.
+    let answer = r#"<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body><m:FindFolderResponse><m:ResponseMessages><m:FindFolderResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder IndexedPagingOffset="3" TotalItemsInView="3" IncludesLastItemInRange="true"><t:Folders><t:Folder><t:FolderId Id="I"/><t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0x0E08" PropertyType="Long"/><t:Value>1073741824</t:Value></t:ExtendedProperty></t:Folder><t:Folder><t:FolderId Id="S"/><t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0x0E08" PropertyType="Long"/><t:Value>536870912</t:Value></t:ExtendedProperty></t:Folder><t:Folder><t:FolderId Id="R"/></t:Folder></t:Folders></m:RootFolder></m:FindFolderResponseMessage></m:ResponseMessages></m:FindFolderResponse></s:Body></s:Envelope>"#;
+    let doc = parse(answer).unwrap();
+    let resp = single(&doc).unwrap();
+    let root = child(resp, "RootFolder").unwrap();
+    // 1 GiB + 512 MiB; a folder without the property counts zero.
+    assert_eq!(folders_bytes(root), (1_610_612_736, 3));
+    // The page says it is the last one.
+    assert!(!has_next_page(root));
+
+    // A page of a deep traversal starting at root, not msgfolderroot: the NON_IPM
+    // subtrees (Recoverable Items and the like) hang under root and count too.
+    let body = find_folder_body(0);
+    assert!(body.contains(r#"PropertyTag="0x0E08" PropertyType="Long""#), "{body}");
+    assert!(body.contains(r#"Traversal="Deep""#));
+    assert!(body.contains(r#"<t:DistinguishedFolderId Id="root"/>"#));
+    assert!(body.contains(r#"Offset="0""#));
+    // The next page's offset must reach the request, or paging would read page 0 forever.
+    assert!(
+        find_folder_body(1000).contains(r#"Offset="1000""#),
+        "{}",
+        find_folder_body(1000)
+    );
+}
+
+#[test]
+fn a_page_says_whether_one_follows() {
+    fn next_page(attr: &str) -> bool {
+        let xml = format!(r#"<RootFolder {attr}><Folders><Folder><FolderId Id="x"/></Folder></Folders></RootFolder>"#);
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        has_next_page(doc.root_element())
+    }
+    // xs:boolean has both spellings; a page is last only when the answer says so.
+    assert!(next_page(r#"IncludesLastItemInRange="false""#));
+    assert!(next_page(r#"IncludesLastItemInRange="0""#));
+    assert!(!next_page(r#"IncludesLastItemInRange="true""#));
+    assert!(!next_page(r#"IncludesLastItemInRange="1""#));
+    // Without the attribute there is nothing to page on: the walk stops.
+    assert!(!next_page(r#"IndexedPagingOffset="3""#));
+}

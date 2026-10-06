@@ -27,7 +27,7 @@
     estimate: sizes ? { bytes: counted.reduce((n, f) => n + (f.bytes ?? 0), 0), partial: failed.length > 0, counted: sizes.counted } : null,
   });
   // The own limit as typed: the numbers follow the field before it is saved.
-  const room = $derived(roomOf(view, { quota_limit_mb: limitMb(form.quotaLimitGb) }));
+  const room = $derived(roomOf(view, { quota_limit_mb: limitMb(form.quotaLimitGb), ews: account.ews }));
   const pct = $derived(room ? percent(room) : 0);
   const level = $derived(levelOf(pct, levels(app.settings.quota_levels)));
   const quota = $derived(info?.quota && info.quota.limit > 0 ? info.quota : null);
@@ -44,7 +44,7 @@
 
   onMount(() => {
     // The numbers are read again while the section is open; the cache shows the last ones meanwhile.
-    if (!account.ews) rooms.refresh(account.id);
+    rooms.refresh(account.id);
   });
 
   function folderName(name: string): string {
@@ -76,11 +76,21 @@
   }
 </script>
 
-{#if account.ews}
+{#if account.ews && !room}
   <p class="muted line">{t("storage.exchange")}</p>
 {:else}
   <div class="room" data-level={level} class:estimate={room?.estimate} class:stale={offline}>
-    {#if room && !room.estimate}
+    {#if room && room.exchange}
+      <div class="figures">
+        <b>≈ {t("storage.usedAlone", { used: gb(room.used) })}</b>
+        <span class="tag">{t("storage.estimateBadge")}</span>
+        {#if room.limit > 0}<span class="pct">{t("storage.ofOwn", { p: wholePercent(pct) })}</span>{/if}
+      </div>
+      {#if room.limit > 0}
+        <div class="bar hatched"><span style:width="{Math.min(100, pct)}%"></span></div>
+      {/if}
+      <p class="line muted">{t("storage.exchangeNote", { when: when(room.at) })} · <button class="link" onclick={() => rooms.refresh(account.id)}>{t("storage.refresh")}</button></p>
+    {:else if room && !room.estimate}
       <div class="figures">
         {#if ownFirst && room.own && room.quota}
           <b>{t("storage.usedAlone", { used: gb(room.used) })}</b>
@@ -138,34 +148,36 @@
       </div>
     {/if}
   </div>
+{/if}
 
-  <div class="block">
-    <h4>{t("storage.warnings")}</h4>
-    <label class="check"><input type="checkbox" bind:checked={form.quotaWarn} />{t("storage.warn")}</label>
-    <div class="choices" class:off={!form.quotaWarn}>
-      <label class="check">
-        <input type="radio" name="quota-limit-{account.id}" checked={!ownMode} disabled={!form.quotaWarn} onchange={useQuota} />
-        {quota ? t("storage.byQuota", { size: gb(quota.limit) }) : t("storage.byQuotaNone")}
-      </label>
-      <label class="check">
-        <input type="radio" name="quota-limit-{account.id}" checked={ownMode} disabled={!form.quotaWarn} onchange={useOwn} />
-        {t("storage.own")}
-        <input
-          class="input own"
-          bind:this={ownInput}
-          bind:value={form.quotaLimitGb}
-          inputmode="decimal"
-          placeholder="—"
-          disabled={!form.quotaWarn}
-          onfocus={() => (ownMode = true)}
-          aria-label={t("storage.own")}
-        />
-        {t("storage.gb")}
-      </label>
-      <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.openSettings("notifications")}>{t("storage.levelsLink")}</button></p>
-    </div>
+<div class="block">
+  <h4>{t("storage.warnings")}</h4>
+  <label class="check"><input type="checkbox" bind:checked={form.quotaWarn} />{t("storage.warn")}</label>
+  <div class="choices" class:off={!form.quotaWarn}>
+    <label class="check">
+      <input type="radio" name="quota-limit-{account.id}" checked={!ownMode} disabled={!form.quotaWarn} onchange={useQuota} />
+      {quota ? t("storage.byQuota", { size: gb(quota.limit) }) : t("storage.byQuotaNone")}
+    </label>
+    <label class="check">
+      <input type="radio" name="quota-limit-{account.id}" checked={ownMode} disabled={!form.quotaWarn} onchange={useOwn} />
+      {t("storage.own")}
+      <input
+        class="input own"
+        bind:this={ownInput}
+        bind:value={form.quotaLimitGb}
+        inputmode="decimal"
+        placeholder="—"
+        disabled={!form.quotaWarn}
+        onfocus={() => (ownMode = true)}
+        aria-label={t("storage.own")}
+      />
+      {t("storage.gb")}
+    </label>
+    <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.openSettings("notifications")}>{t("storage.levelsLink")}</button></p>
   </div>
+</div>
 
+{#if !account.ews}
   <div class="block">
     <h4>{t("storage.folders")} <span class="tag">{t("storage.estimateBadge")}</span></h4>
     {#if info?.counting}

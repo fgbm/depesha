@@ -1160,9 +1160,6 @@ pub async fn server_check(state: St<'_>, account_id: String) -> CmdResult<crate:
 /// Reads the quota again on the mailbox's connection, unless the mailbox is paused.
 #[tauri::command]
 pub async fn quota_refresh(state: St<'_>, account_id: String) -> CmdResult<()> {
-    if state.account(&account_id)?.is_ews() {
-        return Ok(());
-    }
     state.worker(&account_id)?.run_background(Work::Quota).await?;
     Ok(())
 }

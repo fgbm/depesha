@@ -95,6 +95,19 @@ pub async fn quota(conn: &mut Conn) -> Result<Option<Quota>> {
     quota_within(conn, QUOTA_TIMEOUT).await
 }
 
+/// The occupied space of a mailbox whose server reports no storage limit of its own.
+/// EWS has no store object ([MS-OXCSTOR]), so its quota properties are not in the
+/// model: the space is counted over the folders, and `limit` is 0, which the frontend
+/// reads as "no server limit" and falls back to the user's own limit for the bar.
+pub fn ews_quota(used: u64) -> Quota {
+    Quota {
+        root: String::new(),
+        used,
+        limit: 0,
+        messages: None,
+    }
+}
+
 /// `quota` with a timeout of the caller's: tests do not wait the real one out.
 #[doc(hidden)]
 pub async fn quota_within(conn: &mut Conn, wait: Duration) -> Result<Option<Quota>> {

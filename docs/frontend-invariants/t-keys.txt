@@ -425,6 +425,7 @@ storage.countingNote
 storage.estimateBadge
 storage.estimateNote
 storage.exchange
+storage.exchangeNote
 storage.findLarge
 storage.folders
 storage.free

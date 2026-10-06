@@ -31,6 +31,8 @@ export interface Room {
   own: number | null;
   /** Counted from folder sizes, not reported by the server: shown with "≈". */
   estimate: boolean;
+  /** Exchange (EWS): the server reports no quota limit, only the occupied space. */
+  exchange?: boolean;
   /** Some folders could not be counted: the mailbox holds more. */
   partial: boolean;
   /** When the numbers were read or counted, Unix time. */
@@ -47,12 +49,27 @@ export function ownLimit(account: Pick<Account, "quota_limit_mb">): number | nul
  * The room of a mailbox: the server's quota and the own limit, the nearer one counting;
  * without a quota, the counted folder sizes against the own limit. Null when there is
  * nothing to compare (no quota and no own limit, or nothing counted).
+ *
+ * Exchange (EWS) reports no quota limit, only the occupied space: `limit` is then 0
+ * and the bar follows the own limit when the user set one.
  */
-export function roomOf(view: QuotaView | undefined, account: Pick<Account, "quota_limit_mb">): Room | null {
+export function roomOf(
+  view: QuotaView | undefined,
+  account: Pick<Account, "quota_limit_mb"> & { ews?: Account["ews"] },
+): Room | null {
   const own = ownLimit(account);
   const q = view?.quota;
   if (q && q.limit > 0) {
     return { used: q.used, limit: own ? Math.min(own, q.limit) : q.limit, quota: q.limit, own, estimate: false, partial: false, at: q.checked };
+  }
+  // Exchange: no server limit, only the occupied space counted over the folders. Checked
+  // before `estimate`, and exclusively, so an EWS account with stale `folder_sizes` rows
+  // (an id reused from a former IMAP account) shows its honest count or nothing at all —
+  // never the old estimate. Without an own limit there is nothing to compare against
+  // (`limit` 0), so only the volume shows.
+  if (account.ews) {
+    if (!q) return null;
+    return { used: q.used, limit: own ?? 0, quota: null, own, estimate: true, exchange: true, partial: false, at: q.checked };
   }
   const e = view?.estimate;
   if (e && own) return { used: e.bytes, limit: own, quota: null, own, estimate: true, partial: e.partial, at: e.counted };

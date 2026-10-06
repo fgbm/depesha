@@ -45,6 +45,45 @@ describe("room", () => {
   it("never takes the local cache for the server", () => {
     expect(roomOf({ account_id: "a", quota: null, estimate: null }, { quota_limit_mb: 1024 })).toBeNull();
   });
+
+  it("shows an Exchange mailbox's occupied space against the own limit", () => {
+    const ews = { account_id: "a", quota: { root: "", used: 3.8 * GB, limit: 0, checked: 100 }, estimate: null };
+    // No server limit and no own limit: the volume alone, nothing to compare.
+    const r = roomOf(ews, { quota_limit_mb: 0, ews: { url: "https://x" } })!;
+    expect(r.used).toBe(3.8 * GB);
+    expect(r.limit).toBe(0);
+    expect(r.exchange).toBe(true);
+    expect(percent(r)).toBe(0);
+    // With the user's own limit the bar follows it.
+    const own = roomOf(ews, { quota_limit_mb: 4 * 1024, ews: { url: "https://x" } })!;
+    expect(own.limit).toBe(4 * GB);
+    expect(wholePercent(percent(own))).toBe(95);
+    // A limit 0 quota on an IMAP mailbox is still no room (a root without STORAGE).
+    expect(roomOf(ews, { quota_limit_mb: 4 * 1024 })).toBeNull();
+  });
+
+  it("shows a counted zero for Exchange instead of hiding it", () => {
+    const zero = { account_id: "a", quota: { root: "", used: 0, limit: 0, checked: 100 }, estimate: null };
+    // "Counted and got zero" is a real answer, not "not counted yet": the room stands.
+    const r = roomOf(zero, { quota_limit_mb: 0, ews: { url: "https://x" } })!;
+    expect(r.exchange).toBe(true);
+    expect(r.used).toBe(0);
+  });
+
+  it("prefers the Exchange count over a stale folder_sizes estimate", () => {
+    const ews = {
+      account_id: "a",
+      quota: { root: "", used: 2 * GB, limit: 0, checked: 100 },
+      estimate: { bytes: 9 * GB, partial: false, counted: 50 },
+    };
+    // The same account id may have been IMAP before: the old estimate must not win.
+    const r = roomOf(ews, { quota_limit_mb: 4 * 1024, ews: { url: "https://x" } })!;
+    expect(r.used).toBe(2 * GB);
+    expect(r.exchange).toBe(true);
+    // Exchange with only the stale estimate and no count yet: nothing, not the estimate.
+    const stale = { account_id: "a", quota: null, estimate: { bytes: 9 * GB, partial: false, counted: 50 } };
+    expect(roomOf(stale, { quota_limit_mb: 4 * 1024, ews: { url: "https://x" } })).toBeNull();
+  });
 });
 
 describe("levels", () => {

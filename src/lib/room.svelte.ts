@@ -98,7 +98,10 @@ class Rooms {
   }
 
   room(account: AccountView): Room | null {
-    return account.ews ? null : roomOf(this.quotas[account.id], account);
+    const r = roomOf(this.quotas[account.id], account);
+    // A room with no limit (Exchange without the user's own limit) has nothing to show
+    // as a bar in the sidebar: the "Storage" section shows the occupied volume itself.
+    return r && r.limit > 0 ? r : null;
   }
 
   level(account: AccountView): Level {

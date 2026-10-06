@@ -26,11 +26,19 @@ const PAGE: usize = 500;
 const FETCH_BATCH: usize = 50;
 /// Items written to the cache in one commit, as IMAP's fetches are.
 const WRITE_BATCH: usize = 200;
+/// Folder pages one deep `FindFolder` walk may take. A server that keeps answering
+/// `IncludesLastItemInRange="false"` while ignoring `Offset` would spin forever, and
+/// there is no read timeout to stop it: this bounds the walk instead. 100 pages of
+/// 1000 folders is far past any real mailbox.
+const FOLDER_PAGES_MAX: usize = 100;
 
 const PR_TRANSPORT_HEADERS: &str = "0x007D";
 const PR_MESSAGE_FLAGS: &str = "0x0E07";
 const PR_LAST_VERB: &str = "0x1081";
 const PR_FLAG_STATUS: &str = "0x1090";
+/// `PR_MESSAGE_SIZE_EXTENDED`: the bytes a folder and its contents take. The mailbox's
+/// occupied space is the sum over every folder.
+const PR_MESSAGE_SIZE_EXTENDED: &str = "0x0E08";
 
 const MSGFLAG_READ: i64 = 0x1;
 const MSGFLAG_UNSENT: i64 = 0x8;
@@ -155,13 +163,16 @@ pub async fn list_folders(s: &mut Session) -> Result<Vec<(Folder, String)>> {
 
     let mut raw = Vec::new();
     let mut offset = 0;
-    loop {
-        let body = format!(
-            r#"<m:FindFolder Traversal="Deep"><m:FolderShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}</t:AdditionalProperties></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned="1000" Offset="{offset}" BasePoint="Beginning"/><m:ParentFolderIds>{}</m:ParentFolderIds></m:FindFolder>"#,
-            field("folder:ParentFolderId"),
-            field("folder:DisplayName"),
-            field("folder:FolderClass"),
-            folder_ref(&root)
+    for _ in 0..FOLDER_PAGES_MAX {
+        let body = find_folder_page(
+            &folder_ref(&root),
+            &format!(
+                "{}{}{}",
+                field("folder:ParentFolderId"),
+                field("folder:DisplayName"),
+                field("folder:FolderClass")
+            ),
+            offset,
         );
         let text_ = s.call(&body).await?;
         let doc = parse(&text_)?;
@@ -187,7 +198,7 @@ pub async fn list_folders(s: &mut Session) -> Result<Vec<(Folder, String)>> {
             }
         }
         offset = raw.len();
-        if root_folder.attribute("IncludesLastItemInRange") != Some("false") || raw.len() == before {
+        if raw.len() == before || !has_next_page(root_folder) {
             break;
         }
     }
@@ -272,6 +283,89 @@ fn build_folders(raw: &[RawFolder], root: &str, known: &HashMap<&str, String>) -
     folders
 }
 
+/// The mailbox's occupied space: `PR_MESSAGE_SIZE_EXTENDED` summed over every folder
+/// of the store, by one deep `FindFolder` with paging. The walk starts at `root`, not
+/// `msgfolderroot`: Recoverable Items and the other NON_IPM subtrees count in the
+/// quota too and would be missed under `msgfolderroot`. EWS has no store object, so no
+/// limit is read here: only what is used.
+///
+/// Returns the bytes and how many folders the walk listed, so a caller can tell a real
+/// zero (folders seen, none reporting their size) from a walk that found nothing.
+pub async fn mailbox_bytes(s: &mut Session) -> Result<(u64, usize)> {
+    let mut total = 0u64;
+    let mut folders = 0usize;
+    let mut offset = 0usize;
+    // Bounded like `list_folders`: a server that ignores `Offset` and keeps saying
+    // `IncludesLastItemInRange="false"` would otherwise spin forever (no read timeout).
+    for _ in 0..FOLDER_PAGES_MAX {
+        let body = find_folder_body(offset);
+        let text_ = s.call(&body).await?;
+        let doc = parse(&text_)?;
+        let resp = single(&doc)?;
+        let Some(root_folder) = child(resp, "RootFolder") else {
+            break;
+        };
+        let (bytes, count) = folders_bytes(root_folder);
+        total = total.saturating_add(bytes);
+        folders += count;
+        if count == 0 || !has_next_page(root_folder) {
+            break;
+        }
+        offset += count;
+    }
+    Ok((total, folders))
+}
+
+/// One page of the deep `FindFolder` from `root`: the folder ids and their
+/// `PR_MESSAGE_SIZE_EXTENDED`. `root`, not `msgfolderroot`: the NON_IPM subtrees count.
+pub(crate) fn find_folder_body(offset: usize) -> String {
+    find_folder_page(
+        r#"<t:DistinguishedFolderId Id="root"/>"#,
+        &ext(PR_MESSAGE_SIZE_EXTENDED, "Long"),
+        offset,
+    )
+}
+
+/// A `FindFolder` page of `additional` properties under `parent`, `1000` folders at
+/// `offset`. Shared by the folder list and the occupied-space walk: their shape, paging
+/// and exit condition must not drift apart.
+fn find_folder_page(parent: &str, additional: &str, offset: usize) -> String {
+    format!(
+        r#"<m:FindFolder Traversal="Deep"><m:FolderShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{additional}</t:AdditionalProperties></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned="1000" Offset="{offset}" BasePoint="Beginning"/><m:ParentFolderIds>{parent}</m:ParentFolderIds></m:FindFolder>"#
+    )
+}
+
+/// Whether a `RootFolder` page has a page after it. `IncludesLastItemInRange` is the
+/// answer when present: `"false"`/`"0"` (xs:boolean) mean more, `"true"`/`"1"` mean the
+/// end. Without the attribute there is nothing to page on: the walk ends. The caller
+/// also stops on an empty page, so a server that says `"false"` forever cannot spin it.
+pub(crate) fn has_next_page(root_folder: Node<'_, '_>) -> bool {
+    match root_folder.attribute("IncludesLastItemInRange") {
+        Some(v) => matches!(v.trim(), "false" | "0"),
+        None => false,
+    }
+}
+
+/// The bytes a page of folders takes and how many folders it listed: the sum of
+/// `PR_MESSAGE_SIZE_EXTENDED` over them, a folder without it counting zero.
+pub(crate) fn folders_bytes(root_folder: Node<'_, '_>) -> (u64, usize) {
+    let Some(list) = child(root_folder, "Folders") else {
+        return (0, 0);
+    };
+    let mut bytes = 0u64;
+    let mut count = 0usize;
+    for f in list.children().filter(Node::is_element) {
+        count += 1;
+        bytes = bytes.saturating_add(
+            ext_props(f)
+                .get(&tag(PR_MESSAGE_SIZE_EXTENDED))
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(0),
+        );
+    }
+    (bytes, count)
+}
+
 pub async fn sync_folder_list(s: &mut Session, store: &Store, account_id: &str) -> Result<Vec<Folder>> {
     let list = list_folders(s).await?;
     let folders: Vec<Folder> = list.iter().map(|(f, _)| f.clone()).collect();
@@ -338,7 +432,8 @@ async fn find_page(
     let text_ = s.call(&body).await?;
     let doc = parse(&text_)?;
     let resp = single(&doc)?;
-    let last = child(resp, "RootFolder").and_then(|r| r.attribute("IncludesLastItemInRange")) != Some("false");
+    // `last` is the same xs:boolean read as the folder walk's (`"false"`/`"0"` mean more).
+    let last = child(resp, "RootFolder").is_none_or(|r| !has_next_page(r));
     let items = items(resp)
         .into_iter()
         .filter_map(|it| {

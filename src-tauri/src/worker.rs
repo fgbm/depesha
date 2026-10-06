@@ -725,8 +725,12 @@ async fn connect(state: &AppState, account: &Account) -> Result<Conn> {
 /// The quota once per full sync, after its folders: often enough for a warning, not on
 /// every change IDLE reports. A refusal is only logged; a timeout drops the connection.
 async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> Result<()> {
-    let Conn::Imap(c) = conn else { return Ok(()) };
-    match crate::server::refresh_quota(state, account_id, c).await {
+    let read = match conn {
+        Conn::Imap(c) => crate::server::refresh_quota(state, account_id, c).await,
+        // EWS reports no limit, only the occupied space; it is counted over the folders.
+        Conn::Ews(s) => crate::server::refresh_ews_quota(state, account_id, s).await,
+    };
+    match read {
         Err(e) if e.is_transient() => Err(e),
         Err(e) => {
             tracing::warn!(account = %account_id, "quota not read: {e}");
