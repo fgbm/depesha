@@ -232,6 +232,10 @@ pub struct FollowupCounts {
     pub closed: u32,
 }
 
+/// How far behind a reply's `Date` may be and still count after "wait for a reply again":
+/// the sender's clock, not ours, dates it.
+const CLOCK_SKEW_SECS: i64 = 15 * 60;
+
 /// Closed waits are kept this long unless the user says otherwise.
 pub const DEFAULT_KEEP_DAYS: u32 = 90;
 
@@ -283,13 +287,21 @@ impl Store {
     }
 
     /// "Wait for a reply again" on a wait that ended, answered or closed by hand: waiting
-    /// until `due`, and only an answer dated from `now` on ends it.
+    /// until `due`, and only an answer dated from `now` on ends it, give or take a sender's
+    /// clock running a little behind; never one dated by the time it ended, as the answer
+    /// that ended it was.
     pub fn followup_reopen(&self, account_id: &str, message_id: &str, due: i64, now: i64) -> Result<()> {
         self.conn().execute(
             "UPDATE followups SET status = 'waiting', due = ?3, deadline = ?3, own_deadline = 0, notified = 0,
-                since = ?4, ended = NULL, answered_by = NULL, answer_id = NULL
+                since = MAX(?4 - ?5, COALESCE(ended, 0) + 1), ended = NULL, answered_by = NULL, answer_id = NULL
              WHERE account_id = ?1 AND message_id = ?2 AND status != 'waiting'",
-            params![account_id, message_id.trim_matches(['<', '>']), due, now],
+            params![
+                account_id,
+                message_id.trim_matches(['<', '>']),
+                due,
+                now,
+                CLOCK_SKEW_SECS
+            ],
         )?;
         Ok(())
     }
@@ -297,14 +309,21 @@ impl Store {
     /// Marks waits that got an answer: the first message outside Sent and Drafts that
     /// replies to the sent one, its Message-ID in In-Reply-To or References exactly, and
     /// from the awaited address when there is one. Its date, sender and Message-ID are
-    /// kept. Returns how many were answered.
+    /// kept; the date is the sender's word, so it is kept between sending and now: a
+    /// bogus one must not make the history look older (and pruned at once) or newer.
+    /// Returns how many were answered.
     pub fn followups_resolve(&self) -> Result<usize> {
+        let now = chrono::Utc::now().timestamp();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        type Waiting = (i64, String, String, String, i64);
+        type Waiting = (i64, String, String, String, i64, i64);
         let waiting: Vec<Waiting> = tx
-            .prepare("SELECT rowid, account_id, message_id, expect, since FROM followups WHERE status = 'waiting'")?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+            .prepare(
+                "SELECT rowid, account_id, message_id, expect, since, sent FROM followups WHERE status = 'waiting'",
+            )?
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })?
             .collect::<Result<_, _>>()?;
         let mut answered = 0;
         {
@@ -323,7 +342,7 @@ impl Store {
                 "UPDATE followups SET status = 'answered', ended = ?2, answered_by = ?3, answer_id = ?4
                  WHERE rowid = ?1",
             )?;
-            for (rowid, account_id, message_id, expect, since) in waiting {
+            for (rowid, account_id, message_id, expect, since, sent) in waiting {
                 type Answer = (i64, Option<String>, Option<String>);
                 let found: Option<Answer> = answer
                     .query_row(params![account_id, message_id, expect, since], |r| {
@@ -331,7 +350,7 @@ impl Store {
                     })
                     .optional()?;
                 if let Some((date, from, id)) = found {
-                    mark.execute(params![rowid, date, from, id])?;
+                    mark.execute(params![rowid, date.min(now).max(sent), from, id])?;
                     answered += 1;
                 }
             }
@@ -684,16 +703,65 @@ mod tests {
             (f.status, f.answered_by, f.answer),
             (FollowupStatus::Waiting, None, None)
         );
-        // A new one does.
+        // A new one does, even from a clock a few minutes behind.
         put(
             &store,
             "INBOX",
             2,
-            &with_ids("Re: Вопрос", now + 10, "r2@x", Some("q1@x")),
+            &with_ids("Re: Вопрос", now - 300, "r2@x", Some("q1@x")),
             false,
         );
         assert_eq!(store.followups_resolve().unwrap(), 1);
-        assert_eq!(info(&store, FollowupFilter::Closed, "Вопрос").ended, Some(now + 10));
+        assert_eq!(info(&store, FollowupFilter::Closed, "Вопрос").ended, Some(now - 300));
+    }
+
+    #[test]
+    fn an_answer_dated_wrong_does_not_skew_the_history() {
+        let store = mailbox();
+        put(&store, "Sent", 1, &with_ids("Вопрос", 100_000, "q@x", None), true);
+        wait_for(&store, "q@x", 200_000, |f| f.sent = 100_000);
+        // Dated long before the letter: it ended no earlier than the letter went out, so
+        // the retention does not forget it at once.
+        put(
+            &store,
+            "INBOX",
+            1,
+            &with_ids("Re: Вопрос", 5, "r1@x", Some("q@x")),
+            false,
+        );
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(info(&store, FollowupFilter::Closed, "Вопрос").ended, Some(100_000));
+        assert_eq!(store.followups_prune(100_000 + 86_400, 90).unwrap(), 0);
+        // Taken up again right away: the answer that ended it does not end it again, even
+        // though "now" is within a clock's lag of it.
+        store.followup_reopen("a", "q@x", 300_000, 100_100).unwrap();
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+        // Dated in the future: it ended by now, not later.
+        put(
+            &store,
+            "INBOX",
+            2,
+            &with_ids("Re: Вопрос", i64::MAX / 2, "r2@x", Some("q@x")),
+            false,
+        );
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        let ended = info(&store, FollowupFilter::Closed, "Вопрос").ended.unwrap();
+        assert!(ended <= chrono::Utc::now().timestamp());
+
+        // An answer a minute before "wait again" is within a clock's lag, yet it is the one
+        // that ended the wait: not counted again.
+        put(&store, "Sent", 2, &with_ids("Смета", 100_000, "s@x", None), true);
+        wait_for(&store, "s@x", 200_000, |f| f.sent = 100_000);
+        put(
+            &store,
+            "INBOX",
+            3,
+            &with_ids("Re: Смета", 100_040, "r3@x", Some("s@x")),
+            false,
+        );
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        store.followup_reopen("a", "s@x", 300_000, 100_100).unwrap();
+        assert_eq!(store.followups_resolve().unwrap(), 0);
     }
 
     #[test]
