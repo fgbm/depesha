@@ -93,19 +93,29 @@
     gap: 4px;
   }
 
+  /* The reader's card (ReaderBody.svelte): every form of a letter lies on it, and it grows
+     with plain text, so a long letter scrolls instead of being cut. */
   .body {
-    flex: 1;
+    flex: 1 0 auto;
     min-height: 420px;
     display: flex;
     margin: 0 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper);
+    overflow: hidden;
+  }
+
+  .body :global(iframe) {
+    border-radius: 0;
   }
 
   .plain {
     flex: 1;
-    max-width: 72ch;
+    max-width: calc(72ch + 44px);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    padding: 4px 6px 24px;
+    padding: 18px 22px 24px;
     line-height: 1.6;
   }
 
