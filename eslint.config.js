@@ -18,7 +18,7 @@ export default tseslint.config(
       "src-tauri/**",
       "docs/**",
       "public/**",
-      // E2E — отдельный сценарий поверх приложения (AC2 запрещает менять
+      // E2E — отдельный сценарий поверх приложения (AC2: рефакторинг не меняет
       // `e2e/run.mjs`); его стиль и размеры фазе 0 не принадлежат.
       "e2e/**",
       "**/*.min.js",
@@ -35,7 +35,6 @@ export default tseslint.config(
         // Руны Svelte 5: компилятор, а не рантайм; for no-undef.
         $state: "readonly",
         $derived: "readonly",
-        $derived_by: "readonly",
         $props: "readonly",
         $bindable: "readonly",
         $effect: "readonly",

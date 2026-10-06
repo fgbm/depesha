@@ -60,7 +60,7 @@ summary() {
   nt=$(t_keys | count)
   nrole=$(role_attr_count)
   naria=$(aria_attr_count)
-  nkinds=$({ grep -rhoE '\brole=' --include='*.svelte' src | sed 's/=//'; aria_names; } | LC_ALL=C sort -u | count)
+  nkinds=$({ grep -rhoE '\brole=' --include='*.svelte' src | sed 's/=//' || true; aria_names; } | LC_ALL=C sort -u | count)
   nrv=$(role_values | count)
   nan=$(aria_names | count)
   ndk=$(data_kinds | count)
