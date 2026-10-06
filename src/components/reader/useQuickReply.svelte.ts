@@ -6,12 +6,19 @@
 // the actions, and returns from `useQuickReply()`.
 
 import { untrack } from "svelte";
+import { api } from "../../lib/api";
 import { app } from "../../lib/store.svelte";
 import { formatFor, reply } from "../../lib/compose";
 import { defaultSignature, withSignature } from "../../lib/signatures";
 import { GAP, htmlLetterText, paragraphsHtml } from "../../lib/richtext";
 import { sendWarnings } from "../../lib/sendChecks";
 import type { ComposeDraft } from "../../lib/types";
+
+/** What the answer needs from its component: the wording. */
+export interface QuickReplyHost {
+  /** An answer left behind was kept as a draft; `open` brings it back in a window. */
+  keptAsDraft(open: () => void): void;
+}
 
 export class QuickReplyState {
   /** The letter being read; the answer is built from it. */
@@ -35,8 +42,8 @@ export class QuickReplyState {
   box = $state<HTMLTextAreaElement | null>(null);
   busy = $state(false);
 
-  constructor() {
-    // Another letter opened with an answer half-written: it waits folded in the corner.
+  constructor(private host: QuickReplyHost) {
+    // Another letter opened with an answer half-written: it is kept in the drafts.
     $effect(() => {
       void this.msg?.row.id;
       untrack(() => this.leaveIfMoved());
@@ -44,14 +51,25 @@ export class QuickReplyState {
   }
 
   /**
-   * The answer belongs to a letter no longer open: it goes folded into a window. Not while
-   * it is being sent, or it would be sent and kept as a draft too; `send` looks again.
+   * The answer belongs to a letter no longer open: it is saved as a draft, no window opens
+   * over the next letter. Not while it is being sent, or it would be sent and kept as a
+   * draft too; `send` looks again.
    */
   private leaveIfMoved() {
     if (!this.quick || this.busy || this.quick.to === this.msg?.row.id) return;
-    if (this.text.trim()) this.toWindow("min");
+    if (this.text.trim()) this.keep(this.quick.account_id, this.draft(this.quick));
     this.quick = null;
     this.text = "";
+  }
+
+  /** Saves an answer left behind; when the server refuses, it waits folded in a window that says why. */
+  private async keep(account_id: string, draft: ComposeDraft) {
+    try {
+      const draft_id = await api.draftSave(account_id, draft, null);
+      this.host.keptAsDraft(() => app.openCompose({ account_id, draft, draft_id }));
+    } catch {
+      app.openCompose({ account_id, draft, draft_id: null, unsaved: true }, "min");
+    }
   }
 
   openQuick(all: boolean) {
@@ -124,6 +142,6 @@ export class QuickReplyState {
 }
 
 /** The quick answer under the conversation: the state and the actions, no markup. */
-export function useQuickReply(): QuickReplyState {
-  return new QuickReplyState();
+export function useQuickReply(host: QuickReplyHost): QuickReplyState {
+  return new QuickReplyState(host);
 }

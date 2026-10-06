@@ -301,6 +301,7 @@ export const en = {
   "reader.quickReplyHint": "Ctrl+Enter to send",
   "reader.stuck": "The server is slow to answer.",
   "reader.toWindow": "Open in window",
+  "reader.quickKept": "The reply is saved in Drafts",
   "reader.fromSender": "All mail from this sender",
   "reader.loading": "Loading the message…",
   "reader.message": "Message",

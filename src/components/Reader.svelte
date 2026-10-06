@@ -112,7 +112,9 @@
   const foldedAfter = $derived(!showAllAfter && after.length > 3 ? after.length - 2 : 0);
 
   // Quick reply under the conversation: write without leaving it, unfold into a window when it grows.
-  const quick = useQuickReply();
+  const quick = useQuickReply({
+    keptAsDraft: (open) => app.toast(t("reader.quickKept"), false, { label: t("file.open"), run: open }),
+  });
 </script>
 
 <!-- A narrow window shows the letter instead of the list: the way back and to the neighbours. -->
