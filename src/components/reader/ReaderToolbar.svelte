@@ -68,13 +68,12 @@
   {#if isDraft}
     <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
   {/if}
-  <span class="sep" data-tauri-drag-region></span>
   <button class="btn ghost" onclick={() => app.archive()} title={t("act.doneHint")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
   {#each registry.lists.readerToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
   <button class="btn ghost icon" onclick={() => app.remove()} title={t("act.deleteHint")} aria-label={t("act.delete")}><Trash size={16} /></button>
   <span class="anchor">
     <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
-    <Popover bind:open={moreOpen}>
+    <Popover bind:open={moreOpen} align="left">
       <button class="mi" onclick={() => { moreOpen = false; app.flag("flagged", !msg.row.flags.flagged); }}>
         <Flag size={15} /> {msg.row.flags.flagged ? t("act.unflag") : t("act.setFlag")}<span class="hint">s</span>
       </button>
@@ -96,7 +95,7 @@
         <button class="mi" onclick={() => { moreOpen = false; a.run(msg); }}>{#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.hint}<span class="hint">{a.hint}</span>{/if}</button>
       {/each}
     </Popover>
-    <Popover bind:open={moveOpen}>
+    <Popover bind:open={moveOpen} align="left">
       <div class="mt">{t("act.moveTitle")}</div>
       <div class="folder-list">
         {#each folders as f (f.name)}
@@ -105,6 +104,8 @@
       </div>
     </Popover>
   </span>
+  <!-- The actions stand from the left, over the subject; the rest of the strip drags the window. -->
+  <span class="sep" data-tauri-drag-region></span>
 </div>
 
 <style>
@@ -112,8 +113,9 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    /* The right edge stays clear for the window controls (WindowControls.svelte). */
-    padding: 8px 144px 8px 12px;
+    /* The right edge stays clear for the window controls (WindowControls.svelte); the
+       buttons stand at their height, the subject comes up right under them. */
+    padding: 4px 144px 0 12px;
     flex-wrap: wrap;
   }
 

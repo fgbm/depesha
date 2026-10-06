@@ -233,7 +233,7 @@
      Never shrinks: with overflow hidden a long letter would squeeze it to its border. */
   .thread {
     flex: none;
-    margin: 12px 22px 0;
+    margin: 4px 22px 0;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--paper);

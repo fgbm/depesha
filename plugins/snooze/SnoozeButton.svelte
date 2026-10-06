@@ -29,7 +29,7 @@
     <button class="btn ghost" onclick={() => (snooze.open = !snooze.open)} title={ctx.t(S.hint)}>
       <AlarmClock size={16} /><span class="lbl2">{ctx.t(S.action)}</span>
     </button>
-    <Popover bind:open={() => snooze.open, (v) => (snooze.open = v)}>
+    <Popover bind:open={() => snooze.open, (v) => (snooze.open = v)} align="left">
       <LaterMenu title={ctx.t(S.menuTitle)} presets={snoozePresets()} action={ctx.t(S.action)} onPick={pick} />
     </Popover>
   </span>

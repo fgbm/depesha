@@ -55,9 +55,9 @@ component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/QuickReply.svelte	216	55	31	130
 component	src/components/reader/ReaderBody.svelte	128	66	26	36
-component	src/components/reader/ReaderHeader.svelte	262	64	44	154
+component	src/components/reader/ReaderHeader.svelte	267	64	44	159
 component	src/components/reader/ReaderStates.svelte	231	33	68	130
-component	src/components/reader/ReaderToolbar.svelte	159	63	47	49
+component	src/components/reader/ReaderToolbar.svelte	161	63	48	50
 component	src/components/reader/ReplyActions.svelte	65	19	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
 component	src/components/sidebar/FavouriteRow.svelte	56	34	22	0
@@ -504,8 +504,10 @@ function	src/lib/quota.ts::levelOf	7
 function	src/lib/quota.ts::levels	4
 function	src/lib/quota.ts::warning	8
 function	src/lib/quota.ts::number	3
-function	src/lib/quota.ts::gb	5
-function	src/lib/quota.ts::usedOf	5
+function	src/lib/quota.ts::unitOf	6
+function	src/lib/quota.ts::inUnit	4
+function	src/lib/quota.ts::gb	4
+function	src/lib/quota.ts::usedOf	3
 function	src/lib/quota.ts::wholePercent	3
 function	src/lib/quote.ts::splitQuote	16
 function	src/lib/reader.svelte.ts::shownConversation	10

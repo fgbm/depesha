@@ -107,7 +107,12 @@
 
 <style>
   .head {
-    padding: 16px 22px 10px;
+    padding: 4px 22px 10px;
+  }
+
+  /* Under the folded letters of the conversation it keeps a gap from their cards. */
+  :global(.thread) + .head {
+    padding-top: 12px;
   }
 
   h1 {
