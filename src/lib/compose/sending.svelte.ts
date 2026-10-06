@@ -96,8 +96,13 @@ export class ComposeSending {
       const email = this.host.account(win.account_id)?.email ?? "";
       const draft = $state.snapshot(win.draft);
       this.busy = true;
-      const found = await sendWarnings(draft, email);
-      this.busy = false;
+      let found: string[];
+      try {
+        // A plugin's check may throw: the window must not stay busy and unclosable.
+        found = await sendWarnings(draft, email);
+      } finally {
+        this.busy = false;
+      }
       if (found.length) {
         this.warnings = found;
         this.pendingAt = at;
