@@ -91,31 +91,37 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 // client-side copy is appended here (the append syncs the folder, so a
                 // successful append means the letter is cached).
                 let mut letter_cached = true;
-                if account.save_sent_copy
-                    && !account.is_ews()
-                    && let Some(sent) = sent.as_ref()
-                    && let Some(worker) = worker.as_ref()
-                {
-                    let work = Work::Append {
-                        folder: sent.clone(),
-                        // The wait below still parses the letter: the copy takes a copy.
-                        raw: raw.clone(),
-                        flags: "(\\Seen)".into(),
-                        message_id: message_id.clone(),
-                    };
-                    if let Err(e) = worker.run_background(work).await {
-                        tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
-                        // A wait whose letter never arrived would show badge 0 and could not
-                        // be cancelled. Sync Sent first: the copy may have landed after all.
-                        letter_cached = match &message_id {
-                            Some(mid) => {
-                                worker.run_background(Work::SyncFolder(sent.clone())).await.is_ok()
-                                    && state.store.find_any_by_message_id(&account.id, mid)?.is_some()
+                if account.save_sent_copy && !account.is_ews() {
+                    match (sent.as_ref(), worker.as_ref()) {
+                        (Some(sent), Some(worker)) => {
+                            let work = Work::Append {
+                                folder: sent.clone(),
+                                // The wait below still parses the letter: the copy takes a copy.
+                                raw: raw.clone(),
+                                flags: "(\\Seen)".into(),
+                                message_id: message_id.clone(),
+                            };
+                            if let Err(e) = worker.run_background(work).await {
+                                tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
+                                // A wait whose letter never arrived would show badge 0 and could not
+                                // be cancelled. Sync Sent first: the copy may have landed after all.
+                                letter_cached = match &message_id {
+                                    Some(mid) => {
+                                        worker.run_background(Work::SyncFolder(sent.clone())).await.is_ok()
+                                            && state.store.find_any_by_message_id(&account.id, mid)?.is_some()
+                                    }
+                                    None => false,
+                                };
+                                if !letter_cached {
+                                    state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
+                                }
                             }
-                            None => false,
-                        };
-                        if !letter_cached {
-                            state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
+                        }
+                        // No Sent folder yet (or no worker): the copy cannot be made, so a wait
+                        // could neither be shown nor cancelled. Say so and leave it out.
+                        _ => {
+                            letter_cached = false;
+                            state.emit("app-error", json!({ "message": tr!("sent, but the Sent folder is unknown: the copy was not saved", "письмо отправлено, но папка «Отправленные» неизвестна: копия не сохранена") }));
                         }
                     }
                 }
