@@ -1,3 +1,4 @@
+aria-activedescendant
 aria-autocomplete
 aria-busy
 aria-checked
@@ -13,6 +14,7 @@ aria-modal
 aria-multiline
 aria-orientation
 aria-pressed
+aria-readonly
 aria-selected
 aria-valuemax
 aria-valuemin

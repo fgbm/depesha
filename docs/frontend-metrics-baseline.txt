@@ -1,8 +1,8 @@
-component	src/App.svelte	267	168	53	46
+component	src/App.svelte	289	190	53	46
 component	src/MessageWindow.svelte	94	68	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
-component	src/components/Compose.svelte	1190	542	205	443
+component	src/components/Compose.svelte	840	189	208	443
 component	src/components/Confirm.svelte	95	30	17	48
 component	src/components/Dock.svelte	83	6	20	57
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -18,22 +18,22 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	739	153	231	355
+component	src/components/Preferences.svelte	409	178	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
-component	src/components/Reader.svelte	1299	368	295	636
-component	src/components/RichEditor.svelte	453	277	41	135
+component	src/components/Reader.svelte	310	112	97	101
+component	src/components/RichEditor.svelte	457	280	42	135
 component	src/components/RowMenu.svelte	128	72	49	7
-component	src/components/SearchBox.svelte	333	124	67	142
+component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
-component	src/components/Sidebar.svelte	1322	240	349	733
+component	src/components/Sidebar.svelte	31	24	7	0
 component	src/components/SignaturePicker.svelte	122	31	31	60
 component	src/components/Tasks.svelte	320	81	90	149
 component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	253	102	42	109
 component	src/components/WindowControls.svelte	57	16	11	30
 component	src/components/Wizard.svelte	232	27	91	114
-component	src/components/account/AccountPage.svelte	230	57	42	131
+component	src/components/account/AccountPage.svelte	236	63	42	131
 component	src/components/account/AttachmentsDirField.svelte	23	6	9	8
 component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	65	7	16	42
@@ -45,7 +45,29 @@ component	src/components/account/LettersSection.svelte	11	7	4	0
 component	src/components/account/ServerSection.svelte	362	42	82	238
 component	src/components/account/SignatureEditor.svelte	252	101	44	107
 component	src/components/account/SignaturesField.svelte	257	108	51	98
-component	src/components/account/StorageSection.svelte	454	74	150	230
+component	src/components/account/StorageSection.svelte	456	76	150	230
+component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
+component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
+component	src/components/prefs/MailPanel.svelte	181	15	97	69
+component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
+component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
+component	src/components/reader/Conversation.svelte	131	31	24	76
+component	src/components/reader/QuickReply.svelte	138	21	26	91
+component	src/components/reader/ReaderBody.svelte	118	66	26	26
+component	src/components/reader/ReaderHeader.svelte	266	67	45	154
+component	src/components/reader/ReaderStates.svelte	99	33	66	0
+component	src/components/reader/ReaderToolbar.svelte	159	63	47	49
+component	src/components/reader/ReplyActions.svelte	65	19	11	35
+component	src/components/sidebar/DndButton.svelte	46	29	17	0
+component	src/components/sidebar/FavouriteRow.svelte	56	34	22	0
+component	src/components/sidebar/Favourites.svelte	27	11	11	5
+component	src/components/sidebar/FolderRow.svelte	87	8	79	0
+component	src/components/sidebar/Problem.svelte	39	14	25	0
+component	src/components/sidebar/SidebarFolded.svelte	114	32	82	0
+component	src/components/sidebar/SidebarFull.svelte	103	32	71	0
+component	src/components/sidebar/SidebarTree.svelte	20	15	5	0
+component	src/components/sidebar/SmartSections.svelte	75	25	50	0
+component	src/components/sidebar/TasksButton.svelte	18	12	6	0
 component	src/components/viewer/CsvView.svelte	83	28	19	36
 component	src/components/viewer/DocView.svelte	108	51	19	38
 component	src/components/viewer/ImageView.svelte	86	35	19	32
@@ -61,7 +83,7 @@ function	plugins/command-palette/rank.ts::matchQuality	6
 function	plugins/command-palette/rank.ts::rank	7
 function	plugins/followups/DueForm.svelte::apply	8
 function	plugins/followups/RemindLine.svelte::iso	4
-function	plugins/followups/RemindLine.svelte::setDeadline	6
+function	plugins/followups/RemindLine.svelte::setDeadline	7
 function	plugins/followups/RemindSelect.svelte::apply	12
 function	plugins/followups/RemindSettings.svelte::move	7
 function	plugins/followups/RemindSettings.svelte::change	9
@@ -72,18 +94,21 @@ function	plugins/followups/Repick.svelte::onKey	6
 function	plugins/followups/banner.test.ts::actions	1
 function	plugins/followups/banner.ts::bannerOf	60
 function	plugins/followups/choice.svelte.ts::choiceOf	8
-function	plugins/followups/choice.svelte.ts::withDeadline	3
+function	plugins/followups/choice.svelte.ts::withDeadline	5
 function	plugins/followups/due.test.ts::say	4
 function	plugins/followups/due.ts::at	6
 function	plugins/followups/due.ts::after	15
 function	plugins/followups/due.ts::secondsAfter	3
-function	plugins/followups/due.ts::nextWeekday	6
+function	plugins/followups/due.ts::wallMs	3
+function	plugins/followups/due.ts::nearestWeekday	5
+function	plugins/followups/due.ts::nextWeekday	5
 function	plugins/followups/due.ts::endOfDay	5
 function	plugins/followups/due.ts::dayOf	5
 function	plugins/followups/due.ts::defaultDeadline	3
+function	plugins/followups/due.ts::deadlineFor	3
 function	plugins/followups/due.ts::beforeDeadline	4
-function	plugins/followups/due.ts::firstAt	12
-function	plugins/followups/due.ts::planOf	15
+function	plugins/followups/due.ts::firstAt	14
+function	plugins/followups/due.ts::planOf	18
 function	plugins/followups/due.ts::left	7
 function	plugins/followups/fixtures.ts::sayIn	11
 function	plugins/followups/fixtures.ts::wait	16
@@ -122,6 +147,7 @@ function	plugins/snooze/actions.ts::snoozeMail	8
 function	plugins/templates/TemplatesSettings.svelte::save	5
 function	plugins/templates/TemplatesSettings.svelte::changed	3
 function	src/App.svelte::drag	18
+function	src/App.svelte::refocusList	6
 function	src/App.svelte::zoneAt	5
 function	src/App.svelte::pluginKey	7
 function	src/App.svelte::onKey	68
@@ -135,28 +161,7 @@ function	src/components/AddressInput.svelte::commit	13
 function	src/components/AddressInput.svelte::onInput	22
 function	src/components/AddressInput.svelte::pick	6
 function	src/components/AddressInput.svelte::onKey	19
-function	src/components/Compose.svelte::plainOf	5
-function	src/components/Compose.svelte::insertText	9
-function	src/components/Compose.svelte::onBodyFocus	5
-function	src/components/Compose.svelte::putSignature	4
-function	src/components/Compose.svelte::setAccount	7
-function	src/components/Compose.svelte::setFormat	48
-function	src/components/Compose.svelte::addPictures	15
-function	src/components/Compose.svelte::insertPictureFiles	9
-function	src/components/Compose.svelte::pictureFromFile	9
-function	src/components/Compose.svelte::pastedPictures	3
-function	src/components/Compose.svelte::pictureFromClipboard	6
-function	src/components/Compose.svelte::attach	7
 function	src/components/Compose.svelte::commitAll	4
-function	src/components/Compose.svelte::send	9
-function	src/components/Compose.svelte::sendOnce	36
-function	src/components/Compose.svelte::cancelAutosave	4
-function	src/components/Compose.svelte::saveDraft	26
-function	src/components/Compose.svelte::close	11
-function	src/components/Compose.svelte::discard	11
-function	src/components/Compose.svelte::minimize	5
-function	src/components/Compose.svelte::toggleMax	4
-function	src/components/Compose.svelte::onKey	22
 function	src/components/Confirm.svelte::answer	4
 function	src/components/Confirm.svelte::onKey	10
 function	src/components/ExtensionConsent.svelte::answer	4
@@ -204,34 +209,17 @@ function	src/components/Popover.svelte::place	23
 function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
-function	src/components/Preferences.svelte::choose	4
+function	src/components/Preferences.svelte::start	5
 function	src/components/Preferences.svelte::save	39
 function	src/components/Preferences.svelte::cancel	4
 function	src/components/Preferences.svelte::close	4
+function	src/components/Preferences.svelte::mayLeave	3
+function	src/components/Preferences.svelte::turn	4
 function	src/components/Preferences.svelte::onKey	7
 function	src/components/Preferences.svelte::onNavKey	7
 function	src/components/QuotaLine.svelte::open	4
-function	src/components/Reader.svelte::link	14
-function	src/components/Reader.svelte::viewAttachment	9
-function	src/components/Reader.svelte::closeViewer	9
-function	src/components/Reader.svelte::openAttachment	8
-function	src/components/Reader.svelte::saveAttachment	11
-function	src/components/Reader.svelte::saveAttachmentAs	11
-function	src/components/Reader.svelte::saveAll	12
-function	src/components/Reader.svelte::extMessage	3
 function	src/components/Reader.svelte::bannerAction	4
-function	src/components/Reader.svelte::fromSender	4
 function	src/components/Reader.svelte::trustSender	6
-function	src/components/Reader.svelte::editDraft	8
-function	src/components/Reader.svelte::list	3
-function	src/components/Reader.svelte::isMine	4
-function	src/components/Reader.svelte::roleOf	3
-function	src/components/Reader.svelte::openQuick	8
-function	src/components/Reader.svelte::setQuickAll	6
-function	src/components/Reader.svelte::quickDraft	6
-function	src/components/Reader.svelte::quickToWindow	5
-function	src/components/Reader.svelte::quickSend	18
-function	src/components/Reader.svelte::onQuickKey	11
 function	src/components/RichEditor.svelte::measure	4
 function	src/components/RichEditor.svelte::unlocked	3
 function	src/components/RichEditor.svelte::lock	4
@@ -259,6 +247,7 @@ function	src/components/RichEditor.svelte::removePicked	5
 function	src/components/RowMenu.svelte::run	4
 function	src/components/RowMenu.svelte::withOpened	7
 function	src/components/RowMenu.svelte::fromSender	4
+function	src/components/SearchBox.svelte::optionId	1
 function	src/components/SearchBox.svelte::onInput	9
 function	src/components/SearchBox.svelte::run	8
 function	src/components/SearchBox.svelte::complete	6
@@ -268,26 +257,6 @@ function	src/components/SearchBox.svelte::onKey	21
 function	src/components/SearchBox.svelte::addOperator	6
 function	src/components/Select.svelte::pick	7
 function	src/components/Select.svelte::onKey	7
-function	src/components/Sidebar.svelte::setDnd	4
-function	src/components/Sidebar.svelte::dndOptions	11
-function	src/components/Sidebar.svelte::readCollapsed	7
-function	src/components/Sidebar.svelte::toggle	4
-function	src/components/Sidebar.svelte::contextMenu	5
-function	src/components/Sidebar.svelte::foldersOf	3
-function	src/components/Sidebar.svelte::readFolded	7
-function	src/components/Sidebar.svelte::foldKey	1
-function	src/components/Sidebar.svelte::fold	6
-function	src/components/Sidebar.svelte::depth	6
-function	src/components/Sidebar.svelte::label	5
-function	src/components/Sidebar.svelte::isActive	9
-function	src/components/Sidebar.svelte::statusText	7
-function	src/components/Sidebar.svelte::refresh	8
-function	src/components/Sidebar.svelte::favouriteOf	1
-function	src/components/Sidebar.svelte::listed	3
-function	src/components/Sidebar.svelte::closing	4
-function	src/components/Sidebar.svelte::inboxUnread	3
-function	src/components/Sidebar.svelte::accountInitials	3
-function	src/components/Sidebar.svelte::badge	3
 function	src/components/SignaturePicker.svelte::pick	4
 function	src/components/Tasks.svelte::loadOverview	3
 function	src/components/Tasks.svelte::percent	3
@@ -327,9 +296,26 @@ function	src/components/account/SignaturesField.svelte::onRowKey	15
 function	src/components/account/StorageSection.svelte::folderName	3
 function	src/components/account/StorageSection.svelte::useQuota	4
 function	src/components/account/StorageSection.svelte::useOwn	4
-function	src/components/account/StorageSection.svelte::findLarge	4
+function	src/components/account/StorageSection.svelte::findLarge	5
 function	src/components/account/StorageSection.svelte::openTrash	6
 function	src/components/account/sections.ts::sectionsFor	3
+function	src/components/prefs/GeneralPanel.svelte::choose	4
+function	src/components/prefs/MailPanel.svelte::choose	4
+function	src/components/reader/Conversation.svelte::isMine	4
+function	src/components/reader/Conversation.svelte::roleOf	3
+function	src/components/reader/ReaderBody.svelte::decoded	7
+function	src/components/reader/ReaderBody.svelte::link	14
+function	src/components/reader/ReaderHeader.svelte::list	3
+function	src/components/reader/ReaderHeader.svelte::fromSender	3
+function	src/components/reader/ReaderToolbar.svelte::editDraft	8
+function	src/components/reader/useAttachmentViewer.svelte.ts::useAttachmentViewer	3
+function	src/components/reader/useQuickReply.svelte.ts::useQuickReply	3
+function	src/components/sidebar/DndButton.svelte::setDnd	4
+function	src/components/sidebar/DndButton.svelte::dndOptions	11
+function	src/components/sidebar/FavouriteRow.svelte::closing	4
+function	src/components/sidebar/Problem.svelte::statusText	7
+function	src/components/sidebar/sidebar.svelte.ts::readBooleans	7
+function	src/components/sidebar/sidebar.svelte.ts::roleIcon	3
 function	src/components/viewer/DocView.svelte::pick	4
 function	src/components/viewer/ImageView.svelte::onWheel	6
 function	src/components/viewer/PdfView.svelte::vp	1
@@ -369,12 +355,17 @@ function	src/lib/compose.ts::quotedHtml	3
 function	src/lib/compose.ts::threading	7
 function	src/lib/compose.ts::reply	20
 function	src/lib/compose.ts::forwardHeader	11
+function	src/lib/compose.ts::forwardedInside	4
 function	src/lib/compose.ts::forward	13
 function	src/lib/compose.ts::fromDraft	25
 function	src/lib/compose.ts::isDirty	10
+function	src/lib/compose.ts::takeBodyPictures	6
 function	src/lib/compose.ts::partsOf	8
 function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
+function	src/lib/compose/format.svelte.ts::weigh	4
+function	src/lib/compose/sending.svelte.ts::makeOptions	28
+function	src/lib/compose/sending.svelte.ts::makeContext	11
 function	src/lib/composeKeys.test.ts::press	8
 function	src/lib/composeKeys.ts::names	4
 function	src/lib/composeKeys.ts::composeAction	7
@@ -489,7 +480,7 @@ function	src/lib/mdedit.test.ts::apply	3
 function	src/lib/mdedit.ts::wrapEdit	8
 function	src/lib/mdedit.ts::lineRange	5
 function	src/lib/mdedit.ts::linesEdit	14
-function	src/lib/mdedit.ts::linkEdit	5
+function	src/lib/mdedit.ts::linkEdit	6
 function	src/lib/mdedit.ts::clearEdit	13
 function	src/lib/office.ts::clean	3
 function	src/lib/office.ts::docxHtml	14
@@ -515,9 +506,11 @@ function	src/lib/reader.svelte.ts::shownConversation	10
 function	src/lib/richtext.ts::escapeHtml	3
 function	src/lib/richtext.ts::decode	9
 function	src/lib/richtext.ts::attrsOf	7
-function	src/lib/richtext.ts::tokens	13
+function	src/lib/richtext.ts::tokens	15
 function	src/lib/richtext.ts::escapeMarkdownLine	3
-function	src/lib/richtext.ts::render	210
+function	src/lib/richtext.ts::escapeMarkdown	7
+function	src/lib/richtext.ts::markdownUrl	3
+function	src/lib/richtext.ts::render	215
 function	src/lib/richtext.ts::htmlToText	3
 function	src/lib/richtext.ts::htmlToMarkdown	3
 function	src/lib/richtext.ts::textToHtml	18
@@ -547,14 +540,19 @@ function	src/lib/sendChecks.ts::sendWarnings	12
 function	src/lib/serverFeatures.test.ts::row	3
 function	src/lib/serverFeatures.ts::matches	4
 function	src/lib/serverFeatures.ts::has	3
+function	src/lib/serverFeatures.ts::feature	3
+function	src/lib/serverFeatures.ts::available	5
+function	src/lib/serverFeatures.ts::rev2Only	4
+function	src/lib/serverFeatures.ts::inBase	3
 function	src/lib/serverFeatures.ts::protocol	3
-function	src/lib/serverFeatures.ts::features	55
+function	src/lib/serverFeatures.ts::features	54
 function	src/lib/serverFeatures.ts::grouped	7
 function	src/lib/serverFeatures.ts::unknown	4
 function	src/lib/serverFeatures.ts::needsAttention	4
 function	src/lib/serverFeatures.ts::summary	9
 function	src/lib/serverFeatures.ts::report	9
 function	src/lib/signatures.test.ts::msg	15
+function	src/lib/signatures.test.ts::picture	1
 function	src/lib/signatures.ts::signaturesOf	3
 function	src/lib/signatures.ts::defaultSignature	4
 function	src/lib/signatures.ts::signatureSize	3
@@ -569,13 +567,15 @@ function	src/lib/signatures.ts::sigBlock	4
 function	src/lib/signatures.ts::sigHtml	4
 function	src/lib/signatures.ts::splitPlain	13
 function	src/lib/signatures.ts::htmlBlock	8
+function	src/lib/signatures.ts::splitHtmlSignature	4
 function	src/lib/signatures.ts::hasHtmlSignature	3
 function	src/lib/signatures.ts::withoutHtmlSignature	4
 function	src/lib/signatures.ts::aboveQuote	4
 function	src/lib/signatures.ts::putSignatureHtml	7
 function	src/lib/signatures.ts::putSignatureText	4
 function	src/lib/signatures.ts::withSignature	9
-function	src/lib/signatures.ts::signatureIn	14
+function	src/lib/signatures.ts::foundSignature	10
+function	src/lib/signatures.ts::signatureIn	7
 function	src/lib/sort.test.ts::row	29
 function	src/lib/sort.ts::naturalDesc	3
 function	src/lib/sort.ts::key	1
