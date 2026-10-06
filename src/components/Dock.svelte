@@ -1,12 +1,15 @@
 <script lang="ts">
   // Compositions dock in the corner and leave the mail usable, as in Gmail and Yandex Mail.
-  // Toasts sit left of the windows: they never cover a window's Send button.
+  // Toasts stand in the corner above the folded bars, whatever their number; next to an
+  // unfolded window they sit left of it, so they never cover its Send button.
   import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
   import Compose from "./Compose.svelte";
+
+  const unfolded = $derived(app.composes.some((c) => c.mode === "open"));
 </script>
 
-<div class="dock">
+<div class="dock" class:stacked={!unfolded}>
   <div class="toasts" aria-live="polite">
     {#each app.toasts as toast (toast.id)}
       <div class="toast" class:error={toast.error}>
@@ -18,9 +21,13 @@
       </div>
     {/each}
   </div>
-  {#each app.composes as c (c.id)}
-    <Compose {c} />
-  {/each}
+  {#if app.composes.length}
+    <div class="windows">
+      {#each app.composes as c (c.id)}
+        <Compose {c} />
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -36,7 +43,20 @@
     pointer-events: none;
   }
 
-  .dock > :global(*) {
+  /* Only bars below: the toasts go over them, at the same place as with none. */
+  .dock.stacked {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .windows {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .toasts,
+  .windows > :global(*) {
     pointer-events: auto;
   }
 
