@@ -232,6 +232,9 @@ pub struct FollowupCounts {
     pub closed: u32,
 }
 
+/// The reminders a wait remembers: the latest, not every one of a repeat that runs for months.
+const REMINDED_KEPT: i64 = 20;
+
 /// How far behind a reply's `Date` may be and still count after "wait for a reply again":
 /// the sender's clock, not ours, dates it.
 const CLOCK_SKEW_SECS: i64 = 15 * 60;
@@ -359,7 +362,8 @@ impl Store {
         Ok(answered)
     }
 
-    /// Reminders due now that were not announced yet; each is noted in the wait's history.
+    /// Reminders due now that were not announced yet; each is noted in the wait's history,
+    /// which keeps the last `REMINDED_KEPT` of them.
     /// One that repeats is set to the next of its times after `now`; any other is marked
     /// announced.
     pub fn followups_due(&self, now: i64) -> Result<Vec<Followup>> {
@@ -368,13 +372,16 @@ impl Store {
             "UPDATE followups SET
                 notified = repeat_secs <= 0,
                 due = CASE WHEN repeat_secs > 0 THEN due + repeat_secs * ((?1 - due) / repeat_secs + 1) ELSE due END,
-                reminded = json_insert(CASE WHEN json_valid(reminded) THEN reminded ELSE '[]' END, '$[#]', ?1)
+                reminded = (SELECT json_group_array(value ORDER BY key) FROM (
+                    SELECT key, value FROM json_each(json_insert(
+                        CASE WHEN json_valid(reminded) THEN reminded ELSE '[]' END, '$[#]', ?1))
+                    ORDER BY key DESC LIMIT ?2))
              WHERE status = 'waiting' AND notified = 0 AND due <= ?1
                AND EXISTS (SELECT 1 FROM messages m
                    WHERE m.account_id = followups.account_id AND m.message_id = followups.message_id)
              RETURNING account_id, message_id, subject, recipients, sent, due, deadline, repeat_secs, expect, kind",
         )?;
-        let rows = stmt.query_map([now], |r| {
+        let rows = stmt.query_map([now, REMINDED_KEPT], |r| {
             Ok(Followup {
                 account_id: r.get(0)?,
                 message_id: r.get(1)?,
@@ -551,6 +558,16 @@ mod tests {
         assert_eq!(row.followup_due, Some(2_300));
         let f = row.followup.as_ref().unwrap();
         assert_eq!((f.deadline, f.reminded.as_slice()), (500, &[500, 800, 2_050][..]));
+        // Repeats for months keep only the latest reminders.
+        let mut at = 2_300;
+        for _ in 0..30 {
+            store.followups_due(at).unwrap();
+            at += 300;
+        }
+        let f = info(&store, FollowupFilter::Active, "Вопрос");
+        assert_eq!(f.reminded.len(), REMINDED_KEPT as usize);
+        assert_eq!(f.reminded.first(), Some(&(at - 300 * REMINDED_KEPT)));
+        assert_eq!(f.reminded.last(), Some(&(at - 300)));
         // An answer stops the repeats.
         put(
             &store,
