@@ -10,7 +10,7 @@ import { api } from "../api";
 import { convertDraft, losesFormatting, takeBodyPictures } from "../compose";
 import { GAP, htmlToText, letterText, splitHtmlQuote, textToHtml } from "../richtext";
 import { cleanEditorHtml } from "../sanitize";
-import { pictureName, picturesSize } from "../images";
+import { pictureName, picturesSize, type Picture } from "../images";
 import {
   defaultSignature,
   hasHtmlSignature,
@@ -22,7 +22,7 @@ import {
   withoutHtmlSignature,
 } from "../signatures";
 import type { ComposeWindow } from "../composes.svelte";
-import type { AccountView, BodyFormat, ComposeDraft, Signature } from "../types";
+import type { AccountView, AttachmentSource, BodyFormat, ComposeDraft, Signature } from "../types";
 import type RichEditor from "../../components/RichEditor.svelte";
 import type FormatBar from "../../components/FormatBar.svelte";
 
@@ -74,7 +74,8 @@ export class ComposeFormat {
   private plainOfHtml = "";
   /** The quote turned into text once, not on every key: a quoted letter may be long. */
   private quoteText = { html: "", text: "" };
-  private switching = false;
+  /** The letter is being rewritten in another format: the body takes no keys meanwhile. */
+  switching = $state(false);
   /** Entering the body of a fresh message puts the caret above the signature, once. */
   private placed = false;
 
@@ -235,32 +236,49 @@ export class ComposeFormat {
     this.host.win.draft.from = { name: acc.display_name, email: acc.email };
   }
 
+  /** Asks what the switch to this format would lose; false when the user said no. */
+  private async confirmSwitch(next: BodyFormat): Promise<boolean> {
+    const draft = $state.snapshot(this.host.win.draft) as ComposeDraft;
+    if (losesFormatting(draft, next) && !(await this.host.confirmToPlain())) return false;
+    // Markdown has no pictures inside: the letter's own go as files; the signature keeps its.
+    if (this.format === "html" && next === "markdown" && takeBodyPictures(draft.html ?? "").pictures.length) {
+      return this.host.confirmPicturesAttach();
+    }
+    return true;
+  }
+
+  /** The letter's own pictures as files of the letter, for Markdown: not attached yet. */
+  private async picturesAsFiles(pictures: Picture[]): Promise<AttachmentSource[]> {
+    const out: AttachmentSource[] = [];
+    let n = this.host.win.draft.attachments.length;
+    for (const p of pictures) {
+      const name = pictureName(p.mime, ++n);
+      const path = await api.tempAttachment(name, p.base64);
+      out.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
+    }
+    return out;
+  }
+
   /** Rewrites the letter in another format; the settings stay as they are. */
   async setFormat(next: BodyFormat) {
     const win = this.host.win;
     if (next === this.format || this.switching) return;
-    let current = $state.snapshot(win.draft) as ComposeDraft;
-    if (losesFormatting(current, next)) {
-      if (!(await this.host.confirmToPlain())) return;
-    }
     this.switching = true;
     try {
+      if (!(await this.confirmSwitch(next))) return;
+      // Taken after the questions: what was typed while they were asked is in it, and the
+      // editor takes no keys until the letter is rewritten.
+      let current = $state.snapshot(win.draft) as ComposeDraft;
+      let files: AttachmentSource[] = [];
       if (this.format === "html" && next === "markdown") {
-        // Markdown has no pictures inside: take the letter's own; the signature keeps its.
         const { html, pictures } = takeBodyPictures(current.html ?? "");
-        if (pictures.length) {
-          if (!(await this.host.confirmPicturesAttach())) return;
-          let n = win.draft.attachments.length;
-          for (const p of pictures) {
-            const name = pictureName(p.mime, ++n);
-            const path = await api.tempAttachment(name, p.base64);
-            win.draft.attachments.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
-          }
-          current = { ...current, html };
-        }
+        files = await this.picturesAsFiles(pictures);
+        current = { ...current, html };
       }
       this.preview = false;
       const d = await convertDraft(current, next, $state.snapshot(this.signature) as Signature | null, (text) => api.markdownHtml(text));
+      // Attached once the letter is rewritten: a failure leaves the pictures in its text alone.
+      win.draft.attachments.push(...files);
       if (d.format === "html") {
         this.htmlBody = d.html ?? "";
         this.plainOfHtml = d.text;

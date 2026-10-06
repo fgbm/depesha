@@ -147,6 +147,7 @@
     get preview() { return fmt.preview; },
     set preview(v: boolean) { fmt.preview = v; },
     get format() { return fmt.format; },
+    get switching() { return fmt.switching; },
     get previewHtml() { return fmt.previewHtml; },
     get signature() { return fmt.signature; },
     get signatures() { return fmt.signatures; },
@@ -289,6 +290,7 @@
           onpictures={m.pastedPictures}
           locked={SIGNATURE_CLASS}
           lockedBar={m.signature ? signatureChip : undefined}
+          readonly={m.switching}
         />
       {:else if m.format === "markdown" && m.preview}
         <!-- Cleaned twice: by the backend that renders it and here. -->
@@ -298,6 +300,7 @@
           bind:this={m.body}
           bind:value={m.head}
           onfocus={m.onBodyFocus}
+          readonly={m.switching}
           spellcheck="true"
           aria-label={t("compose.body")}
           placeholder={m.format === "markdown" ? t("compose.markdownPlaceholder") : t("compose.bodyPlaceholder")}
@@ -340,7 +343,7 @@
           <span class="quote-act">{m.quoteOpen ? t("compose.quoteHide") : t("compose.quoteShow")}</span>
         </button>
         {#if m.quoteOpen}
-          <textarea class="quote-text" bind:value={m.quote} spellcheck="false" aria-label={t("compose.quote")}></textarea>
+          <textarea class="quote-text" bind:value={m.quote} readonly={m.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
         {/if}
       </div>
     {/if}

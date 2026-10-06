@@ -17,6 +17,7 @@
     onpictures,
     locked = "",
     lockedBar,
+    readonly = false,
   }: {
     html?: string;
     label: string;
@@ -33,6 +34,8 @@
     locked?: string;
     /** Shown at the top right corner of that block when it is pointed at or focused: its menu. */
     lockedBar?: Snippet;
+    /** Shown but not edited for a while: the letter is being rewritten. */
+    readonly?: boolean;
   } = $props();
 
   let el = $state<HTMLDivElement | null>(null);
@@ -283,7 +286,8 @@
     bind:this={el}
     class="rich"
     class:empty
-    contenteditable="true"
+    contenteditable={readonly ? "false" : "true"}
+    aria-readonly={readonly}
     role="textbox"
     tabindex="0"
     aria-multiline="true"
