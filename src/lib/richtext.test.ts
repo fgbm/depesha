@@ -62,6 +62,16 @@ describe("htmlToMarkdown", () => {
   it("does not let plain text turn into formatting", () => {
     expect(htmlToMarkdown("<div>2*3 = 6</div><div># не заголовок</div><div>- не список</div>")).toBe("2\\*3 = 6\n\\# не заголовок\n\\- не список");
   });
+
+  it("keeps tags, references and brackets of the text as text", () => {
+    expect(htmlToMarkdown("<div>Use Vector&lt;int&gt;</div>")).toBe("Use Vector\\<int>");
+    expect(htmlToMarkdown("<div>&amp;copy; и a &amp; b</div>")).toBe("\\&copy; и a & b");
+    expect(htmlToMarkdown("<div>[1] ~x~ _a_ snake_case</div>")).toBe("\\[1\\] \\~x\\~ \\_a\\_ snake_case");
+  });
+
+  it("does not escape inside a code span", () => {
+    expect(htmlToMarkdown("<div><code>a*b &lt;T&gt;</code> a*b</div>")).toBe("`a*b <T>` a\\*b");
+  });
 });
 
 describe("textToHtml", () => {

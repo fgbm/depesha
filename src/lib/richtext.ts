@@ -69,6 +69,19 @@ function escapeMarkdownLine(line: string): string {
 }
 
 /**
+ * Text that Markdown would read as markup, an inline tag (which the backend's cleaning
+ * then drops with its words) or a character reference. An underscore inside a word
+ * is no emphasis and stays bare, so `snake_case` reads as typed.
+ */
+function escapeMarkdown(s: string): string {
+  const word = /[\p{L}\p{N}]/u;
+  return s
+    .replace(/[\\`*[\]<~]/g, "\\$&")
+    .replace(/&(?=#?[a-z0-9]+;)/gi, "\\&")
+    .replace(/_/g, (m, at: number, all: string) => (word.test(all[at - 1] ?? "") && word.test(all[at + 1] ?? "") ? m : "\\_"));
+}
+
+/**
  * Walks the HTML and writes it as lines of text, or as Markdown when `markdown` is set:
  * paragraphs apart by an empty line, lines of a quote under "> ", list items under
  * "- " and "1. ", a link with its address when the text does not show it.
@@ -81,6 +94,7 @@ function render(html: string, markdown: boolean): string {
   let depth = 0; // quote levels
   let hidden = 0;
   let pre = 0;
+  let code = 0; // inline code spans open
   let opened = false; // a quote or a list item has just begun: a paragraph in it starts without an empty line
   let bullet = ""; // the list marker the next content starts with
   const lists: { ordered: boolean; n: number; items: number }[] = [];
@@ -147,8 +161,9 @@ function render(html: string, markdown: boolean): string {
     }
     let s = raw.replace(/[ \t\r\n\f]+/g, " ");
     if (!started || cur.endsWith(" ")) s = s.replace(/^ /, "");
-    if (markdown) s = s.replace(/([*`\\])/g, "\\$1");
-    if (markdown && !started) s = escapeMarkdownLine(s);
+    // A code span shows its text as it is: an escape there would show its backslash.
+    if (markdown && !code) s = escapeMarkdown(s);
+    if (markdown && !code && !started) s = escapeMarkdownLine(s);
     write(s);
   };
   const mark = (s: string) => {
@@ -276,7 +291,10 @@ function render(html: string, markdown: boolean): string {
       if (name === "b" || name === "strong") mark("**");
       else if (name === "i" || name === "em") mark("*");
       else if (name === "s" || name === "strike" || name === "del") mark("~~");
-      else if (name === "code" && !pre) mark("`");
+      else if (name === "code" && !pre) {
+        code = Math.max(0, code + (close ? -1 : 1));
+        mark("`");
+      }
     }
   }
   flush();
