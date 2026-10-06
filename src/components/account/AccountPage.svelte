@@ -1,7 +1,7 @@
 <script lang="ts">
   // A mailbox's page in the settings window: one page of sections under a table of contents
   // that stays in sight and marks the section being read, and the page's own buttons.
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { rooms } from "../../lib/room.svelte";
@@ -28,14 +28,6 @@
     current = currentSection(tops, scroller.scrollTop, atBottom);
   }
 
-  // Opened for one of its sections (the signatures, from a letter): the page starts there.
-  onMount(() => {
-    const id = app.settingsSection;
-    app.settingsSection = null;
-    const target = id ? scroller?.querySelector<HTMLElement>(`section[data-section="${id}"]`) : null;
-    if (scroller && target) scroller.scrollTop = target.offsetTop;
-  });
-
   function go(e: MouseEvent, id: string) {
     e.preventDefault();
     scrollTo(id, "smooth");
@@ -50,16 +42,24 @@
   onMount(() => {
     // What the server can do and its room, from the cache: the sections and the contents' dot read it.
     rooms.loadInfo(account.id);
-    // Opened for one section (the sidebar's quota line opens «Storage»).
-    const section = app.settingsSection;
-    app.settingsSection = null;
-    if (section) tick().then(() => scrollTo(section, "instant"));
     // Unsaved changes and a check under way are asked about before the settings turn elsewhere.
     const leave = () => form.mayLeave();
     app.settingsLeave = leave;
     return () => {
       if (app.settingsLeave === leave) app.settingsLeave = null;
     };
+  });
+
+  // Opened for one of its sections (the quota line opens «Storage», a letter the signatures),
+  // also when this page is open already. Only this mailbox's page takes the section.
+  $effect(() => {
+    void app.settingsTurn;
+    untrack(() => {
+      const section = app.settingsSection;
+      if (!section || app.settingsPage !== `account:${account.id}`) return;
+      app.settingsSection = null;
+      tick().then(() => scrollTo(section, "instant"));
+    });
   });
 </script>
 
