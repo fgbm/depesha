@@ -62,6 +62,12 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `overlay` | a component on top of the window, in the main window and in a window of one letter |
 | `fileViewer` | a renderer of attachments in the viewer: a new format (by `extensions`, `mimes` or `match`), or a better one for a format the core shows (`priority` above 0). The component gets `file` (`ViewedFile`: `bytes()`, `text()`, `openLink()`, `fail()`) besides its `props`; the viewer's header, ←/→, Esc, Save and "Open in application" stay the same for every format |
 
+Besides `ctx.ui`:
+
+- **`ctx.mail`** works with the list: `reload()` reloads it at once; `scheduleReload()` is for backend events that come in bursts (a sync, a resolved wait): it waits the burst out and reloads once.
+- **`ComposeContext.options`** are what the core sends with the letter, set by a compose control: `at` (send later, unix seconds); `followupSecs`, a reminder that long after sending when no answer comes (`followupDays` is its older form); `followup`, a `FollowupPlan` with the rest of that wait: `deadline_secs`, or `due_at` and `deadline_at` for a reminder and a deadline at a time of the clock (unix seconds; they do not move when the letter leaves later than planned), `repeat_secs`, `expect` (whose answer counts) and `kind` (the choice's name).
+- **`FollowupInfo`** is a sent letter's wait as list rows carry it (`row.followup`): `status` (`waiting`, `answered`, `closed`), the next reminder `due`, `deadline`, `ended`, `answered_by`, the `answer`'s row id and the times it `reminded` (the latest 20). `FollowupPlan` and `FollowupInfo` are exported from `@depesha/plugin-api`.
+
 ## Community plugins
 
 A folder with `manifest.json` and `main.js`. Examples: `community/external-sender` (a banner for mail from outside), `community/reading-time` (a command), `community/mail-rules` (sorting new mail).
