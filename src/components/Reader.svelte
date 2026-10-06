@@ -224,8 +224,10 @@
     overflow-y: auto;
   }
 
-  /* Folded letters of the conversation: one line each, the opened letter between them. */
+  /* Folded letters of the conversation: one line each, the opened letter between them.
+     Never shrinks: with overflow hidden a long letter would squeeze it to its border. */
   .thread {
+    flex: none;
     margin: 12px 22px 0;
     border: 1px solid var(--line);
     border-radius: 8px;
