@@ -35,6 +35,14 @@ account.signatures.textEmpty
 account.signatures.textVersion
 account.signatures.title
 account.signatures.up
+account.waiting.folder
+account.waiting.folderNew
+account.waiting.hint
+account.waiting.park
+account.waiting.stop
+account.waiting.stopArchive
+account.waiting.stopInbox
+account.waiting.title
 accounts.colorAuto
 accounts.down
 accounts.hint
@@ -245,7 +253,6 @@ format.short.markdown
 keys.all
 later.custom
 letterView.title
-list.answered
 list.draft
 list.hasFiles
 list.inThread
@@ -255,6 +262,8 @@ list.noSender
 list.size
 list.to
 loading
+mark.open
+mark.openTitle
 menu.replyAll
 nav.allDrafts
 nav.allInboxes

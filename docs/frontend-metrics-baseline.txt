@@ -14,7 +14,7 @@ component	src/components/LetterViewSwitch.svelte	72	10	12	50
 component	src/components/MailFrame.svelte	161	119	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	547	131	102	314
+component	src/components/MessageList.svelte	560	138	103	319
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
@@ -43,11 +43,12 @@ component	src/components/account/ConnectionBlock.svelte	117	14	17	86
 component	src/components/account/ConnectionFields.svelte	189	10	60	119
 component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	42	14	12	16
-component	src/components/account/LettersSection.svelte	11	7	4	0
+component	src/components/account/LettersSection.svelte	14	9	5	0
 component	src/components/account/ServerSection.svelte	362	42	82	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
+component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
 component	src/components/prefs/MailPanel.svelte	198	17	112	69
@@ -56,7 +57,7 @@ component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/QuickReply.svelte	216	55	31	130
 component	src/components/reader/ReaderBody.svelte	108	46	26	36
-component	src/components/reader/ReaderHeader.svelte	267	64	44	159
+component	src/components/reader/ReaderHeader.svelte	312	72	53	187
 component	src/components/reader/ReaderStates.svelte	231	33	68	130
 component	src/components/reader/ReaderToolbar.svelte	161	63	48	50
 component	src/components/reader/ReplyActions.svelte	65	19	11	35
@@ -95,7 +96,8 @@ function	plugins/followups/RemindSettings.svelte::setKeep	5
 function	plugins/followups/Repick.svelte::pick	11
 function	plugins/followups/Repick.svelte::onKey	6
 function	plugins/followups/banner.test.ts::actions	1
-function	plugins/followups/banner.ts::bannerOf	60
+function	plugins/followups/banner.ts::bannerOf	40
+function	plugins/followups/banner.ts::waitingBanner	28
 function	plugins/followups/choice.svelte.ts::choiceOf	8
 function	plugins/followups/choice.svelte.ts::withDeadline	5
 function	plugins/followups/due.test.ts::say	4
@@ -114,22 +116,30 @@ function	plugins/followups/due.ts::firstAt	14
 function	plugins/followups/due.ts::planOf	18
 function	plugins/followups/due.ts::left	7
 function	plugins/followups/fixtures.ts::sayIn	11
-function	plugins/followups/fixtures.ts::wait	16
+function	plugins/followups/fixtures.ts::wait	20
 function	plugins/followups/fixtures.ts::letter	29
+function	plugins/followups/fixtures.ts::incoming	13
 function	plugins/followups/index.ts::waiting	4
 function	plugins/followups/index.ts::repick	1
 function	plugins/followups/labels.ts::labelMaker	21
 function	plugins/followups/notify.ts::registerNotify	20
 function	plugins/followups/presets.ts::fresh	4
 function	plugins/followups/presets.ts::edit	25
-function	plugins/followups/rows.ts::rowTag	33
+function	plugins/followups/queue.test.ts::folder	1
+function	plugins/followups/queue.test.ts::acts	1
+function	plugins/followups/rows.test.ts::going	1
+function	plugins/followups/rows.test.ts::f	1
+function	plugins/followups/rows.ts::rowTag	43
+function	plugins/followups/rows.ts::goingTag	9
+function	plugins/followups/rows.ts::since	6
 function	plugins/followups/strings.test.ts::holes	1
 function	plugins/followups/strings.test.ts::pairs	10
 function	plugins/followups/view.test.ts::fakeContext	13
 function	plugins/followups/view.ts::registerView	50
 function	plugins/followups/wait.test.ts::a	1
-function	plugins/followups/wait.ts::stateOf	4
-function	plugins/followups/wait.ts::waitOf	17
+function	plugins/followups/wait.ts::stateOf	6
+function	plugins/followups/wait.ts::parked	3
+function	plugins/followups/wait.ts::waitOf	21
 function	plugins/followups/wait.ts::whoOf	4
 function	plugins/followups/wait.ts::awaitable	11
 function	plugins/newsletters/confirm.test.ts::t	1
@@ -202,7 +212,7 @@ function	src/components/MessageList.svelte::tagsOf	3
 function	src/components/MessageList.svelte::onScroll	5
 function	src/components/MessageList.svelte::click	8
 function	src/components/MessageList.svelte::context	7
-function	src/components/MessageList.svelte::who	10
+function	src/components/MessageList.svelte::who	12
 function	src/components/MessageList.svelte::firstName	4
 function	src/components/Outbox.svelte::retry	3
 function	src/components/Plugins.svelte::say	1
@@ -364,7 +374,8 @@ function	src/lib/compose.ts::quoted	7
 function	src/lib/compose.ts::letterHtml	4
 function	src/lib/compose.ts::quotedHtml	3
 function	src/lib/compose.ts::threading	7
-function	src/lib/compose.ts::reply	20
+function	src/lib/compose.ts::actsOn	7
+function	src/lib/compose.ts::reply	22
 function	src/lib/compose.ts::forwardHeader	11
 function	src/lib/compose.ts::forwardedInside	4
 function	src/lib/compose.ts::forward	13
@@ -375,7 +386,8 @@ function	src/lib/compose.ts::partsOf	8
 function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
 function	src/lib/compose/format.svelte.ts::weigh	4
-function	src/lib/compose/sending.svelte.ts::makeOptions	28
+function	src/lib/compose/sending.svelte.ts::makeOptions	34
+function	src/lib/compose/sending.svelte.ts::withPark	4
 function	src/lib/compose/sending.svelte.ts::makeContext	13
 function	src/lib/compose/sending.test.ts::control	5
 function	src/lib/compose/sending.test.ts::win	3
@@ -400,8 +412,9 @@ function	src/lib/consent.ts::consentItems	7
 function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
-function	src/lib/events.ts::common	17
-function	src/lib/events.ts::listenMain	35
+function	src/lib/events.ts::common	20
+function	src/lib/events.ts::listenMain	49
+function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::listenWindow	10
 function	src/lib/extensions.svelte.ts::fromRow	16
 function	src/lib/extensions.svelte.ts::textOf	4
@@ -488,7 +501,8 @@ function	src/lib/letterView.ts::hasView	6
 function	src/lib/letterView.ts::senderView	4
 function	src/lib/letterView.ts::preferredView	4
 function	src/lib/letterView.ts::switchViews	5
-function	src/lib/list.svelte.ts::stale	41
+function	src/lib/list.svelte.ts::stale	42
+function	src/lib/list.svelte.ts::goingToWait	3
 function	src/lib/list.svelte.ts::withTail	6
 function	src/lib/list.test.ts::serve	3
 function	src/lib/markdown/dialect.test.ts::tagsOf	33
@@ -638,6 +652,7 @@ function	src/lib/store.test.ts::accWith	7
 function	src/lib/store.test.ts::typing	9
 function	src/lib/store.test.ts::noAnimation	5
 function	src/lib/store.test.ts::caret	21
+function	src/lib/store.test.ts::started	6
 function	src/lib/testing.ts::emit	5
 function	src/lib/testing.ts::settings	28
 function	src/lib/testing.ts::resetFakes	23
