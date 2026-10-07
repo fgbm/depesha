@@ -10,6 +10,7 @@
 // such a write as one step.
 
 import { EditorView, WidgetType } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
 import { t } from "../i18n.svelte";
 import type { Table } from "./table";
 import { deleteColumn, deleteRow, insertColumn, insertRow, moveCell, moveColumn, moveRow, parseTable, setAlign, tableSource } from "./table";
@@ -70,6 +71,10 @@ function cellOf(node: Element | null): { row: number; col: number } | null {
  *  anew from the changed source, so the place cannot travel on the instance; it waits here. */
 let pendingFocus: { row: number; col: number } | null = null;
 
+/** A table's cell took or gave up the focus. The editor's own focus does not change then, so
+ *  this effect is what tells it to read again what the formatting row shows (markdownEditor.ts). */
+export const cellFocus = StateEffect.define<boolean>();
+
 export class TableView extends WidgetType {
   private readonly parsed: Table;
 
@@ -129,8 +134,10 @@ export class TableView extends WidgetType {
       // Wait a tick: the focus may move to another cell or to a grip of this same table.
       setTimeout(() => {
         if (!root.contains(document.activeElement)) this.commit(view, root);
+        view.dispatch({ effects: cellFocus.of(false) });
       }, 0);
     });
+    root.addEventListener("focusin", () => view.dispatch({ effects: cellFocus.of(true) }));
     return root;
   }
 

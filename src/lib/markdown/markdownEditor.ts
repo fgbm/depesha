@@ -13,7 +13,7 @@ import { t } from "../i18n.svelte";
 import { markdownSupport } from "./dialect";
 import { editSpec, formatsAt, inTableAt } from "./field";
 import { previewPieces, type PreviewOptions } from "./preview";
-import { TableView } from "./tableWidget";
+import { TableView, cellFocus } from "./tableWidget";
 import { codeEdit, headingEdit, imageAt, pictureAltEdit, pictureEdit, pictureRemoveEdit, tableEdit } from "./mdedits";
 import { tableSource } from "./table";
 import type { Edit } from "../mdedit";
@@ -473,7 +473,9 @@ function fieldOf(view: EditorView): MarkdownField {
     code: () => applyOf(view, codeEdit),
     table: () => applyOf(view, (t, s, e) => tableEdit(t, s, e, 3)),
     picture: (url, alt) => applyOf(view, (t, s, e) => pictureEdit(t, s, e, url, alt)),
-    inTable: () => inTableAt(view.state, view.state.selection.main.head),
+    inTable: () =>
+      // The cell a table draws has the focus, not the editor's own caret, while it is edited.
+      !!document.activeElement?.closest?.(".md-table-cell-text") || inTableAt(view.state, view.state.selection.main.head),
   };
 }
 
@@ -520,7 +522,7 @@ export function createEditor(o: EditorOptions): MarkdownEditorHandle {
         EditorView.focusChangeEffect.of((_, focusing) => setFocused.of(focusing)),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) o.onchange(u.state.doc.toString());
-          if (u.selectionSet || u.focusChanged) o.onselection();
+          if (u.selectionSet || u.focusChanged || u.transactions.some((tr) => tr.effects.some((e) => e.is(cellFocus)))) o.onselection();
         }),
         editable.of(readonlyOf(o.readonly)),
         hint.of(placeholder(o.placeholder)),
