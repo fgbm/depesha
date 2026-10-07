@@ -874,6 +874,43 @@ JVBERi0xLjQK\r\n\
         assert!(!html.contains("tracker.example") && !html.contains("script"), "{html}");
     }
 
+    #[test]
+    fn markdown_tables_carry_a_grid_and_keep_their_alignment() {
+        let html = markdown_html("| a | b |\n|---|:--:|\n| 1 | 2 |\n");
+        // The grid is inline: a foreign client, which never sees the reader's styles, draws it.
+        assert!(html.contains("<table style=\"border-collapse:collapse\">"), "{html}");
+        assert!(
+            html.contains("<td style=\"border:1px solid #d9dde3;padding:4px 10px\">1</td>"),
+            "{html}"
+        );
+        // The head keeps its tint, the alignment pulldown-cmark put inline.
+        assert!(
+            html.contains("background:#f0f1f3;text-align: center\">b</th>"),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                "<th style=\"border:1px solid #d9dde3;padding:4px 10px;font-weight:600;background:#f0f1f3\">a</th>"
+            ),
+            "{html}"
+        );
+        // A letter without a table is untouched.
+        assert_eq!(markdown_html("**hi**"), "<p><strong>hi</strong></p>\n");
+    }
+
+    #[test]
+    fn an_html_letter_keeps_its_own_tables() {
+        // A foreign sender's table is laid out by them: no grid of ours is put on it.
+        let (clean, _) = sanitize_html(
+            "<table style=\"width:600px\"><tr><td style=\"color:red\">x</td></tr></table>",
+            &HashMap::new(),
+            false,
+        );
+        assert!(clean.contains("<table style=\"width:600px\">"), "{clean}");
+        assert!(clean.contains("<td style=\"color:red\">"), "{clean}");
+        assert!(!clean.contains("border-collapse"), "{clean}");
+    }
+
     /// A letter of another Markdown-aware client: the Markdown last, its favourite.
     const MARKDOWN_MAIL: &[u8] = b"From: ivan@example.org\r\n\
 To: me@example.org\r\n\
