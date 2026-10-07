@@ -180,12 +180,18 @@
     font-size: 12px;
   }
 
-  .editor :global(.sig-rich) {
+  /* `.rich-wrap` carries the default inset; this wins by naming both classes, whatever the
+     order the two components' stylesheets end up in (#62). */
+  .editor :global(.sig-rich.rich-wrap) {
     flex: none;
     min-height: 120px;
     max-height: 320px;
+    /* The same card of the letter's editor, kept a touch tighter in the settings (#62). */
+    padding: 8px 10px;
   }
 
+  /* The sheet is white everywhere, from RichEditor itself (RichEditor.svelte); here only the
+     signature's own size. */
   .editor :global(.sig-rich .rich) {
     min-height: 120px;
     padding: 12px 14px;

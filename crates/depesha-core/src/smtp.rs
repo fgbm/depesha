@@ -991,6 +991,21 @@ mod tests {
     }
 
     #[test]
+    fn the_empty_line_above_the_signature_reaches_the_letter() {
+        let html = "<p>Привет</p><div><br></div><div class=\"depesha-signature\"><div>Иван</div></div>";
+        let clean = crate::message::compose_html(html);
+        assert!(
+            clean.contains("<div><br></div><div class=\"depesha-signature\""),
+            "{clean}"
+        );
+
+        let draft = letter(BodyFormat::Html, "Привет\n\n-- \nИван", Some(html));
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        // Quoted-printable spells the separator's trailing space (RFC 3676) as "=20".
+        assert!(raw.contains("--=20"), "the plain part keeps the separator: {raw}");
+    }
+
+    #[test]
     fn outbox_entries_from_before_formats_are_plain() {
         let draft: Draft = serde_json::from_str(r#"{"from":null,"to":[],"cc":[],"bcc":[],"subject":"","text":"x","html":null,"in_reply_to":null,"references":[],"attachments":[]}"#).unwrap();
         assert_eq!(draft.format, BodyFormat::Plain);

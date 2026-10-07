@@ -315,25 +315,29 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="rich-wrap {cls}" bind:this={wrap} onpointerleave={() => (overBlock = false)}>
-  <div
-    bind:this={el}
-    class="rich"
-    class:empty
-    contenteditable={readonly ? "false" : "true"}
-    aria-readonly={readonly}
-    role="textbox"
-    tabindex="0"
-    aria-multiline="true"
-    aria-label={label}
-    data-placeholder={placeholder}
-    spellcheck="true"
-    oninput={read}
-    onscroll={place}
-    {onpaste}
-    {ondrop}
-    {onkeydown}
-    {onpointermove}
-  ></div>
+  <!-- A letter is always the sender's own white sheet, laid on the window's card with a frame
+       and a rounded corner — the way the reading view shows it (#62, ReaderBody.svelte:79-103). -->
+  <div class="card">
+    <div
+      bind:this={el}
+      class="rich"
+      class:empty
+      contenteditable={readonly ? "false" : "true"}
+      aria-readonly={readonly}
+      role="textbox"
+      tabindex="0"
+      aria-multiline="true"
+      aria-label={label}
+      data-placeholder={placeholder}
+      spellcheck="true"
+      oninput={read}
+      onscroll={place}
+      {onpaste}
+      {ondrop}
+      {onkeydown}
+      {onpointermove}
+    ></div>
+  </div>
   {#if lockedBar && block}
     {#if overBlock}
       <div class="block-hover" style="left:{block.left}px;top:{block.top}px;width:{block.width}px;height:{block.height}px" aria-hidden="true"></div>
@@ -359,6 +363,20 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    /* The margin the sheet's card keeps from the window, as the reading card does (#62). */
+    padding: 10px 14px 12px;
+  }
+
+  /* The card the sheet lies on: the theme's own paper, with a frame and a rounded corner —
+     ReaderBody.svelte:79-88. The white sheet inside it does not round its own corners. */
+  .card {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper);
+    overflow: hidden;
   }
 
   .rich {
@@ -366,7 +384,13 @@
     min-height: 0;
     overflow: auto;
     padding: 14px 18px;
-    background: var(--paper);
+    /* The letter is the sender's own sheet: always white and dark-inked, as it will be read —
+       the very values MailFrame shows it with (MailFrame.svelte:40). Everything here that is
+       not the theme's is the recipient's white page, so no theme colour lands on it. */
+    background: #fff;
+    color: #1d232b;
+    border-radius: 0;
+    caret-color: #1d232b;
     line-height: 1.55;
     outline: none;
     user-select: text;
@@ -377,18 +401,26 @@
     isolation: isolate;
   }
 
+  /* The theme's own highlight is made for the theme's paper, not for this white sheet. */
+  .rich::selection,
+  .rich :global(*)::selection {
+    background: #b9d7f5;
+    color: #1d232b;
+  }
+
   .rich.empty::before {
     content: attr(data-placeholder);
-    color: var(--muted);
+    color: #6b7480;
     pointer-events: none;
     position: absolute;
   }
 
   .rich :global(blockquote) {
     margin: 0 0 0 0.8ex;
-    border-left: 2px solid var(--line);
+    border-left: 2px solid #d8cfbd;
     padding-left: 1ex;
-    color: var(--muted);
+    /* As the recipient sees it on white (MailFrame.svelte:45), not the theme's muted. */
+    color: #55606c;
   }
 
   .rich :global(ul),
@@ -408,14 +440,15 @@
   }
 
   .rich :global(a) {
-    color: var(--accent);
+    /* As the recipient sees a link on white (MailFrame.svelte:46), not the theme's accent. */
+    color: #1f5fa8;
   }
 
   /* The signature apart from the text, as the recipient sees it under "-- ". */
   .rich :global(.depesha-signature) {
     margin-top: 0.6em;
     padding-top: 0.6em;
-    border-top: 1px dashed var(--line);
+    border-top: 1px dashed #d8cfbd;
   }
 
   .rich :global(.depesha-signature img) {

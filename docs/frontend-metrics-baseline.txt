@@ -22,7 +22,7 @@ component	src/components/Preferences.svelte	411	180	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
 component	src/components/Recipients.svelte	70	28	20	22
-component	src/components/RichEditor.svelte	490	313	42	135
+component	src/components/RichEditor.svelte	523	313	46	164
 component	src/components/RowMenu.svelte	128	72	49	7
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
@@ -44,7 +44,7 @@ component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	42	14	12	16
 component	src/components/account/LettersSection.svelte	11	7	4	0
 component	src/components/account/ServerSection.svelte	362	42	82	238
-component	src/components/account/SignatureEditor.svelte	252	101	44	107
+component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	257	108	51	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
