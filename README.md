@@ -95,7 +95,7 @@ npx tauri build        # packages in target/release/bundle/
 Linux build dependencies:
 
 ```
-sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev build-essential
+sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev build-essential
 ```
 
 ## Architecture
