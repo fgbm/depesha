@@ -134,6 +134,13 @@
   const EDITING = ["Mod+a", "Mod+z", "Mod+y", "Mod+Shift+z"];
 
   function onKey(e: KeyboardEvent) {
+    // Quit is the one key that works everywhere — over the wizard, the settings, a text
+    // field: the backend asks about letters waiting before it really quits.
+    if ((e.ctrlKey || e.metaKey) && shortcuts.find(e, "main") === "core.quit") {
+      e.preventDefault();
+      quitApp();
+      return;
+    }
     if (app.wizard) return;
     // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
     // Only Ctrl+K reaches the app from there: the palette opens from anywhere.
@@ -146,8 +153,7 @@
     // of the list and the letter aside; Ctrl+A in a field selects its text, in the list every row.
     if (e.ctrlKey || e.metaKey) {
       const cmd = shortcuts.command(id);
-      // Quit works wherever the app is, even with the settings open.
-      if (!cmd || (app.settingsOpen && cmd.owner === "core" && cmd.id !== "core.quit")) return;
+      if (!cmd || (app.settingsOpen && cmd.owner === "core")) return;
       if (typing && (cmd.group !== "everywhere" || EDITING.includes(pressName(e) ?? ""))) return;
       if (cmd.id === "core.select-all" && app.windowOf !== null) return;
       const run = action(id);
