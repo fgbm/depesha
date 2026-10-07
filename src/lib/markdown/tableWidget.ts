@@ -236,7 +236,11 @@ export class TableView extends WidgetType {
 
   private commit(view: EditorView, root: HTMLElement) {
     const next = this.sync(root);
-    if (this.same(this.parsed, next)) return;
+    const { from, to } = this.range(view, root);
+    // The source is written back when it changed or is not aligned as the table writes it
+    // (decision on #45: the Markdown lines line up once the caret leaves the table).
+    const aligned = tableSource(next).replace(/\n$/, "");
+    if (this.same(this.parsed, next) && view.state.sliceDoc(from, to) === aligned) return;
     const focused = cellOf(document.activeElement);
     this.write(view, root, next, focused);
   }
