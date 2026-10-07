@@ -191,7 +191,7 @@ function panelAction(label: string, cls: string, run: () => void): HTMLButtonEle
 
 /** The description field of the picture's panel (frame 10 Б): hidden until "Описание" is
  *  pressed, its change written back to the markup one step at a time. */
-function altField(view: EditorView, from: number): { row: HTMLDivElement; commit: () => void } {
+function altField(view: EditorView, from: number): HTMLDivElement {
   const row = document.createElement("div");
   row.className = "md-picture-alt";
   row.hidden = true;
@@ -219,7 +219,7 @@ function altField(view: EditorView, from: number): { row: HTMLDivElement; commit
     e.preventDefault();
     commit();
   });
-  return { row, commit };
+  return row;
 }
 
 /** The bar of the picture's panel: "Описание" and "Delete". */
@@ -257,7 +257,7 @@ function openPicturePanel(view: EditorView, from: number) {
   document.body.append(frame);
 
   const field = altField(view, from);
-  root.append(pictureBar(view, from, field.row, closePicturePanel), field.row);
+  root.append(pictureBar(view, from, field, closePicturePanel), field);
   document.body.append(root);
 
   panel = { root, frame, view, from };
