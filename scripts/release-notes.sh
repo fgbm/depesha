@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Release notes for a tag: the body of the version bump ("chore: версия 0.5.3") as the
 # summary, then the commits since the previous tag grouped by their conventional-commit type.
+# When docs/releases/<version>.md exists, that hand-written description is the whole body.
 #
 #   scripts/release-notes.sh v0.5.3 > notes.md
 #
@@ -11,6 +12,13 @@ cd "$(dirname "$0")/.."
 tag=${1:?usage: release-notes.sh <tag>}
 version=${tag#v}
 repo_url=${REPO_URL:-https://github.com/fgbm/depesha}
+
+# A description written for readers (docs/releases/<version>.md) wins over the commits.
+notes="docs/releases/$version.md"
+if [ -f "$notes" ]; then
+  cat "$notes"
+  exit 0
+fi
 
 prev=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || true)
 range=${prev:+$prev..}$tag
