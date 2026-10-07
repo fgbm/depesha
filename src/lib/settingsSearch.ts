@@ -3,10 +3,13 @@
 // window, so a new page joins the search by declaring its fields. Pure functions; the window
 // draws the list and acts on the hit.
 
-/** The words of a text, in lower case: letters and digits, everything else separated. */
+/**
+ * The words of a text, in lower case: letters and digits, everything else separated. «ё» is
+ * folded to «е», so a query written either way finds a label written the other way.
+ */
 export function words(text: string): string[] {
   return text
-    .toLowerCase()
+    .toLowerCase().replace(/ё/g, "е")
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 }
