@@ -1419,7 +1419,7 @@ try {
     if (!(await textOf(".reader .body")).includes("Предлагаю обсудить")) throw new Error("письмо закрылось после обновления списка");
   });
 
-  await step("9", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {
+  await step("13.1, 13.2", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {
     await viewOption("Рассылки");
     await rowBySubject("Скидки недели");
     if ((await textOf(".list .viewport")).includes("Счёт за октябрь")) throw new Error("письмо от человека среди рассылок");
@@ -1451,7 +1451,7 @@ try {
     await d.until("unsubscribe request delivered", async () => helper("count", "INBOX", "unsubscribe-weekly") === "1", 40000);
   });
 
-  await step("16", "сортировка: важное наверху не прыгает под рукой; по отправителю, как в кэше; свой порядок списка", async () => {
+  await step("13.3", "сортировка: важное наверху не прыгает под рукой; по отправителю, как в кэше; свой порядок списка", async () => {
     const subjects = () => d.exec("return [...document.querySelectorAll('.list .row .subject')].map((e) => e.innerText)");
     const top = () => d.exec("const r = [...document.querySelectorAll('.list .row')].sort((a, b) => a.offsetTop - b.offsetTop)[0]; return r ? [r.querySelector('.subject').innerText, r.classList.contains('unread')] : null");
     try {
@@ -1648,7 +1648,7 @@ try {
     await invoke("settings_set", { settings: { ...settings, letter_view: "sender" } });
   });
 
-  await step("4.13", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
+  await step("9.2", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
     const subj = `Карточка ${stamp}`;
     helper("deliver", subj);
     await d.button("Входящие");
@@ -1873,7 +1873,7 @@ try {
     await closeSettings();
   });
 
-  await step("11", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
+  await step("11.1", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     await d.click(await d.find(".prefs .tab[data-page^='account:']"));
@@ -1903,7 +1903,7 @@ try {
     await closeSettings();
   });
 
-  await step("15", "«Хранилище»: квота или «не сообщает», локальный кэш отдельно, размер папок фоном, строка в сайдбаре", async () => {
+  await step("11.2", "«Хранилище»: квота или «не сообщает», локальный кэш отдельно, размер папок фоном, строка в сайдбаре", async () => {
     const id = (await invoke("accounts"))[0].id;
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
@@ -2365,6 +2365,92 @@ try {
     if (found.trim()) throw new Error(`пароль найден в файлах: ${found}`);
     const logs = execFileSync("sh", ["-c", `ls ${join(profile, "data/ru.depesha.mail/logs")} 2>/dev/null || find ${profile} -name '*.log'`], { encoding: "utf-8" });
     console.log(`    логи: ${logs.trim().split("\n").length} файл(ов), пароля в них нет`);
+  });
+
+  await step("12.5", "общие папки Dovecot с ACL: группа «Общие», «Только чтение», неактивное удаление и свойства папки из меню (#42)", async () => {
+    // The Dovecot stand (compose.test.yaml) carries the ACL plugin and the read-only
+    // «shared/ReadOnly» folder the seed makes. Dovecot refuses cleartext, so the account
+    // goes over STARTTLS with its self-signed certificate; SMTP is GreenMail's plain port.
+    await d.click(await d.find(".menu-btn"));
+    await d.button("Добавить ящик");
+    await d.until("wizard", async () => (await d.findAll(".wizard")).length === 1);
+    await setInput(".wizard input[placeholder='Иван Петров']", "Общий");
+    await setInput(".wizard input[type=email]", "shared@local.test");
+    await setInput(".wizard input[type=password]", "secret");
+    await d.button("Далее");
+    await d.until("settings step", async () => (await d.bodyText()).includes("Входящая почта (IMAP)"), 30000);
+    // Login «carol»: Dovecot takes any user name, while GreenMail's SMTP wants one of its own.
+    await setInput(".wizard input[placeholder^='адрес или']", "carol");
+    await setSelect(".wizard fieldset:nth-of-type(1) .select", "starttls");
+    await setSelect(".wizard fieldset:nth-of-type(2) .select", "plain");
+    const hosts = await d.findAll(".wizard fieldset .host input");
+    const ports = await d.findAll(".wizard fieldset .port input");
+    for (const [i, [host, port]] of [["127.0.0.1", 31143], ["127.0.0.1", 3025]].entries()) {
+      await d.clear(hosts[i]);
+      await d.type(hosts[i], host);
+      await d.clear(ports[i]);
+      await d.type(ports[i], String(port));
+    }
+    await d.button("Проверить и сохранить");
+    await d.until("IMAP certificate question", async () => (await d.bodyText()).includes("SHA-256"), 20000);
+    await d.button("Доверять этому сертификату");
+    await d.until("wizard closed", async () => (await d.findAll(".wizard")).length === 0, 30000);
+    await closeSettings();
+
+    // The public folder stands in the account's tree right away; opening it reads its
+    // properties — MYRIGHTS and the server's namespaces — from the Dovecot stand.
+    const readOnlyItem = () =>
+      d.exec(`const b = [...document.querySelectorAll('nav.side .item')].find((x) => (x.querySelector('.name') ?? x).innerText.trim() === 'ReadOnly'); return b ? true : null;`).catch(() => null);
+    await d.until("shared ReadOnly folder", readOnlyItem, 40000);
+    await d.exec(`[...document.querySelectorAll('nav.side .item')].find((x) => (x.querySelector('.name') ?? x).innerText.trim() === 'ReadOnly').click();`);
+    // The header of the list says the folder is read-only (frame 7А).
+    await d.until("read-only header", async () => (await textOf(".list")).includes("только чтение"), 20000);
+    await rowBySubject("Реестр платежей на неделю", 30000);
+    // A letter's menu turns its delete off with a hint: the folder grants read only.
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find((r) => r.innerText.includes('Реестр платежей'));
+       const r = row.getBoundingClientRect();
+       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 20 }));`,
+    );
+    await d.until("row menu", async () => (await textOf(".pop")).includes("Удалить"), 10000);
+    const del = await d.exec(
+      `const b = [...document.querySelectorAll('.pop .mi')].find((x) => x.innerText.includes('Удалить'));
+       return { disabled: b.disabled, title: b.title };`,
+    );
+    if (!del.disabled) throw new Error("удаление в папке только для чтения активно");
+    if (!del.title) throw new Error("у удаления нет подсказки");
+    await press("Escape");
+    await d.until("menu closed", async () => (await d.findAll(".pop")).length === 0);
+    await screenshot("shared-readonly");
+
+    // The folder's card opens from the folder's own menu and says «только чтение».
+    await d.exec(
+      `const item = [...document.querySelectorAll('nav.side .item')].find((x) => (x.querySelector('.name') ?? x).innerText.trim() === 'ReadOnly');
+       const r = item.getBoundingClientRect();
+       item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10 }));`,
+    );
+    await d.until("folder menu", async () => (await textOf(".pop")).includes("Свойства папки"), 10000);
+    await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Свойства папки')]"));
+    await d.until("folder props card", async () => {
+      const t = await textOf(".fcard");
+      return t.includes("только чтение");
+    }, 15000);
+    await screenshot("shared-folder-props");
+    await d.click(await d.find(".fcard .x"));
+    await d.until("card closed", async () => (await d.findAll(".fcard")).length === 0);
+
+    // Opening the mailbox page hands the sidebar the namespaces (#42): the folder leaves the
+    // account's own tree and moves under the «Общие» heading.
+    const sharedId = (await invoke("accounts")).find((a) => a.email === "shared@local.test").id;
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.click(await d.find(`.prefs .tab[data-page='account:${sharedId}']`));
+    await d.until("mailbox page", async () => (await d.findAll(".account-page")).length === 1);
+    await closeSettings();
+    await d.until("shared group", async () => (await sidebarText()).includes("Общие"), 30000);
+    await d.until("folder in the shared group", async () =>
+      d.exec(`const h = [...document.querySelectorAll('nav.side .subhead')].find((x) => x.innerText.includes('Общие')); if (!h) return null; let n = h.nextElementSibling; while (n && !n.classList.contains('subhead')) { if ((n.querySelector('.name') ?? n).innerText.trim() === 'ReadOnly') return true; n = n.nextElementSibling; } return null;`).catch(() => null), 15000);
+    await screenshot("shared-group");
   });
 
   await screenshot("final");
