@@ -120,3 +120,35 @@ export function pictureEdit(text: string, start: number, end: number, url: strin
   const at = from + insert.length;
   return { from, to: before.trim() ? end : line, insert, select: [at, at] };
 }
+
+/** The picture standing alone on the line under the caret: its whole markup, its address and
+ *  its description, or null when the line holds no picture. */
+export function imageAt(text: string, pos: number): { from: number; to: number; url: string; alt: string } | null {
+  const line = text.lastIndexOf("\n", pos - 1) + 1;
+  const stop = text.indexOf("\n", pos);
+  const to = stop < 0 ? text.length : stop;
+  const m = /^!\[([^\]]*)\]\((.*)\)$/.exec(text.slice(line, to));
+  return m ? { from: line, to, url: m[2], alt: m[1] } : null;
+}
+
+/** The description of the picture on the caret's line rewritten (frame 10 Б of the mockup):
+ *  its address and markup stay, only what is between `![` and `]` changes. Null when there is
+ *  no picture on the line. */
+export function pictureAltEdit(text: string, pos: number, alt: string): Edit | null {
+  const image = imageAt(text, pos);
+  if (!image) return null;
+  const from = image.from + 2;
+  return { from, to: from + image.alt.length, insert: alt, select: [from + alt.length, from + alt.length] };
+}
+
+/** The picture on the caret's line taken out (the panel's "Удалить"), its line with it. Null
+ *  when there is no picture on the line. */
+export function pictureRemoveEdit(text: string, pos: number): Edit | null {
+  const image = imageAt(text, pos);
+  if (!image) return null;
+  // The line goes whole; one of the newlines around it goes too, so no empty line is left —
+  // the one before, when the picture ends the letter, else the one after.
+  const from = image.to < text.length ? image.from : image.from > 0 ? image.from - 1 : image.from;
+  const to = image.to < text.length ? image.to + 1 : image.to;
+  return { from, to, insert: "", select: [from, from] };
+}

@@ -355,3 +355,87 @@ kbd {
   opacity: 0.55;
 }
 
+
+/* The panel of a picture in a Markdown letter (markdownEditor.ts builds it): a frame around
+   the picture and a small bar under it — the description (frame 10 Б) and "Delete". It floats
+   over the window, outside the editor's own styles, so it is styled here. */
+.md-picture-frame {
+  position: fixed;
+  border: 2px solid var(--accent);
+  box-sizing: content-box;
+  margin: -2px 0 0 -2px;
+  pointer-events: none;
+  z-index: 38;
+}
+
+.md-picture-panel {
+  position: fixed;
+  z-index: 40;
+  width: 290px;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 18%);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.md-picture-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.md-picture-bar i {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--line);
+}
+
+.md-picture-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.md-picture-act:hover {
+  background: var(--hover);
+}
+
+.md-picture-act.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 600;
+}
+
+.md-picture-act.danger:hover {
+  color: var(--warn);
+}
+
+.md-picture-alt {
+  margin-top: 6px;
+}
+
+.md-picture-alt b {
+  display: block;
+}
+
+.md-picture-alt .input {
+  display: block;
+  width: 100%;
+  margin: 6px 0 4px;
+  box-sizing: border-box;
+}
+
+.md-picture-alt .hint {
+  color: var(--muted);
+}

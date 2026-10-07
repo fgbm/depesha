@@ -27,4 +27,6 @@ export interface MarkdownField {
   table(): void;
   /** A picture on a line of its own; `alt` is what the letter carries as its description. */
   picture(url: string, alt?: string): void;
+  /** Whether the caret stands in a table's cell: the formatting row is narrower there. */
+  inTable(): boolean;
 }

@@ -61,9 +61,17 @@
 
   /** Formatting on under the caret, for the pressed buttons. */
   let active = $state<Set<string>>(new Set());
+  /** The caret stands in a table's cell: the buttons a cell cannot hold are off with a hint. */
+  let inTable = $state(false);
 
   const html = $derived(format === "html");
   const md = $derived(field && "apply" in field ? field : null);
+
+  /** What a cell of a table cannot hold (frame 1, note 2 of the 0.7 mockup): a cell is one line,
+   *  so no list, no quote, no picture, no heading. Bold, italic, code and a link stay. */
+  const CELL_BARE = new Set(["bullets", "numbers", "quote", "picture", "heading"]);
+  const off = $derived(!html && inTable);
+  const disabled = (id: string) => off && CELL_BARE.has(id);
 
   const tools = $derived<Tool[]>([
     { id: "bold", icon: Bold, label: t("compose.format.bold"), keys: keyLabel("bold"), group: 0, run: () => (html ? command("bold") : wrap("**")) },
@@ -117,7 +125,12 @@
 
   /** Called as the caret moves in the editor. */
   export function refresh() {
-    if (!html) return void (active = md?.formats() ?? new Set());
+    if (!html) {
+      active = md?.formats() ?? new Set();
+      inTable = md?.inTable() ?? false;
+      return;
+    }
+    inTable = false;
     const on = new Set<string>();
     for (const [id, name] of [["bold", "bold"], ["italic", "italic"], ["underline", "underline"], ["bullets", "insertUnorderedList"], ["numbers", "insertOrderedList"]]) {
       if (document.queryCommandState(name)) on.add(id);
@@ -263,8 +276,9 @@
         class:on={active.has(x.id) || (x.id === "link" && !!linking) || (x.id === "picture" && pictureMenu)}
         aria-pressed={x.id === "picture" ? undefined : active.has(x.id)}
         aria-haspopup={x.id === "picture" ? "menu" : undefined}
-        title={title(x)}
+        title={disabled(x.id) ? t("compose.format.inCell") : title(x)}
         aria-label={x.label}
+        disabled={disabled(x.id)}
         onmousedown={(e) => e.preventDefault()}
         onclick={x.run}><x.icon size={15} /></button>
       {#if x.id === "picture"}
@@ -283,11 +297,11 @@
           {#if i > 0 && inMore[i - 1].group !== x.group}<div class="msep" role="separator"></div>{/if}
           {#if x.id === "heading"}
             <!-- "Heading" carries its levels: "Обычный текст" and H1–H3 (frame 16 В). -->
-            <button class="mi" onclick={() => heading(0)}>
+            <button class="mi" disabled={off} title={off ? t("compose.format.inCell") : undefined} onclick={() => heading(0)}>
               <Heading size={15} /> {t("compose.format.heading")}{#if x.keys}<span class="hint">{x.keys}</span>{/if}
             </button>
             {#each [1, 2, 3] as level (level)}
-              <button class="mi sub" onclick={() => heading(level)}>
+              <button class="mi sub" disabled={off} onclick={() => heading(level)}>
                 <span class="tick">{#if headingLevel === level}<Check size={14} />{/if}</span>
                 {t("compose.format.headingN", { n: level })}
               </button>
@@ -295,6 +309,8 @@
           {:else}
             <button
               class="mi"
+              disabled={disabled(x.id)}
+              title={disabled(x.id) ? t("compose.format.inCell") : undefined}
               onclick={() => {
                 moreOpen = false;
                 if (x.id === "picture") onpicturefile();
