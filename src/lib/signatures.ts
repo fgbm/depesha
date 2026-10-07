@@ -5,7 +5,7 @@
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, findBlock, htmlLetterText, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
 import { picturesSize } from "./images";
 import { splitQuote } from "./quote";
-import type { Account, ComposeDraft, Signature } from "./types";
+import type { Account, BodyFormat, ComposeDraft, Signature } from "./types";
 
 /** Pictures of a signature heavier than this weigh on every letter: the editor says so. */
 export const SIGNATURE_WARN = 200 * 1024;
@@ -109,10 +109,25 @@ export function sigBlock(sig: Pick<Signature, "text"> | null | undefined): strin
   return text ? `\n\n-- \n${text}` : "";
 }
 
-/** An HTML letter's signature: a block of its own, found again to be swapped. */
+/** The signature as a block of a letter: an HTML letter's, found again to be swapped, and a
+ *  Markdown letter's, whose parts the backend builds from it (#67). */
 export function sigHtml(sig: Pick<Signature, "html"> | null | undefined): string {
   const html = (sig?.html ?? "").trim();
   return html ? `<div class="${SIGNATURE_CLASS}">${html}</div>` : "";
+}
+
+/**
+ * What stands under the letter's text in the window: an HTML or Markdown letter shows the
+ * signature formatted, with its pictures (frame 13 of #45, #67); a plain one its text under
+ * "-- ". `null` when the letter has none to show. Never edited there, only put or swapped.
+ */
+export function signatureShown(format: BodyFormat | undefined, sig: Signature | null): { html: string } | { text: string } | null {
+  if (!sig) return null;
+  if (format === "html" || format === "markdown") {
+    const html = sig.html.trim();
+    return html ? { html } : null;
+  }
+  return { text: sigBlock(sig).replace(/^\n\n/, "") };
 }
 
 const FORWARD_HEADER = /(^|\n\n)[^\n]*(-------- Пересылаемое сообщение|-------- Forwarded message)/;
@@ -192,6 +207,13 @@ export function withSignature(draft: ComposeDraft, sig: Signature | null): Compo
     if (!sigHtml(sig)) return draft;
     const html = putSignatureHtml(draft.html?.trim() ? draft.html : GAP, sig);
     return { ...draft, html, text: htmlLetterText(html) };
+  }
+  if (draft.format === "markdown") {
+    // The text keeps the plain version (what goes out as text and Markdown), the HTML goes
+    // apart: the window shows it formatted and the backend builds the HTML part from it (#67).
+    const html = sigHtml(sig);
+    if (!html && !sigBlock(sig)) return { ...draft, signature: null, text: putSignatureText(draft.text, null) };
+    return { ...draft, signature: html || null, text: putSignatureText(draft.text, sig) };
   }
   if (!sigBlock(sig)) return draft;
   return { ...draft, text: putSignatureText(draft.text, sig) };

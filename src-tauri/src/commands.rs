@@ -1708,6 +1708,9 @@ pub struct ComposeDraft {
     /// The letter from the visual editor; only an HTML letter has it.
     #[serde(default)]
     html: Option<String>,
+    /// The HTML of the signature a Markdown letter carries (#67).
+    #[serde(default)]
+    signature: Option<String>,
     #[serde(default)]
     format: BodyFormat,
     in_reply_to: Option<String>,
@@ -1761,6 +1764,10 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
     if d.format == BodyFormat::Html {
         total += d.html.as_ref().map_or(0, |h| h.len() as u64 * 3 / 4);
     }
+    // A Markdown letter's signature travels inside it too, pictures and all.
+    if d.format == BodyFormat::Markdown {
+        total += d.signature.as_ref().map_or(0, |s| s.len() as u64 * 3 / 4);
+    }
     if total > MAX_ATTACHMENTS {
         return Err(CmdError::new(
             "too-large",
@@ -1779,6 +1786,9 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
         text: d.text,
         // A letter switched to plain text or Markdown does not take its old HTML along.
         html: d.html.filter(|_| d.format == BodyFormat::Html),
+        // Only a Markdown letter carries its signature's HTML apart: an HTML one has it
+        // inside `html`, a plain one only its text.
+        signature: d.signature.filter(|_| d.format == BodyFormat::Markdown),
         format: d.format,
         in_reply_to: d.in_reply_to,
         references: d.references,

@@ -16,6 +16,7 @@ import {
   putSignatureHtml,
   replySignature,
   sigBlock,
+  sigHtml,
   signatureIn,
   signaturesOf,
   splitPlain,
@@ -132,6 +133,14 @@ export class ComposeFormat {
       if (this.format === "html") return;
       const text = this.head + sigBlock(this.signature) + this.quote;
       if (untrack(() => this.host.win.draft.text) !== text) this.host.win.draft.text = text;
+    });
+    // A Markdown letter carries its signature's HTML apart (decision on #67): the window
+    // shows it formatted and the backend builds the letter's HTML and Markdown parts from it.
+    $effect(() => {
+      const sig = this.format === "markdown" && this.signature ? sigHtml(this.signature) || null : null;
+      untrack(() => {
+        if ((this.host.win.draft.signature ?? null) !== sig) this.host.win.draft.signature = sig;
+      });
     });
     $effect(() => {
       if (this.format !== "html") return;
@@ -324,6 +333,7 @@ export class ComposeFormat {
       }
       win.draft.html = d.html ?? null;
       win.draft.text = d.text;
+      win.draft.signature = d.signature ?? null;
       win.draft.format = d.format;
       // Frame 8 of the 0.7 mockup: only HTML → text asks first (in `confirmSwitch`); any
       // other change is undone by a toast that names what was lost, or by Ctrl+Z.
@@ -340,6 +350,7 @@ export class ComposeFormat {
     const win = this.host.win;
     win.draft.html = d.html ?? null;
     win.draft.text = d.text;
+    win.draft.signature = d.signature ?? null;
     win.draft.format = d.format;
     win.draft.attachments = d.attachments;
     if (d.format === "html") {

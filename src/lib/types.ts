@@ -397,6 +397,9 @@ export interface ComposeDraft {
   text: string;
   /** The letter from the visual editor; only an HTML letter has it. */
   html?: string | null;
+  /** The HTML of a Markdown letter's signature (#67): the window shows it formatted and the
+   *  backend builds the letter's HTML and Markdown parts from it. Absent for other formats. */
+  signature?: string | null;
   /** Absent is plain text. */
   format?: BodyFormat;
   in_reply_to: string | null;

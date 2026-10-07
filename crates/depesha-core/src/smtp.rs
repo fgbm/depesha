@@ -113,6 +113,11 @@ pub struct Draft {
     pub text: String,
     /// The letter as HTML, when it was written formatted.
     pub html: Option<String>,
+    /// The HTML of the signature a Markdown letter carries (#67): the window shows it
+    /// formatted, and the parts it goes out in — HTML, Markdown and text — are built here.
+    /// An HTML letter keeps its signature inside `html`, a plain one its text inside `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
     /// Outbox entries saved before formats existed are plain text.
     #[serde(default)]
     pub format: BodyFormat,
@@ -264,15 +269,11 @@ fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
         BodyFormat::Markdown => {
             // A Markdown letter carries its pictures in the letter itself (decision on #45):
             // they leave the Markdown as parts, the plain and Markdown parts and the HTML it
-            // renders to alike calling them by `cid:`.
-            let (markdown, images) = inline_markdown_images(&draft.text);
-            let cids: Vec<String> = images.iter().map(|i| i.cid.clone()).collect();
-            rest.push(Part::One(markdown_part(markdown.clone())));
-            (
-                text_part(markdown.clone()),
-                Some(crate::message::markdown_html_keeping(&markdown, &cids)),
-                images,
-            )
+            // renders to alike calling them by `cid:`. Its signature (#67) is one HTML block
+            // that the HTML part shows as it is and the other two as their own versions.
+            let (plain, markdown, html, images) = markdown_letter(draft);
+            rest.push(Part::One(markdown_part(markdown)));
+            (text_part(plain), Some(html), images)
         }
         _ => (
             text_part(draft.text.clone()),
@@ -282,6 +283,114 @@ fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
     };
     rest.extend(html.map(|html| html_body(&html, images)));
     (plain, rest)
+}
+
+/// The three forms a Markdown letter goes out in — plain text, the Markdown itself and the
+/// HTML it renders to — with the pictures of the text, the quote and the signature as parts
+/// of their own. The signature (decision on #67) is one HTML block: the HTML part shows it
+/// as it is, the Markdown and plain parts carry a paraphrase and its text, and its pictures
+/// share one `cid:` with the HTML.
+fn markdown_letter(draft: &Draft) -> (String, String, String, Vec<InlineImage>) {
+    let Some(signature) = draft.signature.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        let (markdown, images) = inline_markdown_images(&draft.text);
+        let cids: Vec<String> = images.iter().map(|i| i.cid.clone()).collect();
+        let html = crate::message::markdown_html_keeping(&markdown, &cids);
+        return (markdown.clone(), markdown, html, images);
+    };
+    let mut images = Vec::new();
+    let (head, sig_text, quote) = split_plain(&draft.text);
+    let head_md = inline_markdown_images_in(head, &mut images);
+    let quote_md = inline_markdown_images_in(quote, &mut images);
+    // The signature's pictures leave it once, so the HTML and the Markdown call one part.
+    let sig_html = inline_images_in(signature, &mut images);
+    let sig_md = signature_markdown(&sig_html);
+    let cids: Vec<String> = images.iter().map(|i| i.cid.clone()).collect();
+    let block = |body: &str| {
+        if body.trim().is_empty() {
+            String::new()
+        } else {
+            format!("\n\n-- \n{body}")
+        }
+    };
+    let plain = format!("{head_md}{}{quote_md}", block(sig_text.unwrap_or("")));
+    let markdown = format!("{head_md}{}{quote_md}", block(&sig_md));
+    let html = format!(
+        "{}{}{}",
+        crate::message::markdown_html_keeping(&head_md, &cids),
+        signature_html_block(&sig_html, &images),
+        crate::message::markdown_html_keeping(&quote_md, &cids)
+    );
+    (plain, markdown, html, images)
+}
+
+/// The signature's HTML as a block of the letter, its pictures called by `cid:`.
+fn signature_html_block(html: &str, images: &[InlineImage]) -> String {
+    if html.trim().is_empty() {
+        return String::new();
+    }
+    let inline: std::collections::HashMap<String, String> = images
+        .iter()
+        .map(|i| (i.cid.clone(), format!("cid:{}", i.cid)))
+        .collect();
+    crate::message::sanitize_html(
+        &format!("<div class=\"depesha-signature\">{html}</div>"),
+        &inline,
+        false,
+    )
+    .0
+}
+
+/// A plain-text or Markdown letter as what is typed, the signature under `-- ` and what
+/// follows it (the quote of a reply or the forwarded letter). `body + "\n\n-- \n" + sig +
+/// rest` is the letter again, as the frontend's `splitPlain` has it.
+fn split_plain(text: &str) -> (&str, Option<&str>, &str) {
+    let quoted = &text[..quote_at(text).unwrap_or(text.len())];
+    let at = forward_at(quoted).unwrap_or(quoted.len());
+    let head = &text[..at];
+    let rest = &text[at..];
+    if let Some(sep) = head.rfind("\n\n-- \n") {
+        return (&head[..sep], Some(&head[sep + 6..]), rest);
+    }
+    if let Some(sig) = head.strip_prefix("-- \n") {
+        return ("", Some(sig), rest);
+    }
+    (head, None, rest)
+}
+
+/// Where the quote of a reply begins: the "… wrote:" line with only ">" lines under it.
+fn quote_at(text: &str) -> Option<usize> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    for i in 0..lines.len().saturating_sub(1) {
+        let line = lines[i];
+        let header = !line.trim().is_empty()
+            && !line.starts_with('>')
+            && line.trim_end().ends_with(':')
+            && lines[i + 1].starts_with('>');
+        if header && lines[i + 1..].iter().all(|l| l.starts_with('>') || l.trim().is_empty()) {
+            // The empty lines above the header go with the quote.
+            let mut start: usize = lines[..i].iter().map(|l| l.len() + 1).sum();
+            while start > 0 && text.as_bytes()[start - 1] == b'\n' {
+                start -= 1;
+            }
+            return Some(start);
+        }
+    }
+    None
+}
+
+/// Where a forwarded letter begins: its header line and the empty lines above it.
+fn forward_at(head: &str) -> Option<usize> {
+    ["-------- Пересылаемое сообщение", "-------- Forwarded message"]
+        .iter()
+        .filter_map(|needle| head.find(needle))
+        .min()
+        .map(|i| {
+            let mut at = head[..i].rfind('\n').map_or(0, |p| p + 1);
+            while at > 0 && head.as_bytes()[at - 1] == b'\n' {
+                at -= 1;
+            }
+            at
+        })
 }
 
 /// The Markdown a letter was written in (RFC 7763, the variant by RFC 7764).
@@ -348,9 +457,31 @@ const INLINE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/
 /// gets a `cid:` link and the picture becomes an [`InlineImage`]. The same picture twice
 /// (a logo) is one part. Anything else stays as it was.
 pub fn inline_images(html: &str) -> (String, Vec<InlineImage>) {
+    let mut images = Vec::new();
+    let html = inline_images_in(html, &mut images);
+    (html, images)
+}
+
+/// The [`InlineImage`] a `data:` picture becomes, one part per picture: the same picture
+/// twice (a logo) is one part, whatever part of the letter it stands in.
+fn cid_for(images: &mut Vec<InlineImage>, mime: String, data: Vec<u8>) -> String {
+    if let Some(same) = images.iter().find(|i| i.mime == mime && i.data == data) {
+        return same.cid.clone();
+    }
+    let cid = format!("{}@depesha", random_token());
+    images.push(InlineImage {
+        cid: cid.clone(),
+        mime,
+        data,
+    });
+    cid
+}
+
+/// [`inline_images`], the pictures added to the letter's own (`images`): a picture of the
+/// text, the quote and the signature shares one part with the same picture elsewhere.
+fn inline_images_in(html: &str, images: &mut Vec<InlineImage>) -> String {
     const START: &str = "src=\"data:";
     let mut out = String::with_capacity(html.len().min(64 * 1024));
-    let mut images: Vec<InlineImage> = Vec::new();
     let mut rest = html;
     while let Some(at) = rest.find(START) {
         let value = &rest[at + START.len()..];
@@ -364,18 +495,7 @@ pub fn inline_images(html: &str) -> (String, Vec<InlineImage>) {
         out.push_str(&rest[..at]);
         match parsed {
             Some((mime, data)) => {
-                let cid = match images.iter().find(|i| i.mime == mime && i.data == data) {
-                    Some(same) => same.cid.clone(),
-                    None => {
-                        let cid = format!("{}@depesha", random_token());
-                        images.push(InlineImage {
-                            cid: cid.clone(),
-                            mime,
-                            data,
-                        });
-                        cid
-                    }
-                };
+                let cid = cid_for(images, mime, data);
                 out.push_str(&format!("src=\"cid:{cid}\""));
             }
             None => out.push_str(&rest[at..at + START.len() + end + 1]),
@@ -383,7 +503,7 @@ pub fn inline_images(html: &str) -> (String, Vec<InlineImage>) {
         rest = &value[end + 1..];
     }
     out.push_str(rest);
-    (out, images)
+    out
 }
 
 fn random_token() -> String {
@@ -398,9 +518,15 @@ fn random_token() -> String {
 /// and an [`InlineImage`], so Depesha's own reader finds them and the HTML it renders to
 /// shows them. The same picture twice (a logo) is one part. Foreign links stay as they are.
 fn inline_markdown_images(text: &str) -> (String, Vec<InlineImage>) {
+    let mut images = Vec::new();
+    let text = inline_markdown_images_in(text, &mut images);
+    (text, images)
+}
+
+/// [`inline_markdown_images`], the pictures added to the letter's own (`images`).
+fn inline_markdown_images_in(text: &str, images: &mut Vec<InlineImage>) -> String {
     const START: &str = "](data:image/";
     let mut out = String::with_capacity(text.len());
-    let mut images: Vec<InlineImage> = Vec::new();
     let mut rest = text;
     while let Some(at) = rest.find(START) {
         let value = &rest[at + 2..]; // past "]("
@@ -415,18 +541,7 @@ fn inline_markdown_images(text: &str) -> (String, Vec<InlineImage>) {
         out.push_str(&rest[..at + 1]);
         match parsed {
             Some((mime, data)) => {
-                let cid = match images.iter().find(|i| i.mime == mime && i.data == data) {
-                    Some(same) => same.cid.clone(),
-                    None => {
-                        let cid = format!("{}@depesha", random_token());
-                        images.push(InlineImage {
-                            cid: cid.clone(),
-                            mime,
-                            data,
-                        });
-                        cid
-                    }
-                };
+                let cid = cid_for(images, mime, data);
                 out.push_str(&format!("(cid:{cid}"));
             }
             None => out.push_str(&rest[at + 1..at + 2 + end]),
@@ -434,7 +549,151 @@ fn inline_markdown_images(text: &str) -> (String, Vec<InlineImage>) {
         rest = &value[end..];
     }
     out.push_str(rest);
-    (out, images)
+    out
+}
+
+/// The signature's HTML as Markdown (decision on #67): bold, italic, links, line breaks and
+/// pictures; everything else becomes text. `html` already calls its pictures by `cid:`.
+pub fn signature_markdown(html: &str) -> String {
+    let mut out = String::new();
+    let mut link: Option<String> = None;
+    for tok in signature_tokens(html) {
+        match tok {
+            SigTok::Text(text) => push_words(&mut out, &decode_entities(text)),
+            SigTok::Tag { name, close, attrs } => match name.as_str() {
+                "br" => end_line(&mut out, true),
+                "div" | "p" | "tr" => end_line(&mut out, false),
+                "b" | "strong" => out.push_str("**"),
+                "i" | "em" => out.push('*'),
+                "a" if !close => {
+                    link = attr(attrs, "href").map(str::to_owned);
+                    out.push('[');
+                }
+                "a" => {
+                    if let Some(href) = link.take() {
+                        out.push_str(&format!("]({href})"));
+                    }
+                }
+                "img" if !close => {
+                    let alt = attr(attrs, "alt").unwrap_or("");
+                    let src = attr(attrs, "src").unwrap_or("");
+                    if !src.is_empty() {
+                        out.push_str(&format!("![{alt}]({src})"));
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+    while out.ends_with([' ', '\n']) {
+        out.pop();
+    }
+    out
+}
+
+/// A text or a tag of the signature, in order. Bold and italic are symbol pairs, so an open
+/// and a close push alike; a picture and a link are read from the tag itself.
+enum SigTok<'a> {
+    Text(&'a str),
+    Tag { name: String, close: bool, attrs: &'a str },
+}
+
+fn signature_tokens(html: &str) -> Vec<SigTok<'_>> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find('<') {
+        if at > 0 {
+            out.push(SigTok::Text(&rest[..at]));
+        }
+        let after = &rest[at + 1..];
+        let Some(end) = after.find('>') else { break };
+        let inner = &after[..end];
+        let close = inner.starts_with('/');
+        let inner = inner.trim_start_matches('/');
+        let name_end = inner
+            .find(|c: char| c.is_whitespace() || c == '/')
+            .unwrap_or(inner.len());
+        let name = &inner[..name_end];
+        if name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            out.push(SigTok::Tag {
+                name: name.to_ascii_lowercase(),
+                close,
+                attrs: &inner[name_end..],
+            });
+        }
+        rest = &after[end + 1..];
+    }
+    if !rest.is_empty() {
+        out.push(SigTok::Text(rest));
+    }
+    out
+}
+
+/// An attribute of a tag, its value unquoted: `<a href="…">` gives `…` for `href`.
+fn attr<'a>(attrs: &'a str, name: &str) -> Option<&'a str> {
+    let mut rest = attrs;
+    while let Some(at) = rest.find(name) {
+        let before_ok = at == 0 || !rest.as_bytes()[at - 1].is_ascii_alphanumeric();
+        if before_ok {
+            let value = rest[at + name.len()..].trim_start();
+            if let Some(value) = value.strip_prefix('=') {
+                let value = value.trim_start();
+                let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'');
+                return Some(match quote {
+                    Some(q) => value[1..].split(q).next().unwrap_or(""),
+                    None => value.split_whitespace().next().unwrap_or(""),
+                });
+            }
+        }
+        rest = &rest[at + name.len()..];
+    }
+    None
+}
+
+/// A line break in the Markdown: `<br>` is a hard break, two spaces at the line's end.
+fn end_line(out: &mut String, hard: bool) {
+    while out.ends_with(' ') {
+        out.pop();
+    }
+    if out.is_empty() || out.ends_with('\n') {
+        return;
+    }
+    if hard {
+        out.push_str("  ");
+    }
+    out.push('\n');
+}
+
+/// Text with its whitespace run as single spaces, no space where the line already has one.
+fn push_words(out: &mut String, raw: &str) {
+    let mut text = String::new();
+    for c in raw.chars() {
+        if c.is_whitespace() {
+            if !text.ends_with(' ') {
+                text.push(' ');
+            }
+        } else {
+            text.push(c);
+        }
+    }
+    if text.is_empty() {
+        return;
+    }
+    if text.starts_with(' ') && (out.is_empty() || out.ends_with([' ', '\n', '['])) {
+        text.remove(0);
+    }
+    out.push_str(&text);
+}
+
+/// The character references a signature may carry; anything else stays as it was.
+fn decode_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 fn angle(id: &str) -> String {
@@ -1168,9 +1427,12 @@ mod tests {
         assert_eq!(ids.len(), 1, "{raw}");
         let cid = ids[0].trim_matches(['<', '>']);
         assert!(!raw.contains("data:image"), "the logo leaves the letter: {raw}");
-        let markdown = raw.split("Content-Type: text/markdown").nth(1).unwrap();
+        // Quoted-printable folds long lines and spells "=" as "=3D"; joined back and decoded,
+        // both parts name the same picture.
+        let joined = raw.replace("=\r\n", "").replace("=3D", "=");
+        let markdown = joined.split("Content-Type: text/markdown").nth(1).unwrap();
         assert!(markdown.contains(&format!("](cid:{cid})")), "{markdown}");
-        let html = raw.split("Content-Type: text/html").nth(1).unwrap();
+        let html = joined.split("Content-Type: text/html").nth(1).unwrap();
         assert!(html.contains("depesha-signature"), "{html}");
         assert!(html.contains(&format!("src=\"cid:{cid}\"")), "{html}");
         // The reader shows the letter with both, the same picture found by its id.
@@ -1179,7 +1441,8 @@ mod tests {
         assert!(view.attachments[0].inline);
         assert!(view.html.unwrap().contains(&logo));
         // The plain part keeps the signature's text under the separator.
-        assert!(view.text.unwrap().contains("-- \nМария Соколова"), "{raw}");
+        let plain = view.text.unwrap().replace("\r\n", "\n");
+        assert!(plain.contains("-- \nМария Соколова"), "{plain}");
     }
 
     #[test]

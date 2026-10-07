@@ -13,6 +13,7 @@ import {
   putSignatureText,
   removeSignature,
   replySignature,
+  sigBlock,
   signatureIn,
   signatureShown,
   signatureText,

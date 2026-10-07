@@ -18,7 +18,7 @@
   import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
   import { SIGNATURE_CLASS } from "../lib/richtext";
-  import { sigBlock } from "../lib/signatures";
+  import { signatureShown } from "../lib/signatures";
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import type { BodyFormat, Signature } from "../lib/types";
@@ -172,6 +172,7 @@
     get format() { return fmt.format; },
     get switching() { return fmt.switching; },
     get signature() { return fmt.signature; },
+    get signatureView() { return signatureShown(fmt.format, fmt.signature); },
     get signatures() { return fmt.signatures; },
     get quoteHeader() { return fmt.quoteHeader; },
     get signatureSettings() { return fmt.signatureSettings; },
@@ -332,9 +333,16 @@
           ></textarea>
         {/if}
         {#if m.signature}
-          <!-- The version a letter in text or Markdown gets, under "-- ": shown, not edited. -->
+          {@const shown = m.signatureView}
+          <!-- The signature under the text, shown, not edited: formatted in an HTML or
+               Markdown letter (frame 13 of #45), its text under "-- " in a plain one. -->
           <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
-            <div class="sig-text">{sigBlock(m.signature).replace(/^\n\n/, "") || t("compose.signature.noText")}</div>
+            {#if shown && "html" in shown}
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -- the user's own signature -->
+              <div class="sig-html">{@html shown.html}</div>
+            {:else}
+              <div class="sig-text">{(shown && shown.text) || t("compose.signature.noText")}</div>
+            {/if}
             <div class="sig-bar">{@render signatureChip()}</div>
           </div>
         {/if}
@@ -725,6 +733,18 @@
     color: var(--ink);
     opacity: 0.9;
     user-select: text;
+  }
+
+  /* An HTML or Markdown letter's signature: shown as it is, its own colours and pictures. */
+  .sig-html {
+    line-height: 1.5;
+    color: var(--ink);
+    user-select: text;
+    overflow: hidden;
+  }
+
+  .sig-html :global(img) {
+    max-width: 100%;
   }
 
   .sig-bar {

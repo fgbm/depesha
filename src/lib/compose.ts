@@ -4,7 +4,7 @@ import { addrFull, shortDateTime } from "./format";
 import { t } from "./i18n.svelte";
 import { MAX_PICTURE, PICTURE_TYPES, takePictures, type Picture } from "./images";
 import { GAP, QUOTE_CLASS, QUOTE_STYLE, escapeHtml, hasFormatting, htmlLetterText, htmlToMarkdown, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
-import { sigBlock, sigHtml, splitHtmlSignature, splitPlain, withoutHtmlSignature } from "./signatures";
+import { sigBlock, sigHtml, hasHtmlSignature, splitHtmlSignature, splitPlain, withoutHtmlSignature } from "./signatures";
 import type { Account, Act, ActsOn, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
 
 export function emptyDraft(from: Addr | null, format: BodyFormat = "plain"): ComposeDraft {
@@ -176,6 +176,8 @@ export function fromDraft(msg: OpenedMessage, me: Addr): ComposeDraft {
   // Depesha's drafts say how they were written; another client's HTML draft stays HTML.
   const format: BodyFormat = msg.view.format ?? (msg.view.html ? "html" : "plain");
   const html = format === "html" ? (msg.view.html ?? textToHtml(text)) : null;
+  // A saved Markdown letter keeps its signature's HTML in the HTML part (decision on #67).
+  const signature = format === "markdown" && msg.view.html && hasHtmlSignature(msg.view.html) ? splitHtmlSignature(msg.view.html).sigBlock : null;
   return {
     from: me,
     to: s.to.filter((a) => !same(a, me) || s.to.length > 1 || s.cc.length > 0),
@@ -184,6 +186,7 @@ export function fromDraft(msg: OpenedMessage, me: Addr): ComposeDraft {
     subject: s.subject,
     text: html !== null ? htmlLetterText(html) : text,
     html,
+    signature,
     format,
     in_reply_to: s.in_reply_to,
     references: s.references,
@@ -260,7 +263,7 @@ export async function convertDraft(
     const html = from === "markdown" ? await markdownHtml(body.trim()) : textToHtml(body.replace(/^\n+/, "").trimEnd());
     const quoteHtml = quote ? `<div class="${QUOTE_CLASS}">${textToHtml(quote.replace(/^\n+/, "").trimEnd())}</div>` : "";
     const head = (body.trim() ? html : GAP) + sigHtml(signature);
-    return withHtml({ ...d, format: "html" }, head + quoteHtml);
+    return withHtml({ ...d, format: "html", signature: null }, head + quoteHtml);
   }
   let text: string;
   let quoteText: string;
@@ -273,5 +276,5 @@ export async function convertDraft(
     text = body;
     quoteText = quote;
   }
-  return { ...d, format: to, html: null, text: text + sigBlock(signature) + quoteText, parts: { body: text, rest: quoteText } };
+  return { ...d, format: to, html: null, signature: to === "markdown" ? sigHtml(signature) || null : null, text: text + sigBlock(signature) + quoteText, parts: { body: text, rest: quoteText } };
 }
