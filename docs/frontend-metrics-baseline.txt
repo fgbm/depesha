@@ -574,7 +574,6 @@ function	src/lib/markdown/table.ts::alignOf	6
 function	src/lib/markdown/table.ts::separator	6
 function	src/lib/markdown/table.ts::parseTable	11
 function	src/lib/markdown/table.ts::pad	5
-function	src/lib/markdown/table.ts::emptyTable	3
 function	src/lib/markdown/table.ts::widths	3
 function	src/lib/markdown/table.ts::cell	7
 function	src/lib/markdown/table.ts::tableSource	6

@@ -64,11 +64,6 @@ function pad(row: string[], width: number): string[] {
   return out;
 }
 
-/** A fresh table of the mockup's shape: three columns, a header and one row. */
-export function emptyTable(): Table {
-  return { head: ["", "", ""], aligns: ["left", "left", "left"], rows: [["", "", ""]] };
-}
-
 /** The widths of the columns: their longest cell, never below `---`. */
 function widths(t: Table): number[] {
   return t.head.map((_, c) => Math.max(MIN_WIDTH, t.head[c].length, ...t.rows.map((r) => r[c].length)));

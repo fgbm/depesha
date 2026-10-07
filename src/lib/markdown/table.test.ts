@@ -4,7 +4,6 @@ import {
   cellOffset,
   deleteColumn,
   deleteRow,
-  emptyTable,
   insertColumn,
   insertRow,
   moveCell,
@@ -59,13 +58,6 @@ describe("the table of a Markdown letter", () => {
   it("is null for lines that are not a table", () => {
     expect(parseTable("просто текст")).toBeNull();
     expect(parseTable("| a | b |")).toBeNull();
-  });
-
-  it("makes an empty 3 × 2 table", () => {
-    const t = emptyTable();
-    expect(t.head).toEqual(["", "", ""]);
-    expect(t.rows).toEqual([["", "", ""]]);
-    expect(tableSource(t)).toBe("|     |     |     |\n| --- | --- | --- |\n|     |     |     |\n");
   });
 });
 
