@@ -3,7 +3,7 @@ import { EditorSelection, EditorState, type Transaction } from "@codemirror/stat
 import { history, undo } from "@codemirror/commands";
 import { linesEdit, linkEdit, wrapEdit } from "../mdedit";
 import { markdownSupport } from "./dialect";
-import { editSpec, formatsAt } from "./field";
+import { editSpec, formatsAt, inTableAt } from "./field";
 
 function stateOf(doc: string, from: number, to = from): EditorState {
   return EditorState.create({ doc, selection: EditorSelection.single(from, to), extensions: [history(), markdownSupport()] });
@@ -47,5 +47,18 @@ describe("the formatting row on the Markdown editor", () => {
     expect(at("> цитата\n> вторая| строка")).toEqual(["quote"]);
     expect(at("> - пункт| в цитате")).toEqual(["bullets", "quote"]);
     expect(at("простой| текст")).toEqual([]);
+  });
+
+  it("says whether the caret stands in a table cell", () => {
+    const table = "| a | b |\n|---|---|\n| 1 | 2 |";
+    // Anywhere inside the table's own lines, the caret is in it.
+    expect(inTableAt(stateOf(table, 3), 3)).toBe(true);
+    expect(inTableAt(stateOf(table, table.length - 2), table.length - 2)).toBe(true);
+    // A paragraph after the table, a blank line apart, is out of it.
+    const after = `${table}\n\nтекст`;
+    expect(inTableAt(stateOf(after, after.length - 1), after.length - 1)).toBe(false);
+    // Without the blank line the line joins the table (GFM), so the caret is in it.
+    const joined = `${table}\nтекст`;
+    expect(inTableAt(stateOf(joined, joined.length - 1), joined.length - 1)).toBe(true);
   });
 });

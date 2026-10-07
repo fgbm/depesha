@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeEdit, headingEdit, pictureEdit, tableEdit } from "../markdown/mdedits";
+import { codeEdit, headingEdit, pictureAltEdit, pictureEdit, pictureRemoveEdit, tableEdit } from "../markdown/mdedits";
 import type { Edit } from "../mdedit";
 
 function apply(text: string, e: Edit): string {
@@ -44,5 +44,32 @@ describe("heading, code, table and picture of a Markdown letter", () => {
     const e = pictureEdit("План:", 5, 5, "data:image/png;base64,AA", "План зала");
     expect(apply("План:", e)).toBe("План:\n![План зала](data:image/png;base64,AA)\n");
     expect(e.select).toEqual([apply("План:", e).length, apply("План:", e).length]);
+  });
+
+  it("rewrites the description of a picture, keeping its address", () => {
+    const text = "текст\n![План зала](data:image/png;base64,AA)\nхвост";
+    const e = pictureAltEdit(text, 6, "План на 14-е")!;
+    expect(apply(text, e)).toBe("текст\n![План на 14-е](data:image/png;base64,AA)\nхвост");
+    // Nothing new typed: the same text, so the widget skips it and Ctrl+Z has nothing to undo.
+    const same = pictureAltEdit(text, 6, "План зала")!;
+    expect(apply(text, same)).toBe(text);
+  });
+
+  it("finds the picture on the caret's line", () => {
+    const text = "![План](a.png)\n\nвторой абзац";
+    // The caret anywhere on the picture's line finds it.
+    expect(pictureAltEdit(text, 3, "Схема")).toBeTruthy();
+    expect(pictureRemoveEdit(text, 3)).toBeTruthy();
+    // A line with no picture is not touched.
+    expect(pictureAltEdit(text, text.length, "Схема")).toBeNull();
+    expect(pictureRemoveEdit(text, text.length)).toBeNull();
+  });
+
+  it("takes a picture out, its line and the blank line after it", () => {
+    const text = "до\n![План](a.png)\nпосле";
+    const e = pictureRemoveEdit(text, 5)!;
+    expect(apply(text, e)).toBe("до\nпосле");
+    const end = "до\n![План](a.png)";
+    expect(apply(end, pictureRemoveEdit(end, 5)!)).toBe("до");
   });
 });
