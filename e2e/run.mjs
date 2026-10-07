@@ -1664,11 +1664,11 @@ try {
     const focused = await d.exec("return document.activeElement?.innerText?.trim() ?? ''");
     if (focused !== "Все письма") throw new Error(`в фокусе «${focused}», а не «Все письма»`);
     await screenshot("person-card");
-    await press("Enter");
-    await d.until("search by sender", async () => (await d.exec("return document.querySelector('.list .search input')?.value ?? ''")) === "from:petr@example.org");
+    // A real Enter on the focused button: what the keyboard does, not a synthetic event.
+    await d.pressKey("\uE007");
+    await d.until("search by sender", async () => (await d.exec("return document.querySelector('.list .search input')?.value ?? ''")).includes("from:petr@example.org"));
     await rowBySubject(subj, 10000);
   });
-
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");

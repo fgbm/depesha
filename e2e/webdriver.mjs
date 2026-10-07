@@ -88,6 +88,20 @@ export class Driver {
     return this.req("GET", this.s(`/element/${el}/text`));
   }
 
+  /** The element that has focus, as WebDriver sees it. */
+  async active() {
+    const v = await this.req("GET", this.s("/element/active"));
+    return v[ELEMENT];
+  }
+
+  /** Presses a key with a real key event, so the browser's default action happens too
+   *  (Enter on the focused button = "\uE007"); a synthetic KeyboardEvent would not. */
+  async pressKey(value) {
+    await this.req("POST", this.s("/actions"), {
+      actions: [{ type: "key", id: "kbd", actions: [{ type: "keyDown", value }, { type: "keyUp", value }] }],
+    });
+  }
+
   async exec(script, ...args) {
     return this.req("POST", this.s("/execute/sync"), { script, args });
   }

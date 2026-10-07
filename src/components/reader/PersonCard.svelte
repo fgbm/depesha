@@ -31,6 +31,15 @@
   } = $props();
 
   let recent = $state<MessageRow[]>([]);
+  /** The first button stands in focus, as the frame 12А asks: Enter runs «All mail». The
+   *  focus waits a frame: the popover is not focusable until its place is set. */
+  let allMail = $state<HTMLButtonElement | null>(null);
+  $effect(() => {
+    const el = allMail;
+    if (!el) return;
+    const id = requestAnimationFrame(() => el.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(id);
+  });
 
   peopleBook.load();
 
@@ -97,7 +106,7 @@
   </div>
 
   <div class="pc-acts">
-    <button class="btn primary" role="menuitem" onclick={onAllMail}>{t("person.allMail")}</button>
+    <button class="btn primary" role="menuitem" bind:this={allMail} onclick={onAllMail}>{t("person.allMail")}</button>
     {#if short}
       <button class="btn" role="menuitem" onclick={copy}>{t("person.copy")}</button>
     {:else}
