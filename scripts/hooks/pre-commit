@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Хук pre-commit: не пускает персональные данные в коммит.
+#
+# Шаблоны лежат ВНЕ репозитория (иначе сами попали бы в историю): одна строка —
+# одно регулярное выражение ERE, совпадение без учёта регистра, строки с «#» —
+# комментарии. Путь по умолчанию — ~/.config/depesha/private-patterns,
+# переопределяется переменной DEPESHA_PRIVATE_PATTERNS. Если файла нет, хук
+# молча пропускает коммит.
+#
+# Проверяются добавляемые строки (`git diff --cached`) и имена добавляемых,
+# переименованных и скопированных файлов. Совпадение печатается как «файл:строка»
+# (сам шаблон — никогда), код выхода 1.
+set -eu
+
+patterns_file="${DEPESHA_PRIVATE_PATTERNS:-$HOME/.config/depesha/private-patterns}"
+[ -f "$patterns_file" ] || exit 0
+
+patterns="$(grep -v '^[[:space:]]*#' "$patterns_file" 2>/dev/null \
+  | grep -v '^[[:space:]]*$' | paste -sd'|' -)"
+[ -n "$patterns" ] || exit 0
+
+found=0
+
+# Имена добавленных, переименованных и скопированных файлов.
+while IFS=$'\t' read -r status old new; do
+  case "$status" in
+    A|A*|R|R*|C|C*) ;;
+    *) continue ;;
+  esac
+  for name in "$old" "$new"; do
+    [ -n "$name" ] || continue
+    if printf '%s' "$name" | grep -Eiq -e "$patterns"; then
+      printf '%s\n' "$name"
+      found=1
+    fi
+  done
+done < <(git diff --cached --name-status)
+
+# Содержимое текстовых файлов: бинарные пропускаем, у них проверяется только имя.
+text_files=()
+while IFS= read -r -d '' file; do
+  if ! git diff --cached --numstat -- "$file" | head -n1 | grep -q '^-'; then
+    text_files+=("$file")
+  fi
+done < <(git diff --cached --name-only -z)
+
+if [ "${#text_files[@]}" -gt 0 ]; then
+  while IFS=$'\t' read -r file lineno content; do
+    [ -n "$file" ] || continue
+    if printf '%s' "$content" | grep -Eiq -e "$patterns"; then
+      printf '%s:%s\n' "$file" "$lineno"
+      found=1
+    fi
+  done < <(git diff --cached --text -U0 --no-color -- "${text_files[@]}" \
+    | awk '
+        /^\+\+\+ b\// { file = substr($0, 7); next }
+        /^\+\+\+ \/dev\/null/ { next }
+        /^@@ / { match($0, /\+[0-9]+/); lineno = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+        /^\+/ { print file "\t" lineno "\t" substr($0, 2); lineno++; next }
+        /^-/ { next }
+        /^ / { lineno++; next }
+      ')
+fi
+
+[ "$found" -eq 0 ] || exit 1
+exit 0

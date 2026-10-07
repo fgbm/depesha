@@ -20,6 +20,8 @@ step "svelte-check"
 npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
 step "eslint"
 npm run lint
+step "хук персональных данных"
+scripts/hooks/pre-commit.test.sh
 step "метрики фронтенда"
 scripts/frontend-metrics.sh
 step "инварианты фронтенда"
