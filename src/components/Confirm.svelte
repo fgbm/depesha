@@ -48,6 +48,7 @@
     {#if q.note}<p class="note">{q.note}</p>{/if}
     <div class="buttons">
       <button class="btn" bind:this={cancelBtn} onclick={() => answer(false)}>{q.cancelLabel ?? t("cancel")}</button>
+      {#if q.altLabel}<button class="btn ghost" onclick={() => answer(null)}>{q.altLabel}</button>{/if}
       <button class="btn primary" bind:this={okBtn} onclick={() => answer(true)}>{q.okLabel}</button>
     </div>
   </div>

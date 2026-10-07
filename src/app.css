@@ -19,6 +19,13 @@
   --ok: #2e7d4f;
   --warn: #b26a00;
   --radius: 8px;
+  /* The settings window (#68) is as big as the expanded letter: up to 1040 px wide by
+     --win-gap from every edge; a page's fields keep to --column-max. Mirrored in
+     src/lib/settingsWindow.ts, checked by settingsWindow.test.ts. */
+  --win-max: 1040px;
+  --win-gap: 32px;
+  --menu-width: 220px;
+  --column-max: 680px;
   --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
   color-scheme: light;

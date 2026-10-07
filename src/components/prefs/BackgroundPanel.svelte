@@ -21,7 +21,7 @@
   });
 </script>
 
-<section>
+<section data-settings="bg-close">
   <h4>{t("bg.onClose")}</h4>
   <Select
     label={t("bg.onClose")}
@@ -37,7 +37,7 @@
   {/if}
   <p class="hint">{t("bg.quitHint")}</p>
 </section>
-<section>
+<section data-settings="bg-login">
   <h4>{t("bg.atLogin")}</h4>
   <Select
     label={t("bg.atLogin")}
@@ -49,7 +49,7 @@
     ]}
   />
 </section>
-<section>
+<section data-settings="bg-tray">
   <h4>{t("bg.trayIcon")}</h4>
   <label class="option">
     <input type="checkbox" bind:checked={draft.tray_count} />

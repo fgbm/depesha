@@ -4,6 +4,7 @@ account.color
 account.connection
 account.contents
 account.fix
+account.leaveDiscard
 account.menu
 account.refresh
 account.section.storage
@@ -422,11 +423,16 @@ settings.defaultAccount
 settings.defaultAccountContext
 settings.defaultAccountNote
 settings.dndNote
+settings.find
+settings.findNone
+settings.found
 settings.installed
 settings.language
 settings.languageAuto
 settings.largeMail
 settings.largeMailNote
+settings.leaveText
+settings.leaveTitle
 settings.letterView
 settings.letterView.hint
 settings.letterView.markdown

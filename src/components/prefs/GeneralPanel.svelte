@@ -34,13 +34,13 @@
 {/snippet}
 
 {#if current === "general"}
-  <section>
+  <section data-settings="general-language">
     <h4>{t("settings.language")}</h4>
     {@render option("language", "auto", t("settings.languageAuto"))}
     {@render option("language", "en", "English")}
     {@render option("language", "ru", "Русский")}
   </section>
-  <section>
+  <section data-settings="general-appearance">
     <h4>{t("settings.appearance")}</h4>
     <div class="themes" role="radiogroup" aria-label={t("settings.appearance")}>
       {#each THEMES as theme (theme)}
@@ -53,7 +53,7 @@
     </div>
     {#if draft.theme === "system"}<p class="hint">{t("settings.theme.systemNote")}</p>{/if}
   </section>
-  <section>
+  <section data-settings="general-search">
     <h4>{t("settings.search")}</h4>
     <div class="inline">
       <span>{t("settings.largeMail")}</span>
@@ -70,7 +70,7 @@
     <p class="hint">{t("settings.largeMailNote")}</p>
   </section>
 {:else if current === "updates"}
-  <section>
+  <section data-settings="updates">
     {@render option("updates", "auto", t("settings.updatesAuto"), t("settings.updatesAutoNote"))}
     {@render option("updates", "notify", t("settings.updatesNotify"))}
     {@render option("updates", "off", t("settings.updatesOff"))}

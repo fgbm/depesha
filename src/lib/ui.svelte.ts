@@ -21,6 +21,11 @@ export interface Confirmation {
   detail?: string;
   okLabel: string;
   cancelLabel?: string;
+  /**
+   * A third answer beside the other two: `resolve(null)`, the same as a dismissal (Esc).
+   * For a question with three outcomes, such as leaving a page with unsaved changes.
+   */
+  altLabel?: string;
   /** The action loses something: the safe button gets the focus. */
   danger?: boolean;
   /** A box to tick under the text («Remember my choice»); the dialog changes `checked`. */

@@ -25,7 +25,7 @@
 {/snippet}
 
 {#if current === "mail"}
-  <section>
+  <section data-settings="mail-list">
     <h4>{t("settings.list")}</h4>
     <label class="option">
       <input type="checkbox" bind:checked={draft.threads} />
@@ -36,7 +36,7 @@
       <span class="text">{t("settings.senderLogos")}<span class="note">{t("settings.senderLogosNote")}</span></span>
     </label>
   </section>
-  <section>
+  <section data-settings="mail-new">
     <h4>{t("settings.newMessages")}</h4>
     <div class="inline">
       <span>{t("settings.composeFormat")}</span>
@@ -64,7 +64,7 @@
     </div>
     <p class="hint">{t("settings.defaultAccountNote")}</p>
   </section>
-  <section>
+  <section data-settings="mail-reading">
     <h4>{t("settings.reading")}</h4>
     <div class="caption" id="letter-view">{t("settings.letterView")}</div>
     <div role="radiogroup" aria-labelledby="letter-view">
@@ -74,12 +74,12 @@
     </div>
     <p class="hint">{t("settings.letterView.hint")}</p>
   </section>
-  <section>
+  <section data-settings="mail-attachments">
     <h4>{t("settings.attachmentsDir")}</h4>
     <FolderPicker bind:value={() => draft.attachments_dir ?? "", (v) => (draft.attachments_dir = v)} label={t("settings.attachmentsDir")} placeholder={t("settings.askEveryTime")} />
     <p class="hint">{t("settings.attachmentsDirNote")}</p>
   </section>
-  <section>
+  <section data-settings="mail-sending">
     <h4>{t("settings.sending")}</h4>
     <div class="inline">
       <span>{t("settings.undoSend")}</span>
@@ -91,7 +91,7 @@
     </div>
   </section>
 {:else if current === "notifications"}
-  <section>
+  <section data-settings="notify">
     {@render option("notify", "people", t("settings.notifyPeople"), t("settings.notifyPeopleNote"))}
     {@render option("notify", "all", t("settings.notifyAll"))}
     {@render option("notify", "none", t("settings.notifyNone"))}

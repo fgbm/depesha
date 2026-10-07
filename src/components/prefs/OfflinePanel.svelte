@@ -7,7 +7,7 @@
   let { draft }: { draft: Settings } = $props();
 </script>
 
-<section>
+<section data-settings="offline">
   <div class="inline">
     <span>{t("settings.offlineKeep")}</span>
     <Select
