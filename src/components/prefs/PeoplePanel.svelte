@@ -60,11 +60,13 @@
     }
   }
 
-  /** A field changed by hand: the list shows it at once, and the record follows. */
+  /** A field changed by hand: the list shows it at once, and the record follows. A person
+   *  without an address yet has no record to save: their fields are kept until it has one. */
   async function edit(patch: Partial<Person>) {
     if (!person) return;
     const next = { ...person, ...patch };
     people = people.map((p) => (p.email === person.email ? next : p));
+    if (next.email === NEW) return;
     await save(next);
   }
 
