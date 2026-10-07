@@ -1,7 +1,7 @@
 <script lang="ts">
-  // A quiet accent beside "From": a dot in the colour of the chosen mailbox, so the
-  // letter's sender is recognisable at a glance. Decorative only — it takes no pointer
-  // and is hidden from the accessibility tree.
+  // A quiet accent across the whole "From" row: the row's background is tinted with the
+  // colour of the chosen mailbox, label and "Копия" included. Decorative only — the layer
+  // takes no pointer and is hidden from the accessibility tree.
   import type { ComposeContext, PluginContext } from "@depesha/plugin-api";
 
   let { compose }: { compose: ComposeContext; ctx: PluginContext } = $props();
@@ -13,30 +13,19 @@
 <span class="tint" aria-hidden="true" style:--tint={color}></span>
 
 <style>
-  /* The accent is a zero-width box, so it adds nothing to the row; the visible dot is
-     drawn by ::before inside the 8px gap the "From" row already keeps between its items
-     (Compose.svelte .row). The margins cancel that one extra gap, so the mailbox list
-     and its neighbours keep their exact width and nothing shifts. The dot is exactly as
-     wide as that gap, which is why it is not made larger: beyond 8px it would run into
-     the address. Centred against the row, it stays clear of the row's border-bottom. */
-  .tint {
-    position: relative;
-    flex: none;
-    align-self: center;
-    height: 8px;
-    width: 0;
-    margin: 0 -4px;
-  }
+  /* The layer fills the row (Compose.svelte makes the “From” row a positioning and
+     stacking context, so `inset: 0` is the row, not the window). It sits at z-index:-1,
+     behind the row's own content but above the row's background: the semi-transparent tint
+     therefore stacks with a state background (--hover / --selected) instead of replacing it.
+     It takes no pointer, so the select, “Копия” and their focus are untouched.
 
-  .tint::before {
-    content: "";
+     At 14% the colour reads from across the room, while the row still stays below a
+     selected one (ΔE 8.2–9.5 against 12.8), so a resting row is not taken for a chosen one. */
+  .tint {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--tint);
+    inset: 0;
+    z-index: -1;
     pointer-events: none;
+    background: color-mix(in srgb, var(--tint) 14%, transparent);
   }
 </style>

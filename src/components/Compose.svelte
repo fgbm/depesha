@@ -233,7 +233,7 @@
 
   <div class="panel" hidden={c.mode === "min"}>
     <div class="fields">
-      <div class="row">
+      <div class="row from-row">
         <span class="label">{t("compose.fwd.from")}</span>
         {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
         <Select
@@ -512,6 +512,17 @@
     gap: 8px;
     border-bottom: 1px solid var(--line);
     padding: 4px 0;
+  }
+
+  /* The «From» row anchors a plugin's decorative layer: `position: relative` makes it the
+     containing block for an `inset: 0` box, and `isolation` makes that box's `z-index: -1`
+     land over the row's background but behind its content. Without `z-index: 1` the row's
+     own stacking context would paint before `.body-area` and bury the Select's dropdown —
+     a `position: fixed` descendant of this row. */
+  .row.from-row {
+    position: relative;
+    isolation: isolate;
+    z-index: 1;
   }
 
   .label {

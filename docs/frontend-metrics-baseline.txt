@@ -2,7 +2,7 @@ component	src/App.svelte	290	191	53	46
 component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
-component	src/components/Compose.svelte	822	199	207	416
+component	src/components/Compose.svelte	833	199	207	427
 component	src/components/Confirm.svelte	95	30	17	48
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
