@@ -788,6 +788,21 @@ try {
     await d.exec("document.querySelector(arguments[0] + ' .star').focus()", `${block}[data-folder=${JSON.stringify(ten[0])}]`);
     await d.until("звезда блока проявилась в фокусе", async () => (await colorIn(block, ten[0])) !== blockIdle);
     if ((await colorIn(tree, ten[0])) !== "rgb(224, 176, 64)") throw new Error("звезда избранной папки в дереве не золотая");
+    // The row's paint belongs to the row: the star lies over the row, so crossing onto it must
+    // not blink the background off (#60). Hovering the row and hovering its star read the same.
+    const bgIn = (where, name) =>
+      d.exec(`const r = document.querySelector(arguments[0] + '[data-folder="' + arguments[1] + '"] .item'); return r ? getComputedStyle(r).backgroundColor : null`, where, name);
+    const rowsel = `${block}[data-folder=${JSON.stringify(ten[0])}]`;
+    const bgUnder = async (part) => {
+      await d.moveTo(await d.find(`${rowsel} ${part}`));
+      return d.until(`row background under ${part}`, async () => {
+        const c = await bgIn(block, ten[0]);
+        return c && c !== "rgba(0, 0, 0, 0)" ? c : null;
+      });
+    };
+    const bgRow = await bgUnder(".item");
+    const bgStar = await bgUnder(".star");
+    if (bgStar !== bgRow) throw new Error(`фон строки гаснет на звезде: ${bgRow} → ${bgStar}`);
 
     // A folded branch keeps its favourite in the block.
     await d.click(await d.find("nav.side .fold[aria-label$=': Работа']"));

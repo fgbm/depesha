@@ -134,7 +134,10 @@ nav.side {
     text-align: left;
   }
 
-  .side .item:hover:not(:disabled) {
+  /* The row's background belongs to the row: the star and the fold triangle lie beside the
+     button, not in it, and hovering them would otherwise take the row's paint away (#60). */
+  .side .item:hover:not(:disabled),
+  .side .folder-row:hover .item:not(:disabled) {
     background: var(--side-2);
   }
 
