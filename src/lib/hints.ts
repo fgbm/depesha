@@ -33,8 +33,8 @@ export interface Hint {
   id: string;
   /** The address it is about. */
   subject: string;
-  /** The words of the question; `who` is how the person is named. */
-  text: (who: string) => string;
+  /** The words of the question, already named. */
+  text: string;
   /** The accepting button names what it does, not «yes» (#69). */
   accept: string;
 }

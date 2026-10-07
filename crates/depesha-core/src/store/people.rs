@@ -156,11 +156,17 @@ impl Store {
         let q = query.trim().to_lowercase();
         if !q.is_empty() {
             people.retain(|p| {
-                p.name.to_lowercase().contains(&q) || p.email.to_lowercase().contains(&q) || p.note.to_lowercase().contains(&q)
+                p.name.to_lowercase().contains(&q)
+                    || p.email.to_lowercase().contains(&q)
+                    || p.note.to_lowercase().contains(&q)
             });
         }
         people.sort_by_cached_key(|p| {
-            let shown = if p.name.is_empty() { p.email.clone() } else { p.name.clone() };
+            let shown = if p.name.is_empty() {
+                p.email.clone()
+            } else {
+                p.name.clone()
+            };
             (shown.to_lowercase(), p.email.to_lowercase())
         });
         Ok(people)
@@ -183,7 +189,10 @@ impl Store {
     /// the same address is replaced, not added beside it.
     pub fn save_person(&self, p: &Person) -> Result<()> {
         let conn = self.conn();
-        conn.execute("DELETE FROM people WHERE fold(email) = fold(?1) AND email != ?1", [&p.email])?;
+        conn.execute(
+            "DELETE FROM people WHERE fold(email) = fold(?1) AND email != ?1",
+            [&p.email],
+        )?;
         conn.execute(
             "INSERT INTO people (email, name, send_format, view, note, hidden, manual, via, saved)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -191,7 +200,17 @@ impl Store {
                  name = excluded.name, send_format = excluded.send_format, view = excluded.view,
                  note = excluded.note, hidden = excluded.hidden, manual = excluded.manual,
                  via = excluded.via, saved = excluded.saved",
-            params![p.email, p.name, p.send_format, p.view, p.note, p.hidden, p.manual, p.via, p.saved],
+            params![
+                p.email,
+                p.name,
+                p.send_format,
+                p.view,
+                p.note,
+                p.hidden,
+                p.manual,
+                p.via,
+                p.saved
+            ],
         )?;
         Ok(())
     }
@@ -200,16 +219,17 @@ impl Store {
     /// that came from the correspondence would return with the next letter, so it stays, and
     /// the address is hidden instead. Says whether anything was removed.
     pub fn forget_person(&self, email: &str) -> Result<bool> {
-        Ok(self
-            .conn()
-            .execute("DELETE FROM people WHERE fold(email) = fold(?1) AND manual = 1", [email])?
-            > 0)
+        Ok(self.conn().execute(
+            "DELETE FROM people WHERE fold(email) = fold(?1) AND manual = 1",
+            [email],
+        )? > 0)
     }
 
     /// Every decision about the suggestions, in a settled order.
     pub fn hints(&self) -> Result<Vec<HintState>> {
         let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT id, subject, decision, shows, refusals, decided, shown FROM hints ORDER BY id, subject")?;
+        let mut stmt = conn
+            .prepare("SELECT id, subject, decision, shows, refusals, decided, shown FROM hints ORDER BY id, subject")?;
         Ok(stmt.query_map([], hint_row)?.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -221,7 +241,15 @@ impl Store {
              ON CONFLICT (id, subject) DO UPDATE SET
                  decision = excluded.decision, shows = excluded.shows, refusals = excluded.refusals,
                  decided = excluded.decided, shown = excluded.shown",
-            params![h.id, h.subject.trim().to_lowercase(), h.decision, h.shows, h.refusals, h.decided, h.shown],
+            params![
+                h.id,
+                h.subject.trim().to_lowercase(),
+                h.decision,
+                h.shows,
+                h.refusals,
+                h.decided,
+                h.shown
+            ],
         )?;
         Ok(())
     }
@@ -270,9 +298,9 @@ mod tests {
         // Both are in the book though neither has a record yet, with the letters counted.
         let book = store.people("").unwrap();
         assert_eq!(book.len(), 2);
-        let ivan = |p: &&Person| p.email.eq_ignore_ascii_case("ivan@example.org");
-        assert_eq!(book.iter().find(|p| ivan(&p)).unwrap().name, "Иван Петров");
-        assert!(book.iter().find(|p| ivan(&p)).unwrap().uses >= 1);
+        let ivan = |p: &Person| p.email.eq_ignore_ascii_case("ivan@example.org");
+        assert_eq!(book.iter().find(|p| ivan(p)).unwrap().name, "Иван Петров");
+        assert!(book.iter().find(|p| ivan(p)).unwrap().uses >= 1);
 
         // A rule is a record over the address; the letters stay counted.
         store
@@ -308,8 +336,12 @@ mod tests {
     #[test]
     fn one_row_per_address_whatever_its_case() {
         let store = mailbox();
-        store.save_person(&person("Ivan@Example.org", |p| p.send_format = "html".into())).unwrap();
-        store.save_person(&person("ivan@example.org", |p| p.send_format = "plain".into())).unwrap();
+        store
+            .save_person(&person("Ivan@Example.org", |p| p.send_format = "html".into()))
+            .unwrap();
+        store
+            .save_person(&person("ivan@example.org", |p| p.send_format = "plain".into()))
+            .unwrap();
         // The second spelling replaced the first rather than standing beside it.
         assert_eq!(store.people("").unwrap().len(), 1);
         assert_eq!(store.person("ivan@EXAMPLE.org").unwrap().unwrap().send_format, "plain");
