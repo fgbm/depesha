@@ -12,6 +12,7 @@ import { i18n } from "./i18n.svelte";
 import { QuickReplyState } from "../components/reader/useQuickReply.svelte";
 import { ComposeFormat } from "./compose/format.svelte";
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, findBlock } from "./richtext";
+import { shortcuts } from "./shortcuts.svelte";
 import { api, emit, eventModule, flush, handlers, opened, resetFakes, row, settings } from "./testing";
 import type { AccountView, BodyFormat, Extension } from "./types";
 
@@ -284,6 +285,18 @@ describe("settings changed elsewhere", () => {
     emit("settings-changed");
     await flush();
     expect(i18n.lang).toBe("ru");
+  });
+
+  // An already open window — a message of its own too — hears the event and takes the
+  // keys at once: no reopening, the toolbar and the palette follow.
+  it("bring the new keys to an open message window at once", async () => {
+    const s = new AppStore();
+    await s.initWindow(1);
+    const changed = { ...settings(), keybindings: { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] } };
+    api.settings.mockResolvedValue(changed);
+    emit("settings-changed");
+    await flush();
+    expect(shortcuts.keys("core.reply-all")).toEqual(["Shift+r"]);
   });
 });
 
