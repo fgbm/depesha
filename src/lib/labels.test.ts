@@ -100,6 +100,22 @@ describe("группировка общих папок по владельцу",
     expect(g.others).toEqual([{ owner: "maria", folders: [folder("a", "Other Users/maria/Проекты")] }]);
   });
 
+  it("корень namespace не остаётся в своих папках, а похожая своя папка — остаётся", () => {
+    const folders = [
+      folder("a", "INBOX"),
+      folder("a", "shared"), // корень общего namespace
+      folder("a", "shared/Бухгалтерия"),
+      folder("a", "Other Users"), // корень чужого namespace
+      folder("a", "Other Users/maria"), // корень чужих папок maria
+      folder("a", "Other Users/maria/Проекты"),
+      folder("a", "shared-архив"), // своя папка с похожим именем
+    ];
+    const g = groupFolders(folders, namespaces);
+    expect(g.mine.map((f) => f.name)).toEqual(["INBOX", "shared-архив"]);
+    expect(g.shared.map((f) => f.name)).toEqual(["shared/Бухгалтерия"]);
+    expect(g.others).toEqual([{ owner: "maria", folders: [folder("a", "Other Users/maria/Проекты")] }]);
+  });
+
   it("без NAMESPACE всё остаётся в общем списке", () => {
     const folders = [folder("a", "INBOX"), folder("a", "shared/Бухгалтерия")];
     const g = groupFolders(folders, null);

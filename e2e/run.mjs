@@ -2450,6 +2450,10 @@ try {
     await d.until("shared group", async () => (await sidebarText()).includes("Общие"), 30000);
     await d.until("folder in the shared group", async () =>
       d.exec(`const h = [...document.querySelectorAll('nav.side .subhead')].find((x) => x.innerText.includes('Общие')); if (!h) return null; let n = h.nextElementSibling; while (n && !n.classList.contains('subhead')) { if ((n.querySelector('.name') ?? n).innerText.trim() === 'ReadOnly') return true; n = n.nextElementSibling; } return null;`).catch(() => null), 15000);
+    // The namespace root `shared` is the container of the group, not a folder of the
+    // mailbox: no empty `shared` row stays in the account's own tree (#42, кадр 6Б).
+    await d.until("no empty shared root", async () =>
+      d.exec(`return document.querySelector('nav.side .folder-row[data-folder="shared"]') ? null : true;`).catch(() => null), 15000);
     await screenshot("shared-group");
   });
 
