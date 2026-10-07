@@ -1,5 +1,6 @@
 data-account
 data-action
+data-command
 data-consent
 data-count
 data-drop-zone
