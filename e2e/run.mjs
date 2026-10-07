@@ -303,11 +303,13 @@ try {
     if (settings.compose_format !== "html") throw new Error(`формат новых писем: ${settings.compose_format}`);
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose .rich")).length === 1);
-    // The format is in the «⋯» menu of the footer, the formatting row under the subject.
-    await d.click(await d.find(".compose footer button[aria-haspopup=menu]"));
+    // The format button of the footer shows the current mode and opens its menu (#45, frame 6).
+    const fmt = await d.find(".compose footer button[aria-label='Формат письма']");
+    if (!(await fmt.getText()).includes("HTML")) throw new Error(`подпись кнопки формата: ${await fmt.getText()}`);
+    await d.click(fmt);
     const modes = await d.exec("return [...document.querySelectorAll('.pop [role=menuitemradio]')].map((b) => b.textContent.trim() + (b.getAttribute('aria-checked') === 'true' ? '*' : ''))");
-    if (modes.join(" ") !== "Обычный текст HTML* Markdown") throw new Error(`формат письма в «⋯»: ${modes.join(" ")}`);
-    await d.click(await d.find(".compose footer button[aria-haspopup=menu]"));
+    if (modes.join(" ") !== "Обычный текст HTML* Markdown") throw new Error(`формат письма в меню кнопки: ${modes.join(" ")}`);
+    await d.click(fmt);
     if ((await d.findAll(".compose [role=toolbar] button")).length < 9) throw new Error("нет строки оформления");
     await d.click(await d.find(".compose header button:last-child"));
     await composeClosed();
