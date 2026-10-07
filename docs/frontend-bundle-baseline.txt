@@ -1,2 +1,2 @@
-main	747466	226755
-markdown-editor	321411	103420
+main	710972	215825
+markdown-editor	336978	108166
