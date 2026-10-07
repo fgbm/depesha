@@ -26,6 +26,8 @@ step "инварианты фронтенда"
 scripts/frontend-invariants.sh
 step "vitest"
 npx vitest run
+step "главный чанк фронтенда"
+scripts/frontend-bundle.sh
 step "cargo test (unit + scripted Exchange SMTP)"
 cargo test -p depesha-core
 cargo test -p depesha --lib
