@@ -19,6 +19,11 @@ describe("keys of the composition window", () => {
     expect(composeAction(press("P", "KeyP", { ctrl: true, shift: true }))).toBe("preview");
     expect(composeAction(press("b", "KeyB", { ctrl: true }))).toBe("bold");
     expect(composeAction(press("s", "KeyS", { ctrl: true }))).toBe("save");
+    // The Markdown-only commands of #45 (decisions, frame 16 В).
+    expect(composeAction(press("1", "Digit1", { ctrl: true }))).toBe("heading1");
+    expect(composeAction(press("2", "Digit2", { ctrl: true }))).toBe("heading2");
+    expect(composeAction(press("3", "Digit3", { ctrl: true }))).toBe("heading3");
+    expect(composeAction(press("e", "KeyE", { ctrl: true }))).toBe("code");
   });
 
   it("works on the Russian layout by the physical key", () => {
@@ -40,5 +45,7 @@ describe("keys of the composition window", () => {
     expect(keyLabel("preview")).toBe("Ctrl+Shift+P");
     expect(keyLabel("send")).toBe("Ctrl+Enter");
     expect(keyLabel("save")).toBe("Ctrl+S");
+    expect(keyLabel("heading1")).toBe("Ctrl+1");
+    expect(keyLabel("code")).toBe("Ctrl+E");
   });
 });
