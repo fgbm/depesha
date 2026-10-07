@@ -21,7 +21,8 @@ keyring = "4.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sys-locale = "0.3.2"
-tauri = { version = "2.12.1", features = [] }
+tauri = { version = "2.12.1", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2.7.0"
 tauri-plugin-dialog = "2.8.1"
 tauri-plugin-notification = "2.5.1"
 tauri-plugin-opener = "2.7.0"
@@ -31,6 +32,21 @@ tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "sync", "
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Clicks on a notification come back over D-Bus (`ActionInvoked`).
+notify-rust = "4.18.1"
+# The tray through StatusNotifierItem (KDE, GNOME with AppIndicator, XFCE…) without
+# libayatana-appindicator: tauri asks for that backend, ksni wins when both are on.
+tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+notify-rust = "4.18.1"
+
+[target.'cfg(windows)'.dependencies]
+# Toasts with a click back into the app, and clearing them on exit.
+tauri-winrt-notification = "0.8.1"
+windows = { version = "0.62", features = ["UI_Notifications"] }
 
 [features]
 # Test builds for e2e/run.mjs: files under the folders in DEPESHA_E2E_ROOT count as

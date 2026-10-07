@@ -80,6 +80,17 @@ pub struct Settings {
     pub quota_levels: [u8; 2],
     /// `threshold`: once per level crossed (default); `daily`: again every day while above.
     pub quota_repeat: String,
+    /// What closing the main window does: `ask` (default, every install asks once),
+    /// `background` (the window hides, mail keeps coming) or `quit`.
+    pub close_action: String,
+    /// The user agreed to work in the background with no tray icon to come back by.
+    pub background_without_tray: bool,
+    /// Start at login: `off` (default), `window` or `background` (only the tray icon).
+    pub autostart: String,
+    /// The number of unread letters in the inboxes drawn on the tray icon.
+    pub tray_count: bool,
+    /// The tray icon stays while the window is open; otherwise it shows only in the background.
+    pub tray_always: bool,
 }
 
 fn plain() -> BodyFormat {
@@ -115,6 +126,11 @@ impl Default for Settings {
             quota_warn: true,
             quota_levels: [90, 95],
             quota_repeat: "threshold".into(),
+            close_action: "ask".into(),
+            background_without_tray: false,
+            autostart: "off".into(),
+            tray_count: true,
+            tray_always: true,
         }
     }
 }
@@ -226,6 +242,18 @@ mod tests {
         assert!(old.settings.enabled_plugins.is_empty());
         let chosen: Settings = serde_json::from_str(r#"{"compose_format":"markdown"}"#).unwrap();
         assert_eq!(chosen.compose_format, BodyFormat::Markdown);
+    }
+
+    /// Closing the window asks every install once, the old ones too; nothing starts at login.
+    #[test]
+    fn closing_asks_and_nothing_starts_at_login_by_default() {
+        let old: Config = serde_json::from_str(r#"{"accounts":[],"settings":{"undo_send_secs":5}}"#).unwrap();
+        for s in [&old.settings, &Settings::default()] {
+            assert_eq!(s.close_action, "ask");
+            assert!(!s.background_without_tray);
+            assert_eq!(s.autostart, "off");
+            assert!(s.tray_count && s.tray_always);
+        }
     }
 
     #[test]

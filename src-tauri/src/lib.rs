@@ -1,5 +1,7 @@
+mod background;
 mod commands;
 mod config;
+mod desktop_notify;
 mod error;
 mod extensions;
 mod followups;
@@ -10,6 +12,7 @@ mod secrets;
 mod server;
 mod state;
 mod tasks;
+mod tray;
 mod updater;
 mod waiting;
 mod worker;

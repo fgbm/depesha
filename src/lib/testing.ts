@@ -65,6 +65,11 @@ export const settings = (): Settings => ({
   quota_warn: true,
   quota_levels: [90, 95],
   quota_repeat: "threshold",
+  close_action: "ask",
+  background_without_tray: false,
+  autostart: "off",
+  tray_count: true,
+  tray_always: true,
 });
 
 /** Answers of an empty mailbox; tests change what they look at. */

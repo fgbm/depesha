@@ -472,6 +472,16 @@ export interface Settings {
   quota_levels: [number, number];
   /** Once per level crossed, or again every day while above it. */
   quota_repeat: "threshold" | "daily";
+  /** Closing the main window: ask (once, with «Remember»), keep working in the background, or quit. */
+  close_action: "ask" | "background" | "quit";
+  /** Agreed to work in the background with no tray icon to come back by. */
+  background_without_tray: boolean;
+  /** Start at login: not at all, with the window, or only the tray icon. */
+  autostart: "off" | "window" | "background";
+  /** The number of unread letters in the inboxes on the tray icon. */
+  tray_count: boolean;
+  /** The tray icon stays while the window is open. */
+  tray_always: boolean;
 }
 
 /** What a search found in the cache: letters and their bytes. */

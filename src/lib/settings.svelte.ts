@@ -44,6 +44,11 @@ export class SettingsController {
     quota_warn: true,
     quota_levels: [90, 95],
     quota_repeat: "threshold",
+    close_action: "ask",
+    background_without_tray: false,
+    autostart: "off",
+    tray_count: true,
+    tray_always: true,
   });
   update = $state<UpdateStatus | null>(null);
 
