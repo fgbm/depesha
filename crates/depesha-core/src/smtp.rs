@@ -1136,6 +1136,69 @@ mod tests {
     }
 
     #[test]
+    fn a_markdown_signature_goes_inside_the_letter_in_its_three_forms() {
+        // A Markdown letter carries the same HTML signature as an HTML one (decision on #67):
+        // the HTML part shows it as it is, the Markdown part as a paraphrase, the plain one as
+        // text. Its logo is one part that both the HTML and the Markdown call by one `cid:`.
+        let logo = format!("data:image/png;base64,{PNG}");
+        let signature = format!(
+            "<div><img src=\"{logo}\" style=\"width:46px\"> <b>Мария Соколова</b></div>\
+             <div>Руководитель проектов</div><div><a href=\"https://example.com\">example.com</a></div>"
+        );
+        let text = "Смета готова.\n\n-- \nМария Соколова\nРуководитель проектов\nexample.com";
+        let draft = Draft {
+            signature: Some(signature),
+            ..letter(BodyFormat::Markdown, text, None)
+        };
+        let raw = String::from_utf8(build(&draft).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/alternative",
+                "text/plain",
+                "text/markdown",
+                "multipart/related",
+                "text/html",
+                "image/png"
+            ],
+            "{raw}"
+        );
+        // The logo is one part; the HTML and the Markdown call it by the same id.
+        let ids = header_value(&raw, "Content-ID: ");
+        assert_eq!(ids.len(), 1, "{raw}");
+        let cid = ids[0].trim_matches(['<', '>']);
+        assert!(!raw.contains("data:image"), "the logo leaves the letter: {raw}");
+        let markdown = raw.split("Content-Type: text/markdown").nth(1).unwrap();
+        assert!(markdown.contains(&format!("](cid:{cid})")), "{markdown}");
+        let html = raw.split("Content-Type: text/html").nth(1).unwrap();
+        assert!(html.contains("depesha-signature"), "{html}");
+        assert!(html.contains(&format!("src=\"cid:{cid}\"")), "{html}");
+        // The reader shows the letter with both, the same picture found by its id.
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        assert_eq!(view.attachments.len(), 1);
+        assert!(view.attachments[0].inline);
+        assert!(view.html.unwrap().contains(&logo));
+        // The plain part keeps the signature's text under the separator.
+        assert!(view.text.unwrap().contains("-- \nМария Соколова"), "{raw}");
+    }
+
+    #[test]
+    fn a_html_signature_becomes_markdown() {
+        // Bold, italic, links, line breaks and pictures; everything else as text (#67).
+        let md = signature_markdown(
+            "<div><b>Мария</b> <i>Соколова</i></div>\
+             <div><a href=\"https://example.com\">example.com</a></div>\
+             <div>Строка<br>вторая</div>\
+             <div><img src=\"cid:x@depesha\" alt=\"Север\"></div>",
+        );
+        assert!(md.contains("**Мария**"), "{md}");
+        assert!(md.contains("*Соколова*"), "{md}");
+        assert!(md.contains("[example.com](https://example.com)"), "{md}");
+        assert!(md.contains("Строка  \nвторая"), "{md}");
+        assert!(md.contains("![Север](cid:x@depesha)"), "{md}");
+    }
+
+    #[test]
     fn signature_and_quote_blocks_survive_cleaning() {
         let html = "<div>Да</div><div class=\"depesha-signature\">-- <br>Иван</div>\
                     <div class=\"depesha-quote other\"><blockquote style=\"margin:0\">Вопрос</blockquote></div>";

@@ -14,6 +14,7 @@ import {
   removeSignature,
   replySignature,
   signatureIn,
+  signatureShown,
   signatureText,
   splitPlain,
   withSignature,
@@ -137,6 +138,28 @@ describe("the signature in a letter", () => {
       expect(d.text).toBe(`\n\n-- \n${work.text}`);
       expect(d.text).not.toContain("<img");
     }
+  });
+
+  it("a Markdown letter carries the signature's HTML beside its text", () => {
+    const d = withSignature(emptyDraft(me, "markdown"), work);
+    // The text keeps the plain version (what the plain part goes out as).
+    expect(d.text).toBe(`\n\n-- \n${work.text}`);
+    // The HTML goes with the letter: the window shows it formatted (frame 13 of #45) and
+    // the backend builds the HTML and Markdown parts from it (#67).
+    expect(d.signature).toBe(`<div class="depesha-signature">${work.html}</div>`);
+    // No signature takes it away again.
+    expect(withSignature(d, null).signature).toBeNull();
+  });
+
+  it("shows the signature formatted in an HTML and Markdown letter, as text in a plain one", () => {
+    expect(signatureShown("markdown", work)).toEqual({ html: work.html });
+    expect(signatureShown("html", work)).toEqual({ html: work.html });
+    expect(signatureShown("plain", work)).toEqual({ text: sigBlock(work).replace(/^\n\n/, "") });
+    expect(signatureShown("markdown", null)).toBeNull();
+    // A signature of pictures alone has no text to show; the Markdown window shows it whole.
+    const logo: Signature = { id: "l", name: "Логотип", html: `<div><img src="${LOGO}"></div>`, text: "" };
+    const shown = signatureShown("markdown", logo);
+    expect(shown && "html" in shown && shown.html).toBeTruthy();
   });
 
   it("choosing another one replaces the block, the text above stays", () => {
