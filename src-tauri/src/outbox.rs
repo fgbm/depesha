@@ -38,6 +38,8 @@ pub async fn run(state: Arc<AppState>) {
 
 async fn round(state: &AppState) -> Result<(), CmdError> {
     let now = chrono::Utc::now().timestamp();
+    // Hours late (the app was closed, the computer asleep), a letter waits for the user.
+    crate::background::hold_missed(state, now)?;
     let mut blocked = HashSet::new();
     for item in state.store.outbox()? {
         if item.failed || item.next_attempt > now || blocked.contains(&item.account_id) {

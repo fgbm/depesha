@@ -22,7 +22,6 @@ use tokio::task::JoinHandle;
 
 use crate::error::CmdError;
 use crate::state::{AccountStatus, AppState};
-use depesha_core::lang::pick;
 use depesha_core::tr;
 
 const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -913,6 +912,7 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
     let id = account.id.as_str();
     let (_, before) = state.store.folder_state(id, folder)?;
     let report = mail::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;
+    state.tray.checked();
     if report.changed() {
         state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
         // The folder's letters changed: a "waiting for a reply" of one that just arrived in
@@ -938,41 +938,16 @@ async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: 
             "mail-arrived",
             json!({ "ids": fresh.iter().map(|m| m.id).collect::<Vec<_>>() }),
         );
-        notify_new_mail(state, account, &fresh);
+        notify_new_mail(state, &fresh);
     }
     Ok(report.added)
 }
 
-fn new_messages(n: usize) -> String {
-    let ru = match (n % 10, n % 100) {
-        (1, r) if r != 11 => "новое письмо",
-        (2..=4, r) if !(12..=14).contains(&r) => "новых письма",
-        _ => "новых писем",
-    };
-    depesha_core::tr!("{n} new messages", "{n} {ru}")
-}
-
-fn notify_new_mail(state: &AppState, account: &Account, fresh: &[depesha_core::store::MessageRow]) {
-    // Newsletters and robots stay silent by default (settings: notify).
-    let people: Vec<_> = fresh.iter().filter(|m| !m.bulk).collect();
-    let bulk = people.is_empty();
-    let shown: Vec<_> = if bulk { fresh.iter().collect() } else { people };
-    let (title, body) = match shown.as_slice() {
-        [] => return,
-        [m] => (
-            m.from
-                .as_ref()
-                .map(|a| a.name.clone().unwrap_or_else(|| a.email.clone()))
-                .unwrap_or_default(),
-            if m.subject.is_empty() {
-                pick("(no subject)", "(без темы)").to_owned()
-            } else {
-                m.subject.clone()
-            },
-        ),
-        many => (new_messages(many.len()), account.email.clone()),
-    };
-    state.notify(&title, &body, bulk);
+/// New letters from people (and, with «notify about all», newsletters) are told; letters
+/// of all mailboxes arriving together make one notification.
+fn notify_new_mail(state: &AppState, fresh: &[depesha_core::store::MessageRow]) {
+    let letters = fresh.iter().map(crate::desktop_notify::Letter::new).collect();
+    state.notifier.arrived(&state.app, letters);
 }
 
 /// Second connection that waits for changes in INBOX and asks the operations loop to sync.

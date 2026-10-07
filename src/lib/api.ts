@@ -156,6 +156,14 @@ export const api = {
   draftDiscard: (id: number) => call<void>("draft_discard", { id }),
   outbox: () => call<OutboxItem[]>("outbox"),
   outboxRetry: (id: number) => call<void>("outbox_retry", { id }),
+  /** Letters held back since the last call: they missed their time. */
+  outboxMissed: () => call<number[]>("outbox_missed"),
+  /** Whether the system shows tray icons. */
+  backgroundStatus: () => call<{ tray: "checking" | "present" | "absent" }>("background_status"),
+  /** Hides the main window; the app works on in the background. */
+  windowHide: () => call<void>("window_hide"),
+  /** Quits; letters due soon make the window ask first, unless `force`. */
+  appQuit: (force: boolean) => call<void>("app_quit", { force }),
   outboxCancel: (id: number) =>
     call<{ account_id: string; draft: ComposeDraft & { attachments: unknown[] }; attachments: [string, string, string][] } | null>(
       "outbox_cancel",

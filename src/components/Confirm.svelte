@@ -6,9 +6,10 @@
 
   let okBtn = $state<HTMLButtonElement | null>(null);
   let cancelBtn = $state<HTMLButtonElement | null>(null);
+  let box = $state<HTMLElement | null>(null);
   const before = document.activeElement as HTMLElement | null;
 
-  function answer(ok: boolean) {
+  function answer(ok: boolean | null) {
     q.resolve(ok);
     before?.focus();
   }
@@ -22,21 +23,29 @@
     e.stopPropagation();
     if (e.key === "Escape") {
       e.preventDefault();
-      answer(false);
+      answer(null);
     } else if (e.key === "Tab") {
+      // Round the dialog's own controls: the box, then the buttons.
       e.preventDefault();
-      (document.activeElement === okBtn ? cancelBtn : okBtn)?.focus();
+      const all = [...(box?.querySelectorAll<HTMLElement>("input, button") ?? [])];
+      const i = all.indexOf(document.activeElement as HTMLElement);
+      all[(i + (e.shiftKey ? all.length - 1 : 1)) % all.length]?.focus();
     }
   }
 </script>
 
 <svelte:window onkeydowncapture={onKey} />
 
-<div class="modal-backdrop confirm-backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && answer(false)}>
-  <div class="modal confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-text">
+<div class="modal-backdrop confirm-backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && answer(null)}>
+  <div class="modal confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-text" bind:this={box}>
     {#if q.title}<h3>{q.title}</h3>{/if}
     <p id="confirm-text" class="text selectable">{q.text}</p>
     {#if q.detail}<p class="detail selectable">{q.detail}</p>{/if}
+    {#if q.items?.length}<ul class="items selectable">{#each q.items as item, i (i)}<li>{item}</li>{/each}</ul>{/if}
+    {#if q.check}
+      <label class="check"><input type="checkbox" bind:checked={q.check.checked} /> {q.check.label}</label>
+    {/if}
+    {#if q.note}<p class="note">{q.note}</p>{/if}
     <div class="buttons">
       <button class="btn" bind:this={cancelBtn} onclick={() => answer(false)}>{q.cancelLabel ?? t("cancel")}</button>
       <button class="btn primary" bind:this={okBtn} onclick={() => answer(true)}>{q.okLabel}</button>
@@ -79,6 +88,29 @@
     overflow-wrap: anywhere;
     max-height: 120px;
     overflow-y: auto;
+  }
+
+  .items {
+    margin: 0;
+    padding: 8px 10px;
+    list-style: none;
+    border-radius: 6px;
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    line-height: 1.5;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
   }
 
   .buttons {

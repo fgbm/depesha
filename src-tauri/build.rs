@@ -89,6 +89,10 @@ const COMMANDS: &[&str] = &[
     "pick_files",
     "pick_folder",
     "pick_save_file",
+    "background_status",
+    "window_hide",
+    "app_quit",
+    "outbox_missed",
 ];
 
 fn main() {

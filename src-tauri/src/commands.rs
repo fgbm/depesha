@@ -1079,8 +1079,9 @@ pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     check_save_folder(&state, &before.attachments_dir, &settings.attachments_dir)?;
     let offline_changed =
         before.offline != settings.offline || before.offline_attachments != settings.offline_attachments;
-    state.save_settings(settings)?;
+    state.save_settings(settings.clone())?;
     state.apply_language();
+    crate::background::sync_autostart(&state.app, Some(&before), &settings);
     state.emit("settings-changed", serde_json::json!({}));
     // A wider offline window starts downloading at once.
     if offline_changed {
@@ -2254,6 +2255,35 @@ pub fn messages_by_id(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<MessageRow>
         }
     }
     Ok(out)
+}
+
+/// Whether the system shows tray icons: the background settings warn when it does not.
+#[tauri::command]
+pub fn background_status(state: St<'_>) -> serde_json::Value {
+    let tray = match state.tray.presence() {
+        crate::background::Tray::Checking => "checking",
+        crate::background::Tray::Present => "present",
+        crate::background::Tray::Absent => "absent",
+    };
+    serde_json::json!({ "tray": tray })
+}
+
+/// Hides the main window; the app works on in the background.
+#[tauri::command]
+pub fn window_hide(app: tauri::AppHandle) {
+    crate::background::hide_main(&app);
+}
+
+/// Quits for real; letters due soon make the window ask first, unless `force`.
+#[tauri::command]
+pub fn app_quit(app: tauri::AppHandle, force: bool) {
+    crate::background::quit(&app, force);
+}
+
+/// Letters held back since the last call because they missed their time.
+#[tauri::command]
+pub fn outbox_missed(state: St<'_>) -> Vec<i64> {
+    crate::background::take_missed(&state)
 }
 
 #[cfg(test)]

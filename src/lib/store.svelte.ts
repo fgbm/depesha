@@ -1,6 +1,7 @@
 import { api } from "./api";
 import { extensions } from "./extensions.svelte";
 import { listenMain, listenWindow } from "./events";
+import { tellMissed } from "./background.svelte";
 import { ListController, type View } from "./list.svelte";
 import { ActionRunner } from "./actions.svelte";
 import { Reader } from "./reader.svelte";
@@ -118,6 +119,8 @@ export class AppStore {
   home(): View { return this.mailboxes.home(); }
   toast(text: string, error = false, action?: { label: string; run: () => void }, ms?: number) { this.ui.toast(text, error, action, ms); }
   confirm(q: Omit<Confirmation, "resolve">) { return this.ui.confirm(q); }
+  /** Asks with two answers and a dismissal apart, and a box to tick. */
+  choose(q: Omit<Confirmation, "resolve">) { return this.ui.choose(q); }
   dismiss(id: number) { this.ui.dismiss(id); }
   fail(e: unknown, prefix = "") { this.ui.fail(e, prefix); }
   track<T>(p: Promise<T>) { return this.ui.track(p); }
@@ -177,6 +180,7 @@ export class AppStore {
     // Mailboxes filling up warn once the accounts and the settings are read.
     rooms.start(this);
     await this.reload();
+    void tellMissed(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
     if (accounts && this.accounts.length === 0) this.wizard = { account: null };
   }

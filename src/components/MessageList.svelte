@@ -4,7 +4,9 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
+  import { tick } from "svelte";
   import { app } from "../lib/store.svelte";
+  import { arrivals } from "../lib/arrivals.svelte";
   import RowMenu from "./RowMenu.svelte";
   import Segments from "./Segments.svelte";
   import ViewMenu from "./ViewMenu.svelte";
@@ -130,6 +132,29 @@
     else if (top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top + ROW - viewport.clientHeight;
   });
 
+  // A row a notification led to takes the keyboard (#63): e, #, j/k and Enter work at once.
+  $effect(() => {
+    const id = arrivals.focus;
+    if (id === null || !viewport) return;
+    const i = app.messages.findIndex((m) => m.id === id);
+    if (i < 0) return;
+    const top = i * ROW;
+    if (top < viewport.scrollTop || top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top;
+    scrollTop = viewport.scrollTop;
+    tick().then(() => {
+      [...(viewport?.querySelectorAll<HTMLElement>(".row") ?? [])].find((r) => r.style.top === `${top}px`)?.focus({ preventScroll: true });
+      arrivals.focus = null;
+    });
+  });
+
+  /** Enter on a row that has the keyboard opens it. */
+  function rowKey(e: KeyboardEvent, m: MessageRow) {
+    if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || app.opened?.row.id === m.id) return;
+    e.preventDefault();
+    layout.showLetter();
+    app.select(m.id);
+  }
+
   // A new view starts at the top.
   $effect(() => {
     void app.view;
@@ -196,6 +221,8 @@
           class:unread={!m.flags.seen}
           class:selected={app.selected.has(m.id)}
           class:opened={app.opened?.row.id === m.id}
+          class:flash={arrivals.flash === m.id}
+          class:fresh={arrivals.isFresh(app.view, m.id)}
           style:top="{(start + i) * ROW}px"
           style:--acct={showAccount ? app.accountColor(m.account_id) : "transparent"}
           role="option"
@@ -204,7 +231,7 @@
           onclick={(e) => click(e, m)}
           ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.openWindow(m)}
           oncontextmenu={(e) => context(e, m)}
-          onkeydown={() => {}}
+          onkeydown={(e) => rowKey(e, m)}
         >
           <div class="line1">
             <span class="from">{who(m)}</span>
@@ -382,6 +409,11 @@
     background: var(--acct, transparent);
   }
 
+  /* New letters of a summary a notification opened (#63): tinted while the list is open. */
+  .row.fresh {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+
   .row:hover {
     background: var(--hover);
   }
@@ -389,6 +421,24 @@
   .row.selected,
   .row.opened {
     background: var(--selected);
+  }
+
+  /* The row a notification led to: a frame that fades in a moment. */
+  .row.flash {
+    box-shadow: inset 0 0 0 2px var(--accent);
+    animation: flash-out 1.5s ease-in forwards;
+  }
+
+  @keyframes flash-out {
+    to {
+      box-shadow: inset 0 0 0 2px transparent;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .row.flash {
+      animation: none;
+    }
   }
 
   .row.unread::before {

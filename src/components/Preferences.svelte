@@ -6,6 +6,7 @@
   import Download from "@lucide/svelte/icons/download";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Inbox from "@lucide/svelte/icons/inbox";
+  import Power from "@lucide/svelte/icons/power";
   import { untrack, type Component } from "svelte";
   import { app } from "../lib/store.svelte";
   import { registry } from "../plugin-host/registry.svelte";
@@ -18,6 +19,7 @@
   import GeneralPanel from "./prefs/GeneralPanel.svelte";
   import MailPanel from "./prefs/MailPanel.svelte";
   import OfflinePanel from "./prefs/OfflinePanel.svelte";
+  import BackgroundPanel from "./prefs/BackgroundPanel.svelte";
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
   import PluginsPanel from "./prefs/PluginsPanel.svelte";
 
@@ -56,6 +58,7 @@
    */
   const CORE: { id: string; title: () => string; icon: Component }[] = [
     { id: "general", title: () => t("settings.page.general"), icon: Settings2 },
+    { id: "background", title: () => t("settings.page.background"), icon: Power },
     { id: "mail", title: () => t("settings.page.mail"), icon: Mail },
     { id: "notifications", title: () => t("settings.notifications"), icon: Bell },
     { id: "offline", title: () => t("settings.offline"), icon: CloudOff },
@@ -118,6 +121,11 @@
       quota_warn,
       quota_levels,
       quota_repeat,
+      close_action,
+      background_without_tray,
+      autostart,
+      tray_count,
+      tray_always,
     } = $state.snapshot(draft);
     await app.saveSettings({
       ...$state.snapshot(app.settings),
@@ -138,6 +146,11 @@
       quota_warn,
       quota_levels: levels(quota_levels).sort((a, b) => a - b) as [number, number],
       quota_repeat,
+      close_action,
+      background_without_tray,
+      autostart,
+      tray_count,
+      tray_always,
     });
     close();
   }
@@ -210,6 +223,8 @@
           <GeneralPanel {current} {draft} bind:largeValue bind:largeUnit />
         {:else if current === "mail" || current === "notifications"}
           <MailPanel {current} {draft} />
+        {:else if current === "background"}
+          <BackgroundPanel {draft} />
         {:else if current === "offline"}
           <OfflinePanel {draft} />
         {:else if current === "accounts" || current === "account:new" || current.startsWith("account:")}

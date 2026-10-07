@@ -100,6 +100,10 @@
     "allow-inline-image",
     "allow-pick-files",
     "allow-pick-folder",
-    "allow-pick-save-file"
+    "allow-pick-save-file",
+    "allow-background-status",
+    "allow-window-hide",
+    "allow-app-quit",
+    "allow-outbox-missed"
   ]
 }

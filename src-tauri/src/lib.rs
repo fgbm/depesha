@@ -65,15 +65,20 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
+        // Launched again: the running copy shows its window (hidden in the background too);
+        // a login entry starting it twice changes nothing.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if !args.iter().any(|a| a == background::BACKGROUND_ARG) {
+                background::show_main(app);
             }
         }))
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args([background::BACKGROUND_ARG])
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Sandbox pages of extensions: their own origin and CSP, no Tauri bridge in them.
         .register_uri_scheme_protocol("ext", |ctx, request| {
@@ -124,9 +129,25 @@ pub fn run() {
                 oauth_cancel: Notify::new(),
                 tasks: Default::default(),
                 paths: paths::Paths::new(),
+                notifier: Default::default(),
+                tray: Default::default(),
+                background: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();
+
+            // The window starts hidden (tauri.conf.json): shown now, unless started at
+            // login to wait in the background.
+            let args: Vec<String> = std::env::args().collect();
+            let settings = state.settings();
+            if !background::starts_hidden(&args, &settings)
+                && let Some(w) = app.get_webview_window("main")
+            {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            background::sync_autostart(app.handle(), None, &settings);
+            tray::start(app.handle());
 
             tauri::async_runtime::spawn(async move {
                 for account in state.accounts() {
@@ -138,6 +159,23 @@ pub fn run() {
                 outbox::run(state).await;
             });
             Ok(())
+        })
+        // Closing the main window hides it or quits, as the settings say (#4); its page
+        // keeps the mail rules and plugins running in the background.
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. }
+                    if window.app_handle().try_state::<Arc<AppState>>().is_some() =>
+                {
+                    api.prevent_close();
+                    background::close_requested(window.app_handle());
+                }
+                tauri::WindowEvent::Focused(focused) => background::focused(window.app_handle(), *focused),
+                _ => {}
+            }
         })
         // Files dropped on a window were chosen by the user: they may be attached.
         .on_webview_event(|webview, event| {
@@ -237,11 +275,16 @@ pub fn run() {
             commands::pick_files,
             commands::pick_folder,
             commands::pick_save_file,
+            commands::background_status,
+            commands::window_hide,
+            commands::app_quit,
+            commands::outbox_missed,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Depesha")
         .run(|app, event| {
-            // Closing the main window quits, letters open in their own windows too.
+            // The main window gone (the cache refused to open) takes the app with it,
+            // letters open in their own windows too.
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
@@ -255,6 +298,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event
                 && let Some(state) = app.try_state::<Arc<AppState>>()
             {
+                state.notifier.clear(app);
                 updater::apply_staged(&state);
             }
         });
@@ -330,6 +374,10 @@ mod tests {
             "folder_sizes_count",
             "folder_sizes_stop",
             "notify_full",
+            "background_status",
+            "window_hide",
+            "app_quit",
+            "outbox_missed",
         ] {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");

@@ -6,8 +6,17 @@
 //! subject, several by a summary (#4/#63 decisions, frames 10A and 11В). A notification
 //! still on screen is replaced, not joined by another one.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use depesha_core::lang::pick;
 use depesha_core::store::MessageRow;
+use depesha_core::tr;
 use serde::Serialize;
+use tauri::{AppHandle, Manager};
+
+use crate::state::AppState;
 
 /// A new letter a notification may tell about.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,17 +92,55 @@ pub struct Open {
 /// Message-ID after a move, or gone. `folder_of` answers the folder of a cached letter;
 /// `find` a letter by account and Message-ID.
 pub fn resolve(
-    _target: &Target,
-    _folder_of: impl Fn(i64) -> Option<String>,
-    _find: impl Fn(&str, &str) -> Option<(i64, String)>,
+    target: &Target,
+    folder_of: impl Fn(i64) -> Option<String>,
+    find: impl Fn(&str, &str) -> Option<(i64, String)>,
 ) -> Open {
-    todo!()
+    let mut open = Open {
+        account_id: target.account_id.clone(),
+        folder: target.folder.clone(),
+        id: target.id,
+        ids: target.ids.clone(),
+        gone: None,
+    };
+    let Some(id) = target.id else {
+        return open;
+    };
+    if let Some(folder) = folder_of(id) {
+        open.folder = Some(folder);
+        return open;
+    }
+    let moved = match (&target.account_id, &target.message_id) {
+        (Some(account), Some(message_id)) => find(account, message_id),
+        _ => None,
+    };
+    match moved {
+        Some((id, folder)) => {
+            open.id = Some(id);
+            open.ids = vec![id];
+            open.folder = Some(folder);
+        }
+        None => {
+            open.id = None;
+            open.ids = Vec::new();
+            open.gone = Some(Gone {
+                subject: target.subject.clone(),
+                from: target.from_email.clone(),
+            });
+        }
+    }
+    open
 }
 
 /// What a notification tells about: letters from people, or, when only newsletters
 /// came, those (`true`: bulk, shown only with «notify about all»).
-pub fn worth(_letters: Vec<Letter>) -> (Vec<Letter>, bool) {
-    todo!()
+pub fn worth(letters: Vec<Letter>) -> (Vec<Letter>, bool) {
+    let (people, bulk): (Vec<_>, Vec<_>) = letters.into_iter().partition(|l| !l.bulk);
+    if people.is_empty() && !bulk.is_empty() {
+        (bulk, true)
+    } else {
+        (people, false)
+    }
 }
 
 /// A notification ready to show.
@@ -112,8 +159,120 @@ pub const ALL: &str = "*";
 /// Words new letters: one by its sender and subject; several of one mailbox by their
 /// senders; several of more mailboxes by mailbox. The mailbox is named when there are
 /// more of them (`mailboxes`), `label` gives its name.
-pub fn word(_letters: &[Letter], _bulk: bool, _label: &dyn Fn(&str) -> String, _mailboxes: usize) -> Option<Shown> {
-    todo!()
+pub fn word(letters: &[Letter], bulk: bool, label: &dyn Fn(&str) -> String, mailboxes: usize) -> Option<Shown> {
+    let first = letters.first()?;
+    let accounts = distinct(letters.iter().map(|l| l.account_id.as_str()));
+    let ids: Vec<i64> = letters.iter().map(|l| l.id).collect();
+    let named = |text: String, account: &str| {
+        if mailboxes > 1 {
+            format!("{text}\n{}", label(account))
+        } else {
+            text
+        }
+    };
+    if let [one] = letters {
+        let title = if one.from.is_empty() {
+            pick("(no sender)", "(без отправителя)").to_owned()
+        } else {
+            one.from.clone()
+        };
+        let subject = if one.subject.is_empty() {
+            pick("(no subject)", "(без темы)").to_owned()
+        } else {
+            one.subject.clone()
+        };
+        return Some(Shown {
+            key: one.account_id.clone(),
+            title,
+            body: named(subject, &one.account_id),
+            target: Target {
+                account_id: Some(one.account_id.clone()),
+                folder: Some(one.folder.clone()),
+                id: Some(one.id),
+                ids,
+                message_id: one.message_id.clone(),
+                subject: one.subject.clone(),
+                from_email: one.from_email.clone(),
+            },
+        });
+    }
+    let title = if bulk {
+        newsletters(letters.len())
+    } else {
+        new_messages(letters.len())
+    };
+    if let [account] = accounts.as_slice() {
+        let senders = distinct(letters.iter().map(|l| l.from.as_str()).filter(|f| !f.is_empty()));
+        let mut body = senders.iter().take(SENDERS).copied().collect::<Vec<_>>().join(", ");
+        if senders.len() > SENDERS {
+            let more = senders.len() - SENDERS;
+            body = tr!("{body} and {more} more", "{body} и ещё {more}");
+        }
+        return Some(Shown {
+            key: (*account).to_owned(),
+            title,
+            body: named(body, account),
+            target: Target {
+                account_id: Some((*account).to_owned()),
+                folder: Some(first.folder.clone()),
+                ids,
+                ..Target::default()
+            },
+        });
+    }
+    let body = accounts
+        .iter()
+        .map(|a| {
+            format!(
+                "{} — {}",
+                label(a),
+                letters.iter().filter(|l| l.account_id == *a).count()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(Shown {
+        key: ALL.to_owned(),
+        title,
+        body,
+        target: Target {
+            ids,
+            ..Target::default()
+        },
+    })
+}
+
+/// A summary of one mailbox names this many senders.
+const SENDERS: usize = 3;
+
+/// Each value once, in the order they come.
+fn distinct<'a>(values: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
+    let mut out: Vec<&str> = Vec::new();
+    for v in values {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// The Russian word for a count: one, a few, many.
+fn ru_form<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    match (n % 10, n % 100) {
+        (1, r) if r != 11 => one,
+        (2..=4, r) if !(12..=14).contains(&r) => few,
+        _ => many,
+    }
+}
+
+pub fn new_messages(n: usize) -> String {
+    let ru = ru_form(n, "новое письмо", "новых письма", "новых писем");
+    tr!("{n} new messages", "{n} {ru}")
+}
+
+fn newsletters(n: usize) -> String {
+    let ru = ru_form(n, "рассылка", "рассылки", "рассылок");
+    tr!("{n} newsletters", "{n} {ru}")
 }
 
 /// A new-mail notification on screen and the letters it tells about.
@@ -137,8 +296,351 @@ pub struct Merge {
 
 /// One mailbox's letters join its notification; letters of several mailboxes, or
 /// anything while a summary of all is on screen, make that summary.
-pub fn merge(_live: &[Live], _fresh: Vec<Letter>) -> Merge {
-    todo!()
+pub fn merge(live: &[Live], fresh: Vec<Letter>) -> Merge {
+    let accounts = distinct(fresh.iter().map(|l| l.account_id.as_str()));
+    let all = live.iter().position(|l| l.key == ALL);
+    let (key, replaces, absorbs, old): (String, Option<usize>, Vec<usize>, Vec<&Letter>) =
+        match (all, accounts.as_slice()) {
+            (None, [account]) => {
+                let own = live.iter().position(|l| l.key == *account);
+                let old = own.map(|i| live[i].letters.iter().collect()).unwrap_or_default();
+                ((*account).to_owned(), own, Vec::new(), old)
+            }
+            _ => {
+                let replaces = all.or(if live.is_empty() { None } else { Some(0) });
+                let absorbs = (0..live.len()).filter(|i| Some(*i) != replaces).collect();
+                (
+                    ALL.to_owned(),
+                    replaces,
+                    absorbs,
+                    live.iter().flat_map(|l| &l.letters).collect(),
+                )
+            }
+        };
+    let mut letters: Vec<Letter> = Vec::new();
+    for l in fresh.iter().chain(old) {
+        if !letters.iter().any(|x| x.id == l.id) {
+            letters.push(l.clone());
+        }
+    }
+    Merge {
+        key,
+        letters,
+        replaces,
+        absorbs,
+    }
+}
+
+/// New mail of all mailboxes arriving this close together is told once.
+const BATCH: Duration = Duration::from_millis(1500);
+
+/// A notification on screen: its id with the notification server, what it is about.
+/// Kept on Linux only: elsewhere a notification is not replaced or closed by the app.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+struct Note {
+    id: u32,
+    /// For new mail: the mailbox or `*`, and its letters; none for other notifications.
+    mail: Option<Live>,
+    target: Option<Target>,
+    #[cfg(target_os = "linux")]
+    handle: Option<notify_rust::NotificationHandle>,
+}
+
+/// The notifications of the app: new mail waiting to be told, the ones on screen.
+#[derive(Default)]
+pub struct Notifier {
+    pending: Mutex<Vec<Letter>>,
+    batching: AtomicBool,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    notes: Mutex<Vec<Note>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Tests and e2e runs share the user's notification daemon: they keep quiet.
+fn quiet(title: &str) -> bool {
+    if std::env::var_os("DEPESHA_NO_NOTIFICATIONS").is_some() {
+        tracing::debug!("notification suppressed: {title}");
+        return true;
+    }
+    false
+}
+
+impl Notifier {
+    /// New letters in an inbox: told together with what other mailboxes bring meanwhile.
+    pub fn arrived(&self, app: &AppHandle, letters: Vec<Letter>) {
+        if letters.is_empty() {
+            return;
+        }
+        lock(&self.pending).extend(letters);
+        if self.batching.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(BATCH).await;
+            if let Some(state) = app.try_state::<Arc<AppState>>() {
+                state.notifier.batching.store(false, Ordering::Release);
+                state.notifier.flush(&state);
+            }
+        });
+    }
+
+    fn flush(&self, state: &AppState) {
+        let fresh = std::mem::take(&mut *lock(&self.pending));
+        let (fresh, bulk) = worth(fresh);
+        if fresh.is_empty() || !state.settings().may_notify(bulk) {
+            return;
+        }
+        // The window in front shows the new mail itself.
+        if crate::background::main_in_front(&state.app) || quiet("new mail") {
+            return;
+        }
+        let accounts = state.accounts();
+        let label = |id: &str| {
+            accounts
+                .iter()
+                .find(|a| a.id == id)
+                .map(|a| {
+                    if a.label.trim().is_empty() {
+                        a.email.clone()
+                    } else {
+                        a.label.trim().to_owned()
+                    }
+                })
+                .unwrap_or_default()
+        };
+        let mut notes = lock(&self.notes);
+        // Letters read meanwhile drop out of the notifications still on screen.
+        let unread = |id: i64| state.store.get(id).ok().flatten().is_some_and(|r| !r.flags.seen);
+        let live: Vec<(usize, Live)> = notes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| {
+                let mut l = n.mail.clone()?;
+                l.letters.retain(|x| unread(x.id));
+                Some((i, l))
+            })
+            .collect();
+        let lives: Vec<Live> = live.iter().map(|(_, l)| l.clone()).collect();
+        let m = merge(&lives, fresh);
+        let bulk = m.letters.iter().all(|l| l.bulk);
+        let Some(shown) = word(&m.letters, bulk, &label, accounts.len()) else {
+            return;
+        };
+        let replaces = m.replaces.map(|i| live[i].0);
+        let absorbs: Vec<usize> = m.absorbs.iter().map(|&i| live[i].0).collect();
+        let mail = Live {
+            key: m.key,
+            letters: m.letters,
+        };
+        show(
+            &state.app,
+            &mut notes,
+            &shown.title,
+            &shown.body,
+            Some(shown.target),
+            Some(mail),
+            replaces,
+            &absorbs,
+        );
+    }
+
+    /// Any other notification: a click shows the window, and opens `target` when there is one.
+    pub fn notify(&self, app: &AppHandle, title: &str, body: &str, target: Option<Target>) {
+        if crate::background::main_in_front(app) || quiet(title) {
+            return;
+        }
+        let mut notes = lock(&self.notes);
+        show(app, &mut notes, title, body, target, None, None, &[]);
+    }
+
+    /// The app quits: its notifications go with it, a click on them could do nothing.
+    pub fn clear(&self, app: &AppHandle) {
+        #[cfg(target_os = "linux")]
+        for note in lock(&self.notes).drain(..) {
+            if let Some(h) = note.handle {
+                h.close();
+            }
+        }
+        #[cfg(windows)]
+        windows_toast::clear(app);
+        let _ = app;
+    }
+}
+
+/// A click on a notification: the window comes forward and turns to what it was about.
+fn clicked(app: &AppHandle, target: Option<Target>) {
+    crate::background::show_main(app);
+    let (Some(target), Some(state)) = (target, app.try_state::<Arc<AppState>>()) else {
+        return;
+    };
+    let store = &state.store;
+    let open = resolve(
+        &target,
+        |id| store.get(id).ok().flatten().map(|r| r.folder),
+        |account, mid| {
+            let id = store.find_any_by_message_id(account, mid).ok().flatten()?;
+            Some((id, store.get(id).ok().flatten()?.folder))
+        },
+    );
+    state.emit_main("notification-open", serde_json::to_value(open).unwrap_or_default());
+}
+
+#[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
+fn show(
+    app: &AppHandle,
+    notes: &mut Vec<Note>,
+    title: &str,
+    body: &str,
+    target: Option<Target>,
+    mail: Option<Live>,
+    replaces: Option<usize>,
+    absorbs: &[usize],
+) {
+    let mut n = notify_rust::Notification::new();
+    n.appname(pick("Depesha", "Депеша"))
+        .summary(title)
+        .body(body)
+        .auto_icon()
+        // The click on the notification itself; servers draw no button for `default`.
+        .action("default", pick("Open", "Открыть"))
+        .hint(notify_rust::Hint::DesktopEntry(app.package_info().name.clone()));
+    let old = replaces.map(|i| notes[i].id);
+    if let Some(id) = old {
+        n.id(id);
+    }
+    let handle = match n.show() {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::debug!("notification failed: {e}");
+            return;
+        }
+    };
+    let id = handle.id();
+    let note = Note {
+        id,
+        mail,
+        target,
+        handle: Some(handle),
+    };
+    // Replaced in place: the listener of that id hears the click on the new content.
+    if old != Some(id) {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let _ = notify_rust::handle_action(id, |response| {
+                let Some(state) = app.try_state::<Arc<AppState>>() else {
+                    return;
+                };
+                let note = {
+                    let mut notes = lock(&state.notifier.notes);
+                    notes.iter().position(|n| n.id == id).map(|i| notes.remove(i))
+                };
+                if let notify_rust::ActionResponse::Custom("default") = response {
+                    clicked(&app, note.and_then(|n| n.target));
+                }
+            });
+        });
+    }
+    match replaces {
+        Some(i) => notes[i] = note,
+        None => notes.push(note),
+    }
+    // Taken over by a summary: they go from the screen.
+    let mut gone: Vec<usize> = absorbs.to_vec();
+    gone.sort_unstable_by(|a, b| b.cmp(a));
+    for i in gone {
+        let note = notes.remove(i);
+        if let Some(h) = note.handle {
+            h.close();
+        }
+    }
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn show(
+    app: &AppHandle,
+    _notes: &mut Vec<Note>,
+    title: &str,
+    body: &str,
+    target: Option<Target>,
+    _mail: Option<Live>,
+    _replaces: Option<usize>,
+    _absorbs: &[usize],
+) {
+    windows_toast::show(app, title, body, target);
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
+fn show(
+    _app: &AppHandle,
+    _notes: &mut Vec<Note>,
+    title: &str,
+    body: &str,
+    _target: Option<Target>,
+    _mail: Option<Live>,
+    _replaces: Option<usize>,
+    _absorbs: &[usize],
+) {
+    // macOS is not supported: a plain notification, without a click back.
+    if let Err(e) = notify_rust::Notification::new().summary(title).body(body).show() {
+        tracing::debug!("notification failed: {e}");
+    }
+}
+
+#[cfg(windows)]
+mod windows_toast {
+    use super::{Target, clicked};
+    use tauri::AppHandle;
+    use tauri_winrt_notification::Toast;
+
+    /// The AppUserModelID of the installed app is its identifier (the installer's shortcut
+    /// carries it); a build run from `target/` has none, and borrows PowerShell's.
+    fn app_id(app: &AppHandle) -> String {
+        let dev = tauri::utils::platform::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.to_path_buf()))
+            .is_some_and(|dir| dir.ends_with("target\\debug") || dir.ends_with("target\\release"));
+        if dev {
+            Toast::POWERSHELL_APP_ID.to_owned()
+        } else {
+            app.config().identifier.clone()
+        }
+    }
+
+    pub fn show(app: &AppHandle, title: &str, body: &str, target: Option<Target>) {
+        let mut lines = body.lines();
+        let mut toast = Toast::new(&app_id(app))
+            .title(title)
+            .text1(lines.next().unwrap_or_default());
+        if let Some(more) = lines.next() {
+            toast = toast.text2(more);
+        }
+        let handle = app.clone();
+        let shown = toast
+            .on_activated(move |_| {
+                clicked(&handle, target.clone());
+                Ok(())
+            })
+            .show();
+        if let Err(e) = shown {
+            tracing::debug!("notification failed: {e}");
+        }
+    }
+
+    /// Toasts left in the notification centre after the app quit would open nothing.
+    pub fn clear(app: &AppHandle) {
+        use windows::UI::Notifications::ToastNotificationManager;
+        let id = windows::core::HSTRING::from(app_id(app));
+        if let Err(e) = ToastNotificationManager::History().and_then(|h| h.ClearWithId(&id)) {
+            tracing::debug!("notifications not cleared: {e}");
+        }
+    }
 }
 
 #[cfg(test)]

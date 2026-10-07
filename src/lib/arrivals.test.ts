@@ -98,6 +98,9 @@ describe("a click on a notification about one letter", () => {
     }
   });
 
+});
+
+describe("a click on a notification about a letter moved or gone", () => {
   it("opens a letter moved since in its new folder", async () => {
     api.messages.mockResolvedValue([row(1)]);
     const s = await started();
@@ -123,6 +126,9 @@ describe("a click on a notification about one letter", () => {
     expect(s.view).toEqual({ kind: "search", text: 'from:ivan.petrov@example.com subject:"Invoice for October"' });
   });
 
+});
+
+describe("a click on a notification over the settings or a question", () => {
   it("closes the settings, the tasks and a question on the way, without saving", async () => {
     api.messages.mockResolvedValue([row(7)]);
     const s = await started();

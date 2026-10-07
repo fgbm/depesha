@@ -11,6 +11,7 @@
   import { addrName, longDate, size } from "../../lib/format";
   import { t, tn } from "../../lib/i18n.svelte";
   import { registry } from "../../plugin-host/registry.svelte";
+  import { arrivals } from "../../lib/arrivals.svelte";
 
   let {
     which,
@@ -90,10 +91,17 @@
   </div>
 {:else}
   <!-- One way in instead of a wall of keys: the palette lists every command with its key. -->
+  {@const fresh = arrivals.freshCount(app.view)}
   <div class="center muted">
     <div class="hint">
-      <p>{t("reader.choose")}</p>
-      <p class="small"><kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}</p>
+      {#if fresh}
+        <!-- A summary notification opened the list: how many new ones, and the way in. -->
+        <p>{tn("arrivals.fresh", fresh, { n: fresh })}</p>
+        <p class="small"><kbd>Enter</kbd> — {t("arrivals.openFirst")}</p>
+      {:else}
+        <p>{t("reader.choose")}</p>
+        <p class="small"><kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}</p>
+      {/if}
     </div>
   </div>
 {/if}

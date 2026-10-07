@@ -23,7 +23,20 @@ export interface Confirmation {
   cancelLabel?: string;
   /** The action loses something: the safe button gets the focus. */
   danger?: boolean;
-  resolve: (ok: boolean) => void;
+  /** A box to tick under the text («Remember my choice»); the dialog changes `checked`. */
+  check?: { label: string; checked: boolean };
+  /** A quiet line under the box: where the choice can be changed later. */
+  note?: string;
+  /** Lines shown apart from the text, in a box: letters waiting to be sent. */
+  items?: string[];
+  /** The answer: the main button, the other one, or null when the dialog was dismissed (Esc, a click beside it). */
+  resolve: (ok: boolean | null) => void;
+}
+
+/** An answer of `choose`: which button, and the box under the text. */
+export interface Choice {
+  answer: boolean | null;
+  checked: boolean;
 }
 
 export interface WizardState {
@@ -63,14 +76,21 @@ export class UiController {
   }
 
   /** Asks in the app's own dialog; true when the user agreed. */
-  confirm(q: Omit<Confirmation, "resolve">): Promise<boolean> {
-    this.confirmation?.resolve(false);
+  async confirm(q: Omit<Confirmation, "resolve">): Promise<boolean> {
+    return (await this.choose(q)).answer === true;
+  }
+
+  /** Asks with two answers and a dismissal apart, and the state of the box under the text. */
+  choose(q: Omit<Confirmation, "resolve">): Promise<Choice> {
+    this.confirmation?.resolve(null);
     return new Promise((resolve) => {
       this.confirmation = {
         ...q,
-        resolve: (ok) => {
+        resolve: (answer) => {
+          // The dialog ticks the box of the state's copy, not of `q`.
+          const checked = this.confirmation?.check?.checked ?? false;
           this.confirmation = null;
-          resolve(ok);
+          resolve({ answer, checked });
         },
       };
     });

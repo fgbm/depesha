@@ -46,6 +46,12 @@ pub struct AppState {
     pub tasks: crate::tasks::Tasks,
     /// Files and folders the user chose, the only ones commands read or write.
     pub paths: crate::paths::Paths,
+    /// Desktop notifications, with a click back into the app.
+    pub notifier: crate::desktop_notify::Notifier,
+    /// The tray icon: the unread count, its menu.
+    pub tray: crate::tray::TrayCtl,
+    /// Work in the background: the closed window, letters that missed their time.
+    pub background: crate::background::Background,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -74,20 +80,18 @@ impl AppState {
         Ok(())
     }
 
-    /// Shows a desktop notification unless the settings or a test run say otherwise.
+    /// Shows a desktop notification unless the settings, a test run or the window in front
+    /// say otherwise; a click on it brings the window.
     pub fn notify(&self, title: &str, body: &str, bulk: bool) {
-        use tauri_plugin_notification::NotificationExt;
+        self.notify_target(title, body, bulk, None);
+    }
+
+    /// The same, and a click opens `target` in the main window.
+    pub fn notify_target(&self, title: &str, body: &str, bulk: bool, target: Option<crate::desktop_notify::Target>) {
         if !self.settings().may_notify(bulk) {
             return;
         }
-        // Automated tests run on a virtual display but share the user's notification daemon.
-        if std::env::var_os("DEPESHA_NO_NOTIFICATIONS").is_some() {
-            tracing::debug!("notification suppressed: {title}");
-            return;
-        }
-        if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
-            tracing::debug!("notification failed: {e}");
-        }
+        self.notifier.notify(&self.app, title, body, target);
     }
 
     pub fn accounts(&self) -> Vec<Account> {
@@ -238,6 +242,8 @@ impl AppState {
 
     pub fn set_status(&self, id: &str, status: AccountStatus) {
         lock(&self.statuses).insert(id.to_owned(), status.clone());
+        // A mailbox that needs the user is named in the tray menu.
+        crate::tray::refresh_soon(self);
         let _ = self.app.emit(
             "account-status",
             serde_json::json!({ "account_id": id, "status": status }),
@@ -249,6 +255,18 @@ impl AppState {
     }
 
     pub fn emit(&self, event: &str, payload: serde_json::Value) {
+        // The unread count on the tray icon follows the mail and the settings.
+        if matches!(
+            event,
+            "mail-changed" | "counters-changed" | "folders-changed" | "settings-changed"
+        ) {
+            crate::tray::refresh_soon(self);
+        }
         let _ = self.app.emit(event, payload);
+    }
+
+    /// An event only the main window handles (a letter's window never answers it).
+    pub fn emit_main(&self, event: &str, payload: serde_json::Value) {
+        let _ = self.app.emit_to("main", event, payload);
     }
 }

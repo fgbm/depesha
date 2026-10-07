@@ -5,6 +5,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { extensions, listenForMail } from "./extensions.svelte";
+import { listenBackground } from "./background.svelte";
 import { t } from "./i18n.svelte";
 import { applyRules } from "./rules";
 import { api } from "./api";
@@ -88,6 +89,8 @@ export function listenMain(app: AppStore) {
       getCurrentWindow().setFocus().catch(() => {});
       app.setView(e.payload);
     }),
+    // The closed window, quitting, the tray menu, a click on a notification (#4, #63).
+    ...listenBackground(app),
   ]);
 }
 

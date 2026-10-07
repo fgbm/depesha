@@ -97,7 +97,7 @@ describe("quitting with letters waiting for their time", () => {
     emit("quit-asked", { letters: [{ subject: "Reconciliation", at }, { subject: "", at }] });
     const q = s.confirmation!;
     expect(q.title).toBe("Quit Depesha?");
-    expect(q.text).toBe("2 letters wait to be sent on schedule. While Depesha is closed they will not go: they will be sent at the next start.");
+    expect(q.text).toBe("2 letters wait to be sent on schedule. While Depesha is closed they will not go: at the next start Depesha will offer to send them.");
     expect(q.items).toHaveLength(2);
     expect(q.items![0]).toMatch(/^«Reconciliation» — /);
     expect(q.items![1]).toMatch(/^«\(no subject\)» — /);
@@ -150,7 +150,10 @@ describe("letters that missed their time", () => {
 
   it("are told when the computer wakes up late too", async () => {
     const s = await started();
-    emit("outbox-missed", { ids: [5] });
+    await flush();
+    api.outboxMissed.mockResolvedValue([5]);
+    emit("outbox-missed");
+    await flush();
     expect(s.toasts.some((x) => x.text === "1 letter was not sent on time: Depesha was closed or the computer was asleep.")).toBe(true);
   });
 
