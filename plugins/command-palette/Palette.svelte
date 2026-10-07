@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Command, PluginContext } from "@depesha/plugin-api";
+  import { Keys, type Command, type PluginContext } from "@depesha/plugin-api";
   import { palette } from "./state.svelte";
   import { rank, recency } from "./rank";
 
@@ -62,7 +62,7 @@
         {#each shown as c, i (c.id)}
           <button class="item" class:active={i === active} role="option" aria-selected={i === active} onpointermove={() => (active = i)} onclick={() => run(c)}>
             <span>{c.title()}</span>
-            {#if c.hint}<span class="hint">{c.hint()}</span>{/if}
+            {#if ctx.keyOf(c.id)}<span class="hint"><Keys of={c.id} /></span>{:else if c.hint}<span class="hint">{c.hint()}</span>{/if}
           </button>
         {:else}
           <div class="none muted">{ctx.t(S.none)}</div>

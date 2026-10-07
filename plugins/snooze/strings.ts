@@ -5,7 +5,7 @@ export const S = {
     ru: "Убрать письмо до нужного времени; оно вернётся во входящие непрочитанным.",
   },
   action: { en: "Snooze", ru: "Отложить" },
-  hint: { en: "Snooze: back in the inbox later (h)", ru: "Отложить: вернётся во входящие позже (h)" },
+  hint: { en: "Snooze: back in the inbox later", ru: "Отложить: вернётся во входящие позже" },
   menuTitle: { en: "Back to the inbox", ru: "Вернуть во входящие" },
   view: { en: "Snoozed", ru: "Отложенные" },
   empty: {

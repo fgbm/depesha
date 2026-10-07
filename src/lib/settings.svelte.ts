@@ -6,6 +6,7 @@
 import { api } from "./api";
 import { applyTheme } from "./theme";
 import { i18n, t } from "./i18n.svelte";
+import { shortcuts } from "./shortcuts.svelte";
 import type { Settings, UpdateStatus } from "./types";
 
 /** What the settings need from the app store. */
@@ -29,6 +30,7 @@ export class SettingsController {
     disabled_plugins: [],
     enabled_plugins: [],
     plugin_settings: {},
+    keybindings: { custom: {}, dismissed: [] },
     disabled_extensions: [],
     oauth_clients: {},
     offline: "30",
@@ -52,7 +54,9 @@ export class SettingsController {
   });
   update = $state<UpdateStatus | null>(null);
 
-  constructor(private host: SettingsHost) {}
+  constructor(private host: SettingsHost) {
+    shortcuts.use(() => this.settings.keybindings);
+  }
 
   /** The language resolved by the backend: the setting, or the system locale. */
   async loadLanguage() {

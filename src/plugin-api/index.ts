@@ -10,6 +10,8 @@ export type { ActsOn, ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, List
 export { default as Popover } from "../components/Popover.svelte";
 export { default as LaterMenu } from "../components/LaterMenu.svelte";
 export { default as Select } from "../components/Select.svelte";
+/** A key as menus and the palette show it, `e у`: `key="Mod+k"`, or `of` a command's key. */
+export { default as Keys } from "../components/Keys.svelte";
 export { fromLocalInput, sendLaterPresets, snoozePresets, toLocalInput, when, type Preset } from "../lib/later";
 export { addrName, listDate, matches, size } from "../lib/format";
 export type { FileViewer, ViewedFile } from "../lib/viewer";
@@ -62,6 +64,23 @@ export interface Command {
   run: () => void;
 }
 
+/**
+ * A command with a key. It is listed on the «Keys» page, where the user may change the
+ * key; a default key taken already (by the core, the user or a plugin before) is not
+ * taken from them: the command goes without one, and the user is told once.
+ * Keys are named "Mod+k" (Ctrl, Cmd on macOS), "Shift+r", "h", "Delete"; letters by
+ * their Latin letter, so they work on any layout.
+ */
+export interface KeyBinding {
+  id: string;
+  title: () => string;
+  key?: string;
+  run: () => void;
+  when?: () => boolean;
+  /** `everywhere` in the main window, or `list` (default): the list and the letter. */
+  where?: "everywhere" | "list";
+}
+
 export interface MessageAction {
   id: string;
   title: () => string;
@@ -81,6 +100,8 @@ export interface RowAction {
   title: () => string;
   icon?: Component;
   hint?: string;
+  /** The command whose key the item shows, as the user set it (instead of `hint`). */
+  command?: string;
   when?: (ids: number[]) => boolean;
   run?: (ids: number[]) => void;
   menu?: Rendered;
@@ -192,6 +213,10 @@ export interface PluginContext {
   plural(n: number, forms: { en: PluralForms; ru: PluralForms }): string;
   /** Every command on offer now: the core's and all plugins'. */
   commands(): Command[];
+  /** The key of a command now, as the user set it ("Mod+k", "h"); none without one. */
+  keyOf(commandId: string): string | undefined;
+  /** A tooltip with the command's key: "Snooze (h/р)"; without a key, the text alone. */
+  keyTitle(text: string, commandId: string): string;
 
   mail: {
     opened(): OpenedMessage | null;
@@ -233,6 +258,8 @@ export interface PluginContext {
 
   ui: {
     command(c: Command): void;
+    keybinding(b: KeyBinding): void;
+    /** A key without a command of its own: on the «Keys» page under the plugin's name. */
     keybinding(key: string, run: () => void, when?: () => boolean): void;
     /** Buttons in the reader toolbar, before "Delete". */
     readerToolbar(r: Rendered): void;

@@ -6,7 +6,8 @@
   import { app } from "./lib/store.svelte";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
-  import { keyNames, shortcutKeys } from "./lib/keys";
+  import { shortcuts } from "./lib/shortcuts.svelte";
+  import { pressName } from "./lib/keymap";
   import { layout } from "./lib/layout.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import MessageList from "./components/MessageList.svelte";
@@ -18,7 +19,7 @@
   import Tasks from "./components/Tasks.svelte";
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
-  import { host } from "./plugin-host/host.svelte";
+  import { allCommands, host } from "./plugin-host/host.svelte";
   import { registry } from "./plugin-host/registry.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
@@ -101,38 +102,52 @@
     };
   });
 
-  /** The first plugin binding of any of the names (what the key types, then its US key). */
-  function pluginKey(names: string[]): (() => void) | undefined {
-    const bindings = registry.items("keybindings");
-    for (const name of names) {
-      const run = bindings.find((b) => b.key === name && (!b.when || b.when()))?.run;
-      if (run) return run;
-    }
+  /** What the commands of the main window do; their keys are in keyCommands.ts and Settings → Keys. */
+  const actions: Record<string, () => void> = {
+    "core.settings": () => app.openSettings(),
+    "core.compose": () => app.newMessage(),
+    "core.search": () => searchInput?.focus(),
+    "core.undo": () => app.undo(),
+    "core.sync": () => api.syncNow().catch((e) => app.fail(e)),
+    "core.next": () => app.move(1),
+    "core.prev": () => app.move(-1),
+    "core.select-all": () => app.selectAll(),
+    "core.reply": () => app.replyTo(false),
+    "core.reply-all": () => app.replyTo(true),
+    "core.forward": () => app.forwardOpened(),
+    "core.archive": () => app.archive(),
+    "core.delete": () => app.remove(),
+    "core.spam": () => app.spam(),
+    "core.unread": () => app.opened && app.flag("seen", !app.opened.row.flags.seen),
+    "core.flag": () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
+  };
+
+  /** What a command does now: the core's, a plugin's key, or any command of the palette given a key. */
+  function action(id: string | undefined): (() => void) | undefined {
+    if (!id) return;
+    return actions[id] ?? registry.items("keybindings").find((b) => b.id === id && (!b.when || b.when()))?.run ?? allCommands().find((c) => c.id === id)?.run;
   }
+
+  /** Text fields keep their own editing keys even when a command has them. */
+  const EDITING = ["Mod+a", "Mod+z", "Mod+y", "Mod+Shift+z"];
 
   function onKey(e: KeyboardEvent) {
     if (app.wizard) return;
-    const names = keyNames(e);
     // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
     // Only Ctrl+K reaches the app from there: the palette opens from anywhere.
-    if ((e.target as HTMLElement | null)?.closest?.(".compose") && !names.includes("Mod+k")) return;
-    // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box).
+    const inCompose = !!(e.target as HTMLElement | null)?.closest?.(".compose");
+    const id = shortcuts.find(e, inCompose ? "compose" : "main");
+    if (inCompose && shortcuts.command(id)?.scope !== "all") return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    // Shortcuts with Ctrl/Cmd work from text fields too (Ctrl+K in the search box), those
+    // of the list and the letter aside; Ctrl+A in a field selects its text, in the list every row.
     if (e.ctrlKey || e.metaKey) {
-      // Ctrl+, opens the settings, as in most desktop programs (Obsidian, VS Code).
-      if (e.key === "," && !e.altKey && !app.settingsOpen) {
-        e.preventDefault();
-        app.openSettings();
-        return;
-      }
-      // Ctrl+A in the list selects every row, as in any list; in a field it selects its text.
-      const target = e.target as HTMLElement | null;
-      const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (names.includes("Mod+a") && !e.altKey && !e.shiftKey && !typing && !app.settingsOpen && app.windowOf === null) {
-        e.preventDefault();
-        app.selectAll();
-        return;
-      }
-      const run = pluginKey(names);
+      const cmd = shortcuts.command(id);
+      if (!cmd || (app.settingsOpen && cmd.owner === "core")) return;
+      if (typing && (cmd.group !== "everywhere" || EDITING.includes(pressName(e) ?? ""))) return;
+      if (cmd.id === "core.select-all" && app.windowOf !== null) return;
+      const run = action(id);
       if (run) {
         e.preventDefault();
         run();
@@ -140,12 +155,18 @@
       return;
     }
     if (app.settingsOpen || app.tasksOpen) return;
-    const t = e.target as HTMLElement;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) {
-      if (e.key === "Escape") t.blur();
+    if (typing) {
+      if (e.key === "Escape") t!.blur();
       return;
     }
-    if (e.altKey) return;
+    const run = action(id);
+    if (e.altKey) {
+      if (run) {
+        e.preventDefault();
+        run();
+      }
+      return;
+    }
     // A narrow window shows the list or the letter: Enter opens the selected one, Esc goes back.
     // Keys a viewer or a menu took already, and Enter on a focused button, are not theirs.
     const onButton = !!t?.closest?.("button, a");
@@ -153,29 +174,9 @@
       e.preventDefault();
       return;
     }
-    const actions: Record<string, () => void> = {
-      j: () => app.move(1),
-      ArrowDown: () => app.move(1),
-      k: () => app.move(-1),
-      ArrowUp: () => app.move(-1),
-      r: () => app.replyTo(false),
-      a: () => app.replyTo(true),
-      f: () => app.forwardOpened(),
-      c: () => app.newMessage(),
-      Delete: () => app.remove(),
-      "#": () => app.remove(),
-      e: () => app.archive(),
-      "!": () => app.spam(),
-      z: () => app.undo(),
-      u: () => app.opened && app.flag("seen", !app.opened.row.flags.seen),
-      s: () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
-      "/": () => searchInput?.focus(),
-    };
-    // Named keys (ArrowDown, Delete) keep their case; letters work on any layout.
-    const action = shortcutKeys(e).map((k) => actions[k]).find(Boolean) ?? pluginKey(names);
-    if (action) {
+    if (run) {
       e.preventDefault();
-      action();
+      run();
     }
   }
 

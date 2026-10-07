@@ -6,7 +6,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { app } from "./lib/store.svelte";
   import { t } from "./lib/i18n.svelte";
-  import { shortcutKeys } from "./lib/keys";
+  import { shortcuts } from "./lib/shortcuts.svelte";
   import Reader from "./components/Reader.svelte";
   import Dock from "./components/Dock.svelte";
   import WindowControls from "./components/WindowControls.svelte";
@@ -43,25 +43,26 @@
   });
 
   function onKey(e: KeyboardEvent) {
-    if (app.confirmation || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (app.confirmation) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest?.(".compose")) return;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
     const opened = app.opened;
+    // The letter's commands, by the keys of the main window (keyCommands.ts, Settings → Keys).
     const actions: Record<string, () => void> = {
-      r: () => app.replyTo(false),
-      a: () => app.replyTo(true),
-      f: () => app.forwardOpened(),
-      Delete: () => app.remove(),
-      "#": () => app.remove(),
-      e: () => app.archive(),
-      "!": () => app.spam(),
-      u: () => opened && app.flag("seen", !opened.row.flags.seen),
-      s: () => opened && app.flag("flagged", !opened.row.flags.flagged),
-      // Nothing being written: Esc closes the window, as a viewer of one letter.
-      Escape: () => !app.composes.length && win.close(),
+      "core.reply": () => app.replyTo(false),
+      "core.reply-all": () => app.replyTo(true),
+      "core.forward": () => app.forwardOpened(),
+      "core.delete": () => app.remove(),
+      "core.archive": () => app.archive(),
+      "core.spam": () => app.spam(),
+      "core.unread": () => opened && app.flag("seen", !opened.row.flags.seen),
+      "core.flag": () => opened && app.flag("flagged", !opened.row.flags.flagged),
     };
-    const action = shortcutKeys(e).map((k) => actions[k]).find(Boolean);
+    // Nothing being written: Esc closes the window, as a viewer of one letter.
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    const id = shortcuts.find(e, "main");
+    const action = plain && e.key === "Escape" ? () => !app.composes.length && win.close() : id ? actions[id] : undefined;
     if (action) {
       e.preventDefault();
       action();

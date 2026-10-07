@@ -48,7 +48,7 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | Point | What it is |
 | --- | --- |
 | `command` | a command for the palette and other command lists |
-| `keybinding` | a key (`h`, `Mod+k`), with an optional condition |
+| `keybinding` | a command with a key: `{ id, title, key: "h", run, when? }`, listed on Settings → Keys where the user may change the key. Keys are named `Mod+k`, `Shift+r`, `h`, `Delete`; letters by their Latin letter, so they work on any layout. A key someone took first (the core, the user, an earlier plugin) is not taken from them: the command goes without one and the user is told once. `ctx.keyOf(id)` and `ctx.keyTitle(text, id)` give the key as set now; the `Keys` component shows it with its Russian letter |
 | `readerToolbar`, `bulkToolbar`, `readerHeader` | components in the reader toolbar, in the panel for several selected messages, next to the sender |
 | `messageAction` | an item in the reader's "More" menu |
 | `rowAction` | an item in the context menu of list rows, or a submenu (`menu`) |

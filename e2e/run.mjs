@@ -638,6 +638,73 @@ try {
     await d.until("back", async () => (await textOf(".reader h1")) === before);
   });
 
+  await step("7.14", "клавиши: переназначение записью, конфликт, запреты, русская раскладка, подсказки", async () => {
+    const row = (id) => `.prefs .kr[data-command='${id}']`;
+    const openKeys = async () => {
+      await press(",", { ctrlKey: true });
+      await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+      await d.click(await d.find(".prefs .tab[data-page='keys']"));
+      await d.until("keys page", async () => (await d.findAll(row("core.archive"))).length === 1);
+    };
+    try {
+      await openKeys();
+      // Both labels of one key: e and the Russian у.
+      const archive = await textOf(row("core.archive"));
+      if (!archive.includes("e") || !archive.includes("у")) throw new Error(`«Готово»: ${archive}`);
+      // A click on the key records the next press at once: Shift+R for «Reply all».
+      await d.click(await d.find(`${row("core.reply-all")} button.combo`));
+      await d.until("recording", async () => (await d.findAll(".prefs .kr.recording")).length === 1);
+      await press("R", { shiftKey: true });
+      await d.until("changed", async () => (await d.findAll(`${row("core.reply-all")}.changed`)).length === 1);
+      if (!(await textOf(row("core.reply-all"))).includes("было a")) throw new Error("нет «было a»");
+      // A key taken already: a card under the row; «у» is saved by its place as e.
+      await d.click(await d.find(`${row("core.forward")} button.combo`));
+      await press("у", { code: "KeyE" });
+      await d.until("conflict", async () => (await textOf(".prefs .kconf")).includes("Готово"));
+      await screenshot("keys-conflict");
+      await d.button("Поменять местами");
+      await d.until("swapped", async () => (await textOf(row("core.archive"))).includes("было e"));
+      // Not allowed: a single letter in the letter window, Ctrl+C anywhere; the recording goes on.
+      await d.click(await d.find(`${row("compose.bold")} button.combo`));
+      await press("b");
+      await d.until("letter refused", async () => (await textOf(".prefs .kconf.err")).includes("Ctrl или Alt"));
+      await press("c", { ctrlKey: true });
+      await d.until("copy refused", async () => (await textOf(".prefs .kconf.err")).includes("за системой"));
+      await press("Escape");
+      await d.until("recording cancelled", async () => (await d.findAll(".prefs .kr.recording")).length === 0);
+      if ((await d.findAll(`${row("compose.bold")}.changed`)).length) throw new Error("запрещённая клавиша записалась");
+      await d.click(await d.find(".prefs footer .btn.primary"));
+      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+      const saved = (await invoke("settings_get")).keybindings.custom;
+      if (saved["core.reply-all"]?.[0] !== "Shift+r" || saved["core.forward"]?.[0] !== "e" || saved["core.archive"]?.[0] !== "f")
+        throw new Error(`сохранено: ${JSON.stringify(saved)}`);
+      // Tooltips and the keys follow at once.
+      await openBySubject("Счёт за октябрь");
+      const tip = await d.exec("return [...document.querySelectorAll('.reader button')].map((b) => b.title).find((t) => t.startsWith('Переслать')) ?? ''");
+      if (tip !== "Переслать (e/у)") throw new Error(`подсказка: ${tip}`);
+      await press("a");
+      await new Promise((r) => setTimeout(r, 400));
+      if ((await d.findAll(".compose")).length) throw new Error("старая клавиша a ещё отвечает всем");
+      await press("К", { code: "KeyR", shiftKey: true });
+      await d.until("reply all", async () => (await d.findAll(".compose")).length === 1);
+      await d.click(await d.find(".compose header button:last-child"));
+      await composeClosed();
+    } finally {
+      // Back to the defaults for the steps after this one: «Reset all» and save. A recording
+      // left by a failure takes the first Escape.
+      if ((await d.findAll(".prefs .kr.recording")).length) await press("Escape");
+      await closeSettings();
+      if (Object.keys((await invoke("settings_get")).keybindings.custom).length) {
+        await openKeys();
+        await d.button("Сбросить все");
+        await d.click(await d.find(".prefs footer .btn.primary"));
+        await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+        const left = (await invoke("settings_get")).keybindings.custom;
+        if (Object.keys(left).length) throw new Error(`после сброса осталось: ${JSON.stringify(left)}`);
+      }
+    }
+  });
+
   await step("6.3", "групповые действия: три письма отмечаются непрочитанными", async () => {
     await d.button("Входящие");
     const subjects = ["Массовое письмо 619", "Массовое письмо 618", "Массовое письмо 617"];

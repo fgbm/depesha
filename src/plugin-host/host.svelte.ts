@@ -3,11 +3,12 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { BUILTIN } from "../../plugins";
-import type { Command, Plugin, PluginContext, Text } from "../plugin-api";
+import type { Command, KeyBinding, Plugin, PluginContext, Text } from "../plugin-api";
 import { call } from "../lib/api";
 import { i18n } from "../lib/i18n.svelte";
 import { app } from "../lib/store.svelte";
 import { coreCommands } from "../lib/commands";
+import { shortcuts } from "../lib/shortcuts.svelte";
 import { registry } from "./registry.svelte";
 
 function fill(s: string, params?: Record<string, string | number>): string {
@@ -36,6 +37,8 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       return fill((set[cat] ?? set.other) as string, { n });
     },
     commands: allCommands,
+    keyOf: (command) => shortcuts.key(command),
+    keyTitle: (text, command) => shortcuts.titled(text, command),
     mail: {
       opened: () => app.opened,
       selection: () => app.selectedIds(),
@@ -68,7 +71,9 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     },
     ui: {
       command: (c) => registry.add("commands", id, c),
-      keybinding: (key, run, when) => registry.add("keybindings", id, { key, run, when }),
+      // A key alone, as before named keys (#46): its command is named by the plugin and the key.
+      keybinding: (b: KeyBinding | string, run?: () => void, when?: () => boolean) =>
+        registry.add("keybindings", id, typeof b === "string" ? { id: `${id}.key.${b}`, title: () => pick(plugin.manifest.name), key: b, run: run!, when } : b),
       readerToolbar: (r) => registry.add("readerToolbar", id, r),
       bulkToolbar: (r) => registry.add("bulkToolbar", id, r),
       readerHeader: (r) => registry.add("readerHeader", id, r),

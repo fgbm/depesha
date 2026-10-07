@@ -50,6 +50,7 @@ export const settings = (): Settings => ({
   disabled_plugins: [],
   enabled_plugins: [],
   plugin_settings: {},
+  keybindings: { custom: {}, dismissed: [] },
   disabled_extensions: [],
   oauth_clients: {},
   offline: "30",

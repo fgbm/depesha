@@ -26,7 +26,7 @@
   </span>
 {:else}
   <span class="anchor">
-    <button class="btn ghost" onclick={() => (snooze.open = !snooze.open)} title={ctx.t(S.hint)}>
+    <button class="btn ghost" onclick={() => (snooze.open = !snooze.open)} title={ctx.keyTitle(ctx.t(S.hint), "snooze.open")}>
       <AlarmClock size={16} /><span class="lbl2">{ctx.t(S.action)}</span>
     </button>
     <Popover bind:open={() => snooze.open, (v) => (snooze.open = v)} align="left">

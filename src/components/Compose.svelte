@@ -29,6 +29,7 @@
   import Select from "./Select.svelte";
   import Popover from "./Popover.svelte";
   import { keyLabel } from "../lib/composeKeys";
+  import { shortcuts } from "../lib/shortcuts.svelte";
   import { ComposeFormat } from "../lib/compose/format.svelte";
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
@@ -219,11 +220,11 @@
   onkeydown={m.onKey}
 >
   <header>
-    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? "" : t("compose.minimize")}>
+    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold")}>
       {c.draft.subject.trim() || t("compose.newMessage")}
     </button>
     {#if c.mode !== "min"}<span class="saved" aria-live="polite">{m.savingNow ? t("compose.saving") : m.savedText}</span>{/if}
-    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? t("compose.restore") : t("compose.minimize")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
+    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? t("compose.restore") : shortcuts.titled(t("compose.minimize"), "compose.fold")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
       <Minus size={15} />
     </button>
     <button class="hb" onclick={m.toggleMax} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>
@@ -382,7 +383,7 @@
     {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
     <footer>
       <span class="split-btn anchor">
-        <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")} <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")}{#if keyLabel("send")} <kbd>{keyLabel("send")}</kbd>{/if}</button>
         {#each m.controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       </span>
       {#if m.options.at}

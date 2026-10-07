@@ -1,8 +1,5 @@
 {
   "src/App.svelte": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
     "complexity": {
       "count": 1
     }

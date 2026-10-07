@@ -2,6 +2,7 @@
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import Mail from "@lucide/svelte/icons/mail";
   import Bell from "@lucide/svelte/icons/bell";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
   import CloudOff from "@lucide/svelte/icons/cloud-off";
   import Download from "@lucide/svelte/icons/download";
   import Puzzle from "@lucide/svelte/icons/puzzle";
@@ -22,6 +23,7 @@
   import BackgroundPanel from "./prefs/BackgroundPanel.svelte";
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
   import PluginsPanel from "./prefs/PluginsPanel.svelte";
+  import KeysPanel from "./prefs/KeysPanel.svelte";
 
   /** What the window edits: a copy of the settings, and the large-letter threshold as a number and its unit. */
   function start(s: Settings) {
@@ -61,6 +63,7 @@
     { id: "background", title: () => t("settings.page.background"), icon: Power },
     { id: "mail", title: () => t("settings.page.mail"), icon: Mail },
     { id: "notifications", title: () => t("settings.notifications"), icon: Bell },
+    { id: "keys", title: () => t("keys.title"), icon: Keyboard },
     { id: "offline", title: () => t("settings.offline"), icon: CloudOff },
     { id: "updates", title: () => t("settings.updates"), icon: Download },
   ];
@@ -109,6 +112,7 @@
       notify,
       undo_send_secs,
       threads,
+      keybindings,
       updates,
       theme,
       offline,
@@ -133,6 +137,7 @@
       notify,
       undo_send_secs,
       threads,
+      keybindings,
       updates,
       theme,
       offline,
@@ -227,6 +232,8 @@
           <BackgroundPanel {draft} />
         {:else if current === "offline"}
           <OfflinePanel {draft} />
+        {:else if current === "keys"}
+          <KeysPanel {draft} />
         {:else if current === "accounts" || current === "account:new" || current.startsWith("account:")}
           <AccountsPanel {current} {pageAccount} onOpen={(p) => (page = p)} />
         {:else}

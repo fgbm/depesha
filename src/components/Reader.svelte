@@ -9,6 +9,7 @@
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t, tn } from "../lib/i18n.svelte";
+  import { shortcuts } from "../lib/shortcuts.svelte";
   import { extensions, fromRow } from "../lib/extensions.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { Banner as PluginBanner } from "../plugin-api";
@@ -124,8 +125,8 @@
     <button class="btn back" onclick={() => layout.showList()} title={t("nav.backHint", { list })} aria-label={t("nav.back", { list })}>
       <ChevronLeft size={16} /><span class="back-lbl">{list}</span>
     </button>
-    <button class="btn ghost icon" onclick={() => app.move(-1)} title={t("nav.prevHint")} aria-label={t("nav.prev")}><ChevronUp size={16} /></button>
-    <button class="btn ghost icon" onclick={() => app.move(1)} title={t("nav.nextHint")} aria-label={t("nav.next")}><ChevronDown size={16} /></button>
+    <button class="btn ghost icon" onclick={() => app.move(-1)} title={shortcuts.titled(t("nav.prevHint"), "core.prev")} aria-label={t("nav.prev")}><ChevronUp size={16} /></button>
+    <button class="btn ghost icon" onclick={() => app.move(1)} title={shortcuts.titled(t("nav.nextHint"), "core.next")} aria-label={t("nav.next")}><ChevronDown size={16} /></button>
   {/if}
 {/snippet}
 

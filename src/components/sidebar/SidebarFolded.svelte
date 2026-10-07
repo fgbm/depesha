@@ -13,6 +13,7 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import { app } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
+  import { shortcuts } from "../../lib/shortcuts.svelte";
   import { accountLabel } from "../../lib/format";
   import { layout } from "../../lib/layout.svelte";
   import { rooms } from "../../lib/room.svelte";
@@ -37,7 +38,7 @@
     <img src="/icon.png" alt="" width="26" height="26" />
   </div>
 
-  <button class="btn primary tile-compose" onclick={onCompose} title={t("compose.newHint")} aria-label={t("compose.new")}><Pencil size={16} /></button>
+  <button class="btn primary tile-compose" onclick={onCompose} title={shortcuts.titled(t("compose.newHint"), "core.compose")} aria-label={t("compose.new")}><Pencil size={16} /></button>
 
   <div class="scroll">
     <div class="tiles">

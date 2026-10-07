@@ -6,6 +6,7 @@
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import Forward from "@lucide/svelte/icons/forward";
   import { t } from "../../lib/i18n.svelte";
+  import { shortcuts } from "../../lib/shortcuts.svelte";
 
   let {
     manyRecipients,
@@ -20,11 +21,11 @@
 </script>
 
 <div class="acts">
-  <button class="act" onclick={() => reply(false)} title={t("act.replyHint")}><Reply size={16} /> {t("act.reply")}</button>
+  <button class="act" onclick={() => reply(false)} title={shortcuts.titled(t("act.replyHint"), "core.reply")}><Reply size={16} /> {t("act.reply")}</button>
   {#if manyRecipients}
-    <button class="act" onclick={() => reply(true)} title={t("act.replyAllHint")}><ReplyAll size={16} /> {t("act.replyAllFull")}</button>
+    <button class="act" onclick={() => reply(true)} title={shortcuts.titled(t("act.replyAllHint"), "core.reply-all")}><ReplyAll size={16} /> {t("act.replyAllFull")}</button>
   {/if}
-  <button class="act" onclick={forward} title={t("act.forwardHint")}><Forward size={16} /> {t("act.forward")}</button>
+  <button class="act" onclick={forward} title={shortcuts.titled(t("act.forwardHint"), "core.forward")}><Forward size={16} /> {t("act.forward")}</button>
 </div>
 
 <style>

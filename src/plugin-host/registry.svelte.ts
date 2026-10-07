@@ -4,18 +4,14 @@
 
 import type { Component } from "svelte";
 import type { FileViewer } from "../lib/viewer";
-import type { Banner, Command, ComposeContext, ComposeDraft, ListFilter, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
+import type { Banner, Command, KeyBinding, ComposeContext, ComposeDraft, ListFilter, MessageAction, MessageRow, OpenedMessage, PluginContext, Rendered, RowAction, RowTag, View } from "../plugin-api";
 
 export interface Owned<T> {
   owner: string;
   item: T;
 }
 
-export interface Keybinding {
-  key: string;
-  run: () => void;
-  when?: () => boolean;
-}
+export type Keybinding = KeyBinding;
 
 export interface ComposeControl {
   component: Component<{ compose: ComposeContext; ctx: PluginContext }>;

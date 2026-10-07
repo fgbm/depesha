@@ -18,6 +18,7 @@
   import { app } from "../../lib/store.svelte";
   import { fromDraft } from "../../lib/compose";
   import { t } from "../../lib/i18n.svelte";
+  import { shortcuts } from "../../lib/shortcuts.svelte";
   import { extensions } from "../../lib/extensions.svelte";
   import type { ExtMessage } from "../../lib/extensions.svelte";
   import { registry } from "../../plugin-host/registry.svelte";
@@ -68,9 +69,9 @@
   {#if isDraft}
     <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
   {/if}
-  <button class="btn ghost" onclick={() => app.archive()} title={t("act.doneHint")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
+  <button class="btn ghost" onclick={() => app.archive()} title={shortcuts.titled(t("act.doneHint"), "core.archive")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
   {#each registry.lists.readerToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
-  <button class="btn ghost icon" onclick={() => app.remove()} title={t("act.deleteHint")} aria-label={t("act.delete")}><Trash size={16} /></button>
+  <button class="btn ghost icon" onclick={() => app.remove()} title={shortcuts.titled(t("act.deleteHint"), "core.delete")} aria-label={t("act.delete")}><Trash size={16} /></button>
   <span class="anchor">
     <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
     <Popover bind:open={moreOpen} align="left">

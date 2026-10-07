@@ -34,10 +34,10 @@ export default {
       id: "snooze",
       title: () => `${ctx.t(S.action)}…`,
       icon: AlarmClock,
-      hint: "h",
+      command: "snooze.open",
       menu: { component: SnoozeRowMenu, props: { ctx } },
     });
-    ctx.ui.keybinding("h", () => (snooze.open = true), () => ctx.mail.opened() !== null);
+    ctx.ui.keybinding({ id: "snooze.open", title: () => ctx.t(S.action), key: "h", run: () => (snooze.open = true), when: () => ctx.mail.opened() !== null });
     for (const [i, p] of snoozePresets().entries()) {
       ctx.ui.command({
         id: `snooze.preset.${i}`,

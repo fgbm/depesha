@@ -430,6 +430,14 @@ export interface Template {
   text: string;
 }
 
+/** The user's keys: only what differs from the defaults. */
+export interface KeySettings {
+  /** Keys by command id; an empty list is a command left without a key. */
+  custom: Record<string, string[]>;
+  /** Plugins' keys taken by someone else, "<command>:<key>", whose notice was seen. */
+  dismissed: string[];
+}
+
 /** `system` follows the system's light or dark mode with `paper` and `night`. */
 export type Theme = "system" | "paper" | "night" | "snow" | "graphite";
 
@@ -446,6 +454,8 @@ export interface Settings {
   /** Plugins the user switched on explicitly; only those off by default use it. */
   enabled_plugins: string[];
   plugin_settings: Record<string, Record<string, unknown>>;
+  /** The user's keys of commands (Settings → Keys). */
+  keybindings: KeySettings;
   disabled_extensions: string[];
   oauth_clients: Partial<Record<OAuthProvider, OAuthClient>>;
   /** Mail kept whole for offline reading: off, the last N days, or all. */

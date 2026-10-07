@@ -14,6 +14,7 @@
   import Download from "@lucide/svelte/icons/download";
   import { app } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
+  import { shortcuts } from "../../lib/shortcuts.svelte";
   import { accountLabel } from "../../lib/format";
   import { layout } from "../../lib/layout.svelte";
   import { favourites } from "../../lib/favourites.svelte";
@@ -41,7 +42,7 @@
     <button class="fold-side" onclick={() => layout.toggleSidebar()} title={t("sidebar.fold")} aria-label={t("sidebar.fold")}><ChevronsLeft size={14} /></button>
   </div>
 
-  <button class="btn primary compose-btn" onclick={onCompose} title={t("compose.newHint")}><Pencil size={15} /> {t("compose.new")}</button>
+  <button class="btn primary compose-btn" onclick={onCompose} title={shortcuts.titled(t("compose.newHint"), "core.compose")}><Pencil size={15} /> {t("compose.new")}</button>
 
   <div class="scroll">
     <div class="group">

@@ -43,6 +43,8 @@ pub struct Settings {
     pub enabled_plugins: Vec<String>,
     /// Settings of built-in plugins, by plugin id; each plugin owns its object.
     pub plugin_settings: std::collections::BTreeMap<String, serde_json::Value>,
+    /// The user's keys of commands (Settings → Keys); only what differs from the defaults.
+    pub keybindings: Keybindings,
     /// Installed extensions switched off, by id.
     pub disabled_extensions: Vec<String>,
     /// The user's own OAuth clients; they win over the ones built into the app.
@@ -111,6 +113,7 @@ impl Default for Settings {
             disabled_plugins: Vec::new(),
             enabled_plugins: Vec::new(),
             plugin_settings: Default::default(),
+            keybindings: Keybindings::default(),
             disabled_extensions: Vec::new(),
             oauth_clients: Default::default(),
             offline: "30".into(),
@@ -180,6 +183,17 @@ impl Settings {
             _ => !bulk,
         }
     }
+}
+
+/// Keys the user changed, by command id (`core.reply`, `snooze.open`); the defaults live
+/// in the frontend (`src/lib/keyCommands.ts` and the plugins).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Keybindings {
+    /// An empty list is a command left without a key.
+    pub custom: std::collections::BTreeMap<String, Vec<String>>,
+    /// Plugins' keys taken by someone else, `<command>:<key>`, whose notice was seen.
+    pub dismissed: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

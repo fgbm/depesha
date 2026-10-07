@@ -1,5 +1,6 @@
 // Commands of the core: what any command UI (the palette plugin, menus) can offer.
-// Plugins add their own through `ui.command`; the host merges both lists.
+// Plugins add their own through `ui.command`; the host merges both lists. Keys are not
+// here: the palette shows each command's key from keyCommands.ts and Settings → Keys.
 
 import type { Command } from "../plugin-api";
 import { registry } from "../plugin-host/registry.svelte";
@@ -20,21 +21,21 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 export function coreCommands(): Command[] {
   const msg = app.opened;
   const target = app.selectedIds();
-  const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), hint: () => "c", run: () => app.newMessage() }];
+  const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), run: () => app.newMessage() }];
   if (msg) {
     list.push(
-      { id: "core.reply", title: () => t("act.reply"), hint: () => "r", run: () => app.replyTo(false) },
-      { id: "core.reply-all", title: () => t("cmd.replyAll"), hint: () => "a", run: () => app.replyTo(true) },
-      { id: "core.forward", title: () => t("act.forward"), hint: () => "f", run: () => app.forwardOpened() },
+      { id: "core.reply", title: () => t("act.reply"), run: () => app.replyTo(false) },
+      { id: "core.reply-all", title: () => t("cmd.replyAll"), run: () => app.replyTo(true) },
+      { id: "core.forward", title: () => t("act.forward"), run: () => app.forwardOpened() },
     );
   }
   if (target.length) {
     list.push(
-      { id: "core.archive", title: () => t("cmd.done"), hint: () => "e", run: () => app.archive() },
-      { id: "core.delete", title: () => t("act.delete"), hint: () => "Delete", run: () => app.remove() },
-      { id: "core.spam", title: () => t("act.spam"), hint: () => "!", run: () => app.spam() },
-      { id: "core.flag", title: () => t("cmd.flag"), hint: () => "s", run: () => msg && app.flag("flagged", !msg.row.flags.flagged) },
-      { id: "core.unread", title: () => t("act.markUnread"), hint: () => "u", run: () => app.flag("seen", false) },
+      { id: "core.archive", title: () => t("cmd.done"), run: () => app.archive() },
+      { id: "core.delete", title: () => t("act.delete"), run: () => app.remove() },
+      { id: "core.spam", title: () => t("act.spam"), run: () => app.spam() },
+      { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.flag("flagged", !msg.row.flags.flagged) },
+      { id: "core.unread", title: () => t("act.markUnread"), run: () => app.flag("seen", false) },
     );
     const account = msg?.row.account_id ?? app.messages.find((m) => m.id === target[0])?.account_id;
     for (const f of app.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
@@ -48,7 +49,7 @@ export function coreCommands(): Command[] {
     list.push({ id: `ext.${c.ext.id}.${c.id}`, title: () => c.title, run: () => extensions.command(c.ext, c.id, message) });
   }
   const undo = app.lastUndo;
-  if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), hint: () => "z", run: () => app.undo() });
+  if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), run: () => app.undo() });
 
   if (app.listKey()) {
     // Search results keep an order of their own: the rank means nothing elsewhere.
@@ -68,7 +69,7 @@ export function coreCommands(): Command[] {
 
   const where = (s: string) => () => t("cmd.go", { where: s.toLowerCase() });
   list.push(
-    { id: "core.search", title: () => t("cmd.search"), hint: () => "/", run: () => app.focusSearch() },
+    { id: "core.search", title: () => t("cmd.search"), run: () => app.focusSearch() },
   );
   // Ready queries, as the search box suggests them: each opens as a search, its text in
   // the search box; the hint shows that text. In a folder, also its large mail with subfolders.
@@ -120,7 +121,7 @@ export function coreCommands(): Command[] {
           run: () => app.saveSettings({ ...app.settings, dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
         },
     { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.fail(e)) },
-    { id: "core.settings", title: () => t("settings.title"), hint: () => "Ctrl+,", run: () => app.openSettings() },
+    { id: "core.settings", title: () => t("settings.title"), run: () => app.openSettings() },
     { id: "core.plugins", title: () => t("cmd.plugins"), run: () => app.openSettings("plugins") },
     { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => app.accountSettings(null) },
   );

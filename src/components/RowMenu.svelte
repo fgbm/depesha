@@ -18,6 +18,7 @@
   import type { RowAction } from "../plugin-api";
   import { untrack } from "svelte";
   import Popover from "./Popover.svelte";
+  import Keys from "./Keys.svelte";
 
   /** The context menu of list rows: what the toolbar and the keys do, at the pointer. */
   let { at, ids: given, onclose }: { at: { x: number; y: number }; ids: number[]; onclose: () => void } = $props();
@@ -74,30 +75,30 @@
 
 <Popover at={at} bind:open={() => sub === null, (v) => !v && sub === null && onclose()}>
   {#if single && !isDraft}
-    <button class="mi" onclick={() => withOpened(() => app.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint">r</span></button>
-    <button class="mi" onclick={() => withOpened(() => app.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint">a</span></button>
-    <button class="mi" onclick={() => withOpened(() => app.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint">f</span></button>
+    <button class="mi" onclick={() => withOpened(() => app.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint"><Keys of="core.reply" /></span></button>
+    <button class="mi" onclick={() => withOpened(() => app.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint"><Keys of="core.reply-all" /></span></button>
+    <button class="mi" onclick={() => withOpened(() => app.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint"><Keys of="core.forward" /></span></button>
     <button class="mi" onclick={() => single && run(() => app.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>
     <hr />
   {/if}
   <button class="mi" onclick={() => run(() => app.flag("seen", anyUnread, ids))}>
-    {#if anyUnread}<MailOpen size={15} /> {t("act.markRead")}{:else}<Mail size={15} /> {t("act.markUnread")}{/if}<span class="hint">u</span>
+    {#if anyUnread}<MailOpen size={15} /> {t("act.markRead")}{:else}<Mail size={15} /> {t("act.markUnread")}{/if}<span class="hint"><Keys of="core.unread" /></span>
   </button>
   <button class="mi" onclick={() => run(() => app.flag("flagged", !allFlagged, ids))}>
-    <Flag size={15} /> {allFlagged ? t("act.unflag") : t("act.setFlag")}<span class="hint">s</span>
+    <Flag size={15} /> {allFlagged ? t("act.unflag") : t("act.setFlag")}<span class="hint"><Keys of="core.flag" /></span>
   </button>
   {#each pluginActions as a (a.id)}
     <button class="mi" onclick={() => (a.menu ? (sub = { kind: "plugin", action: a }) : run(() => a.run?.(ids)))}>
-      {#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.menu}<span class="hint"><ChevronRight size={13} /></span>{:else if a.hint}<span class="hint">{a.hint}</span>{/if}
+      {#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.menu}<span class="hint"><ChevronRight size={13} /></span>{:else if a.command}<span class="hint"><Keys of={a.command} /></span>{:else if a.hint}<span class="hint">{a.hint}</span>{/if}
     </button>
   {/each}
   <hr />
-  <button class="mi" onclick={() => run(() => app.archive(ids))}><Archive size={15} /> {t("act.done")}<span class="hint">e</span></button>
+  <button class="mi" onclick={() => run(() => app.archive(ids))}><Archive size={15} /> {t("act.done")}<span class="hint"><Keys of="core.archive" /></span></button>
   {#if folders.length}
     <button class="mi" onclick={() => (sub = { kind: "move" })}><Folder size={15} /> {t("act.moveTo")}<span class="hint"><ChevronRight size={13} /></span></button>
   {/if}
-  <button class="mi" onclick={() => run(() => app.spam(ids))}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
-  <button class="mi" onclick={() => run(() => app.remove(ids))}><Trash size={15} /> {t("act.delete")}<span class="hint">#</span></button>
+  <button class="mi" onclick={() => run(() => app.spam(ids))}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint"><Keys of="core.spam" /></span></button>
+  <button class="mi" onclick={() => run(() => app.remove(ids))}><Trash size={15} /> {t("act.delete")}<span class="hint"><Keys of="core.delete" /></span></button>
   {#if single?.from?.email}
     <hr />
     <button class="mi" onclick={fromSender}><UserSearch size={15} /> {t("reader.fromSender")}</button>

@@ -1,42 +1,22 @@
-// The keys of the composition window, in one table: the handlers and the tooltips read
-// them from here. Ctrl+K is not among them: it opens the command palette everywhere.
-// Covered by composeKeys.test.ts.
+// The keys of the composition window: the handlers and the tooltips ask here. The keys
+// themselves are in the table of all commands (keyCommands.ts), where the user may change
+// them. Ctrl+K is not among them: it opens the command palette everywhere.
+// Covered by composeKeys.test.ts and shortcuts.test.ts.
 
-import { shortcutKeys, type KeyPress } from "./keys";
+import { keyText } from "./keymap";
+import type { KeyPress } from "./keys";
+import { shortcuts } from "./shortcuts.svelte";
 
-/** Action → key, as plugins name keys: "Mod+" is Ctrl (Cmd on macOS), letters by their US key. */
-export const COMPOSE_KEYS = {
-  send: "Mod+Enter",
-  fold: "Escape",
-  save: "Mod+s",
-  bold: "Mod+b",
-  italic: "Mod+i",
-  underline: "Mod+u",
-  link: "Mod+l",
-  preview: "Mod+Shift+p",
-} as const;
-
-export type ComposeAction = keyof typeof COMPOSE_KEYS;
-
-/** The names a press may go by: "Mod+Shift+p"; on the Russian layout Ctrl+Д is also "Mod+l". */
-function names(e: KeyPress): string[] {
-  const mods = (e.ctrlKey || e.metaKey ? "Mod+" : "") + (e.shiftKey ? "Shift+" : "") + (e.altKey ? "Alt+" : "");
-  return shortcutKeys(e).map((k) => mods + k);
-}
+export type ComposeAction = "send" | "fold" | "save" | "bold" | "italic" | "underline" | "link" | "preview";
 
 /** The action of the composition window this press stands for, if any. */
 export function composeAction(e: KeyPress): ComposeAction | null {
-  const pressed = names(e);
-  for (const [action, key] of Object.entries(COMPOSE_KEYS)) {
-    if (pressed.includes(key)) return action as ComposeAction;
-  }
-  return null;
+  const id = shortcuts.find(e, "compose");
+  return id?.startsWith("compose.") ? (id.slice(8) as ComposeAction) : null;
 }
 
-/** The key as a tooltip shows it: "Ctrl+Shift+P". */
+/** The key as a tooltip shows it: "Ctrl+Shift+P"; empty for an action without a key. */
 export function keyLabel(action: ComposeAction): string {
-  return COMPOSE_KEYS[action]
-    .split("+")
-    .map((part) => (part === "Mod" ? "Ctrl" : part.length === 1 ? part.toUpperCase() : part))
-    .join("+");
+  const k = shortcuts.key(`compose.${action}`);
+  return k ? keyText(k, "en") : "";
 }

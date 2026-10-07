@@ -12,6 +12,7 @@ import { formatFor, reply } from "../../lib/compose";
 import { replySignature, withSignature } from "../../lib/signatures";
 import { htmlLetterText, paragraphsHtml } from "../../lib/richtext";
 import { sendWarnings } from "../../lib/sendChecks";
+import { composeAction } from "../../lib/composeKeys";
 import type { ComposeDraft } from "../../lib/types";
 
 /** What the answer needs from its component: the wording. */
@@ -131,10 +132,12 @@ export class QuickReplyState {
   }
 
   onKey(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    // The keys of the composition window: Ctrl+Enter sends, Esc folds, unless changed.
+    const action = composeAction(e);
+    if (action === "send") {
       e.preventDefault();
       this.send();
-    } else if (e.key === "Escape") {
+    } else if (action === "fold") {
       e.preventDefault();
       e.stopPropagation();
       if (this.text.trim()) this.toWindow("min");

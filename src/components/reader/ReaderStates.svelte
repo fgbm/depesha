@@ -10,6 +10,7 @@
   import { app } from "../../lib/store.svelte";
   import { addrName, longDate, size } from "../../lib/format";
   import { t, tn } from "../../lib/i18n.svelte";
+  import { shortcuts } from "../../lib/shortcuts.svelte";
   import { registry } from "../../plugin-host/registry.svelte";
   import { arrivals } from "../../lib/arrivals.svelte";
 
@@ -60,7 +61,7 @@
     </div>
     {#if canSelectAll}
       <button class="btn ghost select-all" onclick={() => app.selectAll()}>
-        {tn("bulk.selectAll", app.messages.length, { n: app.messages.length })} <kbd>Ctrl+A</kbd>
+        {tn("bulk.selectAll", app.messages.length, { n: app.messages.length })} {#if shortcuts.key("core.select-all")}<kbd>{shortcuts.hint("core.select-all")}</kbd>{/if}
       </button>
     {/if}
   </div>
