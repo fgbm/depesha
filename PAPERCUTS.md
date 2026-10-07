@@ -233,3 +233,7 @@ e2e-проверка подсветки подписи на прокрученн
 ## 2026-10-07 18:20 — deepseek-v4.1-flash
 
 Разбивал правку на `test:` и `fix:` коммиты: `git stash` (спрятать рабочую копию) → `git apply --cached` тестовой части → коммит → `git stash pop` упёрся в уже закоммиченные те же строки, а `git stash drop` забрал вместе с конфликтом и незакоммиченные правки фронтенда. Fix: перед `stash drop` смотреть `git stash show -p`, а лучше не прятать всю копию — собирать патчи из `git diff` по файлу и `git apply --cached --recount` (обычный `git apply --cached` падал на «патч повреждён» из-за неточных номеров строк).
+
+## 2026-10-07 18:53 — deepseek-v4.1-flash
+
+Слияние готовых веток в main → через минуту после `git merge --ff-only` `scripts/check.sh --fast` упал в vitest: «Cannot find module MailFrame.test.ts / lockedBlock.test.ts», а `git status` показал рабочее дерево, откатанное ровно к прежнему HEAD по файлам слитых веток. Причина: в основном дереве /home/vch/Projects/depesha параллельно работает ещё одна сессия claude (PID с `--resume`), и её проверка/`git checkout` вернула файлы. Fix: после каждого слияния и перед проверкой сверять `git status` с ожидаемым и восстанавливать `git checkout -- .` (HEAD цел), а лучше сливать в отдельном worktree.
