@@ -397,13 +397,23 @@ const theme = EditorView.theme({
   ".md-picture": { display: "block", margin: "4px 0", cursor: "pointer" },
   ".md-picture img": { maxWidth: "100%", height: "auto", borderRadius: "4px", border: "1px solid var(--line)" },
   // The table: drawn as the recipient sees it, edited in its cells.
-  ".md-table-view": { margin: "2px 0" },
+  // `contain: inline-size` keeps the table's width out of the editor's own content width, so a
+  // wide table scrolls in its own scroller (frame 4А) rather than the whole letter sideways.
+  ".md-table-view": { margin: "2px 0", contain: "inline-size" },
   ".md-table-scroll": { overflowX: "auto", overflowY: "hidden", paddingBottom: "2px" },
+  // While the table runs past its window the right edge fades (frame 4А); `.more` is the
+  // widget's own reading of that, and it drops the fade once the table is scrolled to the end.
+  ".md-table-view.more .md-table-scroll": {
+    WebkitMaskImage: "linear-gradient(to right, #000 calc(100% - 46px), transparent calc(100% - 14px))",
+    maskImage: "linear-gradient(to right, #000 calc(100% - 46px), transparent calc(100% - 14px))",
+  },
   ".md-table-in": { position: "relative", display: "inline-block", minWidth: "100%" },
   ".md-table": { borderCollapse: "collapse", width: "max-content", maxWidth: "none" },
-  ".md-table th, .md-table td": { border: "1px solid var(--line)", padding: "0", verticalAlign: "top" },
+  // The floor the columns keep when empty; a filled cell widens its column on its own
+  // (`min-width: max-content` on the cell, tableWidget.ts).
+  ".md-table th, .md-table td": { border: "1px solid var(--line)", padding: "0", verticalAlign: "top", minWidth: "40px" },
   ".md-table th": { background: "var(--paper-2)" },
-  ".md-table-cell-text": { minWidth: "40px", padding: "3px 10px", outline: "none", cursor: "text" },
+  ".md-table-cell-text": { padding: "3px 10px", outline: "none", cursor: "text" },
   ".md-table-cell-text:focus": { boxShadow: "inset 0 0 0 2px var(--link)" },
   ".md-table-corner, .md-table-grip": { border: "none", padding: "0", background: "none", width: "18px" },
   // The grips stay quiet until the table is pointed at or the caret is in a cell; the row and

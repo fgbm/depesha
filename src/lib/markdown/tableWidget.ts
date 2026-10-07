@@ -115,6 +115,14 @@ export class TableView extends WidgetType {
     scroller.append(inner);
     root.append(scroller);
 
+    // The right edge of a table wider than its window fades until it is scrolled to the end
+    // (frame 4А of the 0.7 mockup): the fading edge is what says there are more columns.
+    const fade = () => root.classList.toggle("more", table.getBoundingClientRect().right > scroller.getBoundingClientRect().right + 1);
+    scroller.addEventListener("scroll", fade);
+    // Typing widens the column too, and the fade has to follow it before the write back.
+    root.addEventListener("input", fade);
+    requestAnimationFrame(fade);
+
     if (!this.readonly) {
       // A click on a table cell puts the caret in it: the editor's own caret stays out of
       // the widget, so the keys reach the cell.
@@ -193,6 +201,10 @@ export class TableView extends WidgetType {
       td.style.textAlign = this.parsed.aligns[c];
       const span = document.createElement("div");
       span.className = "md-table-cell-text";
+      // The column follows the cell's own content: a long word holds it open and the table
+      // scrolls sideways, instead of the column collapsing and the word breaking (decision on
+      // #45, frame 4А of the 0.7 mockup). Set here, on the cell, so the test can read it.
+      span.style.minWidth = "max-content";
       span.dataset.cell = `${r}:${c}`;
       span.textContent = value;
       if (!this.readonly) {
