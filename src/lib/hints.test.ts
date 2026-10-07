@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
   answer,
+  countOf,
+  detected,
   hintAbout,
   HINTS,
   HINT_POLICY,
+  HINT_THRESHOLDS,
   markShown,
   mayShow,
   nextHint,
+  reached,
   settled,
   shownToday,
   type HintContext,
   type HintState,
 } from "./hints";
+import { en } from "./locales/en";
+import { ru } from "./locales/ru";
 
 const DAY = 86_400;
 /** A moment long after the install, so the week of quiet is behind us. */
@@ -117,5 +123,44 @@ describe("the mark of a showing", () => {
     const s = states[0];
     expect(s.shows).toBe(1);
     expect(s.decision).toBe("accepted");
+  });
+});
+
+describe("the registry and the detectors", () => {
+  it("names the questions and the accepting buttons by localized keys, in both languages", () => {
+    expect(HINTS.map((h) => h.id)).toEqual(["send-format", "reply-format", "incoming-view"]);
+    for (const spec of HINTS) {
+      expect(typeof en[spec.text]).toBe("string");
+      expect(typeof en[spec.accept]).toBe("string");
+      expect(typeof ru[spec.text]).toBe("string");
+      expect(typeof ru[spec.accept]).toBe("string");
+    }
+  });
+
+  it("carries the person's name in the hint without resolving the words", () => {
+    const h = hintAbout(HINTS[0], "Ivan@X", "Иван");
+    expect(h.subject).toBe("ivan@x");
+    expect(h.who).toBe("Иван");
+    expect(h.text).toBe("hint.sendFormat");
+    expect(h.accept).toBe("hint.sendFormat.accept");
+  });
+
+  it("offers a detector's hint only once its count is reached", () => {
+    expect(HINT_THRESHOLDS["send-format"]).toBe(2);
+    expect(HINT_THRESHOLDS["incoming-view"]).toBe(3);
+    expect(reached("send-format", 1)).toBe(false);
+    expect(reached("send-format", 2)).toBe(true);
+    expect(reached("incoming-view", 2)).toBe(false);
+    expect(reached("incoming-view", 3)).toBe(true);
+    expect(reached("reply-format", 1)).toBe(true);
+    expect(reached("nobody-knows", 99)).toBe(false);
+    expect(detected(HINTS[0], "a@x", "A", 1)).toBeNull();
+    expect(detected(HINTS[0], "a@x", "A", 2)?.id).toBe("send-format");
+  });
+
+  it("reads a counter without its subject's case", () => {
+    const counters = { "send-format": { "a@x": 2 } };
+    expect(countOf(counters, "send-format", "A@X")).toBe(2);
+    expect(countOf(counters, "incoming-view", "a@x")).toBe(0);
   });
 });

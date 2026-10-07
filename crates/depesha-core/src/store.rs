@@ -3611,6 +3611,7 @@ mod tests {
             // suggestions start empty, and no old row was lost on the way.
             assert!(!store.people("").unwrap().is_empty(), "{name}");
             assert!(store.hints().unwrap().is_empty(), "{name}");
+            assert!(store.hint_counts().unwrap().is_empty(), "{name}");
             let conn = store.conn();
             // Mail of a cache numbered 3 or later was linked as it came; these rows were not.
             if version < 3 {

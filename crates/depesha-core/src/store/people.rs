@@ -412,4 +412,26 @@ mod tests {
         store.clear_hints().unwrap();
         assert!(store.hints().unwrap().is_empty());
     }
+
+    #[test]
+    fn the_detectors_counters_round_trip() {
+        let store = mailbox();
+        assert!(store.hint_counts().unwrap().is_empty());
+        // Counting one more happening returns the new count; the subject keeps no case.
+        assert_eq!(store.count_hint("send-format", "ivan@x", 100).unwrap(), 1);
+        assert_eq!(store.count_hint("send-format", "IVAN@X", 200).unwrap(), 2);
+        let counts = store.hint_counts().unwrap();
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts[0].id, "send-format");
+        assert_eq!(counts[0].subject, "ivan@x");
+        assert_eq!(counts[0].n, 2);
+        assert_eq!(counts[0].at, 200);
+        // Another detector keeps its own row.
+        assert_eq!(store.count_hint("incoming-view", "ivan@x", 300).unwrap(), 1);
+        assert_eq!(store.hint_counts().unwrap().len(), 2);
+        store.clear_hint_count("send-format", "ivan@X").unwrap();
+        let left = store.hint_counts().unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, "incoming-view");
+    }
 }

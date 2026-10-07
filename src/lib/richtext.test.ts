@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findBlock, paragraphsHtml, hasFormatting, htmlToMarkdown, htmlToText, removeBlock, splitHtmlQuote, textToHtml } from "./richtext";
+import { findBlock, GAP, paragraphsHtml, hasFormatting, htmlHasOwnText, htmlToMarkdown, htmlToText, QUOTE_CLASS, removeBlock, SIGNATURE_CLASS, splitHtmlQuote, textToHtml } from "./richtext";
 
 describe("htmlToText", () => {
   it("keeps the text and drops the markup", () => {
@@ -123,5 +123,18 @@ describe("paragraphsHtml", () => {
       '<p>Иван, спасибо!<br>До четверга.</p><p>Смета: <a href="https://example.com/smeta">https://example.com/smeta</a>, пишите на <a href="mailto:a@example.com">a@example.com</a></p>',
     );
     expect(paragraphsHtml("a < b")).toBe("<p>a &lt; b</p>");
+  });
+});
+
+describe("whether an HTML letter has words of its own", () => {
+  it("counts text, not the signature or the quote (#44, frame 12А)", () => {
+    expect(htmlHasOwnText(GAP)).toBe(false);
+    expect(htmlHasOwnText("<div>Привет</div>")).toBe(true);
+    expect(htmlHasOwnText(`<div class="${SIGNATURE_CLASS}"><div>-- <br>Иван</div></div>`)).toBe(false);
+    expect(htmlHasOwnText(`<div class="${QUOTE_CLASS}"><div>&gt; старое</div></div>`)).toBe(false);
+    expect(htmlHasOwnText(`<div class="${SIGNATURE_CLASS}"><div>Иван</div></div>${GAP}<div class="${QUOTE_CLASS}"><div>старое</div></div>`)).toBe(false);
+    expect(htmlHasOwnText(`<div>Ответ</div>${GAP}<div class="${SIGNATURE_CLASS}"><div>Иван</div></div>`)).toBe(true);
+    // Spaces alone are no words.
+    expect(htmlHasOwnText("<div> </div>")).toBe(false);
   });
 });
