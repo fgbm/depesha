@@ -7,11 +7,6 @@
       "count": 1
     }
   },
-  "src/components/Compose.svelte": {
-    "svelte/no-at-html-tags": {
-      "count": 1
-    }
-  },
   "src/components/MessageList.svelte": {
     "svelte/no-useless-mustaches": {
       "count": 1

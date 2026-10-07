@@ -186,8 +186,8 @@ export class ComposeSending {
       format.bar?.startLink();
     } else if (action === "preview" && format.format === "markdown") {
       e.preventDefault();
-      format.preview = !format.preview;
-    } else if ((action === "bold" || action === "italic" || action === "underline") && format.format === "markdown" && !format.preview) {
+      format.markup = !format.markup;
+    } else if ((action === "bold" || action === "italic" || action === "underline") && format.format === "markdown") {
       // The HTML editor does these itself; in Markdown they type the markup.
       e.preventDefault();
       format.bar?.run(action);

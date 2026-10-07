@@ -13,20 +13,21 @@
   import ImageIcon from "@lucide/svelte/icons/image";
   import RemoveFormatting from "@lucide/svelte/icons/remove-formatting";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
-  import Eye from "@lucide/svelte/icons/eye";
+  import CodeXml from "@lucide/svelte/icons/code-xml";
   import Popover from "./Popover.svelte";
   import type RichEditor from "./RichEditor.svelte";
   import { t } from "../lib/i18n.svelte";
   import { escapeHtml } from "../lib/richtext";
   import { keyLabel } from "../lib/composeKeys";
   import { clearEdit, linesEdit, linkEdit, wrapEdit, type Edit, type LineKind } from "../lib/mdedit";
+  import type { MarkdownField } from "../lib/markdown/types";
 
   let {
     format,
     width,
     rich,
     field,
-    preview = $bindable(false),
+    markup = $bindable(false),
     onpicturefile,
     onpictureclipboard,
   }: {
@@ -34,9 +35,10 @@
     /** The window's width: what does not fit goes into "⋯". */
     width: number;
     rich: RichEditor | null;
-    field: HTMLTextAreaElement | null;
-    /** Markdown shown as the recipient will see it. */
-    preview?: boolean;
+    /** The Markdown editor; the plain field of a plain letter has no buttons. */
+    field: MarkdownField | HTMLTextAreaElement | null;
+    /** Every mark of the Markdown shown at once. */
+    markup?: boolean;
     onpicturefile: () => void;
     onpictureclipboard: () => void;
   } = $props();
@@ -51,10 +53,11 @@
     run: () => void;
   }
 
-  /** Formatting on under the caret, for the pressed buttons (HTML only). */
+  /** Formatting on under the caret, for the pressed buttons. */
   let active = $state<Set<string>>(new Set());
 
   const html = $derived(format === "html");
+  const md = $derived(field && "apply" in field ? field : null);
 
   const tools = $derived<Tool[]>([
     { id: "bold", icon: Bold, label: t("compose.format.bold"), keys: keyLabel("bold"), group: 0, run: () => (html ? command("bold") : wrap("**")) },
@@ -93,7 +96,7 @@
 
   /** Called as the caret moves in the editor. */
   export function refresh() {
-    if (!html) return;
+    if (!html) return void (active = md?.formats() ?? new Set());
     const on = new Set<string>();
     for (const [id, name] of [["bold", "bold"], ["italic", "italic"], ["underline", "underline"], ["bullets", "insertUnorderedList"], ["numbers", "insertOrderedList"]]) {
       if (document.queryCommandState(name)) on.add(id);
@@ -127,17 +130,11 @@
     refresh();
   }
 
-  /** Types an edit into the Markdown field, as if typed: the field and Ctrl+Z follow. */
+  /** An edit of the Markdown, one step for Ctrl+Z. */
   function markdown(make: (text: string, start: number, end: number) => Edit) {
-    if (!field || preview) return;
-    const e = make(field.value, field.selectionStart, field.selectionEnd);
-    field.focus();
-    field.setSelectionRange(e.from, e.to);
-    if (!document.execCommand("insertText", false, e.insert)) {
-      field.setRangeText(e.insert, e.from, e.to, "end");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    field.setSelectionRange(e.select[0], e.select[1]);
+    if (!md) return;
+    md.apply(make(md.value, md.selectionStart, md.selectionEnd));
+    refresh();
   }
 
   function wrap(open: string, close = open) {
@@ -153,14 +150,13 @@
   let linkInput = $state<HTMLInputElement | null>(null);
 
   export function startLink() {
-    if (preview) return;
     if (html) {
       const range = rich?.selection() ?? null;
       const node = range?.startContainer;
       const a = (node instanceof HTMLElement ? node : node?.parentElement)?.closest("a");
       linking = { range, start: 0, end: 0, url: a?.getAttribute("href") ?? "" };
     } else {
-      linking = { range: null, start: field?.selectionStart ?? 0, end: field?.selectionEnd ?? 0, url: "" };
+      linking = { range: null, start: md?.selectionStart ?? 0, end: md?.selectionEnd ?? 0, url: "" };
     }
     queueMicrotask(() => linkInput?.focus());
   }
@@ -184,8 +180,8 @@
         sel?.addRange(l.range);
       }
     } else {
-      field?.focus();
-      field?.setSelectionRange(l.start, l.end);
+      md?.focus();
+      md?.setSelectionRange(l.start, l.end);
     }
   }
 
@@ -242,7 +238,6 @@
         aria-haspopup={x.id === "picture" ? "menu" : undefined}
         title={title(x)}
         aria-label={x.label}
-        disabled={preview}
         onmousedown={(e) => e.preventDefault()}
         onclick={x.run}><x.icon size={15} /></button>
       {#if x.id === "picture"}
@@ -255,7 +250,7 @@
   {/each}
   {#if inMore.length}
     <span class="anchor">
-      <button class="tb" class:on={moreOpen} title={t("compose.format.more")} aria-label={t("compose.format.more")} aria-haspopup="menu" disabled={preview} onmousedown={(e) => e.preventDefault()} onclick={() => (moreOpen = !moreOpen)}><Ellipsis size={15} /></button>
+      <button class="tb" class:on={moreOpen} title={t("compose.format.more")} aria-label={t("compose.format.more")} aria-haspopup="menu" onmousedown={(e) => e.preventDefault()} onclick={() => (moreOpen = !moreOpen)}><Ellipsis size={15} /></button>
       <Popover bind:open={moreOpen} align="left">
         {#each inMore as x, i (x.id)}
           {#if i > 0 && inMore[i - 1].group !== x.group}<div class="msep" role="separator"></div>{/if}
@@ -272,8 +267,8 @@
   {/if}
   {#if !html}
     <span class="spacer"></span>
-    <button class="tb preview" class:on={preview} aria-pressed={preview} title={`${t("compose.markdown.preview")} (${keyLabel("preview")})`} onclick={() => (preview = !preview)}>
-      <Eye size={15} />{#if width >= 360}<span>{t("compose.markdown.preview")}</span>{/if}
+    <button class="tb markup" class:on={markup} aria-pressed={markup} title={`${t("compose.markdown.markupHint")} (${keyLabel("preview")})`} onmousedown={(e) => e.preventDefault()} onclick={() => (markup = !markup)}>
+      <CodeXml size={15} />{#if width >= 360}<span>{t("compose.markdown.markup")}</span>{/if}
     </button>
   {/if}
   {#if linking}
@@ -339,18 +334,14 @@
     gap: 5px;
   }
 
-  .tb.preview {
+  .tb.markup {
     padding: 0 8px;
     font-size: 13px;
   }
 
-  .tb:hover:not(:disabled) {
+  .tb:hover {
     background: var(--hover);
     color: var(--ink);
-  }
-
-  .tb:disabled {
-    opacity: 0.4;
   }
 
   .tb.on {

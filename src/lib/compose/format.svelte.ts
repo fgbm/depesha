@@ -9,7 +9,6 @@ import { onMount, untrack } from "svelte";
 import { api } from "../api";
 import { convertDraft, losesFormatting, takeBodyPictures } from "../compose";
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote } from "../richtext";
-import { cleanEditorHtml } from "../sanitize";
 import { pictureName, picturesSize, type Picture } from "../images";
 import {
   defaultSignature,
@@ -26,6 +25,7 @@ import type { ComposeWindow } from "../composes.svelte";
 import type { AccountView, AttachmentSource, BodyFormat, ComposeDraft, Signature } from "../types";
 import type RichEditor from "../../components/RichEditor.svelte";
 import type FormatBar from "../../components/FormatBar.svelte";
+import type { MarkdownField } from "../markdown/types";
 
 /** What the letter's body and format need from the window. */
 export interface ComposeFormatHost {
@@ -55,14 +55,13 @@ export class ComposeFormat {
   quoteOpen = $state(false);
   /** An HTML letter is one editor: the quote of a reply stands in it, under the signature. */
   htmlBody = $state("");
-  /** The format switch and the formatting row fold in a narrow window. */
-  preview = $state(false);
-  previewHtml = $state("");
+  /** "Markup": every mark of a Markdown letter shown at once. */
+  markup = $state(false);
   /** The editor and the formatting row of this window, as the markup binds them. */
   rich = $state<RichEditor | null>(null);
   bar = $state<FormatBar | null>(null);
-  /** The plain field of a plain or Markdown letter, as the markup binds it. */
-  body = $state<HTMLTextAreaElement | null>(null);
+  /** The field of a plain letter, or the Markdown editor, as the markup binds it. */
+  body = $state<HTMLTextAreaElement | MarkdownField | null>(null);
   /** The width of the body area: a plain letter with a signature grows with its text. */
   areaWidth = $state(0);
 
@@ -99,6 +98,10 @@ export class ComposeFormat {
     this.followDraft();
     this.followPictures();
     onMount(() => this.placeCaret());
+    // The Markdown editor comes in a chunk of its own, after the window: the caret waits for it.
+    $effect(() => {
+      if (this.body && "apply" in this.body && !this.placed) untrack(() => this.placeCaret());
+    });
   }
 
   /**
@@ -166,26 +169,14 @@ export class ComposeFormat {
       void this.head;
       void this.areaWidth;
       const field = this.body;
-      if (!field) return;
+      // The Markdown editor grows with its text by itself.
+      if (!field || !("style" in field)) return;
       if (this.format === "html" || !this.signature) {
         field.style.removeProperty("height");
         return;
       }
       field.style.height = "auto";
       field.style.height = `${field.scrollHeight}px`;
-    });
-    this.followPreview();
-  }
-
-  /** Markdown shown as it will look: rendered by the backend as the letter is being typed. */
-  private followPreview() {
-    $effect(() => {
-      if (!this.preview || this.format !== "markdown") return;
-      const text = this.host.win.draft.text;
-      api
-        .markdownHtml(text)
-        .then((html) => (this.previewHtml = cleanEditorHtml(html)))
-        .catch((e) => this.host.fail(e));
     });
   }
 
@@ -325,7 +316,7 @@ export class ComposeFormat {
         files = await this.picturesAsFiles(pictures);
         current = { ...current, html };
       }
-      this.preview = false;
+      this.markup = false;
       const d = await convertDraft(current, next, $state.snapshot(this.signature) as Signature | null, (text) => api.markdownHtml(text));
       // Attached once the letter is rewritten: a failure leaves the pictures in its text alone.
       win.draft.attachments.push(...files);

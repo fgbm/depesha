@@ -54,18 +54,25 @@ export class ComposeAttachments {
    * still too big goes as a file, as it would anyway. */
   async addPictures(found: FoundPicture[]) {
     const { html, tooBig, failed } = await picturesHtml(found);
-    for (const p of tooBig) {
+    for (const p of await this.attachPictures(tooBig)) this.host.toastBig(p.name);
+    for (const e of failed) this.host.fail(e);
+    if (html) this.host.format.rich?.insertHtml(html);
+  }
+
+  /** Pictures as files of the letter; gives back those attached. */
+  private async attachPictures(found: FoundPicture[]): Promise<FoundPicture[]> {
+    const done: FoundPicture[] = [];
+    for (const p of found) {
       try {
         const base64 = p.dataUrl.slice(p.dataUrl.indexOf(",") + 1);
         const path = await api.tempAttachment(p.name, base64);
         this.host.win.draft.attachments.push({ kind: "file", path, name: p.name, size: dataUrlSize(p.dataUrl) });
-        this.host.toastBig(p.name);
+        done.push(p);
       } catch (e) {
         this.host.fail(e);
       }
     }
-    for (const e of failed) this.host.fail(e);
-    if (html) this.host.format.rich?.insertHtml(html);
+    return done;
   }
 
   /** Picture files chosen or dropped "into the text"; a file that cannot go there is attached. */
@@ -89,8 +96,11 @@ export class ComposeAttachments {
     }
   }
 
+  /** Pasted pictures: into the text of an HTML letter, attached to a Markdown one. */
   async pastedPictures(blobs: Blob[]) {
-    await this.addPictures(await picturesFromBlobs(blobs));
+    const found = await picturesFromBlobs(blobs);
+    if (this.host.format.format === "html") await this.addPictures(found);
+    else await this.attachPictures(found);
   }
 
   async pictureFromClipboard() {

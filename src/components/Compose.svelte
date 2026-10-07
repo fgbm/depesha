@@ -19,9 +19,11 @@
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import type { BodyFormat, Signature } from "../lib/types";
+  import type { MarkdownField } from "../lib/markdown/types";
   import RichEditor from "./RichEditor.svelte";
   import SignaturePicker from "./SignaturePicker.svelte";
   import FormatBar from "./FormatBar.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
   import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
@@ -140,7 +142,7 @@
     get bar() { return fmt.bar; },
     set bar(v: FormatBar | null) { fmt.bar = v; },
     get body() { return fmt.body; },
-    set body(v: HTMLTextAreaElement | null) { fmt.body = v; },
+    set body(v: HTMLTextAreaElement | MarkdownField | null) { fmt.body = v; },
     get areaWidth() { return fmt.areaWidth; },
     set areaWidth(v: number) { fmt.areaWidth = v; },
     get head() { return fmt.head; },
@@ -151,11 +153,10 @@
     set quote(v: string) { fmt.quote = v; },
     get quoteOpen() { return fmt.quoteOpen; },
     set quoteOpen(v: boolean) { fmt.quoteOpen = v; },
-    get preview() { return fmt.preview; },
-    set preview(v: boolean) { fmt.preview = v; },
+    get markup() { return fmt.markup; },
+    set markup(v: boolean) { fmt.markup = v; },
     get format() { return fmt.format; },
     get switching() { return fmt.switching; },
-    get previewHtml() { return fmt.previewHtml; },
     get signature() { return fmt.signature; },
     get signatures() { return fmt.signatures; },
     get quoteHeader() { return fmt.quoteHeader; },
@@ -266,13 +267,13 @@
         width={m.width}
         rich={m.rich}
         field={m.body}
-        bind:preview={m.preview}
+        bind:markup={m.markup}
         onpicturefile={m.pictureFromFile}
         onpictureclipboard={m.pictureFromClipboard}
       />
     {/if}
 
-    <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature && !(m.format === "markdown" && m.preview)}>
+    <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
       {#if m.format === "html"}
         <RichEditor
           bind:this={m.rich}
@@ -286,19 +287,30 @@
           lockedBar={m.signature ? signatureChip : undefined}
           readonly={m.switching}
         />
-      {:else if m.format === "markdown" && m.preview}
-        <!-- Cleaned twice: by the backend that renders it and here. -->
-        <div class="md-preview" role="document" aria-label={t("compose.markdown.preview")}>{@html m.previewHtml}</div>
       {:else}
-        <textarea
-          bind:this={m.body}
-          bind:value={m.head}
-          onfocus={m.onBodyFocus}
-          readonly={m.switching}
-          spellcheck="true"
-          aria-label={t("compose.body")}
-          placeholder={m.format === "markdown" ? t("compose.markdownPlaceholder") : t("compose.bodyPlaceholder")}
-        ></textarea>
+        {#if m.format === "markdown"}
+          <MarkdownEditor
+            bind:field={() => (m.body && "apply" in m.body ? m.body : null), (v) => (m.body = v)}
+            bind:value={m.head}
+            markup={m.markup}
+            readonly={m.switching}
+            label={t("compose.body")}
+            placeholder={t("compose.markdownPlaceholder")}
+            onfocus={m.onBodyFocus}
+            onselection={() => m.bar?.refresh()}
+            onpictures={m.pastedPictures}
+          />
+        {:else}
+          <textarea
+            bind:this={m.body}
+            bind:value={m.head}
+            onfocus={m.onBodyFocus}
+            readonly={m.switching}
+            spellcheck="true"
+            aria-label={t("compose.body")}
+            placeholder={t("compose.bodyPlaceholder")}
+          ></textarea>
+        {/if}
         {#if m.signature}
           <!-- The version a letter in text or Markdown gets, under "-- ": shown, not edited. -->
           <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
@@ -307,7 +319,7 @@
           </div>
         {/if}
       {/if}
-      {#if !m.signature && m.signatures.length && !(m.format === "markdown" && m.preview)}
+      {#if !m.signature && m.signatures.length}
         <div class="sig-none">
           <SignaturePicker variant="line" signatures={m.signatures} current={null} onpick={m.putSignature} onsettings={m.signatureSettings} />
         </div>
@@ -715,21 +727,9 @@
     margin-bottom: 14px;
   }
 
-  .md-preview {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 14px 18px;
-    line-height: 1.55;
-    user-select: text;
-    contain: layout paint;
-  }
-
-  .md-preview :global(blockquote) {
-    margin: 0 0 0 0.8ex;
-    border-left: 2px solid var(--line);
-    padding-left: 1ex;
-    color: var(--muted);
+  .body-area.signed :global(.md-editor) {
+    flex: none;
+    min-height: calc(5 * 1.55em + 28px);
   }
 
   /* Files dragged over an HTML letter: into the text, or attached. */
