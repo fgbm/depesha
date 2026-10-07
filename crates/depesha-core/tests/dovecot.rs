@@ -677,3 +677,49 @@ async fn a_forward_and_an_answer_set_here_come_back_with_the_sync() {
     sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
     assert!(!rows()[0].flags.forwarded);
 }
+
+/// Labels on Dovecot: `PERMANENTFLAGS` says whether own keywords may be created here,
+/// NAMESPACE names the shared namespaces, and a keyword set on a message stays after a
+/// re-read. Dovecot's test image has no ACL plugin, so MYRIGHTS is refused: the rights
+/// are unknown, which the test tells apart from "no rights".
+#[tokio::test]
+async fn labels_and_namespace_over_starttls() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("labels").await;
+    for name in ["Работа", "Проекты"] {
+        conn.session.create(utf7::encode(name)).await.unwrap();
+    }
+    imap::append(&mut conn, "INBOX", &mail("Метки", 0), "").await.unwrap();
+
+    // The folder's rights and permanent flags: EXAMINE and MYRIGHTS read, write nothing.
+    let (rights, permanent) = imap::folder_props(&mut conn, "INBOX").await.unwrap();
+    // Dovecot's image has no ACL: the rights are unknown, not "no rights".
+    assert!(rights.is_none(), "{rights:?}");
+    // A real Dovecot lists `\*` in PERMANENTFLAGS: own keywords may be created here.
+    assert!(permanent.labels_on_server(), "{permanent:?}");
+
+    // The namespaces: the personal one names the user's folders, the rest is empty here.
+    let ns = imap::namespace(&mut conn).await.unwrap();
+    assert!(!ns.personal.is_empty(), "{ns:?}");
+    assert!(ns.shared.is_empty() && ns.other_users.is_empty(), "{ns:?}");
+
+    // A keyword set on a message comes back after a fresh read: the label lives on the server.
+    let keyword = depesha_core::acl::keyword_of("Счета");
+    imap::set_keywords(&mut conn, "INBOX", None, &[1], std::slice::from_ref(&keyword), &[])
+        .await
+        .unwrap();
+    let keywords = imap::fetch_keywords(&mut conn, "INBOX", 1).await.unwrap();
+    assert!(keywords.contains(&keyword), "{keywords:?}");
+    // Taken off again.
+    imap::set_keywords(&mut conn, "INBOX", None, &[1], &[], std::slice::from_ref(&keyword))
+        .await
+        .unwrap();
+    assert!(
+        !imap::fetch_keywords(&mut conn, "INBOX", 1)
+            .await
+            .unwrap()
+            .contains(&keyword)
+    );
+}

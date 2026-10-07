@@ -2,6 +2,7 @@
 //! and message parsing. It knows nothing about the GUI.
 
 pub mod account;
+pub mod acl;
 pub mod autodetect;
 pub mod avatar;
 pub mod error;

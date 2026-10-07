@@ -307,6 +307,7 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
                 fallback_date: f.internal_date().map(|d| d.timestamp()).unwrap_or(0),
                 size: f.size.unwrap_or(0),
                 flags: *flags,
+                keywords: imap::keywords_of(f.flags()),
             })
             .collect();
         // One commit for the batch: either all of it is cached or none, and the

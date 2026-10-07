@@ -179,6 +179,7 @@ fn fill(store: &Store, letters: &[Letter]) -> Vec<u32> {
                 seen: !uid.is_multiple_of(3),
                 ..Default::default()
             },
+            keywords: Vec::new(),
         });
     }
     // Folders take turns, newest first, as syncs of several folders do.

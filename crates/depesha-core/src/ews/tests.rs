@@ -184,3 +184,63 @@ fn a_page_says_whether_one_follows() {
     // Without the attribute there is nothing to page on: the walk stops.
     assert!(!next_page(r#"IndexedPagingOffset="3""#));
 }
+
+#[test]
+fn reads_effective_rights_of_a_folder() {
+    // A GetFolder answer from Exchange 2019: a shared inbox opened to the user as a
+    // reviewer, and the user's own inbox as the owner.
+    let answer = r#"<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body><m:GetFolderResponse><m:ResponseMessages><m:GetFolderResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Folders><t:Folder><t:FolderId Id="A"/><t:DisplayName>Олег Смирнов — Входящие</t:DisplayName><t:EffectiveRights><t:Read>true</t:Read><t:CreateContents>false</t:CreateContents><t:CreateHierarchy>false</t:CreateHierarchy><t:Delete>false</t:Delete><t:Modify>false</t:Modify></t:EffectiveRights></t:Folder><t:Folder><t:FolderId Id="B"/><t:DisplayName>Входящие</t:DisplayName><t:EffectiveRights><t:Read>true</t:Read><t:CreateContents>true</t:CreateContents><t:CreateHierarchy>true</t:CreateHierarchy><t:Delete>true</t:Delete><t:Modify>true</t:Modify></t:EffectiveRights></t:Folder></m:Folders></m:GetFolderResponseMessage></m:ResponseMessages></m:GetFolderResponse></s:Body></s:Envelope>"#;
+    let doc = parse(answer).unwrap();
+    let resp = single(&doc).unwrap();
+    let folders = child(resp, "Folders").unwrap();
+    let list: Vec<_> = folders.children().filter(Node::is_element).collect();
+    // The reviewer: read only.
+    let ro = effective_rights(list[0]).unwrap();
+    assert!(ro.read && ro.read_only(), "{ro:?}");
+    assert!(!ro.allows(crate::acl::Action::Write));
+    assert!(!ro.allows(crate::acl::Action::Delete));
+    // The owner: everything.
+    let all = effective_rights(list[1]).unwrap();
+    assert!(all.read && all.write && all.insert && all.allows(crate::acl::Action::Delete));
+    assert!(!all.read_only());
+
+    // A folder without EffectiveRights: nothing is known.
+    let bare = roxmltree::Document::parse(
+        r#"<t:Folder xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><t:FolderId Id="C"/></t:Folder>"#,
+    )
+    .unwrap();
+    assert!(effective_rights(bare.root_element()).is_none());
+}
+
+#[test]
+fn writes_an_exchange_category_on_a_letter() {
+    // Adding a category: one AppendToItemField on the message's Categories property.
+    let add = categories_add("Проект «Север»").unwrap();
+    assert!(add.contains("<t:AppendToItemField>"), "{add}");
+    assert!(add.contains(r#"FieldURI="message:Categories""#), "{add}");
+    assert!(add.contains("Проект «Север»"), "{add}");
+    // An empty name changes nothing.
+    assert!(categories_add("  ").is_none());
+
+    // Removing one: the whole list is set again without it.
+    let set = categories_set(&["Счета".into()]);
+    assert!(set.contains("<t:SetItemField>"), "{set}");
+    assert!(set.contains(r#"FieldURI="message:Categories""#), "{set}");
+    assert!(set.contains("<t:String>Счета</t:String>"), "{set}");
+    // No categories left: an empty SetItemField clears them.
+    let clear = categories_set(&[]);
+    assert!(clear.contains("<t:SetItemField>"), "{clear}");
+
+    // Reading the categories of an item back.
+    let xml = r#"<t:Message xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><t:Categories><t:String>Красная категория</t:String><t:String>Проект «Север»</t:String></t:Categories></t:Message>"#;
+    let doc = roxmltree::Document::parse(xml).unwrap();
+    assert_eq!(
+        categories_of(doc.root_element()),
+        ["Красная категория", "Проект «Север»"]
+    );
+    let none = roxmltree::Document::parse(
+        r#"<t:Message xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"/>"#,
+    )
+    .unwrap();
+    assert!(categories_of(none.root_element()).is_empty());
+}

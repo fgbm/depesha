@@ -248,6 +248,26 @@ impl Error {
         }
     }
 
+    /// The server refused an action for lack of rights, not because of an error: an IMAP
+    /// `NO [NOPERM]`/`[READ-ONLY]`, or Exchange's `ErrorAccessDenied` ([MS-OXWSCORE]).
+    /// The folder remembers it, and the button turns off until rights change (#42, frame 8).
+    pub fn no_rights(&self) -> bool {
+        match self {
+            Self::Imap(e) => {
+                let raw = match e {
+                    async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m) => m,
+                    _ => return false,
+                };
+                // The code may be in the response code (`code: Some(NOPERM)`) or in the
+                // server's words; check both.
+                let upper = raw.to_ascii_uppercase();
+                upper.contains("NOPERM") || upper.contains("READ-ONLY") || upper.contains("READONLY")
+            }
+            Self::Ews { code, .. } => code == "ErrorAccessDenied",
+            _ => false,
+        }
+    }
+
     /// Short machine-readable kind for the GUI.
     pub fn kind(&self) -> &'static str {
         match self {
@@ -426,3 +446,42 @@ fn smtp_text(code: u16, enhanced: Option<&str>, message: &str) -> String {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_imap::error::Error as E;
+
+    #[test]
+    fn a_refusal_for_lack_of_rights_is_told_from_an_error() {
+        // IMAP says so in the response code (RFC 5530): the folder remembers the ban.
+        assert!(Error::Imap(E::No(r#"code: Some(NOPERM), info: Some("no rights")"#.into())).no_rights());
+        assert!(
+            Error::Imap(E::No(
+                r#"code: Some(READ-ONLY), info: Some("mailbox is read-only")"#.into()
+            ))
+            .no_rights()
+        );
+        // Exchange's own word for it ([MS-OXWSCORE]).
+        assert!(
+            Error::Ews {
+                code: "ErrorAccessDenied".into(),
+                message: String::new(),
+                back_off: None
+            }
+            .no_rights()
+        );
+        // A plain error is neither: no ban is remembered.
+        assert!(!Error::Imap(E::No("code: None, info: Some(\"Internal error\")".into())).no_rights());
+        assert!(!Error::Imap(E::Bad("code: None, info: Some(\"bad command\")".into())).no_rights());
+        assert!(
+            !Error::Ews {
+                code: "ErrorInternalServerError".into(),
+                message: String::new(),
+                back_off: None
+            }
+            .no_rights()
+        );
+        assert!(!Error::Timeout("MYRIGHTS answer").no_rights());
+    }
+}

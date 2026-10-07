@@ -145,6 +145,71 @@ export interface FolderInfo {
   unread: number;
 }
 
+/** Who a folder belongs to, from NAMESPACE (mirrors Rust's `acl::Owner`). */
+export type Owner = { kind: "mine" } | { kind: "shared" } | { kind: "other"; name: string };
+
+/** An RFC 4314 right set; the flags mirror Rust's `acl::Rights`. */
+export interface Rights {
+  lookup: boolean;
+  read: boolean;
+  seen: boolean;
+  write: boolean;
+  insert: boolean;
+  post: boolean;
+  create_child: boolean;
+  delete_folder: boolean;
+  delete_messages: boolean;
+  expunge: boolean;
+  administer: boolean;
+  other: boolean;
+}
+
+/** One action the folder card shows, with its rights outcome. */
+export interface ActionRight {
+  action: FolderAction;
+  allowed: boolean;
+  /** The action is unknown until the folder is checked: shown neither on nor off. */
+  unknown: boolean;
+}
+
+export type FolderAction = "read" | "mark_seen" | "write" | "insert" | "delete" | "create_child" | "delete_folder" | "administer";
+
+/** One namespace prefix and its delimiter (mirrors Rust's `acl::NamespaceFolder`). */
+export interface NamespaceFolder {
+  prefix: string;
+  delimiter: string;
+}
+
+/** The three NAMESPACE groups; empty arrays mean the server named none. */
+export interface NamespaceInfo {
+  personal: NamespaceFolder[];
+  other_users: NamespaceFolder[];
+  shared: NamespaceFolder[];
+}
+
+/** What the cache knows about one folder: rights, labels, owner, the last refusal. */
+export interface FolderProps {
+  folder: string;
+  display_name: string;
+  owner: Owner;
+  rights?: Rights | null;
+  /** Whether own labels can be stored on the server; absent is unknown. */
+  labels_on_server?: boolean | null;
+  /** The PERMANENTFLAGS the server listed, for the details. */
+  permanent?: string[];
+  /** The remembered refusal (`no-rights`), if any. */
+  refused?: string | null;
+  /** When the props were read, Unix time; 0 is never. */
+  checked: number;
+}
+
+/** A label the user made: its name, the server keyword and its colour. */
+export interface Label {
+  name: string;
+  keyword: string;
+  color: string;
+}
+
 export interface Addr {
   name: string | null;
   email: string;
@@ -209,6 +274,8 @@ export interface MessageRow {
   date: number;
   size: number;
   flags: Flags;
+  /** The message's own keywords (labels) on the server, by their keyword names. */
+  keywords?: string[];
   has_attachments: boolean;
   thread: string;
   bulk: boolean;
@@ -655,4 +722,8 @@ export interface ServerView {
   poll_secs: number;
   /** A folder size count under way: done and all. */
   counting: [number, number] | null;
+  /** The namespaces the server named (RFC 2342); empty when unknown. */
+  namespaces: NamespaceInfo;
+  /** Every folder's props the cache has, for the "Folders" subsection. */
+  folders: FolderProps[];
 }

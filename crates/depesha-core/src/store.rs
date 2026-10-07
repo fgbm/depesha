@@ -19,6 +19,7 @@ mod followups;
 pub use followups::{
     DEFAULT_KEEP_DAYS, Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupPlan, FollowupStatus,
 };
+mod labels;
 mod marks;
 pub use marks::{Done, Mark, Outgoing, marks_of};
 mod server;
@@ -49,6 +50,7 @@ const MIGRATIONS: &[Step] = &[
     followups::v9_followup_times,
     marks::v10_reply_marks,
     waiting::v11_waiting_folder,
+    labels::v12_labels_and_rights,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -504,6 +506,9 @@ pub struct MessageRow {
     pub date: i64,
     pub size: u32,
     pub flags: Flags,
+    /// The message's own keywords (labels) on the server, by their keyword names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
     pub has_attachments: bool,
     pub thread: String,
     pub bulk: bool,
@@ -845,7 +850,7 @@ pub struct ListQuery {
 }
 
 /// A message header fetched from the server, ready for the cache.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct NewMessage<'a> {
     pub uid: u32,
     pub summary: &'a Summary,
@@ -853,6 +858,8 @@ pub struct NewMessage<'a> {
     pub fallback_date: i64,
     pub size: u32,
     pub flags: Flags,
+    /// The message's own IMAP keywords (labels) as the fetch reported them.
+    pub keywords: Vec<String>,
 }
 
 pub struct Store {
@@ -1739,6 +1746,9 @@ impl Store {
         tx.execute("DELETE FROM marks WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM ews_folders WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM ews_items WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM labels WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM folder_props WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM namespaces WHERE account_id = ?1", [account_id])?;
         Self::forget_server(&tx, account_id)?;
         tx.execute(
             "DELETE FROM avatars WHERE substr(key, 1, length(?1) + 7) = 'photo:' || ?1 || ':'",
@@ -2086,6 +2096,7 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
         fallback_date,
         size,
         flags,
+        ..
     } = *msg;
     let json = |v: &Vec<Addr>| serde_json::to_string(v).unwrap_or_else(|_| "[]".into());
     let date = summary.date.unwrap_or(fallback_date);
@@ -2096,9 +2107,9 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
         .prepare_cached(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
                 to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all)
+                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all, keywords)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24, ?25, ?26)
+                ?23, ?24, ?25, ?26, ?27)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft,
@@ -2133,6 +2144,7 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
                 crate::message::subject_sort_key(&summary.subject),
                 flags.forwarded,
                 flags.answered_all,
+                serde_json::to_string(&msg.keywords).unwrap_or_else(|_| "[]".into()),
             ],
             |r| r.get(0),
         )?;
@@ -2423,7 +2435,7 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
             'sent', fu.sent, 'park', fu.park, 'park_folder', fu.park_folder, 'auto_reply', fu.auto_reply)
         FROM followups fu WHERE fu.account_id = m.account_id AND (fu.message_id = m.message_id OR fu.anchor = m.message_id)
         ORDER BY fu.status = 'waiting' DESC, fu.sent DESC LIMIT 1),
-    m.forwarded, m.answered_all,
+    m.forwarded, m.answered_all, m.keywords,
     (SELECT json_array(k.reply, k.reply_all, k.forward,
             (SELECT a.id FROM messages a WHERE a.account_id = k.account_id AND a.message_id = k.answer LIMIT 1))
         FROM marks k WHERE k.account_id = m.account_id AND k.message_id = m.message_id),
@@ -2433,7 +2445,7 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
         ORDER BY o.id DESC LIMIT 1),
     EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.anchor = m.message_id
         AND fu.park = 'returned' AND fu.noticed = 0)";
-const COLUMN_COUNT: usize = 28;
+const COLUMN_COUNT: usize = 29;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
     Ok(Snooze {
@@ -2474,8 +2486,8 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         forwarded: r.get(23)?,
         answered_all: r.get(24)?,
     };
-    let (done, my_answer) = marks::done_of(r.get(25)?);
-    let outgoing = marks::outgoing_of(r.get(26)?);
+    let (done, my_answer) = marks::done_of(r.get(26)?);
+    let outgoing = marks::outgoing_of(r.get(27)?);
     Ok(MessageRow {
         id: r.get(0)?,
         account_id: r.get(1)?,
@@ -2495,6 +2507,7 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         size: r.get(13)?,
         marks: marks::marks_of(&flags, &done, outgoing.as_ref()),
         flags,
+        keywords: serde_json::from_str(&r.get::<_, String>(25)?).unwrap_or_default(),
         has_attachments: r.get(18)?,
         thread: r.get(19)?,
         bulk: r.get(20)?,
@@ -2508,7 +2521,7 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         followup,
         my_answer,
         outgoing,
-        answer_came: r.get(27)?,
+        answer_came: r.get(28)?,
     })
 }
 
@@ -2564,6 +2577,7 @@ mod tests {
             fallback_date: 0,
             size: 10,
             flags: Flags::default(),
+            keywords: Vec::new(),
         };
         store.insert_message("a", "INBOX", &msg).unwrap();
         for prefix in ["иван", "ИВАН", "пЕт", "IVAN", "Ivan@"] {
@@ -2609,6 +2623,7 @@ mod tests {
                     seen,
                     ..Default::default()
                 },
+                keywords: Vec::new(),
             }
         }
         let id1 = store
@@ -2715,6 +2730,7 @@ mod tests {
                 seen,
                 ..Default::default()
             },
+            keywords: Vec::new(),
         };
         store.insert_message("a", folder, &msg).unwrap()
     }
@@ -3048,6 +3064,7 @@ mod tests {
                 fallback_date: 0,
                 size,
                 flags: Flags::default(),
+                keywords: Vec::new(),
             };
             store.insert_message(account, folder, &msg).unwrap();
         };
@@ -3199,6 +3216,7 @@ mod tests {
             fallback_date: 0,
             size,
             flags,
+            keywords: Vec::new(),
         };
         store.insert_message("a", "INBOX", &msg).unwrap()
     }
@@ -3696,6 +3714,10 @@ mod tests {
             "avatars",
             "ews_folders",
             "ews_items",
+            "labels",
+            "folder_props",
+            "namespaces",
+            "local_seen",
         ] {
             let mut stmt = conn.prepare(&format!("SELECT * FROM {table}")).unwrap();
             let n = stmt.column_count();
@@ -3728,6 +3750,7 @@ mod tests {
                 fallback_date: 0,
                 size: 1,
                 flags: Flags::default(),
+                keywords: Vec::new(),
             };
             let id = store.insert_message(account, "INBOX", &msg).unwrap();
             store.save_body(id, b"raw", "текст").unwrap();
@@ -3748,6 +3771,30 @@ mod tests {
             store
                 .mark_done(account, "q@x", crate::smtp::Act::Reply, 1, None)
                 .unwrap();
+            store
+                .save_label(
+                    account,
+                    &crate::acl::Label {
+                        name: "Смета".into(),
+                        keyword: crate::acl::keyword_of("Смета"),
+                        color: "#000000".into(),
+                    },
+                )
+                .unwrap();
+            store
+                .save_folder_props(
+                    account,
+                    &crate::acl::FolderProps {
+                        folder: "INBOX".into(),
+                        display_name: "INBOX".into(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            store
+                .save_namespaces(account, &crate::acl::Namespace::default(), 1)
+                .unwrap();
+            store.set_local_seen(account, "INBOX", &[uid], 1).unwrap();
             store
                 .save_server_caps(
                     account,
@@ -4237,6 +4284,7 @@ mod tests {
                     flagged: k.is_multiple_of(5),
                     ..Default::default()
                 },
+                keywords: Vec::new(),
             };
             store.insert_message(account, folder, &msg).unwrap()
         };
@@ -4492,6 +4540,7 @@ mod tests {
                     fallback_date: 0,
                     size: 1,
                     flags: Flags::default(),
+                    keywords: Vec::new(),
                 })
                 .collect()
         };
@@ -4500,9 +4549,13 @@ mod tests {
         assert_eq!((ids.len(), commits(&ran)), (200, 1));
         let items: Vec<(NewMessage<'_>, String, i64)> = batch(1_001)
             .into_iter()
-            .map(|m| (m, format!("item{}", m.uid), 0))
+            .map(|m| {
+                let id = format!("item{}", m.uid);
+                (m, id, 0)
+            })
             .collect();
-        let items: Vec<(NewMessage<'_>, &str, i64)> = items.iter().map(|(m, id, r)| (*m, id.as_str(), *r)).collect();
+        let items: Vec<(NewMessage<'_>, &str, i64)> =
+            items.iter().map(|(m, id, r)| (m.clone(), id.as_str(), *r)).collect();
         let ((), ran) = statements(&store, || store.ews_insert_items("a", "Sent", &items).unwrap());
         assert_eq!(commits(&ran), 1);
         assert_eq!(

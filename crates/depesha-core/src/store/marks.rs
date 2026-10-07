@@ -366,6 +366,7 @@ mod tests {
                 f.answered_all = true;
                 f.forwarded = true;
             }),
+            keywords: Vec::new(),
         };
         let id = store.insert_message("a", "INBOX", &msg).unwrap();
         let flags = row(&store, id).flags;

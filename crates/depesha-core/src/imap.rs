@@ -14,6 +14,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
+use crate::acl::{Namespace, PermanentFlags, Rights};
 pub use crate::query::Criterion;
 use crate::tr;
 use crate::watchdog::Watchdog;
@@ -527,8 +528,137 @@ impl Flags {
     }
 }
 
+/// Next server response; async-imap keeps the response type private, hence a macro.
+macro_rules! next_response {
+    ($conn:expr) => {
+        next_response!($conn, "search answer")
+    };
+    ($conn:expr, $what:expr) => {
+        timeout(Duration::from_secs(120), $conn.session.read_response())
+            .await
+            .map_err(|_| Error::Timeout($what))??
+            .ok_or(Error::Closed)?
+    };
+}
+
 /// The keyword other clients set on a forwarded letter (Thunderbird, Apple Mail, Dovecot).
 const FORWARDED: &str = "$Forwarded";
+
+/// Whether a folder takes own keywords, and the standard flags it keeps, from the
+/// `PERMANENTFLAGS` a SELECT reported (RFC 3501, 7.1).
+pub fn permanent_flags(flags: &[Flag<'_>]) -> PermanentFlags {
+    let mut may_create = false;
+    let mut standard = Vec::new();
+    for flag in flags {
+        match flag {
+            Flag::MayCreate => may_create = true,
+            Flag::Seen => standard.push("Seen".to_owned()),
+            Flag::Answered => standard.push("Answered".to_owned()),
+            Flag::Flagged => standard.push("Flagged".to_owned()),
+            Flag::Deleted => standard.push("Deleted".to_owned()),
+            Flag::Draft => standard.push("Draft".to_owned()),
+            Flag::Recent => standard.push("Recent".to_owned()),
+            // A named keyword is a permanent flag too, but not a standard one.
+            Flag::Custom(_) => {}
+        }
+    }
+    standard.sort();
+    standard.dedup();
+    PermanentFlags { may_create, standard }
+}
+
+/// A message's own keywords as `FLAGS` reported them: the custom names, without the
+/// system flags and without the convention keywords (`$Forwarded`, `$MDNSent`…).
+pub fn keywords_of<'a>(flags: impl Iterator<Item = Flag<'a>>) -> Vec<String> {
+    let mut out: Vec<String> = flags
+        .filter_map(|f| match f {
+            Flag::Custom(k) => {
+                let k = k.to_string();
+                (!k.starts_with('$')).then_some(k)
+            }
+            _ => None,
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// A folder's props from one connection: MYRIGHTS (rights) and the PERMANENTFLAGS of a
+/// SELECT (whether own labels can be stored). The owner is filled by the caller from the
+/// account's namespaces. Nothing here writes to the server: EXAMINE and MYRIGHTS read.
+pub async fn folder_props(conn: &mut Conn, folder: &str) -> Result<(Option<Rights>, PermanentFlags)> {
+    let mailbox = conn.session.examine(folder).await?;
+    let permanent = permanent_flags(&mailbox.permanent_flags);
+    // MYRIGHTS only exists where ACL is offered; a server without it says nothing.
+    let rights = myrights(conn, folder).await.unwrap_or(None);
+    Ok((rights, permanent))
+}
+
+/// A mailbox name as an IMAP quoted string: `"` and `\` are escaped. Names arrive as
+/// modified UTF-7 from the folder list, so they are already ASCII.
+fn quoted(name: &str) -> String {
+    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The folder's rights as the server reports them in MYRIGHTS (RFC 4314). `None` when
+/// the server has no ACL extension or refused: nothing is known, which is not "no
+/// rights". Read-only folders are the common case and this is where they are told.
+pub async fn myrights(conn: &mut Conn, folder: &str) -> Result<Option<Rights>> {
+    use async_imap::imap_proto::{Response, Status};
+    let id = conn.session.run_command(format!("MYRIGHTS {}", quoted(folder))).await?;
+    let mut rights = None;
+    loop {
+        let resp = next_response!(conn, "MYRIGHTS answer");
+        match resp.parsed() {
+            Response::MyRights(r) => {
+                let letters: String = r.rights.iter().map(|&x| char::from(x)).collect();
+                rights = Some(Rights::from_letters(&letters));
+            }
+            Response::Done { tag, status, .. } if *tag == id => {
+                return match status {
+                    Status::Ok => Ok(rights),
+                    // No ACL extension or the folder is unreadable to us: unknown, not forbidden.
+                    _ => Ok(None),
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Reads the server's NAMESPACE answer (RFC 2342). imap-proto does not parse this
+/// response and would kill the connection on the untagged line, so the command is
+/// tagged and its answer read from the raw stream, line by line. A malformed or refused
+/// answer is an empty namespace: the folders simply stay ungrouped. The session is left
+/// usable because the command is written and read through the same stream.
+pub async fn namespace(conn: &mut Conn) -> Result<Namespace> {
+    use tokio::io::AsyncReadExt;
+    let id = conn.session.run_command("NAMESPACE").await?;
+    let tag = id.0.clone();
+    let stream = conn.session.get_mut();
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let done = |buf: &[u8]| {
+        let text = String::from_utf8_lossy(buf);
+        text.lines().any(|l| l.starts_with(&tag))
+    };
+    loop {
+        if done(&buf) {
+            break;
+        }
+        if buf.len() > 64 * 1024 {
+            return Ok(Namespace::default());
+        }
+        match timeout(ANSWER_TIMEOUT, stream.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return Ok(Namespace::default()),
+            Ok(Ok(n)) => buf.extend_from_slice(&chunk[..n]),
+        }
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let line = text.lines().find(|l| l.starts_with("* NAMESPACE")).unwrap_or_default();
+    Ok(Namespace::parse(line.trim_start_matches("* NAMESPACE").trim()))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "flag", content = "value", rename_all = "snake_case")]
@@ -584,6 +714,41 @@ pub async fn set_flag(
         .await?
         .try_collect()
         .await?;
+    Ok(())
+}
+
+/// Sets (`add`) and clears (`remove`) own keywords (labels) on messages by UID. A keyword
+/// is an atom; the caller passes the ones `acl::keyword_of` made.
+pub async fn set_keywords(
+    conn: &mut Conn,
+    folder: &str,
+    validity: Option<u32>,
+    uids: &[u32],
+    add: &[String],
+    remove: &[String],
+) -> Result<()> {
+    if uids.is_empty() || (add.is_empty() && remove.is_empty()) {
+        return Ok(());
+    }
+    select_at(conn, folder, validity).await?;
+    let set = uid_set(uids);
+    let keywords = |list: &[String]| list.join(" ");
+    if !add.is_empty() {
+        let _: Vec<_> = conn
+            .session
+            .uid_store(&set, format!("+FLAGS.SILENT ({})", keywords(add)))
+            .await?
+            .try_collect()
+            .await?;
+    }
+    if !remove.is_empty() {
+        let _: Vec<_> = conn
+            .session
+            .uid_store(&set, format!("-FLAGS.SILENT ({})", keywords(remove)))
+            .await?
+            .try_collect()
+            .await?;
+    }
     Ok(())
 }
 
@@ -687,19 +852,6 @@ pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str)
     let id = message_id.trim_matches(['<', '>']).replace(['"', '\\'], "");
     let uids = conn.session.uid_search(format!("HEADER Message-ID \"{id}\"")).await?;
     Ok(uids.into_iter().collect())
-}
-
-/// Next server response; async-imap keeps the response type private, hence a macro.
-macro_rules! next_response {
-    ($conn:expr) => {
-        next_response!($conn, "search answer")
-    };
-    ($conn:expr, $what:expr) => {
-        timeout(Duration::from_secs(120), $conn.session.read_response())
-            .await
-            .map_err(|_| Error::Timeout($what))??
-            .ok_or(Error::Closed)?
-    };
 }
 
 /// Selects a folder to sync it. With CONDSTORE the answer carries HIGHESTMODSEQ, or

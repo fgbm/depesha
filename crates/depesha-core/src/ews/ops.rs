@@ -110,6 +110,85 @@ fn flags_of(props: &HashMap<u32, String>) -> Flags {
     }
 }
 
+/// The folder's rights for the Exchange flavour, from its `EffectiveRights` element
+/// ([MS-OXWSCORE]): a `Folder` in GetFolder carries `Read`, `CreateContents`,
+/// `CreateHierarchy`, `Delete` and `Modify` as children. A missing element is unknown.
+pub fn effective_rights(folder: Node<'_, '_>) -> Option<crate::acl::Rights> {
+    let er = child(folder, "EffectiveRights")?;
+    let on = |name: &str| {
+        text(er, name)
+            .map(|v| v.trim() == "true" || v.trim() == "1")
+            .unwrap_or(false)
+    };
+    Some(crate::acl::Rights::from_effective(
+        on("Read"),
+        on("CreateContents"),
+        on("CreateHierarchy"),
+        on("Delete"),
+        on("Modify"),
+    ))
+}
+
+/// A folder's rights from Exchange's `EffectiveRights` ([MS-OXWSCORE]): a GetFolder with
+/// the `AllProperties` shape carries them. `None` when the server did not send the element.
+pub async fn folder_rights(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+) -> Result<Option<crate::acl::Rights>> {
+    let id = folder_id(store, account_id, folder)?;
+    let body = format!(
+        "<m:GetFolder><m:FolderShape><t:BaseShape>AllProperties</t:BaseShape></m:FolderShape><m:FolderIds>{}</m:FolderIds></m:GetFolder>",
+        folder_ref(&id)
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    let resp = single(&doc)?;
+    let Some(folder_node) = child(resp, "Folders").and_then(|f| f.children().find(Node::is_element)) else {
+        return Ok(None);
+    };
+    Ok(effective_rights(folder_node))
+}
+
+/// The categories of an item, from its `Categories` child. Exchange keeps them on the
+/// server; Depesha shows them as labels (#42, Exchange frame).
+pub fn categories_of(item: Node<'_, '_>) -> Vec<String> {
+    child(item, "Categories")
+        .map(|c| {
+            children(c, "String")
+                .filter_map(|s| s.text())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The `Updates` that appends one category to an item's list, leaving the rest as they are.
+pub fn categories_add(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "<t:AppendToItemField>{}<t:Message><t:Categories><t:String>{}</t:String></t:Categories></t:Message></t:AppendToItemField>",
+        field("message:Categories"),
+        escape(name)
+    ))
+}
+
+/// The `Updates` that sets an item's categories to exactly `names`; empty clears them.
+pub fn categories_set(names: &[String]) -> String {
+    let list: String = names
+        .iter()
+        .map(|n| format!("<t:String>{}</t:String>", escape(n)))
+        .collect();
+    format!(
+        "<t:SetItemField>{}<t:Message><t:Categories>{list}</t:Categories></t:Message></t:SetItemField>",
+        field("message:Categories")
+    )
+}
+
 /// Item elements of a FindItem/GetItem answer: `Message`, `MeetingRequest`, `PostItem`...
 fn items<'a, 'i>(n: Node<'a, 'i>) -> Vec<Node<'a, 'i>> {
     match child(n, "RootFolder")
@@ -621,6 +700,7 @@ async fn add_items(
                 fallback_date: f.received,
                 size: f.size,
                 flags: f.flags,
+                keywords: Vec::new(),
             };
             Some((msg, f.id.as_str(), f.received))
         })
@@ -844,6 +924,96 @@ async fn update_flag(s: &mut Session, ids: &[String], change: FlagChange) -> Res
         check_all(&text_)?;
     }
     Ok(())
+}
+
+/// Puts labels on items and takes them off, by their category names. Exchange always
+/// keeps categories on the server; Depesha sends the category of the same name. Adding
+/// appends; removing reads the item's categories first and sets the list without them.
+pub async fn set_labels(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    uids: &[u32],
+    add: &[crate::acl::Label],
+    remove: &[crate::acl::Label],
+) -> Result<()> {
+    let ids = store.ews_item_ids(account_id, folder, uids)?;
+    let update_ids = |updates: String, ids: &[String]| {
+        let changes: String = ids
+            .iter()
+            .map(|id| {
+                format!(
+                    r#"<t:ItemChange><t:ItemId Id="{}"/><t:Updates>{updates}</t:Updates></t:ItemChange>"#,
+                    escape(id)
+                )
+            })
+            .collect();
+        format!(
+            r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AlwaysOverwrite" SuppressReadReceipts="true"><m:ItemChanges>{changes}</m:ItemChanges></m:UpdateItem>"#
+        )
+    };
+    if !add.is_empty() {
+        for label in add {
+            let Some(update) = categories_add(&label.name) else {
+                continue;
+            };
+            let body = update_ids(update, &ids);
+            let text_ = s.call(&body).await?;
+            check_all(&text_)?;
+        }
+    }
+    if !remove.is_empty() {
+        let drop: HashSet<&str> = remove.iter().map(|l| l.name.as_str()).collect();
+        for chunk in ids.chunks(50) {
+            // Removing a category means rewriting the whole list without it.
+            let current = read_categories(s, chunk).await?;
+            let changes: String = current
+                .iter()
+                .map(|(id, cats)| {
+                    let left: Vec<String> = cats.iter().filter(|c| !drop.contains(c.as_str())).cloned().collect();
+                    let update = categories_set(&left);
+                    format!(
+                        r#"<t:ItemChange><t:ItemId Id="{}"/><t:Updates>{update}</t:Updates></t:ItemChange>"#,
+                        escape(id)
+                    )
+                })
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            let body = format!(
+                r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AlwaysOverwrite" SuppressReadReceipts="true"><m:ItemChanges>{changes}</m:ItemChanges></m:UpdateItem>"#
+            );
+            let text_ = s.call(&body).await?;
+            check_all(&text_)?;
+        }
+    }
+    Ok(())
+}
+
+/// The categories of items, by their ids, in one GetItem.
+async fn read_categories(s: &mut Session, ids: &[String]) -> Result<Vec<(String, Vec<String>)>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = format!(
+        "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}</t:AdditionalProperties></m:ItemShape><m:ItemIds>{}</m:ItemIds></m:GetItem>",
+        field("item:Categories"),
+        item_ids(ids)
+    );
+    let text_ = s.call(&body).await?;
+    let doc = parse(&text_)?;
+    let mut out = Vec::new();
+    for r in responses(&doc) {
+        let Ok(resp) = r else { continue };
+        for it in items(resp) {
+            if let Some(id) = item_id(it) {
+                out.push((id, categories_of(it)));
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Fails on the first error other than a vanished item.
