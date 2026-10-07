@@ -256,11 +256,10 @@ try {
   // the columns take their real width; a click elsewhere leaves the cells uncommitted.
   await d.pressKey("\uE001");
   await sleep(500);
-  // Blur first (it may rebuild the table), then keep the drawn cells on one line: they have a
-  // 40 px floor and wrap a word that does not fit, while the design keeps a cell on one line.
+  // Blur so the focused cell writes the table back into the letter before the shot; the
+  // cells hold their column by the word now, so nothing has to be forced on them.
   await d.exec("document.activeElement?.blur?.()");
   await sleep(300);
-  await d.exec("document.querySelectorAll('.compose .md-table-cell-text').forEach((c) => (c.style.whiteSpace = 'nowrap'))");
   await shot("02-редактор-markdown");
   await discardCompose();
 
