@@ -5,8 +5,7 @@
 import { registry } from "../plugin-host/registry.svelte";
 import { i18n, t } from "./i18n.svelte";
 import { CORE_KEYS } from "./keyCommands";
-import { findCommand, keyText, PALETTE_KEY, pressNames, resolve, type Custom, type KeyCommand, type Lost, type Resolved } from "./keymap";
-import type { KeyPress } from "./keys";
+import { findCommand, keyText, PALETTE_KEY, pressNames, resolve, type Custom, type KeyCommand, type KeyPress, type Lost, type Resolved } from "./keymap";
 import type { KeySettings } from "./types";
 
 export interface TitledCommand extends KeyCommand {

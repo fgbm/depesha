@@ -8,7 +8,15 @@
 // the Russian "у" is "e" (docs/ux.md, principle 5); a character typed with Shift holds
 // it ("#" is Shift+3, not "Shift+3").
 
-import type { KeyPress } from "./keys";
+/** A key press, as the DOM delivers it; the fields the key naming reads. */
+export interface KeyPress {
+  key: string;
+  code: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}
 
 /** `main`: the main window outside text fields; `compose`: the composition window; `all`: both. */
 export type Scope = "main" | "compose" | "all";

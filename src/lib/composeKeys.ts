@@ -4,7 +4,7 @@
 // Covered by composeKeys.test.ts and shortcuts.test.ts.
 
 import { keyText } from "./keymap";
-import type { KeyPress } from "./keys";
+import type { KeyPress } from "./keymap";
 import { shortcuts } from "./shortcuts.svelte";
 
 export type ComposeAction = "send" | "fold" | "save" | "bold" | "italic" | "underline" | "link" | "preview";

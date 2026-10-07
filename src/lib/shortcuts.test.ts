@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registry } from "../plugin-host/registry.svelte";
 import { composeAction, keyLabel } from "./composeKeys";
 import { i18n } from "./i18n.svelte";
-import type { KeyPress } from "./keys";
+import type { KeyPress } from "./keymap";
 import { shortcuts } from "./shortcuts.svelte";
 import type { KeySettings } from "./types";
 
