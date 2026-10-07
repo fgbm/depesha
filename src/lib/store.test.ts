@@ -10,6 +10,7 @@ import { AppStore, app } from "./store.svelte";
 import { extensions } from "./extensions.svelte";
 import { i18n } from "./i18n.svelte";
 import { QuickReplyState } from "../components/reader/useQuickReply.svelte";
+import { ComposeFormat } from "./compose/format.svelte";
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, findBlock } from "./richtext";
 import { api, emit, eventModule, flush, handlers, opened, resetFakes, row, settings } from "./testing";
 import type { AccountView, BodyFormat, Extension } from "./types";
@@ -154,30 +155,61 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
   });
 });
 
+/** A mailbox as the store lists one, with one signature of its own, writing in `format`. */
+const accWith = (id: string, format: BodyFormat): AccountView =>
+  ({
+    ...acc(id),
+    compose_format: format,
+    default_signature: "s1",
+    signatures: [{ id: "s1", name: "Me", html: "<div>Ann</div>", text: "Ann" }],
+  }) as unknown as AccountView;
+
+/** A quick answer to a letter in this mailbox, with `text` typed into it. */
+function typing(account: AccountView, text: string): QuickReplyState {
+  app.accounts = [account];
+  app.settings = { ...settings(), default_account_id: account.id };
+  app.reader.opened = opened(row(1, { account_id: account.id }));
+  const quick = new QuickReplyState({ keptAsDraft: () => {} });
+  quick.openQuick(false);
+  quick.text = text;
+  return quick;
+}
+
+/** The draft of the last opened composition window. */
+const unfolded = () => app.compose.windows.at(-1)!.draft;
+const count = (html: string, mark: string) => html.split(mark).length - 1;
+
+/** The field of a window asks for a caret at once; no animation frames stand here. */
+const noAnimation = () =>
+  vi.stubGlobal("requestAnimationFrame", (fn: () => void) => {
+    fn();
+    return 0;
+  });
+
+/** Places the caret as the window opens on the last draft, and tells what the field got. */
+function caret(): { focus: number; at: number | null } {
+  const calls: { focus: number; at: number | null } = { focus: 0, at: null };
+  const field = {
+    value: "",
+    focus: () => (calls.focus += 1),
+    setSelectionRange: (a: number) => (calls.at = a),
+    scrollTop: 0,
+  };
+  const fmt = new ComposeFormat({
+    win: app.compose.windows.at(-1)!,
+    windowOf: null,
+    account: (id) => app.account(id),
+    openSettings: () => {},
+    fail: () => {},
+    confirmToPlain: async () => true,
+    confirmPicturesAttach: async () => true,
+  });
+  fmt.body = field as unknown as HTMLTextAreaElement;
+  (fmt as unknown as { placeCaret(): void }).placeCaret();
+  return calls;
+}
+
 describe("the quick answer unfolded into a window", () => {
-  /** A mailbox writing in `format`, with one signature of its own. */
-  const accWith = (id: string, format: BodyFormat): AccountView =>
-    ({
-      ...acc(id),
-      compose_format: format,
-      default_signature: "s1",
-      signatures: [{ id: "s1", name: "Me", html: "<div>Ann</div>", text: "Ann" }],
-    }) as unknown as AccountView;
-
-  /** A quick answer to a letter in this mailbox, with `text` typed into it. */
-  function typing(account: AccountView, text: string): QuickReplyState {
-    app.accounts = [account];
-    app.settings = { ...settings(), default_account_id: account.id };
-    app.reader.opened = opened(row(1, { account_id: account.id }));
-    const quick = new QuickReplyState({ keptAsDraft: () => {} });
-    quick.openQuick(false);
-    quick.text = text;
-    return quick;
-  }
-
-  const unfolded = () => app.compose.windows.at(-1)!.draft;
-  const count = (html: string, mark: string) => html.split(mark).length - 1;
-
   it("keeps an empty line above the signature in HTML, the quote whole and once", () => {
     const quick = typing(accWith("b", "html"), "Hello\n\nWorld");
     quick.toWindow();
@@ -210,6 +242,37 @@ describe("the quick answer unfolded into a window", () => {
     const text = unfolded().text;
     expect(text.startsWith("Hi\n\n-- \nAnn")).toBe(true);
     expect(text).toContain("\n\nOn ");
+  });
+});
+
+describe("the caret of a quick answer unfolded into a window", () => {
+  beforeEach(noAnimation);
+
+  it("stands at the end of the words in a plain answer, above the signature", () => {
+    const quick = typing(accWith("b", "plain"), "Hello\n\nWorld");
+    quick.toWindow();
+    const head = unfolded().text.split("\n\n-- ")[0];
+    // The words are all there; the caret stands at their end, the signature block under them.
+    expect(caret()).toEqual({ focus: 1, at: head.length });
+    expect(head).toBe("Hello\n\nWorld");
+  });
+
+  it("stands at the end of the words in a Markdown answer, above the signature", () => {
+    const quick = typing(accWith("b", "markdown"), "Hi");
+    quick.toWindow();
+    const head = unfolded().text.split("\n\n-- ")[0];
+    expect(caret()).toEqual({ focus: 1, at: head.length });
+    expect(head).toBe("Hi");
+  });
+
+  it("stays at the very top of a fresh reply, the empty line above the signature", () => {
+    app.compose.windows.length = 0;
+    app.accounts = [accWith("b", "plain")];
+    app.settings = { ...settings(), default_account_id: "b" };
+    app.reader.opened = opened(row(1, { account_id: "b" }));
+    app.replyTo(false);
+    // Not an unfolded answer: the field is focused, the caret kept at the very top.
+    expect(caret()).toEqual({ focus: 1, at: 0 });
   });
 });
 

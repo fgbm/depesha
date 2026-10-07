@@ -15,6 +15,7 @@ import {
   defaultSignature,
   hasHtmlSignature,
   putSignatureHtml,
+  replySignature,
   sigBlock,
   signatureIn,
   signaturesOf,
@@ -217,6 +218,13 @@ export class ComposeFormat {
       this.placed = true;
       field.focus();
       field.setSelectionRange(0, 0);
+    } else if (this.host.win.unsaved && draft.to.length) {
+      // Unfolded from the quick answer with words already typed: plain text and Markdown
+      // keep the signature in its own block under the field, so the caret goes to the end
+      // of the words, right above it (#61).
+      this.placed = true;
+      field.focus();
+      field.setSelectionRange(this.head.length, this.head.length);
     }
     field.scrollTop = 0;
     requestAnimationFrame(() => (field.scrollTop = 0));
@@ -265,11 +273,15 @@ export class ComposeFormat {
     if (this.format === "html") this.htmlBody = putSignatureHtml(this.htmlBody, sig);
   }
 
-  /** Another sender: its default signature, even over one chosen by hand. */
+  /**
+   * Another sender: its default signature, even over one chosen by hand. A reply takes the
+   * mailbox's reply signature — `in_reply_to` is what tells a reply or a forward from a new
+   * letter, since only those two carry it.
+   */
   setAccount(id: string) {
     const acc = this.host.account(id);
     if (!acc) return;
-    this.putSignature(defaultSignature(acc));
+    this.putSignature(this.host.win.draft.in_reply_to ? replySignature(acc) : defaultSignature(acc));
     this.host.win.account_id = id;
     this.host.win.draft.from = { name: acc.display_name, email: acc.email };
   }

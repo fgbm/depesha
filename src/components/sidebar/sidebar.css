@@ -313,7 +313,10 @@ nav.side {
     text-align: left;
   }
 
-  .side .account-name:hover {
+  /* The name's highlight belongs to the whole row: the chevron and the «⋯» button lie beside
+     the name, not inside it, so hovering them would otherwise let it go out (#60, #61). */
+  .side .account-name:hover,
+  .side .account:hover .account-name {
     color: var(--side-ink);
   }
 

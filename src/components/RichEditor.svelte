@@ -459,14 +459,17 @@
     margin-top: 0.8em;
   }
 
-  /* The locked block pointed at: a tint under the pointer, its menu at the corner. */
+  /* The locked block pointed at: a tint under the pointer, its menu at the corner. The block
+     lies on the letter's white sheet, so its frame and tint are the recipient's own — the same
+     warm line the quote and the signature carry (MailFrame.svelte:45), not the theme's, which
+     would read grey over the white sheet in the dark themes (#62). */
   .block-hover {
     position: absolute;
     pointer-events: none;
     border-radius: 4px;
-    outline: 1px solid var(--line);
+    outline: 1px solid #d8cfbd;
     outline-offset: 3px;
-    background: color-mix(in srgb, var(--hover) 45%, transparent);
+    background: color-mix(in srgb, #d8cfbd 45%, transparent);
   }
 
   .block-bar {
