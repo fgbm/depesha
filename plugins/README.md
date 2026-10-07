@@ -53,7 +53,7 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `messageAction` | an item in the reader's "More" menu |
 | `rowAction` | an item in the context menu of list rows, or a submenu (`menu`) |
 | `banner` | a line above the opened message, with buttons; in a narrow window the first stays and the rest fold into «⋯» (`detailsTitle` folds the details too) |
-| `rowTag` | a tag in a list row (`alert` red, `good` green), with an optional quiet `note` in the first line |
+| `rowTag` | a tag in a list row (`alert` red, `good` green, `info` blue), with an optional quiet `note` in the first line |
 | `view` | a list of its own with a sidebar entry (shown while `count` or `shown` says so); `tabs` puts a segmented switch over its list |
 | `listFilter` | a choice in the list's "View" menu that narrows its query (People / Newsletters); each list keeps its own |
 | `composeControl` | a control in the compose window; `slot: "send"` joins it to the Send button, `slot: "line"` makes it a quiet line above the buttons |
@@ -65,8 +65,8 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 Besides `ctx.ui`:
 
 - **`ctx.mail`** works with the list: `reload()` reloads it at once; `scheduleReload()` is for backend events that come in bursts (a sync, a resolved wait): it waits the burst out and reloads once.
-- **`ComposeContext.options`** are what the core sends with the letter, set by a compose control: `at` (send later, unix seconds); `followupSecs`, a reminder that long after sending when no answer comes (`followupDays` is its older form); `followup`, a `FollowupPlan` with the rest of that wait: `deadline_secs`, or `due_at` and `deadline_at` for a reminder and a deadline at a time of the clock (unix seconds; they do not move when the letter leaves later than planned), `repeat_secs`, `expect` (whose answer counts) and `kind` (the choice's name).
-- **`FollowupInfo`** is a sent letter's wait as list rows carry it (`row.followup`): `status` (`waiting`, `answered`, `closed`), the next reminder `due`, `deadline`, `ended`, `answered_by`, the `answer`'s row id and the times it `reminded` (the latest 20). `FollowupPlan` and `FollowupInfo` are exported from `@depesha/plugin-api`.
+- **`ComposeContext.options`** are what the core sends with the letter, set by a compose control: `at` (send later, unix seconds); `followupSecs`, a reminder that long after sending when no answer comes (`followupDays` is its older form); `followup`, a `FollowupPlan` with the rest of that wait: `deadline_secs`, or `due_at` and `deadline_at` for a reminder and a deadline at a time of the clock (unix seconds; they do not move when the letter leaves later than planned), `repeat_secs`, `expect` (whose answer counts) and `kind` (the choice's name); `park`, whether an answer takes the letter it answers to the folder "Waiting for reply" (null: as the mailbox's `waiting` setting says). The letter a reply or forward is written from is `draft.acts_on` (`account_id`, `message_id`, `folder`, `act`: `reply`, `reply_all` or `forward`, and `waiting` when it waits in the folder already).
+- **`FollowupInfo`** is a sent letter's wait as list rows carry it (`row.followup`): `status` (`waiting`, `answered`, `closed`), the next reminder `due`, `deadline`, `ended`, `answered_by`, the `answer`'s row id and the times it `reminded` (the latest 20); for a letter an answer took to the folder, `sent` (when the answer went), `park` (`pending`, `parked`, `back`, `returned`, `done`), `park_folder` and `auto_reply`, the latest auto-reply that did not count. A row also carries `marks` (answered, answered to all, forwarded, with the time or `null` for the server's mark), `outgoing` (an answer of it in the outbox) and `answer_came` (back from the folder with the reply, not opened since). `FollowupPlan` and `FollowupInfo` are exported from `@depesha/plugin-api`.
 
 ## Community plugins
 
