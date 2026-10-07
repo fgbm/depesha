@@ -313,7 +313,7 @@
           {#if current === "general" || current === "updates"}
             <GeneralPanel {current} {draft} bind:largeValue bind:largeUnit />
           {:else if current === "mail" || current === "notifications"}
-            <MailPanel {current} {draft} onOpen={(p) => (page = p)} />
+            <MailPanel {current} {draft} onOpen={(p) => void turn(p)} />
           {:else if current === "people"}
             <PeoplePanel />
           {:else if current === "background"}
