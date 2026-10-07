@@ -7,6 +7,7 @@
   import { escapeHtml } from "../lib/richtext";
   import { isPictureType } from "../lib/images";
   import { t } from "../lib/i18n.svelte";
+  import { inSight, placeLockedBlock, type BlockPlace } from "../lib/compose/lockedBlock";
 
   let {
     html = $bindable(""),
@@ -250,24 +251,14 @@
   const fits = $derived(!!picked && frame !== null && picked.style.width === "100%");
 
   // The locked block: where it stands, and whether the pointer is over it.
-  let block = $state<{ left: number; top: number; width: number; height: number; right: number } | null>(null);
+  let block = $state<BlockPlace | null>(null);
   let overBlock = $state(false);
+  let barHeight = $state(22);
 
   function placeBlock() {
     const b = locked && el ? el.querySelector<HTMLElement>(`.${locked}`) : null;
-    if (!b || !wrap || !el) {
-      block = null;
-      return;
-    }
-    const r = b.getBoundingClientRect();
-    const w = wrap.getBoundingClientRect();
-    const e = el.getBoundingClientRect();
-    // Out of sight in a scrolled letter: no bar floating over the text.
-    if (r.bottom < e.top || r.top > e.bottom) {
-      block = null;
-      return;
-    }
-    block = { left: r.left - w.left, top: r.top - w.top, width: r.width, height: r.height, right: w.right - r.right };
+    // The tint and the bar stay in the letter's area in sight, never over the fields above it.
+    block = b && el && wrap ? placeLockedBlock(b.getBoundingClientRect(), inSight(el), wrap.getBoundingClientRect(), barHeight) : null;
   }
 
   function onpointermove(e: PointerEvent) {
@@ -340,9 +331,11 @@
   </div>
   {#if lockedBar && block}
     {#if overBlock}
-      <div class="block-hover" style="left:{block.left}px;top:{block.top}px;width:{block.width}px;height:{block.height}px" aria-hidden="true"></div>
+      <div class="block-clip" style="left:{block.clip.left}px;top:{block.clip.top}px;width:{block.clip.width}px;height:{block.clip.height}px" aria-hidden="true">
+        <div class="block-hover" style="left:{block.hover.left}px;top:{block.hover.top}px;width:{block.hover.width}px;height:{block.hover.height}px"></div>
+      </div>
     {/if}
-    <div class="block-bar" class:shown={overBlock} style="right:{block.right}px;top:{block.top - 11}px">
+    <div class="block-bar" class:shown={overBlock} style="right:{block.bar.right}px;top:{block.bar.top}px" bind:offsetHeight={barHeight}>
       {@render lockedBar()}
     </div>
   {/if}
@@ -462,10 +455,16 @@
   /* The locked block pointed at: a tint under the pointer, its menu at the corner. The block
      lies on the letter's white sheet, so its frame and tint are the recipient's own — the same
      warm line the quote and the signature carry (MailFrame.svelte:45), not the theme's, which
-     would read grey over the white sheet in the dark themes (#62). */
-  .block-hover {
+     would read grey over the white sheet in the dark themes (#62). The clip cuts it, frame and
+     all, to the part of the scrolled letter in sight. */
+  .block-clip {
     position: absolute;
     pointer-events: none;
+    overflow: hidden;
+  }
+
+  .block-hover {
+    position: absolute;
     border-radius: 4px;
     outline: 1px solid #d8cfbd;
     outline-offset: 3px;

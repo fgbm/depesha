@@ -1076,6 +1076,49 @@ try {
     await d.until("html swapped", async () => (await textOf(".compose .rich .depesha-signature")).includes("отдел ИТ"));
     if ((await d.findAll(".compose .rich .depesha-signature")).length !== 1) throw new Error("в письме две подписи");
     if (!(await textOf(".compose .rich")).includes("Текст письма.")) throw new Error("текст письма потерялся");
+    // A long letter scrolled so that the signature's top is under the fields: its tint stays in
+    // the letter's area and its menu goes to the bottom of the part in sight, still there to click.
+    await d.exec(`
+      const el = document.querySelector('.compose .rich');
+      // Lines above the signature and below it, as a quote of an answer would be.
+      el.insertAdjacentHTML('afterbegin', '<div>Строка.</div>'.repeat(40));
+      el.insertAdjacentHTML('beforeend', '<div>Строка.</div>'.repeat(40));
+      el.dispatchEvent(new Event('input'));`);
+    await d.until("letter scrolled", async () =>
+      d.exec(`
+        const el = document.querySelector('.compose .rich');
+        const sig = el.querySelector('.depesha-signature');
+        const lift = sig.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + 6;
+        if (Math.abs(lift) > 1) {
+          el.scrollTop += lift;
+          return false;
+        }
+        sig.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
+        return true;`));
+    const geometry = await d.until("signature tint", async () =>
+      d.exec(`
+        const el = document.querySelector('.compose .rich');
+        const hover = document.querySelector('.compose .block-hover');
+        if (!hover) return null;
+        const e = el.getBoundingClientRect();
+        const view = { left: e.left + el.clientLeft, top: e.top + el.clientTop, right: e.left + el.clientLeft + el.clientWidth, bottom: e.top + el.clientTop + el.clientHeight };
+        // What of the tint is painted: its box with its frame, cut by every box that clips it.
+        const h = hover.getBoundingClientRect();
+        let seen = { left: h.left - 4, top: h.top - 4, right: h.right + 4, bottom: h.bottom + 4 };
+        for (let p = hover.parentElement; p && p !== document.body; p = p.parentElement) {
+          if (getComputedStyle(p).overflow === 'visible') continue;
+          const c = p.getBoundingClientRect();
+          seen = { left: Math.max(seen.left, c.left), top: Math.max(seen.top, c.top), right: Math.min(seen.right, c.right), bottom: Math.min(seen.bottom, c.bottom) };
+        }
+        const sig = el.querySelector('.depesha-signature').getBoundingClientRect();
+        const bar = document.querySelector('.compose .block-bar').getBoundingClientRect();
+        return { view, seen, bar, sigTop: sig.top, sigBottom: Math.min(sig.bottom, view.bottom) };`));
+    const within = (b, v) => b.left >= v.left - 0.5 && b.top >= v.top - 0.5 && b.right <= v.right + 0.5 && b.bottom <= v.bottom + 0.5;
+    if (!(geometry.sigTop < geometry.view.top)) throw new Error(`верх подписи не ушёл под шапку: ${JSON.stringify(geometry)}`);
+    if (!within(geometry.seen, geometry.view)) throw new Error(`подсветка подписи выходит за область письма: ${JSON.stringify(geometry)}`);
+    if (!within(geometry.bar, geometry.view)) throw new Error(`бейдж подписи выходит за область письма: ${JSON.stringify(geometry)}`);
+    if (geometry.bar.bottom < geometry.sigBottom - 0.5) throw new Error(`бейдж не у нижнего края подписи: ${JSON.stringify(geometry)}`);
+    await screenshot("5.7-signature-scrolled");
     // The letter was typed in: it goes away without a draft.
     await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
     await d.click(await d.until("confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
