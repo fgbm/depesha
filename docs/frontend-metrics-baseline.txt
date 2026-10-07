@@ -2,7 +2,7 @@ component	src/App.svelte	290	191	53	46
 component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
-component	src/components/Compose.svelte	925	247	237	441
+component	src/components/Compose.svelte	940	262	237	441
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -503,6 +503,7 @@ function	src/lib/format.ts::messagesCount	3
 function	src/lib/format.ts::avatarColor	5
 function	src/lib/format.ts::initials	8
 function	src/lib/format.ts::matches	8
+function	src/lib/hints.svelte.test.ts::draft	2
 function	src/lib/hints.svelte.ts::now	3
 function	src/lib/hints.svelte.ts::bySubject	5
 function	src/lib/hints.test.ts::ctx	3
