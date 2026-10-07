@@ -1256,6 +1256,24 @@ try {
     await composeClosed();
   });
 
+  await step("5.7", "в Markdown-письме подпись показана оформлением, а не текстом под «-- »", async () => {
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, 'Текст письма.');");
+    // The format button of the footer switches this very letter to Markdown.
+    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+    await menuItem("Markdown");
+    // The signature stands as a block with its formatting and pictures (#67), not as the
+    // text under "-- " a plain letter carries.
+    await d.until("markdown signature", async () =>
+      d.exec("const b = document.querySelector('.compose .sig-html'); return !!b && b.innerText.includes('Кэрол');"));
+    if ((await d.findAll(".compose .sig-plain .sig-text")).length) throw new Error("в Markdown-письме подпись показана текстом");
+    await screenshot("5.7-signature-markdown");
+    await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
+    await d.click(await d.until("confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
+    await composeClosed();
+  });
+
   let sentAt = 0;
   await step("5.1", "новое письмо уходит через очередь", async () => {
     await d.button("Написать");
