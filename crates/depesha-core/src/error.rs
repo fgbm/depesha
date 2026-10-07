@@ -287,6 +287,8 @@ impl Error {
             Self::Paused => "paused",
             Self::CacheTooNew { .. } => "cache-too-new",
             Self::FolderChanged => "folder-changed",
+            // A refusal for lack of rights, not an error: the folder remembers it (#42).
+            e if e.no_rights() => "no-rights",
             e if e.is_transient() => "network",
             _ => "other",
         }
@@ -483,5 +485,31 @@ mod tests {
             .no_rights()
         );
         assert!(!Error::Timeout("MYRIGHTS answer").no_rights());
+    }
+
+    #[test]
+    fn a_rights_refusal_has_its_own_kind() {
+        // The GUI shows one of three notices per kind (#42, frame 8): no rights, an error,
+        // no answer. A refusal for lack of rights is told apart by the kind alone.
+        assert_eq!(
+            Error::Imap(E::No("code: Some(NOPERM), info: Some(\"no rights\")".into())).kind(),
+            "no-rights"
+        );
+        assert_eq!(
+            Error::Ews {
+                code: "ErrorAccessDenied".into(),
+                message: String::new(),
+                back_off: None
+            }
+            .kind(),
+            "no-rights"
+        );
+        // A plain server error, and a network trouble, keep their own kinds.
+        assert_eq!(
+            Error::Imap(E::No("code: None, info: Some(\"Internal error\")".into())).kind(),
+            "other"
+        );
+        assert_eq!(Error::Timeout("answer").kind(), "network");
+        assert_eq!(Error::Closed.kind(), "network");
     }
 }

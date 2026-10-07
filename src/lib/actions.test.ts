@@ -58,7 +58,8 @@ describe("an action", () => {
     const s = await inbox();
     breakIt();
     await expect(s.archive([1])).resolves.toBeUndefined();
-    expect(s.toasts.some((x) => x.error && x.text === `${t("err.archive")}: cache broken`)).toBe(true);
+    // A server error is told as such (#42, frame 8): not about rights, and it can be retried.
+    expect(s.toasts.some((x) => x.error && x.text === t("refuse.error", { folder: "INBOX" }))).toBe(true);
     expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
     expect(s.list.leaving.size).toBe(0);
     await expect(s.undo()).resolves.toBeUndefined();
@@ -76,8 +77,40 @@ describe("an action", () => {
   });
 });
 
-describe("undo", () => {
-  it("takes back the last action that went through", async () => {
+describe("a refusal for lack of rights (#42, frame 8)", () => {
+  it("brings the letter back and says so, with the folder's properties one click away", async () => {
+    const s = await inbox();
+    api.archive.mockRejectedValue({ kind: "no-rights", message: "сервер отказал: NOPERM" });
+    await s.archive([4]);
+    // The letter is back in place.
+    expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
+    // One notice, of the "no rights" kind, with a way to the folder's properties.
+    const toast = s.toasts.at(-1)!;
+    expect(toast.text).toBe(t("refuse.noRights", { folder: "INBOX" }));
+    expect(toast.error).toBe(true);
+    expect(toast.action?.label).toBe(t("folder.properties"));
+  });
+
+  it("a server error says it is not about rights", async () => {
+    const s = await inbox();
+    api.archive.mockRejectedValue({ kind: "other", message: "NO Internal error" });
+    await s.archive([4]);
+    expect(ids(s)).toContain(4);
+    const toast = s.toasts.at(-1)!;
+    expect(toast.text).toBe(t("refuse.error", { folder: "INBOX" }));
+  });
+
+  it("no answer is not a refusal: the letter waits, the tone is not red", async () => {
+    const s = await inbox();
+    api.archive.mockRejectedValue({ kind: "network", message: "timed out" });
+    await s.archive([4]);
+    const toast = s.toasts.at(-1)!;
+    expect(toast.text).toBe(t("refuse.noAnswer", { folder: "INBOX" }));
+    expect(toast.error).toBe(false);
+  });
+});
+
+describe("undo", () => {  it("takes back the last action that went through", async () => {
     const s = await inbox();
     await s.archive([4]);
     const moved = s.lastUndo?.moved;

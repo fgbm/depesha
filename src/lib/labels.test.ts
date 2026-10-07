@@ -2,7 +2,7 @@
 // ключи и ярлыки меток. Слой без сети и DOM; покрывает src/lib/labels.ts.
 
 import { describe, expect, it } from "vitest";
-import { actionsOf, groupFolders, keywordForName, labelChips, labelNames, readOnly } from "./labels";
+import { actionsOf, groupFolders, keywordForName, labelChips, labelNames, readOnly, refusalOf, storageOf } from "./labels";
 import type { FolderInfo, Label, NamespaceInfo, Rights } from "./types";
 
 function rights(letters: string): Rights {
@@ -145,5 +145,34 @@ describe("метки: ключи и ярлыки", () => {
     ];
     expect(labelNames(["$Forwarded"], labels)).toEqual([]);
     expect(labelNames([keywordForName("Счета")], labels)).toEqual(["Счета"]);
+  });
+});
+
+describe("отказ сервера после попытки (кадр 8)", () => {
+  it("три разных причины — три разных уведомления", () => {
+    // Нет прав: сервер отказал из-за прав.
+    expect(refusalOf("no-rights")).toBe("no-rights");
+    // Прочие ошибки сервера: не права.
+    expect(refusalOf("other")).toBe("error");
+    expect(refusalOf("not-found")).toBe("error");
+    expect(refusalOf("folder-changed")).toBe("error");
+    // Нет ответа: таймаут или обрыв.
+    expect(refusalOf("network")).toBe("no-answer");
+  });
+
+  it("ошибки, из которых письмо не вернулось, уведомления не дают", () => {
+    expect(refusalOf("auth")).toBeNull();
+    expect(refusalOf("paused")).toBeNull();
+    expect(refusalOf("cache-too-new")).toBeNull();
+  });
+});
+
+describe("где хранятся метки (кадр 9)", () => {
+  it("итог проверки задаёт строку у выбора меток", () => {
+    expect(storageOf("saves")).toBe("server");
+    expect(storageOf("not-saves")).toBe("local");
+    expect(storageOf("claimed-but-lost")).toBe("unconfirmed");
+    expect(storageOf(null)).toBe("unconfirmed");
+    expect(storageOf(undefined)).toBe("unconfirmed");
   });
 });

@@ -193,6 +193,7 @@ pub async fn folder_props(
                 rights,
                 labels_on_server: Some(permanent.labels_on_server()),
                 permanent: permanent.standard,
+                label_check: store.folder_prop(account_id, folder)?.and_then(|p| p.label_check),
                 refused: None,
                 checked: at,
             })
@@ -207,10 +208,26 @@ pub async fn folder_props(
                 // Exchange has no PERMANENTFLAGS: a category is always kept on the server.
                 labels_on_server: Some(true),
                 permanent: Vec::new(),
+                label_check: store.folder_prop(account_id, folder)?.and_then(|p| p.label_check),
                 refused: None,
                 checked: at,
             })
         }
+    }
+}
+
+/// Checks own labels on a test message in `folder` (#42, frame 9). IMAP does it whole;
+/// Exchange keeps categories on the server always, so no test is needed there.
+pub async fn check_labels(
+    conn: &mut Conn,
+    folder: &str,
+    keyword: &str,
+    message_id: &str,
+    subject: &str,
+) -> Result<crate::acl::LabelCheck> {
+    match conn {
+        Conn::Imap(c) => imap::check_labels(c, folder, keyword, message_id, subject).await,
+        Conn::Ews(_) => Ok(crate::acl::LabelCheck::Saves),
     }
 }
 

@@ -343,6 +343,43 @@ impl PermanentFlags {
     }
 }
 
+/// The outcome of the "check labels on a test message" run (#42, frame 9): the server
+/// either keeps own labels, refuses to, or claimed it would but lost the label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LabelCheck {
+    /// The test message kept its label after a re-read.
+    Saves,
+    /// The server keeps only standard flags, or lost the label written to it.
+    NotSaves,
+    /// `PERMANENTFLAGS` promised `\*`, but the label did not survive the re-read.
+    ClaimedButLost,
+}
+
+impl LabelCheck {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Saves => "saves",
+            Self::NotSaves => "not-saves",
+            Self::ClaimedButLost => "claimed-but-lost",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "saves" => Self::Saves,
+            "not-saves" => Self::NotSaves,
+            "claimed-but-lost" => Self::ClaimedButLost,
+            _ => return None,
+        })
+    }
+
+    /// Whether the label is kept on the server: the "where stored" line reads it.
+    pub fn saves(self) -> bool {
+        self == Self::Saves
+    }
+}
+
 /// The props the cache keeps and the folder card shows. `rights` and `labels_on_server`
 /// may be unknown (a server without ACL); `refused` is the last refusal remembered here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,6 +393,8 @@ pub struct FolderProps {
     pub labels_on_server: Option<bool>,
     /// The PERMANENTFLAGS the server listed, for the details.
     pub permanent: Vec<String>,
+    /// The outcome of the "check labels on a test message" run; None when never checked (#42, frame 9).
+    pub label_check: Option<LabelCheck>,
     /// The remembered refusal in this folder (`no-rights`), if any.
     pub refused: Option<String>,
     /// When the props were read, Unix time; 0 when never.
@@ -371,6 +410,7 @@ impl Default for FolderProps {
             rights: None,
             labels_on_server: None,
             permanent: Vec::new(),
+            label_check: None,
             refused: None,
             checked: 0,
         }
@@ -566,5 +606,16 @@ mod tests {
         let kw = vec![keyword_of("Счета"), "$Forwarded".into(), keyword_of("Клиент Север")];
         assert_eq!(label_names(&kw, &known), ["Клиент Север", "Счета"]);
         assert!(label_names(&["$Forwarded".into()], &known).is_empty());
+    }
+
+    #[test]
+    fn tells_the_outcome_of_a_label_check() {
+        assert!(LabelCheck::Saves.saves());
+        assert!(!LabelCheck::NotSaves.saves());
+        assert!(!LabelCheck::ClaimedButLost.saves());
+        for c in [LabelCheck::Saves, LabelCheck::NotSaves, LabelCheck::ClaimedButLost] {
+            assert_eq!(LabelCheck::parse(c.as_str()), Some(c));
+        }
+        assert_eq!(LabelCheck::parse("unknown"), None);
     }
 }

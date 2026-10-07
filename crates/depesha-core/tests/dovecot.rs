@@ -693,17 +693,23 @@ async fn labels_and_namespace_over_starttls() {
     }
     imap::append(&mut conn, "INBOX", &mail("Метки", 0), "").await.unwrap();
 
-    // The folder's rights and permanent flags: EXAMINE and MYRIGHTS read, write nothing.
+    // The folder's rights and permanent flags: MYRIGHTS and a SELECT read, write nothing.
     let (rights, permanent) = imap::folder_props(&mut conn, "INBOX").await.unwrap();
-    // Dovecot's image has no ACL: the rights are unknown, not "no rights".
-    assert!(rights.is_none(), "{rights:?}");
+    // The ACL plugin is what the shared compose.test.yaml adds; a stand without it (an older
+    // container another session recreated) answers no rights, and these checks are skipped.
+    if let Some(rights) = rights {
+        assert!(
+            rights.read && rights.write && rights.insert && !rights.read_only(),
+            "{rights:?}"
+        );
+        // The namespaces: the personal one and the public namespace the stand adds (`shared/`).
+        let ns = imap::namespace(&mut conn).await.unwrap();
+        assert!(!ns.personal.is_empty(), "{ns:?}");
+        assert_eq!(ns.shared.first().map(|n| n.prefix.as_str()), Some("shared/"), "{ns:?}");
+        assert!(ns.other_users.is_empty(), "{ns:?}");
+    }
     // A real Dovecot lists `\*` in PERMANENTFLAGS: own keywords may be created here.
     assert!(permanent.labels_on_server(), "{permanent:?}");
-
-    // The namespaces: the personal one names the user's folders, the rest is empty here.
-    let ns = imap::namespace(&mut conn).await.unwrap();
-    assert!(!ns.personal.is_empty(), "{ns:?}");
-    assert!(ns.shared.is_empty() && ns.other_users.is_empty(), "{ns:?}");
 
     // A keyword set on a message comes back after a fresh read: the label lives on the server.
     let keyword = depesha_core::acl::keyword_of("Счета");
@@ -718,6 +724,125 @@ async fn labels_and_namespace_over_starttls() {
         .unwrap();
     assert!(
         !imap::fetch_keywords(&mut conn, "INBOX", 1)
+            .await
+            .unwrap()
+            .contains(&keyword)
+    );
+}
+
+/// The ACL plugin and the public read-only namespace the test image adds (#42). MYRIGHTS
+/// answers "only read" for the shared folder, a move out of it is refused with [NOPERM],
+/// and the folder is grouped under its owner from NAMESPACE. Skipped when the image has
+/// no ACL plugin (an older compose.test.yaml): the shared folder is simply not there.
+#[tokio::test]
+async fn shared_folder_rights_and_refusals_over_starttls() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("acl").await;
+
+    // The public namespace the image adds, seen as a namespace of its own.
+    let ns = imap::namespace(&mut conn).await.unwrap();
+    let Some(shared_ns) = ns.shared.first() else {
+        // An image without the ACL/shared config (compose.test.yaml not restarted): skip.
+        return;
+    };
+    assert_eq!(shared_ns.prefix, "shared/", "{ns:?}");
+
+    // The folder the seed made, and the rights the dovecot-acl grants: lookup and read.
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "acl").await.unwrap();
+    let listed = store.folders(Some("acl")).unwrap();
+    assert!(
+        listed.iter().any(|f| f.folder.name == "shared/ReadOnly"),
+        "no shared folder: {listed:?}"
+    );
+
+    // MYRIGHTS and PERMANENTFLAGS without writing: only read, no own labels.
+    let (rights, permanent) = imap::folder_props(&mut conn, "shared/ReadOnly").await.unwrap();
+    assert_eq!(rights.map(|r| r.letters()), Some("lr".into()), "{rights:?}");
+    assert!(rights.unwrap().read_only(), "only read");
+    assert!(!permanent.labels_on_server(), "only standard flags here: {permanent:?}");
+
+    // The owner from NAMESPACE: a shared folder, not the user's own.
+    assert_eq!(ns.owner_of("shared/ReadOnly"), Some(depesha_core::acl::Owner::Shared));
+
+    // A move out is a delete and an expunge: the server refuses with [NOPERM], and the
+    // letter stays where it was.
+    let uids = imap::find_by_message_id(&mut conn, "shared/ReadOnly", "shared-ro@example.org")
+        .await
+        .unwrap();
+    assert_eq!(uids.len(), 1, "the seeded letter");
+    let err = imap::move_messages(&mut conn, "shared/ReadOnly", None, &uids, "INBOX")
+        .await
+        .expect_err("the server must refuse");
+    assert!(err.no_rights(), "{err:?}");
+    assert_eq!(err.kind(), "no-rights");
+    let still = imap::find_by_message_id(&mut conn, "shared/ReadOnly", "shared-ro@example.org")
+        .await
+        .unwrap();
+    assert_eq!(still.len(), 1, "the letter returned on its own: it was never moved");
+
+    // The refusal is remembered for this folder alone.
+    store.refuse_folder("acl", "shared/ReadOnly", "no-rights", 1).unwrap();
+    assert_eq!(
+        store
+            .folder_prop("acl", "shared/ReadOnly")
+            .unwrap()
+            .unwrap()
+            .refused
+            .as_deref(),
+        Some("no-rights")
+    );
+}
+
+/// The label check on a test message (#9, frame 9): a test letter is put into the folder,
+/// a label stored on it, read back, and both taken away again. A real Dovecot keeps own
+/// keywords in INBOX, so the result is "saves"; the test letter never stays behind.
+#[tokio::test]
+async fn a_label_check_leaves_no_test_message_over_starttls() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("check").await;
+    // A letter of the user's own, untouched by the check.
+    imap::append(&mut conn, "INBOX", &mail("Своё", 1), "").await.unwrap();
+
+    let keyword = depesha_core::acl::keyword_of("depesha-test");
+    let outcome = imap::check_labels(
+        &mut conn,
+        "INBOX",
+        &keyword,
+        "check-test-1@depesha.local",
+        "Депеша: проверка меток",
+    )
+    .await
+    .unwrap();
+    // A real Dovecot keeps own keywords: the label survives the re-read.
+    assert_eq!(outcome, depesha_core::acl::LabelCheck::Saves, "{outcome:?}");
+    assert!(outcome.saves());
+
+    // The test letter is gone; the user's letter stays.
+    let left = imap::find_by_message_id(&mut conn, "INBOX", "check-test-1@depesha.local")
+        .await
+        .unwrap();
+    assert!(left.is_empty(), "the test letter was deleted: {left:?}");
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "INBOX", "1.Своё@example.org")
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "the user's letter stays"
+    );
+
+    // The check leaves no label of its own on any message.
+    let uids = imap::find_by_message_id(&mut conn, "INBOX", "1.Своё@example.org")
+        .await
+        .unwrap();
+    let u = uids[0];
+    assert!(
+        !imap::fetch_keywords(&mut conn, "INBOX", u)
             .await
             .unwrap()
             .contains(&keyword)

@@ -8,7 +8,7 @@ use rusqlite::{Connection, params};
 
 use super::Store;
 use crate::Result;
-use crate::acl::{FolderProps, Label, Namespace, Owner};
+use crate::acl::{FolderProps, Label, LabelCheck, Namespace, Owner};
 
 /// 12: labels, folder props (rights, permanent flags, owner, remembered refusal),
 /// per-message keywords, and the account's namespaces.
@@ -33,6 +33,7 @@ pub(super) fn v12_labels_and_rights(conn: &Connection) -> Result<()> {
              rights           TEXT,
              labels_on_server INTEGER,
              permanent        TEXT NOT NULL DEFAULT '[]',
+             label_check      TEXT,
              refused          TEXT,
              checked          INTEGER NOT NULL DEFAULT 0,
              PRIMARY KEY (account_id, folder)
@@ -116,7 +117,7 @@ impl Store {
         Ok(self
             .conn()
             .query_row(
-                "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, refused, checked
+                "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, label_check, refused, checked
                  FROM folder_props WHERE account_id = ?1 AND folder = ?2",
                 params![account_id, folder],
                 row_props,
@@ -128,12 +129,12 @@ impl Store {
     pub fn folder_props(&self, account_id: &str) -> Result<Vec<FolderProps>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, refused, checked, folder
+            "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, label_check, refused, checked, folder
              FROM folder_props WHERE account_id = ?1",
         )?;
         let rows = stmt.query_map([account_id], |r| {
             let mut p = row_props(r)?;
-            p.folder = r.get(8)?;
+            p.folder = r.get(9)?;
             Ok(p)
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -149,8 +150,8 @@ impl Store {
         let (kind, name) = owner_parts(&props.owner);
         self.conn().execute(
             "INSERT INTO folder_props
-                (account_id, folder, display_name, owner_kind, owner_name, rights, labels_on_server, permanent, refused, checked)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                (account_id, folder, display_name, owner_kind, owner_name, rights, labels_on_server, permanent, label_check, refused, checked)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT (account_id, folder) DO UPDATE SET
                 display_name = excluded.display_name,
                 owner_kind = COALESCE(NULLIF(excluded.owner_kind, 'mine'), folder_props.owner_kind),
@@ -158,6 +159,7 @@ impl Store {
                 rights = COALESCE(excluded.rights, folder_props.rights),
                 labels_on_server = COALESCE(excluded.labels_on_server, folder_props.labels_on_server),
                 permanent = excluded.permanent,
+                label_check = COALESCE(excluded.label_check, folder_props.label_check),
                 refused = excluded.refused,
                 checked = excluded.checked",
             params![
@@ -169,9 +171,21 @@ impl Store {
                 rights,
                 labels,
                 permanent,
+                props.label_check.map(LabelCheck::as_str),
                 props.refused,
                 props.checked
             ],
+        )?;
+        Ok(())
+    }
+
+    /// Keeps the outcome of a label check on a test message (#42, frame 9); it sets the
+    /// "where stored" line of the folder until a new check. A `None` clears it.
+    pub fn set_label_check(&self, account_id: &str, folder: &str, check: Option<LabelCheck>, at: i64) -> Result<()> {
+        self.conn().execute(
+            "INSERT INTO folder_props (account_id, folder, label_check, checked) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (account_id, folder) DO UPDATE SET label_check = excluded.label_check, checked = excluded.checked",
+            params![account_id, folder, check.map(LabelCheck::as_str), at],
         )?;
         Ok(())
     }
@@ -288,8 +302,9 @@ fn row_props(r: &rusqlite::Row<'_>) -> rusqlite::Result<FolderProps> {
         rights: rights.map(|s| crate::acl::Rights::from_letters(&s)),
         labels_on_server: r.get::<_, Option<i64>>(4)?.map(|v| v != 0),
         permanent: serde_json::from_str(&permanent).unwrap_or_default(),
-        refused: r.get(6)?,
-        checked: r.get(7)?,
+        label_check: r.get::<_, Option<String>>(6)?.and_then(|s| LabelCheck::parse(&s)),
+        refused: r.get(7)?,
+        checked: r.get(8)?,
     })
 }
 
@@ -356,6 +371,7 @@ mod tests {
             rights: Some(Rights::from_letters("rs")),
             labels_on_server: Some(false),
             permanent: vec!["Seen".into()],
+            label_check: None,
             refused: None,
             checked: 100,
         };
@@ -375,6 +391,7 @@ mod tests {
             rights: None,
             labels_on_server: None,
             permanent: vec![],
+            label_check: None,
             refused: None,
             checked: 200,
         };
@@ -404,6 +421,52 @@ mod tests {
                 .refused
                 .is_none()
         );
+    }
+
+    #[test]
+    fn keeps_the_outcome_of_a_label_check() {
+        use crate::acl::LabelCheck;
+        let store = mailbox();
+        assert!(store.folder_prop("a", "INBOX").unwrap().is_none());
+        // A run that ended well: the labels are kept on the server.
+        store
+            .set_label_check("a", "INBOX", Some(LabelCheck::Saves), 100)
+            .unwrap();
+        let got = store.folder_prop("a", "INBOX").unwrap().unwrap();
+        assert_eq!(got.label_check, Some(LabelCheck::Saves));
+        assert_eq!(got.checked, 100);
+        // A later check replaces it: the server claimed support but lost the label.
+        store
+            .set_label_check("a", "INBOX", Some(LabelCheck::ClaimedButLost), 200)
+            .unwrap();
+        assert_eq!(
+            store.folder_prop("a", "INBOX").unwrap().unwrap().label_check,
+            Some(LabelCheck::ClaimedButLost)
+        );
+        // A properties read does not wipe the outcome.
+        store
+            .save_folder_props(
+                "a",
+                &FolderProps {
+                    folder: "INBOX".into(),
+                    display_name: "INBOX".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store.folder_prop("a", "INBOX").unwrap().unwrap().label_check,
+            Some(LabelCheck::ClaimedButLost)
+        );
+        // Cleared by a `None`, so the "where stored" line goes back to "not confirmed".
+        store.set_label_check("a", "INBOX", None, 300).unwrap();
+        assert!(store.folder_prop("a", "INBOX").unwrap().unwrap().label_check.is_none());
+        // Forgetting the mailbox takes it away.
+        store
+            .set_label_check("a", "INBOX", Some(LabelCheck::NotSaves), 400)
+            .unwrap();
+        store.forget_account("a").unwrap();
+        assert!(store.folder_prop("a", "INBOX").unwrap().is_none());
     }
 
     #[test]

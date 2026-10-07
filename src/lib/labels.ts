@@ -130,3 +130,26 @@ export function labelNames(keywords: string[], labels: Label[]): string[] {
   const found = labels.filter((l) => keywords.includes(l.keyword)).map((l) => l.name);
   return [...new Set(found)].sort();
 }
+
+/** Что случилось с действием, которое оптимистично убрало письмо, а сервер отказал (#42, кадр 8). */
+export type Refusal = "no-rights" | "error" | "no-answer";
+
+/** Какое из трёх уведомлений показать по ответу сервера: нет прав, ошибка, нет ответа.
+ *  Три разных вида, потому что и делать с ними надо разное (#11). */
+export function refusalOf(kind: string): Refusal | null {
+  if (kind === "no-rights") return "no-rights";
+  if (kind === "network") return "no-answer";
+  // Всё остальное — сервер ответил, но не так: не права и не обрыв.
+  if (["other", "imap-unavailable", "not-found", "folder-changed", "too-large"].includes(kind)) return "error";
+  return null;
+}
+
+/** Итог проверки меток на тестовом письме (кадр 9): сохраняет, не сохраняет или обещал и потерял. */
+export type LabelCheck = "saves" | "not-saves" | "claimed-but-lost";
+
+/** Строка «где хранятся» у выбора меток: по итогу проверки папки. `null` — не проверяли. */
+export function storageOf(check: LabelCheck | null | undefined): "server" | "local" | "unconfirmed" {
+  if (check === "saves") return "server";
+  if (check === "not-saves") return "local";
+  return "unconfirmed";
+}

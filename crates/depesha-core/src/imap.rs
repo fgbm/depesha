@@ -14,7 +14,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
-use crate::acl::{Namespace, PermanentFlags, Rights};
+use crate::acl::{LabelCheck, Namespace, PermanentFlags, Rights};
 pub use crate::query::Criterion;
 use crate::tr;
 use crate::watchdog::Watchdog;
@@ -767,6 +767,84 @@ pub async fn fetch_keywords(conn: &mut Conn, folder: &str, uid: u32) -> Result<V
         .find(|f| f.uid == Some(uid))
         .map(|f| keywords_of(f.flags()))
         .unwrap_or_default())
+}
+
+/// Checks own labels on a test message (#42, frame 9): appends a test letter to `folder`,
+/// stores `keyword` on it, reads it back through a fresh SELECT, and removes both again.
+/// The test letter is deleted on every path, a failure included. Returns what the server
+/// did with the label, told apart by whether `PERMANENTFLAGS` promised `\*` (RFC 3501).
+///
+/// `message_id` is the Message-ID of the test letter, so a caller can look it up if the
+/// run is interrupted before the delete; `subject` is what the letter says.
+pub async fn check_labels(
+    conn: &mut Conn,
+    folder: &str,
+    keyword: &str,
+    message_id: &str,
+    subject: &str,
+) -> Result<LabelCheck> {
+    let raw = format!(
+        "From: Depesha <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: {subject}\r\n\
+         Message-ID: <{message_id}>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{subject}\r\n"
+    );
+    // APPEND with \Seen, so the test letter does not show unread on the user's phone.
+    append(conn, folder, raw.as_bytes(), "\\Seen").await?;
+    let uids = find_by_message_id(conn, folder, message_id).await?;
+    let Some(&uid) = uids.first() else {
+        // Appended but not found: nothing to check, nothing to delete.
+        return Ok(LabelCheck::NotSaves);
+    };
+    // From here the test letter must go away whatever happens.
+    let outcome = labels_round(conn, folder, uid, keyword).await;
+    let _ = remove_uids(conn, folder, &[uid]).await;
+    outcome
+}
+
+async fn labels_round(conn: &mut Conn, folder: &str, uid: u32, keyword: &str) -> Result<LabelCheck> {
+    // The server promised `\*` in this folder: whether a lost label is "claimed but lost".
+    let promised = conn
+        .session
+        .select(folder)
+        .await
+        .map(|m| permanent_flags(&m.permanent_flags).labels_on_server())
+        .unwrap_or(false);
+    // Store the label, then read it back the plain way: a fresh FETCH of the flags.
+    let set = uid.to_string();
+    let _: Vec<_> = conn
+        .session
+        .uid_store(&set, format!("+FLAGS.SILENT ({keyword})"))
+        .await?
+        .try_collect()
+        .await?;
+    conn.session.select(folder).await?;
+    let fetches: Vec<_> = conn.session.uid_fetch(&set, "(UID FLAGS)").await?.try_collect().await?;
+    let kept = fetches
+        .iter()
+        .filter(|f| f.uid == Some(uid))
+        .any(|f| keywords_of(f.flags()).iter().any(|k| k == keyword));
+    Ok(if kept {
+        LabelCheck::Saves
+    } else if promised {
+        LabelCheck::ClaimedButLost
+    } else {
+        LabelCheck::NotSaves
+    })
+}
+
+/// Removes messages for good, tolerating their absence (the check's test letter).
+async fn remove_uids(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> {
+    let _ = conn.session.select(folder).await;
+    let set = uid_set(uids);
+    let _: Vec<_> = conn
+        .session
+        .uid_store(&set, "+FLAGS.SILENT (\\Deleted)")
+        .await?
+        .try_collect()
+        .await?;
+    if conn.caps.uidplus {
+        let _: Vec<_> = conn.session.uid_expunge(set).await?.try_collect().await?;
+    }
+    Ok(())
 }
 
 /// Full RFC 822 source, without setting \Seen.
