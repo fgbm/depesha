@@ -680,8 +680,8 @@ async fn a_forward_and_an_answer_set_here_come_back_with_the_sync() {
 
 /// Labels on Dovecot: `PERMANENTFLAGS` says whether own keywords may be created here,
 /// NAMESPACE names the shared namespaces, and a keyword set on a message stays after a
-/// re-read. Dovecot's test image has no ACL plugin, so MYRIGHTS is refused: the rights
-/// are unknown, which the test tells apart from "no rights".
+/// re-read. The stand carries the ACL plugin (docker/dovecot-acl.conf), so MYRIGHTS must
+/// answer: a stand without it is a broken stand, not a reason to skip the checks.
 #[tokio::test]
 async fn labels_and_namespace_over_starttls() {
     if !enabled() {
@@ -695,19 +695,18 @@ async fn labels_and_namespace_over_starttls() {
 
     // The folder's rights and permanent flags: MYRIGHTS and a SELECT read, write nothing.
     let (rights, permanent) = imap::folder_props(&mut conn, "INBOX").await.unwrap();
-    // The ACL plugin is what the shared compose.test.yaml adds; a stand without it (an older
-    // container another session recreated) answers no rights, and these checks are skipped.
-    if let Some(rights) = rights {
-        assert!(
-            rights.read && rights.write && rights.insert && !rights.read_only(),
-            "{rights:?}"
-        );
-        // The namespaces: the personal one and the public namespace the stand adds (`shared/`).
-        let ns = imap::namespace(&mut conn).await.unwrap();
-        assert!(!ns.personal.is_empty(), "{ns:?}");
-        assert_eq!(ns.shared.first().map(|n| n.prefix.as_str()), Some("shared/"), "{ns:?}");
-        assert!(ns.other_users.is_empty(), "{ns:?}");
-    }
+    // The ACL plugin is part of the stand (docker/dovecot-acl.conf): an answer of "no
+    // rights" means the stand lacks it, and the test fails rather than skipping.
+    let rights = rights.expect("MYRIGHTS must answer: the stand carries the ACL plugin");
+    assert!(
+        rights.read && rights.write && rights.insert && !rights.read_only(),
+        "{rights:?}"
+    );
+    // The namespaces: the personal one and the public namespace the stand adds (`shared/`).
+    let ns = imap::namespace(&mut conn).await.unwrap();
+    assert!(!ns.personal.is_empty(), "{ns:?}");
+    assert_eq!(ns.shared.first().map(|n| n.prefix.as_str()), Some("shared/"), "{ns:?}");
+    assert!(ns.other_users.is_empty(), "{ns:?}");
     // A real Dovecot lists `\*` in PERMANENTFLAGS: own keywords may be created here.
     assert!(permanent.labels_on_server(), "{permanent:?}");
 
@@ -730,10 +729,10 @@ async fn labels_and_namespace_over_starttls() {
     );
 }
 
-/// The ACL plugin and the public read-only namespace the test image adds (#42). MYRIGHTS
+/// The ACL plugin and the public read-only namespace the stand adds (#42). MYRIGHTS
 /// answers "only read" for the shared folder, a move out of it is refused with [NOPERM],
-/// and the folder is grouped under its owner from NAMESPACE. Skipped when the image has
-/// no ACL plugin (an older compose.test.yaml): the shared folder is simply not there.
+/// and the folder is grouped under its owner from NAMESPACE. Both the ACL plugin and the
+/// namespace are part of docker/dovecot-acl.conf: their absence fails the test.
 #[tokio::test]
 async fn shared_folder_rights_and_refusals_over_starttls() {
     if !enabled() {
@@ -741,12 +740,12 @@ async fn shared_folder_rights_and_refusals_over_starttls() {
     }
     let mut conn = connect("acl").await;
 
-    // The public namespace the image adds, seen as a namespace of its own.
+    // The public namespace the stand adds, seen as a namespace of its own.
     let ns = imap::namespace(&mut conn).await.unwrap();
-    let Some(shared_ns) = ns.shared.first() else {
-        // An image without the ACL/shared config (compose.test.yaml not restarted): skip.
-        return;
-    };
+    let shared_ns = ns
+        .shared
+        .first()
+        .expect("the stand adds the shared namespace (docker/dovecot-acl.conf)");
     assert_eq!(shared_ns.prefix, "shared/", "{ns:?}");
 
     // The folder the seed made, and the rights the dovecot-acl grants: lookup and read.
