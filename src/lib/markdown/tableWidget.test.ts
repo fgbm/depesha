@@ -36,3 +36,16 @@ describe("the grips of a Markdown table", () => {
     expect(dom.querySelectorAll(".md-table-grip-btn.cur")).toHaveLength(0);
   });
 });
+
+describe("a cell of a Markdown table", () => {
+  it("holds its column open to the longest word, breaking no word in half", () => {
+    // A cell's text keeps its column as wide as the content (decision on #45, frame 4А of the
+    // 0.7 mockup): a long word holds the column open and a wide table scrolls sideways instead
+    // of the words breaking. jsdom lays nothing out, so the cell's own styles are what is read.
+    const dom = new TableView(0, TABLE).toDOM(viewOf());
+    const cell = dom.querySelector<HTMLElement>('[data-cell="0:1"]')!;
+    expect(cell.style.minWidth).toBe("max-content");
+    expect(cell.style.wordBreak).not.toBe("break-all");
+    expect(cell.style.overflowWrap).not.toBe("anywhere");
+  });
+});
