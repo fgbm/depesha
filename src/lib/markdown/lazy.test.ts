@@ -40,6 +40,20 @@ describe("the Markdown editor stays out of the main chunk", () => {
     expect(wrong).toEqual([]);
   });
 
+  it("keeps the syntax highlighter out of the main chunk too", () => {
+    // syntax.ts serves the editor (from its own chunk) and the reader (loaded by import());
+    // a static import anywhere else would pull it into the main chunk (decision on #45).
+    const wrong: string[] = [];
+    for (const file of [...files(join(root, "src")), ...files(join(root, "plugins"))]) {
+      const rel = relative(root, file);
+      if (rel.startsWith("src/lib/markdown/")) continue;
+      for (const spec of staticImports(readFileSync(file, "utf8"))) {
+        if (/(^|\/)syntax$/.test(spec)) wrong.push(`${rel}: ${spec}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("finds the imports it checks", () => {
     expect(staticImports('import { a } from "@codemirror/view";\nimport type { B } from "./markdown/field";\nimport "./x";')).toEqual([
       "@codemirror/view",
