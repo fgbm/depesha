@@ -74,7 +74,7 @@ export const HINTS: HintSpec[] = [
 
 /** One entry of the registry about one person. */
 export function hintAbout(spec: HintSpec, email: string, who: string): Hint {
-  return { id: spec.id, subject: email.trim().toLowerCase(), text: spec.text, accept: spec.accept };
+  return { id: spec.id, subject: email.trim().toLowerCase(), text: spec.text(who), accept: spec.accept };
 }
 
 /** The limits of frame 16: one hint at a time, three a day, and the pauses after «no». */

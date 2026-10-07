@@ -14,6 +14,8 @@
   import { accountLabel, avatarColor, initials, longDate, size } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
   import Recipients from "../Recipients.svelte";
+  import Popover from "../Popover.svelte";
+  import PersonCard from "./PersonCard.svelte";
   import type { AccountView, OpenedMessage } from "../../lib/types";
   import type { Snippet } from "svelte";
   import type { AttachmentInfo } from "../../lib/types";
@@ -68,8 +70,13 @@
 
   /** Every letter of this sender, wherever it lies. */
   function fromSender() {
+    card = false;
     if (from?.email) app.setView({ kind: "search", text: `from:${from.email}` });
   }
+
+  /** The card of the sender (#66): what a click on the name opens now; «All mail» in it
+   *  does what the click used to do. */
+  let card = $state(false);
 </script>
 
 <div class="head selectable">
@@ -80,9 +87,16 @@
     </span>
     <div class="who">
       <div>
-        <button class="sender" onclick={fromSender} title={t("reader.fromSender")}>
-          {from?.name ?? from?.email ?? t("list.noSender")}
-        </button>
+        <span class="sender-wrap">
+          <button class="sender" onclick={() => (card = !card)} title={t("person.openCard")}>
+            {from?.name ?? from?.email ?? t("list.noSender")}
+          </button>
+          {#if from?.email}
+            <Popover bind:open={card} align="left">
+              <PersonCard email={from.email} name={from.name ?? ""} onAllMail={fromSender} onClose={() => (card = false)} />
+            </Popover>
+          {/if}
+        </span>
         {#if from?.name}<span class="muted">&lt;{from.email}&gt;</span>{/if}
         {@render headerActions?.()}
       </div>
@@ -227,6 +241,10 @@
     padding: 0;
     font-weight: 700;
     color: inherit;
+  }
+
+  .sender-wrap {
+    display: inline;
   }
 
   .sender:hover {

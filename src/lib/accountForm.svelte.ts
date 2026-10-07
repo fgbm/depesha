@@ -6,7 +6,7 @@ import { app } from "./store.svelte";
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
 import { connectionChanged } from "./connection";
-import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig, Signature, Waiting } from "./types";
+import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig, Signature, ViewRule, Waiting } from "./types";
 
 const DEFAULT_PORT: Record<"imap" | "smtp", Record<Security, number>> = {
   imap: { tls: 993, starttls: 143, plain: 143 },
@@ -78,6 +78,8 @@ export class AccountForm {
   replySignature = $state<string | null>(null);
   /** How new letters from this mailbox are written; "" takes the format from the settings. */
   composeFormat = $state<BodyFormat | "">("");
+  /** How this mailbox's letters are shown; "" takes the form from the settings. */
+  letterView = $state<ViewRule>("");
   attachmentsDir = $state("");
   /** The inbox as a queue: an answer takes the letter to wait in a folder until the reply. */
   waiting = $state<Waiting>({ park: false, folder: "", stop_to_archive: false });
@@ -125,6 +127,7 @@ export class AccountForm {
       this.defaultSignature = e.default_signature ?? null;
       this.replySignature = e.reply_signature ?? null;
       this.composeFormat = e.compose_format ?? "";
+      this.letterView = e.letter_view ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
       if (e.waiting) this.waiting = { ...e.waiting };
       this.quotaWarn = e.quota_warn !== false;
@@ -314,6 +317,7 @@ export class AccountForm {
       quota_limit_mb: limitMb(this.quotaLimitGb),
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;
+    if (this.letterView) acc.letter_view = this.letterView;
     const w = this.waiting;
     if (w.park || w.folder || w.stop_to_archive) acc.waiting = { park: w.park, folder: w.folder, stop_to_archive: w.stop_to_archive };
     if (this.mode === "oauth" && this.provider) acc.auth = { kind: "oauth", provider: this.provider };

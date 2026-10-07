@@ -28,6 +28,7 @@
   import FormatBar from "./FormatBar.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
   import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
+  import RecipientRule from "./RecipientRule.svelte";
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
   import Popover from "./Popover.svelte";
@@ -368,6 +369,8 @@
       {/if}
     </div>
     {#if m.format === "markdown"}<MarkdownPartsNote />{/if}
+
+    <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} onFormat={(f) => void m.setFormat(f)} />
 
     {#if m.format !== "html" && m.quote}
       <div class="quote" class:open={m.quoteOpen}>

@@ -1648,6 +1648,27 @@ try {
     await invoke("settings_set", { settings: { ...settings, letter_view: "sender" } });
   });
 
+  await step("4.13", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
+    const subj = `Карточка ${stamp}`;
+    helper("deliver", subj);
+    await d.button("Входящие");
+    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
+    await openBySubject(subj);
+    // The click on the sender's name opens their card, not the search it used to run.
+    await d.click(await d.find(".reader .sender"));
+    await d.until("person card", async () => (await d.findAll(".pcard")).length === 1);
+    // The card holds the rules of #44: the format to write in and the form to show.
+    const card = await textOf(".pcard");
+    if (!card.includes("Писать ему") || !card.includes("Все письма")) throw new Error(`карточка: ${card.slice(0, 200)}`);
+    // The first button is «All mail» and stands in focus; Enter runs what a click used to.
+    const focused = await d.exec("return document.activeElement?.innerText?.trim() ?? ''");
+    if (focused !== "Все письма") throw new Error(`в фокусе «${focused}», а не «Все письма»`);
+    await screenshot("person-card");
+    await press("Enter");
+    await d.until("search by sender", async () => (await d.exec("return document.querySelector('.list .search input')?.value ?? ''")) === "from:petr@example.org");
+    await rowBySubject(subj, 10000);
+  });
+
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");
