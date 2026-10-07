@@ -23,18 +23,24 @@ import { fileURLToPath } from 'node:url';
 async function loadChromium() {
   try {
     return (await import('playwright')).chromium;
-  } catch {}
+  } catch {
+    /* нет локального Playwright — ищем дальше */
+  }
   const require = createRequire(import.meta.url);
   try {
     return require('playwright').chromium;
-  } catch {}
+  } catch {
+    /* нет в require — ищем в кэше npx */
+  }
   const npx = path.join(homedir(), '.npm', '_npx');
   if (existsSync(npx)) {
     for (const dir of readdirSync(npx)) {
       const req = createRequire(path.join(npx, dir, 'noop.js'));
       try {
         return req('playwright').chromium;
-      } catch {}
+      } catch {
+        /* этот каталог кэша без Playwright */
+      }
     }
   }
   throw new Error('Playwright не найден: npx --yes playwright@1.63 install chromium');
