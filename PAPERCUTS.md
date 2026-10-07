@@ -270,3 +270,31 @@ e2e-проверка подсветки подписи на прокрученн
 ## 2026-10-07 20:40 — deepseek-v4.1-flash
 
 Добавлял Tauri-команды `people`/`hint_save` в src-tauri → одна и та же команда перечисляется в четырёх местах: `build.rs::COMMANDS`, `generate_handler!` в `lib.rs`, `capabilities/main.json` и `capabilities/message.json`; тест `acl_matches_the_commands` требует, чтобы `main.json` совпадал с набором команд ровно, а ошибка всплывает только на `cargo test`, не на `cargo check`. Fix: заводить команду сразу во всех четырёх местах и прогонять `cargo test -p depesha --lib acl_matches_the_commands`.
+
+## 2026-10-07 20:45 — deepseek-v4.1-flash
+
+Проверял в тесте smtp сборку Markdown-письма с подписью → `assert!(raw.contains("<cid>"))` падал: quoted-printable (a) рвёт длинные строки мягким переносом `=\r\n` прямо посреди `cid:66e4…`, (b) сам `=` пишет как `=3D`, поэтому в HTML-части стоит `src=3D"cid:…"`. Fix: проверять тело части после `raw.replace("=\r\n", "")` и `replace("=3D", "=")`, либо брать декодированный `parse_view`, а не сырой вывод `build().formatted()`.
+
+## 2026-10-07 20:46 — deepseek-v4.1-flash
+
+`git add -A ':!node_modules' ':!target'` в worktree с копиями `node_modules` и `target` → команда завершилась кодом 1 с «The following paths are ignored…», ничего не добавив. Fix: перечислять свои пути явно (`git add <файлы>`), как и советует запись про симлинк node_modules от 2026-10-05.
+
+## 2026-10-07 20:55 — deepseek-v4.1-flash
+
+Добавлял ACL-плагин в тестовый Dovecot (compose.test.yaml, worktree) → MYRIGHTS то работает, то «Unknown command»: параллельная сессия из `/home/vch/Projects/depesha-wt/people` гоняет e2e и на `docker compose up` пересоздаёт общий контейнер `depesha-dovecot-1` из СВОЕГО compose-файла, без моих `depends_on`/томов/конфига. Fix: интеграционные тесты, зависящие от конфига стенда, делать терпимыми к его отсутствию (`let Some(..) = rights else { return }`), а конфиг прогонять `--force-recreate dovecot` прямо перед своим прогоном; e2e-прогон другой сессии держится на GreenMail (3143), поэтому пересоздание только dovecot её не ломает.
+
+## 2026-10-07 20:55 — deepseek-v4.1-flash
+
+Включал ACL в образе dovecot/dovecot → одних `mail_plugins { acl = yes }` и `protocol imap { mail_plugins { imap_acl = yes } }` мало: MYRIGHTS отвечает `NO [NONEXISTENT]` или Internal error. Нужен ещё `acl_driver = vfile`; без него плагин загружен, но «ACL not enabled». Публичный namespace в 2.4 описывается через `type = public`, `prefix`, `separator` и `mail_driver`/`mail_path` (старого `location` нет); `mailbox_list_layout = fs` даёт простые имена папок без Maildir++ точки. Права в `dovecot-acl` — словами (`anyone lookup read`), не буквами (`lr` даёт «Unknown ACL 'o'»).
+
+## 2026-10-07 21:10 — deepseek-v4.1-flash
+
+Проверял в e2e, что Enter на кнопке в фокусе запускает действие → хелпер `press("Enter")` в `e2e/run.mjs` шлёт синтетический `KeyboardEvent` на `window`, а браузер на синтетические события не выполняет default action, поэтому фокусная кнопка не нажимается и `until` упирается в таймаут. Fix: нажимать клавишу настоящим событием — `Driver.pressKey` через W3C Actions `/actions` (keyDown/keyUp), либо `sendKeys` по элементу.
+
+## 2026-10-07 21:12 — deepseek-v4.1-flash
+
+Карточка человека в e2e → фокус не вставал на первую кнопку: `Popover.svelte` в своём `$effect` считает `pos` и сразу зовёт `first.focus()`, но `.pop` на этот момент ещё имеет `visibility:hidden` (стиль применится только следующим тиком), а скрытый элемент не фокусируется. Fix: фокусировать через `requestAnimationFrame` после того, как позиция применена (сделано в `PersonCard`; общий фокус в `Popover` по-прежнему может не срабатывать на первом открытии).
+
+## 2026-10-07 21:14 — deepseek-v4.1-flash
+
+Прогон e2e из worktree с общими контейнерами `depesha-*` → контейнеры подняты, но живого `run.mjs`/`WebKitWebDriver` нет (`pgrep` пуст), то есть это остатки чужого/прошлого прогона; шаг 3.7 один раз упал на `imap_helper.py ... socket error: EOF` (GreenMail), при повторном прогоне 80/80. Fix: считать контейнеры занятыми по наличию живого `run.mjs`/драйвера, а не по факту `docker ps`; одиночные EOF хелпера к GreenMail проверять повторным прогоном, а не искать причину в правках.
