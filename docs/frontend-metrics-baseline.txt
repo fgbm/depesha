@@ -22,7 +22,7 @@ component	src/components/Preferences.svelte	411	180	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
 component	src/components/Recipients.svelte	70	28	20	22
-component	src/components/RichEditor.svelte	457	280	42	135
+component	src/components/RichEditor.svelte	490	313	42	135
 component	src/components/RowMenu.svelte	128	72	49	7
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
@@ -237,6 +237,8 @@ function	src/components/RichEditor.svelte::changed#2	3
 function	src/components/RichEditor.svelte::insertHtml	3
 function	src/components/RichEditor.svelte::insertText	4
 function	src/components/RichEditor.svelte::focus	13
+function	src/components/RichEditor.svelte::focusBefore	4
+function	src/components/RichEditor.svelte::placeBefore	17
 function	src/components/RichEditor.svelte::element	3
 function	src/components/RichEditor.svelte::selection	3
 function	src/components/RichEditor.svelte::pasted	7
@@ -603,6 +605,8 @@ function	src/lib/sort.ts::senderKey	4
 function	src/lib/sort.ts::value	23
 function	src/lib/sort.ts::compareRows	14
 function	src/lib/store.test.ts::acc	2
+function	src/lib/store.test.ts::accWith	7
+function	src/lib/store.test.ts::typing	9
 function	src/lib/testing.ts::emit	5
 function	src/lib/testing.ts::settings	28
 function	src/lib/testing.ts::resetFakes	23

@@ -8,7 +8,7 @@
 import { onMount, untrack } from "svelte";
 import { api } from "../api";
 import { convertDraft, losesFormatting, takeBodyPictures } from "../compose";
-import { GAP, htmlToText, letterText, splitHtmlQuote } from "../richtext";
+import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote } from "../richtext";
 import { cleanEditorHtml } from "../sanitize";
 import { pictureName, picturesSize, type Picture } from "../images";
 import {
@@ -42,6 +42,9 @@ export interface ComposeFormatHost {
 
 /** The pictures of an HTML letter are weighed this long after typing pauses. */
 const PICTURES_MS = 300;
+
+/** Depesha's own blocks in the letter: the signature and the quote the words belong above. */
+const DEPESHA_BLOCKS = `.${SIGNATURE_CLASS}, .${QUOTE_CLASS}`;
 
 export class ComposeFormat {
   /** A plain letter: the field has what is typed, the signature stands under it, a reply's
@@ -192,9 +195,19 @@ export class ComposeFormat {
   private placeCaret() {
     const { draft } = this.host.win;
     if (this.format === "html") {
-      if (draft.to.length && this.htmlBody.startsWith(GAP)) {
+      // A fresh reply or a new letter begins with the empty line above the signature:
+      // the caret goes to the top. Unfolded from the quick answer the words already stand
+      // there, so the caret goes into that empty line instead, the signature staying below (#61).
+      if (this.htmlBody.startsWith(GAP)) {
+        if (draft.to.length) {
+          this.placed = true;
+          this.rich?.focus(true);
+        }
+      } else if (this.host.win.unsaved && draft.to.length) {
+        // Words already typed over the block the reply keeps below: put the caret in the
+        // empty line above it, signature or quote, not at the very top and not at the end (#61).
         this.placed = true;
-        this.rich?.focus(true);
+        this.rich?.focusBefore(DEPESHA_BLOCKS);
       }
       return;
     }

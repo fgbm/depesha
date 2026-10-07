@@ -10,7 +10,7 @@ import { api } from "../../lib/api";
 import { app } from "../../lib/store.svelte";
 import { formatFor, reply } from "../../lib/compose";
 import { defaultSignature, withSignature } from "../../lib/signatures";
-import { GAP, htmlLetterText, paragraphsHtml } from "../../lib/richtext";
+import { htmlLetterText, paragraphsHtml } from "../../lib/richtext";
 import { sendWarnings } from "../../lib/sendChecks";
 import type { ComposeDraft } from "../../lib/types";
 
@@ -96,8 +96,9 @@ export class QuickReplyState {
 
   private draft(q: NonNullable<typeof this.quick>): ComposeDraft {
     if (q.draft.format !== "html") return { ...q.draft, text: this.text.trimEnd() + q.draft.text };
-    // In an HTML mailbox: paragraphs by empty lines, addresses as links, above the signature and quote.
-    const html = paragraphsHtml(this.text) + (q.draft.html ?? "").replace(GAP, "");
+    // In an HTML mailbox: paragraphs by empty lines, addresses as links, above the empty line
+    // the reply keeps over its signature — not instead of it, or the caret has nowhere to go (#61).
+    const html = paragraphsHtml(this.text) + (q.draft.html ?? "");
     return { ...q.draft, html, text: htmlLetterText(html) };
   }
 

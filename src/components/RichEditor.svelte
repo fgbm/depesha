@@ -49,6 +49,8 @@
   let empty = $state(true);
   /** Where the caret was last in the block: a picture or a link from a menu goes there. */
   let lastRange: Range | null = null;
+  /** A caret asked for just above a block, put once the letter is rendered (#61). */
+  let beforeSelector: string | null = null;
 
   function measure() {
     // The browser leaves a lone <br> in a block that was cleared.
@@ -82,6 +84,7 @@
     picked = null;
     measure();
     place();
+    placeBefore();
   });
 
   onMount(() => {
@@ -156,6 +159,36 @@
       sel?.addRange(range);
       el.scrollTop = 0;
     }
+  }
+
+  /**
+   * Puts the caret in the empty line just above the first block matching `selector`: an
+   * answer unfolded with words already typed goes on there, its signature and quote below
+   * (#61). Nothing when that empty line is not there. The letter is rendered by an effect
+   * that may run after this call, so the attempt is remade once it has been.
+   */
+  export function focusBefore(selector: string) {
+    beforeSelector = selector;
+    placeBefore();
+  }
+
+  /** Applies the pending placement, if the block is rendered by now. */
+  function placeBefore() {
+    if (!beforeSelector || !el) return;
+    const node = el.querySelector<Element>(beforeSelector);
+    if (!node) return;
+    // The block is rendered: this was the one attempt, whatever it finds.
+    beforeSelector = null;
+    const gap = node.previousElementSibling;
+    // A lone <br> is the browser's mark of an empty block; a picture or a list item is no line.
+    if (!gap || gap.textContent?.trim() || gap.querySelector("img, li, blockquote, hr")) return;
+    el.focus();
+    const range = document.createRange();
+    range.setStart(gap, 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
   }
 
   export function element(): HTMLDivElement | null {

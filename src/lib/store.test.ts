@@ -10,8 +10,9 @@ import { AppStore, app } from "./store.svelte";
 import { extensions } from "./extensions.svelte";
 import { i18n } from "./i18n.svelte";
 import { QuickReplyState } from "../components/reader/useQuickReply.svelte";
+import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, findBlock } from "./richtext";
 import { api, emit, eventModule, flush, handlers, opened, resetFakes, row, settings } from "./testing";
-import type { AccountView, Extension } from "./types";
+import type { AccountView, BodyFormat, Extension } from "./types";
 
 beforeEach(() => {
   resetFakes();
@@ -150,6 +151,65 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
     s.reader.opened = opened(row(1, { account_id: "b" }));
     s.openMailto("mailto:someone@example.org");
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
+  });
+});
+
+describe("the quick answer unfolded into a window", () => {
+  /** A mailbox writing in `format`, with one signature of its own. */
+  const accWith = (id: string, format: BodyFormat): AccountView =>
+    ({
+      ...acc(id),
+      compose_format: format,
+      default_signature: "s1",
+      signatures: [{ id: "s1", name: "Me", html: "<div>Ann</div>", text: "Ann" }],
+    }) as unknown as AccountView;
+
+  /** A quick answer to a letter in this mailbox, with `text` typed into it. */
+  function typing(account: AccountView, text: string): QuickReplyState {
+    app.accounts = [account];
+    app.settings = { ...settings(), default_account_id: account.id };
+    app.reader.opened = opened(row(1, { account_id: account.id }));
+    const quick = new QuickReplyState({ keptAsDraft: () => {} });
+    quick.openQuick(false);
+    quick.text = text;
+    return quick;
+  }
+
+  const unfolded = () => app.compose.windows.at(-1)!.draft;
+  const count = (html: string, mark: string) => html.split(mark).length - 1;
+
+  it("keeps an empty line above the signature in HTML, the quote whole and once", () => {
+    const quick = typing(accWith("b", "html"), "Hello\n\nWorld");
+    quick.toWindow();
+    const html = unfolded().html ?? "";
+    // The typed paragraphs first, then exactly the empty line the reply keeps over the signature.
+    expect(html.startsWith(`<p>Hello</p><p>World</p>${GAP}`)).toBe(true);
+    const sig = findBlock(html, SIGNATURE_CLASS);
+    const quote = findBlock(html, QUOTE_CLASS);
+    expect(sig).not.toBeNull();
+    expect(quote).not.toBeNull();
+    // The signature right under that line, the quote after it: no gap between them, none lost.
+    expect(html.slice(0, sig?.start)).toBe(`<p>Hello</p><p>World</p>${GAP}`);
+    expect(html.slice(sig?.end, quote?.start)).toBe("");
+    expect(html.slice(quote?.end)).toBe("");
+    expect(count(html, SIGNATURE_CLASS)).toBe(1);
+    expect(count(html, QUOTE_CLASS)).toBe(1);
+  });
+
+  it("keeps the plain-text separator of a plain answer", () => {
+    const quick = typing(accWith("b", "plain"), "Hi");
+    quick.toWindow();
+    const text = unfolded().text;
+    expect(text.startsWith("Hi\n\n-- \nAnn")).toBe(true);
+    expect(text).toContain("\n\nOn ");
+  });
+
+  it("keeps the plain-text separator of a Markdown answer", () => {
+    const quick = typing(accWith("b", "markdown"), "Hi");
+    quick.toWindow();
+    const text = unfolded().text;
+    expect(text.startsWith("Hi\n\n-- \nAnn")).toBe(true);
+    expect(text).toContain("\n\nOn ");
   });
 });
 
