@@ -514,15 +514,34 @@
     padding: 4px 0;
   }
 
-  /* The «From» row anchors a plugin's decorative layer: `position: relative` makes it the
-     containing block for an `inset: 0` box, and `isolation` makes that box's `z-index: -1`
-     land over the row's background but behind its content. Without `z-index: 1` the row's
-     own stacking context would paint before `.body-area` and bury the Select's dropdown —
-     a `position: fixed` descendant of this row. */
+  /* The «From» row anchors the mailbox tint: `position: relative` makes it the containing
+     block for the layer below, and `isolation` keeps that layer over the row's background
+     but behind its content. Without `z-index: 1` the row's own stacking context would paint
+     before `.body-area` and bury the Select's dropdown — a `position: fixed` descendant of
+     this row. */
   .row.from-row {
     position: relative;
     isolation: isolate;
     z-index: 1;
+  }
+
+  /* A plugin names the mailbox colour in `--row-tint` on this row (account-color does, in
+     its FromTint). The core draws the surface, because only the core knows how far the row
+     is inset by `.fields`. `var(--row-tint, transparent)`: with no plugin the variable is
+     unset and the layer mixes transparent into transparent — a no-op, so the row stays
+     exactly as before, to the last bit.
+
+     The layer bleeds over the field's padding — 4px up to the header, 18px to each edge of
+     the window — so the tint runs flush with the compose window instead of stopping at the
+     fields' borders. 14% is the plugin's chosen strength: it reads from across the room while
+     a resting row stays well below a selected one. */
+  .row.from-row::before {
+    content: "";
+    position: absolute;
+    inset: -4px -18px 0;
+    z-index: -1;
+    pointer-events: none;
+    background: color-mix(in srgb, var(--row-tint, transparent) 14%, transparent);
   }
 
   .label {
@@ -538,6 +557,13 @@
   .row :global(.from .trigger) {
     border-color: transparent;
     padding-left: 0;
+  }
+
+  /* The address field fills with the tint too, so no paper box is left in the middle of a
+     full-width tint. Same colour as the layer: 14% of the mailbox colour over paper — the
+     paper fallback keeps the field exactly `--paper` when no plugin sets `--row-tint`. */
+  .row.from-row :global(.from .trigger) {
+    background: color-mix(in srgb, var(--row-tint, var(--paper)) 14%, var(--paper));
   }
 
   .row :global(.from .trigger:focus) {
