@@ -276,6 +276,12 @@ format.markdown
 format.plain
 format.short.html
 format.short.markdown
+hint.allHints
+hint.applied
+hint.more
+hint.neverAnyone
+hint.neverThis
+hint.notNow
 hints.answer
 hints.anyone
 hints.enable
@@ -289,6 +295,11 @@ keys.all
 later.custom
 letterView.html
 letterView.markdown
+letterView.rule
+letterView.rule.html
+letterView.rule.markdown
+letterView.rule.text
+letterView.rule.title
 letterView.text
 letterView.title
 list.draft
@@ -352,6 +363,8 @@ people.viaHint
 people.view
 people.viewNote
 person.allMail
+person.copied
+person.copy
 person.none
 person.openCard
 person.recent

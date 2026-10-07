@@ -1,16 +1,17 @@
 component	src/App.svelte	290	191	53	46
 component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
-component	src/components/AddressInput.svelte	202	83	34	85
-component	src/components/Compose.svelte	862	201	220	441
+component	src/components/AddressInput.svelte	230	94	41	95
+component	src/components/Compose.svelte	925	247	237	441
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	122	76	35	11
 component	src/components/FolderPicker.svelte	40	18	11	11
 component	src/components/FormatBar.svelte	365	227	64	74
+component	src/components/HintLine.svelte	134	43	29	62
 component	src/components/LaterMenu.svelte	38	13	13	12
-component	src/components/LetterViewSwitch.svelte	72	10	12	50
+component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	161	119	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
@@ -21,8 +22,8 @@ component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
 component	src/components/Preferences.svelte	622	247	91	284
 component	src/components/QuotaLine.svelte	119	29	13	77
-component	src/components/Reader.svelte	317	117	97	103
-component	src/components/RecipientRule.svelte	115	64	18	33
+component	src/components/Reader.svelte	330	130	97	103
+component	src/components/RecipientRule.svelte	152	84	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
 component	src/components/RowMenu.svelte	128	72	49	7
@@ -54,15 +55,15 @@ component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
 component	src/components/prefs/GeneralPanel.svelte	257	27	73	157
-component	src/components/prefs/HintsSection.svelte	113	33	29	51
+component	src/components/prefs/HintsSection.svelte	115	35	29	51
 component	src/components/prefs/MailPanel.svelte	224	17	122	85
 component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
-component	src/components/prefs/PeoplePanel.svelte	480	105	112	263
+component	src/components/prefs/PeoplePanel.svelte	482	107	112	263
 component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
-component	src/components/reader/PersonCard.svelte	273	63	53	157
+component	src/components/reader/PersonCard.svelte	303	87	59	157
 component	src/components/reader/QuickReply.svelte	216	55	31	130
-component	src/components/reader/ReaderBody.svelte	108	46	26	36
+component	src/components/reader/ReaderBody.svelte	159	80	43	36
 component	src/components/reader/ReaderHeader.svelte	330	79	60	191
 component	src/components/reader/ReaderStates.svelte	239	34	75	130
 component	src/components/reader/ReaderToolbar.svelte	161	63	48	50
@@ -181,6 +182,8 @@ function	src/components/AddressInput.svelte::onInput	22
 function	src/components/AddressInput.svelte::pick	6
 function	src/components/AddressInput.svelte::onKey	19
 function	src/components/Compose.svelte::commitAll	4
+function	src/components/Compose.svelte::acceptHint	3
+function	src/components/Compose.svelte::undoHint	11
 function	src/components/Confirm.svelte::answer	4
 function	src/components/Confirm.svelte::onKey	13
 function	src/components/ExtensionConsent.svelte::answer	4
@@ -207,6 +210,9 @@ function	src/components/FormatBar.svelte::applyLink	15
 function	src/components/FormatBar.svelte::removeLink	7
 function	src/components/FormatBar.svelte::onLinkKey	12
 function	src/components/FormatBar.svelte::title	3
+function	src/components/HintLine.svelte::accept	4
+function	src/components/HintLine.svelte::undo	4
+function	src/components/LetterViewSwitch.svelte::pick	4
 function	src/components/MailFrame.svelte::themeCss	9
 function	src/components/MailFrame.svelte::markdownCss	9
 function	src/components/MailFrame.svelte::repaint	7
@@ -248,8 +254,9 @@ function	src/components/Preferences.svelte::onNavKey	7
 function	src/components/QuotaLine.svelte::open	4
 function	src/components/Reader.svelte::bannerAction	4
 function	src/components/Reader.svelte::trustSender	6
+function	src/components/Reader.svelte::reply	8
 function	src/components/RecipientRule.svelte::take	4
-function	src/components/RecipientRule.svelte::back	4
+function	src/components/RecipientRule.svelte::back	6
 function	src/components/Recipients.svelte::list	3
 function	src/components/RichEditor.svelte::measure	4
 function	src/components/RichEditor.svelte::unlocked	3
@@ -334,11 +341,11 @@ function	src/components/account/StorageSection.svelte::openTrash	6
 function	src/components/account/sections.ts::sectionsFor	3
 function	src/components/prefs/GeneralPanel.svelte::choose	4
 function	src/components/prefs/HintsSection.svelte::load	7
-function	src/components/prefs/HintsSection.svelte::clear	9
+function	src/components/prefs/HintsSection.svelte::clear	10
 function	src/components/prefs/MailPanel.svelte::choose	4
 function	src/components/prefs/PeoplePanel.svelte::load	7
 function	src/components/prefs/PeoplePanel.svelte::save	7
-function	src/components/prefs/PeoplePanel.svelte::edit	6
+function	src/components/prefs/PeoplePanel.svelte::edit	7
 function	src/components/prefs/PeoplePanel.svelte::addPerson	6
 function	src/components/prefs/PeoplePanel.svelte::setAddress	9
 function	src/components/prefs/PeoplePanel.svelte::forget	17
@@ -346,8 +353,11 @@ function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
 function	src/components/reader/PersonCard.svelte::setRule	8
 function	src/components/reader/PersonCard.svelte::write	4
+function	src/components/reader/PersonCard.svelte::copy	9
 function	src/components/reader/QuickReply.svelte::grab	17
 function	src/components/reader/QuickReply.svelte::nudge	8
+function	src/components/reader/ReaderBody.svelte::setView	4
+function	src/components/reader/ReaderBody.svelte::setRule	9
 function	src/components/reader/ReaderBody.svelte::link	7
 function	src/components/reader/ReaderHeader.svelte::fromSender	4
 function	src/components/reader/ReaderToolbar.svelte::editDraft	8
@@ -493,8 +503,14 @@ function	src/lib/format.ts::messagesCount	3
 function	src/lib/format.ts::avatarColor	5
 function	src/lib/format.ts::initials	8
 function	src/lib/format.ts::matches	8
+function	src/lib/hints.svelte.ts::now	3
+function	src/lib/hints.svelte.ts::bySubject	5
 function	src/lib/hints.test.ts::ctx	3
+function	src/lib/hints.ts::specById	3
 function	src/lib/hints.ts::hintAbout	3
+function	src/lib/hints.ts::reached	4
+function	src/lib/hints.ts::countOf	3
+function	src/lib/hints.ts::detected	3
 function	src/lib/hints.ts::stateOf	4
 function	src/lib/hints.ts::shownToday	4
 function	src/lib/hints.ts::mayShow	20
@@ -654,6 +670,7 @@ function	src/lib/richtext.ts::removeBlock	4
 function	src/lib/richtext.ts::splitHtmlQuote	4
 function	src/lib/richtext.ts::letterText	3
 function	src/lib/richtext.ts::htmlLetterText	4
+function	src/lib/richtext.ts::htmlHasOwnText	4
 function	src/lib/richtext.ts::hasFormatting	10
 function	src/lib/room.svelte.ts::readWarned	7
 function	src/lib/room.svelte.ts::writeWarned	7
