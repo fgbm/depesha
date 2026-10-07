@@ -601,6 +601,7 @@ function	src/lib/markdown/table.ts::moveColumn	12
 function	src/lib/markdown/table.ts::setAlign	5
 function	src/lib/markdown/table.ts::moveCell	7
 function	src/lib/markdown/table.ts::cellOffset	9
+function	src/lib/markdown/tableWidget.test.ts::viewOf	1
 function	src/lib/markdown/tableWidget.ts::openMenu	34
 function	src/lib/markdown/tableWidget.ts::cellOf	7
 function	src/lib/markdown/tableWidget.ts::step	38

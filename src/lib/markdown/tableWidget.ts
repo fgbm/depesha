@@ -130,14 +130,18 @@ export class TableView extends WidgetType {
     }
 
     // A click outside while a cell has focus loses nothing: the write happens on blur.
+    root.addEventListener("focusin", (e) => {
+      view.dispatch({ effects: cellFocus.of(true) });
+      this.markCurrent(root, cellOf(e.target as Element | null));
+    });
     root.addEventListener("focusout", () => {
       // Wait a tick: the focus may move to another cell or to a grip of this same table.
       setTimeout(() => {
         if (!root.contains(document.activeElement)) this.commit(view, root);
         view.dispatch({ effects: cellFocus.of(false) });
+        this.markCurrent(root, cellOf(document.activeElement));
       }, 0);
     });
-    root.addEventListener("focusin", () => view.dispatch({ effects: cellFocus.of(true) }));
     return root;
   }
 
@@ -152,6 +156,7 @@ export class TableView extends WidgetType {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "md-table-grip-btn";
+    btn.dataset.grip = `${kind}:${index}`;
     btn.textContent = kind === "col" ? "⋯" : "⋮";
     btn.tabIndex = -1;
     btn.title = kind === "col" ? t("markdown.table.colGrip") : t("markdown.table.rowGrip");
@@ -164,6 +169,17 @@ export class TableView extends WidgetType {
       });
     }
     return td;
+  }
+
+  /** The grip of the row and of the column the caret is in stands out (frame 1 of the mockup):
+   *  the others stay quiet until the pointer is over the table. */
+  private markCurrent(root: HTMLElement, cell: { row: number; col: number } | null) {
+    root.classList.toggle("has-cur", cell !== null);
+    for (const b of root.querySelectorAll<HTMLElement>(".md-table-grip-btn")) {
+      const [kind, i] = (b.dataset.grip ?? ":").split(":");
+      const index = Number(i);
+      b.classList.toggle("cur", cell !== null && (kind === "col" ? index === cell.col : index === cell.row));
+    }
   }
 
   private row(view: EditorView, root: HTMLElement, r: number): HTMLTableRowElement {

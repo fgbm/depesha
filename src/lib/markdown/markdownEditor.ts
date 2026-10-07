@@ -406,9 +406,15 @@ const theme = EditorView.theme({
   ".md-table-cell-text": { minWidth: "40px", padding: "3px 10px", outline: "none", cursor: "text" },
   ".md-table-cell-text:focus": { boxShadow: "inset 0 0 0 2px var(--link)" },
   ".md-table-corner, .md-table-grip": { border: "none", padding: "0", background: "none", width: "18px" },
-  ".md-table-grip-btn": { width: "18px", padding: "0", border: "none", background: "none", color: "var(--muted)", cursor: "pointer", lineHeight: "1", font: "inherit" },
-  ".md-table-grip-btn:hover": { color: "var(--ink)" },
-  ".md-table-add": { position: "absolute", border: "1px dashed var(--line)", background: "none", color: "var(--muted)", cursor: "pointer", padding: "0", lineHeight: "1" },
+  // The grips stay quiet until the table is pointed at or the caret is in a cell; the row and
+  // the column of that cell stand out (frames 1–2 of the 0.7 mockup).
+  ".md-table-grip-btn": { width: "18px", padding: "0", border: "none", background: "none", color: "var(--muted)", cursor: "pointer", lineHeight: "1", font: "inherit", opacity: "0", transition: "opacity .1s" },
+  ".md-table-view:hover .md-table-grip-btn, .md-table-view.has-cur .md-table-grip-btn": { opacity: "0.55" },
+  ".md-table-view .md-table-grip-btn:hover, .md-table-view .md-table-grip-btn.cur": { opacity: "1", color: "var(--ink)", background: "var(--selected)", borderRadius: "4px" },
+  ".md-table-view .md-table-grip-btn.cur": { background: "color-mix(in srgb, var(--link) 22%, var(--paper))", color: "var(--link)" },
+  ".md-table-add": { position: "absolute", border: "1px dashed var(--line)", background: "none", color: "var(--muted)", cursor: "pointer", padding: "0", lineHeight: "1", opacity: "0", transition: "opacity .1s" },
+  ".md-table-view:hover .md-table-add, .md-table-view.has-cur .md-table-add": { opacity: "0.6" },
+  ".md-table-add:hover": { opacity: "1", color: "var(--ink)" },
   ".md-table-add-col": { top: "0", right: "-22px", width: "18px", height: "100%" },
   ".md-table-add-row": { left: "0", bottom: "-22px", width: "100%", height: "18px" },
   ".md-table-drop": { position: "absolute", background: "var(--accent)", pointerEvents: "none", zIndex: "3" },
