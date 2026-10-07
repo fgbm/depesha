@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "depesha"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -996,7 +996,7 @@ dependencies = [
 
 [[package]]
 name = "depesha-core"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "ammonia",
  "async-imap",
