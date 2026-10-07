@@ -49,3 +49,4 @@ describe("Markdown buttons", () => {
     expect(apply(text, clearEdit(text, 0, text.length))).toBe("всё сходится, см. таблицу сейчас");
   });
 });
+

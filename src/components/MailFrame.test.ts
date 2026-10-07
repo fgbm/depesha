@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "svelte/server";
 import MailFrame from "./MailFrame.svelte";
+import { HL_CSS } from "../lib/syntax";
 
 /** The frame's srcdoc, unescaped from the rendered iframe. */
 function srcdoc(props: Record<string, unknown>): string {
@@ -36,5 +37,15 @@ describe("the frame Depesha draws Markdown in", () => {
     expect(themed).toContain("--ink:#000");
     const plain = srcdoc({ markdown: true });
     expect(plain).toContain("--md-line:#d9dde3");
+  });
+
+  it("puts the code colours of a Markdown letter into the frame's own styles, with no script", () => {
+    // The highlighter runs before the frame (ReaderBody.svelte); its styles travel in the
+    // letter's HTML and so into the srcdoc, and the frame runs no script (decision on #45).
+    const html = '<pre><code class="language-sql">SELECT 1</code></pre>';
+    const doc = srcdoc({ markdown: true, html: HL_CSS + html });
+    expect(doc).toContain(".hl-kw{color:#a626a4}");
+    expect(doc).toContain("hl-kw");
+    expect(doc).not.toContain("<script");
   });
 });

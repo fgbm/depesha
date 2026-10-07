@@ -203,7 +203,7 @@ function caret(): { focus: number; at: number | null } {
     openSettings: () => {},
     fail: () => {},
     confirmToPlain: async () => true,
-    confirmPicturesAttach: async () => true,
+    formatChanged: () => {},
   });
   fmt.body = field as unknown as HTMLTextAreaElement;
   (fmt as unknown as { placeCaret(): void }).placeCaret();

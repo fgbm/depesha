@@ -38,15 +38,16 @@ describe("pictures", () => {
 describe("dropping files on the window", () => {
   const files = ["зал.jpg", "смета.pdf", "схема.png"];
 
-  it("offers the two zones only to an HTML letter, only for pictures", () => {
+  it("offers the two zones only to a formatted letter, only for pictures", () => {
     expect(offersZones(files, "html")).toBe(true);
+    expect(offersZones(files, "markdown")).toBe(true);
     expect(offersZones(["смета.pdf"], "html")).toBe(false);
     expect(offersZones(files, "plain")).toBe(false);
-    expect(offersZones(files, "markdown")).toBe(false);
   });
 
   it("puts pictures into the text and attaches the rest", () => {
     expect(dropPlan(files, "html", "inline")).toEqual({ inline: ["зал.jpg", "схема.png"], attach: ["смета.pdf"] });
+    expect(dropPlan(files, "markdown", "inline")).toEqual({ inline: ["зал.jpg", "схема.png"], attach: ["смета.pdf"] });
   });
 
   it("attaches everything dropped on «Attach» or outside the zones", () => {
@@ -54,8 +55,7 @@ describe("dropping files on the window", () => {
     expect(dropPlan(files, "html", null)).toEqual({ inline: [], attach: files });
   });
 
-  it("a plain-text or Markdown letter only attaches", () => {
-    expect(dropPlan(files, "markdown", "inline")).toEqual({ inline: [], attach: files });
+  it("a plain-text letter only attaches", () => {
     expect(dropPlan(files, "plain", "inline")).toEqual({ inline: [], attach: files });
   });
 });

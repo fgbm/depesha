@@ -62,6 +62,7 @@ export const settings = (): Settings => ({
   list_sort: [],
   view_sorts: {},
   large_mb: 25,
+  image_max_px: 1600,
   compose_format: "plain",
   quota_warn: true,
   quota_levels: [90, 95],

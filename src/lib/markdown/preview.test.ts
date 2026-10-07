@@ -15,13 +15,13 @@ function shown(marked: string, opts: Partial<PreviewOptions> = {}): string {
   const state = stateOf(marked);
   const doc = state.doc.toString();
   const replaced = previewPieces(state, { focused: true, markup: false, ...opts })
-    .filter((p): p is Extract<Piece, { from: number; to: number }> => "to" in p && p.kind !== "style")
+    .filter((p): p is Extract<Piece, { from: number; to: number }> => "to" in p && p.kind !== "style" && p.kind !== "token")
     .sort((a, b) => a.from - b.from);
   let out = "";
   let at = 0;
   for (const p of replaced) {
     if (p.from < at) continue; // inside a range already replaced
-    out += doc.slice(at, p.from) + (p.kind === "bullet" ? "•" : p.kind === "task" ? (p.done ? "☑" : "☐") : p.kind === "table" ? "[таблица]" : "");
+    out += doc.slice(at, p.from) + (p.kind === "bullet" ? "•" : p.kind === "task" ? (p.done ? "☑" : "☐") : p.kind === "table" ? "[таблица]" : p.kind === "image" ? "[картинка]" : "");
     at = p.to;
   }
   return out + doc.slice(at);
@@ -89,10 +89,19 @@ describe("Live Preview: the blocks of a letter", () => {
     expect(shown("```sql‸\nselect **1**\n```\nтекст")).toBe(code + "текст");
   });
 
-  it("draws a table away from the caret and shows its source under it", () => {
+  it("draws a table always, its cells edited in place (not its source)", () => {
     const table = "| Кто | Что |\n|---|---|\n| Иван | зал |";
     expect(shown(table + "\n\nтекст‸")).toBe("[таблица]\n\nтекст");
-    expect(shown("| Кто | Что |\n|---|---|\n| Иван | з‸ал |\n\nтекст")).toBe(table + "\n\nтекст");
+    expect(shown("| Кто | Что |\n|---|---|\n| Иван | з‸ал |\n\nтекст")).toBe("[таблица]\n\nтекст");
+    // Only the "markup" mode shows the bare source.
+    expect(shown(table + "‸", { markup: true })).toBe(table);
+  });
+
+  it("shows an image in place, its markup under the caret", () => {
+    const pic = "![План](data:image/png;base64,AA)";
+    expect(shown(pic + "\n\nтекст‸")).toBe("[картинка]\n\nтекст");
+    expect(shown("![План](data:image/png;base64,‸AA)")).toBe(pic);
+    expect(shown(pic + "‸", { markup: true })).toBe(pic);
   });
 
   it("hides the underline tags and the escapes of a letter", () => {
