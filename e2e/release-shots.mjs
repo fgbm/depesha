@@ -196,19 +196,19 @@ try {
   await d.click(await d.find(".prefs .tab[data-page='background']"));
   await d.until("background page", async () => (await d.findAll(".prefs [data-settings='bg-close']")).length === 1);
   await sleep(300);
-  await shot("01-фон-и-запуск");
+  await shot("01-background");
 
   // 05. Settings: "Клавиши".
   await d.click(await d.find(".prefs .tab[data-page='keys']"));
   await d.until("keys page", async () => (await d.findAll(".prefs .kr[data-command='core.archive']")).length === 1);
   await sleep(300);
-  await shot("05-клавиши");
+  await shot("05-keys");
 
   // 06. Settings: the search over the pages.
   await d.type(await d.find(".prefs .psearch .q"), "формат");
   await d.until("search results", async () => (await d.findAll(".prefs .rlist .hit")).length > 0);
   await sleep(300);
-  await shot("06-поиск-настроек");
+  await shot("06-settings-search");
   await closeSettings();
 
   // 02. Compose in Markdown, with a table edited in its cells. Full screen, so the table fits.
@@ -260,14 +260,14 @@ try {
   // cells hold their column by the word now, so nothing has to be forced on them.
   await d.exec("document.activeElement?.blur?.()");
   await sleep(300);
-  await shot("02-редактор-markdown");
+  await shot("02-markdown-editor");
   await discardCompose();
 
   // 03. The list: the reply marks before the date.
   await d.button("Входящие");
   await d.until("inbox", async () => (await textOf(".list h2")).trim() === "Входящие");
   await sleep(600);
-  await shot("03-значки-ответа");
+  await shot("03-reply-marks");
 
   // 07. The list: the label chips after the subject. The keywords go into the cache now and
   // the list is re-read, so this picture differs from the one above.
@@ -279,14 +279,14 @@ try {
   await openFolder("Входящие");
   await d.until("inbox again", async () => (await textOf(".list h2")).trim() === "Входящие");
   await sleep(600);
-  await shot("07-метки-в-списке");
+  await shot("07-labels");
 
   // 04. The person card of the sender.
   await openBySubject("Смета на монтаж");
   await d.click(await d.find(".reader .sender"));
   await d.until("person card", async () => (await d.findAll(".pcard")).length === 1);
   await sleep(300);
-  await shot("04-карточка-человека");
+  await shot("04-person-card");
   await press("Escape");
 
   console.log("Готово.");
