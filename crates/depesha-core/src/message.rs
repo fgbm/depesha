@@ -471,7 +471,22 @@ pub fn document_html(text: &str, markdown: bool) -> String {
 /// A task's box is a character: mail programs drop form fields.
 pub fn markdown_html(text: &str) -> String {
     let html = render_markdown(text, |done| if done { "☑ " } else { "☐ " });
-    sanitize_html(&html, &HashMap::new(), false).0
+    sanitize_html(&markdown_grid(&html), &HashMap::new(), false).0
+}
+
+/// The grid a Markdown table carries in its own tags: a foreign client never sees the
+/// reader's styles, so the frame, the padding and the head's tint go inline. pulldown-cmark
+/// writes these tables, so their tags are its own — `<table>`, and `<th>`/`<td>` with an
+/// optional `style="text-align: …"` its alignment adds. Alignment is kept to the right.
+fn markdown_grid(html: &str) -> String {
+    /// The frame and padding of a cell; the greys read on the white a letter goes out on.
+    const TD: &str = "<td style=\"border:1px solid #d9dde3;padding:4px 10px";
+    const TH: &str = "<th style=\"border:1px solid #d9dde3;padding:4px 10px;font-weight:600;background:#f0f1f3";
+    html.replace("<table>", "<table style=\"border-collapse:collapse\">")
+        .replace("<td>", &format!("{TD}\">"))
+        .replace("<td style=\"text-align:", &format!("{TD};text-align:"))
+        .replace("<th>", &format!("{TH}\">"))
+        .replace("<th style=\"text-align:", &format!("{TH};text-align:"))
 }
 
 /// Where a task's box stands until the HTML is clean: characters for private use that

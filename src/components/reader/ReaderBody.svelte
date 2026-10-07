@@ -53,7 +53,7 @@
 <div class="body" hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
     {#key `${msg.row.id}:md:${app.allowRemote || msg.trusted_sender}`}
-      <MailFrame themed html={MARKDOWN_CSS + msg.view.markdown} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
+      <MailFrame themed markdown html={MARKDOWN_CSS + msg.view.markdown} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
     {/key}
   {:else if shown === "html" && msg.view.html}
     <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->

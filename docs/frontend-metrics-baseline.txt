@@ -11,7 +11,7 @@ component	src/components/FolderPicker.svelte	40	18	11	11
 component	src/components/FormatBar.svelte	374	231	65	78
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	72	10	12	50
-component	src/components/MailFrame.svelte	146	104	8	34
+component	src/components/MailFrame.svelte	161	119	8	34
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
 component	src/components/MessageList.svelte	547	131	102	314
 component	src/components/Outbox.svelte	90	11	37	42
@@ -191,8 +191,10 @@ function	src/components/FormatBar.svelte::removeLink	7
 function	src/components/FormatBar.svelte::onLinkKey	12
 function	src/components/FormatBar.svelte::title	3
 function	src/components/MailFrame.svelte::themeCss	9
+function	src/components/MailFrame.svelte::markdownCss	9
 function	src/components/MailFrame.svelte::repaint	7
 function	src/components/MailFrame.svelte::attach	34
+function	src/components/MailFrame.test.ts::srcdoc	7
 function	src/components/MarkdownPartsNote.svelte::onWindowDown	3
 function	src/components/MarkdownPartsNote.svelte::onKey	6
 function	src/components/MessageList.svelte::tagsOf	3

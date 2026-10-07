@@ -56,7 +56,7 @@
     <div class="cut muted">{sheets[sheet]?.hidden ? t("viewer.rowsHidden", { n: sheets[sheet].hidden }) : t("viewer.cut")}</div>
   {/if}
   {#if html !== null}
-    {#key html}<MailFrame {html} allowRemote={false} onLink={(href) => file.openLink(href)} />{/key}
+    {#key html}<MailFrame markdown={format === "markdown"} {html} allowRemote={false} onLink={(href) => file.openLink(href)} />{/key}
   {/if}
   {#if sheets.length > 1}
     <div class="tabs" role="tablist">

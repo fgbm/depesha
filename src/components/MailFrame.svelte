@@ -10,12 +10,15 @@
     allowRemote,
     onLink,
     themed = false,
+    markdown = false,
   }: {
     html: string;
     allowRemote: boolean;
     onLink: (href: string) => void;
     /** Drawn in the theme's colours on the page behind it (Depesha's own Markdown); else on white, as the sender wrote it. */
     themed?: boolean;
+    /** Depesha rendered this from Markdown: its bare tables get a grid; an HTML letter lays out its own. */
+    markdown?: boolean;
   } = $props();
 
   let frame = $state<HTMLIFrameElement | null>(null);
@@ -28,10 +31,21 @@
     const css = getComputedStyle(document.documentElement);
     // The same color-scheme as the window, or WebView2 paints the frame opaque.
     const vars = THEME_VARS.map((v) => `${v}:${css.getPropertyValue(v).trim()}`).join(";");
-    return `:root{color-scheme:${css.colorScheme || "light"};${vars}}
+    return `:root{color-scheme:${css.colorScheme || "light"};${vars};--md-line:var(--line);--md-head:color-mix(in srgb, var(--line) 55%, transparent)}
 html{background:transparent;color:var(--ink)}
 blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid var(--line);color:var(--muted)}
 a{color:var(--link)}`;
+  }
+
+  /** A grid for the bare tables pulldown-cmark writes out of Markdown; a letter's own HTML lays out its own. */
+  function markdownCss(): string {
+    // `display:block` lets a table wider than the frame scroll sideways instead of stretching
+    // the page; a cell keeps the text-align pulldown-cmark put inline. Light greys by default,
+    // the theme's own line in a themed frame (themeCss overrides the two variables).
+    return `:root{--md-line:#d9dde3;--md-head:#f0f1f3}
+body table{border-collapse:collapse;display:block;width:max-content;max-width:100%;overflow-x:auto}
+body th,body td{border:1px solid var(--md-line);padding:4px 10px}
+body th{background:var(--md-head);font-weight:600}`;
   }
 
   const srcdoc = $derived(`<!doctype html><html><head><meta charset="utf-8">
@@ -44,6 +58,7 @@ table{max-width:100%}
 pre{white-space:pre-wrap}
 blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid #d8cfbd;color:#55606c}
 a{color:#1f5fa8}
+${markdown ? markdownCss() : ""}
 ${themed ? themeCss() : ""}
 </style></head><body>${html}</body></html>`);
 
