@@ -21,7 +21,7 @@ export interface FieldSpec {
 }
 
 /** The page a hit belongs to, in the menu's order. */
-export const FIELD_PAGES = ["general", "updates", "mail", "notifications", "background", "offline"] as const;
+export const FIELD_PAGES = ["general", "updates", "mail", "notifications", "background", "offline", "keys"] as const;
 
 export const SETTINGS_FIELDS: FieldSpec[] = [
   // General
