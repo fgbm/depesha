@@ -22,6 +22,8 @@ pub use followups::{
 mod labels;
 mod marks;
 pub use marks::{Done, Mark, Outgoing, marks_of};
+mod people;
+pub use people::{HintState, Person};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 mod waiting;
@@ -51,6 +53,7 @@ const MIGRATIONS: &[Step] = &[
     marks::v10_reply_marks,
     waiting::v11_waiting_folder,
     labels::v12_labels_and_rights,
+    people::v13_people_and_hints,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -3604,6 +3607,10 @@ mod tests {
             );
             drop(conn);
             assert_eq!(store.followups_count().unwrap().active, 1, "{name}");
+            // The address book of 0.7 reads the addresses the old cache kept; the
+            // suggestions start empty, and no old row was lost on the way.
+            assert!(!store.people("").unwrap().is_empty(), "{name}");
+            assert!(store.hints().unwrap().is_empty(), "{name}");
             let conn = store.conn();
             // Mail of a cache numbered 3 or later was linked as it came; these rows were not.
             if version < 3 {

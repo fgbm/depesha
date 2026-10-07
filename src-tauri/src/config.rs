@@ -97,6 +97,8 @@ pub struct Settings {
     pub tray_count: bool,
     /// The tray icon stays while the window is open; otherwise it shows only in the background.
     pub tray_always: bool,
+    /// The suggestions of 0.7 (#69): the one switch that turns every one of them off.
+    pub hints: bool,
 }
 
 fn plain() -> BodyFormat {
@@ -143,6 +145,7 @@ impl Default for Settings {
             autostart: "off".into(),
             tray_count: true,
             tray_always: true,
+            hints: true,
         }
     }
 }

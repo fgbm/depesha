@@ -52,6 +52,7 @@ export class SettingsController {
     autostart: "off",
     tray_count: true,
     tray_always: true,
+    hints: true,
   });
   update = $state<UpdateStatus | null>(null);
 

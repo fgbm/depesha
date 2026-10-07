@@ -38,6 +38,8 @@ import type {
   Label,
   LabelCheck,
 } from "./types";
+import type { Person } from "./people";
+import type { HintState } from "./hints";
 
 /** Backend errors arrive as `CmdError`; anything else is wrapped so callers can rely on the shape. */
 export function asError(e: unknown): CmdError {
@@ -147,6 +149,15 @@ export const api = {
   avatar: (accountId: string, email: string, authenticated: boolean) =>
     call<string | null>("avatar", { accountId, email, authenticated }),
   addresses: (prefix: string) => call<Addr[]>("addresses", { prefix }),
+  /** The address book (#66), filtered by a query over name, address and note. */
+  people: (query: string) => call<Person[]>("people", { query }),
+  personSave: (person: Person) => call<void>("person_save", { person }),
+  /** Removes a person added by hand; one from the correspondence cannot go. */
+  personForget: (email: string) => call<boolean>("person_forget", { email }),
+  /** The decisions about the suggestions (#69). */
+  hints: () => call<HintState[]>("hints"),
+  hintSave: (hint: HintState) => call<void>("hint_save", { hint }),
+  hintsClear: () => call<void>("hints_clear"),
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),
   /** Into `dir` just picked with `pickFolder`, or without it into the folder from the settings. */
   attachmentsSaveAll: (id: number, dir: string | null) => call<number>("attachments_save_all", { id, dir }),

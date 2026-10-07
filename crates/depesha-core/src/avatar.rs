@@ -349,6 +349,7 @@ mod tests {
             default_signature: None,
             reply_signature: None,
             compose_format: None,
+            letter_view: None,
             attachments_dir: String::new(),
             auth: Default::default(),
             ews: None,

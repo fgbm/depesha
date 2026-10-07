@@ -40,6 +40,8 @@ export interface Account {
   reply_signature?: string | null;
   /** How new letters from this mailbox are written; absent takes the settings' format. */
   compose_format?: BodyFormat | null;
+  /** How this mailbox's letters are shown; absent takes the form from the settings. */
+  letter_view?: ViewRule | null;
   /** Where this mailbox's attachments are saved without asking; empty takes the settings' folder. */
   attachments_dir?: string;
   auth?: AuthMethod;
@@ -569,6 +571,8 @@ export interface Settings {
   tray_count: boolean;
   /** The tray icon stays while the window is open. */
   tray_always: boolean;
+  /** The suggestions of 0.7 (#69): the one switch that turns every one of them off. */
+  hints: boolean;
 }
 
 /** What a search found in the cache: letters and their bytes. */
@@ -577,8 +581,8 @@ export interface SearchTotals {
   size: number;
 }
 
-/** The sender's favourite form, or Markdown or plain text when the letter has it. */
-export type LetterViewPref = "sender" | "markdown" | "text";
+/** The sender's favourite form, or HTML, Markdown or plain text when the letter has it. */
+export type LetterViewPref = "sender" | "html" | "markdown" | "text";
 
 /** A form of a letter's text: a part of its `multipart/alternative`. */
 export type BodyView = "text" | "html" | "markdown";

@@ -71,6 +71,10 @@ pub struct Account {
     /// How new letters from this mailbox are written; none takes the format from the settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compose_format: Option<crate::smtp::BodyFormat>,
+    /// How this mailbox's letters are shown: `html`, `markdown` or `text`; none takes the
+    /// form from the settings. Added after 0.6.3: absent in older configs, which read as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub letter_view: Option<String>,
     /// Where this mailbox's attachments are saved without asking; empty takes the
     /// folder from the settings.
     #[serde(default, skip_serializing_if = "String::is_empty")]

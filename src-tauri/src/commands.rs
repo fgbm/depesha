@@ -12,7 +12,9 @@ use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
-use depesha_core::store::{FolderInfo, FollowupPlan, ListQuery, MessageRow, OutboxItem, SearchTotals, Snooze, SortKey};
+use depesha_core::store::{
+    FolderInfo, FollowupPlan, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, Snooze, SortKey,
+};
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
@@ -1524,6 +1526,44 @@ pub fn trust_sender(state: St<'_>, email: String) -> CmdResult<()> {
 #[tauri::command(async)]
 pub fn addresses(state: St<'_>, prefix: String) -> CmdResult<Vec<Addr>> {
     Ok(state.store.known_addresses(&prefix, 8)?)
+}
+
+/// The address book (#66): every address of the correspondence with what was decided about
+/// it, and every address added by hand. `query` keeps the ones matching name, address or note.
+#[tauri::command(async)]
+pub fn people(state: St<'_>, query: String) -> CmdResult<Vec<Person>> {
+    Ok(state.store.people(&query)?)
+}
+
+/// Saves a person's record: their name, the format to write in, the form to show, a note
+/// and whether completion hides the address (#66, #44).
+#[tauri::command(async)]
+pub fn person_save(state: St<'_>, person: Person) -> CmdResult<()> {
+    Ok(state.store.save_person(&person)?)
+}
+
+/// Removes a person added by hand; one seen only in the correspondence cannot go (#66).
+#[tauri::command(async)]
+pub fn person_forget(state: St<'_>, email: String) -> CmdResult<bool> {
+    Ok(state.store.forget_person(&email)?)
+}
+
+/// The decisions about the suggestions (#69).
+#[tauri::command(async)]
+pub fn hints(state: St<'_>) -> CmdResult<Vec<HintState>> {
+    Ok(state.store.hints()?)
+}
+
+/// Writes one decision about a suggestion (#69).
+#[tauri::command(async)]
+pub fn hint_save(state: St<'_>, hint: HintState) -> CmdResult<()> {
+    Ok(state.store.save_hint(&hint)?)
+}
+
+/// Forgets every decision about the suggestions (#69): the «ask them again» of the page.
+#[tauri::command(async)]
+pub fn hints_clear(state: St<'_>) -> CmdResult<()> {
+    Ok(state.store.clear_hints()?)
 }
 
 /// Saves an attachment where the user said in the save dialog (`pick_save_file`).
