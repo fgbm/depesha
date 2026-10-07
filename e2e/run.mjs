@@ -305,7 +305,7 @@ try {
     await d.until("compose", async () => (await d.findAll(".compose .rich")).length === 1);
     // The format button of the footer shows the current mode and opens its menu (#45, frame 6).
     const fmt = await d.find(".compose footer button[aria-label='Формат письма']");
-    if (!(await fmt.getText()).includes("HTML")) throw new Error(`подпись кнопки формата: ${await fmt.getText()}`);
+    if (!(await d.text(fmt)).includes("HTML")) throw new Error(`подпись кнопки формата: ${await d.text(fmt)}`);
     await d.click(fmt);
     const modes = await d.exec("return [...document.querySelectorAll('.pop [role=menuitemradio]')].map((b) => b.textContent.trim() + (b.getAttribute('aria-checked') === 'true' ? '*' : ''))");
     if (modes.join(" ") !== "Обычный текст HTML* Markdown") throw new Error(`формат письма в меню кнопки: ${modes.join(" ")}`);

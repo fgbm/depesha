@@ -134,9 +134,9 @@ export class TableView extends WidgetType {
     return root;
   }
 
-  /** Whether the click on this widget may move the editor's own caret: no. */
-  ignoreEvent(event: Event) {
-    return event.type !== "mousedown" || true;
+  /** Every event on the table is the table's own: the editor's caret never enters the widget. */
+  ignoreEvent() {
+    return true;
   }
 
   private grip(view: EditorView, root: HTMLElement, kind: "col" | "row", index: number): HTMLTableCellElement {
