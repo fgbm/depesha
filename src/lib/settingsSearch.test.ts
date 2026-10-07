@@ -109,6 +109,57 @@ describe("finding a setting by name", () => {
   });
 });
 
+describe("ё and е are the same letter", () => {
+  // No page or field of the core holds «ё», so the pair is checked on index data of its own:
+  // one label written with «ё», one with «е».
+  const entries: SearchEntry[] = [
+    { page: "general", group: "Общие", section: "Поиск", label: "Объём кэша писем", anchor: "general-search" },
+    { page: "mail", group: "Почта", section: "Отправка", label: "Объем вложений", anchor: "mail-sending" },
+  ];
+
+  it("finds a label with «ё» by a query that spells it with «е»", () => {
+    const hits = searchSettings(entries, "объем");
+    expect(hits.map((h) => h.label)).toContain("Объём кэша писем");
+  });
+
+  it("finds a label with «е» by a query that spells it with «ё»", () => {
+    const hits = searchSettings(entries, "объём");
+    expect(hits.map((h) => h.label)).toContain("Объем вложений");
+  });
+
+  it("reads the two letters as one in the words of a text", () => {
+    expect(words("Объём")).toEqual(words("Объем"));
+    expect(matchesText("Объём письма", "объем")).toBe(true);
+    expect(matchesText("Объем письма", "объём")).toBe(true);
+  });
+});
+
+describe("the case of the query does not matter", () => {
+  it("finds the same hits whether the query is upper or lower case", () => {
+    const idx = index();
+    expect(searchSettings(idx, "УВЕДОМ")).toEqual(searchSettings(idx, "уведом"));
+    expect(searchSettings(idx, "Markdown")).toEqual(searchSettings(idx, "markdown"));
+    expect(searchSettings(idx, "MARKDOWN")).toEqual(searchSettings(idx, "markdown"));
+  });
+});
+
+describe("several words are all required", () => {
+  it("finds «Формат новых писем» by «нов пис»", () => {
+    const hits = searchSettings(index(), "нов пис");
+    expect(hits.map((h) => h.label)).toContain("Формат новых писем");
+  });
+
+  it("finds nothing when one of the words matches no word of the entry", () => {
+    expect(searchSettings(index(), "нов письмо")).toEqual([]);
+  });
+
+  it("finds an entry when its words come from different fields", () => {
+    // "почта" names the page, "формат" the field on it.
+    const hits = searchSettings(index(), "почта формат");
+    expect(hits.map((h) => h.label)).toContain("Формат новых писем");
+  });
+});
+
 describe("the index is declared, not read off the window", () => {
   const pages = [...new Set(SETTINGS_FIELDS.map((f) => f.page))];
 
