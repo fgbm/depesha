@@ -8,7 +8,7 @@ component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	122	76	35	11
 component	src/components/FolderPicker.svelte	40	18	11	11
-component	src/components/FormatBar.svelte	417	254	77	86
+component	src/components/FormatBar.svelte	433	267	80	86
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	72	10	12	50
 component	src/components/MailFrame.svelte	161	119	8	34
@@ -190,7 +190,7 @@ function	src/components/FolderMenu.svelte::create	13
 function	src/components/FolderPicker.svelte::pick	8
 function	src/components/FormatBar.svelte::run	3
 function	src/components/FormatBar.svelte::command	4
-function	src/components/FormatBar.svelte::refresh	9
+function	src/components/FormatBar.svelte::refresh	14
 function	src/components/FormatBar.svelte::quoteAtCaret	6
 function	src/components/FormatBar.svelte::toggleQuote	10
 function	src/components/FormatBar.svelte::clearHtml	5
@@ -538,19 +538,30 @@ function	src/lib/markdown/dialect.ts::markdownSupport	3
 function	src/lib/markdown/field.test.ts::stateOf	3
 function	src/lib/markdown/field.test.ts::at	4
 function	src/lib/markdown/field.ts::editSpec	9
-function	src/lib/markdown/field.ts::formatsAt	13
+function	src/lib/markdown/field.ts::under	4
+function	src/lib/markdown/field.ts::formatsAt	12
+function	src/lib/markdown/field.ts::inTableAt	6
 function	src/lib/markdown/lazy.test.ts::files	7
 function	src/lib/markdown/lazy.test.ts::staticImports	7
-function	src/lib/markdown/markdownEditor.ts::decorate	24
+function	src/lib/markdown/markdownEditor.ts::pictureAt	6
+function	src/lib/markdown/markdownEditor.ts::placePicturePanel	10
+function	src/lib/markdown/markdownEditor.ts::closePicturePanel	10
+function	src/lib/markdown/markdownEditor.ts::outsidePicture	5
+function	src/lib/markdown/markdownEditor.ts::escapePicture	6
+function	src/lib/markdown/markdownEditor.ts::panelAction	9
+function	src/lib/markdown/markdownEditor.ts::altField	30
+function	src/lib/markdown/markdownEditor.ts::pictureBar	21
+function	src/lib/markdown/markdownEditor.ts::openPicturePanel	21
+function	src/lib/markdown/markdownEditor.ts::decorate	23
 function	src/lib/markdown/markdownEditor.ts::picture	5
 function	src/lib/markdown/markdownEditor.ts::intoTable	17
 function	src/lib/markdown/markdownEditor.ts::typedTable	20
 function	src/lib/markdown/markdownEditor.ts::pictures	3
 function	src/lib/markdown/markdownEditor.ts::windowEvents	20
-function	src/lib/markdown/markdownEditor.ts::fieldOf	33
+function	src/lib/markdown/markdownEditor.ts::fieldOf	36
 function	src/lib/markdown/markdownEditor.ts::applyOf	5
 function	src/lib/markdown/markdownEditor.ts::setValue	9
-function	src/lib/markdown/markdownEditor.ts::createEditor	40
+function	src/lib/markdown/markdownEditor.ts::createEditor	43
 function	src/lib/markdown/mdedits.test.ts::apply	3
 function	src/lib/markdown/mdedits.ts::lineRange	5
 function	src/lib/markdown/mdedits.ts::headingEdit	15
@@ -558,6 +569,9 @@ function	src/lib/markdown/mdedits.ts::codeEdit	25
 function	src/lib/markdown/mdedits.ts::fencedAround	21
 function	src/lib/markdown/mdedits.ts::tableEdit	13
 function	src/lib/markdown/mdedits.ts::pictureEdit	9
+function	src/lib/markdown/mdedits.ts::imageAt	7
+function	src/lib/markdown/mdedits.ts::pictureAltEdit	6
+function	src/lib/markdown/mdedits.ts::pictureRemoveEdit	9
 function	src/lib/markdown/preview.test.ts::stateOf	5
 function	src/lib/markdown/preview.test.ts::shown	15
 function	src/lib/markdown/preview.test.ts::lines	1

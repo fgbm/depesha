@@ -129,6 +129,7 @@ compose.format.code
 compose.format.current
 compose.format.heading
 compose.format.headingN
+compose.format.inCell
 compose.format.italic
 compose.format.link
 compose.format.linkAddress
