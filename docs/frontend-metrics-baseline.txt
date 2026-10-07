@@ -61,7 +61,7 @@ component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
 component	src/components/prefs/PeoplePanel.svelte	482	107	112	263
 component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
-component	src/components/reader/PersonCard.svelte	303	87	59	157
+component	src/components/reader/PersonCard.svelte	312	96	59	157
 component	src/components/reader/QuickReply.svelte	216	55	31	130
 component	src/components/reader/ReaderBody.svelte	159	80	43	36
 component	src/components/reader/ReaderHeader.svelte	330	79	60	191
