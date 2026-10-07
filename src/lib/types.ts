@@ -584,6 +584,9 @@ export interface SearchTotals {
 /** The sender's favourite form, or HTML, Markdown or plain text when the letter has it. */
 export type LetterViewPref = "sender" | "html" | "markdown" | "text";
 
+/** What a person, a mailbox or a letter asks the reader to show: "" leaves it to the next. */
+export type ViewRule = "" | "html" | "markdown" | "text";
+
 /** A form of a letter's text: a part of its `multipart/alternative`. */
 export type BodyView = "text" | "html" | "markdown";
 

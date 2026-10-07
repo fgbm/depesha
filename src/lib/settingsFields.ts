@@ -21,7 +21,7 @@ export interface FieldSpec {
 }
 
 /** The page a hit belongs to, in the menu's order. */
-export const FIELD_PAGES = ["general", "updates", "mail", "notifications", "background", "offline", "keys"] as const;
+export const FIELD_PAGES = ["general", "updates", "mail", "people", "notifications", "background", "offline", "keys"] as const;
 
 export const SETTINGS_FIELDS: FieldSpec[] = [
   // General
@@ -34,6 +34,13 @@ export const SETTINGS_FIELDS: FieldSpec[] = [
     anchor: "general-appearance",
   },
   { page: "general", section: "settings.search", label: "settings.largeMail", also: ["unit.mb", "unit.gb"], anchor: "general-search" },
+  {
+    page: "general",
+    section: "settings.hints",
+    label: "hints.enable",
+    also: ["hints.note", "hints.forget", "hints.what", "hints.answer"],
+    anchor: "general-hints",
+  },
   // Updates
   {
     page: "updates",
@@ -62,6 +69,26 @@ export const SETTINGS_FIELDS: FieldSpec[] = [
   },
   { page: "mail", section: "settings.attachmentsDir", label: "settings.attachmentsDir", anchor: "mail-attachments" },
   { page: "mail", section: "settings.sending", label: "settings.undoSend", anchor: "mail-sending" },
+  { page: "mail", section: "settings.formatByPeople", label: "settings.openPeople", anchor: "mail-format" },
+  // People (#66)
+  { page: "people", section: "people.title", label: "people.name", anchor: "people-name" },
+  {
+    page: "people",
+    section: "people.title",
+    label: "people.sendFormat",
+    also: ["format.html", "format.markdown", "format.plain", "people.asUsual"],
+    anchor: "people-send",
+  },
+  {
+    page: "people",
+    section: "people.title",
+    label: "people.view",
+    also: ["letterView.html", "letterView.markdown", "letterView.text"],
+    anchor: "people-view",
+  },
+  { page: "people", section: "people.title", label: "people.note", anchor: "people-note" },
+  { page: "people", section: "people.title", label: "people.hide", anchor: "people-hide" },
+  { page: "people", section: "people.title", label: "people.addresses", anchor: "people-addresses" },
   // Notifications
   {
     page: "notifications",

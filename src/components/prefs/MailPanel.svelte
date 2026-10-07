@@ -8,7 +8,7 @@
 
   // The mail's own settings: «Mail» (list, new messages, reading, attachments,
   // sending) and «Notifications» with the quota warnings.
-  let { current, draft }: { current: string; draft: Settings } = $props();
+  let { current, draft, onOpen }: { current: string; draft: Settings; onOpen?: (page: string) => void } = $props();
 
   /** A radio choice of the snippet below: the field and the value are its own. */
   function choose(group: "notify" | "letter_view", value: string) {
@@ -79,6 +79,16 @@
       {@render option("letter_view", "text", t("settings.letterView.text"), t("settings.letterView.textNote"))}
     </div>
     <p class="hint">{t("settings.letterView.hint")}</p>
+  </section>
+  <!-- The rules live with the people they are about (#44): this page only says they exist
+       and opens «People» filtered to those who have one. -->
+  <section data-settings="mail-format">
+    <h4>{t("settings.formatByPeople")}</h4>
+    <div class="peoplelink">
+      <span>{t("settings.formatByPeopleNote")}</span>
+      <span class="sp"></span>
+      <button class="btn small" onclick={() => onOpen?.("people")}>{t("settings.openPeople")}</button>
+    </div>
   </section>
   <section data-settings="mail-attachments">
     <h4>{t("settings.attachmentsDir")}</h4>
@@ -200,5 +210,21 @@
     width: 56px;
     padding: 4px 6px;
     text-align: right;
+  }
+
+  .peoplelink {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper-2);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .sp {
+    flex: 1;
   }
 </style>

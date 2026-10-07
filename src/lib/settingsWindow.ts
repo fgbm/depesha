@@ -27,6 +27,8 @@ export interface PageTraits {
  */
 export const PAGE_TRAITS: Record<string, PageTraits> = {
   keys: { selfSaving: true, wide: true },
+  // «People» (#66) saves every record as it is changed and draws a list beside an editor.
+  people: { selfSaving: true, wide: true },
 };
 
 export function traits(page: string): PageTraits {

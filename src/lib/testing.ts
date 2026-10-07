@@ -72,6 +72,7 @@ export const settings = (): Settings => ({
   autostart: "off",
   tray_count: true,
   tray_always: true,
+  hints: true,
 });
 
 /** Answers of an empty mailbox; tests change what they look at. */

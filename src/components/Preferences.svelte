@@ -8,6 +8,7 @@
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Power from "@lucide/svelte/icons/power";
+  import Users from "@lucide/svelte/icons/users";
   import Search from "@lucide/svelte/icons/search";
   import { tick, untrack, type Component } from "svelte";
   import { app } from "../lib/store.svelte";
@@ -23,6 +24,7 @@
   import type { Settings } from "../lib/types";
   import GeneralPanel from "./prefs/GeneralPanel.svelte";
   import MailPanel from "./prefs/MailPanel.svelte";
+  import PeoplePanel from "./prefs/PeoplePanel.svelte";
   import OfflinePanel from "./prefs/OfflinePanel.svelte";
   import BackgroundPanel from "./prefs/BackgroundPanel.svelte";
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
@@ -66,6 +68,7 @@
     { id: "general", title: () => t("settings.page.general"), icon: Settings2 },
     { id: "background", title: () => t("settings.page.background"), icon: Power },
     { id: "mail", title: () => t("settings.page.mail"), icon: Mail },
+    { id: "people", title: () => t("people.title"), icon: Users },
     { id: "notifications", title: () => t("settings.notifications"), icon: Bell },
     { id: "keys", title: () => t("keys.title"), icon: Keyboard },
     { id: "offline", title: () => t("settings.offline"), icon: CloudOff },
@@ -310,7 +313,9 @@
           {#if current === "general" || current === "updates"}
             <GeneralPanel {current} {draft} bind:largeValue bind:largeUnit />
           {:else if current === "mail" || current === "notifications"}
-            <MailPanel {current} {draft} />
+            <MailPanel {current} {draft} onOpen={(p) => (page = p)} />
+          {:else if current === "people"}
+            <PeoplePanel />
           {:else if current === "background"}
             <BackgroundPanel {draft} />
           {:else if current === "offline"}

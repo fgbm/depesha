@@ -5,7 +5,8 @@
 // keep the address out of completion. One person is one address in 0.7: joining several
 // addresses into one person is a task of its own. The rules leave the address book for the
 // places that need them: the compose window writes by them, the reader shows by them.
-import type { BodyFormat, LetterViewPref, MessageView } from "./types";
+import type { BodyFormat, LetterViewPref, MessageView, ViewRule } from "./types";
+export type { ViewRule } from "./types";
 
 /** A person of the book: their record, or one only found in the correspondence. */
 export interface Person {
@@ -27,9 +28,6 @@ export interface Person {
   /** Letters carrying the address, both ways. */
   uses: number;
 }
-
-/** What a person, a mailbox or a letter asks the reader to show: "" leaves it to the next. */
-export type ViewRule = "" | "html" | "markdown" | "text";
 
 /** A person's record with every field set; what a new one starts as. */
 export function blankPerson(email: string): Person {
@@ -115,4 +113,32 @@ export function formatMark(format: BodyFormat): string {
 /** The sender's address of a letter, for a rule that read it. */
 export function senderEmail(view: Pick<MessageView, "summary">): string {
   return view.summary.from?.email ?? "";
+}
+
+// ---- Finding one's way in the book (#66, frame 10) ----
+
+/** A filter over the list. */
+export type PeopleFilter = "all" | "ruled" | "manual" | "hidden";
+
+/** Whether a person matches the search over their name, address and note. */
+export function matchPerson(person: Person, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    person.name.toLowerCase().includes(q) || person.email.toLowerCase().includes(q) || person.note.toLowerCase().includes(q)
+  );
+}
+
+/** The people a filter keeps: everyone, those with a rule, those added by hand, the hidden. */
+export function filterPeople(people: Person[], filter: PeopleFilter): Person[] {
+  switch (filter) {
+    case "ruled":
+      return people.filter((p) => p.send_format !== "" || p.view !== "");
+    case "manual":
+      return people.filter((p) => p.manual);
+    case "hidden":
+      return people.filter((p) => p.hidden);
+    case "all":
+      return people;
+  }
 }

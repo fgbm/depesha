@@ -3,6 +3,7 @@
   import { THEMES } from "../../lib/theme";
   import { app } from "../../lib/store.svelte";
   import Select from "../Select.svelte";
+  import HintsSection from "./HintsSection.svelte";
   import type { Settings } from "../../lib/types";
 
   // The app-wide settings: «General» (language, appearance, search) and «Updates».
@@ -68,6 +69,10 @@
       />
     </div>
     <p class="hint">{t("settings.largeMailNote")}</p>
+  </section>
+  <section data-settings="general-hints">
+    <h4>{t("settings.hints")}</h4>
+    <HintsSection {draft} />
   </section>
 {:else if current === "updates"}
   <section data-settings="updates">
