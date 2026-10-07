@@ -420,11 +420,22 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
         ])
         .add_url_schemes(["cid", "data"])
         .add_allowed_classes("div", COMPOSE_CLASSES)
+        // The language of a code block stays on its `<code>`: the reader colours it by that
+        // name (decision on #45). Only `language-…` and only there; anything else is dropped.
+        .add_tag_attributes("code", ["class"])
         .clean_content_tags(HIDDEN_TAGS.into())
         .link_rel(Some("noopener noreferrer"));
 
     let flag = remote.clone();
     builder.attribute_filter(move |element, attribute, value| {
+        // The `<code>` of a code block keeps only its language: the reader colours by it.
+        if element == "code" && attribute == "class" {
+            let lang: Vec<&str> = value
+                .split_whitespace()
+                .filter(|c| c.starts_with("language-") || c.starts_with("lang-"))
+                .collect();
+            return (!lang.is_empty()).then(|| Cow::Owned(lang.join(" ")));
+        }
         let lower = value.trim_start().to_ascii_lowercase();
         if let Some(cid) = lower.strip_prefix("cid:") {
             let cid = cid.trim_matches(['<', '>']);
@@ -892,6 +903,22 @@ JVBERi0xLjQK\r\n\
         );
         assert_eq!(format(mail(&format!("{FORMAT_HEADER}: rtf\r\n"))), None);
         assert_eq!(format(mail("")), None);
+    }
+
+    #[test]
+    fn markdown_code_keeps_its_language_for_the_reader_to_colour() {
+        // The reader colours a code block by the language on its `<code>` (decision on #45).
+        // Cleaning keeps that name and no other class; a foreign letter's classes still go.
+        let html = markdown_html("```sql\nSELECT 1\n```\n");
+        assert!(html.contains("<code class=\"language-sql\">"), "{html}");
+        let clean = sanitize_html(
+            "<pre><code class=\"language-sql hl-evil\">x</code></pre>",
+            &HashMap::new(),
+            false,
+        )
+        .0;
+        assert!(clean.contains("class=\"language-sql\""), "{clean}");
+        assert!(!clean.contains("hl-evil"), "{clean}");
     }
 
     #[test]
