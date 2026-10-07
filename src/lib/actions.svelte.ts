@@ -4,8 +4,9 @@
 
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api } from "./api";
+import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
+import { refusalOf } from "./labels";
 import type { ListController } from "./list.svelte";
 import type { FolderInfo, MessageRow, Moved, OpenedMessage, Settings } from "./types";
 
@@ -28,6 +29,8 @@ export interface ActionHost {
   takeOut(ids: number[]): void;
   toast(text: string, error?: boolean, action?: { label: string; run: () => void }): void;
   fail(e: unknown, prefix?: string): void;
+  /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
+  folderProperties?(accountId: string, folder: string): void;
   track<T>(p: Promise<T>): Promise<T>;
   reload(): Promise<void>;
 }
@@ -80,13 +83,49 @@ export class ActionRunner {
       }
     } catch (e) {
       failed = true;
-      this.host.fail(e, failText);
+      this.refused(e, rows, failText);
     } finally {
       // Moved: the cache no longer has them here. Refused: they come back with the error.
       for (const id of hidden) list.leaving.delete(id);
     }
     if (failed) list.restore(before, new Set(ids));
     void this.host.reload();
+  }
+
+  /**
+   * A failed action says which of three things happened (#42, frame 8): no rights in the
+   * folder (the ban is remembered, and the properties are one click away), a server error
+   * (retry), or no answer (the letter waits, the tone is not red). Not the plain error
+   * toast: the letter came back, and the reason decides what the user does next.
+   */
+  private refused(e: unknown, rows: (MessageRow | undefined)[], failText: string) {
+    const kind = asError(e).kind;
+    const what = refusalOf(kind);
+    // The folder the rows were in, for the notice's words; the first row names it.
+    const row = rows.find((r): r is MessageRow => !!r);
+    const folder = row ? (this.host.folders.find((f) => f.account_id === row.account_id && f.name === row.folder)?.display_name ?? row.folder) : "";
+    switch (what) {
+      case "no-rights": {
+        // The ban is already remembered by the backend; the notice leads to the folder.
+        const account = row?.account_id;
+        this.host.toast(t("refuse.noRights", { folder }), true, {
+          label: t("folder.properties"),
+          run: () => {
+            if (account) this.host.folderProperties?.(account, row!.folder);
+          },
+        });
+        break;
+      }
+      case "error":
+        this.host.toast(t("refuse.error", { folder }), true, { label: t("retry"), run: () => this.host.reload() });
+        break;
+      case "no-answer":
+        // Not a refusal: yellow, not red; the action waits in the background, as all offline work.
+        this.host.toast(t("refuse.noAnswer", { folder }), false);
+        break;
+      default:
+        this.host.fail(e, failText);
+    }
   }
 
   /** The ids an action applies to: in a grouped list a row stands for its whole conversation. */

@@ -30,7 +30,7 @@
   import { t, type Key } from "../../lib/i18n.svelte";
   import { when } from "../../lib/later";
   import { actionsOf, readOnly } from "../../lib/labels";
-  import type { AccountView, FolderAction, FolderInfo } from "../../lib/types";
+  import type { AccountView, FolderAction, FolderInfo, LabelCheck } from "../../lib/types";
   import { untrack } from "svelte";
 
   let {
@@ -48,7 +48,24 @@
   const owner = $derived(info?.owner ?? { kind: "mine" as const });
 
   let details = $state(false);
+  /** The "what will happen" window before the test message is put on the server (#42, frame 9). */
+  let confirmCheck = $state(false);
+  let checkRunning = $state(false);
+  let checkResult = $state<LabelCheck | null>(null);
   const { x, y } = untrack(() => at);
+
+  // The outcome of the last check: the card and the labels picker read it.
+  const checkOutcome = $derived(checkResult ?? info?.label_check ?? null);
+
+  async function runCheck() {
+    confirmCheck = false;
+    checkRunning = true;
+    try {
+      checkResult = await app.labels.runLabelCheck(account.id, folder.name);
+    } finally {
+      checkRunning = false;
+    }
+  }
 
   // The card follows the folder's opening too: a read of props already asked for.
   $effect(() => {
@@ -84,6 +101,25 @@
   }
 </script>
 
+{#if confirmCheck}
+  <!-- The explainer before the check writes anything (#42, frame 9, left). -->
+  <div class="backdrop" role="presentation" onclick={() => (confirmCheck = false)}></div>
+  <div class="cdlg" role="dialog" aria-label={t("label.check.title", { folder: folder.display_name })}>
+    <h3>{t("label.check.title", { folder: folder.display_name })}</h3>
+    <p>{t("label.check.lead")}</p>
+    <ol>
+      <li>{t("label.check.step1")}</li>
+      <li>{t("label.check.step2")}</li>
+      <li>{t("label.check.step3")}</li>
+    </ol>
+    <p class="hint">{t("label.check.note")}</p>
+    <div class="acts">
+      <button class="btn" onclick={() => (confirmCheck = false)}>{t("cancel")}</button>
+      <button class="btn primary" onclick={runCheck}>{t("label.check.run")}</button>
+    </div>
+  </div>
+{/if}
+
 <div class="backdrop" role="presentation" onclick={onclose} oncontextmenu={(e) => (e.preventDefault(), onclose())}></div>
 <div class="fcard" style={pos(x, y)} role="dialog" aria-label={folder.display_name}>
   <div class="fh">
@@ -111,8 +147,17 @@
   </div>
 
   <div class="fsec">
-    <div class="k">{t("folder.labels")} {#if info?.labels_on_server == null}<span class="v mut">{t("folder.unknown")}</span>{:else if info.labels_on_server}<span class="v">{t("folder.labelsServer")}</span>{:else}<span class="v mut">{t("folder.labelsLocal")}</span>{/if}</div>
-    {#if info?.labels_on_server === false}<p>{t("folder.labelsLocalHint")}</p>{/if}
+    <div class="k">{t("folder.labels")} {#if checkOutcome}<span class="v mut">{t(`label.check.done.${checkOutcome}` as Key, { folder: folder.display_name })}</span>{:else if info?.labels_on_server == null}<span class="v mut">{t("folder.unknown")}</span>{:else if info.labels_on_server}<span class="v">{t("folder.labelsServer")}</span>{:else}<span class="v mut">{t("folder.labelsLocal")}</span>{/if}</div>
+    {#if info?.labels_on_server === false && !checkOutcome}<p>{t("folder.labelsLocalHint")}</p>{/if}
+    {#if account && !account.ews && rights && !rights.read}
+      <p class="hint">{t("folder.labelsNoRead")}</p>
+    {:else if account && !account.ews}
+      <p class="hint">
+        <button class="link" onclick={() => (confirmCheck = true)} disabled={checking || checkRunning}>
+          {checking || checkRunning ? t("label.check.running") : t("label.check.open")}
+        </button>
+      </p>
+    {/if}
   </div>
 
   <div class="fsec">
@@ -321,5 +366,48 @@
     font-size: 11.5px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  /* The explainer before the label check (#42, frame 9): a small centered dialog. */
+  .cdlg {
+    position: fixed;
+    z-index: 60;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 32px));
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--paper);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 12%), 0 12px 32px rgb(0 0 0 / 18%);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .cdlg h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+  }
+
+  .cdlg p {
+    margin: 0 0 8px;
+  }
+
+  .cdlg ol {
+    margin: 0 0 8px;
+    padding-left: 20px;
+  }
+
+  .cdlg .hint {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .cdlg .acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
   }
 </style>

@@ -21,6 +21,7 @@
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
   import { allCommands, host } from "./plugin-host/host.svelte";
+  import FolderPropsCard from "./components/prefs/FolderProps.svelte";
   import { registry } from "./plugin-host/registry.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
@@ -245,7 +246,15 @@
 {/each}
 
 {#if app.confirmation}
-  {#key app.confirmation}<Confirm q={app.confirmation} />{/key}
+  {#key app.confirmation}<Confirm q={app.confirmation} />{/key}
+{/if}
+
+{#if app.labels.card}
+  {@const acc = app.account(app.labels.card.accountId)}
+  {@const fol = app.folder(app.labels.card.accountId, app.labels.card.folder)}
+  {#if acc && fol}
+    <FolderPropsCard at={{ x: Math.round(window.innerWidth / 2 - 160), y: 120 }} account={acc} folder={fol} onclose={() => app.labels.closeCard()} />
+  {/if}
 {/if}
 
 <WindowControls />

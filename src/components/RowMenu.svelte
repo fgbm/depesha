@@ -15,6 +15,7 @@
   import AppWindow from "@lucide/svelte/icons/app-window";
   import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
+  import { storageOf } from "../lib/labels";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowAction } from "../plugin-api";
   import { untrack } from "svelte";
@@ -73,16 +74,21 @@
     const on = rows.filter((m) => (m.keywords ?? []).includes(l.keyword)).length;
     return on === 0 ? "none" : on === rows.length ? "all" : "some";
   }
-  /** Whether the folders the rows lie in keep labels on the server. */
-  const labelsLocal = $derived.by(() => {
-    if (!labelAccount) return false;
+  /** Where the labels of the rows are stored (#42, frame 9): the check outcome of the
+   *  folder, or the PERMANENTFLAGS the check read; "unconfirmed" when neither is known. */
+  const storage = $derived.by((): "server" | "local" | "unconfirmed" => {
+    if (!labelAccount) return "unconfirmed";
     const folders = new Set(rows.map((m) => m.folder));
-    return [...folders].every((f) => app.labels.prop(labelAccount, f)?.labels_on_server === false);
-  });
-  const labelsUnknown = $derived.by(() => {
-    if (!labelAccount) return false;
-    const folders = new Set(rows.map((m) => m.folder));
-    return [...folders].some((f) => app.labels.prop(labelAccount, f)?.labels_on_server == null);
+    const kinds = [...folders].map((f) => {
+      const p = app.labels.prop(labelAccount, f);
+      if (p?.label_check) return storageOf(p.label_check);
+      if (p?.labels_on_server == null) return "unconfirmed" as const;
+      return storageOf(p.labels_on_server ? "saves" : "not-saves");
+    });
+    // The whole selection is "on the server" only when every folder says so.
+    if (kinds.every((k) => k === "server")) return "server";
+    if (kinds.every((k) => k === "local")) return "local";
+    return "unconfirmed";
   });
 
   async function toggleLabel(keyword: string, on: boolean) {
@@ -190,8 +196,8 @@
       <button class="btn primary" type="submit" disabled={!newLabel.trim()}>{t("label.create")}</button>
     </form>
     <div class="stat">
-      {#if labelsUnknown}{t("label.whereUnknown")}
-      {:else if labelsLocal}{t("label.whereLocal")}
+      {#if storage === "unconfirmed"}{t("label.whereUnknown")}
+      {:else if storage === "local"}{t("label.whereLocal")}
       {:else}{t("label.whereServer")}{/if}
     </div>
   {:else if sub?.kind === "plugin" && sub.action.menu}

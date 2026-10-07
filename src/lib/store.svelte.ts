@@ -218,6 +218,8 @@ export class AppStore {
   setLabel(ids: number[], name: string, value: boolean) { return labels.set(ids, name, value); }
   /** Reads a folder's properties, asking the server. */
   checkFolderProps(accountId: string, folder: string) { return labels.check(accountId, folder); }
+  /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
+  folderProperties(accountId: string, folder: string) { labels.openCard(accountId, folder); }
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. Never rejects. */
   perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
     return this.actions.perform(text, ids, run, failText);

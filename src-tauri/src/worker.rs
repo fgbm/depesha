@@ -104,6 +104,13 @@ pub enum Work {
     },
     /// Reads a folder's rights, permanent flags and owner; the "Properties" card.
     FolderProps(String),
+    /// Checks own labels on a test message in the folder (#42, frame 9).
+    CheckLabels {
+        folder: String,
+        keyword: String,
+        message_id: String,
+        subject: String,
+    },
 }
 
 pub enum Output {
@@ -115,6 +122,8 @@ pub enum Output {
     Folders(Vec<(String, String)>),
     /// A folder's props, as the "Properties" card shows them.
     Props(depesha_core::acl::FolderProps),
+    /// The outcome of a label check on a test message (#42, frame 9).
+    LabelCheck(depesha_core::acl::LabelCheck),
 }
 
 type Reply = oneshot::Sender<Result<Output>>;
@@ -832,6 +841,15 @@ async fn perform(
         Work::FolderProps(folder) => {
             let props = mail::folder_props(conn, store, id, folder).await?;
             Ok(Output::Props(props))
+        }
+        Work::CheckLabels {
+            folder,
+            keyword,
+            message_id,
+            subject,
+        } => {
+            let check = mail::check_labels(conn, folder, keyword, message_id, subject).await?;
+            Ok(Output::LabelCheck(check))
         }
         Work::Move {
             from,

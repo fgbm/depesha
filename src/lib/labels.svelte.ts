@@ -5,7 +5,7 @@
 import { api } from "./api";
 import { t } from "./i18n.svelte";
 import type { AppStore } from "./store.svelte";
-import type { FolderProps, Label } from "./types";
+import type { FolderProps, Label, LabelCheck } from "./types";
 
 class Labels {
   /** Метки каждого ящика, по id. */
@@ -14,6 +14,8 @@ class Labels {
   props = $state<Record<string, FolderProps>>({});
   /** Проверка свойств идёт: по тому же ключу. */
   checking = $state<Record<string, boolean>>({});
+  /** Открытая карточка свойств папки (#42, кадр 4А): ящик и имя папки. */
+  card = $state<{ accountId: string; folder: string } | null>(null);
 
   private app: AppStore | null = null;
 
@@ -74,6 +76,16 @@ class Labels {
     return this.props[this.key(accountId, folder)];
   }
 
+  /** Открывает карточку свойств папки (#42): из «нет прав» и из подраздела «Папки». */
+  openCard(accountId: string, folder: string) {
+    this.card = { accountId, folder };
+    void this.loadProps(accountId, folder);
+  }
+
+  closeCard() {
+    this.card = null;
+  }
+
   async loadProps(accountId: string, folder: string) {
     const key = this.key(accountId, folder);
     if (key in this.props) return;
@@ -91,6 +103,23 @@ class Labels {
       this.props[key] = await api.folderProps(accountId, folder);
     } catch (e) {
       this.app?.fail(e, t("folder.propsFailed"));
+    } finally {
+      this.checking[key] = false;
+    }
+  }
+
+  /** Проверка меток на тестовом письме (кадр 9): итог помнится и меняет «где хранятся». */
+  async runLabelCheck(accountId: string, folder: string): Promise<LabelCheck | null> {
+    const key = this.key(accountId, folder);
+    this.checking[key] = true;
+    try {
+      const check = await api.labelCheck(accountId, folder);
+      const before = this.props[key];
+      if (before) this.props[key] = { ...before, label_check: check, checked: Math.floor(Date.now() / 1000) };
+      return check;
+    } catch (e) {
+      this.app?.fail(e, t("label.check.failed", { reason: "" }));
+      return null;
     } finally {
       this.checking[key] = false;
     }

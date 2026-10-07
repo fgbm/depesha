@@ -697,6 +697,42 @@ fn local_seen_folder(state: &AppState, account_id: &str, folder: &str) -> bool {
     props.rights.is_some_and(|r| r.read && !r.seen)
 }
 
+/// Checks own labels on a test message in `folder` (#42, frame 9). The test letter is
+/// always deleted, also on a failure; the outcome is remembered for the folder.
+#[tauri::command]
+pub async fn label_check(
+    state: St<'_>,
+    account_id: String,
+    folder: String,
+) -> CmdResult<depesha_core::acl::LabelCheck> {
+    let keyword = depesha_core::acl::keyword_of("depesha-test");
+    // A fresh Message-ID every run, so a leftover from an interrupted check is not reused.
+    let stamp = chrono::Utc::now().timestamp_millis();
+    let message_id = format!("depesha-test-{stamp}@depesha.local");
+    let subject = pick("Depesha: label check", "Депеша: проверка меток").to_owned();
+    let worker = state.worker(&account_id)?;
+    let out = worker
+        .run(Work::CheckLabels {
+            folder: folder.clone(),
+            keyword,
+            message_id,
+            subject,
+        })
+        .await?;
+    let Output::LabelCheck(check) = out else {
+        return Err(CmdError::new(
+            "other",
+            pick("the label check gave no answer", "проверка меток не дала ответа"),
+        ));
+    };
+    state
+        .store
+        .set_label_check(&account_id, &folder, Some(check), chrono::Utc::now().timestamp())?;
+    // A check that ended well also tells whether labels are kept: the props follow.
+    crate::server::changed(&state, &account_id);
+    Ok(check)
+}
+
 /// The account's labels, with the keyword each stores on the server.
 #[tauri::command]
 pub fn labels(state: St<'_>, account_id: String) -> CmdResult<Vec<depesha_core::acl::Label>> {

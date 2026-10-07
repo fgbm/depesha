@@ -32,6 +32,11 @@
 
   function labelsOf(p: FolderProps | undefined): { text: string; kind: "ok" | "lim" | "no" | "unk" } {
     if (!p || p.labels_on_server == null) return { text: t("folder.unknown"), kind: "unk" };
+    // A check on a test message is stronger than PERMANENTFLAGS (#42, frame 9): it decides.
+    if (p.label_check === "saves") return { text: t("folder.labelsServer"), kind: "ok" };
+    if (p.label_check === "not-saves" || p.label_check === "claimed-but-lost") {
+      return { text: t("folder.labelsLocalShort"), kind: "lim" };
+    }
     if (p.labels_on_server) return { text: t("folder.labelsServer"), kind: "ok" };
     return { text: t("folder.labelsLocalShort"), kind: "lim" };
   }
@@ -77,6 +82,7 @@
     {/each}
   </tbody>
 </table>
+<p class="small muted">{t("server.folders.note")}</p>
 
 <style>
   h4 {
@@ -168,5 +174,13 @@
 
   .muted {
     color: var(--muted);
+  }
+
+  .small {
+    font-size: 11.5px;
+  }
+
+  .folders + p {
+    margin: 8px 0 0;
   }
 </style>

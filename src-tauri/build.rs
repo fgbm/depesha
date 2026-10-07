@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "label_save",
     "label_remove",
     "folder_props",
+    "label_check",
     "move_messages",
     "delete_messages",
     "archive",

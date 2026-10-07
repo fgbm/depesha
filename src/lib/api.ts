@@ -36,6 +36,7 @@ import type {
   SortKey,
   FolderProps,
   Label,
+  LabelCheck,
 } from "./types";
 
 /** Backend errors arrive as `CmdError`; anything else is wrapped so callers can rely on the shape. */
@@ -94,6 +95,8 @@ export const api = {
   /** A folder's properties card: rights, permanent flags, owner. */
   folderProps: (accountId: string, folder: string) =>
     call<FolderProps>("folder_props", { accountId, folder }),
+  /** Checks own labels on a test message in the folder (#42, frame 9). */
+  labelCheck: (accountId: string, folder: string) => call<LabelCheck>("label_check", { accountId, folder }),
   move: (ids: number[], to: string) => call<Moved[]>("move_messages", { ids, to }),
   remove: (ids: number[]) => call<Moved[]>("delete_messages", { ids }),
   archive: (ids: number[]) => call<Moved[]>("archive", { ids }),

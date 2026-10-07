@@ -209,6 +209,7 @@ pub fn run() {
             commands::label_save,
             commands::label_remove,
             commands::folder_props,
+            commands::label_check,
             commands::move_messages,
             commands::delete_messages,
             commands::archive,

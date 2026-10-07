@@ -197,6 +197,8 @@ export interface FolderProps {
   labels_on_server?: boolean | null;
   /** The PERMANENTFLAGS the server listed, for the details. */
   permanent?: string[];
+  /** The outcome of a label check on a test message (#42, frame 9); absent is never checked. */
+  label_check?: LabelCheck | null;
   /** The remembered refusal (`no-rights`), if any. */
   refused?: string | null;
   /** When the props were read, Unix time; 0 is never. */
@@ -209,6 +211,9 @@ export interface Label {
   keyword: string;
   color: string;
 }
+
+/** The outcome of a label check on a test message (#42, frame 9). */
+export type LabelCheck = "saves" | "not-saves" | "claimed-but-lost";
 
 export interface Addr {
   name: string | null;
