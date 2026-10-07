@@ -72,6 +72,28 @@ function under(name: string, ns: NamespaceFolder): boolean {
   return ns.prefix !== "" && name.startsWith(ns.prefix);
 }
 
+/** The namespace root itself: `shared/` names the root `shared`, `Other Users/` names
+ *  `Other Users`. It exists only to hold the folders that go into a group, so it is not
+ *  a folder of the mailbox's own tree (#42, кадр 6Б). */
+function rootOf(name: string, ns: NamespaceFolder): boolean {
+  if (ns.prefix === "") return false;
+  const root = ns.prefix.endsWith(ns.delimiter) ? ns.prefix.slice(0, -ns.delimiter.length) : ns.prefix;
+  return name === root;
+}
+
+/** Namespace roots — `shared`, `Other Users` and another person's own `Other Users/maria`
+ *  — are containers of the grouped folders, not folders of the mailbox. They must not
+ *  stay in the account's own tree; only what went into a group is shown (#42, кадр 6Б). */
+function namespaceRoot(name: string, ns: NamespaceInfo): boolean {
+  for (const n of ns.shared) if (rootOf(name, n)) return true;
+  for (const n of ns.other_users) {
+    if (rootOf(name, n)) return true;
+    // `Other Users/maria` names the owner: the segment after the prefix, nothing deeper.
+    if (under(name, n) && !name.slice(n.prefix.length).includes(n.delimiter)) return true;
+  }
+  return false;
+}
+
 function ownerOf(name: string, ns: NamespaceInfo): Owner | null {
   for (const n of ns.shared) if (under(name, n)) return { kind: "shared" };
   for (const n of ns.other_users) {
@@ -88,6 +110,7 @@ export function groupFolders(folders: FolderInfo[], ns: NamespaceInfo | null): F
   const out: FolderGrouping = { mine: [], shared: [], others: [] };
   const byOwner = new Map<string, FolderInfo[]>();
   for (const f of folders) {
+    if (ns && namespaceRoot(f.name, ns)) continue;
     const owner = ns ? ownerOf(f.name, ns) : null;
     if (!owner || owner.kind === "mine") out.mine.push(f);
     else if (owner.kind === "shared") out.shared.push(f);
