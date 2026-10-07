@@ -1,32 +1,33 @@
-component	src/App.svelte	290	191	53	46
-component	src/MessageWindow.svelte	95	69	21	5
+component	src/App.svelte	309	202	61	46
+component	src/MessageWindow.svelte	96	70	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
-component	src/components/Compose.svelte	940	262	237	441
+component	src/components/Compose.svelte	996	279	264	453
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
-component	src/components/FolderMenu.svelte	122	76	35	11
+component	src/components/FolderMenu.svelte	145	86	42	17
 component	src/components/FolderPicker.svelte	40	18	11	11
-component	src/components/FormatBar.svelte	365	227	64	74
+component	src/components/FormatBar.svelte	433	267	80	86
 component	src/components/HintLine.svelte	134	43	29	62
+component	src/components/Keys.svelte	70	16	9	45
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	161	119	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	610	163	105	342
+component	src/components/MessageList.svelte	676	187	111	378
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	622	247	91	284
+component	src/components/Preferences.svelte	627	250	93	284
 component	src/components/QuotaLine.svelte	119	29	13	77
-component	src/components/Reader.svelte	330	130	97	103
+component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	152	84	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
-component	src/components/RowMenu.svelte	128	72	49	7
+component	src/components/RowMenu.svelte	259	134	75	50
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
@@ -43,39 +44,42 @@ component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	65	7	16	42
 component	src/components/account/ConnectionBlock.svelte	117	14	17	86
 component	src/components/account/ConnectionFields.svelte	189	10	60	119
+component	src/components/account/FoldersTable.svelte	186	53	34	99
 component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	42	14	12	16
 component	src/components/account/LetterViewField.svelte	25	12	13	0
 component	src/components/account/LettersSection.svelte	16	10	6	0
-component	src/components/account/ServerSection.svelte	362	42	82	238
+component	src/components/account/ServerSection.svelte	368	46	84	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
+component	src/components/prefs/FolderProps.svelte	413	19	177	217
 component	src/components/prefs/GeneralPanel.svelte	257	27	73	157
 component	src/components/prefs/HintsSection.svelte	115	35	29	51
-component	src/components/prefs/MailPanel.svelte	224	17	122	85
+component	src/components/prefs/KeysPanel.svelte	678	72	164	442
+component	src/components/prefs/MailPanel.svelte	230	17	128	85
 component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
 component	src/components/prefs/PeoplePanel.svelte	482	107	112	263
 component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	312	96	59	157
-component	src/components/reader/QuickReply.svelte	216	55	31	130
-component	src/components/reader/ReaderBody.svelte	159	80	43	36
+component	src/components/reader/QuickReply.svelte	218	57	31	130
+component	src/components/reader/ReaderBody.svelte	181	102	43	36
 component	src/components/reader/ReaderHeader.svelte	330	79	60	191
-component	src/components/reader/ReaderStates.svelte	239	34	75	130
-component	src/components/reader/ReaderToolbar.svelte	161	63	48	50
-component	src/components/reader/ReplyActions.svelte	65	19	11	35
+component	src/components/reader/ReaderStates.svelte	240	35	75	130
+component	src/components/reader/ReaderToolbar.svelte	162	64	48	50
+component	src/components/reader/ReplyActions.svelte	66	20	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
 component	src/components/sidebar/FavouriteRow.svelte	56	34	22	0
 component	src/components/sidebar/Favourites.svelte	27	11	11	5
-component	src/components/sidebar/FolderRow.svelte	87	8	79	0
+component	src/components/sidebar/FolderRow.svelte	104	8	96	0
 component	src/components/sidebar/Problem.svelte	39	14	25	0
-component	src/components/sidebar/SidebarFolded.svelte	114	32	82	0
-component	src/components/sidebar/SidebarFull.svelte	103	32	71	0
-component	src/components/sidebar/SidebarTree.svelte	20	15	5	0
+component	src/components/sidebar/SidebarFolded.svelte	115	33	82	0
+component	src/components/sidebar/SidebarFull.svelte	104	33	71	0
+component	src/components/sidebar/SidebarTree.svelte	44	25	19	0
 component	src/components/sidebar/SmartSections.svelte	75	25	50	0
 component	src/components/sidebar/TasksButton.svelte	18	12	6	0
 component	src/components/viewer/CsvView.svelte	83	28	19	36
@@ -86,8 +90,11 @@ component	src/components/viewer/MediaView.svelte	58	24	14	20
 component	src/components/viewer/PdfView.svelte	231	116	20	95
 component	src/components/viewer/TextView.svelte	54	24	8	22
 function	plugins/account-color/index.test.ts::fakeContext	5
+function	plugins/command-palette/Palette.svelte::configure	4
 function	plugins/command-palette/Palette.svelte::run	6
-function	plugins/command-palette/Palette.svelte::onKey	15
+function	plugins/command-palette/Palette.svelte::onKey	18
+function	plugins/command-palette/keys.test.ts::cmd	1
+function	plugins/command-palette/keys.ts::editTarget	3
 function	plugins/command-palette/rank.test.ts::cmd	1
 function	plugins/command-palette/rank.test.ts::memory	4
 function	plugins/command-palette/rank.ts::matchQuality	6
@@ -169,9 +176,9 @@ function	plugins/templates/TemplatesSettings.svelte::changed	3
 function	src/App.svelte::drag	18
 function	src/App.svelte::refocusList	6
 function	src/App.svelte::zoneAt	5
-function	src/App.svelte::pluginKey	7
-function	src/App.svelte::onKey	68
-function	src/MessageWindow.svelte::onKey	25
+function	src/App.svelte::action	4
+function	src/App.svelte::onKey	55
+function	src/MessageWindow.svelte::onKey	26
 function	src/components/Accounts.svelte::arrange	14
 function	src/components/Accounts.svelte::look	8
 function	src/components/Accounts.svelte::saveName	6
@@ -181,7 +188,9 @@ function	src/components/AddressInput.svelte::commit	13
 function	src/components/AddressInput.svelte::onInput	22
 function	src/components/AddressInput.svelte::pick	6
 function	src/components/AddressInput.svelte::onKey	19
+function	src/components/Compose.svelte::formatLabel	3
 function	src/components/Compose.svelte::commitAll	4
+function	src/components/Compose.svelte::name	2
 function	src/components/Compose.svelte::acceptHint	3
 function	src/components/Compose.svelte::undoHint	11
 function	src/components/Confirm.svelte::answer	4
@@ -196,13 +205,14 @@ function	src/components/FolderMenu.svelte::create	13
 function	src/components/FolderPicker.svelte::pick	8
 function	src/components/FormatBar.svelte::run	3
 function	src/components/FormatBar.svelte::command	4
-function	src/components/FormatBar.svelte::refresh	9
+function	src/components/FormatBar.svelte::refresh	14
 function	src/components/FormatBar.svelte::quoteAtCaret	6
 function	src/components/FormatBar.svelte::toggleQuote	10
 function	src/components/FormatBar.svelte::clearHtml	5
 function	src/components/FormatBar.svelte::markdown	5
 function	src/components/FormatBar.svelte::wrap	3
 function	src/components/FormatBar.svelte::lines	3
+function	src/components/FormatBar.svelte::heading	4
 function	src/components/FormatBar.svelte::startLink	11
 function	src/components/FormatBar.svelte::linkTarget	8
 function	src/components/FormatBar.svelte::backTo	13
@@ -221,6 +231,7 @@ function	src/components/MailFrame.test.ts::srcdoc	7
 function	src/components/MarkdownPartsNote.svelte::onWindowDown	3
 function	src/components/MarkdownPartsNote.svelte::onKey	6
 function	src/components/MessageList.svelte::tagsOf	3
+function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
 function	src/components/MessageList.svelte::click	8
 function	src/components/MessageList.svelte::context	7
@@ -284,6 +295,9 @@ function	src/components/RichEditor.svelte::onpointermove	8
 function	src/components/RichEditor.svelte::place	11
 function	src/components/RichEditor.svelte::setSize	14
 function	src/components/RichEditor.svelte::removePicked	5
+function	src/components/RowMenu.svelte::labelState	4
+function	src/components/RowMenu.svelte::toggleLabel	4
+function	src/components/RowMenu.svelte::addLabel	7
 function	src/components/RowMenu.svelte::run	4
 function	src/components/RowMenu.svelte::withOpened	7
 function	src/components/RowMenu.svelte::fromSender	4
@@ -317,6 +331,10 @@ function	src/components/Viewer.svelte::onKey	18
 function	src/components/account/AccountPage.svelte::track	6
 function	src/components/account/AccountPage.svelte::go	4
 function	src/components/account/AccountPage.svelte::scrollTo	5
+function	src/components/account/FoldersTable.svelte::access	8
+function	src/components/account/FoldersTable.svelte::labelsOf	10
+function	src/components/account/FoldersTable.svelte::ownerText	6
+function	src/components/account/FoldersTable.svelte::open	3
 function	src/components/account/ServerSection.svelte::copy	5
 function	src/components/account/SignatureEditor.svelte::setHtml	4
 function	src/components/account/SignatureEditor.svelte::addPictures	6
@@ -339,9 +357,17 @@ function	src/components/account/StorageSection.svelte::useOwn	4
 function	src/components/account/StorageSection.svelte::findLarge	5
 function	src/components/account/StorageSection.svelte::openTrash	6
 function	src/components/account/sections.ts::sectionsFor	3
+function	src/components/prefs/FolderProps.svelte::rightsLetters	16
+function	src/components/prefs/FolderProps.svelte::runCheck	9
+function	src/components/prefs/FolderProps.svelte::pos	8
 function	src/components/prefs/GeneralPanel.svelte::choose	4
 function	src/components/prefs/HintsSection.svelte::load	7
 function	src/components/prefs/HintsSection.svelte::clear	10
+function	src/components/prefs/KeysPanel.svelte::pluginName	4
+function	src/components/prefs/KeysPanel.svelte::problemText	3
+function	src/components/prefs/KeysPanel.svelte::messageText	3
+function	src/components/prefs/KeysPanel.svelte::noteText	3
+function	src/components/prefs/KeysPanel.svelte::swapText	3
 function	src/components/prefs/MailPanel.svelte::choose	4
 function	src/components/prefs/PeoplePanel.svelte::load	7
 function	src/components/prefs/PeoplePanel.svelte::save	7
@@ -349,6 +375,7 @@ function	src/components/prefs/PeoplePanel.svelte::edit	7
 function	src/components/prefs/PeoplePanel.svelte::addPerson	6
 function	src/components/prefs/PeoplePanel.svelte::setAddress	9
 function	src/components/prefs/PeoplePanel.svelte::forget	17
+function	src/components/prefs/useKeyEditor.svelte.ts::useKeyEditor	3
 function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
 function	src/components/reader/PersonCard.svelte::setRule	8
@@ -393,8 +420,7 @@ function	src/lib/arrivals.test.ts::folder	2
 function	src/lib/arrivals.test.ts::started	7
 function	src/lib/arrivals.test.ts::letter	1
 function	src/lib/avatars.svelte.ts::avatarOf	15
-function	src/lib/background.svelte.ts::listenBackground	11
-function	src/lib/background.svelte.ts::quitKey	6
+function	src/lib/background.svelte.ts::listenBackground	10
 function	src/lib/background.svelte.ts::quitApp	3
 function	src/lib/background.svelte.ts::askClose	29
 function	src/lib/background.svelte.ts::askQuit	11
@@ -427,7 +453,7 @@ function	src/lib/compose.ts::reply	22
 function	src/lib/compose.ts::forwardHeader	11
 function	src/lib/compose.ts::forwardedInside	4
 function	src/lib/compose.ts::forward	13
-function	src/lib/compose.ts::fromDraft	25
+function	src/lib/compose.ts::fromDraft	28
 function	src/lib/compose.ts::isDirty	10
 function	src/lib/compose.ts::takeBodyPictures	6
 function	src/lib/compose.ts::partsOf	8
@@ -446,9 +472,8 @@ function	src/lib/compose/sending.test.ts::control	5
 function	src/lib/compose/sending.test.ts::win	3
 function	src/lib/compose/sending.test.ts::host	7
 function	src/lib/composeKeys.test.ts::press	8
-function	src/lib/composeKeys.ts::names	4
-function	src/lib/composeKeys.ts::composeAction	7
-function	src/lib/composeKeys.ts::keyLabel	6
+function	src/lib/composeKeys.ts::composeAction	4
+function	src/lib/composeKeys.ts::keyLabel	4
 function	src/lib/composes.svelte.ts::baseName	3
 function	src/lib/composes.svelte.ts::decoded	7
 function	src/lib/connection.test.ts::edit	1
@@ -542,11 +567,44 @@ function	src/lib/images.ts::shrinkPicture	9
 function	src/lib/images.ts::shrinkToWidth	10
 function	src/lib/images.ts::redraw	7
 function	src/lib/images.ts::readAsDataUrl	8
-function	src/lib/keys.test.ts::press	3
-function	src/lib/keys.ts::typedKey	3
-function	src/lib/keys.ts::usKey	7
-function	src/lib/keys.ts::shortcutKeys	5
-function	src/lib/keys.ts::keyNames	4
+function	src/lib/keyCommands.ts::row	7
+function	src/lib/keymap.test.ts::press	3
+function	src/lib/keymap.test.ts::cmd	8
+function	src/lib/keymap.ts::mods	3
+function	src/lib/keymap.ts::typed	4
+function	src/lib/keymap.ts::physical	7
+function	src/lib/keymap.ts::pressName	6
+function	src/lib/keymap.ts::pressNames	8
+function	src/lib/keymap.ts::heldMods	7
+function	src/lib/keymap.ts::partName	4
+function	src/lib/keymap.ts::caps	13
+function	src/lib/keymap.ts::keyText	5
+function	src/lib/keymap.ts::problem	11
+function	src/lib/keymap.ts::overlaps	3
+function	src/lib/keymap.ts::resolve	28
+function	src/lib/keymap.ts::findCommand	6
+function	src/lib/keymap.ts::setKeys	7
+function	src/lib/keymap.ts::changed	4
+function	src/lib/keymap.ts::resetOne	5
+function	src/lib/keymap.ts::take	14
+function	src/lib/keymap.ts::put	6
+function	src/lib/keymap.ts::replace	5
+function	src/lib/keymap.ts::canSwap	5
+function	src/lib/keymap.ts::swap	6
+function	src/lib/keymap.ts::removeKey	5
+function	src/lib/keymap.ts::matches	9
+function	src/lib/labels.test.ts::rights	18
+function	src/lib/labels.test.ts::folder	13
+function	src/lib/labels.ts::keywordForName	17
+function	src/lib/labels.ts::actionsOf	3
+function	src/lib/labels.ts::readOnly	15
+function	src/lib/labels.ts::under	3
+function	src/lib/labels.ts::ownerOf	10
+function	src/lib/labels.ts::groupFolders	18
+function	src/lib/labels.ts::labelChips	11
+function	src/lib/labels.ts::labelNames	4
+function	src/lib/labels.ts::refusalOf	7
+function	src/lib/labels.ts::storageOf	5
 function	src/lib/largeMail.ts::folderOperator	4
 function	src/lib/largeMail.ts::readyQueries	15
 function	src/lib/largeMail.ts::threshold	3
@@ -584,27 +642,77 @@ function	src/lib/markdown/dialect.ts::markdownSupport	3
 function	src/lib/markdown/field.test.ts::stateOf	3
 function	src/lib/markdown/field.test.ts::at	4
 function	src/lib/markdown/field.ts::editSpec	9
-function	src/lib/markdown/field.ts::formatsAt	13
+function	src/lib/markdown/field.ts::under	4
+function	src/lib/markdown/field.ts::formatsAt	12
+function	src/lib/markdown/field.ts::inTableAt	6
 function	src/lib/markdown/lazy.test.ts::files	7
 function	src/lib/markdown/lazy.test.ts::staticImports	7
-function	src/lib/markdown/markdownEditor.ts::cellsOf	4
-function	src/lib/markdown/markdownEditor.ts::decorate	19
+function	src/lib/markdown/markdownEditor.ts::pictureAt	6
+function	src/lib/markdown/markdownEditor.ts::placePicturePanel	10
+function	src/lib/markdown/markdownEditor.ts::closePicturePanel	10
+function	src/lib/markdown/markdownEditor.ts::outsidePicture	5
+function	src/lib/markdown/markdownEditor.ts::escapePicture	6
+function	src/lib/markdown/markdownEditor.ts::panelAction	9
+function	src/lib/markdown/markdownEditor.ts::altField	30
+function	src/lib/markdown/markdownEditor.ts::pictureBar	21
+function	src/lib/markdown/markdownEditor.ts::openPicturePanel	21
+function	src/lib/markdown/markdownEditor.ts::decorate	23
+function	src/lib/markdown/markdownEditor.ts::picture	5
 function	src/lib/markdown/markdownEditor.ts::intoTable	17
+function	src/lib/markdown/markdownEditor.ts::typedTable	20
 function	src/lib/markdown/markdownEditor.ts::pictures	3
 function	src/lib/markdown/markdownEditor.ts::windowEvents	20
-function	src/lib/markdown/markdownEditor.ts::fieldOf	29
+function	src/lib/markdown/markdownEditor.ts::fieldOf	36
+function	src/lib/markdown/markdownEditor.ts::applyOf	5
 function	src/lib/markdown/markdownEditor.ts::setValue	9
-function	src/lib/markdown/markdownEditor.ts::createEditor	40
+function	src/lib/markdown/markdownEditor.ts::createEditor	43
+function	src/lib/markdown/mdedits.test.ts::apply	3
+function	src/lib/markdown/mdedits.ts::lineRange	5
+function	src/lib/markdown/mdedits.ts::headingEdit	15
+function	src/lib/markdown/mdedits.ts::codeEdit	25
+function	src/lib/markdown/mdedits.ts::fencedAround	21
+function	src/lib/markdown/mdedits.ts::tableEdit	13
+function	src/lib/markdown/mdedits.ts::pictureEdit	9
+function	src/lib/markdown/mdedits.ts::imageAt	7
+function	src/lib/markdown/mdedits.ts::pictureAltEdit	6
+function	src/lib/markdown/mdedits.ts::pictureRemoveEdit	9
 function	src/lib/markdown/preview.test.ts::stateOf	5
 function	src/lib/markdown/preview.test.ts::shown	15
 function	src/lib/markdown/preview.test.ts::lines	1
 function	src/lib/markdown/preview.ts::previewPieces	14
-function	src/lib/markdown/preview.ts::block	15
+function	src/lib/markdown/preview.ts::block	24
 function	src/lib/markdown/preview.ts::mark	17
 function	src/lib/markdown/preview.ts::linkWords	4
 function	src/lib/markdown/preview.ts::inline	14
 function	src/lib/markdown/preview.ts::codeFences	8
+function	src/lib/markdown/preview.ts::tokens	15
 function	src/lib/markdown/preview.ts::underline	12
+function	src/lib/markdown/table.ts::cellsOf	4
+function	src/lib/markdown/table.ts::alignOf	6
+function	src/lib/markdown/table.ts::separator	6
+function	src/lib/markdown/table.ts::parseTable	11
+function	src/lib/markdown/table.ts::pad	5
+function	src/lib/markdown/table.ts::widths	3
+function	src/lib/markdown/table.ts::cell	7
+function	src/lib/markdown/table.ts::tableSource	6
+function	src/lib/markdown/table.ts::copy	3
+function	src/lib/markdown/table.ts::insertColumn	8
+function	src/lib/markdown/table.ts::insertRow	5
+function	src/lib/markdown/table.ts::deleteColumn	8
+function	src/lib/markdown/table.ts::deleteRow	6
+function	src/lib/markdown/table.ts::moveRow	6
+function	src/lib/markdown/table.ts::moveColumn	12
+function	src/lib/markdown/table.ts::setAlign	5
+function	src/lib/markdown/table.ts::moveCell	7
+function	src/lib/markdown/table.ts::cellOffset	9
+function	src/lib/markdown/tableWidget.test.ts::viewOf	1
+function	src/lib/markdown/tableWidget.ts::openMenu	34
+function	src/lib/markdown/tableWidget.ts::cellOf	7
+function	src/lib/markdown/tableWidget.ts::step	38
+function	src/lib/markdown/tableWidget.ts::drop	29
+function	src/lib/markdown/tableWidget.ts::up	15
+function	src/lib/markdown/tableWidget.ts::corner	5
+function	src/lib/markdown/tableWidget.ts::mid	4
 function	src/lib/marks.ts::moment	13
 function	src/lib/marks.ts::groups	8
 function	src/lib/marks.ts::rowMarks	9
@@ -631,7 +739,7 @@ function	src/lib/people.ts::formatMark	3
 function	src/lib/people.ts::senderEmail	3
 function	src/lib/people.ts::matchPerson	7
 function	src/lib/people.ts::filterPeople	12
-function	src/lib/pictureInput.ts::picturesHtml	18
+function	src/lib/pictureInput.ts::picturesHtml	26
 function	src/lib/pictureInput.ts::picturesFromFiles	13
 function	src/lib/pictureInput.ts::picturesFromBlobs	6
 function	src/lib/pictureInput.ts::clipboardPictures	12
@@ -656,11 +764,12 @@ function	src/lib/recipients.ts::foldLine	4
 function	src/lib/richtext.ts::escapeHtml	3
 function	src/lib/richtext.ts::decode	9
 function	src/lib/richtext.ts::attrsOf	7
+function	src/lib/richtext.ts::imgAttrs	5
 function	src/lib/richtext.ts::tokens	15
 function	src/lib/richtext.ts::escapeMarkdownLine	3
 function	src/lib/richtext.ts::escapeMarkdown	7
 function	src/lib/richtext.ts::markdownUrl	3
-function	src/lib/richtext.ts::render	215
+function	src/lib/richtext.ts::render	228
 function	src/lib/richtext.ts::htmlToText	3
 function	src/lib/richtext.ts::htmlToMarkdown	3
 function	src/lib/richtext.ts::textToHtml	18
@@ -699,6 +808,7 @@ function	src/lib/serverFeatures.ts::protocol	3
 function	src/lib/serverFeatures.ts::features	54
 function	src/lib/serverFeatures.ts::grouped	7
 function	src/lib/serverFeatures.ts::unknown	4
+function	src/lib/serverFeatures.ts::labelsRow	21
 function	src/lib/serverFeatures.ts::needsAttention	4
 function	src/lib/serverFeatures.ts::summary	9
 function	src/lib/serverFeatures.ts::report	9
@@ -714,6 +824,9 @@ function	src/lib/settingsWindow.ts::widePage	3
 function	src/lib/settingsWindow.ts::pageKeys	3
 function	src/lib/settingsWindow.ts::pageChanged	5
 function	src/lib/settingsWindow.ts::resolveLeave	3
+function	src/lib/shortcuts.svelte.ts::other	8
+function	src/lib/shortcuts.test.ts::press	3
+function	src/lib/shortcuts.test.ts::snooze	2
 function	src/lib/signatures.test.ts::msg	15
 function	src/lib/signatures.test.ts::picture	1
 function	src/lib/signatures.ts::signaturesOf	3
@@ -728,6 +841,7 @@ function	src/lib/signatures.ts::removeSignature	6
 function	src/lib/signatures.ts::moveSignature	8
 function	src/lib/signatures.ts::sigBlock	4
 function	src/lib/signatures.ts::sigHtml	4
+function	src/lib/signatures.ts::signatureShown	8
 function	src/lib/signatures.ts::splitPlain	13
 function	src/lib/signatures.ts::htmlBlock	8
 function	src/lib/signatures.ts::splitHtmlSignature	4
@@ -736,7 +850,7 @@ function	src/lib/signatures.ts::withoutHtmlSignature	4
 function	src/lib/signatures.ts::aboveQuote	4
 function	src/lib/signatures.ts::putSignatureHtml	7
 function	src/lib/signatures.ts::putSignatureText	4
-function	src/lib/signatures.ts::withSignature	9
+function	src/lib/signatures.ts::withSignature	16
 function	src/lib/signatures.ts::foundSignature	10
 function	src/lib/signatures.ts::signatureIn	7
 function	src/lib/sort.test.ts::row	29
@@ -757,8 +871,9 @@ function	src/lib/store.test.ts::typing	9
 function	src/lib/store.test.ts::noAnimation	5
 function	src/lib/store.test.ts::caret	21
 function	src/lib/store.test.ts::started	6
+function	src/lib/syntax.test.ts::runs	3
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	34
+function	src/lib/testing.ts::settings	36
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3
@@ -781,7 +896,9 @@ function	src/plugin-api/boundary.test.ts::imports	5
 function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
 function	src/plugin-host/host.svelte.ts::allCommands	3
-function	src/plugin-host/host.svelte.ts::context	63
+function	src/plugin-host/host.svelte.ts::context	68
 function	src/plugin-host/host.svelte.ts::rest#1	2
 function	src/plugin-host/host.svelte.ts::rest#2	2
+function	src/plugin-host/host.test.ts::run#1	1
+function	src/plugin-host/host.test.ts::run#2	1
 function	src/plugin-host/registry.svelte.ts::empty	18
