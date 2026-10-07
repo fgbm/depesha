@@ -1,11 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listDate, when } from "@depesha/plugin-api";
 import { incoming, letter, sayIn, wait } from "./fixtures";
 import { rowTag } from "./rows";
 
 const ru = sayIn("ru");
 const day = 86_400;
-const now = 100 * day;
+// Noon of a fixed local day: "today" and "yesterday" are read in the runner's
+// timezone, so a timestamp on a day boundary would drift with TZ (it did: the old
+// `now = 100 * day` is midnight UTC, "yesterday" at TZ=UTC, "today" east of it).
+const now = Math.floor(new Date(2026, 3, 10, 12, 0).getTime() / 1000);
+
+// The clock is frozen at `now` as well, so listDate's default "now" is fixed too.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(now * 1000);
+});
+afterEach(() => vi.useRealTimers());
 
 describe("a row of Waiting for reply", () => {
   it("says what is left in grey and how late in red, the choice's name in the first line", () => {
