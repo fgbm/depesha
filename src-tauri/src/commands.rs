@@ -13,7 +13,8 @@ use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{
-    FolderInfo, FollowupPlan, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, Snooze, SortKey,
+    FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, Snooze,
+    SortKey,
 };
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -1563,7 +1564,27 @@ pub fn hint_save(state: St<'_>, hint: HintState) -> CmdResult<()> {
 /// Forgets every decision about the suggestions (#69): the «ask them again» of the page.
 #[tauri::command(async)]
 pub fn hints_clear(state: St<'_>) -> CmdResult<()> {
-    Ok(state.store.clear_hints()?)
+    state.store.clear_hints()?;
+    state.store.clear_all_hint_counts()?;
+    Ok(())
+}
+
+/// The counters of the detectors of #69 (#69): what they have seen so far.
+#[tauri::command(async)]
+pub fn hint_counts(state: St<'_>) -> CmdResult<Vec<HintCount>> {
+    Ok(state.store.hint_counts()?)
+}
+
+/// Counts one more happening for a detector (#69) and returns the new count.
+#[tauri::command(async)]
+pub fn count_hint(state: St<'_>, id: String, subject: String, now: i64) -> CmdResult<i64> {
+    Ok(state.store.count_hint(&id, &subject, now)?)
+}
+
+/// Forgets a detector's count (#69): a rule was set or the hint was answered.
+#[tauri::command(async)]
+pub fn clear_hint_count(state: St<'_>, id: String, subject: String) -> CmdResult<()> {
+    Ok(state.store.clear_hint_count(&id, &subject)?)
 }
 
 /// Saves an attachment where the user said in the save dialog (`pick_save_file`).

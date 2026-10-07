@@ -2,19 +2,30 @@
   import { t } from "../lib/i18n.svelte";
   import { api } from "../lib/api";
   import { addrFull, parseAddr } from "../lib/format";
+  import Popover from "./Popover.svelte";
   import type { Addr } from "../lib/types";
+  import type { Snippet } from "svelte";
 
   let {
     label,
     value = $bindable(),
     autofocus = false,
-  }: { label: string; value: Addr[]; autofocus?: boolean } = $props();
+    card,
+  }: {
+    label: string;
+    value: Addr[];
+    autofocus?: boolean;
+    /** The person's card, opened by a click on the chip of an address (#66, frame 13). */
+    card?: Snippet<[string]>;
+  } = $props();
 
   let text = $state("");
   let suggestions = $state<Addr[]>([]);
   let active = $state(0);
   let invalid = $state(false);
   let input = $state<HTMLInputElement | null>(null);
+  /** Which chip's card is open, by its address. */
+  let cardAt = $state<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   /** Turns typed text into chips; returns false when something could not be parsed. */
@@ -88,7 +99,14 @@
   <div class="box" class:invalid>
     {#each value as a, i (a.email)}
       <span class="chip" title={a.email}>
-        {addrFull(a)}
+        {#if card}
+          <button class="name" onclick={() => (cardAt = cardAt === a.email ? null : a.email)}>{addrFull(a)}</button>
+          <Popover bind:open={() => cardAt === a.email, (v) => (cardAt = v ? a.email : null)}>
+            {@render card(a.email)}
+          </Popover>
+        {:else}
+          {addrFull(a)}
+        {/if}
         <button onclick={() => value.splice(i, 1)} aria-label={t("remove")}>×</button>
       </span>
     {/each}
@@ -160,6 +178,16 @@
     background: none;
     color: var(--muted);
     padding: 0 4px;
+  }
+
+  .chip .name {
+    color: inherit;
+    font: inherit;
+    padding: 0;
+  }
+
+  .chip .name:hover {
+    text-decoration: underline;
   }
 
   input {

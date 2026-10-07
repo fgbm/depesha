@@ -15,8 +15,20 @@
   import Select from "../Select.svelte";
   import Mail from "@lucide/svelte/icons/mail";
 
-  let { email, name, onAllMail, onClose }: { email: string; name: string; onAllMail: () => void; onClose?: () => void } =
-    $props();
+  let {
+    email,
+    name,
+    onAllMail,
+    onClose,
+    short = false,
+  }: {
+    email: string;
+    name: string;
+    onAllMail: () => void;
+    onClose?: () => void;
+    /** The short card of the compose window (frame 13): no recent letters, no «Write». */
+    short?: boolean;
+  } = $props();
 
   let recent = $state<MessageRow[]>([]);
 
@@ -39,8 +51,9 @@
   ];
 
   // The letters of this sender, read once when the card opens; the card is made anew for
-  // another address, so the read does not follow the prop.
+  // another address, so the read does not follow the prop. The short card does not read them.
   untrack(() => {
+    if (short) return;
     api
       .search(`from:${email}`)
       .then((rows) => (recent = rows.slice(0, 4)))
@@ -61,6 +74,17 @@
     app.openMailto(`mailto:${email}`);
     onClose?.();
   }
+
+  /** The short card of the compose window copies the address instead of writing to it. */
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(email);
+      app.toast(t("person.copied"));
+    } catch {
+      /* the clipboard is closed to the page: nothing to say */
+    }
+    onClose?.();
+  }
 </script>
 
 <div class="pcard">
@@ -74,7 +98,11 @@
 
   <div class="pc-acts">
     <button class="btn primary" role="menuitem" onclick={onAllMail}>{t("person.allMail")}</button>
-    <button class="btn" role="menuitem" onclick={write}>{t("person.write")}</button>
+    {#if short}
+      <button class="btn" role="menuitem" onclick={copy}>{t("person.copy")}</button>
+    {:else}
+      <button class="btn" role="menuitem" onclick={write}>{t("person.write")}</button>
+    {/if}
   </div>
 
   <div class="pc-sec">
@@ -97,20 +125,22 @@
     </div>
   </div>
 
-  <div class="pc-sec">
-    <h5>{t("person.recent")}</h5>
-    {#each recent as m (m.id)}
-      <button class="mail" onclick={() => (app.open(m.id), onClose?.())}>
-        <span class="s">{m.subject || t("noSubject")}</span>
-        <span class="d">{listDate(m.date)}</span>
-      </button>
-    {/each}
-    {#if !recent.length}<p class="muted small">{t("person.none")}</p>{/if}
-  </div>
+  {#if !short}
+    <div class="pc-sec">
+      <h5>{t("person.recent")}</h5>
+      {#each recent as m (m.id)}
+        <button class="mail" onclick={() => (app.open(m.id), onClose?.())}>
+          <span class="s">{m.subject || t("noSubject")}</span>
+          <span class="d">{listDate(m.date)}</span>
+        </button>
+      {/each}
+      {#if !recent.length}<p class="muted small">{t("person.none")}</p>{/if}
+    </div>
 
-  <div class="pc-foot">
-    <button class="link" role="menuitem" onclick={write}><Mail size={13} /> {t("person.write")}</button>
-  </div>
+    <div class="pc-foot">
+      <button class="link" role="menuitem" onclick={write}><Mail size={13} /> {t("person.write")}</button>
+    </div>
+  {/if}
 </div>
 
 <style>

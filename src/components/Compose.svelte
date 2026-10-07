@@ -29,6 +29,11 @@
   import MarkdownEditor from "./MarkdownEditor.svelte";
   import MarkdownPartsNote from "./MarkdownPartsNote.svelte";
   import RecipientRule from "./RecipientRule.svelte";
+  import HintLine from "./HintLine.svelte";
+  import PersonCard from "./reader/PersonCard.svelte";
+  import { peopleBook } from "../lib/peopleBook.svelte";
+  import { hints } from "../lib/hints.svelte";
+  import type { Hint } from "../lib/hints";
   import AddressInput from "./AddressInput.svelte";
   import Select from "./Select.svelte";
   import Popover from "./Popover.svelte";
@@ -106,7 +111,11 @@
     accountColor: (id) => app.accountColor(id),
     fail: (e, prefix) => app.fail(e, prefix),
     toast: (text) => app.toast(text),
-    sendApp: (a, d, id, at, secs, f) => app.send(a, d, id, at, secs, f),
+    sendApp: (a, d, id, at, secs, f) => {
+      // The detector of #69 counts a Markdown letter sent to a person without a rule.
+      void hints.recordSend(d);
+      return app.send(a, d, id, at, secs, f);
+    },
     closeCompose: (id) => app.closeCompose(id),
     showCompose: (id, mode) => app.showCompose(id, mode),
     commitAll,
@@ -216,6 +225,43 @@
     { value: "html", label: () => t("format.short.html") },
     { value: "markdown", label: () => t("format.short.markdown") },
   ];
+
+  peopleBook.load();
+
+  // The hint line of #69 (frame 14А): a hint about a recipient of this letter stays while
+  // the letter is written; it goes when the recipient does or the first words are typed.
+  let line = $state<Hint | null>(null);
+  const recipients = $derived([...c.draft.to, ...c.draft.cc, ...c.draft.bcc].map((a) => a.email.toLowerCase()));
+  $effect(() => {
+    const a = hints.active;
+    if (a && a.id !== "incoming-view" && recipients.includes(a.subject)) {
+      line = a;
+    } else if (line && !recipients.includes(line.subject)) {
+      line = null;
+    }
+  });
+  $effect(() => {
+    // Fades with the first typed word, as the format line of #44 does.
+    if (line && fmt.hasOwnText) line = null;
+  });
+
+  /** The accepting button of the hint: the rule is set by the runtime, marked «by a hint». */
+  async function acceptHint() {
+    await hints.accept();
+  }
+
+  /** «Undo» of the accepted hint: the rule it set is taken off the person. */
+  async function undoHint(h: Hint) {
+    const person = peopleBook.find(h.subject);
+    if (person) {
+      try {
+        await peopleBook.save({ ...person, send_format: "", view: "", via: "" });
+      } catch (e) {
+        app.fail(e);
+      }
+    }
+    line = null;
+  }
 </script>
 
 
@@ -225,6 +271,11 @@
 
 {#snippet formatIcon(format: BodyFormat)}
   {#if format === "html"}<Type size={15} />{:else if format === "markdown"}<Hash size={15} />{:else}<AlignLeft size={15} />{/if}
+{/snippet}
+
+<!-- The short card of a person (#66, frame 13): opened by a click on a chip of an address. -->
+{#snippet personCard(email: string)}
+  <PersonCard short {email} name={peopleBook.find(email)?.name ?? ""} onAllMail={() => app.setView({ kind: "search", text: `from:${email}` })} />
 {/snippet}
 
 {#if c.mode === "max"}
@@ -271,10 +322,10 @@
         />
         {#if !m.showCc}<button class="btn ghost small" onclick={() => (m.showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
       </div>
-      <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} />
+      <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} card={personCard} />
       {#if m.showCc}
-        <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={m.ccInput} />
-        <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={m.bccInput} />
+        <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={m.ccInput} card={personCard} />
+        <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={m.bccInput} card={personCard} />
       {/if}
       <div class="row">
         <span class="label">{t("compose.fwd.subject")}</span>
@@ -370,7 +421,19 @@
     </div>
     {#if m.format === "markdown"}<MarkdownPartsNote />{/if}
 
-    <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} onFormat={(f) => void m.setFormat(f)} />
+    {#if line}
+      <HintLine
+        hint={line}
+        onAccept={acceptHint}
+        onNotNow={() => { line = null; void hints.notNow(); }}
+        onNeverThis={() => { line = null; void hints.neverThis(); }}
+        onNeverAnyone={() => { line = null; void hints.neverAnyone(); }}
+        onAll={() => app.openSettings("general")}
+        onUndo={() => void undoHint(line!)}
+      />
+    {/if}
+
+    <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} empty={!fmt.hasOwnText} onFormat={(f) => void m.setFormat(f)} />
 
     {#if m.format !== "html" && m.quote}
       <div class="quote" class:open={m.quoteOpen}>

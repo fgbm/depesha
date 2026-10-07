@@ -24,6 +24,8 @@
   import QuickReply from "./reader/QuickReply.svelte";
   import ReplyActions from "./reader/ReplyActions.svelte";
   import { useQuickReply } from "./reader/useQuickReply.svelte";
+  import { peopleBook } from "../lib/peopleBook.svelte";
+  import { hints } from "../lib/hints.svelte";
   import { useAttachmentViewer } from "./reader/useAttachmentViewer.svelte";
 
   let { onReply, onForward }: { onReply: (all: boolean) => void; onForward: () => void } = $props();
@@ -116,6 +118,17 @@
   const quick = useQuickReply({
     keptAsDraft: (open) => app.toast(t("reader.quickKept"), false, open ? { label: t("file.open"), run: open } : undefined),
   });
+
+  /** A reply to a letter with a Markdown part, from a person without a rule (#69, frame 14А):
+   *  the hint «answer in Markdown?» is offered in the compose window the reply opens. */
+  function reply(all: boolean) {
+    const m = msg;
+    const sender = m?.view.summary.from;
+    if (m?.view.markdown && sender?.email && !peopleBook.find(sender.email)?.send_format) {
+      void hints.offerReply(sender.email, sender.name?.trim() || sender.email, true);
+    }
+    onReply(all);
+  }
 </script>
 
 <!-- A narrow window shows the letter instead of the list: the way back and to the neighbours. -->
@@ -164,7 +177,7 @@
         {/snippet}
       </ReaderHeader>
 
-      <ReplyActions manyRecipients={quick.manyRecipients} reply={onReply} forward={onForward} />
+      <ReplyActions manyRecipients={quick.manyRecipients} reply={reply} forward={onForward} />
 
       {#each banners as b (b.ext)}
         <div class="banner ext-banner" class:info={b.tone === "info"} data-ext={b.ext}>

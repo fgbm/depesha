@@ -39,7 +39,7 @@ import type {
   LabelCheck,
 } from "./types";
 import type { Person } from "./people";
-import type { HintState } from "./hints";
+import type { HintCount, HintState } from "./hints";
 
 /** Backend errors arrive as `CmdError`; anything else is wrapped so callers can rely on the shape. */
 export function asError(e: unknown): CmdError {
@@ -158,6 +158,10 @@ export const api = {
   hints: () => call<HintState[]>("hints"),
   hintSave: (hint: HintState) => call<void>("hint_save", { hint }),
   hintsClear: () => call<void>("hints_clear"),
+  /** The counters of the detectors of #69. */
+  hintCounts: () => call<HintCount[]>("hint_counts"),
+  countHint: (id: string, subject: string, now: number) => call<number>("count_hint", { id, subject, now }),
+  clearHintCount: (id: string, subject: string) => call<void>("clear_hint_count", { id, subject }),
   attachmentSave: (id: number, index: number, path: string) => call<void>("attachment_save", { id, index, path }),
   /** Into `dir` just picked with `pickFolder`, or without it into the folder from the settings. */
   attachmentsSaveAll: (id: number, dir: string | null) => call<number>("attachments_save_all", { id, dir }),

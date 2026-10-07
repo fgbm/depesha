@@ -430,6 +430,16 @@ export function htmlLetterText(html: string): string {
   return letterText(head, htmlToText(quote));
 }
 
+/**
+ * Whether an HTML letter has words of its own yet: the signature and the quote aside, and
+ * blank lines counting for nothing. What the format rule of #44 waits for before it takes
+ * the letter over silently (frame 12А).
+ */
+export function htmlHasOwnText(html: string): boolean {
+  const { head } = splitHtmlQuote(removeBlock(html, SIGNATURE_CLASS));
+  return htmlToText(head).trim().length > 0;
+}
+
 /** The tags that carry formatting; lines, paragraphs and Depesha's blocks do not. */
 export function hasFormatting(html: string): boolean {
   for (const tok of tokens(html)) {

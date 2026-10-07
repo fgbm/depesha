@@ -5,12 +5,16 @@
   // setting asks for. The frame is recreated when the letter or the trust changes —
   // WebKitGTK does not reload an iframe when srcdoc changes.
   import LetterViewSwitch from "../LetterViewSwitch.svelte";
+  import HintLine from "../HintLine.svelte";
   import MailFrame from "../MailFrame.svelte";
   import { app } from "../../lib/store.svelte";
   import { MARKDOWN_CSS } from "../../lib/prose";
   import { preferredView, switchViews } from "../../lib/letterView";
   import { linkify } from "../../lib/format";
-  import type { BodyView, OpenedMessage } from "../../lib/types";
+  import { peopleBook } from "../../lib/peopleBook.svelte";
+  import { blankPerson } from "../../lib/people";
+  import { hints } from "../../lib/hints.svelte";
+  import type { BodyView, OpenedMessage, ViewRule } from "../../lib/types";
 
   let {
     msg,
@@ -43,6 +47,8 @@
     };
   });
 
+  peopleBook.load();
+
   /** The form picked above this letter: it holds while the letter is open and is not kept. */
   let picked = $state<{ id: number; view: BodyView } | null>(null);
   // The choice belongs to the letter open now: another letter, or the same one opened
@@ -58,6 +64,34 @@
   const switchable = $derived(switchViews(msg.view, app.settings.letter_view));
   const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, app.settings.letter_view));
 
+  /** The sender and their rule: what the «▾» of #44 sets, and what the hint is about (#69). */
+  const from = $derived(msg.view.summary.from);
+  const person = $derived(peopleBook.find(from?.email ?? ""));
+
+  /** The hint of the sender shown now, if any: the form was switched often enough (#69). */
+  const hint = $derived(
+    hints.active && hints.active.id === "incoming-view" && hints.active.subject === (from?.email ?? "").toLowerCase()
+      ? hints.active
+      : null,
+  );
+
+  /** Picking a form above the letter counts for the hint of that sender (#69, frame 14А). */
+  function setView(view: BodyView) {
+    picked = { id: msg.row.id, view };
+    void hints.recordViewSwitch(from?.email ?? "", view, from?.name || from?.email || "");
+  }
+
+  /** The «▾» menu: this sender's letters are shown as this form from now on (frame 14А). */
+  async function setRule(view: ViewRule) {
+    const email = from?.email;
+    if (!email) return;
+    try {
+      await peopleBook.save({ ...(person ?? blankPerson(email)), view });
+    } catch (e) {
+      app.fail(e);
+    }
+  }
+
   /** A `mailto:` link becomes a new letter; any other link opens after a confirmation. */
   async function link(href: string) {
     if (href.toLowerCase().startsWith("mailto:")) {
@@ -69,7 +103,24 @@
 </script>
 
 {#if switchable.length && !viewing}
-  <LetterViewSwitch views={switchable} bind:value={() => shown, (view) => (picked = { id: msg.row.id, view })} />
+  <LetterViewSwitch
+    views={switchable}
+    bind:value={() => shown, setView}
+    rule={person?.view ?? ""}
+    personName={from?.name || from?.email || ""}
+    onRule={setRule}
+  />
+{/if}
+{#if hint && !viewing}
+  <HintLine
+    hint={hint}
+    onAccept={() => hints.accept(hints.lastViewOf(from?.email ?? "") ?? "markdown")}
+    onNotNow={() => hints.notNow()}
+    onNeverThis={() => hints.neverThis()}
+    onNeverAnyone={() => hints.neverAnyone()}
+    onAll={() => app.openSettings("general")}
+    onUndo={() => setRule("")}
+  />
 {/if}
 <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
 <div class="body" hidden={viewing}>

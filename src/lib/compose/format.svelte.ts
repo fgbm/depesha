@@ -8,7 +8,7 @@
 import { onMount, untrack } from "svelte";
 import { api } from "../api";
 import { convertDraft, losesFormatting } from "../compose";
-import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote } from "../richtext";
+import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlHasOwnText, htmlToText, letterText, splitHtmlQuote } from "../richtext";
 import { picturesSize, type Picture } from "../images";
 import {
   defaultSignature,
@@ -238,6 +238,15 @@ export class ComposeFormat {
   /** The first line of the quote, shown on the folded bar. */
   get quoteHeader(): string {
     return this.quote.trim().split("\n")[0] ?? "";
+  }
+
+  /**
+   * Whether the letter has words of its own yet: the signature and the quote aside, and
+   * blank lines counting for nothing. The format rule of #44 takes the letter over
+   * silently only while this is false (frame 12А).
+   */
+  get hasOwnText(): boolean {
+    return this.format === "html" ? htmlHasOwnText(this.htmlBody) : this.head.trim().length > 0;
   }
 
   /** The mailbox's signatures in the settings; a letter's own window has no settings. */

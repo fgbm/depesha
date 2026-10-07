@@ -59,6 +59,19 @@ pub struct HintState {
     pub shown: i64,
 }
 
+/// How many times a detector of #69 saw what it watches, per hint and subject: the Markdown
+/// letters sent to an address, the view switches over a sender's letters. The engine's
+/// thresholds (`hints.ts`) are read against `n`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HintCount {
+    pub id: String,
+    pub subject: String,
+    #[serde(default)]
+    pub n: i64,
+    #[serde(default)]
+    pub at: i64,
+}
+
 /// 13: the address book and the suggestions of 0.7. Both are new tables beside the cache's
 /// own, so no old row moves: the addresses completion already keeps are the book's base, and
 /// a rule about a person is a row over them.
@@ -88,6 +101,22 @@ pub(super) fn v13_people_and_hints(conn: &Connection) -> Result<()> {
              refusals INTEGER NOT NULL DEFAULT 0,
              decided  INTEGER NOT NULL DEFAULT 0,
              shown    INTEGER NOT NULL DEFAULT 0,
+             PRIMARY KEY (id, subject)
+         ) WITHOUT ROWID;",
+    )?;
+    Ok(())
+}
+
+/// 14: the counters of the detectors of #69 — how many Markdown letters an address got, how
+/// many times a sender's letters had their form switched. One row per hint and subject; the
+/// engine's thresholds are read against `n`, and a rule set or a hint answered clears its row.
+pub(super) fn v14_hint_counts(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE hint_counts (
+             id      TEXT NOT NULL,
+             subject TEXT NOT NULL DEFAULT '',
+             n       INTEGER NOT NULL DEFAULT 0,
+             at      INTEGER NOT NULL DEFAULT 0,
              PRIMARY KEY (id, subject)
          ) WITHOUT ROWID;",
     )?;
@@ -258,6 +287,53 @@ impl Store {
     /// asks the refused ones again.
     pub fn clear_hints(&self) -> Result<()> {
         self.conn().execute("DELETE FROM hints", [])?;
+        Ok(())
+    }
+
+    /// The counters of the detectors of #69, in a settled order.
+    pub fn hint_counts(&self) -> Result<Vec<HintCount>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, subject, n, at FROM hint_counts ORDER BY id, subject")?;
+        Ok(stmt
+            .query_map([], |r| {
+                Ok(HintCount {
+                    id: r.get(0)?,
+                    subject: r.get(1)?,
+                    n: r.get(2)?,
+                    at: r.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Counts one more happening for a detector and says how many there are now; the subject
+    /// is kept without its case.
+    pub fn count_hint(&self, id: &str, subject: &str, now: i64) -> Result<i64> {
+        let subject = subject.trim().to_lowercase();
+        self.conn().execute(
+            "INSERT INTO hint_counts (id, subject, n, at) VALUES (?1, ?2, 1, ?3)
+             ON CONFLICT (id, subject) DO UPDATE SET n = n + 1, at = excluded.at",
+            params![id, subject, now],
+        )?;
+        Ok(self.conn().query_row(
+            "SELECT n FROM hint_counts WHERE id = ?1 AND subject = ?2",
+            params![id, subject],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Forgets a detector's count: a rule was set or the hint was answered.
+    pub fn clear_hint_count(&self, id: &str, subject: &str) -> Result<()> {
+        self.conn().execute(
+            "DELETE FROM hint_counts WHERE id = ?1 AND subject = ?2",
+            params![id, subject.trim().to_lowercase()],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets the counters of every detector: «Ask them again» on the page «Hints».
+    pub fn clear_all_hint_counts(&self) -> Result<()> {
+        self.conn().execute("DELETE FROM hint_counts", [])?;
         Ok(())
     }
 }

@@ -23,7 +23,7 @@ mod labels;
 mod marks;
 pub use marks::{Done, Mark, Outgoing, marks_of};
 mod people;
-pub use people::{HintState, Person};
+pub use people::{HintCount, HintState, Person};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 mod waiting;
@@ -54,6 +54,7 @@ const MIGRATIONS: &[Step] = &[
     waiting::v11_waiting_folder,
     labels::v12_labels_and_rights,
     people::v13_people_and_hints,
+    people::v14_hint_counts,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the

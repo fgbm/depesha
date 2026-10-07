@@ -1133,4 +1133,12 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "compose.rule.write": "Писать в {format}",
   "compose.rule.writing": "Пишете в {format}.",
   "compose.rule.return": "Вернуть {format}",
+  "hint.applied": "Правило для {who} записано.",
+  "letterView.rule": "Показывать всегда",
+  "letterView.rule.title": "Письма {name}: как показывать",
+  "letterView.rule.markdown": "Всегда Markdown, если есть",
+  "letterView.rule.html": "Всегда HTML",
+  "letterView.rule.text": "Всегда текст",
+  "person.copy": "Скопировать адрес",
+  "person.copied": "Адрес скопирован",
 };

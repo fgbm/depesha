@@ -5,6 +5,7 @@
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { api } from "../../lib/api";
+  import { hints as runtime } from "../../lib/hints.svelte";
   import type { Settings } from "../../lib/types";
   import type { HintState } from "../../lib/hints";
 
@@ -26,6 +27,7 @@
     try {
       await api.hintsClear();
       states = [];
+      await runtime.refresh();
       app.toast(t("hints.forgotten"));
     } catch (e) {
       app.fail(e);

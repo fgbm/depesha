@@ -1139,4 +1139,12 @@ export const en = {
   "compose.rule.write": "Write in {format}",
   "compose.rule.writing": "You write in {format}.",
   "compose.rule.return": "Return {format}",
+  "hint.applied": "The rule is saved for {who}.",
+  "letterView.rule": "Show always",
+  "letterView.rule.title": "Show {name}'s messages",
+  "letterView.rule.markdown": "Always Markdown, when there is one",
+  "letterView.rule.html": "Always HTML",
+  "letterView.rule.text": "Always text",
+  "person.copy": "Copy address",
+  "person.copied": "Address copied",
 } satisfies Record<string, string | Plural>;

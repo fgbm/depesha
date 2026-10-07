@@ -9,6 +9,8 @@ import { ComposeManager, type ComposeState, type ComposeWindow } from "./compose
 import { rooms } from "./room.svelte";
 import { labels } from "./labels.svelte";
 import { SettingsController } from "./settings.svelte";
+import { hints } from "./hints.svelte";
+import { peopleBook } from "./peopleBook.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
@@ -179,6 +181,8 @@ export class AppStore {
       this.loadOutbox(),
       this.loadSettings(),
       extensions.load(),
+      hints.load(),
+      peopleBook.load(),
       api.tasks().then((tasks) => (this.tasks = tasks), (e) => this.fail(e)),
       api.updateStatus().then((u) => (this.update = u), (e) => this.fail(e)),
     ]);
@@ -199,7 +203,7 @@ export class AppStore {
     extensions.toast = (text, error) => this.toast(text, error);
     await listenWindow(this);
     await this.loadLanguage();
-    await Promise.all([this.loadAccounts().catch((e) => this.fail(e)), this.loadFolders(), this.loadSettings(), extensions.load()]);
+    await Promise.all([this.loadAccounts().catch((e) => this.fail(e)), this.loadFolders(), this.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
     this.selected = new Set([id]);
     await this.open(id);
   }

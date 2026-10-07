@@ -5,8 +5,11 @@
 // engine decides whether one may be shown now, so no suggestion decides that for itself.
 // The decisions are kept per hint and per subject: «never this person», «never to anyone»,
 // «not now» and «already answered» are rows of one table, and the limits of frame 16 are
-// read from them. Time is handed in, never read here: the tests steer it.
-import type { BodyFormat, LetterViewPref } from "./types";
+// read from them. Time is handed in, never read here: the tests steer it. The words of a
+// question are localization keys (the window resolves them); the counters of the detectors
+// live beside the decisions, in the cache.
+import type { Key } from "./i18n.svelte";
+import type { BodyFormat, ViewRule } from "./types";
 
 /** What was decided about a hint, or that it was shown and left unanswered. */
 export type HintDecision = "accepted" | "dismissed" | "never" | "shown";
@@ -33,48 +36,78 @@ export interface Hint {
   id: string;
   /** The address it is about. */
   subject: string;
-  /** The words of the question, already named. */
-  text: string;
-  /** The accepting button names what it does, not «yes» (#69). */
-  accept: string;
+  /** The key of the question; `who` is filled in when it is drawn. */
+  text: Key;
+  /** The key of the accepting button: the action, not «yes» (#69). */
+  accept: Key;
+  /** How the person is named in the question. */
+  who: string;
 }
 
 /** The entry of the registry: what may be asked, before it is asked about someone. */
 export interface HintSpec {
   id: string;
-  /** The question about a person, named by `who`. */
-  text: (who: string) => string;
-  /** The accepting button's words. */
-  accept: string;
+  /** The key of the question about a person; `{who}` is filled in. */
+  text: Key;
+  /** The key of the accepting button's words. */
+  accept: Key;
   /** The rule the accepted answer sets: the format written in, or the form shown. */
-  sets: { send_format?: BodyFormat; view?: LetterViewPref };
+  sets: { send_format?: BodyFormat; view?: ViewRule };
 }
 
 /** The first suggestions of 0.7, in the order they are looked at (#69). */
 export const HINTS: HintSpec[] = [
-  {
-    id: "send-format",
-    text: (who) => `You wrote ${who} in Markdown twice — write that way always?`,
-    accept: "Write in Markdown",
-    sets: { send_format: "markdown" },
-  },
-  {
-    id: "reply-format",
-    text: (who) => `${who} sends Markdown — answer in Markdown?`,
-    accept: "Answer in Markdown",
-    sets: { send_format: "markdown" },
-  },
-  {
-    id: "incoming-view",
-    text: (who) => `You switched the form of ${who}'s letters three times — remember it?`,
-    accept: "Show them that way",
-    sets: { view: "markdown" },
-  },
+  { id: "send-format", text: "hint.sendFormat", accept: "hint.sendFormat.accept", sets: { send_format: "markdown" } },
+  { id: "reply-format", text: "hint.replyFormat", accept: "hint.replyFormat.accept", sets: { send_format: "markdown" } },
+  { id: "incoming-view", text: "hint.incomingView", accept: "hint.incomingView.accept", sets: { view: "markdown" } },
 ];
+
+/** The registry's entry with this id, when there is one. */
+export function specById(id: string): HintSpec | undefined {
+  return HINTS.find((h) => h.id === id);
+}
 
 /** One entry of the registry about one person. */
 export function hintAbout(spec: HintSpec, email: string, who: string): Hint {
-  return { id: spec.id, subject: email.trim().toLowerCase(), text: spec.text(who), accept: spec.accept };
+  return { id: spec.id, subject: email.trim().toLowerCase(), text: spec.text, accept: spec.accept, who };
+}
+
+// ---- The detectors (#69): each counts what it watches, and the engine offers the hint
+// once the count is reached. The counters are kept beside the decisions, by hint and
+// subject, and cleared when the rule is set or the hint is answered.
+
+/** How many happenings each detector needs before its hint may be offered. */
+export const HINT_THRESHOLDS: Record<string, number> = {
+  "send-format": 2,
+  "reply-format": 1,
+  "incoming-view": 3,
+};
+
+/** Whether a detector's count is enough for its hint. */
+export function reached(id: string, n: number): boolean {
+  const want = HINT_THRESHOLDS[id];
+  return want !== undefined && n >= want;
+}
+
+/** The counters by hint and subject; subjects are addresses without their case. */
+export type HintCounters = Record<string, Record<string, number>>;
+
+/** One counter as the cache keeps it. */
+export interface HintCount {
+  id: string;
+  subject: string;
+  n: number;
+  at: number;
+}
+
+/** What a detector has counted for one subject. */
+export function countOf(counters: HintCounters, id: string, subject: string): number {
+  return counters[id]?.[subject.trim().toLowerCase()] ?? 0;
+}
+
+/** The hint a detector asks for, or null while its count is not yet reached. */
+export function detected(spec: HintSpec, email: string, who: string, n: number): Hint | null {
+  return reached(spec.id, n) ? hintAbout(spec, email, who) : null;
 }
 
 /** The limits of frame 16: one hint at a time, three a day, and the pauses after «no». */
