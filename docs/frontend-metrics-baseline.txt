@@ -19,7 +19,7 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	411	180	52	179
+component	src/components/Preferences.svelte	426	193	54	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
 component	src/components/Recipients.svelte	70	28	20	22
@@ -50,6 +50,7 @@ component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
+component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
 component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
 component	src/components/prefs/MailPanel.svelte	198	17	112	69
 component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
@@ -176,7 +177,7 @@ function	src/components/AddressInput.svelte::pick	6
 function	src/components/AddressInput.svelte::onKey	19
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Confirm.svelte::answer	4
-function	src/components/Confirm.svelte::onKey	10
+function	src/components/Confirm.svelte::onKey	13
 function	src/components/ExtensionConsent.svelte::answer	4
 function	src/components/ExtensionConsent.svelte::onKey	10
 function	src/components/ExtensionConsent.svelte::explain	13
@@ -214,6 +215,7 @@ function	src/components/MessageList.svelte::click	8
 function	src/components/MessageList.svelte::context	7
 function	src/components/MessageList.svelte::who	12
 function	src/components/MessageList.svelte::firstName	4
+function	src/components/MessageList.svelte::rowKey	6
 function	src/components/Outbox.svelte::retry	3
 function	src/components/Plugins.svelte::say	1
 function	src/components/Plugins.svelte::toggleExtension	4
@@ -227,7 +229,7 @@ function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
 function	src/components/Preferences.svelte::start	5
-function	src/components/Preferences.svelte::save	41
+function	src/components/Preferences.svelte::save	51
 function	src/components/Preferences.svelte::cancel	4
 function	src/components/Preferences.svelte::close	4
 function	src/components/Preferences.svelte::mayLeave	3
@@ -352,7 +354,22 @@ function	src/lib/actions.test.ts::run	3
 function	src/lib/api.ts::asError	4
 function	src/lib/api.ts::call	7
 function	src/lib/api.ts::wireDraft	8
+function	src/lib/arrivals.svelte.ts::stays	2
+function	src/lib/arrivals.svelte.ts::closeOverlays	5
+function	src/lib/arrivals.svelte.ts::findQuery	6
+function	src/lib/arrivals.test.ts::acc	2
+function	src/lib/arrivals.test.ts::folder	2
+function	src/lib/arrivals.test.ts::started	7
+function	src/lib/arrivals.test.ts::letter	1
 function	src/lib/avatars.svelte.ts::avatarOf	15
+function	src/lib/background.svelte.ts::listenBackground	11
+function	src/lib/background.svelte.ts::quitKey	6
+function	src/lib/background.svelte.ts::quitApp	3
+function	src/lib/background.svelte.ts::askClose	29
+function	src/lib/background.svelte.ts::askQuit	11
+function	src/lib/background.svelte.ts::trayAction	5
+function	src/lib/background.svelte.ts::tellMissed	15
+function	src/lib/background.test.ts::started	6
 function	src/lib/banner.test.ts::run	1
 function	src/lib/banner.ts::foldBanner	13
 function	src/lib/commands.ts::coreCommands	109
@@ -666,7 +683,7 @@ function	src/lib/store.test.ts::noAnimation	5
 function	src/lib/store.test.ts::caret	21
 function	src/lib/store.test.ts::started	6
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	28
+function	src/lib/testing.ts::settings	33
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3
