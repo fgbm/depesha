@@ -12,6 +12,7 @@ function index(): SearchEntry[] {
     general: "Общие",
     updates: "Обновления",
     mail: "Почта",
+    people: "Люди",
     notifications: "Уведомления",
     background: "Фон и запуск",
     offline: "Офлайн-доступ",
@@ -54,6 +55,25 @@ function index(): SearchEntry[] {
     "settings.offlineKeep": "Скачивать письма целиком",
     "settings.offlineYear": "за последний год",
     "settings.offlineAll": "все письма",
+    "settings.hints": "Подсказки",
+    "hints.enable": "Показывать подсказки",
+    "hints.note": "Депеша может предложить запомнить формат или вид",
+    "hints.forget": "Спросить снова",
+    "hints.what": "Подсказка",
+    "hints.answer": "Ответ",
+    "settings.formatByPeople": "Формат для отдельных людей",
+    "settings.openPeople": "Открыть «Люди»",
+    "people.title": "Люди",
+    "people.name": "Имя",
+    "people.addresses": "Адреса",
+    "people.sendFormat": "Писать ему",
+    "people.view": "Его письма показывать",
+    "people.note": "Заметка",
+    "people.hide": "Скрыть из подсказок адресов",
+    "people.asUsual": "Как обычно",
+    "letterView.html": "HTML",
+    "letterView.markdown": "Markdown",
+    "letterView.text": "Текст",
   };
   return buildSettingsIndex((p) => titles[p] ?? p, (k) => ru[k] ?? k);
 }
@@ -106,6 +126,14 @@ describe("finding a setting by name", () => {
 
   it("finds nothing for an empty query", () => {
     expect(searchSettings(index(), "   ")).toEqual([]);
+  });
+
+  it("finds the pages «People» and «Hints» (#66, #69)", () => {
+    expect(searchSettings(index(), "люди").some((h) => h.page === "people")).toBe(true);
+    expect(searchSettings(index(), "подсказки").some((h) => h.page === "general")).toBe(true);
+    // The rule «write to them in» is found by the format's name, as the mail format is.
+    const hits = searchSettings(index(), "markdown");
+    expect(hits.some((h) => h.page === "people" && h.anchor === "people-send")).toBe(true);
   });
 });
 

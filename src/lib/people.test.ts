@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   autoFormat,
   blankPerson,
+  filterPeople,
   findPerson,
   formatMark,
   letterViewFor,
+  matchPerson,
   recipientParts,
   sendFormatFor,
   strictestFormat,
@@ -79,5 +81,26 @@ describe("the address book", () => {
     const people = [person("Ivan@X", { name: "Иван" })];
     expect(findPerson(people, "ivan@x")?.name).toBe("Иван");
     expect(findPerson(people, "nobody@x")).toBeUndefined();
+  });
+
+  it("searches the name, the address and the note", () => {
+    const p = person("ivan@x", { name: "Иван Петров", note: "зал у Ольги" });
+    expect(matchPerson(p, "петров")).toBe(true);
+    expect(matchPerson(p, "IVAN@")).toBe(true);
+    expect(matchPerson(p, "ольги")).toBe(true);
+    expect(matchPerson(p, "")).toBe(true);
+    expect(matchPerson(p, "сидоров")).toBe(false);
+  });
+
+  it("filters by rule, by hand and by hiding", () => {
+    const ruled = person("a@x", { send_format: "plain" });
+    const plain = person("b@x");
+    const manual = person("c@x", { manual: true });
+    const hidden = person("d@x", { hidden: true });
+    const people = [ruled, plain, manual, hidden];
+    expect(filterPeople(people, "all")).toHaveLength(4);
+    expect(filterPeople(people, "ruled")).toEqual([ruled]);
+    expect(filterPeople(people, "manual")).toEqual([manual]);
+    expect(filterPeople(people, "hidden")).toEqual([hidden]);
   });
 });
