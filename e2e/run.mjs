@@ -1804,6 +1804,34 @@ try {
     await closeSettings();
   });
 
+  await step("7.12", "окно настроек: поиск находит настройку и открывает страницу на поле", async () => {
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    // The window is as big as the expanded letter: up to 1040 px wide, centered, by 32 px
+    // from the top and bottom of the window.
+    const box = await d.exec(
+      "const r = document.querySelector('.prefs').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), sym: Math.abs(r.left - (window.innerWidth - r.right)) < 1 };",
+    );
+    if (box.w !== 1040) throw new Error(`ширина окна настроек: ${box.w}, а не 1040`);
+    if (box.top !== 32) throw new Error(`отступ сверху: ${box.top}, а не 32`);
+    if (box.h !== (await d.exec("return window.innerHeight")) - 64) throw new Error(`высота окна настроек: ${box.h}`);
+    if (!box.sym) throw new Error("окно настроек не по центру по ширине");
+    // The search over the settings sits above the menu of pages (#68).
+    if (!(await d.findAll(".prefs .psearch .q")).length) throw new Error("нет поля «Найти настройку»");
+    await d.type(await d.find(".prefs .psearch .q"), "markdown");
+    await d.until("results", async () => (await d.findAll(".prefs .rlist .hit")).length > 0);
+    const found = await textOf(".prefs .content.results");
+    if (!found.includes("Формат новых писем")) throw new Error(`по «markdown» не нашёлся «Формат новых писем»: ${found}`);
+    // A click opens the page and scrolls to the field (#68, frame 4А).
+    await d.click(await d.xpath("//div[contains(@class,'prefs')]//button[contains(@class,'hit')][.//span[contains(@class,'lbl') and contains(., 'Формат новых писем')]]"));
+    await d.until("mail page", async () => (await textOf(".prefs .pane h2")) === "Почта");
+    await d.until("field in view", async () =>
+      await d.exec("const el = document.querySelector('.prefs [data-settings=\"mail-new\"]'); if (!el) return false; const r = el.getBoundingClientRect(); const c = document.querySelector('.prefs .content').getBoundingClientRect(); return r.top >= c.top - 4 && r.top < c.bottom;"),
+    );
+    await screenshot("settings-search");
+    await closeSettings();
+  });
+
   await step("11", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
