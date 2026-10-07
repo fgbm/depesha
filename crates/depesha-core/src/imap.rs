@@ -1082,6 +1082,30 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_forward_and_writes_what_depesha_did() {
+        let mut changes = Changes::default();
+        let (_, resp) = Response::parse(b"* 3 FETCH (UID 12 FLAGS (\\Seen \\Answered $Forwarded))\r\n").unwrap();
+        changes.take(&resp);
+        let (_, resp) = Response::parse(b"* 4 FETCH (UID 13 FLAGS ($forwarded))\r\n").unwrap();
+        changes.take(&resp);
+        let both = Flags {
+            seen: true,
+            answered: true,
+            forwarded: true,
+            ..Flags::default()
+        };
+        let forwarded = Flags {
+            forwarded: true,
+            ..Flags::default()
+        };
+        assert_eq!(changes.flags, [(12, both), (13, forwarded)]);
+        // IMAP has one flag for an answer of either kind.
+        assert_eq!(FlagChange::AnsweredAll(true).command(), "+FLAGS.SILENT (\\Answered)");
+        assert_eq!(FlagChange::Forwarded(true).command(), "+FLAGS.SILENT ($Forwarded)");
+        assert_eq!(FlagChange::Forwarded(false).command(), "-FLAGS.SILENT ($Forwarded)");
+    }
+
+    #[test]
     fn reads_what_the_capability_list_offers() {
         let names = capability_names(
             "SORT QUOTA IDLE status=size IMAP4rev1 MOVE AUTH=PLAIN UIDPLUS LITERAL+ X-UNKNOWN QRESYNC IDLE"

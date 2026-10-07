@@ -1231,3 +1231,42 @@ pub async fn wait_for_changes(s: &mut Session, store: &Store, account_id: &str, 
     let _ = s.call(&unsubscribe).await;
     Ok(outcome)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn verb(v: &str) -> Flags {
+        flags_of(&HashMap::from([(tag(PR_MESSAGE_FLAGS), "1".to_owned()), (tag(PR_LAST_VERB), v.to_owned())]))
+    }
+
+    #[test]
+    fn the_last_verb_tells_a_reply_a_reply_to_all_and_a_forward() {
+        let r = verb("102");
+        assert!(r.answered && !r.answered_all && !r.forwarded);
+        let all = verb("103");
+        assert!(all.answered && all.answered_all && !all.forwarded);
+        // MS-OXOMSG 2.2.1.4: 104 is NOTEIVERB_FORWARD.
+        let fwd = verb("104");
+        assert!(!fwd.answered && !fwd.answered_all && fwd.forwarded);
+        let print = verb("105");
+        assert!(!print.answered && !print.forwarded);
+    }
+
+    #[test]
+    fn depesha_writes_the_verb_it_did_and_when() {
+        let at = |change| update_of(change, 1_790_000_000);
+        for (change, value) in [
+            (FlagChange::Answered(true), "102"),
+            (FlagChange::AnsweredAll(true), "103"),
+            (FlagChange::Forwarded(true), "104"),
+        ] {
+            let xml = at(change);
+            assert!(xml.contains(&format!("<t:Value>{value}</t:Value>")), "{xml}");
+            assert!(xml.contains(r#"PropertyTag="0x1082""#), "the time too: {xml}");
+            assert!(xml.contains("2026-09-21T"), "{xml}");
+        }
+        // Taking it back removes the verb.
+        assert!(at(FlagChange::Forwarded(false)).contains("<t:DeleteItemField>"));
+    }
+}

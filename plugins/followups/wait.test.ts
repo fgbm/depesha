@@ -12,6 +12,10 @@ describe("where a wait stands", () => {
     expect(stateOf(wait({ status: "closed" }), 10_000)).toBe("closed");
   });
 
+  it("a letter waiting in the folder without a reminder has no deadline to miss", () => {
+    expect(stateOf(wait({ due: 0, deadline: 0, park: "parked" }), 10_000_000)).toBe("waiting");
+  });
+
   it("rows of an older backend have only the reminder's time", () => {
     const row = { ...letter(null), followup: undefined, followup_due: 700 };
     expect(waitOf(row)).toMatchObject({ status: "waiting", due: 700, deadline: 700 });

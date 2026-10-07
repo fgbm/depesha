@@ -29,6 +29,10 @@ export function wait(f: Partial<FollowupInfo> = {}): FollowupInfo {
     answered_by: null,
     answer: null,
     reminded: [],
+    sent: 50,
+    park: "",
+    park_folder: "",
+    auto_reply: null,
     ...f,
   };
 }
@@ -61,5 +65,20 @@ export function letter(f: FollowupInfo | null): MessageRow {
     snoozed_until: null,
     followup_due: f?.status === "waiting" ? f.due : null,
     followup: f,
+  };
+}
+
+/** A letter from Maria in the inbox, answered or not. */
+export function incoming(over: Partial<MessageRow> = {}): MessageRow {
+  return {
+    ...letter(null),
+    id: 2,
+    folder: "INBOX",
+    message_id: "m@example.org",
+    subject: "Счёт за сентябрь",
+    from: { name: "Мария Соколова", email: "maria@example.org" },
+    to: [{ name: "Кэрол", email: "carol@example.org" }],
+    cc: [],
+    ...over,
   };
 }

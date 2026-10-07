@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { when } from "@depesha/plugin-api";
 import { bannerOf, type Actions } from "./banner";
-import { letter, sayIn, wait } from "./fixtures";
+import { incoming, letter, sayIn, wait } from "./fixtures";
 
 const ru = sayIn("ru");
 const day = 86_400;
 const now = 100 * day;
-const actions = (): Actions => ({ again: vi.fn(), later: vi.fn(), repick: vi.fn(), stop: vi.fn(), waitAgain: vi.fn(), openAnswer: vi.fn() });
+const actions = (): Actions => ({ again: vi.fn(), later: vi.fn(), repick: vi.fn(), stop: vi.fn(), waitAgain: vi.fn(), openAnswer: vi.fn(), unpark: vi.fn() });
 const titles = (b: ReturnType<typeof bannerOf>) => b!.actions!.map((a) => a.title);
 
 describe("the banner of a letter waiting for a reply", () => {
@@ -58,5 +58,30 @@ describe("the banner of a letter waiting for a reply", () => {
 
   it("nothing for a letter without a wait", () => {
     expect(bannerOf(letter(null), now, ru, actions())).toBeNull();
+  });
+});
+
+describe("the banner of a letter waiting in the folder", () => {
+  it("says it comes back when they answer; back to the inbox, remind, stop", () => {
+    const act = actions();
+    const b = bannerOf(incoming({ followup: wait({ due: 0, deadline: 0, park: "parked" }) }), now, ru, act)!;
+    expect(b.tone).toBe("info");
+    expect(b.text).toBe("Вы ждёте ответа. Письмо вернётся во «Входящие», когда ответят.");
+    expect(titles(b)).toEqual(["Вернуть во входящие", "Напомнить…", "Не ждать"]);
+    b.actions![0].run();
+    expect(act.unpark).toHaveBeenCalled();
+    b.actions![1].run();
+    expect(act.repick).toHaveBeenCalled();
+  });
+
+  it("with a reminder says when it comes", () => {
+    const b = bannerOf(incoming({ followup: wait({ due: now + day, deadline: now + day, park: "parked" }) }), now, ru, actions())!;
+    expect(b.text).toBe(`Вы ждёте ответа. Письмо вернётся во «Входящие», когда ответят. Напомню ${when(now + day)}, если его не будет.`);
+  });
+
+  it("past its deadline offers to write again first, and the inbox too", () => {
+    const b = bannerOf(incoming({ followup: wait({ due: now + day, deadline: now - day, park: "parked" }) }), now, ru, actions())!;
+    expect(b.tone).toBe("warn");
+    expect(titles(b)).toEqual(["Написать ещё раз", "Вернуть во входящие", "Напомнить…", "Не ждать"]);
   });
 });

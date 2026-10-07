@@ -1072,6 +1072,15 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
     }
 
     #[test]
+    fn an_out_of_office_reply_is_written_by_a_program() {
+        // Exchange and many servers mark it so instead of Auto-Submitted.
+        for header in ["X-Autoreply: yes", "X-Autorespond: Out of office", "Precedence: auto_reply"] {
+            let raw = format!("From: a@b.c\r\n{header}\r\nSubject: Re: x\r\n\r\nx");
+            assert!(parse_summary(raw.as_bytes()).bulk, "{header}");
+        }
+    }
+
+    #[test]
     fn thread_key_finds_the_root() {
         let root = b"Message-ID: <a@x>\r\nSubject: q\r\n\r\nx";
         let reply = b"Message-ID: <b@x>\r\nIn-Reply-To: <a@x>\r\nSubject: Re: q\r\n\r\nx";

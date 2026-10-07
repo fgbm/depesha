@@ -407,3 +407,31 @@ describe("formats", () => {
     expect(back.html?.match(/data:image\/png;base64,LOGO/g)?.length).toBe(1);
   });
 });
+
+describe("what an answer or a forward is for", () => {
+  it("names the letter, where it lies and what is done with it", () => {
+    const m = msg();
+    expect(reply(m, me, false).acts_on).toEqual({ account_id: "a", message_id: "m2@example.org", folder: "INBOX", act: "reply", waiting: false });
+    expect(reply(m, me, true).acts_on?.act).toBe("reply_all");
+    expect(forward(m, me).acts_on?.act).toBe("forward");
+    expect(emptyDraft(me).acts_on ?? null).toBeNull();
+  });
+
+  it("an answer to all that reaches nobody else is a reply", () => {
+    expect(reply(msg({ to: [me], cc: [] }), me, true).acts_on?.act).toBe("reply");
+  });
+
+  it("knows that the letter already waits for an answer", () => {
+    const m = msg();
+    m.row.followup = { status: "waiting", due: 0, deadline: 0, own_deadline: false, repeat_secs: 0, expect: "", kind: "", ended: null, answered_by: null, answer: null, reminded: [], sent: 1, park: "parked", park_folder: "Ждут ответа", auto_reply: null };
+    expect(reply(m, me, false).acts_on?.waiting).toBe(true);
+    m.row.followup = { ...m.row.followup, status: "answered" };
+    expect(reply(m, me, false).acts_on?.waiting).toBe(false);
+  });
+
+  it("a letter without a Message-ID cannot be marked", () => {
+    const m = msg({ message_id: null });
+    m.row.message_id = null;
+    expect(reply(m, me, false).acts_on ?? null).toBeNull();
+  });
+});

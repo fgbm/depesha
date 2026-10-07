@@ -312,3 +312,60 @@ describe("extension banners", () => {
     extensions.list = [];
   });
 });
+
+describe("an answer that takes its letter to Waiting for reply", () => {
+  async function started() {
+    const s = new AppStore();
+    await s.init();
+    i18n.lang = "ru";
+    return s;
+  }
+
+  it("says so once the letter has moved, and offers to keep it in the inbox", async () => {
+    const s = await started();
+    emit("sent", { id: 1, subject: "Счёт за сентябрь", parking: true });
+    // One toast, when the move is done: «Sent» alone would be taken back a moment later.
+    expect(s.toasts).toEqual([]);
+    emit("parked", { account_id: "a", key: "r@x", subject: "Счёт за сентябрь" });
+    const toast = s.toasts.at(-1)!;
+    expect(toast.text).toBe("Отправлено: Счёт за сентябрь. Письмо — в «Ждут ответа»");
+    expect(toast.error).toBe(false);
+    expect(toast.action?.label).toBe("Оставить во входящих");
+    api.followupUnpark.mockResolvedValue(undefined);
+    toast.action!.run();
+    await flush();
+    expect(api.followupUnpark).toHaveBeenCalledWith("a", "r@x");
+  });
+
+  it("«z» keeps the letter in the inbox as well, as it takes back «Done»", async () => {
+    const s = await started();
+    emit("parked", { account_id: "a", key: "r@x", subject: "Счёт" });
+    api.followupUnpark.mockResolvedValue(undefined);
+    await s.undo();
+    expect(api.followupUnpark).toHaveBeenCalledWith("a", "r@x");
+    expect(api.undo).not.toHaveBeenCalled();
+  });
+
+  it("a folder the server refused is said in red, with the way out", async () => {
+    const s = await started();
+    emit("park-failed", { account_id: "a", subject: "Счёт", folder: "Ждут ответа", refused: true });
+    const toast = s.toasts.at(-1)!;
+    expect(toast.error).toBe(true);
+    expect(toast.text).toBe("Не удалось создать папку «Ждут ответа»: сервер не разрешает. Письмо осталось во входящих");
+    expect(toast.action?.label).toBe("Выбрать папку");
+    toast.action!.run();
+    expect([s.settingsOpen, s.settingsPage, s.settingsSection]).toEqual([true, "account:a", "letters"]);
+  });
+
+  it("a move that failed for another reason says why", async () => {
+    const s = await started();
+    emit("park-failed", { account_id: "a", subject: "Счёт", folder: "Ждут ответа", refused: false, error: "нет связи" });
+    expect(s.toasts.at(-1)!.text).toBe("Письмо не перенесено в «Ждут ответа»: нет связи. Оно осталось во входящих");
+  });
+
+  it("an ordinary letter says «Sent» as before", async () => {
+    const s = await started();
+    emit("sent", { id: 1, subject: "Обед" });
+    expect(s.toasts.at(-1)!.text).toBe("Отправлено: Обед");
+  });
+});

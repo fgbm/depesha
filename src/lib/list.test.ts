@@ -9,7 +9,7 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 import { AppStore } from "./store.svelte";
 import { RELOAD_CAP, type View } from "./list.svelte";
 import { api, deferred, emit, flush, opened, resetFakes, row, rows, settings } from "./testing";
-import type { ListQuery, MessageRow } from "./types";
+import type { FolderInfo, ListQuery, MessageRow } from "./types";
 
 const inbox: View = { kind: "folder", account_id: "a", folder: "INBOX" };
 const archive: View = { kind: "folder", account_id: "a", folder: "Archive" };
@@ -164,5 +164,69 @@ describe("marks kept by the view", () => {
     const q = lastQuery();
     expect(q.keep_ids!.filter((id) => gone.includes(id))).toEqual([]);
     expect(q.pins!.filter((p) => gone.includes(p.id))).toEqual([]);
+  });
+});
+
+describe("a letter whose answer takes it to Waiting for reply", () => {
+  const going = (id: number, scheduled = false) => row(id, { outgoing: { act: "reply", at: 2_000_000_000, park: true, scheduled } });
+  const ids = (s: AppStore) => s.messages.map((m) => m.id);
+
+  const folder = (name: string, role: FolderInfo["role"]): FolderInfo => ({ account_id: "a", name, display_name: name, delimiter: "/", role, selectable: true, hidden: false, total: 0, unread: 0 });
+
+  async function storeWith(cache: MessageRow[], view: View) {
+    serve(cache);
+    api.open.mockImplementation(async (id: number) => opened(cache.find((m) => m.id === id) ?? row(id)));
+    api.folders.mockResolvedValue([folder("INBOX", "inbox"), folder("Archive", "archive")]);
+    const s = new AppStore();
+    await s.loadFolders();
+    await s.setView(view);
+    return s;
+  }
+  const inboxOf = (cache: MessageRow[]) => storeWith(cache, inbox);
+
+  it("stays under the hand while it is open, and goes once another letter is opened", async () => {
+    const cache = [row(1), row(2), row(3)];
+    const s = await inboxOf(cache);
+    await s.select(2);
+    cache[1] = going(2);
+    await s.reload();
+    expect(ids(s)).toEqual([1, 2, 3]);
+    // Sent: the server moved it while it is still open.
+    cache.splice(1, 1);
+    await s.reload();
+    expect(ids(s)).toEqual([1, 2, 3]);
+    expect(s.opened?.row.id).toBe(2);
+    await s.select(3);
+    expect(ids(s)).toEqual([1, 3]);
+    await s.reload();
+    expect(ids(s)).toEqual([1, 3]);
+  });
+
+  it("is not shown while its answer leaves when nobody is on it", async () => {
+    const s = await inboxOf([row(1), going(2), row(3, { followup: { status: "waiting", due: 0, deadline: 0, own_deadline: false, repeat_secs: 0, expect: "", kind: "", ended: null, answered_by: null, answer: null, reminded: [], sent: 1, park: "pending", park_folder: "", auto_reply: null } })]);
+    expect(ids(s)).toEqual([1]);
+  });
+
+  it("comes back when the sending is taken back", async () => {
+    const cache = [row(1), row(2), row(3)];
+    const s = await inboxOf(cache);
+    await s.select(2);
+    cache[1] = going(2);
+    await s.reload();
+    await s.select(1);
+    expect(ids(s)).toEqual([1, 3]);
+    cache[1] = row(2);
+    await s.reload();
+    expect(ids(s)).toEqual([1, 2, 3]);
+  });
+
+  it("an answer sent later leaves the letter in the inbox until then", async () => {
+    const s = await inboxOf([row(1), going(2, true)]);
+    expect(ids(s)).toEqual([1, 2]);
+  });
+
+  it("only inbox lists let it go: another folder shows it as it is", async () => {
+    const s = await storeWith([row(1, { folder: "Archive" }), going(2)], archive);
+    expect(ids(s)).toEqual([1, 2]);
   });
 });

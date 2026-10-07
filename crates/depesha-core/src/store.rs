@@ -19,7 +19,9 @@ mod followups;
 pub use followups::{
     DEFAULT_KEEP_DAYS, Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupPlan, FollowupStatus,
 };
+mod marks;
 mod server;
+mod waiting;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 
 /// Settings of the connection, made at every open: not part of the cache itself.
@@ -2457,7 +2459,7 @@ fn addr_text(a: &Addr) -> String {
 mod tests {
     use super::*;
 
-    fn folder(name: &str, role: Option<FolderRole>) -> Folder {
+    pub(super) fn folder(name: &str, role: Option<FolderRole>) -> Folder {
         Folder {
             name: name.into(),
             display_name: name.into(),

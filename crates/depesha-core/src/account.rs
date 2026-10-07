@@ -341,6 +341,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn going_to_wait_after_an_answer_is_off_until_switched_on() {
+        let json = r#"{"id":"1","display_name":"","email":"a@example.com","username":"",
+            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"}}"#;
+        let mut a: Account = serde_json::from_str(json).unwrap();
+        assert_eq!(a.waiting, Waiting::default());
+        assert!(!a.waiting.park);
+        // Nothing is written for a mailbox that never used it.
+        assert!(!serde_json::to_string(&a).unwrap().contains("waiting"));
+        a.waiting = Waiting {
+            park: true,
+            folder: "Ожидание".into(),
+            stop_to_archive: true,
+        };
+        let back: Account = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert_eq!(back.waiting, a.waiting);
+    }
+
+    #[test]
     fn finds_a_mailbox_by_name() {
         let json = |id: &str, email: &str, label: &str| {
             format!(

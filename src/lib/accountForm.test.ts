@@ -210,3 +210,27 @@ describe("signing in through the browser", () => {
     expect(form.waitingBrowser).toBe(false);
   });
 });
+
+describe("going to wait after an answer", () => {
+  it("is off for a mailbox that never had it, and nothing is saved for it", () => {
+    const form = new AccountForm(saved, vi.fn());
+    expect(form.waiting).toEqual({ park: false, folder: "", stop_to_archive: false });
+    expect("waiting" in form.account()).toBe(false);
+  });
+
+  it("is saved with its folder and what «Stop waiting» does, without logging in", async () => {
+    const form = new AccountForm(saved, vi.fn());
+    form.waiting.park = true;
+    form.waiting.folder = "INBOX/Ждут ответа";
+    form.waiting.stop_to_archive = true;
+    expect(form.dirty).toBe(true);
+    expect(form.needsCheck).toBe(false);
+    await form.save();
+    expect(api.accountCheck).not.toHaveBeenCalled();
+    expect(api.accountSave).toHaveBeenCalledWith(expect.objectContaining({ waiting: { park: true, folder: "INBOX/Ждут ответа", stop_to_archive: true } }), null, null);
+    // Opened again, as it was saved.
+    const again = new AccountForm({ ...saved, waiting: { park: true, folder: "INBOX/Ждут ответа", stop_to_archive: true } }, vi.fn());
+    expect(again.waiting.folder).toBe("INBOX/Ждут ответа");
+    expect(again.dirty).toBe(false);
+  });
+});

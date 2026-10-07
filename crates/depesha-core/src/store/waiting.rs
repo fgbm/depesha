@@ -1,0 +1,471 @@
+#[cfg(test)]
+mod tests {
+    use super::super::tests::{folder, from_to, put, with_ids};
+    use super::*;
+    use crate::account::Waiting;
+    use crate::imap::FolderRole;
+    use crate::message::Summary;
+    use crate::smtp::{Act, ActsOn};
+    use crate::store::{
+        Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupStatus, ListQuery, MessageRow, Store,
+    };
+
+    const WAIT: &str = "Ждут ответа";
+    /// When my answer left.
+    const SENT: i64 = 100_000;
+
+    fn mailbox() -> Store {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .replace_folders(
+                "a",
+                &[
+                    folder("INBOX", Some(FolderRole::Inbox)),
+                    folder("Sent", Some(FolderRole::Sent)),
+                    folder("Archive", Some(FolderRole::Archive)),
+                    folder(WAIT, None),
+                ],
+            )
+            .unwrap();
+        store
+    }
+
+    fn letter(subject: &str, date: i64, id: &str, parent: Option<&str>, from: &str) -> Summary {
+        from_to(with_ids(subject, date, id, parent), from, "carol@example.org")
+    }
+
+    /// My answer `key`, sent at `sent`; a reminder when `due` is not 0.
+    fn answer(key: &str, sent: i64, due: i64) -> Followup {
+        Followup {
+            account_id: "a".into(),
+            message_id: key.into(),
+            subject: "Re: Счёт".into(),
+            recipients: "maria@example.org".into(),
+            sent,
+            due,
+            ..Default::default()
+        }
+    }
+
+    fn listed(store: &Store, status: FollowupFilter) -> Vec<MessageRow> {
+        store
+            .list(&ListQuery {
+                followups_only: true,
+                followup_status: status,
+                ..Default::default()
+            })
+            .unwrap()
+    }
+
+    fn the_wait(store: &Store, status: FollowupFilter) -> FollowupInfo {
+        let rows = listed(store, status);
+        assert_eq!(rows.len(), 1, "{rows:#?}");
+        rows[0].followup.clone().unwrap()
+    }
+
+    fn sorted(mut ids: Vec<String>) -> Vec<String> {
+        ids.sort();
+        ids
+    }
+
+    /// The server moved these letters: gone from one folder, in the other under new UIDs.
+    fn moved(store: &Store, from: &str, uids: &[u32], to: &str, letters: &[(u32, &Summary)]) {
+        store.remove_uids("a", from, uids).unwrap();
+        for (uid, s) in letters {
+            put(store, to, *uid, s, true);
+        }
+    }
+
+    /// Maria wrote twice; I answered the second from the inbox at `SENT` as `r@x`, and the
+    /// conversation went to wait. Returns her two letters.
+    fn waiting(store: &Store, due: i64) -> (Summary, Summary) {
+        let first = letter("Счёт", 90_000, "q1@x", None, "maria@example.org");
+        let second = letter("Re: Счёт", 95_000, "q2@x", Some("q1@x"), "maria@example.org");
+        put(store, "INBOX", 1, &first, true);
+        put(store, "INBOX", 2, &second, true);
+        let chain = store.inbox_chain("a", "INBOX", "q2@x").unwrap();
+        let park = Parking {
+            from: "INBOX".into(),
+            chain,
+        };
+        assert!(store.followup_start(&answer("r@x", SENT, due), Some("q2@x"), Some(&park)).unwrap());
+        store.followup_parked("a", "r@x", WAIT).unwrap();
+        moved(store, "INBOX", &[1, 2], WAIT, &[(1, &first), (2, &second)]);
+        (first, second)
+    }
+
+    #[test]
+    fn answering_a_letter_of_the_inbox_takes_its_whole_conversation_to_wait() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &letter("Счёт", 90_000, "q1@x", None, "maria@example.org"), true);
+        let second = letter("Re: Счёт", 95_000, "q2@x", Some("q1@x"), "maria@example.org");
+        put(&store, "INBOX", 2, &second, true);
+        put(&store, "INBOX", 3, &letter("Обед", 96_000, "o@x", None, "petr@example.org"), true);
+        // My earlier answer is of the conversation too, but lives in Sent.
+        put(&store, "Sent", 1, &letter("Re: Счёт", 92_000, "mine@x", Some("q1@x"), "carol@example.org"), true);
+
+        let chain = store.inbox_chain("a", "INBOX", "q2@x").unwrap();
+        assert_eq!(sorted(chain.clone()), ["q1@x", "q2@x"]);
+        assert!(store.inbox_chain("a", "INBOX", "absent@x").unwrap().is_empty());
+        assert!(store.inbox_chain("a", "Sent", "q2@x").unwrap().is_empty(), "not there");
+
+        let park = Parking {
+            from: "INBOX".into(),
+            chain,
+        };
+        assert!(store.followup_start(&answer("r@x", SENT, 0), Some("q2@x"), Some(&park)).unwrap());
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(jobs.len(), 1);
+        let job = &jobs[0];
+        assert_eq!(
+            (job.kind, job.from.as_str(), job.key.as_str(), sorted(job.message_ids.clone())),
+            (ParkKind::In, "INBOX", "r@x", vec!["q1@x".to_owned(), "q2@x".to_owned()])
+        );
+        // It waits from now on, by the letter answered: from its sender, not my answer.
+        let rows = listed(&store, FollowupFilter::Active);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].message_id.as_deref(), Some("q2@x"));
+        let f = rows[0].followup.clone().unwrap();
+        assert_eq!(
+            (f.status, f.park.as_str(), f.due, f.deadline, f.sent),
+            (FollowupStatus::Waiting, "pending", 0, 0, SENT)
+        );
+        assert_eq!(rows[0].followup_due, None, "no reminder");
+        assert_eq!(store.followups_count().unwrap().active, 1);
+        // Without a reminder it never reminds.
+        assert!(store.followups_due(SENT * 100).unwrap().is_empty());
+
+        // The server moved them.
+        store.followup_parked("a", "r@x", WAIT).unwrap();
+        moved(&store, "INBOX", &[2], WAIT, &[(2, &second)]);
+        assert!(store.park_jobs().unwrap().is_empty());
+        let rows = listed(&store, FollowupFilter::Active);
+        assert_eq!(rows[0].folder, WAIT);
+        let f = rows[0].followup.clone().unwrap();
+        assert_eq!((f.park.as_str(), f.park_folder.as_str()), ("parked", WAIT));
+    }
+
+    #[test]
+    fn the_answer_brings_the_conversation_back_and_says_so_until_it_is_opened() {
+        let store = mailbox();
+        let (first, second) = waiting(&store, 0);
+        let reply = letter("Re: Счёт", SENT + 600, "a1@x", Some("r@x"), "maria@example.org");
+        put(&store, "INBOX", 10, &reply, false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(jobs.len(), 1);
+        let job = &jobs[0];
+        assert_eq!(
+            (job.kind, job.from.as_str(), job.to.as_str(), sorted(job.message_ids.clone())),
+            (ParkKind::Back, WAIT, "INBOX", vec!["q1@x".to_owned(), "q2@x".to_owned()])
+        );
+        moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        assert!(store.park_jobs().unwrap().is_empty());
+
+        let inbox = |threads| {
+            store
+                .list(&ListQuery {
+                    account_id: Some("a".into()),
+                    folder: Some("INBOX".into()),
+                    threads,
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+        let came = |rows: &[MessageRow], id: &str| {
+            rows.iter()
+                .find(|r| r.message_id.as_deref() == Some(id))
+                .map(|r| r.answer_came)
+                .unwrap()
+        };
+        // Not grouped: the letter answered says the answer came, the answer itself does not.
+        let rows = inbox(false);
+        assert!(came(&rows, "q2@x"));
+        assert!(!came(&rows, "a1@x"));
+        assert!(!came(&rows, "q1@x"));
+        // Grouped: the conversation's row says it.
+        let rows = inbox(true);
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].answer_came);
+        // In the history: answered, by whom.
+        let f = the_wait(&store, FollowupFilter::Closed);
+        assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Answered, "returned"));
+        assert_eq!(f.answered_by.unwrap().email, "maria@example.org");
+
+        // Opening the answer (or the letter) is reading it: the mark goes.
+        assert!(store.followup_noticed("a", "<a1@x>").unwrap());
+        assert!(!store.followup_noticed("a", "a1@x").unwrap(), "once");
+        assert!(inbox(false).iter().all(|r| !r.answer_came));
+        assert!(inbox(true).iter().all(|r| !r.answer_came));
+    }
+
+    #[test]
+    fn an_auto_reply_or_a_list_is_not_the_answer() {
+        let store = mailbox();
+        waiting(&store, 0);
+        let mut auto = letter("Автоответ: Счёт", SENT + 60, "auto@x", Some("r@x"), "maria@example.org");
+        auto.bulk = true;
+        put(&store, "INBOX", 10, &auto, false);
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert!(store.park_jobs().unwrap().is_empty());
+        // It is told, or the letter would wait with no reason seen.
+        assert_eq!(the_wait(&store, FollowupFilter::Active).auto_reply, Some(SENT + 60));
+        // A person's answer after it counts.
+        put(&store, "INBOX", 11, &letter("Re: Счёт", SENT + 900, "a1@x", Some("r@x"), "maria@example.org"), false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(the_wait(&store, FollowupFilter::Closed).ended, Some(SENT + 900));
+    }
+
+    #[test]
+    fn a_new_letter_of_the_conversation_counts_when_it_was_written_after_the_answer() {
+        let store = mailbox();
+        waiting(&store, 0);
+        // A colleague answered Maria's letter before my answer went: not an answer to me.
+        put(&store, "INBOX", 10, &letter("Re: Счёт", SENT - 3_600, "c@x", Some("q2@x"), "petr@example.org"), false);
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+        // Maria wrote again in the conversation after my answer: the letter comes back.
+        put(&store, "INBOX", 11, &letter("Re: Счёт", SENT + 3_600, "c2@x", Some("q2@x"), "maria@example.org"), false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.park_jobs().unwrap()[0].kind, ParkKind::Back);
+    }
+
+    #[test]
+    fn answering_a_waiting_letter_again_keeps_one_wait_and_moves_its_start() {
+        let store = mailbox();
+        waiting(&store, 0);
+        // From "Waiting for reply": the letter answered lies in the folder now.
+        assert!(store.followup_start(&answer("r2@x", SENT + 50_000, 0), Some("q2@x"), None).unwrap());
+        let rows = listed(&store, FollowupFilter::Active);
+        assert_eq!(rows.len(), 1);
+        let f = rows[0].followup.clone().unwrap();
+        assert_eq!((f.sent, f.park.as_str()), (SENT + 50_000, "parked"));
+        // An answer to the new one counts.
+        put(&store, "INBOX", 10, &letter("Re: Счёт", SENT + 60_000, "a@x", Some("r2@x"), "maria@example.org"), false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+    }
+
+    #[test]
+    fn stop_waiting_takes_the_letters_back_to_the_inbox_or_to_the_archive() {
+        let store = mailbox();
+        let (first, second) = waiting(&store, 0);
+        // From the row of the view: the letter answered.
+        store.followup_stop("a", "q2@x", SENT + 10, None).unwrap();
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!((jobs[0].kind, jobs[0].to.as_str()), (ParkKind::Back, "INBOX"));
+        moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        let f = the_wait(&store, FollowupFilter::Closed);
+        assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Closed, "done"));
+        assert!(store.park_jobs().unwrap().is_empty());
+        // Closed by hand: nothing to tell in the inbox.
+        assert!(store.list(&ListQuery::default()).unwrap().iter().all(|r| !r.answer_came));
+
+        // The settings say "to the archive".
+        let store = mailbox();
+        waiting(&store, 0);
+        store.followup_stop("a", "q2@x", SENT + 10, Some("Archive")).unwrap();
+        assert_eq!(store.park_jobs().unwrap()[0].to, "Archive");
+    }
+
+    #[test]
+    fn keeping_the_letter_in_the_inbox_forgets_a_wait_made_only_for_it() {
+        let store = mailbox();
+        let (first, second) = waiting(&store, 0);
+        store.followup_unpark("a", "r@x").unwrap();
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!((jobs[0].kind, jobs[0].to.as_str()), (ParkKind::Undo, "INBOX"));
+        moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        assert_eq!(store.followups_count().unwrap(), FollowupCounts { active: 0, closed: 0 });
+
+        // With a reminder the wait stays, without the folder.
+        let store = mailbox();
+        let (first, second) = waiting(&store, SENT + 86_400);
+        store.followup_unpark("a", "q2@x").unwrap();
+        moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        let f = the_wait(&store, FollowupFilter::Active);
+        assert_eq!((f.status, f.due, f.park.as_str()), (FollowupStatus::Waiting, SENT + 86_400, "done"));
+
+        // Not moved yet: nothing to bring back.
+        let store = mailbox();
+        put(&store, "INBOX", 1, &letter("Счёт", 90_000, "q1@x", None, "maria@example.org"), true);
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: vec!["q1@x".into()],
+        };
+        store.followup_start(&answer("r@x", SENT, 0), Some("q1@x"), Some(&park)).unwrap();
+        store.followup_unpark("a", "r@x").unwrap();
+        assert!(store.park_jobs().unwrap().is_empty());
+        assert_eq!(store.followups_count().unwrap().active, 0);
+    }
+
+    #[test]
+    fn a_folder_the_server_refused_leaves_the_letter_in_the_inbox() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &letter("Счёт", 90_000, "q1@x", None, "maria@example.org"), true);
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: vec!["q1@x".into()],
+        };
+        store.followup_start(&answer("r@x", SENT, 0), Some("q1@x"), Some(&park)).unwrap();
+        store.followup_park_failed("a", "r@x").unwrap();
+        assert!(store.park_jobs().unwrap().is_empty());
+        // It waited only to be moved.
+        assert_eq!(store.followups_count().unwrap().active, 0);
+
+        // A reminder still reminds.
+        store
+            .followup_start(&answer("r@x", SENT, SENT + 500), Some("q1@x"), Some(&park))
+            .unwrap();
+        store.followup_park_failed("a", "r@x").unwrap();
+        let f = the_wait(&store, FollowupFilter::Active);
+        assert_eq!((f.due, f.park.as_str()), (SENT + 500, ""));
+    }
+
+    #[test]
+    fn done_with_a_waiting_letter_closes_its_wait() {
+        let store = mailbox();
+        waiting(&store, 0);
+        // Moved elsewhere by hand ("Done", Delete, a folder): what is not waiting is untouched.
+        assert_eq!(store.followups_left("a", "INBOX", &["q2@x".into()], SENT + 10).unwrap(), 0);
+        assert_eq!(store.followups_left("a", WAIT, &["other@x".into()], SENT + 10).unwrap(), 0);
+        assert_eq!(store.followups_left("a", WAIT, &["<q1@x>".into()], SENT + 10).unwrap(), 1);
+        let f = the_wait(&store, FollowupFilter::Closed);
+        assert_eq!((f.status, f.park.as_str(), f.ended), (FollowupStatus::Closed, "done", Some(SENT + 10)));
+        assert!(store.park_jobs().unwrap().is_empty());
+        // An answer later does not bring it back from the archive.
+        put(&store, "INBOX", 10, &letter("Re: Счёт", SENT + 600, "a1@x", Some("r@x"), "maria@example.org"), false);
+        assert_eq!(store.followups_resolve().unwrap(), 0);
+    }
+
+    #[test]
+    fn an_answer_before_the_move_leaves_the_letters_where_they_are() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &letter("Счёт", 90_000, "q1@x", None, "maria@example.org"), true);
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: vec!["q1@x".into()],
+        };
+        store.followup_start(&answer("r@x", SENT, 0), Some("q1@x"), Some(&park)).unwrap();
+        put(&store, "INBOX", 10, &letter("Re: Счёт", SENT + 60, "a1@x", Some("r@x"), "maria@example.org"), false);
+        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert!(store.park_jobs().unwrap().is_empty());
+        assert_eq!(the_wait(&store, FollowupFilter::Closed).park, "done");
+    }
+
+    #[test]
+    fn a_reminder_and_the_folder_are_one_wait() {
+        let store = mailbox();
+        waiting(&store, SENT + 500);
+        assert_eq!(listed(&store, FollowupFilter::Active).len(), 1);
+        assert_eq!(listed(&store, FollowupFilter::Active)[0].followup_due, Some(SENT + 500));
+        // The reminder opens the letter answered, which is where the wait shows.
+        let due = store.followups_due(SENT + 600).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].message_id, "q2@x");
+        // "Remind me…" of the view's row reaches the wait through the letter answered.
+        store.followup_postpone("a", "q2@x", SENT + 9_000, true).unwrap();
+        assert_eq!(the_wait(&store, FollowupFilter::Active).due, SENT + 9_000);
+    }
+
+    #[test]
+    fn a_cache_of_0_6_4_keeps_its_mail_its_marks_and_its_waits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        {
+            // The nine steps 0.6.4 knew, and its data.
+            let mut conn = rusqlite::Connection::open(&path).unwrap();
+            super::super::migrate(&mut conn, &super::super::MIGRATIONS[..9]).unwrap();
+            conn.execute_batch(
+                "INSERT INTO folders (account_id, name, display_name, role, selectable) VALUES ('a', 'INBOX', 'INBOX', 'inbox', 1);
+                 INSERT INTO messages (account_id, folder, uid, message_id, refs, subject, to_addrs, cc_addrs, reply_to,
+                     date, size, seen, answered, flagged, draft, has_attachments, thread)
+                     VALUES ('a', 'INBOX', 1, 'q@x', '[]', 'Счёт', '[]', '[]', '[]', 100, 1, 1, 1, 0, 0, 0, 'q@x');
+                 INSERT INTO followups (account_id, message_id, subject, recipients, sent, due, deadline)
+                     VALUES ('a', 'q@x', 'Счёт', 'maria@example.org', 100, 500, 500);
+                 INSERT INTO outbox (account_id, draft, next_attempt, created) VALUES ('a', '{}', 1, 1);",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let rows = store.list(&ListQuery::default()).unwrap();
+        assert_eq!(rows.len(), 1);
+        // \Answered of the old cache is a reply, its time unknown.
+        assert_eq!(
+            rows[0].marks,
+            [crate::store::Mark {
+                act: Act::Reply,
+                at: None
+            }]
+        );
+        assert!(!rows[0].flags.forwarded && !rows[0].flags.answered_all);
+        // The wait is the reminder it was: no folder, waiting for an answer to its letter.
+        let f = rows[0].followup.clone().unwrap();
+        assert_eq!((f.status, f.due, f.park.as_str()), (FollowupStatus::Waiting, 500, ""));
+        assert_eq!(store.followups_count().unwrap().active, 1);
+        let item = &store.outbox().unwrap()[0];
+        assert_eq!((item.draft.acts_on.as_ref(), item.followup.park), (None, None));
+    }
+
+    fn acts(folder: &str, act: Act, account: &str) -> ActsOn {
+        ActsOn {
+            account_id: account.into(),
+            message_id: "q@x".into(),
+            folder: folder.into(),
+            act,
+            waiting: false,
+        }
+    }
+
+    #[test]
+    fn only_an_answer_to_a_letter_of_the_inbox_goes_to_wait() {
+        let on = Waiting {
+            park: true,
+            ..Default::default()
+        };
+        let off = Waiting::default();
+        let inbox = Some("INBOX");
+        let reply = acts("INBOX", Act::Reply, "a");
+        assert!(parks(Some(&reply), None, "a", &on, inbox));
+        assert!(parks(Some(&acts("INBOX", Act::ReplyAll, "a")), None, "a", &on, inbox));
+        // The window's checkbox decides for its letter.
+        assert!(!parks(Some(&reply), Some(false), "a", &on, inbox));
+        assert!(parks(Some(&reply), Some(true), "a", &off, inbox));
+        assert!(!parks(Some(&reply), None, "a", &off, inbox));
+        // A forward, a new letter, a letter of another folder or mailbox: never.
+        assert!(!parks(Some(&acts("INBOX", Act::Forward, "a")), Some(true), "a", &on, inbox));
+        assert!(!parks(None, Some(true), "a", &on, inbox));
+        assert!(!parks(Some(&acts("INBOX/Проекты", Act::Reply, "a")), Some(true), "a", &on, inbox));
+        assert!(!parks(Some(&acts("Archive", Act::Reply, "a")), Some(true), "a", &on, inbox));
+        assert!(!parks(Some(&acts("INBOX", Act::Reply, "b")), Some(true), "a", &on, inbox));
+        assert!(!parks(Some(&reply), Some(true), "a", &on, None), "no inbox known");
+    }
+
+    #[test]
+    fn the_folder_to_wait_in_is_the_chosen_one_or_one_named_so() {
+        let f = |name: &str, display: &str| (name.to_owned(), display.to_owned());
+        let folders = [f("INBOX", "Входящие"), f("Archive", "Архив"), f("INBOX/Ждут ответа", "Ждут ответа")];
+        // Chosen and still there.
+        assert_eq!(
+            waiting_folder("Archive", "Ждут ответа", &folders),
+            WaitFolder::Existing("Archive".into())
+        );
+        // Not chosen: one already named so is taken, not a second one made.
+        assert_eq!(
+            waiting_folder("", "Ждут ответа", &folders),
+            WaitFolder::Existing("INBOX/Ждут ответа".into())
+        );
+        assert_eq!(
+            waiting_folder("", "Waiting for reply", &folders),
+            WaitFolder::Create("Waiting for reply".into())
+        );
+        // Chosen and gone: made again under its name.
+        assert_eq!(
+            waiting_folder("Ожидание", "Ждут ответа", &folders),
+            WaitFolder::Create("Ожидание".into())
+        );
+    }
+}
