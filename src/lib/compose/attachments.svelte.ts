@@ -22,6 +22,8 @@ export interface ComposeAttachHost {
   useCtrlV(): void;
   /** The clipboard holds no picture. */
   noneInClipboard(): void;
+  /** A picture in the text is shrunk to this many pixels on its long side (Settings → Mail). */
+  imageMaxPx(): number;
   /** The title of the dialog that picks picture files. */
   pickTitle(): string;
   /** The title of the dialog that picks attachments. */
@@ -44,19 +46,27 @@ export class ComposeAttachments {
     });
   }
 
-  /** The zones of a dragged file are offered by an HTML letter only, in the active window. */
+  /** The zones of a dragged file are offered by a formatted letter, in the active window. */
   get zones(): boolean {
     const win = this.host.win;
-    return this.host.format.format === "html" && win.mode !== "min" && !!this.host.dragging?.zones && this.host.activeComposeId() === win.id;
+    const format = this.host.format.format;
+    return (format === "html" || format === "markdown") && win.mode !== "min" && !!this.host.dragging?.zones && this.host.activeComposeId() === win.id;
   }
 
-  /** Pictures in the text of an HTML letter. A large photo is made smaller first; one
-   * still too big goes as a file, as it would anyway. */
+  /** Pictures in the text of a letter. An HTML one takes them as `data:` images; a Markdown
+   *  one as `![alt](data:image/…)` (decision on #45). A large photo is made smaller first;
+   *  one still too big goes as a file, as it would anyway. */
   async addPictures(found: FoundPicture[]) {
-    const { html, tooBig, failed } = await picturesHtml(found);
+    const { html, ready, tooBig, failed } = await picturesHtml(found, this.host.imageMaxPx());
     for (const p of await this.attachPictures(tooBig)) this.host.toastBig(p.name);
     for (const e of failed) this.host.fail(e);
-    if (html) this.host.format.rich?.insertHtml(html);
+    if (!ready.length) return;
+    if (this.host.format.format === "html") {
+      if (html) this.host.format.rich?.insertHtml(html);
+    } else if (!this.host.format.insertPictures(ready)) {
+      // No editor to type into: they go as files, as a plain letter would have them.
+      await this.attachPictures(found);
+    }
   }
 
   /** Pictures as files of the letter; gives back those attached. */

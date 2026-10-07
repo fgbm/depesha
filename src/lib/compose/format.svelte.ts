@@ -7,9 +7,9 @@
 
 import { onMount, untrack } from "svelte";
 import { api } from "../api";
-import { convertDraft, losesFormatting, takeBodyPictures } from "../compose";
+import { convertDraft, losesFormatting } from "../compose";
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlToText, letterText, splitHtmlQuote } from "../richtext";
-import { pictureName, picturesSize, type Picture } from "../images";
+import { picturesSize, type Picture } from "../images";
 import {
   defaultSignature,
   hasHtmlSignature,
@@ -22,7 +22,7 @@ import {
   withoutHtmlSignature,
 } from "../signatures";
 import type { ComposeWindow } from "../composes.svelte";
-import type { AccountView, AttachmentSource, BodyFormat, ComposeDraft, Signature } from "../types";
+import type { AccountView, BodyFormat, ComposeDraft, Signature } from "../types";
 import type RichEditor from "../../components/RichEditor.svelte";
 import type FormatBar from "../../components/FormatBar.svelte";
 import type { MarkdownField } from "../markdown/types";
@@ -37,8 +37,8 @@ export interface ComposeFormatHost {
   fail(e: unknown, prefix?: string): void;
   /** Asks before HTML formatting is dropped for plain text. */
   confirmToPlain(): Promise<boolean>;
-  /** Asks before the letter's own pictures are attached on the way to Markdown. */
-  confirmPicturesAttach(): Promise<boolean>;
+  /** The format changed: a toast says what was lost and offers to undo (frame 8 of the mockup). */
+  formatChanged(from: BodyFormat, to: BodyFormat, undo: () => void): void;
 }
 
 /** The pictures of an HTML letter are weighed this long after typing pauses. */
@@ -252,6 +252,22 @@ export class ComposeFormat {
     });
   }
 
+  /**
+   * Pictures into the letter's text. In Markdown they go in as `![alt](data:image/…)` on a
+   * line of their own (decision on #45, frame 9): Depesha's own reader shows them, and on the
+   * way out the backend turns them into `multipart/related` parts. In HTML the editor puts
+   * them in as `data:` images and this returns false; the caller falls back to that.
+   */
+  insertPictures(pictures: Picture[]): boolean {
+    if (this.format !== "markdown" || !this.body || !("apply" in this.body)) return false;
+    const field = this.body;
+    for (const p of pictures) {
+      const url = `data:${p.mime};base64,${p.base64}`;
+      field.picture(url, "");
+    }
+    return true;
+  }
+
   onBodyFocus() {
     if (this.placed || !this.body) return;
     this.placed = true;
@@ -281,23 +297,8 @@ export class ComposeFormat {
   private async confirmSwitch(next: BodyFormat): Promise<boolean> {
     const draft = $state.snapshot(this.host.win.draft) as ComposeDraft;
     if (losesFormatting(draft, next) && !(await this.host.confirmToPlain())) return false;
-    // Markdown has no pictures inside: the letter's own go as files; the signature keeps its.
-    if (this.format === "html" && next === "markdown" && takeBodyPictures(draft.html ?? "").pictures.length) {
-      return this.host.confirmPicturesAttach();
-    }
+    // Markdown keeps pictures in the text now (decision on #45, frame 8): nothing to ask.
     return true;
-  }
-
-  /** The letter's own pictures as files of the letter, for Markdown: not attached yet. */
-  private async picturesAsFiles(pictures: Picture[]): Promise<AttachmentSource[]> {
-    const out: AttachmentSource[] = [];
-    let n = this.host.win.draft.attachments.length;
-    for (const p of pictures) {
-      const name = pictureName(p.mime, ++n);
-      const path = await api.tempAttachment(name, p.base64);
-      out.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
-    }
-    return out;
   }
 
   /** Rewrites the letter in another format; the settings stay as they are. */
@@ -307,19 +308,12 @@ export class ComposeFormat {
     this.switching = true;
     try {
       if (!(await this.confirmSwitch(next))) return;
-      // Taken after the questions: what was typed while they were asked is in it, and the
-      // editor takes no keys until the letter is rewritten.
-      let current = $state.snapshot(win.draft) as ComposeDraft;
-      let files: AttachmentSource[] = [];
-      if (this.format === "html" && next === "markdown") {
-        const { html, pictures } = takeBodyPictures(current.html ?? "");
-        files = await this.picturesAsFiles(pictures);
-        current = { ...current, html };
-      }
+      const current = $state.snapshot(win.draft) as ComposeDraft;
+      const from = this.format;
+      const before = { ...current, attachments: [...current.attachments] };
       this.markup = false;
       const d = await convertDraft(current, next, $state.snapshot(this.signature) as Signature | null, (text) => api.markdownHtml(text));
       // Attached once the letter is rewritten: a failure leaves the pictures in its text alone.
-      win.draft.attachments.push(...files);
       if (d.format === "html") {
         this.htmlBody = d.html ?? "";
         this.plainOfHtml = d.text;
@@ -331,10 +325,31 @@ export class ComposeFormat {
       win.draft.html = d.html ?? null;
       win.draft.text = d.text;
       win.draft.format = d.format;
+      // Frame 8 of the 0.7 mockup: only HTML → text asks first (in `confirmSwitch`); any
+      // other change is undone by a toast that names what was lost, or by Ctrl+Z.
+      this.host.formatChanged(from, d.format ?? next, () => this.restore({ ...before, parts: d.parts }));
     } catch (e) {
       this.host.fail(e);
     } finally {
       this.switching = false;
     }
+  }
+
+  /** The letter back as it was before a format change, whole, signature and pictures. */
+  private restore(d: ComposeDraft & { parts?: { body: string; rest: string } }) {
+    const win = this.host.win;
+    win.draft.html = d.html ?? null;
+    win.draft.text = d.text;
+    win.draft.format = d.format;
+    win.draft.attachments = d.attachments;
+    if (d.format === "html") {
+      this.htmlBody = d.html ?? "";
+      this.plainOfHtml = d.text;
+    } else {
+      const p = d.parts ?? splitPlain(d.text);
+      this.head = p.body;
+      this.quote = p.rest;
+    }
+    this.signature = signatureIn({ ...win.draft, format: d.format, text: d.text }, this.signatures);
   }
 }

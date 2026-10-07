@@ -11,6 +11,9 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Check from "@lucide/svelte/icons/check";
+  import Type from "@lucide/svelte/icons/type";
+  import Hash from "@lucide/svelte/icons/hash";
+  import AlignLeft from "@lucide/svelte/icons/align-left";
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
   import { app, type ComposeWindow } from "../lib/store.svelte";
@@ -46,8 +49,14 @@
   let bccInput = $state<AddressInput | null>(null);
   /** The window's width: the formatting row folds in a narrow one. */
   let width = $state(640);
-  /** The «⋯» menu of the footer: the letter's format and the draft's actions. */
+  /** The format button's menu; the draft's actions keep their own "⋯" beside it. */
   let menuOpen = $state(false);
+  let moreOpen = $state(false);
+
+  /** The format as the button's label shows it. */
+  function formatLabel(format: BodyFormat): string {
+    return format === "html" ? t("format.short.html") : format === "markdown" ? t("format.short.markdown") : t("format.plain");
+  }
 
   function commitAll(): boolean {
     const ok = [toInput, ccInput, bccInput].map((i) => i?.commit() ?? true);
@@ -71,7 +80,10 @@
         okLabel: t("compose.format.toPlain"),
         cancelLabel: t("compose.format.stayHtml"),
       }),
-    confirmPicturesAttach: () => app.confirm({ text: t("compose.format.picturesAttach"), okLabel: t("compose.format.toMarkdown") }),
+    formatChanged: (from, to, undo) => {
+      const name = (f: BodyFormat) => (f === "html" ? t("format.short.html") : f === "markdown" ? t("format.short.markdown") : t("format.plain"));
+      app.toast(t("compose.format.changed", { format: name(to) }), false, { label: t("undo"), run: undo });
+    },
   });
 
   const auto = new ComposeAutosave({
@@ -122,6 +134,7 @@
     },
     activeComposeId: () => app.activeCompose()?.id,
     pictureTarget: (id, insert) => app.compose.pictureTarget(id, insert),
+    imageMaxPx: () => app.settings.image_max_px,
   });
 
   // What the markup reads and writes: the window's own state, the letter's (fmt) and the
@@ -185,6 +198,8 @@
     saveDraft: () => sending.saveDraft(),
     get menuOpen() { return menuOpen; },
     set menuOpen(v: boolean) { menuOpen = v; },
+    get moreOpen() { return moreOpen; },
+    set moreOpen(v: boolean) { moreOpen = v; },
     minimize: () => sending.minimize(),
     toggleMax: () => sending.toggleMax(),
     send: (at: number | null = null, force = false) => sending.send(at, force),
@@ -204,6 +219,10 @@
 
 {#snippet signatureChip()}
   <SignaturePicker variant="chip" signatures={m.signatures} current={m.signature} onpick={m.putSignature} onsettings={m.signatureSettings} />
+{/snippet}
+
+{#snippet formatIcon(format: BodyFormat)}
+  {#if format === "html"}<Type size={15} />{:else if format === "markdown"}<Hash size={15} />{:else}<AlignLeft size={15} />{/if}
 {/snippet}
 
 {#if c.mode === "max"}
@@ -396,9 +415,21 @@
       <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
       {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       <span class="spacer"></span>
-      <!-- The format of this letter lives here, with the draft's actions: changing it is rare. -->
+      <!-- The format of this letter: a button beside "⋯" whose label says the current one
+           (frame 6 Б of the 0.7 mockup). In a narrow window only its icon shows. -->
       <span class="anchor">
-        <button class="btn ghost icon" onclick={() => (m.menuOpen = !m.menuOpen)} disabled={m.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={m.menuOpen}><Ellipsis size={15} /></button>
+        <button
+          class="btn ghost fmt"
+          onclick={() => (m.menuOpen = !m.menuOpen)}
+          disabled={m.busy}
+          title={t("compose.format.current", { format: formatLabel(m.format) })}
+          aria-label={t("compose.format.title")}
+          aria-haspopup="menu"
+          aria-expanded={m.menuOpen}
+        >
+          {@render formatIcon(m.format)}
+          {#if m.width >= 460}<span>{formatLabel(m.format)}</span>{/if}
+        </button>
         <Popover bind:open={m.menuOpen}>
           <div class="mt">{t("compose.format.title")}</div>
           {#each m.FORMATS as f (f.value)}
@@ -406,9 +437,13 @@
               <span class="tick">{#if m.format === f.value}<Check size={14} />{/if}</span>{f.label()}
             </button>
           {/each}
-          <hr />
-          <button class="mi" onclick={() => { m.menuOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}<span class="hint">{keyLabel("save")}</span></button>
-          <button class="mi danger-text" onclick={() => { m.menuOpen = false; m.discard(); }}>{t("compose.discardDraft")}</button>
+        </Popover>
+      </span>
+      <span class="anchor">
+        <button class="btn ghost icon" onclick={() => (m.moreOpen = !m.moreOpen)} disabled={m.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={m.moreOpen}><Ellipsis size={15} /></button>
+        <Popover bind:open={m.moreOpen}>
+          <button class="mi" onclick={() => { m.moreOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}<span class="hint">{keyLabel("save")}</span></button>
+          <button class="mi danger-text" onclick={() => { m.moreOpen = false; m.discard(); }}>{t("compose.discardDraft")}</button>
         </Popover>
       </span>
       <button class="btn ghost icon" onclick={m.discard} disabled={m.busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>

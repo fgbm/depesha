@@ -66,6 +66,10 @@ pub struct Settings {
     pub view_sorts: std::collections::BTreeMap<String, Vec<SortKey>>,
     /// What counts as a large letter in the ready-made searches (Settings → General → Search), megabytes.
     pub large_mb: u32,
+    /// A picture put into a letter's text (HTML or Markdown) is drawn no wider than this on
+    /// its long side, pixels (decision on #45): a 4K photo is megabytes otherwise.
+    #[serde(default = "image_max_px")]
+    pub image_max_px: u32,
     /// How new letters are written; a mailbox may have its own (`Account::compose_format`).
     /// A new install writes HTML; one set up before the choice existed goes on with plain text.
     #[serde(default = "plain")]
@@ -99,6 +103,10 @@ fn plain() -> BodyFormat {
     BodyFormat::Plain
 }
 
+fn image_max_px() -> u32 {
+    1600
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -123,6 +131,7 @@ impl Default for Settings {
             list_sort: Vec::new(),
             view_sorts: Default::default(),
             large_mb: 25,
+            image_max_px: 1600,
             compose_format: BodyFormat::Html,
             letter_view: "sender".into(),
             default_account_id: None,

@@ -2,34 +2,51 @@
 // letter and for a signature: read as `data:` images, a large photo made smaller.
 
 import { api } from "./api";
-import { FIT_FROM, MAX_PICTURE, dataUrlSize, pictureHtml, pictureName, readAsDataUrl, shrinkPicture } from "./images";
+import { FIT_FROM, MAX_PICTURE, MAX_SIDE, dataUrlSize, dataUrlType, pictureHtml, pictureName, readAsDataUrl, shrinkPicture, type Picture } from "./images";
 
 export interface FoundPicture {
   name: string;
   dataUrl: string;
 }
 
+/** A picture made small enough for the text, ready to go in. */
+export interface ReadyPicture extends Picture {
+  /** The shrunk `data:` URL. */
+  dataUrl: string;
+  /** Its width after shrinking, for "по ширине текста" or its own size. */
+  width: number;
+}
+
 /**
  * The pictures as HTML for the text. One still too big after shrinking is left out and
- * given back in `tooBig`, as it was; one that could not be read, in `failed`.
+ * given back in `tooBig`, as it was; one that could not be read, in `failed`. `ready` holds
+ * the pictures that fit, for the ones a Markdown letter puts in as `![alt](…)`.
  */
-export async function picturesHtml(found: FoundPicture[]): Promise<{ html: string; tooBig: FoundPicture[]; failed: unknown[] }> {
+export async function picturesHtml(found: FoundPicture[], maxSide = MAX_SIDE): Promise<{ html: string; ready: ReadyPicture[]; tooBig: FoundPicture[]; failed: unknown[] }> {
   let html = "";
+  const ready: ReadyPicture[] = [];
   const tooBig: FoundPicture[] = [];
   const failed: unknown[] = [];
   for (const p of found) {
     try {
-      const ready = await shrinkPicture(p.dataUrl);
-      if (dataUrlSize(ready.dataUrl) > MAX_PICTURE) {
+      const shrunk = await shrinkPicture(p.dataUrl, maxSide);
+      if (dataUrlSize(shrunk.dataUrl) > MAX_PICTURE) {
         tooBig.push(p);
         continue;
       }
-      html += pictureHtml(ready.dataUrl, ready.width > FIT_FROM ? "fit" : "natural");
+      html += pictureHtml(shrunk.dataUrl, shrunk.width > FIT_FROM ? "fit" : "natural");
+      const at = shrunk.dataUrl.indexOf(",") + 1;
+      ready.push({
+        mime: dataUrlType(shrunk.dataUrl) || "image/png",
+        base64: shrunk.dataUrl.slice(at),
+        dataUrl: shrunk.dataUrl,
+        width: shrunk.width,
+      });
     } catch (e) {
       failed.push(e);
     }
   }
-  return { html, tooBig, failed };
+  return { html, ready, tooBig, failed };
 }
 
 /** Picture files read through the backend (only files the user picked or dropped); the paths it refused apart. */

@@ -44,6 +44,15 @@ function attrsOf(source: string): Record<string, string> {
   return out;
 }
 
+/** The attributes of an `<img>` a Markdown image needs: its alt and its source. Nothing
+ *  else is read, and the `data:` source may be megabytes — it is kept whole when it is a
+ *  picture of our own (a letter's picture stays in the letter, decision on #45). */
+function imgAttrs(source: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of source.matchAll(/(alt|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) out[m[1].toLowerCase()] = decode(m[2] ?? m[3] ?? "");
+  return out;
+}
+
 /** Text and tags in order; comments and doctypes are dropped. */
 function tokens(html: string): Token[] {
   const out: Token[] = [];
@@ -54,8 +63,8 @@ function tokens(html: string): Token[] {
     at = m.index + m[0].length;
     if (!m[1]) continue;
     const name = m[1].toLowerCase();
-    // A picture's attributes are never read, and its `data:` source may be megabytes.
-    out.push({ tag: { name, close: m[0][1] === "/", attrs: name === "img" ? {} : attrsOf(m[2] ?? "") } });
+    // A picture keeps only what a Markdown image needs: its `data:` source may be megabytes.
+    out.push({ tag: { name, close: m[0][1] === "/", attrs: name === "img" ? imgAttrs(m[2] ?? "") : attrsOf(m[2] ?? "") } });
   }
   if (at < html.length) out.push({ text: decode(html.slice(at)) });
   return out;
@@ -200,7 +209,20 @@ function render(html: string, markdown: boolean): string {
       started = false;
       continue;
     }
-    if (name === "img") continue;
+    if (name === "img") {
+      // A picture of our own goes on as a Markdown image (decision on #45); a foreign one
+      // (a remote address) is left out with its markup, as it always was.
+      if (markdown && !hidden && attrs.src) {
+        if (!started) {
+          settle();
+          started = true;
+          cur = bullet;
+          bullet = "";
+        }
+        cur += `![${attrs.alt ?? ""}](${attrs.src})`;
+      }
+      continue;
+    }
     if (name === "hr") {
       brk(2);
       write(markdown ? "---" : "———");

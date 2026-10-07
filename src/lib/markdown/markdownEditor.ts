@@ -12,6 +12,10 @@ import { composeAction } from "../composeKeys";
 import { markdownSupport } from "./dialect";
 import { editSpec, formatsAt } from "./field";
 import { previewPieces, type PreviewOptions } from "./preview";
+import { TableView } from "./tableWidget";
+import { codeEdit, headingEdit, pictureEdit, tableEdit } from "./mdedits";
+import { tableSource } from "./table";
+import type { Edit } from "../mdedit";
 import type { MarkdownField } from "./types";
 
 export interface EditorOptions {
@@ -91,49 +95,35 @@ class TaskBox extends WidgetType {
   }
 }
 
-/** A table drawn as the recipient sees it; a click opens its source. */
-class TableView extends WidgetType {
-  constructor(readonly source: string) {
+/** An image in a Markdown letter: shown in place (decision on #45); its markup `![alt](url)`
+ *  appears on the line with the caret, drawn by the Live Preview like any other element. */
+class Picture extends WidgetType {
+  constructor(readonly url: string, readonly alt: string) {
     super();
   }
-  eq(other: TableView) {
-    return other.source === this.source;
+  eq(other: Picture) {
+    return other.url === this.url && other.alt === this.alt;
   }
-  toDOM(view: EditorView) {
-    const table = document.createElement("table");
-    table.className = "md-table-view";
-    const rows = this.source.split("\n").filter((_, i) => i !== 1);
-    rows.forEach((row, i) => {
-      const tr = table.insertRow();
-      for (const cell of cellsOf(row)) {
-        const td = document.createElement(i === 0 ? "th" : "td");
-        td.textContent = cell;
-        tr.append(td);
-      }
-    });
-    table.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      view.dispatch({ selection: { anchor: view.posAtDOM(table) } });
-      view.focus();
-    });
-    return table;
+  toDOM() {
+    const box = document.createElement("span");
+    box.className = "md-picture";
+    const img = document.createElement("img");
+    img.src = this.url;
+    img.alt = this.alt;
+    box.append(img);
+    return box;
   }
   ignoreEvent() {
-    return true;
+    return false;
   }
-}
-
-/** The cells of a table's row: split at the bars not escaped, the outer ones dropped. */
-function cellsOf(row: string): string[] {
-  const cells = row.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/);
-  return cells.map((c) => c.trim().replace(/\\\|/g, "|"));
 }
 
 const hidden = Decoration.replace({});
 const bullet = Decoration.replace({ widget: new Bullet() });
 
 function decorate(state: EditorState): DecorationSet {
-  const ranges = previewPieces(state, state.field(mode)).map((p) => {
+  const opts = state.field(mode);
+  const ranges = previewPieces(state, opts).map((p) => {
     switch (p.kind) {
       case "hide":
         return hidden.range(p.from, p.to);
@@ -142,7 +132,11 @@ function decorate(state: EditorState): DecorationSet {
       case "task":
         return Decoration.replace({ widget: new TaskBox(p.done) }).range(p.from, p.to);
       case "table":
-        return Decoration.replace({ widget: new TableView(state.sliceDoc(p.from, p.to)), block: true }).range(p.from, p.to);
+        return Decoration.replace({ widget: new TableView(p.from, state.sliceDoc(p.from, p.to), state.readOnly), block: true }).range(p.from, p.to);
+      case "image":
+        return Decoration.replace({ widget: picture(state, p.from, p.to), block: true }).range(p.from, p.to);
+      case "token":
+        return Decoration.mark({ class: `md-${p.class}` }).range(p.from, p.to);
       case "line":
         return Decoration.line({ class: p.class }).range(p.at);
       case "style":
@@ -150,6 +144,13 @@ function decorate(state: EditorState): DecorationSet {
     }
   });
   return Decoration.set(ranges, true);
+}
+
+/** The picture an `![alt](url)` refers to, read off the document. */
+function picture(state: EditorState, from: number, to: number): Picture {
+  const text = state.sliceDoc(from, to);
+  const m = /^!\[([^\]]*)\]\((.*)\)$/.exec(text);
+  return new Picture(m?.[2] ?? "", m?.[1] ?? "");
 }
 
 /** In a field, not a view plugin: a table replaces whole lines, which only a field may. */
@@ -184,6 +185,29 @@ function intoTable(down: boolean) {
   };
 }
 
+/** A row typed as `| … |` becomes a table on Enter: a separator and one empty row are added
+ *  under it and the caret goes to the first cell of the empty row (frame 3 А of the 0.7 mockup). */
+function typedTable(view: EditorView): boolean {
+  const { state } = view;
+  const { main } = state.selection;
+  if (!main.empty) return false;
+  const line = state.doc.lineAt(main.head);
+  if (!/^\s*\|.*\|\s*$/.test(line.text) || main.head !== line.to) return false;
+  const cells = line.text.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim());
+  if (cells.length < 2) return false;
+  const table = { head: cells, aligns: cells.map(() => "left" as const), rows: [cells.map(() => "")] };
+  const rest = tableSource(table).split("\n").slice(1).join("\n").replace(/\n$/, "");
+  // The separator and the empty row go under the header; the caret sits in its first cell.
+  const at = line.to + rest.indexOf("\n") + 2 + 1; // past the newline, the bar and the space
+  view.dispatch({
+    changes: { from: line.to, to: line.to, insert: "\n" + rest },
+    selection: { anchor: Math.min(at, line.to + rest.length) },
+    scrollIntoView: true,
+    userEvent: "input.table",
+  });
+  return true;
+}
+
 /** The colours and sizes of the app's theme (src/app.css) and of the 0.7 mockup. */
 const highlight = HighlightStyle.define([
   { tag: tags.strong, fontWeight: "bold" },
@@ -212,9 +236,33 @@ const theme = EditorView.theme({
   ".md-u": { textDecoration: "underline" },
   ".md-bullet": { color: "var(--muted)" },
   ".md-task": { margin: "0 2px", verticalAlign: "-2px", cursor: "pointer" },
-  ".md-table-view": { borderCollapse: "collapse", margin: "2px 0", cursor: "text" },
-  ".md-table-view th, .md-table-view td": { border: "1px solid var(--line)", padding: "3px 10px", textAlign: "left" },
-  ".md-table-view th": { background: "var(--paper-2)" },
+  // Code tokens: the same colours the reader's frame uses on a letter (syntax.ts, HL_CSS).
+  ".md-hl-kw": { color: "#a626a4" },
+  ".md-hl-str": { color: "#50a14f" },
+  ".md-hl-cm": { color: "var(--muted)", fontStyle: "italic" },
+  ".md-hl-num": { color: "#986801" },
+  ".md-hl-tag": { color: "#e45649" },
+  ".md-hl-attr": { color: "#986801" },
+  ".md-hl-prop": { color: "#4078f2" },
+  // An image in the letter: shown in place, no wider than the text.
+  ".md-picture": { display: "block", margin: "4px 0" },
+  ".md-picture img": { maxWidth: "100%", height: "auto", borderRadius: "4px", border: "1px solid var(--line)" },
+  // The table: drawn as the recipient sees it, edited in its cells.
+  ".md-table-view": { margin: "2px 0" },
+  ".md-table-scroll": { overflowX: "auto", overflowY: "hidden", paddingBottom: "2px" },
+  ".md-table-in": { position: "relative", display: "inline-block", minWidth: "100%" },
+  ".md-table": { borderCollapse: "collapse", width: "max-content", maxWidth: "none" },
+  ".md-table th, .md-table td": { border: "1px solid var(--line)", padding: "0", verticalAlign: "top" },
+  ".md-table th": { background: "var(--paper-2)" },
+  ".md-table-cell-text": { minWidth: "40px", padding: "3px 10px", outline: "none", cursor: "text" },
+  ".md-table-cell-text:focus": { boxShadow: "inset 0 0 0 2px var(--link)" },
+  ".md-table-corner, .md-table-grip": { border: "none", padding: "0", background: "none", width: "18px" },
+  ".md-table-grip-btn": { width: "18px", padding: "0", border: "none", background: "none", color: "var(--muted)", cursor: "pointer", lineHeight: "1", font: "inherit" },
+  ".md-table-grip-btn:hover": { color: "var(--ink)" },
+  ".md-table-add": { position: "absolute", border: "1px dashed var(--line)", background: "none", color: "var(--muted)", cursor: "pointer", padding: "0", lineHeight: "1" },
+  ".md-table-add-col": { top: "0", right: "-22px", width: "18px", height: "100%" },
+  ".md-table-add-row": { left: "0", bottom: "-22px", width: "100%", height: "18px" },
+  ".md-table-drop": { position: "absolute", background: "var(--accent)", pointerEvents: "none", zIndex: "3" },
 });
 
 /** Pictures on the clipboard, as files. */
@@ -272,7 +320,18 @@ function fieldOf(view: EditorView): MarkdownField {
       view.focus();
     },
     formats: () => formatsAt(view.state, view.state.selection.main.head),
+    heading: (level) => applyOf(view, (t, s, e) => headingEdit(t, s, e, level)),
+    code: () => applyOf(view, codeEdit),
+    table: () => applyOf(view, (t, s, e) => tableEdit(t, s, e, 3)),
+    picture: (url, alt) => applyOf(view, (t, s, e) => pictureEdit(t, s, e, url, alt)),
   };
+}
+
+/** An edit of the Markdown, one step for Ctrl+Z, with the caret it leaves. */
+function applyOf(view: EditorView, make: (text: string, start: number, end: number) => Edit) {
+  const { from, to } = view.state.selection.main;
+  view.dispatch(editSpec(make(view.state.doc.toString(), from, to)));
+  view.focus();
 }
 
 /** A text set from outside (a plugin, a template): only what differs is replaced, so the
@@ -302,7 +361,7 @@ export function createEditor(o: EditorOptions): MarkdownEditorHandle {
         Prec.highest(windowEvents(o)),
         history(),
         markdownSupport(),
-        Prec.high(keymap.of([...markdownKeymap, { key: "ArrowDown", run: intoTable(true) }, { key: "ArrowUp", run: intoTable(false) }])),
+        Prec.high(keymap.of([...markdownKeymap, { key: "ArrowDown", run: intoTable(true) }, { key: "ArrowUp", run: intoTable(false) }, { key: "Enter", run: typedTable }])),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         syntaxHighlighting(highlight),
         theme,

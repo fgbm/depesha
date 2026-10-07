@@ -42,6 +42,7 @@ export class SettingsController {
     list_sort: [],
     view_sorts: {},
     large_mb: 25,
+    image_max_px: 1600,
     compose_format: "html",
     quota_warn: true,
     quota_levels: [90, 95],

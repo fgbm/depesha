@@ -193,6 +193,11 @@ export class ComposeSending {
       // The HTML editor does these itself; in Markdown they type the markup.
       e.preventDefault();
       format.bar?.run(action);
+    } else if (format.format === "markdown" && (action === "heading1" || action === "heading2" || action === "heading3" || action === "code")) {
+      // The Markdown-only commands of the «⋯» row, on their keys (#45, frame 16 В).
+      e.preventDefault();
+      if (action === "code") format.bar?.run("code");
+      else format.bar?.heading(Number(action.slice(-1)));
     }
   }
 }

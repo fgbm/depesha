@@ -6,6 +6,7 @@
 import type { EditorState, Text } from "@codemirror/state";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
+import { canonicalLang, highlightTokens } from "../syntax";
 
 export interface PreviewOptions {
   /** The caret shows only while the field has focus; away from it the letter is all drawn. */
@@ -26,7 +27,11 @@ export type Piece =
   /** A class on the line starting here: headings, quotes, code. */
   | { kind: "line"; at: number; class: string }
   /** A class on text the highlighting does not know: underline, a link's words. */
-  | { kind: "style"; from: number; to: number; class: string };
+  | { kind: "style"; from: number; to: number; class: string }
+  /** A token of a code block, coloured by the client's own scanner (syntax.ts). */
+  | { kind: "token"; from: number; to: number; class: string }
+  /** An image in the letter, shown in place with the markup hidden. */
+  | { kind: "image"; from: number; to: number };
 
 /** Elements whose marks show only with the caret in them. */
 const INLINE = new Set(["Emphasis", "StrongEmphasis", "Strikethrough", "InlineCode", "Link", "Autolink", "Escape"]);
@@ -91,12 +96,21 @@ function block(pass: Pass, node: SyntaxNode): boolean | void {
   else if (name === "FencedCode" || name === "CodeBlock") {
     pass.lines(from, to, "md-code");
     if (!pass.opts.markup && name === "FencedCode") codeFences(pass, node);
+    tokens(pass, node);
     return false;
   } else if (name === "Table") {
-    if (!pass.opts.markup && !pass.touches(from, to)) pass.out.push({ kind: "table", from, to });
+    // A table is always drawn, its cells edited in place (frame 1 of the 0.7 mockup);
+    // the "markup" mode is the one place its bare source shows.
+    if (!pass.opts.markup) pass.out.push({ kind: "table", from, to });
     else pass.lines(from, to, "md-table");
     return false;
-  } else if (name === "HTMLBlock" || name === "Image") return false;
+  } else if (name === "HTMLBlock") return false;
+  else if (name === "Image") {
+    // An image is shown whole; under the caret its markup stands instead (frame 10 B).
+    if (pass.opts.markup || pass.touches(from, to)) return false;
+    if (node.getChild("URL")) pass.out.push({ kind: "image", from, to });
+    return false;
+  }
 }
 
 /** The marks of headings, quotes, lists, tasks and rules; inline elements. */
@@ -148,6 +162,24 @@ function codeFences(pass: Pass, node: SyntaxNode) {
   pass.hide(node.from, first.to);
   const close = node.lastChild;
   if (last.number > first.number && close?.name === "CodeMark" && close.from >= last.from) pass.hide(last.from, last.to);
+}
+
+/** The runs of a code block's lines, coloured by the client's own scanner. Nothing is
+ *  touched in the "markup" mode: there the letter is shown as typed. */
+function tokens(pass: Pass, node: SyntaxNode) {
+  const first = pass.doc.lineAt(node.from);
+  const lang = /^```+\s*(\S*)/.exec(pass.doc.sliceString(first.from, first.to))?.[1] ?? "";
+  if (!canonicalLang(lang)) return;
+  const last = pass.doc.lineAt(node.to).number;
+  const start = node.name === "FencedCode" ? first.number + 1 : first.number;
+  for (let n = start; n <= last; n++) {
+    const line = pass.doc.line(n);
+    if (line.text.startsWith("```")) continue;
+    const text = line.text;
+    for (const s of highlightTokens(text, lang)) {
+      pass.out.push({ kind: "token", from: line.from + s.from, to: line.from + s.to, class: `hl-${s.cls}` });
+    }
+  }
 }
 
 /** `<u>…</u>`, the underline the formatting row types: the tags go, the words are underlined. */

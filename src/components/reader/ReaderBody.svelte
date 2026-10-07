@@ -21,6 +21,28 @@
     viewing: boolean;
   } = $props();
 
+  /** Depesha's own Markdown, with its code blocks coloured: the highlighter comes in a lazy
+   *  chunk (decisions on #45), so the main chunk does not carry it. Until it is loaded, the
+   *  letter is shown as it always was. */
+  let marked = $state("");
+  const source = $derived(msg.view.markdown ?? "");
+  $effect(() => {
+    const html = source;
+    marked = "";
+    let gone = false;
+    if (!html) return;
+    import("../../lib/syntax")
+      .then(({ highlightDocument, HL_CSS }) => {
+        if (!gone) marked = HL_CSS + highlightDocument(html);
+      })
+      .catch(() => {
+        if (!gone) marked = html;
+      });
+    return () => {
+      gone = true;
+    };
+  });
+
   /** The form picked above this letter: it holds while the letter is open and is not kept. */
   let picked = $state<{ id: number; view: BodyView } | null>(null);
   // The choice belongs to the letter open now: another letter, or the same one opened
@@ -53,7 +75,7 @@
 <div class="body" hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
     {#key `${msg.row.id}:md:${app.allowRemote || msg.trusted_sender}`}
-      <MailFrame themed markdown html={MARKDOWN_CSS + msg.view.markdown} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
+      <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
     {/key}
   {:else if shown === "html" && msg.view.html}
     <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->

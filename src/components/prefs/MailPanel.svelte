@@ -49,6 +49,12 @@
     </div>
     <p class="hint">{t("settings.composeFormatNote")}</p>
     <div class="inline">
+      <span>{t("settings.imageMaxPx")}</span>
+      <input class="input pct" type="number" min="200" max="8000" step="100" bind:value={draft.image_max_px} aria-label={t("settings.imageMaxPx")} />
+      <span>px</span>
+    </div>
+    <p class="hint">{t("settings.imageMaxPxNote")}</p>
+    <div class="inline">
       <span>{t("settings.defaultAccount")}</span>
       <!-- A removed mailbox is read as «By context», as the store treats it: the list must not
            show an empty trigger for an id no mailbox carries. -->

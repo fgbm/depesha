@@ -19,4 +19,12 @@ export interface MarkdownField {
   apply(edit: Edit): void;
   /** The formatting under the caret. */
   formats(): Set<FormatId>;
+  /** A heading of a level on the line under the caret; the same level again takes it off. */
+  heading(level: number): void;
+  /** A code block around the selection or the caret's line; the same again takes it off. */
+  code(): void;
+  /** A table where the caret is. */
+  table(): void;
+  /** A picture on a line of its own; `alt` is what the letter carries as its description. */
+  picture(url: string, alt?: string): void;
 }

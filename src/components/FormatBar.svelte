@@ -14,6 +14,10 @@
   import RemoveFormatting from "@lucide/svelte/icons/remove-formatting";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import CodeXml from "@lucide/svelte/icons/code-xml";
+  import Heading from "@lucide/svelte/icons/heading";
+  import Code from "@lucide/svelte/icons/code";
+  import Table from "@lucide/svelte/icons/table";
+  import Check from "@lucide/svelte/icons/check";
   import Popover from "./Popover.svelte";
   import type RichEditor from "./RichEditor.svelte";
   import { t } from "../lib/i18n.svelte";
@@ -50,6 +54,8 @@
     keys?: string;
     /** Buttons of one group stand together, groups apart. */
     group: number;
+    /** Always in "⋯", never in the row: the rarer buttons of a Markdown letter. */
+    moreOnly?: boolean;
     run: () => void;
   }
 
@@ -67,20 +73,28 @@
     { id: "numbers", icon: ListOrdered, label: t("compose.format.numbers"), group: 1, run: () => (html ? command("insertOrderedList") : lines("numbers")) },
     { id: "link", icon: LinkIcon, label: t("compose.format.link"), keys: keyLabel("link"), group: 2, run: () => startLink() },
     { id: "quote", icon: TextQuote, label: t("compose.format.quote"), group: 2, run: () => (html ? toggleQuote() : lines("quote")) },
-    ...(html ? [{ id: "picture", icon: ImageIcon, label: t("compose.picture.button"), group: 2, run: () => (pictureMenu = !pictureMenu) }] : []),
+    // The picture button is back in Markdown too (decision on #45): from a file or the clipboard.
+    { id: "picture", icon: ImageIcon, label: t("compose.picture.button"), group: 2, run: () => (pictureMenu = !pictureMenu) },
+    // "Heading", "Code" and "Table" (frame 16 В of the 0.7 mockup): in "⋯" always, so the
+    // Markdown row and the HTML one look alike.
+    ...(!html ? [
+      { id: "heading", icon: Heading, label: t("compose.format.heading"), keys: keyLabel("heading1"), group: 2, moreOnly: true, run: () => (moreOpen = false) },
+      { id: "code", icon: Code, label: t("compose.format.code"), keys: keyLabel("code"), group: 2, moreOnly: true, run: () => md?.code() },
+      { id: "table", icon: Table, label: t("compose.format.table"), group: 2, moreOnly: true, run: () => md?.table() },
+    ] : []),
     { id: "clear", icon: RemoveFormatting, label: t("compose.format.clear"), group: 3, run: () => (html ? clearHtml() : markdown(clearEdit)) },
-  ]);
+  ] as Tool[]);
 
   /** What stays in the row by the window's width (frame 6 of the mockup); the rest goes into "⋯". */
   const shown = $derived(
     width >= 460
-      ? tools.map((x) => x.id)
+      ? tools.filter((x) => !x.moreOnly).map((x) => x.id)
       : width >= 360
         ? ["bold", "italic", "underline", "bullets", "numbers", "link"]
         : ["bold", "italic", "link"],
   );
-  const inRow = $derived(tools.filter((x) => shown.includes(x.id)));
-  const inMore = $derived(tools.filter((x) => !shown.includes(x.id)));
+  const inRow = $derived(tools.filter((x) => shown.includes(x.id) && !x.moreOnly));
+  const inMore = $derived(tools.filter((x) => !shown.includes(x.id) || x.moreOnly));
   let moreOpen = $state(false);
   let pictureMenu = $state(false);
 
@@ -88,6 +102,13 @@
   export function run(id: string) {
     tools.find((x) => x.id === id)?.run();
   }
+
+  /** The heading menu: the level under the caret, "Обычный текст" when there is none. */
+  const headingLevel = $derived.by(() => {
+    if (!md) return 0;
+    const line = md.value.slice(md.value.lastIndexOf("\n", md.selectionStart - 1) + 1, md.selectionStart);
+    return /^#{1,6} /.test(line) ? (/^#+/.exec(line)?.[0].length ?? 0) : 0;
+  });
 
   function command(name: string) {
     rich?.exec(name);
@@ -143,6 +164,12 @@
 
   function lines(kind: LineKind) {
     markdown((text, s, e) => linesEdit(text, s, e, kind));
+  }
+
+  /** A heading of these levels on the lines under the caret (Ctrl+1/2/3). */
+  export function heading(level: number) {
+    md?.heading(level);
+    refresh();
   }
 
   // The link being made: the selection it goes on and the address typed.
@@ -254,13 +281,26 @@
       <Popover bind:open={moreOpen} align="left">
         {#each inMore as x, i (x.id)}
           {#if i > 0 && inMore[i - 1].group !== x.group}<div class="msep" role="separator"></div>{/if}
-          <button
-            class="mi"
-            onclick={() => {
-              moreOpen = false;
-              if (x.id === "picture") onpicturefile();
-              else x.run();
-            }}>{x.id === "picture" ? t("compose.picture.menu") : x.label}{#if x.keys}<span class="hint">{x.keys}</span>{/if}</button>
+          {#if x.id === "heading"}
+            <!-- "Heading" carries its levels: "Обычный текст" and H1–H3 (frame 16 В). -->
+            <button class="mi" onclick={() => heading(0)}>
+              <Heading size={15} /> {t("compose.format.heading")}{#if x.keys}<span class="hint">{x.keys}</span>{/if}
+            </button>
+            {#each [1, 2, 3] as level (level)}
+              <button class="mi sub" onclick={() => heading(level)}>
+                <span class="tick">{#if headingLevel === level}<Check size={14} />{/if}</span>
+                {t("compose.format.headingN", { n: level })}
+              </button>
+            {/each}
+          {:else}
+            <button
+              class="mi"
+              onclick={() => {
+                moreOpen = false;
+                if (x.id === "picture") onpicturefile();
+                else x.run();
+              }}>{x.id === "picture" ? t("compose.picture.menu") : x.label}{#if x.keys}<span class="hint">{x.keys}</span>{/if}</button>
+          {/if}
         {/each}
       </Popover>
     </span>
@@ -315,6 +355,18 @@
     height: 1px;
     margin: 4px 0;
     background: var(--line);
+  }
+
+  /* The heading levels under "Heading": indented, with the level in the tick. */
+  .mi.sub {
+    padding-left: 26px;
+  }
+
+  .tick {
+    display: inline-flex;
+    width: 14px;
+    margin-left: -18px;
+    color: var(--accent);
   }
 
   .spacer {

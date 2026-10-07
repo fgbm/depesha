@@ -51,17 +51,18 @@ export function dataUrlType(url: string): string {
 /** Where a drop on the composition window goes: into the text, or attached as files. */
 export type DropZone = "inline" | "attach";
 
-/** The two zones are offered only to an HTML letter, and only when a picture is dropped. */
+/** The two zones are offered to a formatted letter; only a picture makes them come up. */
 export function offersZones(names: string[], format: BodyFormat): boolean {
-  return format === "html" && names.some(isPictureName);
+  return (format === "html" || format === "markdown") && names.some(isPictureName);
 }
 
 /**
- * What a drop does. Pictures dropped on "Insert into text" go into the text; other files,
- * and everything dropped elsewhere or on a plain-text or Markdown letter, are attached.
+ * What a drop does. Pictures dropped on "Insert into text" go into the text — as `data:`
+ * images in HTML, as Markdown in Markdown (decision on #45); other files, and everything
+ * dropped elsewhere or on a plain-text letter, are attached.
  */
 export function dropPlan(names: string[], format: BodyFormat, zone: DropZone | null): { inline: string[]; attach: string[] } {
-  const inText = zone === "inline" && format === "html";
+  const inText = zone === "inline" && (format === "html" || format === "markdown");
   const inline = inText ? names.filter(isPictureName) : [];
   return { inline, attach: names.filter((n) => !inline.includes(n)) };
 }
@@ -109,12 +110,12 @@ export function picturesSize(html: string): number {
  * A picture made ready for the text: a photo larger than `MAX_SIDE` is drawn smaller,
  * as JPEG (PNG keeps transparency, GIF keeps its frames and size). Needs a document.
  */
-export async function shrinkPicture(dataUrl: string): Promise<{ dataUrl: string; width: number }> {
+export async function shrinkPicture(dataUrl: string, maxSide = MAX_SIDE): Promise<{ dataUrl: string; width: number }> {
   const img = new Image();
   img.src = dataUrl;
   await img.decode();
   const type = dataUrlType(dataUrl);
-  const { width, height } = fitSide(img.naturalWidth, img.naturalHeight);
+  const { width, height } = fitSide(img.naturalWidth, img.naturalHeight, maxSide);
   if (type === "image/gif" || (width === img.naturalWidth && height === img.naturalHeight)) return { dataUrl, width: img.naturalWidth };
   return { dataUrl: redraw(img, type, width, height), width };
 }

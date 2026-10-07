@@ -471,6 +471,8 @@ export interface Settings {
   view_sorts: Record<string, SortKey[]>;
   /** What counts as a large letter in the ready queries (Settings → General → Search), megabytes. */
   large_mb: number;
+  /** A picture put into a letter's text is drawn no wider than this on its long side, pixels. */
+  image_max_px: number;
   /** How new letters are written; a mailbox may have its own. */
   compose_format: BodyFormat;
   /** Which form of a letter the reader shows; a letter's switch overrides it. */

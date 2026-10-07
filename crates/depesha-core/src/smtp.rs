@@ -259,16 +259,28 @@ impl Part {
 /// markup in front of everyone whose client draws HTML. Clients that know Markdown find
 /// it anywhere among the parts.
 fn alternatives(draft: &Draft) -> (SinglePart, Vec<Part>) {
-    let plain = text_part(draft.text.clone());
     let mut rest = Vec::new();
-    let html = match draft.format {
+    let (plain, html, images) = match draft.format {
         BodyFormat::Markdown => {
-            rest.push(Part::One(markdown_part(draft.text.clone())));
-            Some(crate::message::markdown_html(&draft.text))
+            // A Markdown letter carries its pictures in the letter itself (decision on #45):
+            // they leave the Markdown as parts, the plain and Markdown parts and the HTML it
+            // renders to alike calling them by `cid:`.
+            let (markdown, images) = inline_markdown_images(&draft.text);
+            let cids: Vec<String> = images.iter().map(|i| i.cid.clone()).collect();
+            rest.push(Part::One(markdown_part(markdown.clone())));
+            (
+                text_part(markdown.clone()),
+                Some(crate::message::markdown_html_keeping(&markdown, &cids)),
+                images,
+            )
         }
-        _ => draft.html.as_deref().map(crate::message::compose_html),
+        _ => (
+            text_part(draft.text.clone()),
+            draft.html.as_deref().map(crate::message::compose_html),
+            Vec::new(),
+        ),
     };
-    rest.extend(html.map(|html| html_body(&html)));
+    rest.extend(html.map(|html| html_body(&html, images)));
     (plain, rest)
 }
 
@@ -286,9 +298,11 @@ pub const MARKDOWN_TYPE: &str = "text/markdown; charset=utf-8; variant=GFM";
 /// The HTML of a letter as it goes out: `text/html` alone, or `multipart/related` with
 /// the pictures of the HTML as parts of their own that it calls by `cid:`. Every picture
 /// of the letter comes this way, those of the text and of the signature alike: the
-/// composer puts them into the HTML as `data:` images, and here they become parts.
-fn html_body(html: &str) -> Part {
-    let (html, images) = inline_images(html);
+/// composer puts them into the HTML as `data:` images, and here they become parts. A
+/// Markdown letter's pictures arrive already taken out of its Markdown (`extra`).
+fn html_body(html: &str, extra: Vec<InlineImage>) -> Part {
+    let (html, mut images) = inline_images(html);
+    images.extend(extra);
     let part = html_part(html_document(&html));
     if images.is_empty() {
         return Part::One(part);
@@ -377,6 +391,50 @@ fn random_token() -> String {
     let mut bytes = [0u8; 12];
     SystemRandom::new().fill(&mut bytes).expect("system RNG");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The pictures a Markdown letter carries, taken out of its Markdown and turned into parts
+/// of their own (decision on #45): `![alt](data:image/…;base64,…)` becomes `![alt](cid:…)`
+/// and an [`InlineImage`], so Depesha's own reader finds them and the HTML it renders to
+/// shows them. The same picture twice (a logo) is one part. Foreign links stay as they are.
+fn inline_markdown_images(text: &str) -> (String, Vec<InlineImage>) {
+    const START: &str = "](data:image/";
+    let mut out = String::with_capacity(text.len());
+    let mut images: Vec<InlineImage> = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(START) {
+        let value = &rest[at + 2..]; // past "]("
+        let Some(end) = value.find(')') else { break };
+        let url = &value[..end];
+        let parsed = url.split_once(";base64,").and_then(|(mime, data)| {
+            let mime = mime.trim_start_matches("data:").trim().to_ascii_lowercase();
+            let data: String = data.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+            INLINE_TYPES.contains(&mime.as_str()).then_some(())?;
+            Some((mime, BASE64.decode(data).ok()?))
+        });
+        out.push_str(&rest[..at + 1]);
+        match parsed {
+            Some((mime, data)) => {
+                let cid = match images.iter().find(|i| i.mime == mime && i.data == data) {
+                    Some(same) => same.cid.clone(),
+                    None => {
+                        let cid = format!("{}@depesha", random_token());
+                        images.push(InlineImage {
+                            cid: cid.clone(),
+                            mime,
+                            data,
+                        });
+                        cid
+                    }
+                };
+                out.push_str(&format!("(cid:{cid}"));
+            }
+            None => out.push_str(&rest[at + 1..at + 2 + end]),
+        }
+        rest = &value[end..];
+    }
+    out.push_str(rest);
+    (out, images)
 }
 
 fn angle(id: &str) -> String {
@@ -1029,6 +1087,52 @@ mod tests {
             html,
             "<img src=\"data:text/html;base64,PGI+\"><img src=\"data:image/png;base64,***\"><a href=\"x\">a</a>"
         );
+    }
+
+    #[test]
+    fn a_markdown_picture_leaves_the_markdown_for_a_part_of_its_own() {
+        let (text, images) = inline_markdown_images(&format!(
+            "План:\n\n![Зал](data:image/png;base64,{PNG})\n\n![Зал](data:image/png;base64,{PNG}) ![чужое](https://tracker.example/p.gif)"
+        ));
+        // The two same pictures are one part; both stand as `cid:` in the Markdown.
+        assert_eq!(images.len(), 1, "{images:?}");
+        assert_eq!(text.matches("](cid:").count(), 2, "{text}");
+        assert!(!text.contains("data:image/png"), "{text}");
+        // A foreign link is left as it was.
+        assert!(text.contains("https://tracker.example/p.gif"), "{text}");
+    }
+
+    #[test]
+    fn pictures_in_a_markdown_letter_go_as_related_parts() {
+        // A Markdown letter carries its pictures in the letter itself (decision on #45):
+        // the HTML part the Markdown renders to holds them as `data:` images, and here they
+        // become `multipart/related` parts the HTML calls by `cid:` — not attachments.
+        let text = format!("План зала:\n\n![План](data:image/png;base64,{PNG})\n");
+        let raw = String::from_utf8(build(&letter(BodyFormat::Markdown, &text, None)).unwrap().formatted()).unwrap();
+        assert_eq!(
+            content_types(&raw),
+            [
+                "multipart/alternative",
+                "text/plain",
+                "text/markdown",
+                "multipart/related",
+                "text/html",
+                "image/png"
+            ],
+            "{raw}"
+        );
+        // The picture is a part with a Content-ID, not a file of the letter: no attachment.
+        let ids = header_value(&raw, "Content-ID: ");
+        assert_eq!(ids.len(), 1, "{raw}");
+        assert!(!raw.contains("attachment"), "{raw}");
+        assert!(!raw.contains("data:image"), "the picture stays out of the HTML: {raw}");
+        // The reader finds it by that id and shows the letter with the picture inside.
+        let view = crate::message::parse_view(raw.as_bytes(), false).unwrap();
+        assert!(view.attachments[0].inline, "{:?}", view.attachments[0]);
+        assert!(view.attachments[0].content_id.is_some());
+        assert!(view.html.unwrap().contains(&format!("data:image/png;base64,{PNG}")));
+        let markdown = view.markdown.unwrap();
+        assert!(markdown.contains("<img"), "{markdown}");
     }
 
     #[test]

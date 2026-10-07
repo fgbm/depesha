@@ -470,8 +470,16 @@ pub fn document_html(text: &str, markdown: bool) -> String {
 /// A letter written in Markdown as the HTML it goes out as. No scripts, no remote images.
 /// A task's box is a character: mail programs drop form fields.
 pub fn markdown_html(text: &str) -> String {
+    markdown_html_keeping(text, &[])
+}
+
+/// The HTML a Markdown letter goes out as when its own pictures left the Markdown for
+/// `multipart/related` parts (decision on #45): the `cid:` links its Markdown now carries
+/// stay in the HTML, instead of being dropped as foreign. Any other `cid:` link still goes.
+pub fn markdown_html_keeping(text: &str, cids: &[String]) -> String {
     let html = render_markdown(text, |done| if done { "☑ " } else { "☐ " });
-    sanitize_html(&markdown_grid(&html), &HashMap::new(), false).0
+    let inline: HashMap<String, String> = cids.iter().map(|c| (c.clone(), format!("cid:{c}"))).collect();
+    sanitize_html(&markdown_grid(&html), &inline, false).0
 }
 
 /// The grid a Markdown table carries in its own tags: a foreign client never sees the
