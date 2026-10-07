@@ -9,6 +9,7 @@
   import Info from "@lucide/svelte/icons/info";
   import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
   import { i18n, t, tn } from "../../lib/i18n.svelte";
+  import { app } from "../../lib/store.svelte";
   import { host } from "../../plugin-host/host.svelte";
   import { keyText, type Group, type Problem } from "../../lib/keymap";
   import type { TitledCommand } from "../../lib/shortcuts.svelte";
@@ -23,6 +24,16 @@
 
   const k = useKeyEditor(() => draft);
   $effect(() => k.listen());
+
+  // Opened from the palette by Alt+Enter (#46): go to the row of that command, highlight it
+  // a moment; a command the page has no row for is searched for by its title instead.
+  $effect(() => {
+    void app.settingsTurn;
+    const ask = app.settingsKeys;
+    if (!ask) return;
+    app.settingsKeys = null;
+    k.goTo(ask);
+  });
 
   const lang = $derived(i18n.lang);
   const text = (key: string) => keyText(key, lang);
@@ -175,7 +186,7 @@
       {@const mine = k.isChanged(c.id)}
       {@const plugin = c.owner !== "core" ? pluginName(c.owner) : null}
       {@const at = k.rec?.id === c.id ? k.rec.idx : -1}
-      <div class="kr" class:changed={mine} class:recording={at >= 0} class:conflicted={k.conflict?.other === c.id} data-command={c.id}>
+      <div class="kr" class:changed={mine} class:recording={at >= 0} class:hl={k.hl === c.id} class:conflicted={k.conflict?.other === c.id} data-command={c.id}>
         <i class="dot"></i>
         <span class="kt">
           <span class="title">{c.title()}</span>
@@ -393,6 +404,11 @@
 
   .kr.recording {
     background: color-mix(in srgb, var(--accent) 5%, transparent);
+  }
+
+  /* The row the palette's Alt+Enter opened the page at: lit until the user acts on it (#46). */
+  .kr.hl {
+    background: var(--hover);
   }
 
   .kr.conflicted {

@@ -217,6 +217,12 @@ export interface PluginContext {
   keyOf(commandId: string): string | undefined;
   /** A tooltip with the command's key: "Snooze (h/р)"; without a key, the text alone. */
   keyTitle(text: string, commandId: string): string;
+  /**
+   * Opens Settings → «Keys» at a command, highlighting its row: the entry from the palette
+   * (Alt+Enter). A command the page has no row for — a context one — is searched for by
+   * `title` instead (#46).
+   */
+  editKeys(commandId: string, title: string): void;
 
   mail: {
     opened(): OpenedMessage | null;

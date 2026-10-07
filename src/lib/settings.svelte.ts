@@ -7,7 +7,7 @@ import { api } from "./api";
 import { applyTheme } from "./theme";
 import { i18n, t } from "./i18n.svelte";
 import { shortcuts } from "./shortcuts.svelte";
-import type { Settings, UpdateStatus } from "./types";
+import type { KeySettings, Settings, UpdateStatus } from "./types";
 
 /** What the settings need from the app store. */
 export interface SettingsHost {
@@ -90,6 +90,14 @@ export class SettingsController {
     }
     await this.loadLanguage();
     if (threadsChanged) this.host.reload();
+  }
+
+  /**
+   * The user's keys alone, saved at once (#46): a change on the «Keys» page takes effect
+   * without the window's «Save», and the unsaved edits of other pages are left alone.
+   */
+  saveKeybindings(next: KeySettings) {
+    return this.saveSettings({ ...$state.snapshot(this.settings), keybindings: $state.snapshot(next) });
   }
 
   /** A built-in plugin's own settings; a letter's window may save them, not the rest. */

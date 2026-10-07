@@ -101,6 +101,8 @@
   );
   /** A mailbox's page has its own buttons: it is checked and saved apart from the rest. */
   const ownButtons = $derived(current.startsWith("account:"));
+  /** The shared «Save / Cancel» goes on the «Keys» page too: its keys are saved as they change. */
+  const ownFooter = $derived(ownButtons || current === "keys");
 
   // A theme is easier to pick by seeing it: it applies at once and goes back on Cancel.
   $effect(() => applyTheme(draft.theme));
@@ -240,7 +242,7 @@
           <PluginsPanel {current} />
         {/if}
       </div>
-      {#if !ownButtons}
+      {#if !ownFooter}
         <footer>
           <span class="spacer"></span>
           <button class="btn ghost" onclick={cancel}>{t("cancel")}</button>

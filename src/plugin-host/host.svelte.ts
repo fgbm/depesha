@@ -39,6 +39,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     commands: allCommands,
     keyOf: (command) => shortcuts.key(command),
     keyTitle: (text, command) => shortcuts.titled(text, command),
+    editKeys: (command, title) => app.editKeys(command, title),
     mail: {
       opened: () => app.opened,
       selection: () => app.selectedIds(),

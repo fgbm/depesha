@@ -66,6 +66,7 @@ serverSearching
 setSort
 setView
 settings
+settingsKeys
 settingsLeave
 settingsOpen
 settingsPage

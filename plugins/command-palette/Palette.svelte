@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Keys, type Command, type PluginContext } from "@depesha/plugin-api";
+  import Pencil from "@lucide/svelte/icons/pencil";
   import { palette } from "./state.svelte";
+  import { editTarget } from "./keys";
   import { rank, recency } from "./rank";
 
   let { ctx }: { ctx: PluginContext } = $props();
@@ -9,7 +11,14 @@
     title: { en: "Commands", ru: "Команды" },
     placeholder: { en: "What to do? E.g. “sno tom” or “mov arch”", ru: "Что сделать? Например: «отл завт» или «пер архив»" },
     none: { en: "No such command", ru: "Нет такой команды" },
+    edit: { en: "Alt+Enter — edit the key", ru: "Alt+Enter — изменить клавишу" },
   };
+
+  /** Opens Settings → «Keys», at this command when there is one (Alt+Enter, #46). */
+  function configure(c?: Command) {
+    palette.open = false;
+    ctx.editKeys(c?.id ?? "", c?.title() ?? "");
+  }
 
   let query = $state("");
   let active = $state(0);
@@ -46,7 +55,10 @@
       active = Math.max(0, active - 1);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      run(shown[active]);
+      // Alt+Enter edits the highlighted command's key instead of running it (#46).
+      const edit = editTarget(e, shown, active);
+      if (edit) configure(edit);
+      else run(shown[active]);
     } else if (e.key === "Escape") {
       e.preventDefault();
       palette.open = false;
@@ -63,6 +75,7 @@
           <button class="item" class:active={i === active} role="option" aria-selected={i === active} onpointermove={() => (active = i)} onclick={() => run(c)}>
             <span>{c.title()}</span>
             {#if ctx.keyOf(c.id)}<span class="hint"><Keys of={c.id} /></span>{:else if c.hint}<span class="hint">{c.hint()}</span>{/if}
+            {#if i === active}<span class="pedit" class:solo={!ctx.keyOf(c.id) && !c.hint} title={ctx.t(S.edit)}><Pencil size={12} /> Alt+Enter</span>{/if}
           </button>
         {:else}
           <div class="none muted">{ctx.t(S.none)}</div>
@@ -129,6 +142,26 @@
     font-size: 12px;
     color: var(--muted);
     white-space: nowrap;
+  }
+
+  /* The active row: a quiet chip saying Alt+Enter edits this command's key (#46). */
+  .pedit {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--paper);
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* A row with neither a key nor a hint: the chip still sits at the right edge. */
+  .pedit.solo {
+    margin-left: auto;
   }
 
   .none {

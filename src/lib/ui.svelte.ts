@@ -60,6 +60,8 @@ export class UiController {
   settingsPage = $state("general");
   /** A section of a mailbox's page to open the settings at (`storage`), once. */
   settingsSection: string | null = null;
+  /** A command to open the «Keys» page at (the palette's Alt+Enter), once. */
+  settingsKeys: { id: string; title: string } | null = null;
   /** Counts `openSettings` calls: an already open settings window turns to the page asked for. */
   settingsTurn = $state(0);
   /** Asked before the open settings page is left: a mailbox's page with unsaved changes or a check under way. */
@@ -120,6 +122,15 @@ export class UiController {
     this.settingsSection = section;
     this.settingsTurn++;
     this.settingsOpen = true;
+  }
+
+  /**
+   * Opens Settings → «Keys» at a command, highlighting its row; `command` empty only opens
+   * the page. A command without a row there is found by `title` (the palette's Alt+Enter, #46).
+   */
+  editKeys(command: string, title: string) {
+    if (command) this.settingsKeys = { id: command, title };
+    this.openSettings("keys");
   }
 
   /** Opens a web link after confirming the real address with the user. */

@@ -47,6 +47,8 @@ export class KeyEditor {
   special = $state(false);
   note = $state<Note | null>(null);
   flash = $state<string | null>(null);
+  /** The row the palette's Alt+Enter opened the page at, kept highlighted (#46). */
+  hl = $state<string | null>(null);
   /** The user's keys before «Reset all», to bring back. */
   beforeReset = $state<Custom | null>(null);
 
@@ -100,14 +102,18 @@ export class KeyEditor {
   }
 
   private save(next: Custom) {
-    this.draft().keybindings = { custom: next, dismissed: [...this.dismissed] };
+    const keybindings = { custom: next, dismissed: [...this.dismissed] };
+    this.draft().keybindings = keybindings;
+    // The keys take effect at once (#46): saved on their own, without the window's «Save»,
+    // and the unsaved edits of other pages are left as they are.
+    void app.saveKeybindings(keybindings);
   }
 
   /** A plugin's notice is seen once, whether the settings are saved or not. */
   dismiss(l: Lost) {
-    const next = [...this.dismissed, `${l.id}:${l.key}`];
-    this.draft().keybindings = { custom: { ...this.custom }, dismissed: next };
-    void app.saveSettings({ ...$state.snapshot(app.settings), keybindings: { ...app.settings.keybindings, dismissed: next } });
+    const keybindings = { custom: { ...this.custom }, dismissed: [...this.dismissed, `${l.id}:${l.key}`] };
+    this.draft().keybindings = keybindings;
+    void app.saveKeybindings(keybindings);
   }
 
   async start(id: string, idx: number) {
@@ -206,6 +212,28 @@ export class KeyEditor {
   togglePressing() {
     this.pressing = !this.pressing;
     this.stop();
+  }
+
+  /**
+   * The palette's Alt+Enter (#46): show this command's row and highlight it. A command the
+   * page has no row for, a context one, is found by its title in the search instead.
+   */
+  goTo(ask: { id: string; title: string }) {
+    this.stop();
+    this.showMore = true;
+    this.onlyChanged = false;
+    if (!this.cmds.some((c) => c.id === ask.id)) {
+      this.hl = null;
+      this.query = ask.title;
+      return;
+    }
+    this.query = "";
+    this.hl = ask.id;
+    setTimeout(() => this.hl === ask.id && (this.hl = null), 2400);
+    void tick().then(() => {
+      if (typeof document === "undefined") return;
+      document.querySelector<HTMLElement>(`.kr[data-command="${CSS.escape(ask.id)}"]`)?.scrollIntoView({ block: "center" });
+    });
   }
 
   /** Recording and «Press» take the keys before anything else: the window's shortcuts, Esc of the dialog. */

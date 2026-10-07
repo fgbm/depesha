@@ -191,6 +191,16 @@ async function press(key, mods = {}) {
   await d.exec("window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: arguments[0], bubbles: true }, arguments[1])))", key, mods);
 }
 
+/** A key press on an element (the palette input listens on itself, not on the window). */
+async function pressIn(css, key, mods = {}) {
+  await d.exec(
+    "document.querySelector(arguments[0]).dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: arguments[1], bubbles: true }, arguments[2])))",
+    css,
+    key,
+    mods,
+  );
+}
+
 async function newMessage(to, subject, text) {
   await d.button("Написать");
   await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
@@ -673,11 +683,13 @@ try {
       await press("Escape");
       await d.until("recording cancelled", async () => (await d.findAll(".prefs .kr.recording")).length === 0);
       if ((await d.findAll(`${row("compose.bold")}.changed`)).length) throw new Error("запрещённая клавиша записалась");
-      await d.click(await d.find(".prefs footer .btn.primary"));
-      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+      // The page saves as it changes: no shared «Save / Cancel» line at all.
+      if ((await d.findAll(".prefs footer")).length) throw new Error("на странице «Клавиши» осталась общая строка Сохранить/Отмена");
       const saved = (await invoke("settings_get")).keybindings.custom;
       if (saved["core.reply-all"]?.[0] !== "Shift+r" || saved["core.forward"]?.[0] !== "e" || saved["core.archive"]?.[0] !== "f")
         throw new Error(`сохранено: ${JSON.stringify(saved)}`);
+      await closeSettings();
+      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
       // Tooltips and the keys follow at once.
       await openBySubject("Счёт за октябрь");
       const tip = await d.exec("return [...document.querySelectorAll('.reader button')].map((b) => b.title).find((t) => t.startsWith('Переслать')) ?? ''");
@@ -697,11 +709,61 @@ try {
       if (Object.keys((await invoke("settings_get")).keybindings.custom).length) {
         await openKeys();
         await d.button("Сбросить все");
-        await d.click(await d.find(".prefs footer .btn.primary"));
-        await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+        await closeSettings();
         const left = (await invoke("settings_get")).keybindings.custom;
         if (Object.keys(left).length) throw new Error(`после сброса осталось: ${JSON.stringify(left)}`);
       }
+    }
+  });
+
+  await step("7.14", "Alt+Enter из палитры приводит на строку команды; запись применяется без «Сохранить»", async () => {
+    const row = (id) => `.prefs .kr[data-command='${id}']`;
+    try {
+      // The palette's own entry opens the page even without a highlighted command.
+      await press("k", { ctrlKey: true });
+      await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+      await d.type(await d.find(".palette .q"), "настроить");
+      await d.button("Настроить клавиши…");
+      await d.until("keys page", async () => (await d.findAll(row("core.archive"))).length === 1);
+      await d.until("no shared footer", async () => (await d.findAll(".prefs footer")).length === 0);
+      await closeSettings();
+
+      // Alt+Enter on the highlighted command goes to its row, lit; the command does not run.
+      await press("k", { ctrlKey: true });
+      await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+      await d.type(await d.find(".palette .q"), "переслать");
+      await d.until("highlighted", async () => (await textOf(".palette .item.active")) !== "");
+      await pressIn(".palette .q", "Enter", { altKey: true });
+      await d.until("row lit", async () => (await d.findAll(`${row("core.forward")}.hl`)).length === 1);
+      if ((await d.findAll(".palette")).length) throw new Error("палитра не закрылась по Alt+Enter");
+      await screenshot("keys-from-palette");
+
+      // Record a key there: it takes effect with no «Save», at once.
+      await d.click(await d.find(`${row("core.reply")} button.combo`));
+      await press("w");
+      await d.until("changed", async () => (await d.findAll(`${row("core.reply")}.changed`)).length === 1);
+      const saved = (await invoke("settings_get")).keybindings.custom;
+      if (saved["core.reply"]?.[0] !== "w") throw new Error(`не сохранилось сразу: ${JSON.stringify(saved)}`);
+      await closeSettings();
+      // The new key runs at once in the main window: w answers the open letter.
+      await openFolder("Входящие");
+      await openBySubject("Счёт за октябрь");
+      await press("w");
+      await d.until("answered by the new key", async () => (await d.findAll(".compose")).length === 1);
+      await d.click(await d.find(".compose header button:last-child"));
+      await composeClosed();
+    } finally {
+      if ((await d.findAll(".prefs .kr.recording")).length) await press("Escape");
+      await closeSettings();
+      await press(",", { ctrlKey: true });
+      await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+      await d.click(await d.find(".prefs .tab[data-page='keys']"));
+      await d.until("keys page", async () => (await d.findAll(row("core.archive"))).length === 1);
+      await d.button("Сбросить все");
+      await closeSettings();
+      const left = (await invoke("settings_get")).keybindings.custom;
+      if (Object.keys(left).length) throw new Error(`после сброса осталось: ${JSON.stringify(left)}`);
+      await d.button("Входящие");
     }
   });
 
@@ -1697,7 +1759,7 @@ try {
   await step("7.7", "палитра команд (Ctrl+K) и шаблоны ответов", async () => {
     await press("k", { ctrlKey: true });
     await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
-    await d.type(await d.find(".palette .q"), "настр");
+    await d.type(await d.find(".palette .q"), "настройки");
     await d.type(await d.find(".palette .q"), "\uE007");
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     await screenshot("settings-general");
@@ -1822,14 +1884,14 @@ try {
       await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
     };
     await d.button("Входящие");
-    await setLanguage("настр", "en");
+    await setLanguage("настройк", "en");
     await d.until("English sidebar", async () => (await sidebarText()).includes("Inbox"), 10000);
     if (!(await textOf(".list h2")).includes("Inbox")) throw new Error(`заголовок: ${await textOf(".list h2")}`);
     if (!(await textOf(".list .search input") || (await d.exec("return document.querySelector('.list .search input').placeholder"))).includes("Search")) {
       throw new Error("поле поиска не переведено");
     }
     await screenshot("english");
-    await setLanguage("sett", "ru");
+    await setLanguage("settings", "ru");
     await d.until("Russian again", async () => (await sidebarText()).includes("Входящие"), 10000);
   });
 

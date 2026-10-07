@@ -11,7 +11,7 @@ import { SettingsController } from "./settings.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
-import type { AccountView, ComposeDraft, FollowupPlan, MessageRow, Moved, Settings, SortKey } from "./types";
+import type { AccountView, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, Settings, SortKey } from "./types";
 
 export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
@@ -68,6 +68,8 @@ export class AppStore {
   set settingsPage(v) { this.ui.settingsPage = v; }
   get settingsSection() { return this.ui.settingsSection; }
   set settingsSection(v) { this.ui.settingsSection = v; }
+  get settingsKeys() { return this.ui.settingsKeys; }
+  set settingsKeys(v) { this.ui.settingsKeys = v; }
   get settingsTurn() { return this.ui.settingsTurn; }
   get settingsLeave() { return this.ui.settingsLeave; }
   set settingsLeave(v) { this.ui.settingsLeave = v; }
@@ -104,6 +106,7 @@ export class AppStore {
   loadLanguage() { return this.settingsCtl.loadLanguage(); }
   loadSettings() { return this.settingsCtl.loadSettings(); }
   saveSettings(next: Settings) { return this.settingsCtl.saveSettings(next); }
+  saveKeybindings(next: KeySettings) { return this.settingsCtl.saveKeybindings(next); }
   savePluginSettings(plugin: string, values: Record<string, unknown>) { return this.settingsCtl.savePluginSettings(plugin, values); }
   checkUpdates() { return this.settingsCtl.checkUpdates(); }
   installUpdate() { return this.settingsCtl.installUpdate(); }
@@ -125,6 +128,8 @@ export class AppStore {
   fail(e: unknown, prefix = "") { this.ui.fail(e, prefix); }
   track<T>(p: Promise<T>) { return this.ui.track(p); }
   openSettings(page = "general", section: string | null = null) { this.ui.openSettings(page, section); }
+  /** Opens Settings → «Keys» at a command, highlighting its row (the palette's Alt+Enter, #46). */
+  editKeys(command: string, title: string) { this.ui.editKeys(command, title); }
   /** Opens a web link after confirming the real address with the user. */
   openLink(href: string) { return this.ui.openLink(href); }
   inboxLike() { return this.selection.inboxLike(); }
