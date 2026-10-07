@@ -2,16 +2,17 @@ component	src/App.svelte	290	191	53	46
 component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
-component	src/components/Compose.svelte	859	199	207	453
+component	src/components/Compose.svelte	859	200	218	441
 component	src/components/Confirm.svelte	95	30	17	48
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	122	76	35	11
 component	src/components/FolderPicker.svelte	40	18	11	11
-component	src/components/FormatBar.svelte	374	231	65	78
+component	src/components/FormatBar.svelte	365	227	64	74
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	72	10	12	50
 component	src/components/MailFrame.svelte	161	119	8	34
+component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
 component	src/components/MessageList.svelte	547	131	102	314
 component	src/components/Outbox.svelte	90	11	37	42
@@ -180,10 +181,10 @@ function	src/components/FormatBar.svelte::refresh	9
 function	src/components/FormatBar.svelte::quoteAtCaret	6
 function	src/components/FormatBar.svelte::toggleQuote	10
 function	src/components/FormatBar.svelte::clearHtml	5
-function	src/components/FormatBar.svelte::markdown	11
+function	src/components/FormatBar.svelte::markdown	5
 function	src/components/FormatBar.svelte::wrap	3
 function	src/components/FormatBar.svelte::lines	3
-function	src/components/FormatBar.svelte::startLink	12
+function	src/components/FormatBar.svelte::startLink	11
 function	src/components/FormatBar.svelte::linkTarget	8
 function	src/components/FormatBar.svelte::backTo	13
 function	src/components/FormatBar.svelte::applyLink	15
@@ -490,6 +491,32 @@ function	src/lib/letterView.ts::switchViews	5
 function	src/lib/list.svelte.ts::stale	41
 function	src/lib/list.svelte.ts::withTail	6
 function	src/lib/list.test.ts::serve	3
+function	src/lib/markdown/dialect.test.ts::tagsOf	33
+function	src/lib/markdown/dialect.ts::markdownSupport	3
+function	src/lib/markdown/field.test.ts::stateOf	3
+function	src/lib/markdown/field.test.ts::at	4
+function	src/lib/markdown/field.ts::editSpec	9
+function	src/lib/markdown/field.ts::formatsAt	13
+function	src/lib/markdown/lazy.test.ts::files	7
+function	src/lib/markdown/lazy.test.ts::staticImports	7
+function	src/lib/markdown/markdownEditor.ts::cellsOf	4
+function	src/lib/markdown/markdownEditor.ts::decorate	19
+function	src/lib/markdown/markdownEditor.ts::intoTable	17
+function	src/lib/markdown/markdownEditor.ts::pictures	3
+function	src/lib/markdown/markdownEditor.ts::windowEvents	20
+function	src/lib/markdown/markdownEditor.ts::fieldOf	29
+function	src/lib/markdown/markdownEditor.ts::setValue	9
+function	src/lib/markdown/markdownEditor.ts::createEditor	40
+function	src/lib/markdown/preview.test.ts::stateOf	5
+function	src/lib/markdown/preview.test.ts::shown	15
+function	src/lib/markdown/preview.test.ts::lines	1
+function	src/lib/markdown/preview.ts::previewPieces	14
+function	src/lib/markdown/preview.ts::block	15
+function	src/lib/markdown/preview.ts::mark	17
+function	src/lib/markdown/preview.ts::linkWords	4
+function	src/lib/markdown/preview.ts::inline	14
+function	src/lib/markdown/preview.ts::codeFences	8
+function	src/lib/markdown/preview.ts::underline	12
 function	src/lib/mdedit.test.ts::apply	3
 function	src/lib/mdedit.ts::wrapEdit	8
 function	src/lib/mdedit.ts::lineRange	5

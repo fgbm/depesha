@@ -2,7 +2,6 @@ alert
 alertdialog
 combobox
 dialog
-document
 group
 img
 listbox

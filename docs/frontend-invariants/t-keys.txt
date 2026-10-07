@@ -121,10 +121,11 @@ compose.fwd.from
 compose.fwd.subject
 compose.fwd.to
 compose.goBack
+compose.markdown.markup
+compose.markdown.markupHint
 compose.markdown.note
 compose.markdown.partsNote
 compose.markdown.partsTitle
-compose.markdown.preview
 compose.markdownPlaceholder
 compose.maximize
 compose.minimize
