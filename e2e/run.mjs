@@ -648,7 +648,7 @@ try {
     await d.until("back", async () => (await textOf(".reader h1")) === before);
   });
 
-  await step("7.14", "клавиши: переназначение записью, конфликт, запреты, русская раскладка, подсказки", async () => {
+  await step("7.20", "клавиши: переназначение записью, конфликт, запреты, русская раскладка, подсказки", async () => {
     const row = (id) => `.prefs .kr[data-command='${id}']`;
     const openKeys = async () => {
       await press(",", { ctrlKey: true });
@@ -716,7 +716,7 @@ try {
     }
   });
 
-  await step("7.14", "Alt+Enter из палитры приводит на строку команды; запись применяется без «Сохранить»", async () => {
+  await step("7.20", "Alt+Enter из палитры приводит на строку команды; запись применяется без «Сохранить»", async () => {
     const row = (id) => `.prefs .kr[data-command='${id}']`;
     try {
       // The palette's own entry opens the page even without a highlighted command.

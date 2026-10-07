@@ -7,7 +7,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { t, tn } from "./i18n.svelte";
-import { keyNames } from "./keys";
 import { when } from "./later";
 import { arrivals, type ArrivalsHost, type NotificationOpen } from "./arrivals.svelte";
 import type { View } from "./list.svelte";
@@ -42,16 +41,7 @@ export function listenBackground(host: BackgroundHost) {
     listen("outbox-missed", () => void tellMissed(host)),
     listen<NotificationOpen>("notification-open", (e) => void arrivals.open(host, e.payload)),
   ];
-  window.addEventListener("keydown", quitKey);
   return subscribed;
-}
-
-/** Ctrl+Q quits for real, whatever closing the window does; on any layout (й is q). */
-function quitKey(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && keyNames(e).includes("Mod+q")) {
-    e.preventDefault();
-    quitApp();
-  }
 }
 
 /** Ctrl+Q: quits for real; the backend asks first when letters wait for their time. */

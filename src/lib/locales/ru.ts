@@ -261,7 +261,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "keys.cmd.selectAll": "Выделить все письма",
   "keys.cmd.toggleRead": "Прочитано или нет",
   "keys.cmd.fold": "Свернуть окно",
-  "keys.cmd.preview": "Просмотр Markdown",
+  "keys.cmd.preview": "Разметка",
   "keys.title": "Клавиши",
   "keys.search": "Действие или клавиша",
   "keys.searchPress": "Нажмите клавишу или сочетание…",

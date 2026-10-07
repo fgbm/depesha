@@ -268,7 +268,7 @@ export const en = {
   "keys.cmd.selectAll": "Select all letters",
   "keys.cmd.toggleRead": "Read or unread",
   "keys.cmd.fold": "Fold the window",
-  "keys.cmd.preview": "Markdown preview",
+  "keys.cmd.preview": "Markup",
   "keys.title": "Keys",
   "keys.search": "Action or key",
   "keys.searchPress": "Press a key or a combination…",

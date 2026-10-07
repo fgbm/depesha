@@ -8,6 +8,7 @@
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
   import { pressName } from "./lib/keymap";
+  import { quitApp } from "./lib/background.svelte";
   import { layout } from "./lib/layout.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import MessageList from "./components/MessageList.svelte";
@@ -105,6 +106,7 @@
   /** What the commands of the main window do; their keys are in keyCommands.ts and Settings → Keys. */
   const actions: Record<string, () => void> = {
     "core.settings": () => app.openSettings(),
+    "core.quit": () => quitApp(),
     "core.compose": () => app.newMessage(),
     "core.search": () => searchInput?.focus(),
     "core.undo": () => app.undo(),
@@ -144,7 +146,8 @@
     // of the list and the letter aside; Ctrl+A in a field selects its text, in the list every row.
     if (e.ctrlKey || e.metaKey) {
       const cmd = shortcuts.command(id);
-      if (!cmd || (app.settingsOpen && cmd.owner === "core")) return;
+      // Quit works wherever the app is, even with the settings open.
+      if (!cmd || (app.settingsOpen && cmd.owner === "core" && cmd.id !== "core.quit")) return;
       if (typing && (cmd.group !== "everywhere" || EDITING.includes(pressName(e) ?? ""))) return;
       if (cmd.id === "core.select-all" && app.windowOf !== null) return;
       const run = action(id);

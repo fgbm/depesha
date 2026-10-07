@@ -21,6 +21,8 @@ const row = (id: string, title: Key, keys: string[], group: Group, scope: Scope 
 export const CORE_KEYS: CoreKey[] = [
   // Anywhere in the main window outside text fields; Ctrl combinations from fields too.
   row("core.settings", "settings.title", ["Mod+,"], "everywhere"),
+  // Quits for real whatever closing the window does; the backend asks first when letters wait.
+  row("core.quit", "bg.quit", ["Mod+q"], "everywhere", "all"),
   row("core.compose", "cmd.compose", ["c"], "everywhere"),
   row("core.search", "cmd.search", ["/"], "everywhere"),
   row("core.undo", "keys.cmd.undo", ["z"], "everywhere"),

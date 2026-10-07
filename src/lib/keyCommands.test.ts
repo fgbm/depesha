@@ -30,6 +30,7 @@ describe("the core's commands and their keys", () => {
       "core.flag": ["s"],
       "core.search": ["/"],
       "core.settings": ["Mod+,"],
+      "core.quit": ["Mod+q"],
       "core.select-all": ["Mod+a"],
       "core.sync": [],
       "compose.send": ["Mod+Enter"],
