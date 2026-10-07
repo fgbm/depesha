@@ -3,7 +3,7 @@ component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
 component	src/components/Compose.svelte	859	200	218	441
-component	src/components/Confirm.svelte	95	30	17	48
+component	src/components/Confirm.svelte	127	34	22	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	122	76	35	11
@@ -14,7 +14,7 @@ component	src/components/LetterViewSwitch.svelte	72	10	12	50
 component	src/components/MailFrame.svelte	161	119	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	560	138	103	319
+component	src/components/MessageList.svelte	610	163	105	342
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
@@ -59,7 +59,7 @@ component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/QuickReply.svelte	216	55	31	130
 component	src/components/reader/ReaderBody.svelte	108	46	26	36
 component	src/components/reader/ReaderHeader.svelte	312	72	53	187
-component	src/components/reader/ReaderStates.svelte	231	33	68	130
+component	src/components/reader/ReaderStates.svelte	239	34	75	130
 component	src/components/reader/ReaderToolbar.svelte	161	63	48	50
 component	src/components/reader/ReplyActions.svelte	65	19	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
@@ -435,7 +435,7 @@ function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/events.ts::common	20
-function	src/lib/events.ts::listenMain	49
+function	src/lib/events.ts::listenMain	51
 function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::listenWindow	10
 function	src/lib/extensions.svelte.ts::fromRow	16
