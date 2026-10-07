@@ -257,6 +257,22 @@ mod tests {
     }
 
     #[test]
+    fn keys_keep_only_the_users_changes() {
+        let old: Settings = serde_json::from_str(r#"{"undo_send_secs":5}"#).unwrap();
+        assert!(old.keybindings.custom.is_empty() && old.keybindings.dismissed.is_empty());
+        let mine: Settings = serde_json::from_str(
+            r#"{"keybindings":{"custom":{"core.reply-all":["Shift+r"],"core.archive":[]},"dismissed":["snooze.open:h"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(mine.keybindings.custom["core.reply-all"], vec!["Shift+r".to_string()]);
+        // No key at all is a choice too: kept, not dropped as empty.
+        assert!(mine.keybindings.custom["core.archive"].is_empty());
+        assert_eq!(mine.keybindings.dismissed, vec!["snooze.open:h".to_string()]);
+        let again: Settings = serde_json::from_str(&serde_json::to_string(&mine).unwrap()).unwrap();
+        assert_eq!(again, mine);
+    }
+
+    #[test]
     fn a_signature_from_before_becomes_the_default_one() {
         lang::pin(Lang::Ru);
         let dir = std::env::temp_dir().join(format!("depesha-config-{}", std::process::id()));

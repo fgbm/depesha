@@ -20,7 +20,7 @@ vi.mock("../lib/store.svelte", () => ({
   },
 }));
 
-vi.mock("./registry.svelte", () => ({ registry: { removeOwner: vi.fn() } }));
+vi.mock("./registry.svelte", () => ({ registry: { removeOwner: vi.fn(), add: vi.fn() } }));
 
 import { host } from "./host.svelte";
 import { registry } from "./registry.svelte";
@@ -81,5 +81,34 @@ describe("activation follows the settings", () => {
     host.setEnabled("off-by-default", false);
     host.sync();
     expect(registry.removeOwner).toHaveBeenCalledWith("off-by-default");
+  });
+});
+
+describe("keys of plugins", () => {
+  it("are commands with an id and a title, shown on the «Keys» page", () => {
+    const alwaysOn = BUILTIN.find((p) => p.manifest.id === "always-on")!;
+    host.setEnabled("always-on", false);
+    host.sync();
+    host.setEnabled("always-on", true);
+    host.sync();
+    const ctx = vi.mocked(alwaysOn.activate).mock.calls.at(-1)![0];
+    const run = () => {};
+    ctx.ui.keybinding({ id: "always-on.go", title: () => "Go", key: "g", run });
+    expect(registry.add).toHaveBeenCalledWith("keybindings", "always-on", { id: "always-on.go", title: expect.any(Function), key: "g", run });
+  });
+
+  it("without an id, as before, are named by the plugin and the key", () => {
+    const alwaysOn = BUILTIN.find((p) => p.manifest.id === "always-on")!;
+    host.setEnabled("always-on", false);
+    host.sync();
+    host.setEnabled("always-on", true);
+    host.sync();
+    const ctx = vi.mocked(alwaysOn.activate).mock.calls.at(-1)![0];
+    const run = () => {};
+    ctx.ui.keybinding("g", run);
+    const item = vi.mocked(registry.add).mock.calls.at(-1)![2] as { id: string; title: () => string; key: string };
+    expect(item.id).toBe("always-on.key.g");
+    expect(item.key).toBe("g");
+    expect(item.title()).toBe("A");
   });
 });
