@@ -7,11 +7,13 @@
   import Inbox from "@lucide/svelte/icons/inbox";
   import Activity from "@lucide/svelte/icons/activity";
   import Star from "@lucide/svelte/icons/star";
+  import Info from "@lucide/svelte/icons/info";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   import { accountLabel } from "../lib/format";
   import { favourites } from "../lib/favourites.svelte";
+  import FolderProps from "./prefs/FolderProps.svelte";
   import type { AccountView, FolderInfo } from "../lib/types";
   import Popover from "./Popover.svelte";
   import { untrack } from "svelte";
@@ -22,10 +24,18 @@
   // come from, so they are taken once, when it opens.
   const { at, account, folder, onclose } = untrack(() => ({ ...props }));
 
-  /** The second step: the name of a new folder. */
+  /** The second step: the name of a new folder, or the folder's properties card. */
   let naming = $state(false);
+  let showingProps = $state(false);
   let name = $state("");
   let input = $state<HTMLInputElement | null>(null);
+
+  // A known ban turns the menu item off with "нет прав" (#42, frame 4А).
+  const canCreateChild = $derived.by(() => {
+    if (!folder) return true;
+    const rights = app.labels.prop(account.id, folder.name)?.rights;
+    return !rights || rights.create_child;
+  });
 
   $effect(() => {
     if (naming) input?.focus();
@@ -76,7 +86,7 @@
   }
 </script>
 
-<Popover {at} bind:open={() => !naming, (v) => !v && !naming && onclose()}>
+<Popover {at} bind:open={() => !showingProps, (v) => !v && !naming && !showingProps && onclose()}>
   {#if folder}
     <div class="mt">{folder.display_name}</div>
     <button class="mi" onclick={() => run(() => app.setView({ kind: "folder", account_id: account.id, folder: folder.name }))}><FolderOpen size={15} /> {t("folder.open")}</button>
@@ -88,7 +98,9 @@
     <button class="mi" onclick={() => run(() => favourites.toggle(account.id, { name: folder.name, display: folder.display_name, delimiter: folder.delimiter }))}
       ><Star size={15} fill={starred ? "currentColor" : "none"} /> {starred ? t("favourites.remove") : t("favourites.add")}</button
     >
-    <button class="mi" onclick={() => (naming = true)}><FolderPlus size={15} /> {t("folder.newInside")}</button>
+    <button class="mi" disabled={!canCreateChild} title={!canCreateChild ? t("folder.noRightHint") : undefined} onclick={() => (naming = true)}><FolderPlus size={15} /> {t("folder.newInside")}{#if !canCreateChild}<span class="why">{t("folder.noRight")}</span>{/if}</button>
+    <hr />
+    <button class="mi" onclick={() => (showingProps = true)}><Info size={15} /> {t("folder.properties")}</button>
   {:else}
     <div class="mt">{accountLabel(account)}</div>
     <button class="mi" onclick={sync}><RotateCw size={15} /> {t("account.refresh")}</button>
@@ -108,6 +120,11 @@
   </form>
 </Popover>
 
+{#if folder && showingProps}
+  <!-- The properties card of the folder (#42, frame 4А): rights, labels, owner, count. -->
+  <FolderProps {at} account={account} {folder} onclose={() => (showingProps = false, onclose())} />
+{/if}
+
 <style>
   .new {
     display: flex;
@@ -118,5 +135,11 @@
   .new .input {
     flex: 1;
     min-width: 0;
+  }
+
+  .why {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11.5px;
   }
 </style>

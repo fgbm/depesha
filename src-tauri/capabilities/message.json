@@ -23,6 +23,7 @@
     "allow-message-open",
     "allow-thread",
     "allow-set-flag",
+    "allow-set-label",
     "allow-move-messages",
     "allow-delete-messages",
     "allow-archive",

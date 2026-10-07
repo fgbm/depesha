@@ -94,6 +94,16 @@ pub enum Work {
     },
     /// Reads the mailbox's quota again (the "Storage" section opened).
     Quota,
+    /// Puts labels on messages, or takes them off, by their names.
+    SetLabels {
+        folder: String,
+        validity: u32,
+        uids: Vec<u32>,
+        add: Vec<depesha_core::acl::Label>,
+        remove: Vec<depesha_core::acl::Label>,
+    },
+    /// Reads a folder's rights, permanent flags and owner; the "Properties" card.
+    FolderProps(String),
 }
 
 pub enum Output {
@@ -103,6 +113,8 @@ pub enum Output {
     Ids(Vec<i64>),
     /// The start of a full sync: the folders to sync in order, name and display name.
     Folders(Vec<(String, String)>),
+    /// A folder's props, as the "Properties" card shows them.
+    Props(depesha_core::acl::FolderProps),
 }
 
 type Reply = oneshot::Sender<Result<Output>>;
@@ -796,6 +808,30 @@ async fn perform(
         } => {
             mail::set_flag(conn, store, id, folder, *validity, uids, *change).await?;
             Ok(Output::None)
+        }
+        Work::SetLabels {
+            folder,
+            validity,
+            uids,
+            add,
+            remove,
+        } => {
+            mail::set_labels(
+                conn,
+                store,
+                id,
+                folder,
+                *validity,
+                uids,
+                mail::LabelChange { add, remove },
+            )
+            .await?;
+            // The keywords changed on the server: the folder's own sync brings them back.
+            Ok(Output::None)
+        }
+        Work::FolderProps(folder) => {
+            let props = mail::folder_props(conn, store, id, folder).await?;
+            Ok(Output::Props(props))
         }
         Work::Move {
             from,

@@ -638,17 +638,183 @@ pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdRe
     for ((account_id, folder, validity), rows) in group_rows(&state, &ids)? {
         let worker = state.worker(&account_id)?;
         let uids: Vec<u32> = rows.iter().map(|r| r.uid).collect();
+        // A read mark in a folder with no right to keep it, or one where the server
+        // refused, is kept only here: no request, no refusal (#42, frame 7, note 2).
+        if let FlagChange::Seen(value) = change
+            && local_seen_folder(&state, &account_id, &folder)
+        {
+            let at = chrono::Utc::now().timestamp();
+            if value {
+                state.store.set_local_seen(&account_id, &folder, &uids, at)?;
+            } else {
+                state.store.clear_local_seen(&account_id, &folder, &uids)?;
+            }
+            // The list reacts at once; no request goes to the server, so no refusal comes back.
+            state
+                .store
+                .change_flags(&account_id, &folder, &uids, FlagChange::Seen(value))?;
+            state.store.settle_flags(&account_id, &folder, &uids);
+            state.emit(
+                "mail-changed",
+                serde_json::json!({ "account_id": account_id, "folder": folder }),
+            );
+            continue;
+        }
         let mut done = flag_group(&state, &worker, &account_id, &folder, validity, &uids, change).await;
         if matches!(done, Err(Error::FolderChanged)) {
             done = reflag(&state, &worker, &account_id, &folder, &rows, change).await;
         }
         if done.is_err() {
             // Refused or not sent: the list shows the server's state again.
-            worker.kick(Work::SyncFolder(folder));
+            worker.kick(Work::SyncFolder(folder.clone()));
+        }
+        if let Err(e) = &done
+            && e.no_rights()
+        {
+            // No rights in this folder: remembered, so the button turns off here alone (#42).
+            state
+                .store
+                .refuse_folder(&account_id, &folder, "no-rights", chrono::Utc::now().timestamp())?;
+            crate::server::changed(&state, &account_id);
+        }
+        if done.is_ok() {
+            let _ = state.store.clear_refusal(&account_id, &folder);
         }
         done?;
     }
     Ok(())
+}
+
+/// Whether a read mark must be kept only here: the folder is known to be read-only
+/// without the `s` right, or the server refused an action in it (#42, frame 7, note 2).
+fn local_seen_folder(state: &AppState, account_id: &str, folder: &str) -> bool {
+    let Ok(Some(props)) = state.store.folder_prop(account_id, folder) else {
+        return false;
+    };
+    if props.refused.is_some() {
+        return true;
+    }
+    props.rights.is_some_and(|r| r.read && !r.seen)
+}
+
+/// The account's labels, with the keyword each stores on the server.
+#[tauri::command]
+pub fn labels(state: St<'_>, account_id: String) -> CmdResult<Vec<depesha_core::acl::Label>> {
+    Ok(state.store.labels(&account_id)?)
+}
+
+/// A new label; its keyword is made from the name. Renaming keeps the old keyword, so
+/// letters already tagged stay tagged.
+#[tauri::command]
+pub fn label_save(
+    state: St<'_>,
+    account_id: String,
+    name: String,
+    color: String,
+) -> CmdResult<depesha_core::acl::Label> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CmdError::new(
+            "input",
+            tr!("a label needs a name", "у метки должно быть название"),
+        ));
+    }
+    let is_ews = state.account(&account_id)?.ews.is_some();
+    let label = depesha_core::acl::Label {
+        name: name.to_owned(),
+        // An IMAP label stores a keyword made from the name; an Exchange category is the
+        // name itself. Renaming keeps the old keyword, so letters already tagged stay tagged.
+        keyword: state.store.label_keyword(&account_id, name)?.unwrap_or_else(|| {
+            if is_ews {
+                name.to_owned()
+            } else {
+                depesha_core::acl::keyword_of(name)
+            }
+        }),
+        color,
+    };
+    state.store.save_label(&account_id, &label)?;
+    Ok(label)
+}
+
+#[tauri::command]
+pub fn label_remove(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
+    state.store.remove_label(&account_id, &name)?;
+    Ok(())
+}
+
+/// Puts a label on rows or takes it off: an IMAP keyword, an Exchange category.
+#[tauri::command]
+pub async fn set_label(state: St<'_>, ids: Vec<i64>, name: String, value: bool) -> CmdResult<()> {
+    for ((account_id, folder, validity), rows) in group_rows(&state, &ids)? {
+        let Some(keyword) = state.store.label_keyword(&account_id, &name)? else {
+            continue;
+        };
+        let label = depesha_core::acl::Label {
+            name: name.clone(),
+            keyword,
+            color: String::new(),
+        };
+        let (add, remove) = if value {
+            (vec![label], Vec::new())
+        } else {
+            (Vec::new(), vec![label])
+        };
+        let worker = state.worker(&account_id)?;
+        let uids: Vec<u32> = rows.iter().map(|r| r.uid).collect();
+        let done = worker
+            .run(Work::SetLabels {
+                folder: folder.clone(),
+                validity,
+                uids,
+                add,
+                remove,
+            })
+            .await;
+        if done.is_err() {
+            worker.kick(Work::SyncFolder(folder.clone()));
+        }
+        if let Err(e) = &done
+            && e.no_rights()
+        {
+            // No rights in this folder: remembered, so the button turns off here alone (#42).
+            state
+                .store
+                .refuse_folder(&account_id, &folder, "no-rights", chrono::Utc::now().timestamp())?;
+            crate::server::changed(&state, &account_id);
+        }
+        if done.is_ok() {
+            let _ = state.store.clear_refusal(&account_id, &folder);
+        }
+        done?;
+    }
+    Ok(())
+}
+#[tauri::command]
+pub async fn folder_props(
+    state: St<'_>,
+    account_id: String,
+    folder: String,
+) -> CmdResult<depesha_core::acl::FolderProps> {
+    let worker = state.worker(&account_id)?;
+    let out = worker.run(Work::FolderProps(folder.clone())).await?;
+    let Output::Props(props) = out else {
+        return Err(CmdError::new(
+            "other",
+            tr!(
+                "folder properties could not be read",
+                "не удалось прочитать свойства папки"
+            ),
+        ));
+    };
+    // The old refusal stays until an action succeeds; a check alone does not clear it.
+    let props = depesha_core::acl::FolderProps {
+        refused: state.store.folder_prop(&account_id, &folder)?.and_then(|p| p.refused),
+        ..props
+    };
+    state.store.save_folder_props(&account_id, &props)?;
+    crate::server::changed(&state, &account_id);
+    Ok(props)
 }
 
 async fn flag_group(
@@ -675,6 +841,10 @@ async fn flag_group(
         })
         .await;
     state.store.settle_flags(account_id, folder, uids);
+    if done.is_ok() {
+        // The action went through: whatever refusal was remembered here is over (#42).
+        let _ = state.store.clear_refusal(account_id, folder);
+    }
     done.map(|_| ())
 }
 

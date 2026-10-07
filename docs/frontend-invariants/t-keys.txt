@@ -269,6 +269,8 @@ folder.name
 folder.new
 folder.newIn
 folder.newInside
+folder.noRight
+folder.noRightHint
 folder.open
 folder.sync
 format.plain

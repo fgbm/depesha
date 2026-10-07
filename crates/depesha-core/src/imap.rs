@@ -586,9 +586,10 @@ pub fn keywords_of<'a>(flags: impl Iterator<Item = Flag<'a>>) -> Vec<String> {
 
 /// A folder's props from one connection: MYRIGHTS (rights) and the PERMANENTFLAGS of a
 /// SELECT (whether own labels can be stored). The owner is filled by the caller from the
-/// account's namespaces. Nothing here writes to the server: EXAMINE and MYRIGHTS read.
+/// account's namespaces. SELECT, not EXAMINE: only a read-write select reports the
+/// PERMANENTFLAGS the server keeps; a read-only folder answers with none.
 pub async fn folder_props(conn: &mut Conn, folder: &str) -> Result<(Option<Rights>, PermanentFlags)> {
-    let mailbox = conn.session.examine(folder).await?;
+    let mailbox = conn.session.select(folder).await?;
     let permanent = permanent_flags(&mailbox.permanent_flags);
     // MYRIGHTS only exists where ACL is offered; a server without it says nothing.
     let rights = myrights(conn, folder).await.unwrap_or(None);
@@ -750,6 +751,22 @@ pub async fn set_keywords(
             .await?;
     }
     Ok(())
+}
+
+/// The own keywords of one message, as `FLAGS` reports them (`acl::keywords_of`).
+pub async fn fetch_keywords(conn: &mut Conn, folder: &str, uid: u32) -> Result<Vec<String>> {
+    conn.session.examine(folder).await?;
+    let fetches: Vec<_> = conn
+        .session
+        .uid_fetch(uid.to_string(), "(UID FLAGS)")
+        .await?
+        .try_collect()
+        .await?;
+    Ok(fetches
+        .iter()
+        .find(|f| f.uid == Some(uid))
+        .map(|f| keywords_of(f.flags()))
+        .unwrap_or_default())
 }
 
 /// Full RFC 822 source, without setting \Seen.

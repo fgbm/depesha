@@ -137,6 +137,97 @@ pub async fn set_flag(
     }
 }
 
+/// Puts labels on messages and takes them off, by the label's keyword. IMAP stores the
+/// keyword; Exchange stores the category of the same name. The cache is updated after.
+pub struct LabelChange<'a> {
+    pub add: &'a [crate::acl::Label],
+    pub remove: &'a [crate::acl::Label],
+}
+
+pub async fn set_labels(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    validity: u32,
+    uids: &[u32],
+    change: LabelChange<'_>,
+) -> Result<()> {
+    match conn {
+        Conn::Imap(c) => {
+            let add_kw: Vec<String> = change.add.iter().map(|l| l.keyword.clone()).collect();
+            let remove_kw: Vec<String> = change.remove.iter().map(|l| l.keyword.clone()).collect();
+            imap::set_keywords(c, folder, Some(validity), uids, &add_kw, &remove_kw).await
+        }
+        Conn::Ews(s) => {
+            ews_check(store, account_id, folder, validity)?;
+            ews::set_labels(s, store, account_id, folder, uids, change.add, change.remove).await
+        }
+    }
+}
+
+/// Checks a folder without changing it: what the user may do (MYRIGHTS), whether labels
+/// are kept here (PERMANENTFLAGS), the owner from NAMESPACE, and the namespaces themselves
+/// on the first check. Nothing is written to the server: EXAMINE and MYRIGHTS read.
+pub async fn folder_props(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+) -> Result<crate::acl::FolderProps> {
+    let namespaces = ensure_namespaces(conn, store, account_id).await?;
+    let display_name = store
+        .folders(Some(account_id))?
+        .into_iter()
+        .find(|f| f.folder.name == folder)
+        .map(|f| f.folder.display_name)
+        .unwrap_or_else(|| folder.to_owned());
+    let at = chrono::Utc::now().timestamp();
+    match conn {
+        Conn::Imap(c) => {
+            let (rights, permanent) = imap::folder_props(c, folder).await?;
+            Ok(crate::acl::FolderProps {
+                folder: folder.to_owned(),
+                display_name,
+                owner: namespaces.owner_of(folder).unwrap_or(crate::acl::Owner::Mine),
+                rights,
+                labels_on_server: Some(permanent.labels_on_server()),
+                permanent: permanent.standard,
+                refused: None,
+                checked: at,
+            })
+        }
+        Conn::Ews(s) => {
+            let rights = ews::folder_rights(s, store, account_id, folder).await?;
+            Ok(crate::acl::FolderProps {
+                folder: folder.to_owned(),
+                display_name,
+                owner: namespaces.owner_of(folder).unwrap_or(crate::acl::Owner::Mine),
+                rights,
+                // Exchange has no PERMANENTFLAGS: a category is always kept on the server.
+                labels_on_server: Some(true),
+                permanent: Vec::new(),
+                refused: None,
+                checked: at,
+            })
+        }
+    }
+}
+
+/// The account's namespaces, read once and kept; a server without NAMESPACE stays empty.
+async fn ensure_namespaces(conn: &mut Conn, store: &Store, account_id: &str) -> Result<crate::acl::Namespace> {
+    if let Some((ns, _)) = store.namespaces(account_id)? {
+        return Ok(ns);
+    }
+    let ns = match conn {
+        Conn::Imap(c) => imap::namespace(c).await.unwrap_or_default(),
+        // Exchange has no namespaces: delegated mailboxes are named by their owner instead.
+        Conn::Ews(_) => crate::acl::Namespace::default(),
+    };
+    store.save_namespaces(account_id, &ns, chrono::Utc::now().timestamp())?;
+    Ok(ns)
+}
+
 pub async fn move_messages(
     conn: &mut Conn,
     store: &Store,

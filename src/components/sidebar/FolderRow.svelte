@@ -16,7 +16,9 @@
 
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Lock from "@lucide/svelte/icons/lock";
   import { app, type View } from "../../lib/store.svelte";
+  import { readOnly } from "../../lib/labels";
   import { sidebarUi, roleIcon } from "./sidebar.svelte";
 
   // `picked` is called when the row is chosen inside the strip's flyout.
@@ -29,6 +31,19 @@
 
   const Icon = $derived(roleIcon(folder.role));
   const v = $derived({ kind: "folder", account_id: account.id, folder: folder.name } as View);
+  // A lock only where it says something: the folder is known to be read-only (#42, frame 6).
+  const locked = $derived.by(() => {
+    const rights = app.labels.prop(account.id, folder.name)?.rights;
+    return !!rights && readOnly(rights);
+  });
+  // The server folder the inbox-as-queue keeps answered letters in: clicking it opens the
+  // "Waiting for reply" section of this mailbox, not a plain letter list (#42, #59).
+  const isWaiting = $derived.by(() => {
+    const chosen = account.waiting?.folder?.trim();
+    if (chosen && chosen.length) return folder.name === chosen || folder.display_name === chosen;
+    // The default folder is made at the first answer; its name is the localized one.
+    return folder.display_name === t("account.waiting.folderNew").split(" ·")[0];
+  });
 </script>
 
 {#snippet count(f: FolderInfo)}
@@ -74,13 +89,15 @@
     style:padding-left="{14 + sidebarUi.depth(folder) * 14}px"
     onclick={() => {
       picked?.();
-      app.setView(v);
+      // The waiting folder opens the "Waiting for reply" section (#42, #59), not its letters.
+      app.setView(isWaiting ? { kind: "plugin", id: "followups" } : v);
     }}
     oncontextmenu={(e) => folder.selectable && sidebarUi.contextMenu(e, account, folder)}
     title={folder.display_name}
   >
     <span class="icon"><Icon size={16} /></span>
     <span class="name">{sidebarUi.label(folder)}</span>
+    {#if locked}<span class="fx" title={t("list.readOnlyHint")}><Lock size={13} /></span>{/if}
     {@render count(folder)}
   </button>
   {#if folder.selectable}{@render star(account, sidebarUi.favouriteOf(folder))}{/if}

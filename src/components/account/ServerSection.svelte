@@ -9,8 +9,9 @@
   import { when } from "../../lib/later";
   import { rooms } from "../../lib/room.svelte";
   import { securityLabel } from "../../lib/connection";
-  import { features, grouped, protocol, report, summary, unknown, type ServerMark, type UseMark } from "../../lib/serverFeatures";
+  import { features, grouped, labelsRow, protocol, report, summary, unknown, type ServerMark, type UseMark } from "../../lib/serverFeatures";
   import type { SectionProps } from "./sections";
+  import FoldersTable from "./FoldersTable.svelte";
 
   let { account }: SectionProps = $props();
 
@@ -18,7 +19,10 @@
   const caps = $derived(info?.caps?.capabilities ?? []);
   const enable = $derived(info?.enable ?? null);
   const rows = $derived(info ? features(caps, enable, info.poll_secs, (at) => when(at)) : []);
-  const groups = $derived(grouped(rows));
+  const folderProps = $derived(info?.folders ?? []);
+  // "Own labels" is not a capability: it is told per folder, after the capabilities.
+  const withLabels = $derived(info ? [...rows, labelsRow(folderProps)] : []);
+  const groups = $derived(grouped(withLabels));
   // Connecting is not offline: only a failed connection makes the numbers old.
   const offline = $derived(account.status?.state === "error" || account.status?.state === "paused");
   const where = $derived(
@@ -94,6 +98,8 @@
       </tbody>
     {/each}
   </table>
+
+  <FoldersTable {account} folders={folderProps} />
 
   <details class="tech">
     <summary>

@@ -7,6 +7,7 @@ import { ActionRunner } from "./actions.svelte";
 import { Reader } from "./reader.svelte";
 import { ComposeManager, type ComposeState, type ComposeWindow } from "./composes.svelte";
 import { rooms } from "./room.svelte";
+import { labels } from "./labels.svelte";
 import { SettingsController } from "./settings.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
@@ -184,6 +185,8 @@ export class AppStore {
     this.list.view = this.home();
     // Mailboxes filling up warn once the accounts and the settings are read.
     rooms.start(this);
+    labels.start(this);
+    void Promise.all(this.accounts.map((a) => labels.load(a.id)));
     await this.reload();
     void tellMissed(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
@@ -203,6 +206,18 @@ export class AppStore {
 
   open(id: number, allowRemote = false) { return this.reader.open(id, allowRemote); }
 
+  /** A folder was opened: read its properties from the cache, or the server when never checked. */
+  folderOpened(accountId: string, folder: string) {
+    if (labels.prop(accountId, folder)) return;
+    void labels.loadProps(accountId, folder);
+  }
+
+  /** The labels of a mailbox and the properties of its folders (#42). */
+  get labels() { return labels; }
+  /** Puts a label on the rows or takes it off. */
+  setLabel(ids: number[], name: string, value: boolean) { return labels.set(ids, name, value); }
+  /** Reads a folder's properties, asking the server. */
+  checkFolderProps(accountId: string, folder: string) { return labels.check(accountId, folder); }
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. Never rejects. */
   perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
     return this.actions.perform(text, ids, run, failText);

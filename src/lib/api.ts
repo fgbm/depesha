@@ -34,6 +34,8 @@ import type {
   QuotaView,
   ServerView,
   SortKey,
+  FolderProps,
+  Label,
 } from "./types";
 
 /** Backend errors arrive as `CmdError`; anything else is wrapped so callers can rely on the shape. */
@@ -84,6 +86,14 @@ export const api = {
     call<MessageRow[]>("server_search", { text, accountId: accountId ?? null }),
   open: (id: number, allowRemote: boolean) => call<OpenedMessage>("message_open", { id, allowRemote }),
   setFlag: (ids: number[], change: FlagChange) => call<void>("set_flag", { ids, change }),
+  /** Puts one label on rows or takes it off, by the label's name. */
+  setLabel: (ids: number[], name: string, value: boolean) => call<void>("set_label", { ids, name, value }),
+  labels: (accountId: string) => call<Label[]>("labels", { accountId }),
+  labelSave: (accountId: string, name: string, color: string) => call<Label>("label_save", { accountId, name, color }),
+  labelRemove: (accountId: string, name: string) => call<void>("label_remove", { accountId, name }),
+  /** A folder's properties card: rights, permanent flags, owner. */
+  folderProps: (accountId: string, folder: string) =>
+    call<FolderProps>("folder_props", { accountId, folder }),
   move: (ids: number[], to: string) => call<Moved[]>("move_messages", { ids, to }),
   remove: (ids: number[]) => call<Moved[]>("delete_messages", { ids }),
   archive: (ids: number[]) => call<Moved[]>("archive", { ids }),

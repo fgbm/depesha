@@ -541,6 +541,8 @@ struct Fetched {
     size: u32,
     flags: Flags,
     summary: Summary,
+    /// The Exchange categories of the item, as the labels of the letter (#42).
+    categories: Vec<String>,
 }
 
 async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
@@ -559,6 +561,7 @@ async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
             "message:ReplyTo",
             "message:InternetMessageId",
             "message:References",
+            "item:Categories",
         ];
         let body = format!(
             "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}</t:AdditionalProperties></m:ItemShape><m:ItemIds>{}</m:ItemIds></m:GetItem>",
@@ -611,6 +614,7 @@ fn fetched(it: Node<'_, '_>) -> Option<Fetched> {
         received,
         size: text(it, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
         flags: flags_of(&props),
+        categories: categories_of(it),
         summary,
     })
 }
@@ -700,7 +704,8 @@ async fn add_items(
                 fallback_date: f.received,
                 size: f.size,
                 flags: f.flags,
-                keywords: Vec::new(),
+                // Exchange categories are the letter's labels; their names are the keywords.
+                keywords: f.categories.clone(),
             };
             Some((msg, f.id.as_str(), f.received))
         })

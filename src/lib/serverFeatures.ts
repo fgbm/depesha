@@ -7,7 +7,7 @@ import { t, tn, type Key } from "./i18n.svelte";
 import { gb } from "./quota";
 
 /** What the server says about a feature. */
-export type ServerMark = "yes" | "base" | "no" | "enabled" | "refused";
+export type ServerMark = "yes" | "base" | "no" | "enabled" | "refused" | "depends";
 
 /** What Depesha does with it. */
 export type UseMark = "used" | "notUsed" | "notNeeded" | "polling" | "workaround" | "byName" | "estimate" | "without";
@@ -28,6 +28,8 @@ interface Feature {
   missing?: UseMark;
   /** Its absence slows Depesha down where the user sees it: the section's dot. */
   important?: boolean;
+  /** Not a capability: whether it works depends on the folder (labels, frame 1). */
+  depends?: boolean;
 }
 
 const FEATURES: Feature[] = [
@@ -43,8 +45,8 @@ const FEATURES: Feature[] = [
   { id: "id", tokens: ["ID"], used: false },
   { id: "sortThread", tokens: ["SORT", "THREAD=*"], used: false, notNeeded: true },
   { id: "esearch", tokens: ["ESEARCH"], rev2: true, used: false },
-  { id: "namespace", tokens: ["NAMESPACE"], rev2: true, used: false },
-  { id: "acl", tokens: ["ACL"], used: false },
+  { id: "namespace", tokens: ["NAMESPACE"], rev2: true, used: true },
+  { id: "acl", tokens: ["ACL"], used: true },
   { id: "appendLimit", tokens: ["APPENDLIMIT", "APPENDLIMIT=*"], used: false },
   { id: "compress", tokens: ["COMPRESS=DEFLATE"], used: false, missing: "notUsed" },
 ];
@@ -186,6 +188,33 @@ export function grouped(rows: FeatureRow[]): { group: Group; rows: FeatureRow[] 
 export function unknown(caps: string[]): string[] {
   const known = [...FEATURES.flatMap((f) => f.tokens), ...PROTOCOL];
   return caps.filter((c) => !known.some((k) => matches(c, k)));
+}
+
+/**
+ * The "Own labels" row (#42, frame 1): labels are not in CAPABILITY — the server allows
+ * them per folder, so the mark is "depends on the folder" with a count of what was
+ * checked. When no folder was checked, the source says so, not "no".
+ */
+export function labelsRow(folders: { labels_on_server?: boolean | null }[]): FeatureRow {
+  const checked = folders.filter((f) => f.labels_on_server != null);
+  const yes = checked.filter((f) => f.labels_on_server).length;
+  const note =
+    checked.length === 0
+      ? t("server.labels.unknown")
+      : yes === checked.length
+        ? t("server.labels.all")
+        : t("server.labels.some", { yes, n: checked.length });
+  return {
+    id: "labels",
+    names: "PERMANENTFLAGS \\*",
+    title: t("server.f.labels.title"),
+    gives: t("server.f.labels.gives"),
+    server: "depends",
+    serverNote: note,
+    depesha: "used",
+    important: false,
+    group: "used",
+  };
 }
 
 /** The server slows Depesha down where the user sees it: no IDLE or no MOVE. */

@@ -21,6 +21,8 @@ export interface SelectionHost {
   fail(e: unknown, prefix?: string): void;
   saveSettings(next: Settings): Promise<void>;
   reload(): Promise<void>;
+  /** A folder was opened: read its rights and labels (#42); quietly from the cache, from the server when never checked. */
+  folderOpened?(accountId: string, folder: string): void;
 }
 
 export class SelectionController {
@@ -104,6 +106,9 @@ export class SelectionController {
     // The list shows the cache at once; fresh mail from the server follows, with the progress line.
     if (v.kind === "folder") this.host.track(api.syncNow(v.account_id, v.folder)).catch(() => {});
     await this.host.reload();
+    // The folder's rights and labels are read on its opening (#42): quietly from the cache,
+    // and from the server when the folder was never checked. No "check all folders" button.
+    if (v.kind === "folder") this.host.folderOpened?.(v.account_id, v.folder);
   }
 
   async select(id: number, mode: "single" | "toggle" | "range" = "single") {

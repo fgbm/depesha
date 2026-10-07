@@ -19,6 +19,8 @@
   import { i18n, locale, t, tn } from "../lib/i18n.svelte";
   import { recentSearches } from "../lib/recentSearches.svelte";
   import { rowMarks } from "../lib/marks";
+  import { labelChips, readOnly } from "../lib/labels";
+  import { labels as labelsCtl } from "../lib/labels.svelte";
   import type { Addr, MessageRow } from "../lib/types";
 
   let {
@@ -59,6 +61,28 @@
   const count = $derived(tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` }));
 
   const showAccount = $derived(app.accounts.length > 1 && app.view.kind !== "folder");
+  /** Whether labels can be stored on the server for the folders the rows lie in (#42). */  const labelsLocal = $derived.by(() => {
+    const per = new Map<string, boolean>();
+    for (const m of app.messages) {
+      const key = `${m.account_id}\u0000${m.folder}`;
+      if (!per.has(key)) per.set(key, !(labelsCtl.prop(m.account_id, m.folder)?.labels_on_server ?? true));
+    }
+    return per;
+  });
+  /** The label chips of a row, capped at two plus "+n", per the design (#42, frame 10). */
+  function chipsOf(m: MessageRow) {
+    const known = labelsCtl.of(m.account_id);
+    const local = labelsLocal.get(`${m.account_id}\u0000${m.folder}`) ?? false;
+    return labelChips(m.keywords ?? [], known, local);
+  }
+
+  /** A folder opened here that is known to be read-only: the header says so (#42, frame 7А). */
+  const readOnlyHere = $derived.by(() => {
+    const v = app.view;
+    if (v.kind !== "folder") return false;
+    const rights = labelsCtl.prop(v.account_id, v.folder)?.rights;
+    return !!rights && readOnly(rights);
+  });
   /** Every row shows its size, quietly; ordered by size, the sizes are what is read. */
   const bySize = $derived(app.sort()[0]?.by === "size");
   const found = $derived.by(() => {
@@ -172,6 +196,7 @@
     {#if pluginView?.tabs}<Segments tabs={pluginView.tabs} />{/if}
     <div class="title">
       <h2 title={count}>{title}</h2>
+      {#if readOnlyHere}<span class="ro" title={t("list.readOnlyHint")}>{t("list.readOnly")}</span>{/if}
       {#if app.listKey()}<ViewMenu />{/if}
     </div>
   </header>
@@ -250,6 +275,11 @@
           </div>
           <div class="line2">
             <span class="subject">{m.subject || t("noSubject")}</span>
+            <!-- Labels after the subject (#42, frame 10А): at most two, then "+n". -->
+            {#each chipsOf(m).slice(0, 2) as chip (chip.name)}
+              <span class="lbl" class:local={chip.local} style:--c={chip.color} title={chip.local ? t("label.localHint", { name: chip.name }) : chip.name}>{chip.name}</span>
+            {/each}
+            {#if chipsOf(m).length > 2}<span class="lbl more" title={chipsOf(m).slice(2).map((c) => c.name).join(", ")}>+{chipsOf(m).length - 2}</span>{/if}
             {#each tags as tag, ti (ti)}
               <span class="tag" class:due={tag.alert} class:good={tag.good} class:info={tag.info} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
             {/each}
@@ -341,6 +371,17 @@
     font-weight: 650;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* "Only read" in the header of a folder known to be read-only (#42, frame 7А). */
+  .ro {
+    flex: none;
+    padding: 1px 7px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    color: var(--warn);
+    font-size: 11px;
     white-space: nowrap;
   }
 
@@ -492,6 +533,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* A label of the row (#42): a chip with its colour; a dashed frame when it is kept
+     only on this device. */
+  .lbl {
+    flex: none;
+    max-width: 40%;
+    padding: 0 6px;
+    border-radius: 7px;
+    border: 1px solid color-mix(in srgb, var(--c, var(--muted)) 45%, transparent);
+    background: color-mix(in srgb, var(--c, var(--muted)) 14%, transparent);
+    color: var(--c, var(--muted));
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lbl.local {
+    border-style: dashed;
+  }
+
+  .lbl.more {
+    --c: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
 
   .flag {

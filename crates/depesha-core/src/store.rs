@@ -1199,6 +1199,7 @@ impl Store {
     pub fn update_flags(&self, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
         let flags = self.with_pending(account_id, folder, flags.iter().copied());
         let conn = self.conn();
+        let flags = with_local_seen(&conn, account_id, folder, flags)?;
         write_flags(&conn, account_id, folder, &flags)
     }
 
@@ -1749,6 +1750,7 @@ impl Store {
         tx.execute("DELETE FROM labels WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM folder_props WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM namespaces WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM local_seen WHERE account_id = ?1", [account_id])?;
         Self::forget_server(&tx, account_id)?;
         tx.execute(
             "DELETE FROM avatars WHERE substr(key, 1, length(?1) + 7) = 'photo:' || ?1 || ':'",
@@ -2290,6 +2292,32 @@ fn json_list<T: Serialize>(items: &[T]) -> String {
 
 /// Flags of many UIDs in one statement, rows already holding them untouched.
 /// Returns how many changed.
+/// The rows whose read state is kept only here (#42): the server's value is overridden
+/// with "read", so a sync does not unread them.
+fn with_local_seen(
+    conn: &Connection,
+    account_id: &str,
+    folder: &str,
+    flags: Vec<(u32, Flags)>,
+) -> Result<Vec<(u32, Flags)>> {
+    let local: std::collections::HashSet<u32> = conn
+        .prepare_cached("SELECT uid FROM local_seen WHERE account_id = ?1 AND folder = ?2")?
+        .query_map(params![account_id, folder], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    if local.is_empty() {
+        return Ok(flags);
+    }
+    Ok(flags
+        .into_iter()
+        .map(|(uid, mut f)| {
+            if local.contains(&uid) {
+                f.seen = true;
+            }
+            (uid, f)
+        })
+        .collect())
+}
+
 fn write_flags(conn: &Connection, account_id: &str, folder: &str, flags: &[(u32, Flags)]) -> Result<usize> {
     if flags.is_empty() {
         return Ok(0);

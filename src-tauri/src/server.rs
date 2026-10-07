@@ -105,6 +105,10 @@ pub struct ServerView {
     poll_secs: u64,
     /// A folder size count under way: folders done and all of them.
     counting: Option<(u64, u64)>,
+    /// The namespaces the server named (RFC 2342); empty when unknown.
+    namespaces: depesha_core::acl::Namespace,
+    /// Every folder's props the cache has, for the "Folders" subsection.
+    folders: Vec<depesha_core::acl::FolderProps>,
 }
 
 pub fn view(state: &AppState, account_id: &str) -> CmdResult<ServerView> {
@@ -113,6 +117,12 @@ pub fn view(state: &AppState, account_id: &str) -> CmdResult<ServerView> {
         cache_bytes: state.store.cache_bytes(account_id)?,
         poll_secs: crate::worker::POLL_WITHOUT_IDLE.as_secs(),
         counting: state.task_progress(&sizes_task(account_id)),
+        namespaces: state
+            .store
+            .namespaces(account_id)?
+            .map(|(ns, _)| ns)
+            .unwrap_or_default(),
+        folders: state.store.folder_props(account_id)?,
     })
 }
 
