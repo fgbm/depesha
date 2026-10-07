@@ -23,7 +23,7 @@ component	src/components/Preferences.svelte	411	180	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
 component	src/components/Recipients.svelte	70	28	20	22
-component	src/components/RichEditor.svelte	526	313	46	167
+component	src/components/RichEditor.svelte	525	304	48	173
 component	src/components/RowMenu.svelte	128	72	49	7
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
@@ -259,7 +259,7 @@ function	src/components/RichEditor.svelte::pictures	3
 function	src/components/RichEditor.svelte::onpaste	7
 function	src/components/RichEditor.svelte::ondrop	14
 function	src/components/RichEditor.svelte::onkeydown	8
-function	src/components/RichEditor.svelte::placeBlock	16
+function	src/components/RichEditor.svelte::placeBlock	5
 function	src/components/RichEditor.svelte::onpointermove	8
 function	src/components/RichEditor.svelte::place	11
 function	src/components/RichEditor.svelte::setSize	14
@@ -386,6 +386,11 @@ function	src/lib/compose.ts::partsOf	8
 function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
 function	src/lib/compose/format.svelte.ts::weigh	4
+function	src/lib/compose/lockedBlock.test.ts::box	1
+function	src/lib/compose/lockedBlock.test.ts::onScreen	6
+function	src/lib/compose/lockedBlock.test.ts::barBox	1
+function	src/lib/compose/lockedBlock.ts::inSight	6
+function	src/lib/compose/lockedBlock.ts::placeLockedBlock	13
 function	src/lib/compose/sending.svelte.ts::makeOptions	34
 function	src/lib/compose/sending.svelte.ts::withPark	4
 function	src/lib/compose/sending.svelte.ts::makeContext	13
@@ -505,6 +510,9 @@ function	src/lib/list.svelte.ts::stale	42
 function	src/lib/list.svelte.ts::goingToWait	3
 function	src/lib/list.svelte.ts::withTail	6
 function	src/lib/list.test.ts::serve	3
+function	src/lib/list.test.ts::going	1
+function	src/lib/list.test.ts::folder	1
+function	src/lib/list.test.ts::storeWith	9
 function	src/lib/markdown/dialect.test.ts::tagsOf	33
 function	src/lib/markdown/dialect.ts::markdownSupport	3
 function	src/lib/markdown/field.test.ts::stateOf	3
@@ -531,6 +539,10 @@ function	src/lib/markdown/preview.ts::linkWords	4
 function	src/lib/markdown/preview.ts::inline	14
 function	src/lib/markdown/preview.ts::codeFences	8
 function	src/lib/markdown/preview.ts::underline	12
+function	src/lib/marks.ts::moment	13
+function	src/lib/marks.ts::groups	8
+function	src/lib/marks.ts::rowMarks	9
+function	src/lib/marks.ts::headerMarks	10
 function	src/lib/mdedit.test.ts::apply	3
 function	src/lib/mdedit.ts::wrapEdit	8
 function	src/lib/mdedit.ts::lineRange	5
