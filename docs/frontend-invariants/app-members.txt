@@ -6,6 +6,7 @@ activeCompose
 allowRemote
 archive
 busy
+checkFolderProps
 checkUpdates
 choose
 closeCompose
@@ -27,6 +28,7 @@ home
 init
 initWindow
 installUpdate
+labels
 listFilter
 listKey
 loadAccounts
@@ -64,6 +66,7 @@ selectedSize
 send
 serverRows
 serverSearching
+setLabel
 setSort
 setView
 settings
