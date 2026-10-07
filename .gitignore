@@ -3,6 +3,7 @@ node_modules
 dist/
 e2e/screens/
 src-tauri/gen/
+design/mockups/*/poll/*.png
 .openchamber/
 .playwright-mcp/
 .mcp.json
