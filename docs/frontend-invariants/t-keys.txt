@@ -21,6 +21,7 @@ account.signatures.heavy
 account.signatures.hint
 account.signatures.isDefault
 account.signatures.makeDefault
+account.signatures.makeReplyDefault
 account.signatures.menu
 account.signatures.name
 account.signatures.newName

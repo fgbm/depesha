@@ -347,6 +347,7 @@ mod tests {
             signature: String::new(),
             signatures: Vec::new(),
             default_signature: None,
+            reply_signature: None,
             compose_format: None,
             attachments_dir: String::new(),
             auth: Default::default(),

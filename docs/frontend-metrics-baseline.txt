@@ -2,7 +2,7 @@ component	src/App.svelte	290	191	53	46
 component	src/MessageWindow.svelte	95	69	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
-component	src/components/Compose.svelte	833	199	207	427
+component	src/components/Compose.svelte	859	199	207	453
 component	src/components/Confirm.svelte	95	30	17	48
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -22,7 +22,7 @@ component	src/components/Preferences.svelte	411	180	52	179
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	317	117	97	103
 component	src/components/Recipients.svelte	70	28	20	22
-component	src/components/RichEditor.svelte	523	313	46	164
+component	src/components/RichEditor.svelte	526	313	46	167
 component	src/components/RowMenu.svelte	128	72	49	7
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
@@ -45,7 +45,7 @@ component	src/components/account/GeneralSection.svelte	42	14	12	16
 component	src/components/account/LettersSection.svelte	11	7	4	0
 component	src/components/account/ServerSection.svelte	362	42	82	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
-component	src/components/account/SignaturesField.svelte	257	108	51	98
+component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
@@ -292,7 +292,7 @@ function	src/components/account/SignatureEditor.svelte::fromClipboard	6
 function	src/components/account/SignatureEditor.svelte::shrink	17
 function	src/components/account/SignatureEditor.svelte::onKey	11
 function	src/components/account/SignaturesField.svelte::current	3
-function	src/components/account/SignaturesField.svelte::apply	4
+function	src/components/account/SignaturesField.svelte::apply	5
 function	src/components/account/SignaturesField.svelte::add	7
 function	src/components/account/SignaturesField.svelte::edit	8
 function	src/components/account/SignaturesField.svelte::remove	8
@@ -577,7 +577,7 @@ function	src/lib/signatures.ts::signatureText	3
 function	src/lib/signatures.ts::previewLine	7
 function	src/lib/signatures.ts::newSignatureId	5
 function	src/lib/signatures.ts::addSignature	5
-function	src/lib/signatures.ts::removeSignature	5
+function	src/lib/signatures.ts::removeSignature	6
 function	src/lib/signatures.ts::moveSignature	8
 function	src/lib/signatures.ts::sigBlock	4
 function	src/lib/signatures.ts::sigHtml	4
@@ -607,6 +607,8 @@ function	src/lib/sort.ts::compareRows	14
 function	src/lib/store.test.ts::acc	2
 function	src/lib/store.test.ts::accWith	7
 function	src/lib/store.test.ts::typing	9
+function	src/lib/store.test.ts::noAnimation	5
+function	src/lib/store.test.ts::caret	21
 function	src/lib/testing.ts::emit	5
 function	src/lib/testing.ts::settings	28
 function	src/lib/testing.ts::resetFakes	23

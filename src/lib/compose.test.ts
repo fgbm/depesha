@@ -14,7 +14,7 @@ import {
   splitQuote,
   takeBodyPictures,
 } from "./compose";
-import { putSignatureHtml, putSignatureText, sigHtml, withSignature } from "./signatures";
+import { putSignatureHtml, putSignatureText, replySignature, sigHtml, withSignature } from "./signatures";
 import { htmlLetterText, htmlToText, splitHtmlQuote } from "./richtext";
 import { linkify, parseAddr, pluralRu } from "./format";
 import type { OpenedMessage, Signature } from "./types";
@@ -202,6 +202,27 @@ describe("signature", () => {
     const d = withSignature(emptyDraft(me), sig("Иван"));
     expect(isDirty(d)).toBe(false);
     expect(isDirty({ ...d, text: "Привет" + d.text })).toBe(true);
+  });
+
+  it("a reply and a forward take the reply signature, a new letter the plain one", () => {
+    const box = {
+      signatures: [sig("Общая"), sig("Ответная")],
+      default_signature: "Общая",
+      reply_signature: "Ответная",
+    };
+    const r = withSignature(reply(msg(), me, false), replySignature(box));
+    expect(r.text).toContain("-- \nОтветная");
+    expect(r.text).not.toContain("Общая");
+    expect(r.text.indexOf("Ответная")).toBeLessThan(r.text.indexOf("пишет:"));
+    const f = withSignature(forward(msg(), me), replySignature(box));
+    expect(f.text).toContain("-- \nОтветная");
+    expect(f.text.indexOf("Ответная")).toBeLessThan(f.text.indexOf("Пересылаемое"));
+    // A new letter keeps the plain default, not the reply one.
+    const n = withSignature(emptyDraft(me), sig("Общая"));
+    expect(n.text).toBe("\n\n-- \nОбщая");
+    // With no reply signature set, replies fall back to the plain default.
+    const plain = withSignature(reply(msg(), me, false), replySignature({ ...box, reply_signature: null }));
+    expect(plain.text).toContain("-- \nОбщая");
   });
 });
 

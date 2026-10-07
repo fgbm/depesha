@@ -20,6 +20,18 @@ export function defaultSignature(acc: Pick<Account, "signatures" | "default_sign
   return signaturesOf(acc).find((s) => s.id === acc.default_signature) ?? null;
 }
 
+/**
+ * The signature replies and forwards of the mailbox get: the reply one when it is set,
+ * else the plain default (the behaviour before replies had one of their own). A reply
+ * signature that is gone reads as "not set", so a removed signature never breaks a choice.
+ */
+export function replySignature(
+  acc: Pick<Account, "signatures" | "default_signature" | "reply_signature"> | undefined | null,
+): Signature | null {
+  if (!acc?.reply_signature) return defaultSignature(acc);
+  return signaturesOf(acc).find((s) => s.id === acc.reply_signature) ?? defaultSignature(acc);
+}
+
 /** What the pictures of a signature weigh: they go with every letter. */
 export function signatureSize(html: string): number {
   return picturesSize(html);
@@ -53,24 +65,30 @@ export function newSignatureId(list: Signature[]): string {
   return `s${n}`;
 }
 
-/** The list and its default after one change. */
+/** The list and its two defaults after one change. */
 export interface SignatureList {
   list: Signature[];
   defaultId: string | null;
+  /** The id replies and forwards get; none takes `defaultId`. */
+  replyId: string | null;
 }
 
 /** A new empty signature at the end; the only one is the default. */
 export function addSignature(state: SignatureList, name: string): SignatureList & { id: string } {
   const id = newSignatureId(state.list);
   const list = [...state.list, { id, name, html: "", text: "" }];
-  return { list, defaultId: state.defaultId ?? id, id };
+  return { list, defaultId: state.defaultId ?? id, replyId: state.replyId, id };
 }
 
-/** Takes one away; when it was the default, the first one left becomes it. */
+/**
+ * Takes one away; when it was the default, the first one left becomes it. A reply
+ * signature that is gone becomes "not set", so replies fall back to the plain default.
+ */
 export function removeSignature(state: SignatureList, id: string): SignatureList {
   const list = state.list.filter((s) => s.id !== id);
   const defaultId = state.defaultId === id || !list.some((s) => s.id === state.defaultId) ? (list[0]?.id ?? null) : state.defaultId;
-  return { list, defaultId };
+  const replyId = list.some((s) => s.id === state.replyId) ? state.replyId : null;
+  return { list, defaultId, replyId };
 }
 
 /** Moves one up (-1) or down (+1); at an end it stays. */

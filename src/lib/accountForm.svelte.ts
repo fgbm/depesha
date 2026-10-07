@@ -71,9 +71,11 @@ export class AccountForm {
   imap = $state<ServerConfig>({ host: "", port: 993, security: "tls" });
   smtp = $state<ServerConfig>({ host: "", port: 587, security: "starttls" });
   saveSent = $state(true);
-  /** The mailbox's signatures in order, and the id of the default one (lib/signatures.ts). */
+  /** The mailbox's signatures in order, and the ids of the default one for new letters
+   * and for replies and forwards (lib/signatures.ts). */
   signatures = $state<Signature[]>([]);
   defaultSignature = $state<string | null>(null);
+  replySignature = $state<string | null>(null);
   /** How new letters from this mailbox are written; "" takes the format from the settings. */
   composeFormat = $state<BodyFormat | "">("");
   attachmentsDir = $state("");
@@ -119,6 +121,7 @@ export class AccountForm {
       this.saveSent = e.save_sent_copy;
       this.signatures = (e.signatures ?? []).map((s) => ({ ...s }));
       this.defaultSignature = e.default_signature ?? null;
+      this.replySignature = e.reply_signature ?? null;
       this.composeFormat = e.compose_format ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
       this.quotaWarn = e.quota_warn !== false;
@@ -302,6 +305,7 @@ export class AccountForm {
       save_sent_copy: this.mode === "ews" ? false : this.saveSent,
       signatures: this.signatures.map((s) => ({ ...s })),
       default_signature: this.defaultSignature,
+      reply_signature: this.replySignature,
       attachments_dir: this.attachmentsDir.trim(),
       quota_warn: this.quotaWarn,
       quota_limit_mb: limitMb(this.quotaLimitGb),

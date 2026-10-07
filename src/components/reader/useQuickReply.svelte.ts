@@ -9,7 +9,7 @@ import { untrack } from "svelte";
 import { api } from "../../lib/api";
 import { app } from "../../lib/store.svelte";
 import { formatFor, reply } from "../../lib/compose";
-import { defaultSignature, withSignature } from "../../lib/signatures";
+import { replySignature, withSignature } from "../../lib/signatures";
 import { htmlLetterText, paragraphsHtml } from "../../lib/richtext";
 import { sendWarnings } from "../../lib/sendChecks";
 import type { ComposeDraft } from "../../lib/types";
@@ -79,7 +79,7 @@ export class QuickReplyState {
     if (!msg || !account) return;
     const me = { name: account.display_name, email: account.email };
     // No format switch here: the answer goes in the mailbox's format.
-    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), defaultSignature(account));
+    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), replySignature(account));
     this.quick = { account_id: account.id, email: account.email, draft, all, to: msg.row.id };
     queueMicrotask(() => this.box?.focus());
   }
@@ -90,7 +90,7 @@ export class QuickReplyState {
     const account = this.account;
     if (!msg || !account || !this.quick) return;
     const me = { name: account.display_name, email: account.email };
-    this.quick = { ...this.quick, all, draft: withSignature(reply(msg, me, all, this.quick.draft.format), defaultSignature(account)) };
+    this.quick = { ...this.quick, all, draft: withSignature(reply(msg, me, all, this.quick.draft.format), replySignature(account)) };
     this.box?.focus();
   }
 

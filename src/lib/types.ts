@@ -36,6 +36,8 @@ export interface Account {
   signatures?: Signature[];
   /** The id of the signature new letters get; absent puts none. */
   default_signature?: string | null;
+  /** The id of the signature replies and forwards get; absent takes `default_signature`. */
+  reply_signature?: string | null;
   /** How new letters from this mailbox are written; absent takes the settings' format. */
   compose_format?: BodyFormat | null;
   /** Where this mailbox's attachments are saved without asking; empty takes the settings' folder. */

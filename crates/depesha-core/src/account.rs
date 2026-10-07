@@ -61,9 +61,13 @@ pub struct Account {
     /// The mailbox's signatures, in the user's order; none is fine.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signatures: Vec<Signature>,
-    /// The id of the signature new letters, replies and forwards get; none puts none.
+    /// The id of the signature new letters get; none puts none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_signature: Option<String>,
+    /// The id of the signature replies and forwards get; none takes `default_signature`.
+    /// Added after 0.6.3: absent in older configs, which read as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_signature: Option<String>,
     /// How new letters from this mailbox are written; none takes the format from the settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compose_format: Option<crate::smtp::BodyFormat>,
@@ -410,6 +414,20 @@ mod tests {
             back.contains(r#""auth":{"kind":"oauth","provider":"yandex"}"#),
             "{back}"
         );
+    }
+
+    #[test]
+    fn old_accounts_have_no_reply_signature() {
+        // A config saved before replies had their own signature: the field is absent and
+        // reads as none, and nothing of it is written back.
+        let json = r#"{"id":"a","display_name":"A","email":"a@b.ru","username":"a",
+            "imap":{"host":"h","port":993,"security":"tls"},"smtp":{"host":"h","port":587,"security":"starttls"},
+            "signatures":[{"id":"x","name":"S","html":"<b>S</b>","text":"S"}],"default_signature":"x"}"#;
+        let a: Account = serde_json::from_str(json).unwrap();
+        assert!(a.reply_signature.is_none());
+        assert_eq!(a.default_signature.as_deref(), Some("x"));
+        let back = serde_json::to_string(&a).unwrap();
+        assert!(!back.contains("reply_signature"), "{back}");
     }
 
     #[test]

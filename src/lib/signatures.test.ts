@@ -12,6 +12,7 @@ import {
   putSignatureHtml,
   putSignatureText,
   removeSignature,
+  replySignature,
   signatureIn,
   signatureText,
   splitPlain,
@@ -62,20 +63,31 @@ describe("the list in the settings", () => {
     expect(defaultSignature(undefined)).toBeNull();
   });
 
+  it("a reply signature is its own when set, else the plain default", () => {
+    expect(replySignature(workBox)?.id).toBe("w");
+    expect(replySignature({ ...workBox, reply_signature: "s" })?.id).toBe("s");
+    // A gone reply signature reads as "not set": the plain default comes back.
+    expect(replySignature({ ...workBox, reply_signature: "gone" })?.id).toBe("w");
+    expect(replySignature({ ...workBox, reply_signature: "gone", default_signature: null })).toBeNull();
+    expect(replySignature(undefined)).toBeNull();
+    expect(replySignature({ signatures: [work], reply_signature: "w" })?.id).toBe("w");
+  });
+
   it("the first one added becomes the default; later ones do not", () => {
-    const one = addSignature({ list: [], defaultId: null }, "Подпись 1");
+    const one = addSignature({ list: [], defaultId: null, replyId: null }, "Подпись 1");
     expect(one.defaultId).toBe(one.id);
     const two = addSignature(one, "Подпись 2");
     expect(two.list.map((s) => s.name)).toEqual(["Подпись 1", "Подпись 2"]);
     expect(two.defaultId).toBe(one.id);
+    expect(two.replyId).toBeNull();
     expect(new Set(two.list.map((s) => s.id)).size).toBe(2);
   });
 
   it("deleting the default makes the first one left the default; deleting all leaves none", () => {
-    const state = { list: [work, short, personal], defaultId: "s" };
-    expect(removeSignature(state, "s")).toEqual({ list: [work, personal], defaultId: "w" });
-    expect(removeSignature(state, "p").defaultId).toBe("s");
-    expect(removeSignature({ list: [work], defaultId: "w" }, "w")).toEqual({ list: [], defaultId: null });
+    const state = { list: [work, short, personal], defaultId: "s", replyId: "p" };
+    expect(removeSignature(state, "s")).toEqual({ list: [work, personal], defaultId: "w", replyId: "p" });
+    expect(removeSignature(state, "p").replyId).toBeNull();
+    expect(removeSignature({ list: [work], defaultId: "w", replyId: "w" }, "w")).toEqual({ list: [], defaultId: null, replyId: null });
   });
 
   it("moves up and down, and stays at the ends", () => {

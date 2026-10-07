@@ -5,7 +5,7 @@ import { api } from "./api";
 import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
 import { emptyDraft, formatFor, forward, isForward, reply } from "./compose";
-import { defaultSignature, withSignature } from "./signatures";
+import { defaultSignature, replySignature, withSignature } from "./signatures";
 import { dropPlan, offersZones, type DropZone } from "./images";
 import type { Account, AccountView, AttachmentSource, ComposeDraft, FollowupPlan, OpenedMessage, OutboxItem, Settings } from "./types";
 
@@ -84,7 +84,7 @@ export class ComposeManager {
       (c) => c.draft.in_reply_to && c.draft.in_reply_to === msg.view.summary.message_id && !isForward(c.draft.subject),
     );
     if (same) return this.show(same.id);
-    const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all, this.format(acc)), defaultSignature(acc));
+    const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all, this.format(acc)), replySignature(acc));
     this.open({ account_id: acc.id, draft, draft_id: null });
   }
 
@@ -92,7 +92,7 @@ export class ComposeManager {
     const msg = this.host.opened;
     const acc = msg && this.host.account(msg.row.account_id);
     if (!msg || !acc) return;
-    const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }, this.format(acc)), defaultSignature(acc));
+    const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }, this.format(acc)), replySignature(acc));
     this.open({ account_id: acc.id, draft, draft_id: null });
   }
 

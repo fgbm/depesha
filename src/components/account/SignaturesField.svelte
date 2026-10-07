@@ -22,12 +22,13 @@
   let box = $state<HTMLElement | null>(null);
 
   function current(): SignatureList {
-    return { list: form.signatures, defaultId: form.defaultSignature };
+    return { list: form.signatures, defaultId: form.defaultSignature, replyId: form.replySignature };
   }
 
   function apply(next: SignatureList) {
     form.signatures = next.list;
     form.defaultSignature = next.defaultId;
+    form.replySignature = next.replyId;
   }
 
   async function add() {
@@ -139,6 +140,7 @@
               <button class="mi" onclick={() => edit(sig.id)}>{t("account.signatures.edit")}<span class="hint">Enter</span></button>
               <button class="mi" onclick={() => edit(sig.id, true)}>{t("account.signatures.rename")}<span class="hint">F2</span></button>
               <button class="mi" disabled={form.defaultSignature === sig.id} onclick={() => { menu = null; form.defaultSignature = sig.id; }}>{t("account.signatures.makeDefault")}</button>
+              <button class="mi" disabled={form.replySignature === sig.id} onclick={() => { menu = null; form.replySignature = sig.id; }}>{t("account.signatures.makeReplyDefault")}</button>
               <hr />
               <button class="mi" disabled={i === 0} onclick={() => move(sig.id, -1)}>{t("account.signatures.up")}<span class="hint">Alt+↑</span></button>
               <button class="mi" disabled={i === form.signatures.length - 1} onclick={() => move(sig.id, 1)}>{t("account.signatures.down")}<span class="hint">Alt+↓</span></button>
