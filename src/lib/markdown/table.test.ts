@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  alignMark,
   alignOf,
   cellOffset,
   deleteColumn,
@@ -42,9 +41,9 @@ describe("the table of a Markdown letter", () => {
     expect(alignOf(":---:")).toBe("center");
     expect(alignOf("---:")).toBe("right");
     expect(alignOf("---")).toBe("left");
-    expect(alignMark("left")).toBe("---");
-    expect(alignMark("center")).toBe(":---:");
-    expect(alignMark("right")).toBe("---:");
+    expect(tableSource(parseTable("| a | b | c |\n| --- | :-: | ---: |\n| 1 | 2 | 3 |\n")!).split("\n")[1]).toBe(
+      "| --- | :-: | --: |",
+    );
   });
 
   it("writes the table back, columns padded and alignment kept", () => {

@@ -30,11 +30,6 @@ export function alignOf(cell: string): Align {
   return "left";
 }
 
-/** The separator cell for an alignment, wide as the column's own cell. */
-export function alignMark(align: Align): string {
-  return align === "center" ? ":---:" : align === "right" ? "---:" : "---";
-}
-
 /** A separator cell of a given width: the dashes padded to it, its colons at the ends. */
 function separator(align: Align, width: number): string {
   const n = Math.max(MIN_WIDTH, width);
@@ -186,23 +181,4 @@ export function cellOffset(t: Table, row: number, col: number): number {
   let p = at + 1; // past the leading bar
   for (let c = 0; c < col; c++) p = lines[line].indexOf("|", p) + 1;
   return p + 1; // past the space the cell opens with
-}
-
-/** Which cell a place in the source stands in, its row (-1 the header), column and where
- *  its text starts. Null outside the table's cells (the separator row, the bars). */
-export function cellAtOffset(t: Table, offset: number): { row: number; col: number; at: number } | null {
-  const rows = t.rows.length + 1;
-  for (let r = -1; r < rows - 1; r++) {
-    for (let c = 0; c < t.head.length; c++) {
-      const at = cellOffset(t, r, c);
-      const value = (r < 0 ? t.head : t.rows[r])[c];
-      if (offset >= at && offset <= at + value.length) return { row: r, col: c, at };
-    }
-  }
-  return null;
-}
-
-/** The lines of the table's source, as the editor holds them (with the trailing newline). */
-export function tableLines(t: Table): string[] {
-  return tableSource(t).split("\n").slice(0, -1);
 }

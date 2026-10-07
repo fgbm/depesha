@@ -571,7 +571,6 @@ function	src/lib/markdown/preview.ts::tokens	15
 function	src/lib/markdown/preview.ts::underline	12
 function	src/lib/markdown/table.ts::cellsOf	4
 function	src/lib/markdown/table.ts::alignOf	6
-function	src/lib/markdown/table.ts::alignMark	3
 function	src/lib/markdown/table.ts::separator	6
 function	src/lib/markdown/table.ts::parseTable	11
 function	src/lib/markdown/table.ts::pad	5
@@ -589,11 +588,9 @@ function	src/lib/markdown/table.ts::moveColumn	12
 function	src/lib/markdown/table.ts::setAlign	5
 function	src/lib/markdown/table.ts::moveCell	7
 function	src/lib/markdown/table.ts::cellOffset	9
-function	src/lib/markdown/table.ts::cellAtOffset	11
-function	src/lib/markdown/table.ts::tableLines	3
 function	src/lib/markdown/tableWidget.ts::openMenu	34
 function	src/lib/markdown/tableWidget.ts::cellOf	7
-function	src/lib/markdown/tableWidget.ts::step	39
+function	src/lib/markdown/tableWidget.ts::step	38
 function	src/lib/markdown/tableWidget.ts::drop	29
 function	src/lib/markdown/tableWidget.ts::up	15
 function	src/lib/markdown/tableWidget.ts::corner	5

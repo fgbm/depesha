@@ -12,7 +12,7 @@
 import { EditorView, WidgetType } from "@codemirror/view";
 import { t } from "../i18n.svelte";
 import type { Table } from "./table";
-import { deleteColumn, deleteRow, insertColumn, insertRow, moveColumn, moveRow, parseTable, setAlign, tableSource } from "./table";
+import { deleteColumn, deleteRow, insertColumn, insertRow, moveCell, moveColumn, moveRow, parseTable, setAlign, tableSource } from "./table";
 
 /** The menu a grip opens, floating over the window. */
 function openMenu(anchor: HTMLElement, items: MenuItem[]) {
@@ -272,20 +272,18 @@ export class TableView extends WidgetType {
   }
 
   private cellKey(view: EditorView, root: HTMLElement, e: KeyboardEvent, r: number, c: number) {
-    const cols = this.parsed.head.length;
     const rows = this.parsed.rows.length;
     const step = (row: number, col: number) => this.focusCell(root, view, row, col);
     if (e.key === "Tab") {
       // Shift+Tab and Tab step through the cells; the last cell grows a row.
       e.preventDefault();
-      const forward = !e.shiftKey;
-      if (forward && r === rows - 1 && c === cols - 1) {
+      const back = e.shiftKey;
+      if (!back && r === rows - 1 && c === this.parsed.head.length - 1) {
         const next = insertRow(this.sync(root), rows - 1, "below");
         return this.write(view, root, next, { row: next.rows.length - 1, col: 0 });
       }
-      const at = (r + 1) * cols + c + (forward ? 1 : -1);
-      if (at < 0 || at >= (rows + 1) * cols) return;
-      step(Math.floor(at / cols) - 1, at % cols);
+      const at = moveCell(this.parsed, r, c, back);
+      if (at) step(at.row, at.col);
     } else if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       // Enter goes to the cell below, growing the table at its last row.
       e.preventDefault();
