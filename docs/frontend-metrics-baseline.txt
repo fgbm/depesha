@@ -1,4 +1,4 @@
-component	src/App.svelte	300	201	53	46
+component	src/App.svelte	309	202	61	46
 component	src/MessageWindow.svelte	96	70	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
@@ -6,7 +6,7 @@ component	src/components/Compose.svelte	915	217	245	453
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
-component	src/components/FolderMenu.svelte	122	76	35	11
+component	src/components/FolderMenu.svelte	145	86	42	17
 component	src/components/FolderPicker.svelte	40	18	11	11
 component	src/components/FormatBar.svelte	433	267	80	86
 component	src/components/Keys.svelte	70	16	9	45
@@ -15,7 +15,7 @@ component	src/components/LetterViewSwitch.svelte	72	10	12	50
 component	src/components/MailFrame.svelte	161	119	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	610	163	105	342
+component	src/components/MessageList.svelte	676	187	111	378
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
@@ -25,7 +25,7 @@ component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	318	118	97	103
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
-component	src/components/RowMenu.svelte	129	73	49	7
+component	src/components/RowMenu.svelte	259	134	75	50
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
@@ -42,16 +42,18 @@ component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	65	7	16	42
 component	src/components/account/ConnectionBlock.svelte	117	14	17	86
 component	src/components/account/ConnectionFields.svelte	189	10	60	119
+component	src/components/account/FoldersTable.svelte	186	53	34	99
 component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	42	14	12	16
 component	src/components/account/LettersSection.svelte	14	9	5	0
-component	src/components/account/ServerSection.svelte	362	42	82	238
+component	src/components/account/ServerSection.svelte	368	46	84	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
+component	src/components/prefs/FolderProps.svelte	413	19	177	217
 component	src/components/prefs/GeneralPanel.svelte	252	26	69	157
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
 component	src/components/prefs/MailPanel.svelte	204	17	118	69
@@ -67,11 +69,11 @@ component	src/components/reader/ReplyActions.svelte	66	20	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
 component	src/components/sidebar/FavouriteRow.svelte	56	34	22	0
 component	src/components/sidebar/Favourites.svelte	27	11	11	5
-component	src/components/sidebar/FolderRow.svelte	87	8	79	0
+component	src/components/sidebar/FolderRow.svelte	104	8	96	0
 component	src/components/sidebar/Problem.svelte	39	14	25	0
 component	src/components/sidebar/SidebarFolded.svelte	115	33	82	0
 component	src/components/sidebar/SidebarFull.svelte	104	33	71	0
-component	src/components/sidebar/SidebarTree.svelte	20	15	5	0
+component	src/components/sidebar/SidebarTree.svelte	44	25	19	0
 component	src/components/sidebar/SmartSections.svelte	75	25	50	0
 component	src/components/sidebar/TasksButton.svelte	18	12	6	0
 component	src/components/viewer/CsvView.svelte	83	28	19	36
@@ -218,6 +220,7 @@ function	src/components/MailFrame.test.ts::srcdoc	7
 function	src/components/MarkdownPartsNote.svelte::onWindowDown	3
 function	src/components/MarkdownPartsNote.svelte::onKey	6
 function	src/components/MessageList.svelte::tagsOf	3
+function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
 function	src/components/MessageList.svelte::click	8
 function	src/components/MessageList.svelte::context	7
@@ -278,6 +281,9 @@ function	src/components/RichEditor.svelte::onpointermove	8
 function	src/components/RichEditor.svelte::place	11
 function	src/components/RichEditor.svelte::setSize	14
 function	src/components/RichEditor.svelte::removePicked	5
+function	src/components/RowMenu.svelte::labelState	4
+function	src/components/RowMenu.svelte::toggleLabel	4
+function	src/components/RowMenu.svelte::addLabel	7
 function	src/components/RowMenu.svelte::run	4
 function	src/components/RowMenu.svelte::withOpened	7
 function	src/components/RowMenu.svelte::fromSender	4
@@ -311,6 +317,10 @@ function	src/components/Viewer.svelte::onKey	18
 function	src/components/account/AccountPage.svelte::track	6
 function	src/components/account/AccountPage.svelte::go	4
 function	src/components/account/AccountPage.svelte::scrollTo	5
+function	src/components/account/FoldersTable.svelte::access	8
+function	src/components/account/FoldersTable.svelte::labelsOf	10
+function	src/components/account/FoldersTable.svelte::ownerText	6
+function	src/components/account/FoldersTable.svelte::open	3
 function	src/components/account/ServerSection.svelte::copy	5
 function	src/components/account/SignatureEditor.svelte::setHtml	4
 function	src/components/account/SignatureEditor.svelte::addPictures	6
@@ -333,6 +343,9 @@ function	src/components/account/StorageSection.svelte::useOwn	4
 function	src/components/account/StorageSection.svelte::findLarge	5
 function	src/components/account/StorageSection.svelte::openTrash	6
 function	src/components/account/sections.ts::sectionsFor	3
+function	src/components/prefs/FolderProps.svelte::rightsLetters	16
+function	src/components/prefs/FolderProps.svelte::runCheck	9
+function	src/components/prefs/FolderProps.svelte::pos	8
 function	src/components/prefs/GeneralPanel.svelte::choose	4
 function	src/components/prefs/KeysPanel.svelte::pluginName	4
 function	src/components/prefs/KeysPanel.svelte::problemText	3
@@ -535,6 +548,18 @@ function	src/lib/keymap.ts::canSwap	5
 function	src/lib/keymap.ts::swap	6
 function	src/lib/keymap.ts::removeKey	5
 function	src/lib/keymap.ts::matches	9
+function	src/lib/labels.test.ts::rights	18
+function	src/lib/labels.test.ts::folder	13
+function	src/lib/labels.ts::keywordForName	17
+function	src/lib/labels.ts::actionsOf	3
+function	src/lib/labels.ts::readOnly	15
+function	src/lib/labels.ts::under	3
+function	src/lib/labels.ts::ownerOf	10
+function	src/lib/labels.ts::groupFolders	18
+function	src/lib/labels.ts::labelChips	11
+function	src/lib/labels.ts::labelNames	4
+function	src/lib/labels.ts::refusalOf	7
+function	src/lib/labels.ts::storageOf	5
 function	src/lib/largeMail.ts::folderOperator	4
 function	src/lib/largeMail.ts::readyQueries	15
 function	src/lib/largeMail.ts::threshold	3
@@ -724,6 +749,7 @@ function	src/lib/serverFeatures.ts::protocol	3
 function	src/lib/serverFeatures.ts::features	54
 function	src/lib/serverFeatures.ts::grouped	7
 function	src/lib/serverFeatures.ts::unknown	4
+function	src/lib/serverFeatures.ts::labelsRow	21
 function	src/lib/serverFeatures.ts::needsAttention	4
 function	src/lib/serverFeatures.ts::summary	9
 function	src/lib/serverFeatures.ts::report	9
