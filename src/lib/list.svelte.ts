@@ -35,6 +35,8 @@ export interface ListHost {
   track<T>(p: Promise<T>): Promise<T>;
   /** Letters the reader shows now (the open one, its conversation): the list holds on to their marks. */
   showing(): number[];
+  /** Rows the user is on: the selection and the open letter. */
+  using(): number[];
   /** The list was read again and now holds `ids`: the selection and the open letter follow it. */
   listed(ids: Set<number>, search: boolean): Promise<void>;
 }
@@ -201,12 +203,13 @@ export class ListController {
         q.limit = topOnly ? Math.min(want, RELOAD_CAP) : want;
         const rows = await api.messages(q);
         if (stale()) return;
+        const before = this.messages;
         if (rows.length < q.limit || q.limit === want) {
-          this.messages = this.visible(rows);
+          this.messages = this.held(before, this.visible(rows));
           this.exhausted = rows.length < want;
         } else {
           // Only the top was read: the rows loaded below it stay as they are.
-          this.messages = this.visible(withTail(rows, this.messages));
+          this.messages = this.held(before, this.visible(withTail(rows, this.messages)));
         }
       }
       // Marks of rows no longer in the view go; the open letter and rows on their way out keep theirs.
@@ -322,7 +325,31 @@ export class ListController {
 
   /** Rows as the list shows them: without the ones on their way out. */
   private visible(rows: MessageRow[]): MessageRow[] {
-    return this.leaving.size ? rows.filter((m) => !this.leaving.has(m.id)) : rows;
+    const using = new Set(this.host.using());
+    const queue = this.inboxLike();
+    return rows.filter((m) => !this.leaving.has(m.id) && !(queue && goingToWait(m) && !using.has(m.id)));
+  }
+
+  /**
+   * A letter going to "Waiting for reply" stays under the hand while the user is on it,
+   * even once the server has moved it (ux.md, 7): it is put back where it was.
+   */
+  private held(before: MessageRow[], rows: MessageRow[]): MessageRow[] {
+    if (!this.inboxLike()) return rows;
+    const using = new Set(this.host.using());
+    const have = new Set(rows.map((m) => m.id));
+    const out = [...rows];
+    before.forEach((m, i) => {
+      if (using.has(m.id) && !have.has(m.id) && goingToWait(m) && !this.leaving.has(m.id)) out.splice(Math.min(i, out.length), 0, m);
+    });
+    return out;
+  }
+
+  /** The user left the rows going to wait: they go now, the ones in `keep` stay. */
+  collapse(keep: Set<number>) {
+    if (!this.inboxLike()) return;
+    const next = this.messages.filter((m) => keep.has(m.id) || !goingToWait(m));
+    if (next.length !== this.messages.length) this.messages = next;
   }
 
   /** Appends a page: the cache's offsets count the hidden rows, so one may come twice. */
@@ -330,6 +357,11 @@ export class ListController {
     const have = new Set(this.messages.map((m) => m.id));
     return [...this.messages, ...this.visible(rows).filter((m) => !have.has(m.id))];
   }
+}
+
+/** Its answer takes the letter to "Waiting for reply" now: not a letter sent later. */
+export function goingToWait(m: MessageRow): boolean {
+  return (!!m.outgoing?.park && !m.outgoing.scheduled) || (m.followup?.status === "waiting" && m.followup.park === "pending");
 }
 
 /**

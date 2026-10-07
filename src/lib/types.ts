@@ -48,6 +48,18 @@ export interface Account {
   quota_warn?: boolean;
   /** The mailbox's own limit for the warnings, in MB; 0 or none takes the server's quota. */
   quota_limit_mb?: number;
+  /** The inbox as a queue: absent is off. */
+  waiting?: Waiting;
+}
+
+/** What an answer does with a letter of the inbox (#59). */
+export interface Waiting {
+  /** An answer takes the letter, with its conversation, to the folder until the reply comes. */
+  park: boolean;
+  /** The folder as the cache names it; empty: "Waiting for reply", made at the first answer. */
+  folder: string;
+  /** "Stop waiting" takes the letters to the archive instead of back to the inbox. */
+  stop_to_archive: boolean;
 }
 
 /** A signature of a mailbox: under the letter in a block of its own, put in whole. */
@@ -144,6 +156,41 @@ export interface Flags {
   flagged: boolean;
   draft: boolean;
   deleted: boolean;
+  /** Forwarded, by the server's word (`$Forwarded`, Exchange's last verb). */
+  forwarded?: boolean;
+  /** Answered to all: only Exchange tells it. */
+  answered_all?: boolean;
+}
+
+/** What a letter does with the one it was written from. */
+export type Act = "reply" | "reply_all" | "forward";
+
+/** One thing done with a letter: when Depesha did it, or `null` when only the server says so. */
+export interface Mark {
+  act: Act;
+  at: number | null;
+}
+
+/** An answer or forward of the letter waiting in the outbox. */
+export interface Outgoing {
+  act: Act;
+  /** When it leaves. */
+  at: number;
+  /** It takes the letter to wait for a reply. */
+  park: boolean;
+  /** Sent later at a chosen time: nothing is done yet. */
+  scheduled: boolean;
+}
+
+/** The letter an answer or a forward is written from. */
+export interface ActsOn {
+  account_id: string;
+  message_id: string;
+  /** Where it was when the answer was written. */
+  folder: string;
+  act: Act;
+  /** It waits for a reply in the folder already. */
+  waiting: boolean;
 }
 
 export interface MessageRow {
@@ -180,6 +227,14 @@ export interface MessageRow {
   followup_due: number | null;
   /** The wait for an answer to this letter, also when it is over. */
   followup?: FollowupInfo | null;
+  /** What was done with the letter: answered, answered to all, forwarded. */
+  marks?: Mark[];
+  /** My latest answer to it, when it is in the cache. */
+  my_answer?: number | null;
+  /** An answer or forward of it waiting in the outbox. */
+  outgoing?: Outgoing | null;
+  /** Back from waiting with the reply and not opened since (for a conversation: any letter of it). */
+  answer_came?: boolean;
 }
 
 /** Overdue is a waiting one past its deadline. */
@@ -206,6 +261,13 @@ export interface FollowupInfo {
   answer: number | null;
   /** When the reminders came, oldest first. */
   reminded: number[];
+  /** When the letter waited for went. */
+  sent: number;
+  /** Where the letters answered are: "" none moved, "pending" still in the inbox, "parked" in the folder, "back"/"undo" on their way back, "returned" back with the reply, "done". */
+  park: string;
+  park_folder: string;
+  /** The latest auto-reply or newsletter that answered and did not count. */
+  auto_reply: number | null;
 }
 
 /** What a wait asks besides its first reminder; sent with the letter. */
@@ -219,6 +281,8 @@ export interface FollowupPlan {
   repeat_secs: number;
   expect: string;
   kind: string;
+  /** An answer takes its letter to wait in the folder; absent: as the mailbox says. */
+  park?: boolean | null;
 }
 
 export interface Unsubscribe {
@@ -314,7 +378,7 @@ export interface Pin {
   flagged: boolean;
 }
 
-export type FlagChange = { flag: "seen" | "flagged" | "answered"; value: boolean };
+export type FlagChange = { flag: "seen" | "flagged" | "answered" | "answered_all" | "forwarded"; value: boolean };
 
 export type AttachmentSource =
   | { kind: "file"; path: string; name: string; size: number }
@@ -340,6 +404,8 @@ export interface ComposeDraft {
   attachments: AttachmentSource[];
   /** Scheduled sending time, unix seconds: it stays with the draft until sent or cancelled. */
   send_at?: number | null;
+  /** The letter this one answers or forwards; absent for a new one. */
+  acts_on?: ActsOn | null;
 }
 
 export interface OutboxItem {

@@ -6,7 +6,7 @@ import { app } from "./store.svelte";
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
 import { connectionChanged } from "./connection";
-import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig, Signature } from "./types";
+import type { Account, BodyFormat, CmdError, OAuthProvider, OAuthProviderView, Security, ServerConfig, Signature, Waiting } from "./types";
 
 const DEFAULT_PORT: Record<"imap" | "smtp", Record<Security, number>> = {
   imap: { tls: 993, starttls: 143, plain: 143 },
@@ -79,6 +79,8 @@ export class AccountForm {
   /** How new letters from this mailbox are written; "" takes the format from the settings. */
   composeFormat = $state<BodyFormat | "">("");
   attachmentsDir = $state("");
+  /** The inbox as a queue: an answer takes the letter to wait in a folder until the reply. */
+  waiting = $state<Waiting>({ park: false, folder: "", stop_to_archive: false });
   /** Warn when the mailbox fills up. */
   quotaWarn = $state(true);
   /** The own limit for the warnings in GB as typed; empty takes the server's quota. */
@@ -124,6 +126,7 @@ export class AccountForm {
       this.replySignature = e.reply_signature ?? null;
       this.composeFormat = e.compose_format ?? "";
       this.attachmentsDir = e.attachments_dir ?? "";
+      if (e.waiting) this.waiting = { ...e.waiting };
       this.quotaWarn = e.quota_warn !== false;
       this.quotaLimitGb = e.quota_limit_mb ? String(Math.round((e.quota_limit_mb / 1024) * 100) / 100).replace(".", ",") : "";
     }
@@ -311,6 +314,8 @@ export class AccountForm {
       quota_limit_mb: limitMb(this.quotaLimitGb),
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;
+    const w = this.waiting;
+    if (w.park || w.folder || w.stop_to_archive) acc.waiting = { park: w.park, folder: w.folder, stop_to_archive: w.stop_to_archive };
     if (this.mode === "oauth" && this.provider) acc.auth = { kind: "oauth", provider: this.provider };
     if (this.mode === "ews") acc.ews = { url: this.ewsUrl.trim(), trusted_cert: this.ewsCert };
     return acc;

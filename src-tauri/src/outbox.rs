@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use depesha_core::imap::FolderRole;
-use depesha_core::store::Followup;
 use depesha_core::{mail, message, smtp};
 use serde_json::json;
 
@@ -81,7 +80,12 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
             Ok(raw) => {
                 state.task_done(&key);
                 state.store.outbox_remove(item.id)?;
-                state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
+                // A letter going to wait says so once it has moved ("parked"), in one toast.
+                let parking = crate::waiting::will_park(&item);
+                state.emit(
+                    "sent",
+                    json!({ "id": item.id, "subject": item.draft.subject, "parking": parking }),
+                );
                 let message_id = message::parse_summary(&raw).message_id;
                 let sent = state.store.folder_by_role(&account.id, FolderRole::Sent)?;
                 let worker = state.worker(&account.id).ok();
@@ -132,19 +136,11 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                         }
                     }
                 }
-                if item.followup_secs > 0
-                    && letter_cached
-                    && let Some(message_id) = message_id
-                {
-                    state.store.followup_add(&Followup::after_sending(
-                        &account.id,
-                        message_id,
-                        &item.draft,
-                        chrono::Utc::now().timestamp(),
-                        item.followup_secs,
-                        &item.followup,
-                    ))?;
-                    state.emit("counters-changed", json!({}));
+                // The letter answered or forwarded is marked, the wait for a reply starts.
+                let parks = crate::waiting::after_sent(state, &account, &item, message_id, letter_cached).await?;
+                if parking && !parks {
+                    // Nothing to move after all (the letter left the inbox meanwhile): plain "sent".
+                    state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
                 }
                 // The server keeps the copy itself (Exchange, Gmail): Sent is synced now, so the
                 // answer joins its conversation at once, and again a moment later for servers

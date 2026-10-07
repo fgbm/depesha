@@ -140,6 +140,8 @@ export class AppStore {
   reload() { return this.selection.reload(); }
   /** Letters the reader shows now: the open one and its conversation. */
   showing(): number[] { return this.selection.showing(); }
+  /** Rows the user is on: the selection and the open letter. */
+  using(): number[] { return [...this.selected, ...(this.opened ? [this.opened.row.id] : [])]; }
   /** The list was read again: selections of rows that disappeared (moved, deleted elsewhere) go. */
   listed(ids: Set<number>, search: boolean): Promise<void> { return this.selection.listed(ids, search); }
   /** Searches on the servers too: finds mail older than the local cache. */

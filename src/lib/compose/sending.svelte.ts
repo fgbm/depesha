@@ -53,6 +53,8 @@ export class ComposeSending {
   followupDays = $state<number | null>(null);
   followupSecs = $state<number | null>(null);
   followup = $state<FollowupPlan | null>(null);
+  /** The answer takes its letter to wait in the folder; null: as the mailbox says. */
+  park = $state<boolean | null>(null);
   /** The controls plugins put in this window, in their order. */
   readonly controls = $derived([...registry.items("composeControls")].sort((a, b) => (a.order ?? 50) - (b.order ?? 50)));
 
@@ -117,7 +119,7 @@ export class ComposeSending {
       // The saved draft goes away once the letter is sent: the latest copy must be known.
       this.host.autosave.cancel();
       await this.host.autosave.settled();
-      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), this.options.followup);
+      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withPark(this.options.followup, this.park));
       this.host.closeCompose(win.id);
     } catch (e) {
       this.host.setError((e as { message: string }).message);
@@ -222,7 +224,19 @@ function makeOptions(host: ComposeSendHost, me: ComposeSending): ComposeContext[
     set followup(v) {
       me.followup = v;
     },
+    get park() {
+      return me.park;
+    },
+    set park(v) {
+      me.park = v;
+    },
   };
+}
+
+/** The wait the letter asks for, with the window's choice about the folder. */
+function withPark(plan: FollowupPlan | null, park: boolean | null): FollowupPlan | null {
+  if (park === null) return plan;
+  return { ...(plan ?? { deadline_secs: 0, repeat_secs: 0, expect: "", kind: "" }), park };
 }
 
 /** What plugins see of the window: the draft, the account, the options and `send`. */

@@ -35,6 +35,8 @@ const FOLDER_PAGES_MAX: usize = 100;
 const PR_TRANSPORT_HEADERS: &str = "0x007D";
 const PR_MESSAGE_FLAGS: &str = "0x0E07";
 const PR_LAST_VERB: &str = "0x1081";
+/// `PidTagLastVerbExecutionTime`: when the last verb was done.
+const PR_LAST_VERB_TIME: &str = "0x1082";
 const PR_FLAG_STATUS: &str = "0x1090";
 /// `PR_MESSAGE_SIZE_EXTENDED`: the bytes a folder and its contents take. The mailbox's
 /// occupied space is the sum over every folder.
@@ -44,6 +46,8 @@ const MSGFLAG_READ: i64 = 0x1;
 const MSGFLAG_UNSENT: i64 = 0x8;
 const VERB_REPLIED: i64 = 102;
 const VERB_REPLIED_ALL: i64 = 103;
+/// `NOTEIVERB_FORWARD` (MS-OXOMSG 2.2.1.4).
+const VERB_FORWARDED: i64 = 104;
 const FLAG_FLAGGED: i64 = 2;
 
 fn ext(tag: &str, kind: &str) -> String {
@@ -100,6 +104,9 @@ fn flags_of(props: &HashMap<u32, String>) -> Flags {
         flagged: int(PR_FLAG_STATUS) == Some(FLAG_FLAGGED),
         answered: matches!(int(PR_LAST_VERB), Some(VERB_REPLIED | VERB_REPLIED_ALL)),
         deleted: false,
+        // Exchange keeps the last verb only: a forward after a reply is a forward.
+        forwarded: int(PR_LAST_VERB) == Some(VERB_FORWARDED),
+        answered_all: int(PR_LAST_VERB) == Some(VERB_REPLIED_ALL),
     }
 }
 
@@ -785,8 +792,18 @@ pub async fn set_flag(
     update_flag(s, &ids, change).await
 }
 
-async fn update_flag(s: &mut Session, ids: &[String], change: FlagChange) -> Result<()> {
-    let update = match change {
+/// The `Updates` of an item for a flag change; a verb is written with the time it was done.
+fn update_of(change: FlagChange, now: i64) -> String {
+    let verb = |v: i64| {
+        format!(
+            "<t:SetItemField>{e}<t:Message><t:ExtendedProperty>{e}<t:Value>{v}</t:Value></t:ExtendedProperty></t:Message></t:SetItemField>\
+             <t:SetItemField>{t}<t:Message><t:ExtendedProperty>{t}<t:Value>{at}</t:Value></t:ExtendedProperty></t:Message></t:SetItemField>",
+            e = ext(PR_LAST_VERB, "Integer"),
+            t = ext(PR_LAST_VERB_TIME, "SystemTime"),
+            at = iso(now)
+        )
+    };
+    match change {
         FlagChange::Seen(v) => format!(
             "<t:SetItemField>{}<t:Message><t:IsRead>{v}</t:IsRead></t:Message></t:SetItemField>",
             field("message:IsRead")
@@ -796,15 +813,20 @@ async fn update_flag(s: &mut Session, ids: &[String], change: FlagChange) -> Res
             field("item:Flag"),
             if v { "Flagged" } else { "NotFlagged" }
         ),
-        FlagChange::Answered(true) => format!(
-            "<t:SetItemField>{e}<t:Message><t:ExtendedProperty>{e}<t:Value>{VERB_REPLIED}</t:Value></t:ExtendedProperty></t:Message></t:SetItemField>",
-            e = ext(PR_LAST_VERB, "Integer")
-        ),
-        FlagChange::Answered(false) => format!(
-            "<t:DeleteItemField>{}</t:DeleteItemField>",
-            ext(PR_LAST_VERB, "Integer")
-        ),
-    };
+        FlagChange::Answered(true) => verb(VERB_REPLIED),
+        FlagChange::AnsweredAll(true) => verb(VERB_REPLIED_ALL),
+        FlagChange::Forwarded(true) => verb(VERB_FORWARDED),
+        FlagChange::Answered(false) | FlagChange::AnsweredAll(false) | FlagChange::Forwarded(false) => {
+            format!(
+                "<t:DeleteItemField>{}</t:DeleteItemField>",
+                ext(PR_LAST_VERB, "Integer")
+            )
+        }
+    }
+}
+
+async fn update_flag(s: &mut Session, ids: &[String], change: FlagChange) -> Result<()> {
+    let update = update_of(change, Utc::now().timestamp());
     for chunk in ids.chunks(100) {
         let changes: String = chunk
             .iter()
@@ -1237,7 +1259,10 @@ mod tests {
     use super::*;
 
     fn verb(v: &str) -> Flags {
-        flags_of(&HashMap::from([(tag(PR_MESSAGE_FLAGS), "1".to_owned()), (tag(PR_LAST_VERB), v.to_owned())]))
+        flags_of(&HashMap::from([
+            (tag(PR_MESSAGE_FLAGS), "1".to_owned()),
+            (tag(PR_LAST_VERB), v.to_owned()),
+        ]))
     }
 
     #[test]

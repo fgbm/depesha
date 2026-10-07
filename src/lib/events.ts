@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { extensions, listenForMail } from "./extensions.svelte";
 import { t } from "./i18n.svelte";
 import { applyRules } from "./rules";
+import { api } from "./api";
 import { rooms } from "./room.svelte";
 import type { Undoable } from "./actions.svelte";
 import type { View } from "./list.svelte";
@@ -25,7 +26,10 @@ function common(app: AppStore) {
       const a = app.accounts.find((x) => x.id === e.payload.account_id);
       if (a) a.status = e.payload.status;
     }),
-    listen<{ subject: string }>("sent", (e) => app.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }))),
+    // An answer going to "Waiting for reply" says so in one toast, once the letter has moved.
+    listen<{ subject: string; parking?: boolean }>("sent", (e) => {
+      if (!e.payload.parking) app.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }));
+    }),
     listen<{ error: CmdError }>("send-failed", (e) => app.toast(t("toast.sendFailed", { error: e.payload.error.message }), true)),
     // Settings saved elsewhere (another window, a plugin) may change the language too.
     listen("settings-changed", async () => {
@@ -48,7 +52,21 @@ export function listenMain(app: AppStore) {
       if (app.opened?.row.account_id === e.payload.account_id) app.reader.scheduleConversation();
       app.scheduleFolders();
     }),
-    listen("outbox-changed", () => app.loadOutbox()),
+    // A queued answer marks its letter at once, and taking it back unmarks it.
+    listen("outbox-changed", () => {
+      app.loadOutbox();
+      app.scheduleReload();
+    }),
+    listen<Parked>("parked", (e) => parked(app, e.payload)),
+    listen<ParkFailed>("park-failed", (e) => {
+      const p = e.payload;
+      if (p.refused)
+        app.toast(t("toast.parkRefused", { folder: p.folder }), true, {
+          label: t("toast.chooseFolder"),
+          run: () => app.openSettings(`account:${p.account_id}`, "letters"),
+        });
+      else app.toast(t("toast.parkFailed", { error: p.error ?? "" }), true);
+    }),
     listen<Task[]>("tasks-changed", (e) => (app.tasks = e.payload)),
     listen<{ message: string }>("app-error", (e) => app.toast(e.payload.message, true)),
     listen<{ id: string }>("extensions-changed", (e) => {
@@ -71,6 +89,36 @@ export function listenMain(app: AppStore) {
       app.setView(e.payload);
     }),
   ]);
+}
+
+interface Parked {
+  account_id: string;
+  /** The wait: the Message-ID of the answer. */
+  key: string;
+  subject: string;
+}
+
+interface ParkFailed {
+  account_id: string;
+  subject: string;
+  folder: string;
+  /** The server refused to make the folder; otherwise `error` says what went wrong. */
+  refused: boolean;
+  error?: string;
+}
+
+/** The answer left and took its letter to "Waiting for reply": keeping it in the inbox is "z" too. */
+function parked(app: AppStore, p: Parked) {
+  const text = t("toast.sentParked", { subject: p.subject || t("noSubject") });
+  const keep = () => api.followupUnpark(p.account_id, p.key);
+  app.actions.lastUndo = { moved: [], text, run: keep };
+  app.toast(text, false, {
+    label: t("toast.keepInInbox"),
+    run: () => {
+      app.actions.lastUndo = null;
+      keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
+    },
+  });
 }
 
 /** A message window: no list, only the letter it shows. */

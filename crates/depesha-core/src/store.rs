@@ -20,9 +20,11 @@ pub use followups::{
     DEFAULT_KEEP_DAYS, Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupPlan, FollowupStatus,
 };
 mod marks;
+pub use marks::{Done, Mark, Outgoing, marks_of};
 mod server;
-mod waiting;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
+mod waiting;
+pub use waiting::{ParkJob, ParkKind, Parking, WaitFolder, parks, waiting_folder};
 
 /// Settings of the connection, made at every open: not part of the cache itself.
 /// `synchronous = NORMAL`: in WAL mode a power cut may lose the last commits, never
@@ -45,6 +47,8 @@ const MIGRATIONS: &[Step] = &[
     v7_size_index,
     server::v8_server_caps,
     followups::v9_followup_times,
+    marks::v10_reply_marks,
+    waiting::v11_waiting_folder,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -523,6 +527,19 @@ pub struct MessageRow {
     /// The wait for an answer to this message, also when it is over.
     #[serde(default)]
     pub followup: Option<FollowupInfo>,
+    /// What was done with the letter: answered, answered to all, forwarded.
+    #[serde(default)]
+    pub marks: Vec<Mark>,
+    /// My latest answer to it, when it is in the cache.
+    #[serde(default)]
+    pub my_answer: Option<i64>,
+    /// An answer or forward of it waiting in the outbox.
+    #[serde(default)]
+    pub outgoing: Option<Outgoing>,
+    /// It came back from waiting with the reply, not opened since; for a conversation's
+    /// row, any letter of it.
+    #[serde(default)]
+    pub answer_came: bool,
 }
 
 /// Largest message downloaded for offline reading with attachments, bytes.
@@ -777,8 +794,9 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
     })
 }
 
-/// A letter of a conversation for its row in a list: id, Message-ID, sender, a draft.
-type Letter = (i64, Option<String>, Option<String>, bool);
+/// A letter of a conversation for its row in a list: id, Message-ID, sender, a draft, back
+/// from waiting with the reply and not opened since.
+type Letter = (i64, Option<String>, Option<String>, bool, bool);
 
 /// Keys that are a column of the message itself.
 fn message_sort_column(by: SortField) -> Option<&'static str> {
@@ -889,7 +907,9 @@ impl PendingFlags {
         match change {
             FlagChange::Seen(v) => self.seen = Some(v),
             FlagChange::Flagged(v) => self.flagged = Some(v),
-            FlagChange::Answered(v) => self.answered = Some(v),
+            FlagChange::Answered(v) | FlagChange::AnsweredAll(v) => self.answered = Some(v),
+            // Depesha's own mark of a forward is kept apart (`marks`): the server's may go.
+            FlagChange::Forwarded(_) => {}
         }
     }
 
@@ -1220,7 +1240,7 @@ impl Store {
         let conn = self.conn();
         let cached: Vec<(u32, Flags)> = conn
             .prepare_cached(
-                "SELECT m.uid, m.seen, m.answered, m.flagged, m.draft FROM json_each(?3) j
+                "SELECT m.uid, m.seen, m.answered, m.flagged, m.draft, m.forwarded, m.answered_all FROM json_each(?3) j
                  CROSS JOIN messages m ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value",
             )?
             .query_map(params![account_id, folder, json_list(uids)], |r| {
@@ -1232,6 +1252,8 @@ impl Store {
                         flagged: r.get(3)?,
                         draft: r.get(4)?,
                         deleted: false,
+                        forwarded: r.get(5)?,
+                        answered_all: r.get(6)?,
                     },
                 ))
             })?
@@ -1381,7 +1403,9 @@ impl Store {
         let mut letters: HashMap<(String, String), Vec<Letter>> = HashMap::new();
         let found = conn
             .prepare_cached(
-                "SELECT m.account_id, m.thread, m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts'
+                "SELECT m.account_id, m.thread, m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts',
+                    EXISTS (SELECT 1 FROM followups fu WHERE fu.park = 'returned' AND fu.noticed = 0
+                        AND fu.account_id = m.account_id AND (fu.anchor = m.message_id OR fu.answer_id = m.message_id))
                  FROM json_each(?1) k
                  CROSS JOIN messages m ON m.account_id = k.value ->> 0 AND m.thread = k.value ->> 1
                  JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
@@ -1396,6 +1420,7 @@ impl Store {
                         r.get::<_, Option<String>>(3)?,
                         r.get::<_, Option<String>>(4)?,
                         r.get::<_, bool>(5)?,
+                        r.get::<_, bool>(6)?,
                     ),
                 ))
             })?
@@ -1410,7 +1435,9 @@ impl Store {
             let found = letters
                 .remove(&(row.account_id.clone(), row.thread.clone()))
                 .unwrap_or_default();
-            for (id, mid, from, is_draft) in found {
+            for (id, mid, from, is_draft, came) in found {
+                // Back from waiting with the reply, not opened since: the conversation says so.
+                row.answer_came |= came;
                 if is_draft {
                     draft = true;
                     continue;
@@ -1709,6 +1736,7 @@ impl Store {
         tx.execute("DELETE FROM outbox WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM snoozed WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM marks WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM ews_folders WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM ews_items WHERE account_id = ?1", [account_id])?;
         Self::forget_server(&tx, account_id)?;
@@ -1907,11 +1935,12 @@ impl Store {
         followup: &FollowupPlan,
     ) -> Result<i64> {
         let json = serde_json::to_string(draft).map_err(|e| crate::Error::Compose(e.to_string()))?;
+        let acts = draft.acts_on.as_ref().filter(|a| a.account_id == account_id);
         Ok(self.conn().query_row(
             "INSERT INTO outbox (account_id, draft, next_attempt, created, followup_secs,
                 followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
-                followup_due_at, followup_deadline_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id",
+                followup_due_at, followup_deadline_at, acts_on, acts_kind, followup_park)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING id",
             params![
                 account_id,
                 json,
@@ -1923,7 +1952,10 @@ impl Store {
                 followup.expect,
                 followup.kind,
                 followup.due_at,
-                followup.deadline_at
+                followup.deadline_at,
+                acts.map(|a| a.message_id.trim_matches(['<', '>'])),
+                acts.map(|a| a.act.as_str()),
+                followup.park
             ],
             |r| r.get(0),
         )?)
@@ -1934,7 +1966,7 @@ impl Store {
         let mut stmt = conn.prepare(
             "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, created, followup_secs,
                 followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
-                followup_due_at, followup_deadline_at
+                followup_due_at, followup_deadline_at, followup_park
              FROM outbox ORDER BY next_attempt, id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -1955,6 +1987,7 @@ impl Store {
                     kind: r.get(12)?,
                     due_at: r.get(13)?,
                     deadline_at: r.get(14)?,
+                    park: r.get(15)?,
                 },
             })
         })?;
@@ -2063,12 +2096,13 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
         .prepare_cached(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
                 to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe, topic, sort_sender, sort_subject)
+                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24)
+                ?23, ?24, ?25, ?26)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
-                flagged = excluded.flagged, draft = excluded.draft
+                flagged = excluded.flagged, draft = excluded.draft,
+                forwarded = excluded.forwarded, answered_all = excluded.answered_all
              RETURNING id",
         )?
         .query_row(
@@ -2097,6 +2131,8 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
                 links.topic,
                 crate::message::sender_sort_key(summary.from.as_ref()),
                 crate::message::subject_sort_key(&summary.subject),
+                flags.forwarded,
+                flags.answered_all,
             ],
             |r| r.get(0),
         )?;
@@ -2246,9 +2282,19 @@ fn write_flags(conn: &Connection, account_id: &str, folder: &str, flags: &[(u32,
     if flags.is_empty() {
         return Ok(0);
     }
-    let rows: Vec<[u32; 5]> = flags
+    let rows: Vec<[u32; 7]> = flags
         .iter()
-        .map(|(uid, f)| [*uid, f.seen.into(), f.answered.into(), f.flagged.into(), f.draft.into()])
+        .map(|(uid, f)| {
+            [
+                *uid,
+                f.seen.into(),
+                f.answered.into(),
+                f.flagged.into(),
+                f.draft.into(),
+                f.forwarded.into(),
+                f.answered_all.into(),
+            ]
+        })
         .collect();
     // Each listed UID found by the index; left to itself the planner reads the whole
     // folder once per UID.
@@ -2256,14 +2302,16 @@ fn write_flags(conn: &Connection, account_id: &str, folder: &str, flags: &[(u32,
         .prepare_cached(
             "WITH s AS MATERIALIZED (
                 SELECT m.id AS id, j.value ->> 1 AS seen, j.value ->> 2 AS answered, j.value ->> 3 AS flagged,
-                    j.value ->> 4 AS draft
+                    j.value ->> 4 AS draft, j.value ->> 5 AS forwarded, j.value ->> 6 AS answered_all
                 FROM json_each(?3) j CROSS JOIN messages m
                     ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value ->> 0
              )
-             UPDATE messages SET seen = s.seen, answered = s.answered, flagged = s.flagged, draft = s.draft
+             UPDATE messages SET seen = s.seen, answered = s.answered, flagged = s.flagged, draft = s.draft,
+                forwarded = s.forwarded, answered_all = s.answered_all
              FROM s WHERE messages.id = s.id
-               AND (messages.seen, messages.answered, messages.flagged, messages.draft)
-                   IS NOT (s.seen, s.answered, s.flagged, s.draft)",
+               AND (messages.seen, messages.answered, messages.flagged, messages.draft, messages.forwarded,
+                    messages.answered_all)
+                   IS NOT (s.seen, s.answered, s.flagged, s.draft, s.forwarded, s.answered_all)",
         )?
         .execute(params![account_id, folder, json_list(&rows)])?)
 }
@@ -2371,9 +2419,21 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
             'repeat_secs', fu.repeat_secs, 'expect', fu.expect, 'kind', fu.kind,
             'ended', fu.ended, 'answered_by', CASE WHEN json_valid(fu.answered_by) THEN json(fu.answered_by) END,
             'answer', (SELECT a.id FROM messages a WHERE a.account_id = fu.account_id AND a.message_id = fu.answer_id LIMIT 1),
-            'reminded', CASE WHEN json_valid(fu.reminded) THEN json(fu.reminded) ELSE json('[]') END)
-        FROM followups fu WHERE fu.account_id = m.account_id AND fu.message_id = m.message_id)";
-const COLUMN_COUNT: usize = 23;
+            'reminded', CASE WHEN json_valid(fu.reminded) THEN json(fu.reminded) ELSE json('[]') END,
+            'sent', fu.sent, 'park', fu.park, 'park_folder', fu.park_folder, 'auto_reply', fu.auto_reply)
+        FROM followups fu WHERE fu.account_id = m.account_id AND (fu.message_id = m.message_id OR fu.anchor = m.message_id)
+        ORDER BY fu.status = 'waiting' DESC, fu.sent DESC LIMIT 1),
+    m.forwarded, m.answered_all,
+    (SELECT json_array(k.reply, k.reply_all, k.forward,
+            (SELECT a.id FROM messages a WHERE a.account_id = k.account_id AND a.message_id = k.answer LIMIT 1))
+        FROM marks k WHERE k.account_id = m.account_id AND k.message_id = m.message_id),
+    (SELECT json_object('act', o.acts_kind, 'at', o.next_attempt, 'park', json(CASE WHEN o.followup_park THEN 'true' ELSE 'false' END),
+            'queued', o.created)
+        FROM outbox o WHERE o.account_id = m.account_id AND o.acts_on = m.message_id AND o.failed = 0
+        ORDER BY o.id DESC LIMIT 1),
+    EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.anchor = m.message_id
+        AND fu.park = 'returned' AND fu.noticed = 0)";
+const COLUMN_COUNT: usize = 28;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
     Ok(Snooze {
@@ -2405,6 +2465,17 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         Ok(serde_json::from_str(&r.get::<_, String>(i)?).unwrap_or_default())
     };
     let followup = followups::info_of(r.get(22)?);
+    let flags = Flags {
+        seen: r.get(14)?,
+        answered: r.get(15)?,
+        flagged: r.get(16)?,
+        draft: r.get(17)?,
+        deleted: false,
+        forwarded: r.get(23)?,
+        answered_all: r.get(24)?,
+    };
+    let (done, my_answer) = marks::done_of(r.get(25)?);
+    let outgoing = marks::outgoing_of(r.get(26)?);
     Ok(MessageRow {
         id: r.get(0)?,
         account_id: r.get(1)?,
@@ -2422,13 +2493,8 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         reply_to: addrs(11)?,
         date: r.get(12)?,
         size: r.get(13)?,
-        flags: Flags {
-            seen: r.get(14)?,
-            answered: r.get(15)?,
-            flagged: r.get(16)?,
-            draft: r.get(17)?,
-            deleted: false,
-        },
+        marks: marks::marks_of(&flags, &done, outgoing.as_ref()),
+        flags,
         has_attachments: r.get(18)?,
         thread: r.get(19)?,
         bulk: r.get(20)?,
@@ -2440,6 +2506,9 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         snoozed_until: r.get(21)?,
         followup_due: followups::waiting_due(followup.as_ref()),
         followup,
+        my_answer,
+        outgoing,
+        answer_came: r.get(27)?,
     })
 }
 
@@ -3675,6 +3744,9 @@ mod tests {
                 .unwrap();
             store
                 .outbox_add(account, &Draft::default(), 1, 1, 0, &FollowupPlan::default())
+                .unwrap();
+            store
+                .mark_done(account, "q@x", crate::smtp::Act::Reply, 1, None)
                 .unwrap();
             store
                 .save_server_caps(

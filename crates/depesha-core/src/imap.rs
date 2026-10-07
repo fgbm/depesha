@@ -500,6 +500,12 @@ pub struct Flags {
     pub flagged: bool,
     pub draft: bool,
     pub deleted: bool,
+    /// Forwarded: the `$Forwarded` keyword of IMAP, the last verb of Exchange.
+    #[serde(default)]
+    pub forwarded: bool,
+    /// Answered to all: only Exchange tells it apart; IMAP has `\Answered` for both.
+    #[serde(default)]
+    pub answered_all: bool,
 }
 
 impl Flags {
@@ -512,6 +518,8 @@ impl Flags {
                 Flag::Flagged => out.flagged = true,
                 Flag::Draft => out.draft = true,
                 Flag::Deleted => out.deleted = true,
+                // A keyword by convention (RFC 5788 registry), spelled as each client likes.
+                Flag::Custom(k) if k.eq_ignore_ascii_case(FORWARDED) => out.forwarded = true,
                 _ => {}
             }
         }
@@ -519,12 +527,18 @@ impl Flags {
     }
 }
 
+/// The keyword other clients set on a forwarded letter (Thunderbird, Apple Mail, Dovecot).
+const FORWARDED: &str = "$Forwarded";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "flag", content = "value", rename_all = "lowercase")]
+#[serde(tag = "flag", content = "value", rename_all = "snake_case")]
 pub enum FlagChange {
     Seen(bool),
     Flagged(bool),
     Answered(bool),
+    /// Answered to all: `\Answered` on IMAP, its own verb on Exchange.
+    AnsweredAll(bool),
+    Forwarded(bool),
 }
 
 impl FlagChange {
@@ -534,8 +548,10 @@ impl FlagChange {
             Self::Seen(false) => "-FLAGS.SILENT (\\Seen)",
             Self::Flagged(true) => "+FLAGS.SILENT (\\Flagged)",
             Self::Flagged(false) => "-FLAGS.SILENT (\\Flagged)",
-            Self::Answered(true) => "+FLAGS.SILENT (\\Answered)",
-            Self::Answered(false) => "-FLAGS.SILENT (\\Answered)",
+            Self::Answered(true) | Self::AnsweredAll(true) => "+FLAGS.SILENT (\\Answered)",
+            Self::Answered(false) | Self::AnsweredAll(false) => "-FLAGS.SILENT (\\Answered)",
+            Self::Forwarded(true) => "+FLAGS.SILENT ($Forwarded)",
+            Self::Forwarded(false) => "-FLAGS.SILENT ($Forwarded)",
         }
     }
 }

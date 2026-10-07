@@ -630,3 +630,50 @@ async fn capabilities_quota_and_folder_sizes() {
         assert!(sizes[2].bytes.is_none() && sizes[2].error.is_some(), "{sizes:?}");
     }
 }
+
+#[tokio::test]
+async fn a_forward_and_an_answer_set_here_come_back_with_the_sync() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("marks").await;
+    for i in 0..2 {
+        imap::append(&mut conn, "INBOX", &mail(&format!("Отметка {i}"), i), "")
+            .await
+            .unwrap();
+    }
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+    let opts = SyncOptions { initial_limit: 20 };
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
+    let rows = || {
+        let mut r = store
+            .list(&ListQuery {
+                account_id: Some("d".into()),
+                folder: Some("INBOX".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        r.sort_by_key(|m| m.uid);
+        r
+    };
+    let uids: Vec<u32> = rows().iter().map(|m| m.uid).collect();
+    // What Depesha writes after a forward and an answer to all: $Forwarded and \Answered.
+    imap::set_flag(&mut conn, "INBOX", None, &[uids[0]], FlagChange::Forwarded(true))
+        .await
+        .unwrap();
+    imap::set_flag(&mut conn, "INBOX", None, &[uids[1]], FlagChange::AnsweredAll(true))
+        .await
+        .unwrap();
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
+    let r = rows();
+    assert!(r[0].flags.forwarded && !r[0].flags.answered, "{:?}", r[0].flags);
+    // IMAP has one flag for an answer: a plain reply, the kind unknown.
+    assert!(r[1].flags.answered && !r[1].flags.answered_all, "{:?}", r[1].flags);
+    // Taken off on the server: gone here too.
+    imap::set_flag(&mut conn, "INBOX", None, &[uids[0]], FlagChange::Forwarded(false))
+        .await
+        .unwrap();
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
+    assert!(!rows()[0].flags.forwarded);
+}

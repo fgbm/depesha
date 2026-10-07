@@ -73,14 +73,13 @@
 {/if}
 
 <style>
-  /* Between the text and the buttons of the compose window, quiet. */
+  /* Under the line of the wait (WaitLine), its continuation: quiet, no rule of its own. */
   .remind-line {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 5px;
-    padding: 6px 18px;
-    border-top: 1px solid var(--line);
+    padding: 0 18px 6px;
     font-size: 12px;
     color: var(--muted);
   }

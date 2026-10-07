@@ -31,6 +31,8 @@
     "allow-counters",
     "allow-followup-cancel",
     "allow-followup-postpone",
+    "allow-followup-unpark",
+    "allow-followup-return",
     "allow-unsubscribe",
     "allow-unsubscribe-plan",
     "allow-trust-sender",

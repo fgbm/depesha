@@ -55,6 +55,53 @@ impl BodyFormat {
     }
 }
 
+/// What a letter does with the one it was written from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Act {
+    Reply,
+    ReplyAll,
+    Forward,
+}
+
+impl Act {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reply => "reply",
+            Self::ReplyAll => "reply_all",
+            Self::Forward => "forward",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "reply" => Self::Reply,
+            "reply_all" => Self::ReplyAll,
+            "forward" => Self::Forward,
+            _ => return None,
+        })
+    }
+
+    /// An answer, of either kind: what takes a letter of the inbox to wait.
+    pub fn answers(self) -> bool {
+        self != Self::Forward
+    }
+}
+
+/// The letter an answer or a forward was written from: it is marked when this one goes,
+/// and an answer may take it to wait for the reply.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActsOn {
+    pub account_id: String,
+    pub message_id: String,
+    /// Where it was when the answer was written, as the cache names the folder.
+    pub folder: String,
+    pub act: Act,
+    /// It waits for a reply in the folder already: the answer leaves it there.
+    #[serde(default)]
+    pub waiting: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Draft {
     pub from: Option<Addr>,
@@ -72,6 +119,9 @@ pub struct Draft {
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub attachments: Vec<OutgoingAttachment>,
+    /// The letter this one answers or forwards; none for a new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acts_on: Option<ActsOn>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ import { t } from "./i18n.svelte";
 import { MAX_PICTURE, PICTURE_TYPES, takePictures, type Picture } from "./images";
 import { GAP, QUOTE_CLASS, QUOTE_STYLE, escapeHtml, hasFormatting, htmlLetterText, htmlToMarkdown, htmlToText, splitHtmlQuote, textToHtml } from "./richtext";
 import { sigBlock, sigHtml, splitHtmlSignature, splitPlain, withoutHtmlSignature } from "./signatures";
-import type { Account, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
+import type { Account, Act, ActsOn, Addr, AttachmentSource, BodyFormat, ComposeDraft, OpenedMessage, Settings, Signature } from "./types";
 
 export function emptyDraft(from: Addr | null, format: BodyFormat = "plain"): ComposeDraft {
   return {
@@ -97,6 +97,15 @@ function threading(msg: OpenedMessage): Pick<ComposeDraft, "in_reply_to" | "refe
   return { in_reply_to: id, references: refs };
 }
 
+/** The letter an answer or forward is written from: marked when it goes, and maybe taken to wait. */
+function actsOn(msg: OpenedMessage, act: Act): ActsOn | null {
+  const id = msg.row.message_id ?? msg.view.summary.message_id;
+  if (!id) return null;
+  const f = msg.row.followup;
+  const waiting = f?.status === "waiting" && (f.park === "pending" || f.park === "parked");
+  return { account_id: msg.row.account_id, message_id: id, folder: msg.row.folder, act, waiting };
+}
+
 /** `me` is the address of the account that replies; it never ends up among recipients. */
 export function reply(msg: OpenedMessage, me: Addr, all: boolean, format: BodyFormat = "plain"): ComposeDraft {
   const s = msg.view.summary;
@@ -115,6 +124,8 @@ export function reply(msg: OpenedMessage, me: Addr, all: boolean, format: BodyFo
     subject: replySubject(s.subject),
     text: quoted(msg),
     ...threading(msg),
+    // "All" that reaches nobody else is a reply.
+    acts_on: actsOn(msg, all && to.length + cc.length > 1 ? "reply_all" : "reply"),
   };
   return format === "html" ? withHtml(draft, GAP + quotedHtml(msg)) : draft;
 }
@@ -148,7 +159,7 @@ export function forward(msg: OpenedMessage, me: Addr, format: BodyFormat = "plai
     .filter((a) => !forwardedInside(msg, a, format))
     .map((a) => ({ kind: "message", id: msg.row.id, index: a.index, name: a.name, size: a.size }));
   // Threaded like a reply: the forward stays in the conversation it came from.
-  const draft = { ...emptyDraft(me, format), subject: forwardSubject(s.subject), text: lines.join("\n"), attachments, ...threading(msg) };
+  const draft = { ...emptyDraft(me, format), subject: forwardSubject(s.subject), text: lines.join("\n"), attachments, ...threading(msg), acts_on: actsOn(msg, "forward") };
   if (format !== "html") return draft;
   // The forwarded letter folds like a quote: it is the same kind of block.
   const header = forwardHeader(msg).map(escapeHtml).join("<br>");

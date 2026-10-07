@@ -4,9 +4,9 @@
 // removed by the core when the plugin is switched off.
 
 import type { Component } from "svelte";
-import type { ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage } from "../lib/types";
+import type { ActsOn, ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage, Waiting } from "../lib/types";
 
-export type { ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage };
+export type { ActsOn, ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage, Waiting };
 export { default as Popover } from "../components/Popover.svelte";
 export { default as LaterMenu } from "../components/LaterMenu.svelte";
 export { default as Select } from "../components/Select.svelte";
@@ -108,6 +108,8 @@ export interface RowTag {
   alert?: boolean;
   /** Green: e.g. an answer came. */
   good?: boolean;
+  /** Blue: where the letter is going, e.g. "to Waiting for reply". */
+  info?: boolean;
 }
 
 /** A list view of its own, e.g. "Snoozed": a sidebar entry and a query. */
@@ -176,7 +178,8 @@ export interface ComposeContext {
    * `followupSecs`: remind when no answer comes that long after sending; `followupDays` is the older form of it.
    * `followup`: the rest of that wait (a deadline, repeats, the awaited recipient, the choice's name).
    */
-  options: { at: number | null; followupDays: number | null; followupSecs: number | null; followup: FollowupPlan | null };
+  /** `park`: the answer takes its letter to wait in the folder ("Waiting for reply"); null: as the mailbox says. */
+  options: { at: number | null; followupDays: number | null; followupSecs: number | null; followup: FollowupPlan | null; park: boolean | null };
   /** Sends now, or at `at`, after the checks. */
   send(at?: number | null): void;
 }
@@ -194,7 +197,7 @@ export interface PluginContext {
     opened(): OpenedMessage | null;
     /** Selected messages, or the opened one. */
     selection(): number[];
-    accounts(): { id: string; email: string; display_name: string; label?: string }[];
+    accounts(): { id: string; email: string; display_name: string; label?: string; waiting?: Waiting }[];
     folders(): FolderInfo[];
     /** Takes messages out of the list, runs `run`, offers undo of the moves it returns. */
     perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string): Promise<void>;

@@ -4,7 +4,7 @@
 //! the user set. A reminder may come again, wait for one recipient, and have a deadline
 //! of its own apart from the reminder.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use super::{Store, add_column};
@@ -30,6 +30,9 @@ pub struct FollowupPlan {
     pub expect: String,
     /// The name of the choice the wait was set with, shown with it.
     pub kind: String,
+    /// An answer takes the letter it answers to wait in the folder (#59): asked in the
+    /// compose window, the mailbox's setting when not asked. The outbox keeps it decided.
+    pub park: Option<bool>,
 }
 
 /// Where a wait for an answer stands. Overdue is a waiting one past its deadline.
@@ -75,6 +78,15 @@ pub struct FollowupInfo {
     pub answer: Option<i64>,
     /// When the reminders came, oldest first.
     pub reminded: Vec<i64>,
+    /// When the letter waited for went: the wait is from then on.
+    pub sent: i64,
+    /// Where the letters answered are (#59): "" none moved, "pending" still in the inbox,
+    /// "parked" in `park_folder`, "back" and "undo" on their way back, "returned" back
+    /// with the reply, "done" back by hand or moved elsewhere.
+    pub park: String,
+    pub park_folder: String,
+    /// The latest auto-reply or newsletter that answered and did not count.
+    pub auto_reply: Option<i64>,
 }
 
 /// The wait of a letter in a list row: the JSON the list query makes of it.
@@ -82,21 +94,36 @@ pub(super) fn info_of(json: Option<String>) -> Option<FollowupInfo> {
     json.and_then(|s| serde_json::from_str(&s).ok())
 }
 
-/// The next reminder of a wait still waiting.
+/// The next reminder of a wait still waiting; none when it waits without one.
 pub(super) fn waiting_due(info: Option<&FollowupInfo>) -> Option<i64> {
-    info.filter(|f| f.status == FollowupStatus::Waiting).map(|f| f.due)
+    info.filter(|f| f.status == FollowupStatus::Waiting && f.due > 0)
+        .map(|f| f.due)
 }
 
-/// The condition of a list of sent mail with a wait, `m` being the message: from the
-/// waits to their letters, not through every message.
+/// The letter a wait shows as, `fu` being the wait: the one answered, when the answer took
+/// it to wait in the folder; otherwise the sent letter itself.
+pub(super) const WAIT_LETTER: &str = "CASE WHEN fu.anchor != '' THEN fu.anchor ELSE fu.message_id END";
+
+/// The condition of the list of waits, `m` being the message: from the waits to their
+/// letters, not through every message. A sent letter shows from Sent; a letter answered
+/// shows where it is, from the folder it waits in when it is there.
 pub(super) fn list_condition(filter: FollowupFilter) -> String {
     let which = match filter {
         FollowupFilter::Active => "fu.status = 'waiting'",
         FollowupFilter::Closed => "fu.status != 'waiting'",
     };
     format!(
-        " AND f.role = 'sent' AND m.id IN (SELECT x.id FROM followups fu CROSS JOIN messages x
-            ON x.account_id = fu.account_id AND x.message_id = fu.message_id WHERE {which})"
+        " AND m.id IN (
+            SELECT x.id FROM followups fu CROSS JOIN messages x
+                ON x.account_id = fu.account_id AND x.message_id = fu.message_id
+                JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+            WHERE {which} AND fu.anchor = '' AND xf.role = 'sent'
+            UNION ALL
+            SELECT (SELECT x.id FROM messages x JOIN folders xf ON xf.account_id = x.account_id AND xf.name = x.folder
+                    WHERE x.account_id = fu.account_id AND x.message_id = fu.anchor
+                      AND COALESCE(xf.role, '') NOT IN ('sent', 'drafts', 'trash', 'junk')
+                    ORDER BY x.folder = fu.park_folder DESC, x.id LIMIT 1)
+            FROM followups fu WHERE {which} AND fu.anchor != '')"
     )
 }
 
@@ -273,14 +300,10 @@ impl Store {
         Ok(())
     }
 
-    /// The user stops waiting: closed by hand at `now`, out of the active list.
+    /// The user stops waiting: closed by hand at `now`, out of the active list. Letters
+    /// waiting in the folder go back to the inbox (`followup_stop` says where else).
     pub fn followup_close(&self, account_id: &str, message_id: &str, now: i64) -> Result<()> {
-        self.conn().execute(
-            "UPDATE followups SET status = 'closed', ended = ?3
-             WHERE account_id = ?1 AND message_id = ?2 AND status = 'waiting'",
-            params![account_id, message_id.trim_matches(['<', '>']), now],
-        )?;
-        Ok(())
+        self.followup_stop(account_id, message_id, now, None)
     }
 
     /// A new time for the reminder of a waiting letter; it is announced again when that
@@ -288,9 +311,9 @@ impl Store {
     pub fn followup_postpone(&self, account_id: &str, message_id: &str, due: i64, deadline: bool) -> Result<()> {
         self.conn().execute(
             "UPDATE followups SET due = ?3, notified = 0,
-                deadline = CASE WHEN ?4 THEN ?3 ELSE deadline END,
+                deadline = CASE WHEN ?4 OR deadline = 0 THEN ?3 ELSE deadline END,
                 own_deadline = CASE WHEN ?4 THEN 0 ELSE own_deadline END
-             WHERE account_id = ?1 AND message_id = ?2 AND status = 'waiting'",
+             WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting'",
             params![account_id, message_id.trim_matches(['<', '>']), due, deadline],
         )?;
         Ok(())
@@ -301,10 +324,15 @@ impl Store {
     /// clock running a little behind; never one dated by the time it ended, as the answer
     /// that ended it was.
     pub fn followup_reopen(&self, account_id: &str, message_id: &str, due: i64, now: i64) -> Result<()> {
+        // A letter answered is the anchor of every wait it had: the latest is taken up.
         self.conn().execute(
             "UPDATE followups SET status = 'waiting', due = ?3, deadline = ?3, own_deadline = 0, notified = 0,
                 since = MAX(?4 - ?5, COALESCE(ended, 0) + 1), ended = NULL, answered_by = NULL, answer_id = NULL
-             WHERE account_id = ?1 AND message_id = ?2 AND status != 'waiting'",
+             WHERE rowid = (SELECT rowid FROM followups
+                 WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status != 'waiting'
+                 ORDER BY ended DESC LIMIT 1)
+               AND NOT EXISTS (SELECT 1 FROM followups
+                 WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting')",
             params![
                 account_id,
                 message_id.trim_matches(['<', '>']),
@@ -318,48 +346,61 @@ impl Store {
 
     /// Marks waits that got an answer: the first message outside Sent and Drafts that
     /// replies to the sent one, its Message-ID in In-Reply-To or References exactly, and
-    /// from the awaited address when there is one. Its date, sender and Message-ID are
-    /// kept; the date is the sender's word, so it is kept between sending and now: a
-    /// bogus one must not make the history look older (and pruned at once) or newer.
-    /// Returns how many were answered.
+    /// from the awaited address when there is one; for a letter that went to wait, a new
+    /// letter of its own written after the answer counts too. Auto-replies and
+    /// newsletters do not count: the latest is kept, to say why the letter still waits.
+    /// The answer's date, sender and Message-ID are kept; the date is the sender's word,
+    /// so it is kept between sending and now: a bogus one must not make the history look
+    /// older (and pruned at once) or newer. Letters waiting in the folder are set to go
+    /// back (`park_jobs`). Returns how many were answered.
     pub fn followups_resolve(&self) -> Result<usize> {
         let now = chrono::Utc::now().timestamp();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        type Waiting = (i64, String, String, String, i64, i64);
+        type Waiting = (i64, String, String, String, i64, i64, String);
         let waiting: Vec<Waiting> = tx
             .prepare(
-                "SELECT rowid, account_id, message_id, expect, since, sent FROM followups WHERE status = 'waiting'",
+                "SELECT rowid, account_id, message_id, expect, since, sent, anchor FROM followups WHERE status = 'waiting'",
             )?
             .query_map([], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
             })?
             .collect::<Result<_, _>>()?;
         let mut answered = 0;
         {
             // The candidates first, from the indexes: never through every message.
             let mut answer = tx.prepare(
-                "SELECT m.date, m.from_addr, m.message_id FROM (
+                "SELECT m.date, m.from_addr, m.message_id, m.bulk FROM (
                      SELECT id FROM messages WHERE account_id = ?1 AND in_reply_to = ?2
                      UNION SELECT message FROM message_refs WHERE parent = ?2
+                     UNION SELECT id FROM messages WHERE ?5 != '' AND account_id = ?1 AND in_reply_to = ?5 AND date >= ?6
+                     UNION SELECT r.message FROM message_refs r CROSS JOIN messages x ON x.id = r.message
+                         WHERE ?5 != '' AND r.parent = ?5 AND x.date >= ?6
                  ) c CROSS JOIN messages m ON m.id = c.id
                  JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
                  WHERE m.account_id = ?1 AND COALESCE(f.role, '') NOT IN ('sent', 'drafts')
                    AND (?3 = '' OR fold(json_extract(m.from_addr, '$.email')) = ?3) AND m.date >= ?4
-                 ORDER BY m.date, m.id LIMIT 1",
+                 ORDER BY m.date, m.id LIMIT 50",
             )?;
             let mut mark = tx.prepare(
-                "UPDATE followups SET status = 'answered', ended = ?2, answered_by = ?3, answer_id = ?4
+                "UPDATE followups SET status = 'answered', ended = ?2, answered_by = ?3, answer_id = ?4,
+                    park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END
                  WHERE rowid = ?1",
             )?;
-            for (rowid, account_id, message_id, expect, since, sent) in waiting {
-                type Answer = (i64, Option<String>, Option<String>);
-                let found: Option<Answer> = answer
-                    .query_row(params![account_id, message_id, expect, since], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                    })
-                    .optional()?;
-                if let Some((date, from, id)) = found {
+            let mut machine = tx.prepare("UPDATE followups SET auto_reply = ?2 WHERE rowid = ?1")?;
+            for (rowid, account_id, message_id, expect, since, sent, anchor) in waiting {
+                type Answer = (i64, Option<String>, Option<String>, bool);
+                let found: Vec<Answer> = answer
+                    .query_map(
+                        params![account_id, message_id, expect, since, anchor, sent - CLOCK_SKEW_SECS],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    )?
+                    .collect::<Result<_, _>>()?;
+                // A program answering before a person is noted, not counted.
+                if let Some(auto) = found.iter().filter(|a| a.3).map(|a| a.0).max() {
+                    machine.execute(params![rowid, auto])?;
+                }
+                if let Some((date, from, id, _)) = found.into_iter().find(|a| !a.3) {
                     mark.execute(params![rowid, date.min(now).max(sent), from, id])?;
                     answered += 1;
                 }
@@ -383,10 +424,11 @@ impl Store {
                     SELECT key, value FROM json_each(json_insert(
                         CASE WHEN json_valid(reminded) THEN reminded ELSE '[]' END, '$[#]', ?1))
                     ORDER BY key DESC LIMIT ?2))
-             WHERE status = 'waiting' AND notified = 0 AND due <= ?1
-               AND EXISTS (SELECT 1 FROM messages m
-                   WHERE m.account_id = followups.account_id AND m.message_id = followups.message_id)
-             RETURNING account_id, message_id, subject, recipients, sent, due, deadline, repeat_secs, expect, kind",
+             WHERE status = 'waiting' AND notified = 0 AND due > 0 AND due <= ?1
+               AND EXISTS (SELECT 1 FROM messages m WHERE m.account_id = followups.account_id
+                   AND m.message_id = CASE WHEN followups.anchor != '' THEN followups.anchor ELSE followups.message_id END)
+             RETURNING account_id, CASE WHEN anchor != '' THEN anchor ELSE message_id END,
+                subject, recipients, sent, due, deadline, repeat_secs, expect, kind",
         )?;
         let rows = stmt.query_map([now, REMINDED_KEPT], |r| {
             Ok(Followup {
@@ -410,10 +452,12 @@ impl Store {
     /// counting it would leave a badge pointing at nothing.
     pub fn followups_count(&self) -> Result<FollowupCounts> {
         Ok(self.conn().query_row(
-            "SELECT COUNT(*) FILTER (WHERE fu.status = 'waiting'), COUNT(*) FILTER (WHERE fu.status != 'waiting')
-             FROM followups fu
-             WHERE EXISTS (SELECT 1 FROM messages m
-                 WHERE m.account_id = fu.account_id AND m.message_id = fu.message_id)",
+            &format!(
+                "SELECT COUNT(*) FILTER (WHERE fu.status = 'waiting'), COUNT(*) FILTER (WHERE fu.status != 'waiting')
+                 FROM followups fu
+                 WHERE EXISTS (SELECT 1 FROM messages m
+                     WHERE m.account_id = fu.account_id AND m.message_id = {WAIT_LETTER})"
+            ),
             [],
             |r| {
                 Ok(FollowupCounts {
@@ -433,7 +477,8 @@ impl Store {
         tx.execute(
             "UPDATE followups SET missing = CASE WHEN missing IS NULL THEN ?1 END
              WHERE status = 'waiting' AND (missing IS NULL) = NOT EXISTS (SELECT 1 FROM messages m
-                 WHERE m.account_id = followups.account_id AND m.message_id = followups.message_id)",
+                 WHERE m.account_id = followups.account_id
+                   AND m.message_id = CASE WHEN followups.anchor != '' THEN followups.anchor ELSE followups.message_id END)",
             [now],
         )?;
         let gone = tx.execute(
@@ -949,6 +994,7 @@ mod tests {
             repeat_secs: 86_400,
             expect: "ivan@example.org".into(),
             kind: "Каждый день".into(),
+            park: None,
         };
         store.outbox_add("a", &Draft::default(), 1, 1, 3_600, &plan).unwrap();
         let item = &store.outbox().unwrap()[0];

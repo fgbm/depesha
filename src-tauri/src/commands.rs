@@ -11,7 +11,7 @@ use depesha_core::ews::{self, EwsDetection};
 use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
-use depesha_core::smtp::{self, BodyFormat, Draft, OutgoingAttachment};
+use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{FolderInfo, FollowupPlan, ListQuery, MessageRow, OutboxItem, SearchTotals, Snooze, SortKey};
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -488,7 +488,7 @@ fn row(state: &AppState, id: i64) -> CmdResult<MessageRow> {
     state.store.get(id)?.ok_or_else(gone)
 }
 
-fn gone() -> CmdError {
+pub(crate) fn gone() -> CmdError {
     CmdError::new(
         "not-found",
         tr!("the message was deleted or moved", "письмо уже удалено или перемещено"),
@@ -507,6 +507,15 @@ pub async fn message_open(state: St<'_>, id: i64, allow_remote: bool) -> CmdResu
     let trusted_sender = listed && auth.verified();
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     view.authenticated = auth.dmarc;
+    // Back from waiting with the reply: read now, the list no longer says so.
+    if let Some(mid) = &row.message_id
+        && state.store.followup_noticed(&row.account_id, mid)?
+    {
+        state.emit(
+            "mail-changed",
+            serde_json::json!({ "account_id": row.account_id, "folder": row.folder }),
+        );
+    }
     Ok(OpenedMessage {
         row,
         view,
@@ -552,11 +561,20 @@ async fn move_group(
             to: to.to_owned(),
         })
         .await?;
+    let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
+    // "Done" or a move out of "Waiting for reply": the wait is over, the reply brings nothing back.
+    if state
+        .store
+        .followups_left(account_id, from, &message_ids, chrono::Utc::now().timestamp())?
+        > 0
+    {
+        state.emit("counters-changed", serde_json::json!({}));
+    }
     Ok(Moved {
         account_id: account_id.to_owned(),
         from: from.to_owned(),
         to: to.to_owned(),
-        message_ids: rows.iter().filter_map(|r| r.message_id.clone()).collect(),
+        message_ids,
     })
 }
 
@@ -891,10 +909,38 @@ pub fn followup_postpone(state: St<'_>, id: i64, secs: i64, deadline: Option<boo
 pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<()> {
     let r = row(&state, id)?;
     if let Some(mid) = &r.message_id {
+        let to = crate::waiting::stop_to(&state, &r.account_id);
         state
             .store
-            .followup_close(&r.account_id, mid, chrono::Utc::now().timestamp())?;
+            .followup_stop(&r.account_id, mid, chrono::Utc::now().timestamp(), to.as_deref())?;
     }
+    // Letters waiting in the folder go back.
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(())
+}
+
+/// "Keep in the inbox" of the toast after an answer, and "z": the letters come back, and
+/// the wait goes unless it has a reminder.
+#[tauri::command(async)]
+pub fn followup_unpark(state: St<'_>, account_id: String, message_id: String) -> CmdResult<()> {
+    state.store.followup_unpark(&account_id, &message_id)?;
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    Ok(())
+}
+
+/// "Back to the inbox" over a letter waiting in the folder: the wait is closed and its
+/// letters come back.
+#[tauri::command(async)]
+pub fn followup_return(state: St<'_>, id: i64) -> CmdResult<()> {
+    let r = row(&state, id)?;
+    if let Some(mid) = &r.message_id {
+        state
+            .store
+            .followup_stop(&r.account_id, mid, chrono::Utc::now().timestamp(), None)?;
+    }
+    state.scheduler_notify.notify_one();
     state.emit("counters-changed", serde_json::json!({}));
     Ok(())
 }
@@ -1671,6 +1717,9 @@ pub struct ComposeDraft {
     /// Scheduled sending time: kept with a saved draft, the send takes `at` instead.
     #[serde(default)]
     send_at: Option<i64>,
+    /// The letter this one answers or forwards.
+    #[serde(default)]
+    acts_on: Option<ActsOn>,
 }
 
 async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
@@ -1733,6 +1782,7 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
         in_reply_to: d.in_reply_to,
         references: d.references,
         attachments,
+        acts_on: d.acts_on,
     })
 }
 
@@ -1798,14 +1848,12 @@ pub async fn send(
     let followup_secs = followup_secs
         .unwrap_or(i64::from(followup_days.unwrap_or(0)) * 86_400)
         .max(0);
-    let id = state.store.outbox_add(
-        &account.id,
-        &draft,
-        now,
-        at,
-        followup_secs,
-        &followup.unwrap_or_default(),
-    )?;
+    let mut followup = followup.unwrap_or_default();
+    // Decided now, as the letter answered lies now: the outbox keeps the decision.
+    followup.park = Some(crate::waiting::decide(&state, &account, &draft, followup.park)?);
+    let id = state
+        .store
+        .outbox_add(&account.id, &draft, now, at, followup_secs, &followup)?;
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {

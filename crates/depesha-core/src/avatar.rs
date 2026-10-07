@@ -354,6 +354,7 @@ mod tests {
             ews: None,
             quota_warn: true,
             quota_limit_mb: 0,
+            waiting: Default::default(),
         }
     }
 

@@ -583,7 +583,11 @@ fn is_bulk(msg: &Message<'_>) -> bool {
         return true;
     }
     let precedence = raw_header(msg, "Precedence").unwrap_or_default().to_ascii_lowercase();
-    if matches!(precedence.as_str(), "bulk" | "list" | "junk") {
+    if matches!(precedence.as_str(), "bulk" | "list" | "junk" | "auto_reply") {
+        return true;
+    }
+    // Out-of-office replies of servers that do not set Auto-Submitted.
+    if raw_header(msg, "X-Autoreply").is_some() || raw_header(msg, "X-Autorespond").is_some() {
         return true;
     }
     // RFC 3834: anything but "no" is a machine (notifications, out-of-office replies).
@@ -1074,7 +1078,11 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
     #[test]
     fn an_out_of_office_reply_is_written_by_a_program() {
         // Exchange and many servers mark it so instead of Auto-Submitted.
-        for header in ["X-Autoreply: yes", "X-Autorespond: Out of office", "Precedence: auto_reply"] {
+        for header in [
+            "X-Autoreply: yes",
+            "X-Autorespond: Out of office",
+            "Precedence: auto_reply",
+        ] {
             let raw = format!("From: a@b.c\r\n{header}\r\nSubject: Re: x\r\n\r\nx");
             assert!(parse_summary(raw.as_bytes()).bulk, "{header}");
         }

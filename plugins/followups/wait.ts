@@ -7,7 +7,14 @@ export type State = "waiting" | "overdue" | "answered" | "closed";
 
 export function stateOf(f: FollowupInfo, now: number): State {
   if (f.status !== "waiting") return f.status;
+  // Waiting in the folder without a reminder: no deadline to miss.
+  if (!f.deadline) return "waiting";
   return f.deadline <= now ? "overdue" : "waiting";
+}
+
+/** The letter waits in the folder "Waiting for reply", or is on its way there. */
+export function parked(f: FollowupInfo | null | undefined): boolean {
+  return !!f && f.status === "waiting" && (f.park === "pending" || f.park === "parked");
 }
 
 /** The wait of a row; rows of older backends have only the reminder's time. */
@@ -26,6 +33,10 @@ export function waitOf(row: MessageRow): FollowupInfo | null {
     answered_by: null,
     answer: null,
     reminded: [],
+    sent: row.date,
+    park: "",
+    park_folder: "",
+    auto_reply: null,
   };
 }
 

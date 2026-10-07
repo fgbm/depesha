@@ -1,14 +1,15 @@
 // "Waiting for reply": the parts are wired here and live in their own modules — the view
-// (view.ts), rows (rows.ts), the banner (banner.ts), the reminder of the compose window
-// (RemindSelect, RemindLine), the settings (RemindSettings), the notification (notify.ts).
+// (view.ts), rows (rows.ts), the banner (banner.ts), the line of the compose window with
+// the folder and the reminder (WaitLine, RemindSelect, RemindLine), the settings
+// (RemindSettings), the notification (notify.ts).
 
 import type { Plugin } from "@depesha/plugin-api";
 import { bannerOf } from "./banner";
 import { registerNotify } from "./notify";
 import RemindLine from "./RemindLine.svelte";
-import RemindSelect from "./RemindSelect.svelte";
 import RemindSettings from "./RemindSettings.svelte";
 import Repick from "./Repick.svelte";
+import WaitLine from "./WaitLine.svelte";
 import { rowTag } from "./rows";
 import { followups } from "./state.svelte";
 import { S } from "./strings";
@@ -21,8 +22,9 @@ export default {
   activate(ctx) {
     registerView(ctx);
     registerNotify(ctx);
-    ctx.ui.composeControl({ component: RemindSelect, props: { ctx }, order: 10 });
-    ctx.ui.composeControl({ component: RemindLine, props: { ctx }, slot: "line" });
+    // One line for the wait: the letter out of the inbox and the reminder; its details below.
+    ctx.ui.composeControl({ component: WaitLine, props: { ctx }, slot: "line", order: 10 });
+    ctx.ui.composeControl({ component: RemindLine, props: { ctx }, slot: "line", order: 11 });
     ctx.ui.settingsSection({ title: () => ctx.t(S.settings), component: RemindSettings, props: { ctx } });
     ctx.ui.rowTag((row) => rowTag(row, now(), ctx, ctx.mail.viewing("followups")));
     ctx.ui.overlay({ component: Repick, props: { ctx } });
@@ -45,6 +47,14 @@ export default {
             .catch((e) => ctx.fail(e)),
         repick,
         waitAgain: repick,
+        unpark: () =>
+          ctx
+            .backend("followup_return", { id: row.id })
+            .then(() => {
+              if (f) row.followup = { ...f, status: "closed", ended: now(), park: "back" };
+              row.followup_due = null;
+            })
+            .catch((e) => ctx.fail(e)),
         stop: () =>
           ctx
             .backend("followup_cancel", { id: row.id })

@@ -11,6 +11,7 @@ mod server;
 mod state;
 mod tasks;
 mod updater;
+mod waiting;
 mod worker;
 
 use std::collections::HashMap;
@@ -172,6 +173,8 @@ pub fn run() {
             commands::counters,
             commands::followup_cancel,
             commands::followup_postpone,
+            commands::followup_unpark,
+            commands::followup_return,
             commands::unsubscribe,
             commands::unsubscribe_plan,
             commands::settings_get,

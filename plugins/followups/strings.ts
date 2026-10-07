@@ -82,6 +82,10 @@ export const S = {
   later: { en: "Remind tomorrow", ru: "Напомнить завтра" },
   repick: { en: "Set a new date", ru: "Назначить новый срок" },
   stop: { en: "Stop waiting", ru: "Не ждать" },
+  // A letter waiting in the folder (#59).
+  comesBack: { en: "The letter comes back to the inbox when they reply.", ru: "Письмо вернётся во «Входящие», когда ответят." },
+  unpark: { en: "Back to the inbox", ru: "Вернуть во входящие" },
+  remindMe: { en: "Remind me…", ru: "Напомнить…" },
   openAnswer: { en: "Open the reply", ru: "Открыть ответ" },
   waitAgain: { en: "Wait for a reply again", ru: "Снова ждать ответа" },
   history: { en: "Reminder history", ru: "История напоминаний" },
@@ -97,6 +101,22 @@ export const S = {
   answeredTagAnon: { en: "replied {when}", ru: "ответили {when}" },
   closedTag: { en: "closed by hand {when}", ru: "закрыто вручную {when}" },
   deadlineNote: { en: "due {when}", ru: "срок {when}" },
+  goingTag: { en: "to “Waiting for reply”", ru: "в «Ждут ответа»" },
+  goingLaterTag: { en: "goes to “Waiting for reply” {when}", ru: "уйдёт в «Ждут ответа» {when}" },
+  cameTag: { en: "reply came", ru: "пришёл ответ" },
+  sinceTag: { en: "waiting since {when}", ru: "ждём с {when}" },
+  sinceToday: { en: "waiting since today", ru: "ждём с сегодня" },
+  sinceYesterday: { en: "waiting since yesterday", ru: "ждём со вчера" },
+  autoTag: { en: "auto-reply {when}: does not count", ru: "автоответ {when} — не в счёт" },
+
+  // The compose window: the letter answered goes to wait.
+  queueBox: { en: "Take the letter out of the inbox until a reply", ru: "Убрать письмо из входящих до ответа" },
+  queueWaiting: { en: "The letter is waiting for a reply already", ru: "Письмо уже ждёт ответа" },
+  queueStays: { en: "The letter is in the folder “{folder}” and stays there", ru: "Письмо в папке «{folder}», останется там" },
+  queueStaysTitle: {
+    en: "Only letters of the inbox are taken out. This one stays in the folder “{folder}”.",
+    ru: "Убираются только письма из «Входящих». Это письмо останется в папке «{folder}».",
+  },
 
   // The notification.
   due: { en: "No answer yet: {subject}", ru: "Нет ответа: {subject}" },

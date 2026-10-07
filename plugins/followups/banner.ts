@@ -3,10 +3,10 @@
 
 import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
 import Check from "@lucide/svelte/icons/check";
-import { addrName, when, type Banner, type MessageRow } from "@depesha/plugin-api";
+import { addrName, when, type Banner, type FollowupInfo, type MessageRow } from "@depesha/plugin-api";
 import type { Say } from "./labels";
 import { REMINDED, S } from "./strings";
-import { stateOf, waitOf, whoOf } from "./wait";
+import { parked, stateOf, waitOf, whoOf, type State } from "./wait";
 
 /** What the buttons of the line do. */
 export interface Actions {
@@ -15,6 +15,8 @@ export interface Actions {
   repick(): void;
   stop(): void;
   waitAgain(): void;
+  /** Takes a letter waiting in the folder back to the inbox, and stops waiting. */
+  unpark(): void;
   /** Opens the answer; missing where letters cannot be opened (a window of one letter). */
   openAnswer?: (id: number) => void;
 }
@@ -57,25 +59,37 @@ export function bannerOf(row: MessageRow, now: number, say: Say, act: Actions): 
       ...history,
     };
 
+  return waitingBanner(row, f, state, now, say, act, history);
+}
+
+type History = Pick<Banner, "details" | "detailsTitle">;
+
+/** Still waiting, overdue or not; in the folder (frame 10) or for a sent letter. */
+function waitingBanner(row: MessageRow, f: FollowupInfo, state: State, now: number, say: Say, act: Actions, history: History): Banner {
   const text: string[] = [];
+  const inFolder = parked(f);
   if (state === "overdue") {
     text.push(f.own_deadline ? say.t(S.overdueDeadline, { when: when(f.deadline) }) : say.t(S.overdueReminder, { when: when(f.reminded.at(-1) ?? f.deadline) }));
   } else {
     text.push(f.own_deadline ? say.t(S.waitingBy, { when: when(f.deadline) }) : say.t(S.waiting));
+    if (inFolder) text.push(say.t(S.comesBack));
     if (f.due > now) text.push(say.t(S.willRemind, { when: when(f.due) }));
   }
   if (f.expect) text.push(say.t(S.onlyFrom, { who: whoOf(row, f.expect) }));
   const stop = { title: say.t(S.stop), run: act.stop };
-  const repick = { title: say.t(S.repick), run: act.repick };
+  const again = { title: say.t(S.again), primary: true, run: act.again };
+  // Past due: what to do about the silence, the reply first. In the folder: back to the
+  // inbox, a reminder, stop.
+  const actions = inFolder
+    ? [{ title: say.t(S.unpark), run: act.unpark }, { title: say.t(S.remindMe), run: act.repick }, stop]
+    : state === "overdue"
+      ? [{ title: say.t(S.repick), run: act.repick }, { title: say.t(S.later), run: act.later }, stop]
+      : [{ title: say.t(S.repick), run: act.repick }, stop];
   return {
     icon: MessageSquareReply,
     tone: state === "overdue" ? "warn" : "info",
     text: text.join(" "),
-    // Past due: what to do about the silence, the reply first.
-    actions:
-      state === "overdue"
-        ? [{ title: say.t(S.again), primary: true, run: act.again }, repick, { title: say.t(S.later), run: act.later }, stop]
-        : [repick, stop],
+    actions: state === "overdue" ? [again, ...actions] : actions,
     ...history,
   };
 }

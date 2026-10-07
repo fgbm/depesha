@@ -88,6 +88,28 @@ pub struct Account {
     /// The quota on the server stays as it is.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub quota_limit_mb: u64,
+    /// What an answer does with a letter of the inbox: off until the user switches it on.
+    #[serde(default, skip_serializing_if = "Waiting::is_off")]
+    pub waiting: Waiting,
+}
+
+/// The inbox as a queue: an answer takes the letter (its whole conversation) to a folder
+/// on the server, and the reply brings it back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Waiting {
+    /// An answer to a letter of the inbox takes it to the folder until a reply comes.
+    pub park: bool,
+    /// The folder, as the cache names it; empty: "Waiting for reply", made at the first answer.
+    pub folder: String,
+    /// "Stop waiting" takes the letters to the archive instead of back to the inbox.
+    pub stop_to_archive: bool,
+}
+
+impl Waiting {
+    fn is_off(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 impl Account {

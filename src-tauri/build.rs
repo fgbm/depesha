@@ -28,6 +28,8 @@ const COMMANDS: &[&str] = &[
     "counters",
     "followup_cancel",
     "followup_postpone",
+    "followup_unpark",
+    "followup_return",
     "unsubscribe",
     "unsubscribe_plan",
     "settings_get",

@@ -12,6 +12,8 @@ import type { FolderInfo, MessageRow, Moved, OpenedMessage, Settings } from "./t
 export interface Undoable {
   moved: Moved[];
   text: string;
+  /** Takes it back otherwise than by moving the letters back: an answer's move to "Waiting for reply". */
+  run?: () => Promise<void>;
 }
 
 /** What actions need from the app store. */
@@ -129,7 +131,7 @@ export class ActionRunner {
     if (!u) return;
     this.lastUndo = null;
     try {
-      await api.undo(u.moved);
+      await (u.run ? u.run() : api.undo(u.moved));
       this.host.toast(t("done.undone"));
     } catch (e) {
       this.host.fail(e, t("err.undo"));

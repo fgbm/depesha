@@ -127,6 +127,8 @@ export class SelectionController {
       this.selected = new Set([id]);
       this.anchor = id;
     }
+    // A letter going to "Waiting for reply" goes once the user leaves it.
+    this.host.list.collapse(this.selected);
     await this.host.reader.open(id);
   }
 

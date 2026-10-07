@@ -74,6 +74,8 @@ async fn round(state: &AppState) -> depesha_core::Result<()> {
     if state.store.followups_resolve()? > 0 {
         state.emit("counters-changed", json!({}));
     }
+    // Letters to the folder "Waiting for reply" after an answer, and back with the reply.
+    crate::waiting::round(state).await;
     for f in state.store.followups_due(now)? {
         let subject = if f.subject.is_empty() {
             pick("(no subject)", "(без темы)")

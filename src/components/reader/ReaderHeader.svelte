@@ -7,6 +7,10 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
   import FolderOutput from "@lucide/svelte/icons/folder-output";
+  import Forward from "@lucide/svelte/icons/forward";
+  import Reply from "@lucide/svelte/icons/reply";
+  import ReplyAll from "@lucide/svelte/icons/reply-all";
+  import { headerMarks } from "../../lib/marks";
   import { accountLabel, avatarColor, initials, longDate, size } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
   import Recipients from "../Recipients.svelte";
@@ -58,6 +62,10 @@
     return !!me && s.cc.length === 0 && s.to.length === 1 && s.to[0].email.toLowerCase() === me;
   });
 
+  /** What was done with the letter, in words, under its recipients (#55). */
+  const marks = $derived(headerMarks(msg.row.marks));
+  const MARK_ICON = { reply: Reply, reply_all: ReplyAll, forward: Forward };
+
   /** Every letter of this sender, wherever it lies. */
   function fromSender() {
     if (from?.email) app.setView({ kind: "search", text: `from:${from.email}` });
@@ -79,6 +87,15 @@
         {@render headerActions?.()}
       </div>
       {#key msg.row.id}<Recipients to={msg.view.summary.to} cc={msg.view.summary.cc} showTo={!onlyToMe} />{/key}
+      {#if marks.length}
+        <div class="marks muted">
+          {#each marks as mark (mark.act)}
+            {@const Icon = MARK_ICON[mark.act]}
+            {@const answer = mark.answer ? msg.row.my_answer : null}
+            <span><Icon size={13} /> {mark.text}{#if answer} · <button class="link" title={t("mark.openTitle")} onclick={() => app.open(answer)}>{t("mark.open")}</button>{/if}</span>
+          {/each}
+        </div>
+      {/if}
     </div>
     <div class="date muted small">
       {longDate(msg.view.summary.date ?? msg.row.date)}
@@ -165,6 +182,34 @@
 
   .who > div {
     overflow-wrap: anywhere;
+  }
+
+  /* Quiet, under the recipients: "You replied 5 Oct at 14:20 · open". */
+  .marks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  .marks span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .marks .link {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: var(--link);
+  }
+
+  .marks .link:hover {
+    text-decoration: underline;
   }
 
   .date {

@@ -1,7 +1,9 @@
 <script lang="ts">
   import Flag from "@lucide/svelte/icons/flag";
+  import Forward from "@lucide/svelte/icons/forward";
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Reply from "@lucide/svelte/icons/reply";
+  import ReplyAll from "@lucide/svelte/icons/reply-all";
   import { app } from "../lib/store.svelte";
   import RowMenu from "./RowMenu.svelte";
   import Segments from "./Segments.svelte";
@@ -14,6 +16,7 @@
   import { viewTitle } from "../lib/titles";
   import { i18n, locale, t, tn } from "../lib/i18n.svelte";
   import { recentSearches } from "../lib/recentSearches.svelte";
+  import { rowMarks } from "../lib/marks";
   import type { Addr, MessageRow } from "../lib/types";
 
   let {
@@ -96,8 +99,12 @@
     menu = { at: { x: e.clientX, y: e.clientY }, ids };
   }
 
+  const MARK_ICON = { reply: Reply, reply_all: ReplyAll, forward: Forward };
+
   function who(m: MessageRow): string {
-    if (isSentLike) return m.to.length ? t("list.to", { who: m.to.map(addrName).join(", ") }) : t("list.noRecipients");
+    // "Waiting for reply" lists my letters and the letters I answered: each says its own.
+    const mine = isSentLike && (app.view.kind !== "plugin" || ["sent", "drafts"].includes(app.folder(m.account_id, m.folder)?.role ?? ""));
+    if (mine) return m.to.length ? t("list.to", { who: m.to.map(addrName).join(", ") }) : t("list.noRecipients");
     // A conversation names everyone who wrote, me as "me": "Ivan, me", as in Gmail.
     if (m.thread_senders?.length > 1) {
       const mine = new Set(app.accounts.map((a) => a.email.toLowerCase()));
@@ -210,13 +217,14 @@
             {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
             {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
             {#if m.has_attachments}<span class="clip" title={t("list.hasFiles")}><Paperclip size={13} /></span>{/if}
+            <!-- What was done with it: last before the date, like the clip (#55). -->
+            {#each rowMarks(m.marks) as mark (mark.act)}{@const Icon = MARK_ICON[mark.act]}<span class="mark" title={mark.title} aria-label={mark.label} role="img"><Icon size={13} /></span>{/each}
             <span class="date">{listDate(m.thread_date || m.date)}</span>
           </div>
           <div class="line2">
-            {#if m.flags.answered}<span class="answered" title={t("list.answered")}><Reply size={13} /></span>{/if}
             <span class="subject">{m.subject || t("noSubject")}</span>
             {#each tags as tag, ti (ti)}
-              <span class="tag" class:due={tag.alert} class:good={tag.good} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
+              <span class="tag" class:due={tag.alert} class:good={tag.good} class:info={tag.info} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
             {/each}
             <span class="size" class:strong={bySize} title={t("list.size")}>{size(m.thread_size ?? m.size)}</span>
           </div>
@@ -442,7 +450,7 @@
   }
 
   .clip,
-  .answered {
+  .mark {
     color: var(--muted);
     display: inline-flex;
   }
@@ -496,6 +504,11 @@
 
   .tag.good {
     color: var(--ok);
+  }
+
+  /* Where the letter is going: "to Waiting for reply". */
+  .tag.info {
+    color: var(--link);
   }
 
   .tag.due {

@@ -194,6 +194,7 @@ export class ComposeManager {
           format: d.format ?? "plain",
           in_reply_to: d.in_reply_to,
           references: d.references,
+          acts_on: d.acts_on ?? null,
           attachments,
           // A scheduled letter comes back with its time (as the Outbox tells them apart).
           send_at: item && item.attempts === 0 && item.next_attempt - item.created > 60 && item.next_attempt * 1000 > Date.now() ? item.next_attempt : null,
