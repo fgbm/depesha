@@ -3,7 +3,7 @@ component	src/MessageWindow.svelte	96	70	21	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	202	83	34	85
 component	src/components/Compose.svelte	860	201	218	441
-component	src/components/Confirm.svelte	127	34	22	71
+component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	122	76	35	11
@@ -20,7 +20,7 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	435	200	56	179
+component	src/components/Preferences.svelte	622	247	91	284
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	318	118	97	103
 component	src/components/Recipients.svelte	70	28	20	22
@@ -234,12 +234,16 @@ function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
 function	src/components/Preferences.svelte::start	5
-function	src/components/Preferences.svelte::save	53
-function	src/components/Preferences.svelte::cancel	4
+function	src/components/Preferences.svelte::openHit	12
+function	src/components/Preferences.svelte::savePage	11
+function	src/components/Preferences.svelte::revertPage	14
+function	src/components/Preferences.svelte::save	4
+function	src/components/Preferences.svelte::cancel	5
 function	src/components/Preferences.svelte::close	4
-function	src/components/Preferences.svelte::mayLeave	3
+function	src/components/Preferences.svelte::confirmLeave	16
 function	src/components/Preferences.svelte::turn	4
-function	src/components/Preferences.svelte::onKey	7
+function	src/components/Preferences.svelte::onKey	12
+function	src/components/Preferences.svelte::onWindowKey	7
 function	src/components/Preferences.svelte::onNavKey	7
 function	src/components/QuotaLine.svelte::open	4
 function	src/components/Reader.svelte::bannerAction	4
@@ -669,6 +673,18 @@ function	src/lib/serverFeatures.ts::unknown	4
 function	src/lib/serverFeatures.ts::needsAttention	4
 function	src/lib/serverFeatures.ts::summary	9
 function	src/lib/serverFeatures.ts::report	9
+function	src/lib/settingsFields.ts::buildSettingsIndex	18
+function	src/lib/settingsSearch.test.ts::index	51
+function	src/lib/settingsSearch.ts::words	6
+function	src/lib/settingsSearch.ts::matchesText	5
+function	src/lib/settingsSearch.ts::searchSettings	20
+function	src/lib/settingsWindow.test.ts::num	1
+function	src/lib/settingsWindow.ts::traits	3
+function	src/lib/settingsWindow.ts::ownFooter	3
+function	src/lib/settingsWindow.ts::widePage	3
+function	src/lib/settingsWindow.ts::pageKeys	3
+function	src/lib/settingsWindow.ts::pageChanged	5
+function	src/lib/settingsWindow.ts::resolveLeave	3
 function	src/lib/shortcuts.svelte.ts::other	8
 function	src/lib/shortcuts.test.ts::press	3
 function	src/lib/shortcuts.test.ts::snooze	2
