@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>#42 — Метки, права на папки и возможности отдельных папок</title>
+<style>
+/* Переменные темы — из src/app.css (:root = paper, [data-theme="night"] = .dark). */
+:root, .light {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
+  --ok: #2e7d4f;
+  --warn: #b26a00;
+  --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  /* только для пометок макета, не цвета приложения */
+  --note: #5b4bb7;
+  color-scheme: light;
+}
+.dark {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #8f97a2;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #2e3742;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--font); font-size: 14px; color: #1d232b; background: #dcd7cd; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -3px; }
+.s13 svg.i, svg.i.s13 { width: 13px; height: 13px; }
+.s14 svg.i, svg.i.s14 { width: 14px; height: 14px; }
+.s15 svg.i, svg.i.s15 { width: 15px; height: 15px; }
+
+/* ---------- страница макета ---------- */
+.doc { width: 1320px; margin: 0 auto; padding: 28px 20px 80px; }
+.doc > h1 { font-size: 24px; margin: 0 0 6px; }
+.doc > .lead { max-width: 1000px; line-height: 1.5; color: #3b4350; margin: 0 0 8px; }
+.doc > .lead a, .toc-doc a { color: #1f5fa8; }
+.toc-doc { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 24px; font-size: 13px; }
+.state { margin: 40px 0 0; }
+.state > h2 { font-size: 17px; margin: 0 0 4px; }
+.state > h2 .num { color: #6b7480; font-weight: 500; margin-right: 6px; }
+.state > .cap { max-width: 1060px; line-height: 1.5; color: #3b4350; margin: 0 0 12px; font-size: 13.5px; }
+.state > .cap b { color: #1d232b; }
+.frame { position: relative; width: 1280px; height: 800px; overflow: hidden; border-radius: 10px; box-shadow: 0 2px 4px rgb(0 0 0 / 12%), 0 12px 32px rgb(0 0 0 / 18%); background: var(--paper); color: var(--ink); font-size: 14px; }
+.frame.auto { height: auto; }
+.pair { display: flex; gap: 20px; align-items: flex-start; }
+.pair > div { flex: 1; min-width: 0; }
+.pair .frame { width: 100%; }
+.vlabel { font-size: 13px; font-weight: 700; margin: 0 0 6px; color: var(--note); }
+.vlabel span { font-weight: 400; color: #3b4350; }
+.prop { display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: var(--note); border: 1px dashed var(--note); border-radius: 4px; padding: 0 4px; line-height: 15px; vertical-align: 2px; margin-left: 6px; white-space: nowrap; background: #fff; }
+.pin { display: inline-flex; width: 18px; height: 18px; border-radius: 50%; background: var(--note); color: #fff; font-size: 11px; font-weight: 700; align-items: center; justify-content: center; vertical-align: 1px; margin: 0 3px; flex: none; box-shadow: 0 0 0 2px rgb(255 255 255 / 75%); font-style: normal; }
+.notes { margin: 10px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3b4350; max-width: 1180px; }
+.notes li { display: flex; gap: 8px; margin: 4px 0; }
+.notes li .n { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--note); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.notes li .pm { flex: none; font-weight: 700; width: 20px; text-align: center; }
+.notes li .pm.plus { color: #2e7d4f; }
+.notes li .pm.minus { color: #b3261e; }
+.notes code, .cap code, .lead code { font-family: var(--mono); font-size: 12px; }
+.open-q { margin-top: 44px; padding: 14px 18px; border-left: 4px solid var(--note); background: #f4f2fb; border-radius: 6px; font-size: 13.5px; line-height: 1.55; max-width: 1180px; }
+.open-q h2 { margin: 0 0 8px; font-size: 17px; color: var(--note); }
+.open-q ol { margin: 0; padding-left: 22px; }
+.open-q li { margin: 6px 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 12px 0 0; padding: 10px 14px; background: #f3eee4; border: 1px solid #ddd4c4; border-radius: 8px; font-size: 13px; max-width: 1180px; color: #3b4350; }
+
+/* ---------- приложение: общие элементы (src/app.css) ---------- */
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 5px 11px; line-height: 1.3; white-space: nowrap; font-size: 14px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.sm { font-size: 12.5px; padding: 4px 9px; }
+.btn:disabled, .btn.off { opacity: 0.45; cursor: default; }
+.link { border: none; background: none; color: var(--link); padding: 0; text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.select { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; background: var(--paper); font-size: 14px; min-width: 120px; }
+.select::after { content: ""; border: 5px solid transparent; border-top: 6px solid var(--muted); border-bottom: 0; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); }
+
+/* ---------- главное окно ---------- */
+.app { position: absolute; inset: 0; display: grid; grid-template-columns: 248px 380px 1fr; background: var(--paper); }
+.app.nos { grid-template-columns: 340px 1fr; }
+.app.sl { grid-template-columns: 248px 1fr; }
+.side { background: var(--side); color: var(--side-ink); display: flex; flex-direction: column; min-height: 0; position: relative; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 8px; font-weight: 700; font-size: 17px; letter-spacing: 0.02em; }
+.brand .logo { width: 22px; height: 16px; border-radius: 3px; background: #f4ece0; position: relative; }
+.brand .logo::after { content: ""; position: absolute; left: 8px; top: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.brand .version { align-self: flex-end; margin-bottom: 3px; font-size: 11px; font-weight: 400; color: var(--side-muted); opacity: 0.7; }
+.compose-btn { margin: 8px 14px 10px; justify-content: center; padding: 8px; display: flex; }
+.side .group { padding: 4px 0; }
+.side .group + .group { margin-top: 8px; }
+.item { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 14px; background: none; border: none; color: var(--side-ink); text-align: left; font-size: 14px; }
+.item.active { background: var(--side-2); box-shadow: inset 3px 0 0 var(--accent); }
+.item.ctx { background: color-mix(in srgb, var(--side-ink) 10%, transparent); }
+.item.sub { padding-left: 28px; }
+.item .icon { width: 18px; display: inline-flex; justify-content: center; opacity: 0.8; }
+.item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .fx { display: inline-flex; color: var(--side-muted); opacity: 0.9; }
+.count { font-size: 12px; font-weight: 600; color: var(--side-ink); background: color-mix(in srgb, var(--side-ink) 12%, transparent); border-radius: 10px; padding: 0 7px; }
+.count.quiet { font-weight: 500; color: var(--side-muted); background: none; }
+.account { display: flex; align-items: center; padding-right: 6px; }
+.account-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: none; color: var(--side-muted); padding: 6px 4px 6px 14px; font-size: 12px; font-weight: 600; text-align: left; text-transform: uppercase; letter-spacing: 0.04em; }
+.subhead { display: flex; align-items: center; gap: 6px; padding: 8px 14px 3px 22px; font-size: 11px; color: var(--side-muted); letter-spacing: 0.02em; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dot, var(--side-muted)); }
+.side .foot { margin-top: auto; display: flex; align-items: center; gap: 2px; padding: 8px 10px; border-top: 1px solid color-mix(in srgb, var(--side-ink) 10%, transparent); color: var(--side-muted); font-size: 13px; }
+
+.list { background: var(--paper); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.list-head { padding: 12px 14px 6px; }
+.search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; color: var(--muted); background: var(--paper); font-size: 14px; }
+.list-title { display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; border-bottom: 1px solid var(--line); }
+.list-title b { font-size: 16px; }
+.list-title .cnt { margin-left: auto; font-size: 12px; color: var(--muted); }
+.chipro { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 0 7px; line-height: 18px; background: var(--paper-2); white-space: nowrap; }
+.band { display: flex; align-items: flex-start; gap: 8px; padding: 8px 14px; font-size: 12.5px; line-height: 1.45; color: var(--muted); background: var(--paper-2); border-bottom: 1px solid var(--line); }
+.row { padding: 9px 14px 9px 18px; border-bottom: 1px solid var(--line); position: relative; }
+.row .l1 { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; align-items: baseline; }
+.row .l1 .when { font-size: 12px; color: var(--muted); white-space: nowrap; display: inline-flex; gap: 5px; align-items: center; }
+.row .l2 { font-size: 14px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row .l2 .subj { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row.unread .l1 b, .row.unread .l2 .subj { font-weight: 700; color: var(--ink); }
+.row.unread::before { content: ""; position: absolute; left: 6px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.row.sel { background: var(--selected); }
+.row.back { background: color-mix(in srgb, var(--warn) 10%, var(--paper)); }
+.row .flag { color: var(--accent); display: inline-flex; }
+
+.reader { background: var(--paper-2); display: flex; flex-direction: column; min-width: 0; position: relative; }
+.reader .bar { display: flex; gap: 6px; align-items: center; padding: 10px 12px; }
+.reader .bar .spacer { flex: 1; }
+.reader h1 { font-size: 20px; margin: 4px 22px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.reader .from { display: flex; gap: 10px; margin: 0 22px 12px; align-items: center; }
+.ava { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 14px; flex: none; }
+.reader .body { flex: 1; margin: 0 16px 16px; background: #fff; color: #2a2f36; border-radius: 6px; padding: 20px 22px; line-height: 1.55; }
+.dark .reader .body { background: #fff; }
+.reader .body p { margin: 0 0 12px; }
+
+/* подсказка при наведении (title браузера в приложении — свой tooltip) */
+.tip { position: absolute; z-index: 30; max-width: 300px; background: var(--side); color: var(--side-ink); font-size: 12.5px; line-height: 1.4; padding: 6px 9px; border-radius: 6px; box-shadow: 0 6px 18px rgb(0 0 0 / 25%); }
+.tip b { color: #fff; }
+.tip::before { content: ""; position: absolute; top: -5px; left: var(--ax, 16px); border: 5px solid transparent; border-top: 0; border-bottom-color: var(--side); }
+
+/* уведомления (Dock.svelte) */
+.toasts { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; width: 470px; z-index: 20; }
+.toast { display: flex; align-items: center; gap: 8px; background: var(--side); color: var(--side-ink); border-radius: var(--radius); padding: 10px 8px 10px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 25%); line-height: 1.4; font-size: 14px; }
+.toast.error { border-left: 4px solid var(--accent); }
+.toast.warn { border-left: 4px solid #e2a440; }
+.toast .txt { flex: 1; min-width: 0; }
+.toast .act { color: inherit; text-decoration: underline; text-underline-offset: 3px; font-weight: 600; padding: 0 6px; white-space: nowrap; background: none; border: none; }
+.toast .close { color: var(--side-muted); padding: 0 6px; font-size: 16px; background: none; border: none; }
+.toast .sub { display: block; font-size: 12px; color: var(--side-muted); }
+.toast .vtag { position: absolute; left: -96px; width: 86px; text-align: right; font-size: 11.5px; font-weight: 700; color: var(--note); }
+.toastwrap { position: relative; }
+
+/* меню и всплывающие карточки (Popover.svelte) */
+.pop { position: absolute; z-index: 25; min-width: 200px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; display: flex; flex-direction: column; font-size: 14px; }
+.dark .pop { box-shadow: 0 10px 28px rgb(0 0 0 / 45%); }
+.pop .mt { padding: 6px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.pop .mi { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: none; color: var(--ink); text-align: left; padding: 6px 10px; border-radius: 5px; white-space: nowrap; font-size: 14px; }
+.pop .mi.hl { background: var(--hover); }
+.pop .mi.off { opacity: 0.5; }
+.pop .mi .hint { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 12px; }
+.pop .mi .why { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 11.5px; }
+.pop hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+.pop .new { font-size: 12px; font-weight: 600; color: var(--note); }
+
+/* карточка папки */
+.fcard { width: 380px; padding: 0; font-size: 13px; line-height: 1.45; }
+.fcard .fh { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
+.fcard .fh .ic { width: 30px; height: 30px; border-radius: 7px; background: var(--paper-2); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex: none; }
+.fcard .fh .t { flex: 1; min-width: 0; }
+.fcard .fh .t b { font-size: 15px; display: block; }
+.fcard .fh .t .p { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.fcard .fh .x { border: none; background: none; color: var(--muted); padding: 2px; }
+.fsec { padding: 9px 14px; border-bottom: 1px solid var(--line); }
+.fsec:last-child { border-bottom: none; }
+.fsec .k { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+.fsec .k .v { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 600; }
+.fsec .k .v.ok { color: var(--ok); }
+.fsec .k .v.warn { color: var(--warn); }
+.fsec .k .v.mut { color: var(--muted); font-weight: 500; }
+.rights { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rights li { display: flex; gap: 8px; align-items: flex-start; }
+.rights li .m { width: 15px; flex: none; display: inline-flex; justify-content: center; margin-top: 1px; }
+.rights li.y .m { color: var(--ok); }
+.rights li.n { color: var(--muted); }
+.rights li .src { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.fsec p { margin: 0; }
+.fsec p + p { margin-top: 4px; }
+.fsec .hint { font-size: 12px; color: var(--muted); }
+.ffoot { white-space: nowrap; display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--paper-2); border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; font-size: 12px; color: var(--muted); }
+.ffoot .sp { flex: 1; }
+.ffoot .link { font-size: 12px; }
+.stale { color: var(--warn); }
+
+/* метки-статусы хранения */
+.keep { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.keep.srv { color: var(--ok); }
+.keep.loc { color: var(--muted); }
+.keep.unk { color: var(--warn); }
+
+/* метки в строке письма */
+.lbl { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; line-height: 17px; padding: 0 6px; border-radius: 9px; color: var(--ink); background: color-mix(in srgb, var(--c) 16%, var(--paper)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); white-space: nowrap; font-weight: 500; flex: none; }
+.lbl.local { border-style: dashed; }
+.ldot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; display: inline-block; }
+.lsw { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; display: inline-block; }
+
+/* окно настроек (Preferences.svelte) */
+.backdrop { position: absolute; inset: 0; background: rgb(10 14 20 / 45%); display: flex; align-items: center; justify-content: center; z-index: 40; }
+.backdrop.plain { background: #8f8a81; }
+.dark .backdrop.plain { background: #0b0d10; }
+.prefs { width: 880px; height: 680px; display: flex; background: var(--paper); border-radius: 12px; box-shadow: 0 20px 60px rgb(0 0 0 / 30%); overflow: hidden; position: relative; }
+.prefs .pages { flex: none; width: 190px; display: flex; flex-direction: column; gap: 2px; padding: 16px 10px; background: var(--paper-2); border-right: 1px solid var(--line); }
+.prefs .pages h3 { margin: 0 8px 12px; font-size: 15px; }
+.tab { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: none; border-radius: 6px; background: none; color: var(--ink); font-size: 13px; text-align: left; }
+.tab svg { color: var(--muted); }
+.tab.sub { padding-left: 36px; }
+.tab.on { background: var(--selected); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.pgroup { margin: 14px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pane > header { padding: 18px 24px 6px; display: flex; align-items: baseline; gap: 10px; }
+.pane > header h2 { margin: 0; font-size: 18px; }
+.pane > header .addr { font-size: 12px; color: var(--muted); }
+.pane .content { flex: 1; overflow: hidden; position: relative; min-height: 0; }
+.pane .inner { padding: 0 24px 16px; }
+.atoc { display: flex; gap: 4px; padding: 6px 24px 8px; background: var(--paper); border-bottom: 1px solid var(--line); }
+.atoc a { font-size: 13px; color: var(--muted); text-decoration: none; padding: 4px 9px; border-radius: 6px; white-space: nowrap; }
+.atoc a.on { color: var(--ink); background: var(--selected); font-weight: 600; }
+.asec { padding: 16px 0 18px; border-bottom: 1px solid var(--line); }
+.asec:last-child { border-bottom: none; }
+.asec > h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.asec > h4 { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.asec > h4 .r { margin-left: auto; font-weight: 400; }
+
+/* таблица возможностей (как ServerSection.svelte) */
+.caps-head { display: flex; align-items: flex-start; gap: 12px; }
+.caps-head .who { flex: 1; font-size: 13px; line-height: 1.5; }
+.caps-summary { margin: 10px 0 4px; font-size: 13px; line-height: 1.5; }
+.ctable { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+.ctable th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 8px 4px 0; border-bottom: 1px solid var(--line); }
+.ctable td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.4; }
+.ctable tr.grp td { padding: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: none; }
+.ctable tr.fold td { color: var(--muted); font-style: italic; }
+.ctable tr.chg td { background: color-mix(in srgb, var(--note) 7%, transparent); }
+.ctable .fn b { display: block; font-weight: 600; font-size: 13px; }
+.ctable .fn code { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.ctable .loss { display: block; margin-top: 3px; color: var(--muted); }
+.ctable td.srv, .ctable td.cli { width: 120px; }
+.st { display: inline-flex; align-items: flex-start; gap: 5px; font-size: 12px; }
+.st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; margin-top: 4px; }
+.st.yes::before { background: var(--ok); }
+.st.used { color: var(--ok); font-weight: 600; }
+.st.used::before { background: var(--ok); }
+.st.part::before { background: linear-gradient(90deg, var(--ok) 50%, transparent 50%); box-shadow: inset 0 0 0 1.5px var(--ok); }
+.st small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+.stack { display: inline-flex; flex-direction: column; gap: 1px; }
+details.tech { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; }
+details.tech > summary { list-style: none; padding: 8px 12px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+details.tech pre, pre.raw { margin: 4px 0 8px; padding: 8px 10px; background: var(--paper-2); border-radius: 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+
+/* таблица папок */
+.ftab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ftab th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 8px 4px 0; border-bottom: 1px solid var(--line); }
+.ftab td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.4; }
+.ftab td.fname { white-space: nowrap; }
+.ftab td.fname .ind { display: inline-block; width: 14px; }
+.ftab tr.sel td { background: var(--selected); }
+.ftab .fx { color: var(--muted); display: inline-flex; margin-left: 4px; }
+.cell { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.cell.ok { color: var(--ink); }
+.cell.lim { color: var(--warn); }
+.cell.no { color: var(--muted); }
+.cell.unk { color: var(--muted); font-style: italic; }
+.cell::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.cell.ok::before { background: var(--ok); }
+.cell.lim::before { background: var(--warn); }
+.cell.no::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.cell.unk::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); border-radius: 2px; }
+.cell.none::before { display: none; }
+
+/* диалог (Confirm.svelte) */
+.dlg { width: 470px; background: var(--paper); color: var(--ink); border-radius: 12px; box-shadow: 0 20px 60px rgb(0 0 0 / 35%); padding: 18px 20px 16px; font-size: 14px; line-height: 1.5; }
+.dlg.wide { width: 620px; padding: 0; }
+.dlg h3 { margin: 0 0 8px; font-size: 16px; }
+.dlg ol { margin: 6px 0 8px; padding-left: 20px; }
+.dlg .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.dlg .res { display: grid; gap: 6px; margin: 8px 0; }
+.dlg .res div { display: flex; gap: 8px; align-items: flex-start; }
+.dlg .res .m { color: var(--ok); margin-top: 1px; display: inline-flex; }
+.dlg .res .m.w { color: var(--warn); }
+.dlg .head { display: flex; gap: 10px; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); align-items: flex-start; }
+.dlg .head b { font-size: 16px; display: block; }
+.dlg .twocol { display: grid; grid-template-columns: 1fr 1fr; }
+.dlg .twocol > div { padding: 0; }
+.dlg .twocol > div + div { border-left: 1px solid var(--line); }
+
+/* выбор метки */
+.lpick { width: 300px; }
+.lpick .search { margin: 4px 4px 6px; padding: 5px 8px; font-size: 13px; }
+.lpick .mi input { margin: 0; }
+.lpick .stat { padding: 6px 10px 6px; font-size: 12px; line-height: 1.45; color: var(--muted); border-top: 1px solid var(--line); margin-top: 4px; display: flex; gap: 6px; align-items: flex-start; }
+input[type="checkbox"] { appearance: none; -webkit-appearance: none; flex: none; width: 16px; height: 16px; margin: 0; border: 1.5px solid color-mix(in srgb, var(--muted) 75%, transparent); border-radius: 4px; background: var(--paper) center / 12px no-repeat; }
+input[type="checkbox"]:checked { border-color: var(--accent); background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.5-5' fill='none' stroke='%23fff8f0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+</style>
+</head>
+<body>
+<div class="doc">
+<h1>#42 — Метки, права на папки и возможности отдельных папок</h1>
+<p class="lead">Продолжение #11. В 0.6.0 раздел «Сервер» на странице IMAP-ящика показывает возможности сервера для ящика целиком. Здесь — то, что зависит от папки: можно ли в ней хранить свои метки (<code>PERMANENTFLAGS</code>), что разрешено вам в общей или чужой папке (<code>MYRIGHTS</code>, <code>[READ-ONLY]</code>, <code>NAMESPACE</code>), как это видно в сайдбаре и что происходит при запрещённом действии. Плюс безопасная проверка меток на тестовом письме. Сведения о папке собираются при её открытии или по кнопке, а не обходом всех папок при каждом запуске. Ничего из этого не меняет письма, кроме проверки на тестовом письме, и та только по явной просьбе.</p>
+<p class="lead">Метки в строке письма и их выбор (кадр 10) — на границе задачи: в #42 их нет, но #11 требует подписи «Сохраняется на сервере / Только на этом устройстве / Серверное сохранение не подтверждено» именно в интерфейсе меток. Нарисованы, чтобы решить, входят ли они в 0.7.</p>
+<div class="toc-doc"><a href="#s1">1. Таблица «Сервер»: что меняется</a><a href="#s2">2. Папки списком</a><a href="#s3">3. Папка из списка выбора</a><a href="#s4">4. Свойства: карточка у папки</a><a href="#s5">5. Свойства: окно</a><a href="#s6">6. Общие и только для чтения в сайдбаре</a><a href="#s7">7. Запрет заранее</a><a href="#s8">8. Отказ сервера после попытки</a><a href="#s9">9. Проверка меток на тестовом письме</a><a href="#s10">10. Метки в письме</a><a href="#s11">11. Exchange</a><a href="#s12">12. Тёмная тема</a><a href="#q">Открытые вопросы</a></div>
+
+<div class="legend">
+  <span><b>Статусы папки</b> (из #11, разные состояния — разные значки):</span>
+  <span class="cell ok">можно</span>
+  <span class="cell lim">ограничено</span>
+  <span class="cell no">нет прав / нет на сервере</span>
+  <span class="cell unk">не проверено</span>
+  <span class="keep unk"><i data-i="alert" class="s13"></i>ошибка проверки — отдельно, с причиной</span>
+</div>
+
+<!-- ================================================================ 1 -->
+<div class="state" id="s1">
+  <h2><span class="num">1</span>Раздел «Сервер»: что меняется в таблице 0.6.0</h2>
+  <p class="cap">Таблица остаётся сводкой по ящику. Три строки меняются (подсвечены): «Права на папки» и «Общие папки» переходят из «Есть на сервере, Депеша пока не использует» в «Используется», появляется строка «Свои метки». Метки не объявляются в <code>CAPABILITY</code> — сервер разрешает их по папкам, поэтому в колонке «Сервер» стоит <b>«зависит от папки»</b> со счётом и ссылкой вниз. Под таблицей — новый подраздел «Папки» (кадры 2–3), над «Техническими подробностями».</p>
+  <div class="frame" style="height:720px"><div class="backdrop plain"><div class="prefs" style="height:660px">
+    <nav class="pages"><h3>Настройки</h3><button class="tab"><i data-i="sliders"></i><span>Общие</span></button><button class="tab"><i data-i="mail"></i><span>Почта</span></button><button class="tab"><i data-i="bell"></i><span>Уведомления</span></button><div class="pgroup">Ящики</div><button class="tab"><i data-i="inbox"></i><span>Все ящики</span></button><button class="tab sub on"><span>Работа</span></button><button class="tab sub"><span>Личное</span></button><button class="tab sub"><span>Компания (Exchange)</span></button></nav>
+    <div class="pane"><header><h2>Работа</h2><span class="addr">ivan.petrov@example.com · IMAP</span></header>
+    <div class="content"><div class="atoc"><a href="#">Общее</a><a href="#">Письма и подписи</a><a href="#">Хранилище</a><a class="on" href="#">Сервер</a></div>
+    <div class="inner"><section class="asec">
+      <div class="caps-head"><div class="who"><span class="mono">imap.example.com:993</span> · SSL/TLS · IMAP4rev1 · вход как ivan.petrov@example.com<br><span class="small muted">Определено сегодня в 12:04, при входе</span></div><button class="btn sm"><i data-i="rotate" class="s14"></i> Проверить снова</button></div>
+      <p class="caps-summary">Сервер умеет всё, что Депеше нужно для быстрой работы. Права и метки зависят от папки — <button class="link">по папкам ниже</button>.</p>
+      <table class="ctable"><tr><th style="width:150px">Функция</th><th>Что даёт</th><th>Сервер</th><th>Депеша</th></tr>
+        <tr class="grp"><td colspan="4">Используется</td></tr>
+        <tr class="fold"><td colspan="4">Новая почта сразу, быстрая синхронизация, перенос одной командой… — 9 строк без изменений</td></tr>
+        <tr class="chg"><td class="fn"><b>Права на папки</b><code>ACL</code></td><td>Видно, что вам можно в каждой папке; запрещённое неактивно заранее, а не ломается после нажатия.</td><td class="srv"><span class="st yes">есть</span></td><td class="cli"><span class="st used">используется</span></td></tr>
+        <tr class="chg"><td class="fn"><b>Общие папки</b><code>NAMESPACE</code></td><td>Общие и чужие папки стоят в сайдбаре отдельно от ваших.</td><td class="srv"><span class="st yes">есть</span></td><td class="cli"><span class="st used">используется</span></td></tr>
+        <tr class="chg"><td class="fn"><b>Свои метки</b><code>PERMANENTFLAGS \*</code></td><td>Метки писем хранятся на сервере и видны на других устройствах.<span class="loss">Где нельзя — метка остаётся только на этом компьютере.</span></td><td class="srv"><span class="st part"><span class="stack">зависит от папки<small>можно в 6 из 8 проверенных</small></span></span></td><td class="cli"><span class="st used">используется</span></td></tr>
+        <tr class="grp"><td colspan="4">Есть на сервере, Депеша пока не использует</td></tr>
+        <tr class="fold"><td colspan="4">Имя программы, короткие ответы поиска, предел размера письма — без изменений</td></tr>
+      </table>
+      <h4 style="margin-top:18px">Папки <span class="prop">новое: варианты в кадрах 2–3</span></h4>
+      <div class="small muted" style="border:1.5px dashed var(--line);border-radius:8px;padding:12px">…</div>
+    </section></div></div></div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Строки «Права на папки» и «Общие папки» в 0.6.0 говорят «Депеша права пока не показывает» — теперь показывает, тексты меняются, структура таблицы та же: новая функция — строка <code>FEATURES</code> и тексты в локалях.</span></li>
+    <li><span class="n">2</span><span>Если у сервера нет <code>ACL</code>, строка уходит в «Нет на сервере» со строкой «Без этого…»: «Депеша узнаёт о запрете, только когда сервер откажет. Папку только для чтения видно при её открытии». Без <code>NAMESPACE</code> общие папки остаются в общем списке.</span></li>
+    <li><span class="n">3</span><span>«Свои метки» в колонке «Сервер» — «зависит от папки» с полузакрашенной точкой: это не «есть» и не «нет». Счёт «6 из 8 проверенных» честно говорит, что непроверенные не учтены. Если не проверено ни одной папки — «узнаем при открытии папки».</span></li>
+    <li><span class="n">4</span><span>Жёлтая точка у «Сервер» в оглавлении остаётся только для IDLE и MOVE, как решено в 0.6.0: папка только для чтения — не проблема сервера.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 2 -->
+<div class="state" id="s2">
+  <h2><span class="num">2</span>Подраздел «Папки»: все папки списком<span class="prop">Вариант А</span></h2>
+  <p class="cap">Под таблицей — список папок ящика с тремя колонками: <b>доступ, свои метки, чья папка</b>. Сразу видно, где что-то не так. Строка открывает ту же карточку, что ПКМ → «Свойства папки» (кадр 4). Непроверенные папки так и подписаны; «Проверить все» — по явной просьбе, с ходом в «Фоновых задачах».</p>
+  <div class="frame" style="height:640px"><div class="backdrop plain"><div class="prefs" style="height:600px">
+    <nav class="pages"><h3>Настройки</h3><button class="tab"><i data-i="sliders"></i><span>Общие</span></button><button class="tab"><i data-i="mail"></i><span>Почта</span></button><button class="tab"><i data-i="bell"></i><span>Уведомления</span></button><div class="pgroup">Ящики</div><button class="tab"><i data-i="inbox"></i><span>Все ящики</span></button><button class="tab sub on"><span>Работа</span></button><button class="tab sub"><span>Личное</span></button></nav>
+    <div class="pane"><header><h2>Работа</h2><span class="addr">ivan.petrov@example.com · IMAP</span></header>
+    <div class="content"><div class="atoc"><a href="#">Общее</a><a href="#">Письма и подписи</a><a href="#">Хранилище</a><a class="on" href="#">Сервер</a></div>
+    <div class="inner"><section class="asec" style="padding-top:4px">
+      <h4 style="margin-top:8px">Папки <span class="r small">проверено 8 из 9 · <button class="link">Проверить все</button></span></h4>
+      <table class="ftab">
+        <tr><th>Папка</th><th>Доступ</th><th>Свои метки</th><th>Чья</th><th>Проверено</th></tr>
+        <tr><td class="fname">Входящие</td><td><span class="cell ok">чтение и запись</span></td><td><span class="cell ok">на сервере</span></td><td class="muted">ваша</td><td class="muted">сегодня 12:10</td></tr>
+        <tr><td class="fname">Черновики</td><td><span class="cell ok">чтение и запись</span></td><td><span class="cell ok">на сервере</span></td><td class="muted">ваша</td><td class="muted">сегодня 12:04</td></tr>
+        <tr><td class="fname">Отправленные</td><td><span class="cell ok">чтение и запись</span></td><td><span class="cell ok">на сервере</span></td><td class="muted">ваша</td><td class="muted">сегодня 12:04</td></tr>
+        <tr><td class="fname">Корзина</td><td><span class="cell ok">чтение и запись</span></td><td><span class="cell ok">на сервере</span></td><td class="muted">ваша</td><td class="muted">вчера</td></tr>
+        <tr><td class="fname">Архив 2023</td><td><span class="cell ok">чтение и запись</span></td><td><span class="cell lim">только стандартные флаги</span></td><td class="muted">ваша</td><td class="muted">вчера</td></tr>
+        <tr class="sel"><td class="fname">Бухгалтерия<span class="fx"><i data-i="users" class="s13"></i></span></td><td><span class="cell lim">только чтение</span></td><td><span class="cell no">нет прав</span></td><td class="muted">общая</td><td class="muted">сегодня 11:52</td></tr>
+        <tr><td class="fname">Отдел продаж<span class="fx"><i data-i="users" class="s13"></i></span></td><td><span class="cell lim">без удаления</span></td><td><span class="cell ok">на сервере</span></td><td class="muted">общая</td><td class="muted">сегодня 09:30</td></tr>
+        <tr><td class="fname">Проекты<span class="fx"><i data-i="user" class="s13"></i></span></td><td><span class="cell ok">чтение и запись</span></td><td><span class="cell ok">на сервере</span></td><td class="muted">Мария Соколова</td><td class="muted">2 окт</td></tr>
+        <tr><td class="fname">Рассылки</td><td><span class="cell unk">не проверено</span></td><td><span class="cell unk">не проверено</span></td><td class="muted">ваша</td><td class="muted">ещё не открывали</td></tr>
+      </table>
+      <p class="small muted" style="margin:8px 0 0">«Только стандартные флаги»: прочитано, флаг, ответ, черновик сохраняются, свои метки — только на этом компьютере. <button class="link">Проверить метки на тестовом письме…</button></p>
+    </section></div></div></div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="pm plus">+</span><span>Обзор всех ограничений одним взглядом, удобно для отчёта об ошибке и для администратора, который настраивает общие папки.</span></li>
+    <li><span class="pm plus">+</span><span>Разные состояния разными словами: «только чтение» (права), «нет прав» на метки (следствие прав), «только стандартные флаги» (сервер), «не проверено» — критерий 6 из #11.</span></li>
+    <li><span class="pm minus">−</span><span>На ящике со 150 папками это длинная простыня. Смягчение: показывать только папки с ограничениями и непроверенные, а «все 150 — в порядке» одной строкой.</span></li>
+    <li><span class="pm minus">−</span><span>«Проверить все» — открытие каждой папки на сервере. Это не меняет письма, но на медленном сервере идёт минуты; поэтому только по кнопке, фоновой задачей.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 3 -->
+<div class="state" id="s3">
+  <h2><span class="num">3</span>Подраздел «Папки»: выбор папки и её сведения<span class="prop">Вариант Б</span></h2>
+  <p class="cap">Так, как написано в #11: «выбор папки для просмотра её ограничений». Список выбора и под ним сведения одной папки — те же блоки, что в карточке из сайдбара (кадр 4). Компактно, но общей картины нет: чтобы найти папку с ограничением, нужно перебирать.</p>
+  <div class="frame" style="height:640px"><div class="backdrop plain"><div class="prefs" style="height:600px">
+    <nav class="pages"><h3>Настройки</h3><button class="tab"><i data-i="sliders"></i><span>Общие</span></button><button class="tab"><i data-i="mail"></i><span>Почта</span></button><button class="tab"><i data-i="bell"></i><span>Уведомления</span></button><div class="pgroup">Ящики</div><button class="tab"><i data-i="inbox"></i><span>Все ящики</span></button><button class="tab sub on"><span>Работа</span></button><button class="tab sub"><span>Личное</span></button></nav>
+    <div class="pane"><header><h2>Работа</h2><span class="addr">ivan.petrov@example.com · IMAP</span></header>
+    <div class="content"><div class="atoc"><a href="#">Общее</a><a href="#">Письма и подписи</a><a href="#">Хранилище</a><a class="on" href="#">Сервер</a></div>
+    <div class="inner"><section class="asec" style="padding-top:4px">
+      <h4 style="margin-top:8px">Папки</h4>
+      <div style="display:flex;gap:10px;align-items:center"><span class="select" style="min-width:260px"><span><i data-i="users" class="s14"></i> Бухгалтерия · общая</span></span><span class="small muted">с ограничениями: Архив 2023, Бухгалтерия, Отдел продаж</span></div>
+      <div style="border:1px solid var(--line);border-radius:8px;margin-top:10px">
+        <div class="fcard pop" style="position:static;box-shadow:none;border:none;width:auto;padding:0">
+          <div class="fsec"><div class="k">Доступ <span class="v warn">только чтение</span></div>
+            <ul class="rights" style="grid-template-columns:1fr 1fr;column-gap:24px">
+              <li class="y"><span class="m"><i data-i="check" class="s14"></i></span>Читать письма</li>
+              <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Ставить флаги и метки</li>
+              <li class="y"><span class="m"><i data-i="check" class="s14"></i></span>Отмечать прочитанным — для себя</li>
+              <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Класть сюда письма</li>
+              <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Создавать вложенные папки</li>
+              <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Удалять и переносить отсюда</li>
+            </ul>
+            <p class="hint" style="margin-top:6px">Права задаёт владелец общей папки или администратор почты.</p></div>
+          <div class="fsec"><div class="k">Свои метки <span class="v mut">нет прав</span></div><p>Метки в этой папке не поставить: нет права менять флаги.</p></div>
+          <div class="fsec"><div class="k">Чья папка <span class="v mut">общая</span></div><p>Из пространства общих папок <span class="mono">shared/</span>. Кто ещё её видит, сервер вам не сообщает.</p></div>
+        </div>
+        <div class="ffoot" style="border-radius:0 0 8px 8px">Проверено сегодня в 11:52, при открытии папки<span class="sp"></span><button class="link">Проверить снова</button><button class="link">Технические подробности</button></div>
+      </div>
+    </section></div></div></div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="pm plus">+</span><span>Точно по тексту #11; не растёт с числом папок.</span></li>
+    <li><span class="pm plus">+</span><span>Подсказка «с ограничениями: …» рядом со списком отчасти даёт общую картину.</span></li>
+    <li><span class="pm minus">−</span><span>Дублирует карточку из сайдбара (кадр 4) — два входа в одно и то же. Если карточка у папки есть, подраздел в настройках нужен только как обзор, а это лучше делает вариант А.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 4 -->
+<div class="state" id="s4">
+  <h2><span class="num">4</span>Свойства папки: ПКМ → «Свойства папки» → карточка у папки<span class="prop">Вариант А</span></h2>
+  <p class="cap">В контекстном меню папки — новый пункт «Свойства папки». Он открывает всплывающую карточку рядом с папкой: доступ, свои метки, чья папка, сколько писем. Справа — карточка папки, которую ещё не открывали, при отсутствии связи. Слева в сайдбаре — значки «общая» и «только чтение» (подробнее в кадре 6).</p>
+  <div class="frame" id="f4"><div class="app">
+    <nav class="side" data-include="side" data-ctx="buh"></nav>
+    <div class="list" data-include="list-buh"></div>
+    <div class="reader" data-include="reader-buh"></div>
+  </div>
+  <div class="pop" style="left:200px;top:500px;width:290px">
+    <div class="mt">Бухгалтерия</div>
+    <button class="mi"><i data-i="folderopen" class="s15"></i> Открыть</button>
+    <button class="mi"><i data-i="rotate" class="s15"></i> Синхронизировать</button>
+    <button class="mi off"><i data-i="mailopen" class="s15"></i> Отметить все прочитанными</button>
+    <hr>
+    <button class="mi"><i data-i="star" class="s15"></i> В избранное</button>
+    <button class="mi off"><i data-i="folderplus" class="s15"></i> Новая папка внутри<span class="why">нет прав</span></button>
+    <hr>
+    <button class="mi hl"><i data-i="info" class="s15"></i> Свойства папки <span class="new">новое</span></button>
+  </div>
+  <div class="pop fcard" style="left:500px;top:250px">
+    <div class="fh"><span class="ic"><i data-i="users"></i></span><div class="t"><b>Бухгалтерия</b><span class="p">shared/Бухгалтерия</span></div><button class="x"><i data-i="x" class="s15"></i></button></div>
+    <div class="fsec"><div class="k">Доступ <span class="v warn">только чтение</span></div>
+      <ul class="rights">
+        <li class="y"><span class="m"><i data-i="check" class="s14"></i></span>Читать письма</li>
+        <li class="y"><span class="m"><i data-i="check" class="s14"></i></span>Отмечать прочитанным — только для себя</li>
+        <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Ставить флаги и метки</li>
+        <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Класть сюда письма, переносить сюда</li>
+        <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Удалять и переносить отсюда</li>
+        <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Создавать вложенные папки</li>
+      </ul>
+      <p class="hint" style="margin-top:6px">Права задаёт владелец общей папки или администратор почты. Скопировать письмо к себе можно.</p></div>
+    <div class="fsec"><div class="k">Свои метки <span class="v mut">нет прав</span></div><p>Метки здесь не поставить: нет права менять флаги.</p></div>
+    <div class="fsec"><div class="k">Чья папка <span class="v mut">общая</span></div><p>Общие папки ящика. Кто ещё её видит, сервер вам не сообщает.</p></div>
+    <div class="fsec"><div class="k">Письма <span class="v mut">1 248 · 12 непрочитанных</span></div></div>
+    <div class="ffoot">Проверено сегодня в 11:52<span class="sp"></span><button class="link">Проверить снова</button><button class="link">Подробности</button></div>
+  </div>
+  <div class="pop fcard" style="left:895px;top:250px;width:365px">
+    <div class="fh"><span class="ic"><i data-i="folder"></i></span><div class="t"><b>Рассылки</b><span class="p">INBOX/Рассылки</span></div><button class="x"><i data-i="x" class="s15"></i></button></div>
+    <div class="fsec"><div class="k">Доступ <span class="v mut">не проверено</span></div><p class="hint">Папку ещё не открывали. Права и метки Депеша узнает при первом открытии.</p></div>
+    <div class="fsec"><div class="k">Свои метки <span class="v mut">не проверено</span></div></div>
+    <div class="fsec"><div class="k">Письма <span class="v mut">342 · по кэшу</span></div></div>
+    <div class="ffoot"><span class="stale">Нет связи — проверить сейчас нельзя</span><span class="sp"></span><button class="link" style="opacity:.5">Проверить</button></div>
+  </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Права — человеческими действиями, а не буквами <code>lrswipkxtea</code>; буквы — в «Подробностях» вместе с ответами <code>MYRIGHTS</code> и <code>SELECT</code>. «Удалять и переносить отсюда» — одна строка: перенос на IMAP — это удаление из исходной папки (<code>t</code>+<code>e</code>).</span></li>
+    <li><span class="n">2</span><span>«Отмечать прочитанным — только для себя»: право <code>s</code> в общей папке хранится отдельно для каждого пользователя (так на Dovecot и Cyrus). Если сервер так не умеет — «отметка увидят все». Это редкость, решим по факту реализации.</span></li>
+    <li><span class="n">3</span><span>Пункт меню, на который нет прав, остаётся видимым, но неактивным, со словами «нет прав» справа — человек понимает, почему не работает, без лишнего окна.</span></li>
+    <li><span class="n">4</span><span>Без сети — последние сведения со временем; непроверенная папка подписана «не проверено», а не «нет» (#11: не приравнивать «не проверено» к «нельзя»).</span></li>
+    <li><span class="pm plus">+</span><span>Действие там, где взгляд (ux.md, принцип 4); карточка закрывается Esc или щелчком мимо, не уводит из почты.</span></li>
+    <li><span class="pm minus">−</span><span>В полосе 56 px (760–1100 px) карточка должна открываться от панели папок, которая сама всплывает по щелчку на кружок ящика, — карточка над карточкой.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 5 -->
+<div class="state" id="s5">
+  <h2><span class="num">5</span>Свойства папки: отдельное окно<span class="prop">Вариант Б</span></h2>
+  <p class="cap">То же содержимое в окне по центру, в две колонки; технические подробности развёрнуты прямо в окне. Третий путь, <b>вариант В</b>, — пункт меню ведёт в Настройки → ящик → «Сервер» с выбранной папкой (кадр 3); отдельно не рисуем.</p>
+  <div class="frame" style="height:600px"><div class="app"><nav class="side" data-include="side"></nav><div class="list" data-include="list-buh"></div><div class="reader" data-include="reader-buh"></div></div>
+  <div class="backdrop"><div class="dlg wide">
+    <div class="head"><span class="ic" style="width:30px;height:30px;border-radius:7px;background:var(--paper-2);display:inline-flex;align-items:center;justify-content:center;color:var(--muted)"><i data-i="users"></i></span><div style="flex:1"><b>Бухгалтерия</b><span class="mono muted">shared/Бухгалтерия · общая · 1 248 писем</span></div><button class="btn ghost" style="padding:4px"><i data-i="x" class="s15"></i></button></div>
+    <div class="twocol fcard" style="width:auto">
+      <div>
+        <div class="fsec"><div class="k">Доступ <span class="v warn">только чтение</span></div>
+          <ul class="rights">
+            <li class="y"><span class="m"><i data-i="check" class="s14"></i></span>Читать письма<span class="src">l r</span></li>
+            <li class="y"><span class="m"><i data-i="check" class="s14"></i></span>Прочитанное — для себя<span class="src">s</span></li>
+            <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Флаги и метки<span class="src">w</span></li>
+            <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Класть письма<span class="src">i</span></li>
+            <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Удалять, переносить<span class="src">t e</span></li>
+            <li class="n"><span class="m"><i data-i="minus" class="s14"></i></span>Вложенные папки<span class="src">k</span></li>
+          </ul></div>
+        <div class="fsec"><div class="k">Свои метки <span class="v mut">нет прав</span></div><p>Нет права менять флаги.</p></div>
+      </div>
+      <div>
+        <div class="fsec"><div class="k">Подробности</div>
+<pre class="raw">C: MYRIGHTS "shared/Бухгалтерия"
+S: * MYRIGHTS "shared/Бухгалтерия" lrs
+C: SELECT "shared/Бухгалтерия"
+S: * FLAGS (\Answered \Flagged \Deleted \Seen \Draft)
+S: * OK [PERMANENTFLAGS (\Seen)]
+S: OK [READ-ONLY] Select completed</pre>
+          <p class="hint">Проверено сегодня в 11:52, при открытии папки. Без паролей и содержимого писем.</p></div>
+      </div>
+    </div>
+    <div class="ffoot" style="padding:10px 20px"><button class="link">Скопировать подробности</button><span class="sp"></span><button class="btn sm">Проверить снова</button><button class="btn sm primary">Готово</button></div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="pm plus">+</span><span>Есть место для сырых ответов сервера и кнопки «Скопировать» — удобно для отчёта об ошибке.</span></li>
+    <li><span class="pm plus">+</span><span>Одинаково работает при любой ширине окна, в том числе из полосы 56 px.</span></li>
+    <li><span class="pm minus">−</span><span>Модальное окно ради справки — тяжеловато; в Депеше окна пока только для подтверждений.</span></li>
+    <li><span class="pm minus">−</span><span>Вариант В (переход в настройки) уводит из почты и заставляет искать папку в списке — для «почему не удаляется» слишком далеко; хорош как второй вход, а не основной.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 6 -->
+<div class="state" id="s6">
+  <h2><span class="num">6</span>Где видно, что папка общая или только для чтения</h2>
+  <p class="cap">Сайдбар и шапка списка. Слева <b>вариант А</b>: общие и чужие папки стоят среди своих, у них тихий значок справа. Справа <b>вариант Б</b>: общие и чужие папки — отдельной группой под своими (по <code>NAMESPACE</code>), значок замка только у «только чтение». В обоих в шапке открытого списка — пометка «Только чтение».</p>
+  <div class="pair">
+    <div><div class="vlabel">Вариант А <span>— значки у папок, порядок как на сервере</span></div>
+    <div class="frame" style="height:520px"><div class="app sl">
+      <nav class="side">
+        <div class="brand"><span class="logo"></span>Депеша<span class="version">0.7</span></div>
+        <div class="group" style="margin-top:8px"><div class="account"><button class="account-name"><span class="dot" style="--dot:#3f7fd0"></span>Работа</button></div>
+          <button class="item"><span class="icon"><i data-i="inbox"></i></span><span class="name">Входящие</span><span class="count">4</span></button>
+          <button class="item"><span class="icon"><i data-i="send"></i></span><span class="name">Отправленные</span></button>
+          <button class="item"><span class="icon"><i data-i="trash"></i></span><span class="name">Корзина</span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Архив 2023</span></button>
+          <button class="item active"><span class="icon"><i data-i="folder"></i></span><span class="name">Бухгалтерия</span><span class="fx" title="Общая · только чтение"><i data-i="lock" class="s13"></i></span><span class="count">12</span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Отдел продаж</span><span class="fx" title="Общая"><i data-i="users" class="s13"></i></span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Проекты</span><span class="fx" title="Папка Марии Соколовой"><i data-i="user" class="s13"></i></span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Рассылки</span></button>
+        </div>
+      </nav>
+      <div class="list"><div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+        <div class="list-title"><b>Бухгалтерия</b><span class="chipro"><i data-i="lock" class="s13"></i>только чтение</span><span class="cnt">1 248 писем</span></div>
+        <div class="row unread"><div class="l1"><b>Бухгалтерия</b><span class="when">10:12</span></div><div class="l2"><span class="subj">Реестр платежей на неделю</span></div></div>
+        <div class="row"><div class="l1"><b>Ольга Ким</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Акт сверки за III квартал</span></div></div>
+        <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">2 окт</span></div><div class="l2"><span class="subj">Счёт на оплату № 418</span></div></div>
+      </div>
+    </div></div>
+    <ul class="notes">
+      <li><span class="pm plus">+</span><span>Ничего не переставляется: папки там же, где их видят в веб-почте.</span></li>
+      <li><span class="pm minus">−</span><span>Три разных значка (замок, люди, человек) — много служебного шума в сайдбаре (ux.md, принцип 6). Замок побеждает «людей»: у общей папки только для чтения виден только замок.</span></li>
+    </ul></div>
+    <div><div class="vlabel">Вариант Б <span>— группа «Общие» по NAMESPACE, замок только у «только чтение»</span></div>
+    <div class="frame" style="height:520px"><div class="app sl">
+      <nav class="side">
+        <div class="brand"><span class="logo"></span>Депеша<span class="version">0.7</span></div>
+        <div class="group" style="margin-top:8px"><div class="account"><button class="account-name"><span class="dot" style="--dot:#3f7fd0"></span>Работа</button></div>
+          <button class="item"><span class="icon"><i data-i="inbox"></i></span><span class="name">Входящие</span><span class="count">4</span></button>
+          <button class="item"><span class="icon"><i data-i="send"></i></span><span class="name">Отправленные</span></button>
+          <button class="item"><span class="icon"><i data-i="trash"></i></span><span class="name">Корзина</span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Архив 2023</span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Рассылки</span></button>
+          <div class="subhead"><i data-i="users" class="s13"></i>Общие</div>
+          <button class="item active"><span class="icon"><i data-i="folder"></i></span><span class="name">Бухгалтерия</span><span class="fx" title="Только чтение"><i data-i="lock" class="s13"></i></span><span class="count">12</span></button>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Отдел продаж</span></button>
+          <div class="subhead"><i data-i="user" class="s13"></i>Мария Соколова</div>
+          <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Проекты</span></button>
+        </div>
+      </nav>
+      <div class="list"><div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+        <div class="list-title"><b>Бухгалтерия</b><span class="chipro"><i data-i="lock" class="s13"></i>только чтение</span><span class="cnt">1 248 писем</span></div>
+        <div class="row unread"><div class="l1"><b>Бухгалтерия</b><span class="when">10:12</span></div><div class="l2"><span class="subj">Реестр платежей на неделю</span></div></div>
+        <div class="row"><div class="l1"><b>Ольга Ким</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Акт сверки за III квартал</span></div></div>
+        <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">2 окт</span></div><div class="l2"><span class="subj">Счёт на оплату № 418</span></div></div>
+      </div>
+    </div></div>
+    <ul class="notes">
+      <li><span class="pm plus">+</span><span>Видно главное: что это не ваша почта и чья она. Значок один и только там, где он что-то запрещает.</span></li>
+      <li><span class="pm plus">+</span><span>Имена «Общие» и «Мария Соколова» вместо <code>shared/</code> и <code>Other Users/maria/</code>; служебный префикс уходит из названий.</span></li>
+      <li><span class="pm minus">−</span><span>Порядок отличается от веб-почты. Без <code>NAMESPACE</code> группы нет — папки остаются в общем списке.</span></li>
+    </ul></div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Пометка «только чтение» в шапке списка — в обоих вариантах: её видно, когда человек уже в папке и собирается что-то делать. «Без удаления» (Отдел продаж) в шапке не пишем — это видно по неактивной кнопке (кадр 7) и в свойствах.</span></li>
+    <li><span class="n">2</span><span>Значок «только чтение» ставится по уже известным сведениям (<code>MYRIGHTS</code> или <code>[READ-ONLY]</code> при открытии); у непроверенной папки значка нет, а не «замок на всякий случай».</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 7 -->
+<div class="state" id="s7">
+  <h2><span class="num">7</span>Запрещённое действие, когда права известны заранее</h2>
+  <p class="cap">Письмо в общей папке «Бухгалтерия» (только чтение). Слева <b>вариант А</b>: кнопки на месте, но неактивны; при наведении — подсказка, почему и что можно вместо этого. Справа <b>вариант Б</b>: запрещённых кнопок нет, вместо них — полоса над письмом с объяснением и «Копировать к себе». Клавиши (<kbd>e</kbd>, <kbd>#</kbd>, <kbd>h</kbd>) в обоих вариантах не срабатывают и показывают ту же подсказку уведомлением.</p>
+  <div class="pair">
+    <div><div class="vlabel">Вариант А <span>— неактивные кнопки с подсказкой</span></div>
+    <div class="frame" id="f7a" style="height:500px"><div class="app nos" style="grid-template-columns:240px 1fr">
+      <div class="list" data-include="list-buh-short"></div>
+      <div class="reader">
+        <div class="bar"><button class="btn"><i data-i="reply" class="s15"></i> Ответить</button><span class="spacer"></span><button class="btn ghost off"><i data-i="archive" class="s15"></i> Готово</button><button class="btn ghost off" style="outline:2px solid color-mix(in srgb,var(--note) 50%,transparent);outline-offset:1px"><i data-i="trash" class="s15"></i></button><button class="btn ghost"><i data-i="more" class="s15"></i></button></div>
+        <div class="tip" style="right:12px;top:48px;width:290px;--ax:216px">Удалить нельзя: «Бухгалтерия» — общая папка только для чтения.<br>Скопировать письмо к себе — в меню «⋯».</div>
+        <h1 style="margin-top:44px">Реестр платежей на неделю</h1>
+        <div class="from"><span class="ava" style="background:#4e9aa6">Б</span><div><b>Бухгалтерия</b> <span class="muted small">&lt;buh@example.com&gt;</span></div></div>
+        <div class="body"><p>Коллеги, реестр на неделю во вложении.</p><p>Вопросы — до среды.</p></div>
+      </div>
+    </div></div>
+    <ul class="notes">
+      <li><span class="pm plus">+</span><span>Раскладка не меняется от папки к папке, кнопки не прыгают под рукой (ux.md, принципы 7 и 8).</span></li>
+      <li><span class="pm minus">−</span><span>Неактивная кнопка без наведения ничего не объясняет; на тачпаде подсказку видят не все.</span></li>
+    </ul></div>
+    <div><div class="vlabel">Вариант Б <span>— полоса «только чтение» вместо запрещённых кнопок</span></div>
+    <div class="frame" style="height:500px"><div class="app nos" style="grid-template-columns:240px 1fr">
+      <div class="list" data-include="list-buh-short"></div>
+      <div class="reader">
+        <div class="bar"><button class="btn"><i data-i="reply" class="s15"></i> Ответить</button><span class="spacer"></span><button class="btn ghost"><i data-i="more" class="s15"></i></button></div>
+        <div class="band" style="margin:0 16px 8px;border:1px solid var(--line);border-radius:6px;flex-wrap:wrap"><i data-i="lock" class="s14"></i><span style="flex:1;min-width:0">Общая папка, только чтение: письмо можно прочитать, ответить на него и скопировать к себе.</span><button class="btn sm" style="margin-left:22px"><i data-i="copy" class="s14"></i> Копировать к себе…</button></div>
+        <h1>Реестр платежей на неделю</h1>
+        <div class="from"><span class="ava" style="background:#4e9aa6">Б</span><div><b>Бухгалтерия</b> <span class="muted small">&lt;buh@example.com&gt;</span></div></div>
+        <div class="body"><p>Коллеги, реестр на неделю во вложении.</p><p>Вопросы — до среды.</p></div>
+      </div>
+    </div></div>
+    <ul class="notes">
+      <li><span class="pm plus">+</span><span>Объяснение видно сразу, без наведения; есть понятный выход — копия к себе.</span></li>
+      <li><span class="pm minus">−</span><span>Полоса над каждым письмом общей папки — шумно, если в неё заглядывают каждый день. Можно показывать её один раз за заход в папку.</span></li>
+      <li><span class="pm minus">−</span><span>Для частичных прав («без удаления» в «Отделе продаж») полоса не подходит — там всё равно нужен вариант А для одной кнопки.</span></li>
+    </ul></div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Меню строки (ПКМ) и <code>Ctrl+K</code>: запрещённые пункты видимы и неактивны со словами «нет прав» справа — как в меню папки в кадре 4. «Переместить в…» не предлагает папки, куда нельзя класть письма.</span></li>
+    <li><span class="n">2</span><span>«Отметить прочитанным» в папке только для чтения с правом <code>s</code> работает; без него — отметка хранится только в Депеше (как метки «только на этом устройстве»). Нужно ли так делать — открытый вопрос.</span></li>
+    <li><span class="n">3</span><span>Неактивными становятся только известные запреты. Если права не проверены или сервер без <code>ACL</code>, всё активно, а отказ обрабатывается как в кадре 8.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 8 -->
+<div class="state" id="s8">
+  <h2><span class="num">8</span>Отказ сервера после попытки</h2>
+  <p class="cap">Права не были известны (папку не проверяли, у сервера нет <code>ACL</code>) или поменялись. Действие уже выполнено оптимистично, сервер отказал — письмо возвращается на место (строка подсвечена), в углу уведомление. Справа три текста для трёх разных причин: <b>нет прав, ошибка сервера, нет ответа</b> — #11 требует не смешивать их.</p>
+  <div class="frame" style="height:520px"><div class="app nos" style="grid-template-columns:380px 1fr">
+    <div class="list"><div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+      <div class="list-title"><b>Отдел продаж</b><span class="cnt">412 писем</span></div>
+      <div class="row"><div class="l1"><b>Сергей Лебедев</b><span class="when">11:40</span></div><div class="l2"><span class="subj">Коммерческое предложение, v3</span></div></div>
+      <div class="row sel back"><div class="l1"><b>Анна Белова</b><span class="when">10:02</span></div><div class="l2"><span class="subj">Заявка от ООО «Север»</span></div></div>
+      <div class="row"><div class="l1"><b>CRM</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Сделка закрыта: «Восток-Строй»</span></div></div>
+      <div class="row"><div class="l1"><b>Сергей Лебедев</b><span class="when">2 окт</span></div><div class="l2"><span class="subj">Прайс на ноябрь</span></div></div>
+    </div>
+    <div class="reader" style="padding-left:110px">
+      <div class="toasts" style="position:absolute;right:20px;bottom:20px;width:500px">
+        <div class="toastwrap"><div class="toast error"><span class="vtag">нет прав</span><span class="txt">Письмо не удалено: в «Отделе продаж» у вас нет права удалять. Оно вернулось на место.<span class="sub">Сервер: NO [NOPERM] · больше не предложим, пока права не изменятся</span></span><button class="act">Свойства папки</button><button class="close">×</button></div></div>
+        <div class="toastwrap"><div class="toast error"><span class="vtag">ошибка</span><span class="txt">Письмо не удалено: сервер ответил ошибкой. Оно вернулось на место.<span class="sub">Сервер: NO Internal error · права тут ни при чём</span></span><button class="act">Повторить</button><button class="close">×</button></div></div>
+        <div class="toastwrap"><div class="toast warn"><span class="vtag">нет ответа</span><span class="txt">Сервер не ответил за 30 секунд — удаление повторим, когда связь вернётся.<span class="sub">Письмо пока скрыто; в «Фоновых задачах» видно, что оно ждёт</span></span><button class="act">Отменить</button><button class="close">×</button></div></div>
+      </div>
+    </div>
+  </div></div>
+  <ul class="notes">
+    <li><span class="n">1</span><span><b>Нет прав</b> (<code>[NOPERM]</code>, <code>[READ-ONLY]</code>): возвращаем письмо, запоминаем запрет <b>для этой папки</b> и перепроверяем <code>MYRIGHTS</code>; дальше кнопка неактивна (кадр 7). Другие папки и ящик целиком не трогаем (#11: не отключать возможность для всего аккаунта из-за одной папки).</span></li>
+    <li><span class="n">2</span><span><b>Ошибка сервера</b>: возвращаем письмо, ничего не запоминаем, предлагаем «Повторить». Это не «нельзя».</span></li>
+    <li><span class="n">3</span><span><b>Нет ответа</b> (тайм-аут): это не отказ — письмо остаётся скрытым, действие ждёт в очереди, как всё остальное при обрыве связи. Тон — жёлтый, не красный.</span></li>
+    <li><span class="n">4</span><span>Если сервер отказал без кода (старые серверы пишут просто <code>NO</code>), Депеша спрашивает <code>MYRIGHTS</code>: нет права — текст «нет прав», есть или <code>ACL</code> нет — текст «ошибка сервера».</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 9 -->
+<div class="state" id="s9">
+  <h2><span class="num">9</span>Проверка меток на тестовом письме</h2>
+  <p class="cap">По кнопке «Проверить метки на тестовом письме…» из подраздела «Папки» (кадр 2) или из свойств папки. Обычное определение ничего не пишет на сервер; эта проверка пишет — поэтому сначала окно с тем, что именно произойдёт. Слева — перед проверкой, справа — итог: <code>PERMANENTFLAGS</code> обещал <code>\*</code>, но сервер метку не сохранил.</p>
+  <div class="pair">
+    <div><div class="frame" style="height:440px"><div class="backdrop plain"><div class="dlg">
+      <h3>Проверить метки во «Входящих»?</h3>
+      <p style="margin:0">Сервер говорит, что свои метки в этой папке сохраняются. Проверим на деле:</p>
+      <ol><li>положим во «Входящие» тестовое письмо «Депеша: проверка меток» — от вас самому себе, без отправки;</li><li>поставим ему метку, отключимся и прочитаем её заново;</li><li>удалим тестовое письмо.</li></ol>
+      <p class="small muted" style="margin:0">Ваши письма не меняются. Займёт несколько секунд. Если проверка прервётся, тестовое письмо может остаться — его можно удалить.</p>
+      <div class="acts"><button class="btn">Отмена</button><button class="btn primary">Проверить</button></div>
+    </div></div></div></div>
+    <div><div class="frame" style="height:440px"><div class="backdrop plain"><div class="dlg">
+      <h3>Метки во «Входящих»: сервер их не сохраняет</h3>
+      <div class="res">
+        <div><span class="m"><i data-i="check" class="s15"></i></span><span>Тестовое письмо положено и удалено</span></div>
+        <div><span class="m"><i data-i="check" class="s15"></i></span><span>Стандартные флаги сохраняются: прочитано, флаг, ответ</span></div>
+        <div><span class="m w"><i data-i="alert" class="s15"></i></span><span>Метка <span class="mono">$depesha-test</span> принята, но после переподключения её нет</span></div>
+      </div>
+      <p style="margin:0">Свои метки в этой папке Депеша будет хранить <b>только на этом компьютере</b>. На других устройствах их не будет.</p>
+      <p class="small muted" style="margin:6px 0 0">Проверено сегодня в 12:31. В таблице «Сервер» для этой папки — «проверено на письме: не сохраняются».</p>
+      <div class="acts"><button class="btn">Подробности</button><button class="btn primary">Понятно</button></div>
+    </div></div></div></div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Тестовое письмо — через <code>APPEND</code> с флагом <code>\Seen</code>, чтобы не появилось непрочитанным на телефоне; удаляется точно по UID (<code>UIDPLUS</code>), без стирания чужих пометок «удалено».</span></li>
+    <li><span class="n">2</span><span>Итог проверки сильнее объявления: если <code>PERMANENTFLAGS</code> разрешает, а письмо не сохранило — статус «не сохраняются (проверено на письме)», а не «на сервере». Источник вывода пишем рядом, как просит #11.</span></li>
+    <li><span class="n">3</span><span>В папке только для чтения кнопки проверки нет — там ответ известен без неё.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 10 -->
+<div class="state" id="s10">
+  <h2><span class="num">10</span>Метки в письме: выбор и вид в строке<span class="prop">если входит в 0.7</span></h2>
+  <p class="cap">Сейчас меток в Депеше нет. Если их делать: клавиша <kbd>l</kbd> (на русской раскладке <kbd>д</kbd>) или ПКМ → «Метки» открывает список с галочками. Внизу списка — где метки этого письма хранятся. Слева <b>вариант А</b>: метки цветными ярлыками после темы. Справа <b>вариант Б</b>: цветные точки у даты, названия — в открытом письме.</p>
+  <div class="pair">
+    <div><div class="vlabel">Вариант А <span>— ярлыки в строке</span></div>
+    <div class="frame" id="f10a" style="height:540px"><div class="app nos" style="grid-template-columns:330px 1fr">
+      <div class="list"><div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+        <div class="list-title"><b>Входящие</b><span class="cnt">1 248 писем</span></div>
+        <div class="row sel"><div class="l1"><b>Иван Петров</b><span class="when">04:54</span></div><div class="l2"><span class="lbl" style="--c:#d0573f">Счета</span><span class="lbl" style="--c:#3f7fd0">Клиент Север</span><span class="subj">Счёт за октябрь</span></div></div>
+        <div class="row unread"><div class="l1"><b>Мария Соколова</b><span class="when">03:44</span></div><div class="l2"><span class="lbl" style="--c:#3f9a5b">Бюджет</span><span class="subj">Re: Бюджет на ноябрь</span></div></div>
+        <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Акт сверки за III квартал</span></div></div>
+        <div class="row"><div class="l1"><b>Иван Петров</b><span class="when">2 окт</span></div><div class="l2"><span class="lbl local" style="--c:#8a5ad0" title="Только на этом устройстве">Личное</span><span class="subj">Презентация для клиента</span></div></div>
+        <div class="row"><div class="l1"><b>Рассылка example.org</b><span class="when">1 окт</span></div><div class="l2"><span class="subj">Новости недели</span></div></div>
+      </div>
+      <div class="reader"><div class="bar"><button class="btn"><i data-i="reply" class="s15"></i> Ответить</button><span class="spacer"></span><button class="btn ghost"><i data-i="tag" class="s15"></i></button><button class="btn ghost"><i data-i="archive" class="s15"></i> Готово</button><button class="btn ghost"><i data-i="more" class="s15"></i></button></div>
+        <div class="pop lpick" style="right:8px;top:46px;width:270px">
+          <div class="search"><i data-i="search" class="s14"></i>Метка…</div>
+          <button class="mi"><input type="checkbox" checked><span class="lsw" style="--c:#d0573f"></span>Счета</button>
+          <button class="mi hl"><input type="checkbox" checked><span class="lsw" style="--c:#3f7fd0"></span>Клиент Север</button>
+          <button class="mi"><input type="checkbox"><span class="lsw" style="--c:#3f9a5b"></span>Бюджет</button>
+          <button class="mi"><input type="checkbox"><span class="lsw" style="--c:#8a5ad0"></span>Личное</button>
+          <hr><button class="mi"><i data-i="plus" class="s15"></i>Новая метка…</button>
+          <div class="stat"><span class="keep srv"><i data-i="cloud" class="s13"></i></span><span><b class="keep srv">Сохраняется на сервере</b> — видно на других устройствах. Названия и цвета хранятся в Депеше.</span></div>
+        </div>
+        <h1>Счёт за октябрь</h1>
+        <div class="from"><span class="ava" style="background:#7a5ab8">ИП</span><div><b>Иван Петров</b> <span class="muted small">&lt;ivan.petrov@example.com&gt;</span></div></div>
+        <div class="body"><p>Мария, добрый день!</p><p>Во вложении счёт за октябрь.</p></div>
+      </div>
+    </div></div>
+    <ul class="notes">
+      <li><span class="pm plus">+</span><span>Метку видно с её названием прямо в списке — как в Gmail и Thunderbird.</span></li>
+      <li><span class="pm minus">−</span><span>Съедает место темы в колонке 380 px; при трёх метках тема почти исчезает. Нужно ограничение: две и «+1».</span></li>
+    </ul></div>
+    <div><div class="vlabel">Вариант Б <span>— точки у даты, названия в письме</span></div>
+    <div class="frame" style="height:540px"><div class="app nos" style="grid-template-columns:330px 1fr">
+      <div class="list"><div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+        <div class="list-title"><b>Архив 2023</b><span class="cnt">5 310 писем</span></div>
+        <div class="row sel"><div class="l1"><b>Иван Петров</b><span class="when"><span class="ldot" style="--c:#d0573f"></span><span class="ldot" style="--c:#3f7fd0"></span>12 дек 2023</span></div><div class="l2"><span class="subj">Счёт за декабрь</span></div></div>
+        <div class="row"><div class="l1"><b>Мария Соколова</b><span class="when"><span class="ldot" style="--c:#3f9a5b"></span>10 дек 2023</span></div><div class="l2"><span class="subj">Бюджет на 2024</span></div></div>
+        <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">8 дек 2023</span></div><div class="l2"><span class="subj">Акт сверки</span></div></div>
+        <div class="row"><div class="l1"><b>Иван Петров</b><span class="when">1 дек 2023</span></div><div class="l2"><span class="subj">Договор, финальная версия</span></div></div>
+      </div>
+      <div class="reader"><div class="bar"><button class="btn"><i data-i="reply" class="s15"></i> Ответить</button><span class="spacer"></span><button class="btn ghost"><i data-i="tag" class="s15"></i></button><button class="btn ghost"><i data-i="more" class="s15"></i></button></div>
+        <div class="pop lpick" style="right:8px;top:46px;width:270px">
+          <div class="search"><i data-i="search" class="s14"></i>Метка…</div>
+          <button class="mi"><input type="checkbox" checked><span class="lsw" style="--c:#d0573f"></span>Счета</button>
+          <button class="mi hl"><input type="checkbox" checked><span class="lsw" style="--c:#3f7fd0"></span>Клиент Север</button>
+          <button class="mi"><input type="checkbox"><span class="lsw" style="--c:#3f9a5b"></span>Бюджет</button>
+          <hr><button class="mi"><i data-i="plus" class="s15"></i>Новая метка…</button>
+          <div class="stat"><span class="keep loc"><i data-i="monitor" class="s13"></i></span><span><b>Только на этом устройстве</b> — в «Архиве 2023» сервер хранит лишь стандартные флаги. <button class="link small">Почему</button></span></div>
+        </div>
+        <h1>Счёт за декабрь <span class="lbl" style="--c:#d0573f">Счета</span><span class="lbl" style="--c:#3f7fd0">Клиент Север</span></h1>
+        <div class="from"><span class="ava" style="background:#7a5ab8">ИП</span><div><b>Иван Петров</b> <span class="muted small">&lt;ivan.petrov@example.com&gt;</span></div></div>
+        <div class="body"><p>Счёт за декабрь во вложении.</p></div>
+      </div>
+    </div></div>
+    <ul class="notes">
+      <li><span class="pm plus">+</span><span>Строка не теряет тему; точки тихие, как размер письма в строке.</span></li>
+      <li><span class="pm minus">−</span><span>По цвету не отличить «Счета» от «Срочно», если цвета похожи; названия — только в открытом письме или подсказке.</span></li>
+    </ul></div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Строка о хранении — три состояния из #11: <span class="keep srv"><i data-i="cloud" class="s13"></i>«Сохраняется на сервере»</span>, <span class="keep loc"><i data-i="monitor" class="s13"></i>«Только на этом устройстве»</span>, <span class="keep unk"><i data-i="help" class="s13"></i>«Серверное сохранение не подтверждено»</span> (папку не проверяли или проверка на письме не проходила, а <code>PERMANENTFLAGS</code> обещает). Зависит от папки письма; в общем списке «Все входящие» — от папки каждого выбранного письма.</span></li>
+    <li><span class="n">2</span><span>Метка, хранимая только локально, в строке — с пунктирной рамкой (вариант А, «Личное»). Это единственное отличие в списке; подробности — в подсказке.</span></li>
+    <li><span class="n">3</span><span>На сервер уходит ключ метки (<code>$label1</code>… или имя латиницей), название и цвет хранятся в Депеше и не синхронизируются — так и написано в выборе, не обещаем лишнего (#11). Совместимость с ключами Thunderbird (<code>$label1</code>–<code>$label5</code>) — открытый вопрос.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 11 -->
+<div class="state" id="s11">
+  <h2><span class="num">11</span>Exchange: свойства папки и категории</h2>
+  <p class="cap">Для Exchange раздел «Сервер» скрыт (решение 0.6.0), но «Свойства папки» из контекстного меню есть: права приходят из <code>EffectiveRights</code> папки, общие папки — это почтовые ящики, открытые вам делегированием. Вместо своих меток — <b>категории Exchange</b>: они всегда хранятся на сервере и видны в Outlook и OWA.</p>
+  <div class="frame" style="height:440px;width:1080px"><div class="app sl">
+    <nav class="side">
+      <div class="brand"><span class="logo"></span>Депеша<span class="version">0.7</span></div>
+      <div class="group" style="margin-top:8px"><div class="account"><button class="account-name"><span class="dot" style="--dot:#c2508e"></span>Компания</button></div>
+        <button class="item"><span class="icon"><i data-i="inbox"></i></span><span class="name">Входящие</span><span class="count">7</span></button>
+        <button class="item"><span class="icon"><i data-i="send"></i></span><span class="name">Отправленные</span></button>
+        <div class="subhead"><i data-i="user" class="s13"></i>Олег Смирнов</div>
+        <button class="item ctx"><span class="icon"><i data-i="folder"></i></span><span class="name">Входящие</span><span class="fx"><i data-i="lock" class="s13"></i></span></button>
+      </div>
+    </nav>
+    <div style="position:relative;background:var(--paper)">
+      <div class="pop fcard" style="left:16px;top:60px;width:400px">
+        <div class="fh"><span class="ic"><i data-i="user"></i></span><div class="t"><b>Входящие — Олег Смирнов</b><span class="p">o.smirnov@company.example.com</span></div><button class="x"><i data-i="x" class="s15"></i></button></div>
+        <div class="fsec"><div class="k">Доступ <span class="v warn">только чтение</span></div><p>Вам открыт просмотр: читать можно, менять и удалять — нет. Уровень доступа «Читатель» назначил владелец в Outlook.</p></div>
+        <div class="fsec"><div class="k">Категории <span class="v mut">нет прав</span></div><p>Категории Exchange хранятся на сервере, но в этой папке их не поставить.</p></div>
+        <div class="ffoot">Проверено сегодня в 12:20<span class="sp"></span><button class="link">Проверить снова</button></div>
+      </div>
+      <div class="pop lpick" style="left:440px;top:60px;width:300px">
+        <div class="mt">Категории · ваши «Входящие»</div>
+        <button class="mi"><input type="checkbox" checked><span class="lsw" style="--c:#d0573f"></span>Красная категория</button>
+        <button class="mi"><input type="checkbox"><span class="lsw" style="--c:#3f7fd0"></span>Проект «Север»</button>
+        <div class="stat"><span class="keep srv"><i data-i="cloud" class="s13"></i></span><span><b class="keep srv">Сохраняется на сервере</b> — видно в Outlook и OWA, цвета — как в Outlook.</span></div>
+      </div>
+    </div>
+  </div></div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Категории — строки на письме; их цвета Exchange хранит в общем списке категорий ящика. Если список прочитать не удаётся, цвета Депеша назначает сама, и тогда пишем «цвета — свои, в Outlook могут отличаться».</span></li>
+    <li><span class="n">2</span><span>Для Exchange нет «только на этом устройстве»: категории всегда серверные, и это честно проще.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 12 -->
+<div class="state" id="s12">
+  <h2><span class="num">12</span>Тёмная тема: ключевые кадры</h2>
+  <p class="cap">Кадры 4 (меню и карточка папки), 7А (неактивная кнопка с подсказкой) и 10А (выбор метки) в теме «Ночь». Цвета статусов <code>--ok</code> и <code>--warn</code> те же, что в светлой; белый лист письма остаётся белым.</p>
+  <div class="frame dark" data-clone="f4"></div>
+  <div class="pair" style="margin-top:20px">
+    <div><div class="frame dark" data-clone="f7a" style="height:500px"></div></div>
+    <div><div class="frame dark" data-clone="f10a" style="height:540px"></div></div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Жёлтый <code>--warn</code> (#b26a00) на тёмной бумаге читается хуже, чем на светлой; если подписи «только чтение» и «ограничено» сольются — для тёмной темы нужен светлее, как <code>--side-warn</code> (#e3a63c). Решим на живой проверке.</span></li>
+  </ul>
+</div>
+
+<div class="open-q" id="q">
+  <h2>Открытые вопросы к оператору</h2>
+  <ol>
+    <li><b>Метки в 0.7 целиком или только диагностика?</b> #42 говорит о поддержке меток сервером (PERMANENTFLAGS, проверка на письме). Свои метки в письмах (кадр 10: выбор, вид в строке, «Новая метка…», поиск <code>label:</code>) — заметная отдельная функция. Предлагаю: в #42 — диагностика и строка «Свои метки» в таблице, сами метки — отдельной задачей.</li>
+    <li><b>Где смотреть свойства папки:</b> карточка у папки (кадр 4, А), окно (кадр 5, Б) или переход в настройки (В)? Рекомендую А как основной вход и «Подробности» внутри неё.</li>
+    <li><b>Подраздел «Папки» в настройках:</b> список всех папок (кадр 2, А) или выбор одной (кадр 3, Б)? Если в сайдбаре есть карточка, рекомендую А — как обзор с фильтром «только папки с ограничениями».</li>
+    <li><b>Общие папки в сайдбаре:</b> значки на месте (кадр 6, А) или отдельная группа «Общие» / «имя владельца» по NAMESPACE (Б)? Рекомендую Б.</li>
+    <li><b>Запрещённое действие:</b> неактивные кнопки с подсказкой (кадр 7, А) или полоса «только чтение» без кнопок (Б)? Рекомендую А плюс отметку «только чтение» в шапке списка; Б не работает для частичных прав.</li>
+    <li><b>Прочитанное в папке только для чтения без права <code>s</code>:</b> хранить отметку в Депеше локально или не давать отмечать вовсе?</li>
+    <li><b>«Проверить все папки»</b> — нужна ли вообще кнопка, или достаточно проверки при открытии папки и «Проверить снова» в карточке?</li>
+    <li><b>Ключи меток на сервере</b> (если метки входят): свои имена (<code>$Depesha_Счета</code> в виде латиницы) или совместимость с Thunderbird <code>$label1</code>–<code>$label5</code>? Второе даст общие метки с Thunderbird, но только пять.</li>
+    <li><b>Exchange (кадр 11):</b> делать ли «Свойства папки» и категории для Exchange в этой же задаче или оставить IMAP, как в 0.6.0?</li>
+  </ol>
+</div>
+</div>
+
+<!-- общие куски кадров: вставляются скриптом ниже, чтобы не повторять разметку -->
+<template id="t-side">
+  <div class="brand"><span class="logo"></span>Депеша<span class="version">0.7</span></div>
+  <button class="btn primary compose-btn"><i data-i="pen" class="s15"></i> Написать</button>
+  <div class="group"><button class="item"><span class="icon"><i data-i="inboxes"></i></span><span class="name">Все входящие</span><span class="count">5</span></button><button class="item"><span class="icon"><i data-i="flag"></i></span><span class="name">С флагом</span></button></div>
+  <div class="group"><div class="account"><button class="account-name"><span class="dot" style="--dot:#3f7fd0"></span>Работа</button></div>
+    <button class="item"><span class="icon"><i data-i="inbox"></i></span><span class="name">Входящие</span><span class="count">4</span></button>
+    <button class="item"><span class="icon"><i data-i="file"></i></span><span class="name">Черновики</span></button>
+    <button class="item"><span class="icon"><i data-i="send"></i></span><span class="name">Отправленные</span></button>
+    <button class="item"><span class="icon"><i data-i="trash"></i></span><span class="name">Корзина</span></button>
+    <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Архив 2023</span></button>
+    <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Рассылки</span></button>
+    <div class="subhead"><i data-i="users" class="s13"></i>Общие</div>
+    <button class="item active" data-buh><span class="icon"><i data-i="folder"></i></span><span class="name">Бухгалтерия</span><span class="fx"><i data-i="lock" class="s13"></i></span><span class="count">12</span></button>
+    <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Отдел продаж</span></button>
+    <div class="subhead"><i data-i="user" class="s13"></i>Мария Соколова</div>
+    <button class="item"><span class="icon"><i data-i="folder"></i></span><span class="name">Проекты</span></button>
+  </div>
+  <div class="foot"><i data-i="sliders" class="s15"></i>&nbsp;Настройки</div>
+</template>
+<template id="t-list-buh">
+  <div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="list-title"><b>Бухгалтерия</b><span class="chipro"><i data-i="lock" class="s13"></i>только чтение</span><span class="cnt">1 248 писем</span></div>
+  <div class="row sel unread"><div class="l1"><b>Бухгалтерия</b><span class="when">10:12</span></div><div class="l2"><span class="subj">Реестр платежей на неделю</span></div></div>
+  <div class="row"><div class="l1"><b>Ольга Ким</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Акт сверки за III квартал</span></div></div>
+  <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">2 окт</span></div><div class="l2"><span class="subj">Счёт на оплату № 418</span></div></div>
+  <div class="row"><div class="l1"><b>Ольга Ким</b><span class="when">1 окт</span></div><div class="l2"><span class="subj">Авансовые отчёты: напоминание</span></div></div>
+  <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">30 сент</span></div><div class="l2"><span class="subj">Закрытие месяца</span></div></div>
+  <div class="row"><div class="l1"><b>Ольга Ким</b><span class="when">29 сент</span></div><div class="l2"><span class="subj">Новые реквизиты поставщика</span></div></div>
+</template>
+<template id="t-list-buh-short">
+  <div class="list-head"><div class="search">Поиск по почте&nbsp;&nbsp;/</div></div>
+  <div class="list-title"><b>Бухгалтерия</b><span class="chipro"><i data-i="lock" class="s13"></i>только чтение</span></div>
+  <div class="row sel"><div class="l1"><b>Бухгалтерия</b><span class="when">10:12</span></div><div class="l2"><span class="subj">Реестр платежей на неделю</span></div></div>
+  <div class="row"><div class="l1"><b>Ольга Ким</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Акт сверки за III квартал</span></div></div>
+  <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">2 окт</span></div><div class="l2"><span class="subj">Счёт на оплату № 418</span></div></div>
+</template>
+<template id="t-reader-buh">
+  <div class="bar"><button class="btn"><i data-i="reply" class="s15"></i> Ответить</button><span class="spacer"></span><button class="btn ghost off"><i data-i="archive" class="s15"></i> Готово</button><button class="btn ghost off"><i data-i="trash" class="s15"></i></button><button class="btn ghost"><i data-i="more" class="s15"></i></button></div>
+  <h1>Реестр платежей на неделю</h1>
+  <div class="from"><span class="ava" style="background:#4e9aa6">Б</span><div><b>Бухгалтерия</b> <span class="muted small">&lt;buh@example.com&gt;</span></div></div>
+  <div class="body"><p>Коллеги, реестр на неделю во вложении.</p><p>Вопросы — до среды.</p></div>
+</template>
+
+<script>
+// Иконки — пути Lucide, вставляются вместо <i data-i="…">.
+const I = {
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  minus: '<path d="M5 12h14"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  rotate: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  folderopen: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  folderplus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  mailopen: '<path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/>',
+  star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  inboxes: '<rect width="16" height="13" x="6" y="4" rx="2"/><path d="m22 7-7.1 3.78c-.57.3-1.23.3-1.8 0L6 7"/><path d="M2 8v11c0 1.1.9 2 2 2h14"/>',
+  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  sliders: '<path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
+  send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  file: '<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.4 15.6a1 1 0 1 0-3-3l-5 5a2 2 0 0 0-.5.9l-.8 2.8a.5.5 0 0 0 .6.6l2.9-.8a2 2 0 0 0 .8-.5z"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/>',
+  pen: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  reply: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
+  archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+};
+for (const el of document.querySelectorAll("[data-include]")) {
+  el.innerHTML = document.getElementById("t-" + el.dataset.include).innerHTML;
+  if (el.dataset.ctx) el.querySelector("[data-buh]")?.classList.replace("active", "ctx");
+}
+for (const el of document.querySelectorAll("[data-clone]")) {
+  const src = document.getElementById(el.dataset.clone);
+  el.innerHTML = src.innerHTML;
+  if (!el.style.height && src.style.height) el.style.height = src.style.height;
+}
+for (const el of document.querySelectorAll("i[data-i]")) {
+  const cls = el.className ? " " + el.className : "";
+  el.outerHTML = `<svg class="i${cls}" viewBox="0 0 24 24">${I[el.dataset.i] ?? ""}</svg>`;
+}
+</script>
+</body>
+</html>

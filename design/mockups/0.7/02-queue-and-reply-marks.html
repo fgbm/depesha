@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#59 и #55 · Входящие как очередь и отметки ответа, ответа всем, пересылки (0.7)</title>
+<style>
+/* ============================================================================
+   Макет к 0.7. Код приложения не тронут. Переменные тем — из src/app.css
+   (paper и night), разметка и стили строки списка — из
+   src/components/MessageList.svelte, шапка письма — из
+   src/components/reader/ReaderHeader.svelte, тост — из src/components/Dock.svelte,
+   плашка над письмом — из src/components/PluginBanner.svelte.
+   Иконки — Lucide (reply, reply-all, forward, flag, paperclip…), один спрайт
+   <symbol> в начале страницы.
+   ============================================================================ */
+
+/* --- src/app.css: :root (тема paper) --- */
+.theme {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
+  --ok: #2e7d4f;
+  --warn: #b26a00;
+  --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  --sheet: #ffffff;
+  color-scheme: light;
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+/* --- src/app.css: :root[data-theme="night"] --- */
+.theme.dark {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #8f97a2;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #2e3742;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --sheet: #1d2128;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body {
+  margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b;
+  font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px; -webkit-font-smoothing: antialiased;
+}
+.doc { width: 1240px; margin: 0 auto; }
+h1 { font-size: 27px; margin: 0 0 8px; }
+.lead { color: #3e4650; line-height: 1.6; margin: 0 0 10px; max-width: 1140px; }
+.lead b { color: #1d232b; }
+code { font-family: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace; font-size: 12.5px; background: rgb(255 255 255 / 45%); border-radius: 4px; padding: 0 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 14px 0 0; padding: 12px 16px; background: #f3eee4; border: 1px solid #ddd4c4; border-radius: 8px; font-size: 13px; line-height: 1.5; max-width: 1140px; }
+.legend > div { flex: 1 1 520px; }
+.part { margin: 64px 0 0; padding: 0 0 8px; border-bottom: 2px solid #b9b0a1; font-size: 22px; font-weight: 700; color: #2b313a; }
+.part small { font-weight: 400; font-size: 14px; color: #5b636e; margin-left: 8px; }
+
+/* Состояние: заголовок, кадр, заметки */
+.state { margin: 44px 0 0; }
+.state > h2 { font-size: 18px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.num { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; border-radius: 7px; background: #2b313a; color: #fff; font-size: 13px; padding: 0 6px; }
+.prop { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .02em; color: #8a5a00; background: #fff3d6; border: 1px dashed #d6a440; border-radius: 9px; padding: 0 7px; line-height: 18px; white-space: nowrap; }
+.prop.rec { color: #1f5e3a; background: #e3f3e8; border-color: #6fb38a; }
+.prop.no { color: #7d2a24; background: #fbe6e3; border-color: #d98c84; }
+.prop.done { color: #33465e; background: #e6edf6; border-color: #8ea6c4; border-style: solid; }
+.frame { background: #ece8e1; border-radius: 10px; padding: 18px; box-shadow: 0 4px 24px rgb(0 0 0 / 14%); position: relative; }
+.notes { margin: 12px 0 0; padding-left: 22px; max-width: 1180px; line-height: 1.55; color: #3c444e; font-size: 13.5px; }
+.notes li { margin: 3px 0; }
+.notes b { color: #1d232b; }
+.plus { color: #2e7d4f; font-weight: 600; }
+.minus { color: #b3261e; font-weight: 600; }
+
+/* Сравнение вариантов внутри кадра */
+.vars { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.v { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.v.fixed { flex: none; }
+.vh { font-size: 13px; color: #2b313a; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vh .var { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: #1f5fa8; border-radius: 10px; padding: 2px 10px; }
+.vh .var.b { background: #6a4fa3; }
+.vh .var.c { background: #8a5a00; }
+.vh .var.d { background: #4a5563; }
+.cap { font-size: 12px; color: #4a525d; line-height: 1.45; }
+.cap b { color: #1d232b; }
+.steps { display: flex; gap: 10px; }
+.step { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.step .sl { font-size: 11.5px; color: #4a525d; display: flex; gap: 6px; align-items: baseline; }
+.step .sl i { font-style: normal; font-weight: 700; color: #2b313a; }
+
+/* ============================================================================
+   Приложение
+   ============================================================================ */
+.app { display: flex; background: var(--paper); color: var(--ink); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 14px rgb(0 0 0 / 16%); position: relative; font-size: 14px; }
+.card { background: var(--paper); color: var(--ink); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 12px rgb(0 0 0 / 14%); position: relative; font-size: 14px; }
+.i { flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--paper); color: var(--muted); }
+
+/* Сайдбар (sidebar.css, упрощённо) */
+.side { width: 236px; flex: none; background: var(--side); color: var(--side-ink); display: flex; flex-direction: column; font-size: 14px; }
+.side .brand { display: flex; align-items: center; gap: 10px; padding: 16px 18px 12px; font-weight: 700; font-size: 17px; color: #e9eef3; }
+.side .brand i { width: 20px; height: 14px; background: #e9e2d4; border-radius: 2px; position: relative; display: inline-block; }
+.side .brand i::after { content: ""; position: absolute; left: 8px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.side .write { margin: 0 14px 12px; background: var(--accent); color: var(--accent-ink); border-radius: var(--radius); height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.side .it { display: flex; align-items: center; gap: 10px; padding: 0 14px 0 16px; height: 28px; position: relative; white-space: nowrap; }
+.side .it .i { color: var(--side-muted); }
+.side .it .n { margin-left: auto; font-size: 12px; background: var(--side-2); border-radius: 9px; padding: 0 7px; line-height: 18px; }
+.side .it .n.q { background: none; color: var(--side-muted); padding: 0; }
+.side .it.on { background: var(--side-2); }
+.side .it.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+.side .it.sub { padding-left: 16px; }
+.side .it.new { box-shadow: inset 0 0 0 1px var(--side-warn); border-radius: 4px; margin: 0 6px; padding-left: 10px; }
+.side .acct { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; padding: 10px 14px 4px; border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, var(--side)); font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--side-muted); }
+.side .acct::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #3fae6c; }
+.side .foot { margin-top: auto; border-top: 1px solid color-mix(in srgb, var(--side-ink) 12%, var(--side)); display: flex; align-items: center; gap: 8px; padding: 11px 18px; color: var(--side-muted); font-size: 13px; }
+
+/* Список (MessageList.svelte) */
+.list { width: 384px; flex: none; min-width: 0; background: var(--paper); border-right: 1px solid var(--line); display: flex; flex-direction: column; position: relative; min-height: 0; }
+.list.w-full { width: 100%; border-right: none; }
+.list header { padding: 12px 12px 6px; }
+.search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; color: var(--muted); font-size: 13.5px; min-height: 32px; background: var(--paper); }
+.seg { display: flex; background: var(--paper-2); border-radius: 7px; padding: 2px; margin-top: 8px; }
+.seg span { flex: 1; text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; border-radius: 6px; }
+.seg span.on { background: var(--selected); color: var(--ink); font-weight: 600; }
+.seg span .c { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.list .title { display: flex; align-items: center; gap: 8px; margin-top: 10px; min-height: 26px; }
+.list .title h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trigger { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
+.rows { padding-top: 2px; position: relative; }
+.row { position: relative; height: 62px; margin: 0 6px 2px; padding: 9px 10px 0 16px; border-radius: 7px; overflow: hidden; }
+.row::after { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--acct, transparent); }
+.row.hover { background: var(--hover); }
+.row.selected, .row.opened { background: var(--selected); }
+.row.unread::before { content: ""; position: absolute; left: 5px; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.row.leaving { opacity: .5; }
+.row.gone { height: 0; margin-bottom: 0; padding-top: 0; opacity: 0; }
+.row.ghost { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--line) 70%, transparent) 6px 7px); height: 14px; margin-bottom: 2px; }
+.line1, .line2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unread .from, .unread .subject { font-weight: 650; }
+.date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.line2 { margin-top: 3px; color: var(--muted); }
+.unread .line2 { color: var(--ink); }
+.subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flag { color: var(--accent); display: inline-flex; }
+.clip { color: var(--muted); display: inline-flex; }
+.count { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 5px; line-height: 15px; }
+.draft { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
+.tag { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.tag.good { color: var(--ok); }
+.tag.due { color: var(--accent); font-weight: 600; }
+.tag.move { color: var(--link); }
+.note { flex: 0 1000 auto; min-width: 0; max-width: 50%; display: inline-flex; align-items: center; gap: 3px; overflow: hidden; font-size: 11px; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.size { margin-left: auto; flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag + .size { margin-left: 0; }
+
+/* #55: значки действий перед датой — варианты */
+.acts { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); flex: none; }
+.acts.quiet { gap: 2px; opacity: .72; }
+.acts.slot { width: 30px; justify-content: flex-end; gap: 2px; }
+.acts.mark { position: relative; }
+.acts.mark::after { content: ""; position: absolute; inset: -3px -4px; border: 1.5px dashed #d6a440; border-radius: 6px; pointer-events: none; }
+.old-answered { color: var(--muted); display: inline-flex; }
+.tip { position: absolute; z-index: 5; background: #2b333d; color: #eef1f4; font-size: 12px; line-height: 1.45; border-radius: 6px; padding: 5px 9px; box-shadow: 0 6px 18px rgb(0 0 0 / 25%); white-space: nowrap; }
+.tip::before { content: ""; position: absolute; top: -5px; right: var(--arrow, 18px); width: 10px; height: 10px; background: #2b333d; transform: rotate(45deg); }
+.tip .t2 { color: #aeb7c2; }
+.cursor { position: absolute; z-index: 6; width: 14px; height: 18px; pointer-events: none; }
+
+/* Чтение (Reader*, ReaderHeader.svelte) */
+.reader { flex: 1; min-width: 0; background: var(--paper); display: flex; flex-direction: column; position: relative; }
+.tb { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.tb .sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13.5px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 4px 10px; white-space: nowrap; line-height: 1.35; }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.icon { padding: 4px 7px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { font-size: 12px; padding: 2px 8px; }
+.btn.off { opacity: .45; }
+.head { padding: 14px 22px 10px; }
+.head h1 { margin: 0 0 12px; font-size: 20px; font-weight: 650; line-height: 1.3; }
+.head .from { display: flex; gap: 12px; align-items: flex-start; overflow: visible; white-space: normal; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; color: #fff; font-size: 13px; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.who { flex: 1; min-width: 0; line-height: 1.45; }
+.who .sender { font-weight: 600; }
+.who .rcpt { font-size: 12.5px; color: var(--muted); }
+.hdate { text-align: right; font-size: 12px; color: var(--muted); line-height: 1.5; white-space: nowrap; }
+.hmark { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+.hmark a { color: var(--link); text-decoration: none; }
+.hline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.hline span { display: inline-flex; align-items: center; gap: 4px; }
+.hline a { color: var(--link); text-decoration: none; }
+.sheet { margin: 4px 12px 12px; background: var(--sheet); border-radius: 8px; padding: 16px 22px; line-height: 1.55; flex: 1; min-height: 0; overflow: hidden; }
+.mine { margin: 0 12px 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; display: flex; gap: 10px; align-items: center; background: var(--paper-2); }
+.mine .w { font-weight: 600; }
+.quick { margin: 0 12px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--sheet); padding: 8px 10px; font-size: 13px; }
+.quick .q { min-height: 36px; color: var(--ink); line-height: 1.5; }
+.quick .qf { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.quick .qf .btn { margin-left: auto; }
+
+/* Плашка над письмом (PluginBanner.svelte) */
+.banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 22px 10px; padding: 8px 12px; background: color-mix(in srgb, var(--warn) 12%, var(--paper)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--paper)); border-radius: 6px; font-size: 13px; }
+.banner.info { background: color-mix(in srgb, var(--link) 9%, var(--paper)); border-color: color-mix(in srgb, var(--link) 28%, var(--paper)); }
+.banner.good { background: color-mix(in srgb, var(--ok) 9%, var(--paper)); border-color: color-mix(in srgb, var(--ok) 28%, var(--paper)); }
+.banner .t { flex: 1 1 260px; display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; }
+.banner .btn { font-size: 12.5px; padding: 2px 9px; }
+
+/* Тост (Dock.svelte) */
+.toast { display: inline-flex; align-items: center; gap: 8px; background: var(--side); color: var(--side-ink); border-radius: var(--radius); padding: 10px 8px 10px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 25%); line-height: 1.4; font-size: 13.5px; max-width: 440px; }
+.toast.error { border-left: 4px solid var(--accent); }
+.toast .act { color: inherit; text-decoration: underline; text-underline-offset: 3px; font-weight: 600; padding: 0 6px; white-space: nowrap; }
+.toast .close { color: var(--side-muted); padding: 0 6px; font-size: 16px; }
+.toasts { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; z-index: 4; }
+
+/* Окно письма, строка «Напомнить» (plugins/followups/RemindLine.svelte) */
+.compose { display: flex; flex-direction: column; }
+.compose .ch { display: flex; align-items: center; padding: 12px 16px 4px; font-weight: 650; font-size: 14.5px; }
+.compose .ch .x { margin-left: auto; color: var(--muted); font-weight: 400; }
+.compose .f { display: flex; align-items: center; margin: 0 16px; border-bottom: 1px solid var(--line); min-height: 36px; gap: 8px; font-size: 13.5px; }
+.compose .f .k { width: 56px; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 5px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; padding: 1px 9px; font-size: 12.5px; }
+.compose .txt { padding: 12px 16px; line-height: 1.5; color: var(--muted); min-height: 64px; font-size: 13.5px; }
+.remline { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 7px 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); background: color-mix(in srgb, var(--paper-2) 60%, var(--paper)); }
+.select { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 2px 8px; font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.cb { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); white-space: nowrap; }
+.cb.off { color: var(--muted); }
+.box { width: 15px; height: 15px; border: 1.5px solid color-mix(in srgb, var(--muted) 70%, var(--paper)); border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--paper); }
+.box.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.box.dis { opacity: .5; }
+.cfoot { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-top: 1px solid var(--line); }
+.sendbtn { display: inline-flex; border-radius: 6px; overflow: hidden; font-size: 13.5px; }
+.sendbtn span { background: var(--accent); color: var(--accent-ink); padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px; }
+.sendbtn span + span { border-left: 1px solid color-mix(in srgb, #000 25%, var(--accent)); padding: 5px 8px; }
+
+/* Настройки */
+.prefs { display: flex; }
+.prefs .pages { width: 190px; flex: none; background: var(--paper-2); border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.prefs .tab { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 6px; }
+.prefs .tab .i { color: var(--muted); }
+.prefs .tab.on { background: var(--selected); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.prefs .grp { margin: 12px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.prefs .pane { flex: 1; min-width: 0; padding: 14px 22px 18px; font-size: 13px; }
+.prefs .toc { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; }
+.prefs .toc .on { color: var(--ink); font-weight: 600; box-shadow: 0 2px 0 var(--accent); }
+.prefs h3 { margin: 0 0 4px; font-size: 16px; }
+.prefs h4 { margin: 14px 0 6px; font-size: 13px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; }
+.opt .box { margin-top: 2px; }
+.opt .hint { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+.fieldrow { display: flex; align-items: center; gap: 10px; margin: 6px 0 0 25px; font-size: 12.5px; }
+.fieldrow .k { color: var(--muted); }
+.warnbox { margin: 8px 0 0 25px; padding: 7px 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.45; background: color-mix(in srgb, var(--warn) 12%, var(--paper)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--paper)); display: flex; gap: 8px; align-items: flex-start; }
+
+.callout { position: absolute; z-index: 7; font-size: 12px; line-height: 1.4; color: #3c444e; background: #fffbe9; border: 1px solid #e8d9a8; border-radius: 6px; padding: 6px 9px; box-shadow: 0 2px 8px rgb(0 0 0 / 10%); }
+.callout b { color: #1d232b; }
+.arrow-to { color: #b26a00; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="reply" viewBox="0 0 24 24"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></symbol>
+  <symbol id="replyall" viewBox="0 0 24 24"><polyline points="7 17 2 12 7 7"/><polyline points="12 17 7 12 12 7"/><path d="M22 18v-2a4 4 0 0 0-4-4H7"/></symbol>
+  <symbol id="fwd" viewBox="0 0 24 24"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></symbol>
+  <symbol id="flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></symbol>
+  <symbol id="clip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="alarm" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/></symbol>
+  <symbol id="wait" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="m10 7-3 3 3 3"/><path d="M17 13v-1a2 2 0 0 0-2-2H7"/></symbol>
+  <symbol id="inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="inboxes" viewBox="0 0 24 24"><path d="M4 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><path d="M6 8V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2"/><path d="m2 12 8 4 8-4"/></symbol>
+  <symbol id="mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+  <symbol id="send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+  <symbol id="archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+  <symbol id="folderin" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="sort" viewBox="0 0 24 24"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+  <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></symbol>
+  <symbol id="cursor" viewBox="0 0 14 18"><path d="M1 1v14l3.6-3.4 2.5 5.6 2.2-1-2.5-5.4H12Z" fill="#fff" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="doc">
+<h1>#59 и #55 · Входящие как очередь и отметки «ответ / ответ всем / пересылка»</h1>
+<p class="lead"><b>#55.</b> В строке списка нужно видеть, что уже сделано с письмом: ответ, ответ всем, пересылка. Сейчас есть один значок <code>Reply</code> в начале второй строки (<code>MessageList.svelte:216</code>), он не отличает ответ от ответа всем, а пересылку не показывает вовсе. <b>Уже решено в issue:</b> значки стоят в правом конце первой строки, прямо перед датой (вариант C), дата сдвигается влево. Значок относится к письму, а не к цепочке. На IMAP с одним <code>\Answered</code> показываем общее «Отвечено». Депеша ставит отметку сама, в момент отправки, а сервер её только дополняет. Ниже открыты размер, приглушённость, соседство со значками флага и вложения, подсказка и отметка в шапке письма.</p>
+<p class="lead"><b>#59.</b> Ответ на письмо из «Входящих» уносит его в серверную папку «Ждут ответа». Когда адресат отвечает (опознаём по <code>In-Reply-To</code>/<code>References</code>), письмо возвращается во «Входящие». Так «Входящие» работают как очередь, и в OWA или Thunderbird их видно таким же. Пересылка, новое письмо и ответ на письмо не из «Входящих» ничего не переносят (R2). Локальный таймер напоминаний из #6/#37 остаётся (R5). Главный спорный вопрос: <b>сейчас «Ждут ответа» — локальный раздел про мои отправленные письма</b> (<code>plugins/followups</code>), а #59 вводит серверную папку с тем же названием, только в ней лежат входящие письма. Кадр 9 о том, как не получить две сущности под одним именем.</p>
+<div class="legend">
+  <div>Сегодня в примерах — среда, 7 октября 2026. Ящик «Кэрол Тестова». Ярлыки: <span class="prop done">решено в issue</span> — уже принято, показано для полноты; <span class="prop">Вариант А</span> — один из вариантов; <span class="prop rec">рекомендую</span> — мой выбор; <span class="prop no">не советую</span> — показан для сравнения.</div>
+  <div>Звезды в Депеше нет: роль «важного» играет флаг (<code>Flag</code>, красный). «Отложено» — метка плагина snooze во второй строке. Значки ответа и пересылки — Lucide <code>reply</code>, <code>reply-all</code>, <code>forward</code>, те же, что на кнопках панели письма.</div>
+</div>
+
+<!-- ======================================================================= -->
+<div class="part">Часть 1 · #55 Значки действий в строке письма</div>
+
+<!-- 1 ===================================================================== -->
+<div class="state" id="s1">
+<h2><span class="num">1</span>Строка списка: значки перед датой, все сочетания <span class="prop done">место решено в issue</span><span class="prop rec">рекомендую: как вложение, 13 px</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v fixed" style="width:384px">
+      <div class="vh"><span class="var d">Сейчас, 0.6.4</span> один <code>Reply</code> в начале второй строки</div>
+      <div class="card theme" style="width:384px">
+        <div class="list w-full">
+          <div class="rows" style="padding-top:6px">
+            <div class="row"><div class="line1"><span class="from">Мария Соколова</span><span class="date">09:15</span></div><div class="line2"><span class="old-answered"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="subject">Счёт за сентябрь</span><span class="size">38 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="date">6 окт</span></div><div class="line2"><span class="old-answered"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Алексей Кузнецов</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Отчёт по командировке</span><span class="size">2,1 МБ</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">Ответ всем выглядит как ответ, пересланное письмо (третье) ничем не отмечено, а тема каждой отвеченной строки сдвинута на 19 px.</div>
+    </div>
+    <div class="v fixed" style="width:384px">
+      <div class="vh"><span class="var">Предлагается</span> светлая тема</div>
+      <div class="card theme" style="width:384px">
+        <div class="list w-full">
+          <div class="rows" style="padding-top:6px">
+            <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span><span class="size">412 КБ</span></div></div>
+            <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="acts" title="Отвечено"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="size">38 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts" title="Отвечено всем"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Алексей Кузнецов</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts" title="Переслано"><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Отчёт по командировке</span><span class="size">2,1 МБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Дмитрий, я</span><span class="count">2</span><span class="draft">Черновик</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">2 окт</span></div><div class="line2"><span class="subject">Приглашение на совещание</span><span class="size">24 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Светлана Белова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">1 окт</span></div><div class="line2"><span class="subject">Командировка в Казань</span><span class="tag"><svg class="i" width="12" height="12"><use href="#alarm"/></svg> вернётся завтра в 9:00</span><span class="size">18 КБ</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="v fixed" style="width:384px">
+      <div class="vh"><span class="var">Предлагается</span> тёмная тема (night)</div>
+      <div class="card theme dark" style="width:384px">
+        <div class="list w-full">
+          <div class="rows" style="padding-top:6px">
+            <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span><span class="size">412 КБ</span></div></div>
+            <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="size">38 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Алексей Кузнецов</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Отчёт по командировке</span><span class="size">2,1 МБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Дмитрий, я</span><span class="count">2</span><span class="draft">Черновик</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">2 окт</span></div><div class="line2"><span class="subject">Приглашение на совещание</span><span class="size">24 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Светлана Белова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">1 окт</span></div><div class="line2"><span class="subject">Командировка в Казань</span><span class="tag"><svg class="i" width="12" height="12"><use href="#alarm"/></svg> вернётся завтра в 9:00</span><span class="size">18 КБ</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>Порядок в первой строке:</b> имя → метка напоминания → число писем в цепочке → «Черновик» → флаг → вложение → <b>значки действий</b> → дата. Действия стоят последними, вплотную к дате: они отвечают на вопрос «что я с этим сделал и когда», а флаг и вложение говорят о самом письме.</li>
+  <li><b>Порядок внутри группы постоянный:</b> сначала ответ или ответ всем, потом пересылка. Так у писем с одинаковым набором значки стоят одинаково, по времени их не переставляем.</li>
+  <li><b>Размер и цвет — как у скрепки:</b> 13 px, <code>--muted</code>, зазор 6 px. Тот же класс, что сейчас у <code>.clip</code> и <code>.answered</code>, ничего нового в палитру не добавляем. Флаг остаётся единственным цветным значком строки.</li>
+  <li><b>Вторая строка больше не сдвигается:</b> тема всегда начинается с одного места, как и требует R2. Метка «Отложено» из snooze и размер остаются справа во второй строке.</li>
+  <li>Ответ и ответ всем одновременно (сначала ответили одному, потом всем) показываем одним значком — <b>«ответ всем»</b>: он полнее. <span class="prop">предложение</span>, см. открытый вопрос 2.</li>
+</ul>
+</div>
+
+<!-- 2 ===================================================================== -->
+<div class="state" id="s2">
+<h2><span class="num">2</span>Насколько громко: три способа поставить группу значков <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> как скрепка <span class="prop rec">рекомендую</span></div>
+      <div class="card theme"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Алексей Кузнецов</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Отчёт по командировке</span><span class="size">2,1 МБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="date">4 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span><span class="size">8 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">3 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+      </div></div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> тише и плотнее</div>
+      <div class="card theme"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts quiet"><svg class="i" width="12" height="12"><use href="#reply"/></svg><svg class="i" width="12" height="12"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Алексей Кузнецов</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts quiet"><svg class="i" width="12" height="12"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Отчёт по командировке</span><span class="size">2,1 МБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="date">4 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span><span class="size">8 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts quiet"><svg class="i" width="12" height="12"><use href="#replyall"/></svg></span><span class="date">3 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+      </div></div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var c">Вариант В</span> постоянное место на два значка</div>
+      <div class="card theme"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts slot"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Алексей Кузнецов</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts slot"><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Отчёт по командировке</span><span class="size">2,1 МБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="acts slot"></span><span class="date">4 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span><span class="size">8 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts slot"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">3 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+      </div></div></div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>А — как скрепка: 13 px, <code>--muted</code>, зазор 6 px.</b> <span class="plus">+</span> Ничего нового: строка выглядит так же, как сейчас, только значок переехал вправо. <span class="plus">+</span> Ответ и пересылку, два разных значка, легко различить. <span class="minus">−</span> Строка со скрепкой, ответом и пересылкой несёт три серых значка подряд. Это терпимо, такое сочетание редкое.</li>
+  <li><b>Б — 12 px, прозрачность 72 %, зазор 2 px.</b> <span class="plus">+</span> Группа читается как одно «что сделано» и тише скрепки. <span class="minus">−</span> 12 px — предел для <code>reply</code> и <code>reply-all</code>: двойная стрелка слипается и в тёмной теме сливается с одинарной. Третий уровень серого, которого в строке ещё нет.</li>
+  <li><b>В — постоянное место шириной 30 px перед датой.</b> <span class="plus">+</span> Даты всех строк стоят в один столбец и не скачут. <span class="minus">−</span> Расходится с R2 («дата сдвигается влево»): 30 px отнимаются у имени в каждой строке, даже без действий, а в списке у́же 380 px это заметно. <span class="minus">−</span> Пустая ячейка у большинства писем.</li>
+</ul>
+</div>
+
+<!-- 3 ===================================================================== -->
+<div class="state" id="s3">
+<h2><span class="num">3</span>Подсказка при наведении <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> только название действия</div>
+      <div class="card theme" style="height:178px;overflow:visible"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row hover"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+      </div></div>
+      <div class="tip" style="right:64px;top:42px;--arrow:24px">Переслано</div>
+      <svg class="cursor" style="right:66px;top:20px"><use href="#cursor"/></svg>
+      </div>
+      <div class="cap">Подсказка у каждого значка своя: «Отвечено», «Отвечено всем», «Переслано» (тексты из R3).</div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> название и время, если оно известно <span class="prop rec">рекомендую</span></div>
+      <div class="card theme" style="height:178px;overflow:visible"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row hover"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+        <div class="row hover" style="background:none"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">4 окт</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="size">38 КБ</span></div></div>
+      </div></div>
+      <div class="tip" style="right:62px;top:42px;--arrow:26px">Переслано: 6 окт, 9:05</div>
+      <div class="tip" style="right:44px;top:108px;--arrow:24px;opacity:.92">Отвечено <span class="t2">· время неизвестно, отметка сервера</span></div>
+      </div>
+      <div class="cap">Время ставит сама Депеша, когда отправляет письмо, а на Exchange его даёт <code>PR_LAST_VERB_EXECUTION_TIME</code>. Если известен только флаг <code>\Answered</code> на IMAP — нижняя строка — времени нет. Тогда пишем только «Отвечено» или поясняем, откуда отметка, см. открытый вопрос 3.</div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var c">Вариант В</span> одна подсказка на всю группу</div>
+      <div class="card theme" style="height:178px;overflow:visible"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row hover"><div class="line1"><span class="from">Бухгалтерия</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+      </div></div>
+      <div class="tip" style="right:52px;top:42px;--arrow:38px">Отвечено: 5 окт, 14:20<br>Переслано: 6 окт, 9:05</div>
+      </div>
+      <div class="cap">Наведение на любой значок группы показывает все действия по порядку. Хорошо смотрится в варианте Б из кадра 2, где значки стоят вплотную.</div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>А.</b> <span class="plus">+</span> Проще всего: время хранить не нужно. <span class="minus">−</span> «Когда я на это ответил» — первый вопрос после «ответил ли». За ответом придётся лезть в цепочку.</li>
+  <li><b>Б.</b> <span class="plus">+</span> Отвечает на оба вопроса сразу и не требует отдельного экрана. <span class="plus">+</span> Формат даты тот же, что в «Ждут ответа» из #37 («ответ: Иван Петров, 3 окт»). <span class="minus">−</span> К признаку в кэше добавляется время действия. Его знает только Депеша и Exchange.</li>
+  <li><b>В.</b> <span class="plus">+</span> Попасть мышью проще, чем в значок шириной 13 px. <span class="minus">−</span> У разных значков одна и та же подсказка. Экранному диктору нужны отдельные <code>aria-label</code> на каждом значке (R8) — они есть во всех трёх вариантах.</li>
+</ul>
+</div>
+
+<!-- 4 ===================================================================== -->
+<div class="state" id="s4">
+<h2><span class="num">4</span>Узкий список и одна колонка (&lt; 760 px) <span class="prop">Вариант А / Б</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v fixed" style="width:300px">
+      <div class="vh"><span class="var">Вариант А</span> все значки, сжимается имя <span class="prop rec">рекомендую</span></div>
+      <div class="card theme" style="width:300px"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row"><div class="line1"><span class="from">Бухгалтерия ООО «Север-Логистик»</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">3 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+      </div></div></div>
+      <div class="cap">Первым уступает место имя (<code>.from</code> с <code>flex: 1</code>), как сейчас. Метки напоминаний уже скрыты ниже 420 px (<code>NOTES_FROM</code>).</div>
+    </div>
+    <div class="v fixed" style="width:300px">
+      <div class="vh"><span class="var b">Вариант Б</span> ниже 420 px — один значок</div>
+      <div class="card theme" style="width:300px"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row"><div class="line1"><span class="from">Бухгалтерия ООО «Север-Логистик»</span><span class="clip"><svg class="i" width="13" height="13"><use href="#clip"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span><span class="date">5 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="flag"><svg class="i" width="13" height="13"><use href="#flag"/></svg></span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">3 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+      </div></div></div>
+      <div class="cap">Остаётся последнее по времени действие, в подсказке — все.</div>
+    </div>
+    <div class="v">
+      <ul class="notes" style="margin:26px 0 0">
+        <li><b>А.</b> <span class="plus">+</span> Строка одна и та же на любой ширине, как требует принцип 8 из ux.md («один вид на любую ширину»). <span class="plus">+</span> Два значка — это 32 px, у имени в 300 px остаётся около 150 px. <span class="minus">−</span> Длинное название отправителя обрезается раньше.</li>
+        <li><b>Б.</b> <span class="plus">+</span> Имя на 19 px длиннее. <span class="minus">−</span> Строка меняет смысл с шириной окна: ответ на первом письме пропадает. <span class="minus">−</span> «Последнее по времени» не знаем, если отметка пришла с сервера.</li>
+        <li>При любом варианте значки не прячутся совсем: подпись есть и без наведения, через <code>aria-label</code> (R8).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 5 ===================================================================== -->
+<div class="state" id="s5">
+<h2><span class="num">5</span>Отметка в шапке открытого письма <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> строка под получателями <span class="prop rec">рекомендую</span></div>
+      <div class="card theme"><div class="reader" style="height:250px">
+        <div class="head"><h1>Акт сверки за III квартал</h1>
+          <div class="from"><span class="avatar" style="background:#7a5c2e">Б</span>
+            <div class="who"><span class="sender">Бухгалтерия</span> <span class="muted">&lt;buh@sever-log.ru&gt;</span>
+              <div class="rcpt">Кому: Кэрол Тестова, Пётр Иванов</div>
+              <div class="hline"><span><svg class="i" width="13" height="13"><use href="#reply"/></svg> Вы ответили 5 окт в 14:20 · <a>открыть</a></span><span><svg class="i" width="13" height="13"><use href="#fwd"/></svg> Переслано 6 окт в 9:05</span></div>
+            </div>
+            <div class="hdate">5 окт 2026, 11:02<br>96 КБ</div>
+          </div></div>
+        <div class="sheet">Добрый день! Направляем акт сверки за III квартал…</div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> значки у даты справа</div>
+      <div class="card theme"><div class="reader" style="height:250px">
+        <div class="head"><h1>Акт сверки за III квартал</h1>
+          <div class="from"><span class="avatar" style="background:#7a5c2e">Б</span>
+            <div class="who"><span class="sender">Бухгалтерия</span> <span class="muted">&lt;buh@sever-log.ru&gt;</span>
+              <div class="rcpt">Кому: Кэрол Тестова, Пётр Иванов</div>
+            </div>
+            <div class="hdate">5 окт 2026, 11:02<br>96 КБ<br><span class="hmark" title="Отвечено: 5 окт, 14:20 · Переслано: 6 окт, 9:05"><svg class="i" width="13" height="13"><use href="#reply"/></svg><svg class="i" width="13" height="13"><use href="#fwd"/></svg></span></div>
+          </div></div>
+        <div class="sheet">Добрый день! Направляем акт сверки за III квартал…</div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var c">Вариант В</span> в шапке ничего, ответ виден в ленте</div>
+      <div class="card theme"><div class="reader" style="height:250px">
+        <div class="head"><h1>Акт сверки за III квартал</h1>
+          <div class="from"><span class="avatar" style="background:#7a5c2e">Б</span>
+            <div class="who"><span class="sender">Бухгалтерия</span> <span class="muted">&lt;buh@sever-log.ru&gt;</span>
+              <div class="rcpt">Кому: Кэрол Тестова, Пётр Иванов</div>
+            </div>
+            <div class="hdate">5 окт 2026, 11:02<br>96 КБ</div>
+          </div></div>
+        <div class="sheet" style="flex:none;height:46px">Добрый день! Направляем акт сверки…</div>
+        <div class="mine"><span class="w">Я</span><span class="muted">вы ответили · 5 окт, 14:20</span><span class="muted" style="margin-left:auto">Принято, спасибо…</span></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="vars" style="margin-top:16px">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> тёмная тема</div>
+      <div class="card theme dark"><div class="reader" style="height:200px">
+        <div class="head"><h1>Акт сверки за III квартал</h1>
+          <div class="from"><span class="avatar" style="background:#7a5c2e">Б</span>
+            <div class="who"><span class="sender">Бухгалтерия</span> <span class="muted">&lt;buh@sever-log.ru&gt;</span>
+              <div class="rcpt">Кому: Кэрол Тестова, Пётр Иванов</div>
+              <div class="hline"><span><svg class="i" width="13" height="13"><use href="#reply"/></svg> Вы ответили 5 окт в 14:20 · <a>открыть</a></span><span><svg class="i" width="13" height="13"><use href="#fwd"/></svg> Переслано 6 окт в 9:05</span></div>
+            </div>
+            <div class="hdate">5 окт 2026, 11:02<br>96 КБ</div>
+          </div></div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> отметка только с сервера (IMAP <code>\Answered</code>)</div>
+      <div class="card theme"><div class="reader" style="height:200px">
+        <div class="head"><h1>Счёт за сентябрь</h1>
+          <div class="from"><span class="avatar" style="background:#3f7cc4">М</span>
+            <div class="who"><span class="sender">Мария Соколова</span> <span class="muted">&lt;m.sokolova@example.ru&gt;</span>
+              <div class="hline"><span><svg class="i" width="13" height="13"><use href="#reply"/></svg> Отвечено</span></div>
+            </div>
+            <div class="hdate">4 окт 2026, 9:15<br>38 КБ</div>
+          </div></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>А — строка под получателями, мелко, <code>--muted</code>.</b> <span class="plus">+</span> Говорит словами, когда и что сделано. «Открыть» ведёт к своему ответу, если он есть в кэше (это та же карточка «вы ответили», что уже стоит в ленте цепочки, <code>conv.youReplied</code>). <span class="minus">−</span> Шапка становится на строку выше. Без действий строки нет, без времени — только слово «Отвечено» (правый кадр).</li>
+  <li><b>Б — значки под датой и размером.</b> <span class="plus">+</span> Шапка не растёт. Значки стоят там же, где в списке, — у даты. <span class="minus">−</span> Время только в подсказке. Рядом с размером и названием ящика значки легко потерять.</li>
+  <li><b>В — ничего.</b> <span class="plus">+</span> Нечего делать: свой ответ и так виден карточкой в ленте. <span class="minus">−</span> Пересылки в ленте нет, письмо переслали не в эту цепочку. <span class="minus">−</span> Если группировка выключена или ответ ещё не попал в кэш, видно лишь значок в списке.</li>
+</ul>
+</div>
+
+<!-- ======================================================================= -->
+<div class="part">Часть 2 · #59 «Входящие» как очередь <small>ответил — письмо ушло в «Ждут ответа», ответили тебе — вернулось</small></div>
+
+<!-- 6 ===================================================================== -->
+<div class="state" id="s6">
+<h2><span class="num">6</span>Как это включается <span class="prop">Вариант А / Б / В</span><span class="prop rec">рекомендую А + В</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v" style="flex:1.25">
+      <div class="vh"><span class="var">Вариант А</span> настройка ящика, «Письма и подписи»</div>
+      <div class="card theme"><div class="prefs" style="height:300px">
+        <div class="pages"><div class="grp">Ящики</div><div class="tab on"><svg class="i" width="14" height="14"><use href="#user"/></svg>Кэрол Тестова</div><div class="tab"><svg class="i" width="14" height="14"><use href="#user"/></svg>Личная</div><div class="grp">Общее</div><div class="tab"><svg class="i" width="14" height="14"><use href="#mail"/></svg>Почта</div><div class="tab"><svg class="i" width="14" height="14"><use href="#bell"/></svg>Напоминания</div></div>
+        <div class="pane">
+          <div class="toc"><span>Общее</span><span class="on">Письма и подписи</span><span>Хранилище</span><span>Сервер</span></div>
+          <h4>После ответа</h4>
+          <div class="opt"><span class="box on"><svg class="i" width="11" height="11" style="stroke-width:3"><use href="#check"/></svg></span><div>Убирать письмо из входящих, пока не ответят<div class="hint">Письмо, на которое вы ответили из «Входящих», переносится в папку «Ждут ответа» на сервере. Когда придёт ответ, оно вернётся во «Входящие». Папку видно и в других почтовых программах.</div></div></div>
+          <div class="fieldrow"><span class="k">Папка</span><span class="select">Ждут ответа <span class="muted">· создастся при первом ответе</span><svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+        </div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> одна общая настройка, «Почта»</div>
+      <div class="card theme"><div class="prefs" style="height:300px">
+        <div class="pages"><div class="grp">Ящики</div><div class="tab"><svg class="i" width="14" height="14"><use href="#user"/></svg>Кэрол Тестова</div><div class="tab"><svg class="i" width="14" height="14"><use href="#user"/></svg>Личная</div><div class="grp">Общее</div><div class="tab on"><svg class="i" width="14" height="14"><use href="#mail"/></svg>Почта</div><div class="tab"><svg class="i" width="14" height="14"><use href="#bell"/></svg>Напоминания</div></div>
+        <div class="pane"><h3>Почта</h3>
+          <h4>Входящие</h4>
+          <div class="opt"><span class="box on"><svg class="i" width="11" height="11" style="stroke-width:3"><use href="#check"/></svg></span><div>Убирать отвеченные письма из входящих, пока не ответят<div class="hint">Во всех ящиках. Папка «Ждут ответа» в каждом ящике своя.</div></div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <div class="vars" style="margin-top:16px">
+    <div class="v" style="flex:0 0 640px">
+      <div class="vh"><span class="var c">Вариант В</span> переключатель при каждой отправке, в строке «Напомнить»</div>
+      <div class="card theme" style="width:640px"><div class="compose">
+        <div class="ch">Re: Счёт за сентябрь<span class="x">—&nbsp;&nbsp;⤢&nbsp;&nbsp;×</span></div>
+        <div class="f"><span class="k">Кому</span><span class="chip">Мария Соколова</span></div>
+        <div class="txt">Мария, счёт получила, оплатим до пятницы. Пришлите, пожалуйста, закрывающие…</div>
+        <div class="remline"><label class="cb"><span class="box on"><svg class="i" width="11" height="11" style="stroke-width:3"><use href="#check"/></svg></span>Убрать письмо из входящих до ответа</label><span style="color:var(--line)">|</span><svg class="i" width="14" height="14"><use href="#alarm"/></svg><span class="select">Без напоминания<svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+        <div class="cfoot"><span class="sendbtn"><span><svg class="i" width="14" height="14"><use href="#send"/></svg>Отправить</span><span><svg class="i" width="13" height="13"><use href="#chev"/></svg></span></span><span class="muted small">Ctrl+Enter</span><span style="margin-left:auto" class="muted">⋯</span></div>
+      </div></div>
+      <div class="cap">Флажок есть только у ответа и ответа всем на письмо из «Входящих». По умолчанию он стоит так, как в настройке ящика (вариант А). В быстром ответе под письмом его нет: там всегда действует настройка.</div>
+    </div>
+    <div class="v">
+      <ul class="notes" style="margin:22px 0 0">
+        <li><b>А — у ящика.</b> <span class="plus">+</span> Папка живёт на сервере ящика, и права на неё у каждого сервера свои (кадр 13). Рабочий Exchange и личная почта ведут себя по-разному. <span class="plus">+</span> Там же выбирается сама папка: для корпоративного ящика, где «Ждут ответа» заведена политикой, или если имя нужно другое. <span class="minus">−</span> С несколькими ящиками включать придётся по разу.</li>
+        <li><b>Б — общая.</b> <span class="plus">+</span> Один флажок. <span class="minus">−</span> Нельзя «на работе да, дома нет». Выбор папки всё равно уезжает в ящик.</li>
+        <li><b>В — при отправке.</b> <span class="plus">+</span> Видно, что сейчас случится, и редкое исключение делается без похода в настройки («этот ответ — не конец, оставлю под рукой»). <span class="minus">−</span> Ещё один элемент в окне письма. Строку «Напомнить» придётся переделать в общую строку ожидания.</li>
+        <li><b>А + В</b>: настройка в ящике задаёт поведение, флажок в окне письма показывает его и позволяет сделать исключение. Строка «Напомнить, если не ответят» из #37 и этот флажок — про одно и то же ожидание (см. кадр 9), поэтому стоят в одной строке.</li>
+        <li><b>По умолчанию</b> — выключено у существующих ящиков: письма вдруг начнут исчезать из «Входящих», а этого никто не ждёт. Для новых ящиков решает оператор, см. открытый вопрос 6.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 7 ===================================================================== -->
+<div class="state" id="s7">
+<h2><span class="num">7</span>Ответил во «Входящих»: когда письмо уходит из списка <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vh" style="margin-bottom:6px"><span class="var">Вариант А</span> сразу, как «Готово»: строка уходит, открывается следующее</div>
+  <div class="steps theme">
+    <div class="step"><div class="sl"><i>1</i> Быстрый ответ, Ctrl+Enter</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+    <div class="step"><div class="sl"><i>2</i> Через 0,1 с: строка схлопывается за 150 мс</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row ghost"></div>
+        <div class="row unread opened"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+    <div class="step"><div class="sl"><i>3</i> Тост в углу</div>
+      <div class="card" style="height:206px;background:#ece8e1;box-shadow:none;display:flex;align-items:flex-end;justify-content:flex-end;padding:10px">
+        <div class="toast" style="max-width:360px"><span>Отправляется… ещё 9 секунд можно отменить. Письмо — в «Ждут ответа»</span><span class="act">Отменить</span><span class="close">×</span></div>
+      </div></div>
+  </div>
+  <div class="vh" style="margin:18px 0 6px"><span class="var b">Вариант Б</span> строка остаётся под рукой, пока вы с неё не ушли <span class="prop rec">рекомендую</span></div>
+  <div class="steps theme">
+    <div class="step"><div class="sl"><i>1</i> Быстрый ответ, Ctrl+Enter</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+    <div class="step"><div class="sl"><i>2</i> Через 0,1 с: значок ответа и метка «уйдёт»</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag move"><svg class="i" width="12" height="12"><use href="#wait"/></svg> в «Ждут ответа»</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+    <div class="step"><div class="sl"><i>3</i> Нажали <kbd>j</kbd> или открыли другое письмо — строка схлопывается</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row ghost"></div>
+        <div class="row unread opened"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+  </div>
+  <div class="vh" style="margin:18px 0 6px"><span class="var c">Вариант В</span> когда ответ на самом деле ушёл из «Исходящих» (через 10 с)</div>
+  <div class="steps theme">
+    <div class="step"><div class="sl"><i>1</i> Ctrl+Enter: строка на месте, «уйдёт через 10 с»</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag move"><svg class="i" width="12" height="12"><use href="#wait"/></svg> уйдёт через 10 с</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+    <div class="step"><div class="sl"><i>2</i> Через 10 с, пока вы читаете: строка пропадает</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row ghost"></div>
+        <div class="row unread hover"><div class="line1"><span class="from">Светлана Белова</span><span class="date">08:02</span></div><div class="line2"><span class="subject">Командировка в Казань</span></div></div>
+      </div></div></div></div>
+    <div class="step"><div class="sl"><i>3</i> Строка под курсором сменилась сама</div>
+      <div class="card" style="height:206px;background:#ece8e1;box-shadow:none;display:flex;align-items:center;justify-content:center;padding:16px;color:#7d2a24;font-size:12.5px;line-height:1.5;text-align:center">Мышь стояла над строкой Марии — теперь под ней строка Светланы. Ровно то, что запрещает принцип 7 («список не прыгает под рукой»).</div></div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>А — сразу, как «Готово» (<kbd>e</kbd>).</b> <span class="plus">+</span> Принципы 1 и 2: результат за 0,1 с, «Входящие» сразу пустеют. <span class="plus">+</span> Так ведёт себя «Готово», и это ожидаемо. <span class="minus">−</span> Свой ответ вы только что видели в ленте под письмом, а письмо исчезает и открывается чужое. Хочется «досмотреть», ушёл ли ответ, а уже не на что. <span class="minus">−</span> Одно «Отменить» отменяет и отправку, и перенос. Отменить только перенос нельзя (кадр 8).</li>
+  <li><b>Б — остаётся до ухода со строки.</b> <span class="plus">+</span> Принцип 7: строка не уезжает, пока вы на ней. Так уже ведут себя прочитанные письма в «Непрочитанных». <span class="plus">+</span> Синяя метка «в «Ждут ответа»» сразу говорит, что будет. Значок ответа появляется сразу (решение #55: «ставим признак сразу»). <span class="plus">+</span> Если отправку отменить в течение 10 с, метка просто исчезает: письмо никуда не ездило. <span class="minus">−</span> Пока не перешли к следующему, «Входящие» визуально не уменьшились.</li>
+  <li><b>В — после настоящей отправки.</b> <span class="plus">+</span> Сервер переносит только то, что действительно ушло. <span class="minus">−</span> Строка пропадает под рукой через 10 с, сама по себе (средний и правый кадры), — нарушение принципа 7. <span class="minus">−</span> С задержкой отправки 0 он совпадает с А, а с «Отправить позже» перенос откладывается до завтра.</li>
+  <li><b>Для любого варианта:</b> на сервер письмо переезжает, только когда ответ реально ушёл из «Исходящих». Отменили отправку — переноса не было. «Отправить позже» — письмо ждёт во «Входящих» с меткой «уйдёт в «Ждут ответа» в 9:00», ответа ещё нет. Новое письмо, пересылка и ответ на письмо не из «Входящих» ничего не переносят (R2).</li>
+</ul>
+</div>
+
+<!-- 8 ===================================================================== -->
+<div class="state" id="s8">
+<h2><span class="num">8</span>Тост: что отменяет «Отменить» <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars theme">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> один тост, два действия <span class="prop rec">рекомендую</span></div>
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+        <div class="toast"><span>Отправляется… ещё 9 секунд можно отменить</span><span class="act">Отменить</span><span class="close">×</span></div>
+        <div class="cap">Первые 10 секунд — существующий тост отправки (<code>toast.sending</code>), без изменений.</div>
+        <div class="toast"><span>Отправлено: Счёт за сентябрь. Письмо — в «Ждут ответа»</span><span class="act">Оставить во входящих</span><span class="close">×</span></div>
+        <div class="cap">Потом, вместо «Отправлено: …», — тот же тост с одной добавкой. «Оставить во входящих» (и <kbd>z</kbd>) возвращает письмо, как отмена «Готово».</div>
+      </div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> два тоста</div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+        <div class="toast"><span>В «Ждут ответа»: Счёт за сентябрь</span><span class="act">Отменить</span><span class="close">×</span></div>
+        <div class="toast"><span>Отправляется… ещё 9 секунд можно отменить</span><span class="act">Отменить</span><span class="close">×</span></div>
+        <div class="cap">Два «Отменить» рядом: какое из них отменяет отправку, понятно только после чтения.</div>
+      </div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var c">Вариант В</span> объяснение — один раз</div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+        <div class="toast"><span>Письмо, на которое вы ответили, теперь ждёт ответа в папке «Ждут ответа» и вернётся во входящие, когда ответят.</span><span class="act">Настроить</span><span class="close">×</span></div>
+        <div class="cap">Только при первом переносе в ящике. Дальше — как в А. «Настроить» открывает «Письма и подписи» ящика.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>А.</b> <span class="plus">+</span> Тост отправки уже есть. Вторая фраза в нём — единственное новое, и два разных «Отменить» не сталкиваются по времени. <span class="minus">−</span> «Оставить во входящих» появляется только через 10 с. До этого письмо ещё не уехало, и в варианте Б из кадра 7 это видно по синей метке.</li>
+  <li><b>Б.</b> <span class="minus">−</span> Два одинаковых «Отменить», а <kbd>z</kbd> отменяет только последнее.</li>
+  <li><b>В</b> — дополнение к А, не замена. <span class="plus">+</span> Новичок узнаёт, куда делось письмо, в момент, когда это случилось. <span class="minus">−</span> Нужен признак «уже объясняли» в настройках ящика.</li>
+</ul>
+</div>
+
+<!-- 9 ===================================================================== -->
+<div class="state" id="s9">
+<h2><span class="num">9</span>Не задвоить «Ждут ответа»: одна сущность или две <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> один раздел «Ждут ответа» — ожидания любого вида <span class="prop rec">рекомендую</span></div>
+      <div class="app theme" style="height:470px">
+        <aside class="side" style="width:222px">
+          <div class="brand"><i></i>Депеша</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#inboxes"/></svg>Все входящие<span class="n">3</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#flag"/></svg>С флагом</div>
+          <div class="it on"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n">5</span></div>
+          <div class="acct">КЭРОЛ ТЕСТОВА</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#inbox"/></svg>Входящие<span class="n">3</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#send"/></svg>Отправленные</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#archive"/></svg>Архив</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#alarm"/></svg>Отложенные</div>
+          <div class="it new"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n q">4</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#trash"/></svg>Корзина</div>
+        </aside>
+        <section class="list" style="width:auto;flex:1;border-right:none">
+          <header><div class="seg"><span class="on">Активные<span class="c">5</span></span><span>Закрытые</span></div><div class="title"><h2>Ждут ответа</h2><span class="trigger"><svg class="i" width="13" height="13"><use href="#sort"/></svg>Сначала новые</span></div></header>
+          <div class="rows">
+            <div class="row"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag">ждём с сегодня</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="tag"><svg class="i" width="12" height="12"><use href="#alarm"/></svg> напомню 9 окт</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Кому: Иван Петров</span><span class="date">2 окт</span></div><div class="line2"><span class="subject">Договор поставки, финальная редакция</span><span class="tag due"><svg class="i" width="12" height="12"><use href="#wait"/></svg> просрочено на 1 день</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">1 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="tag"><svg class="i" width="12" height="12"><use href="#bot"/></svg> автоответ 3 окт — не в счёт</span></div></div>
+          </div>
+        </section>
+      </div>
+      <div class="cap">Строки с отправителем — входящие письма, лежащие в серверной папке. Строка «Кому: …» — моё новое письмо с напоминанием, оно лежит в «Отправленных». Напоминание по-прежнему задаётся по желанию, у первой строки его нет. Обведена папка ящика: она открывает этот же вид, только по одному ящику.</div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> раздел «Напоминания» + папка «Ждут ответа» в ящике</div>
+      <div class="app theme" style="height:470px">
+        <aside class="side" style="width:222px">
+          <div class="brand"><i></i>Депеша</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#inboxes"/></svg>Все входящие<span class="n">3</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#flag"/></svg>С флагом</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#bell"/></svg>Напоминания<span class="n">2</span></div>
+          <div class="acct">КЭРОЛ ТЕСТОВА</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#inbox"/></svg>Входящие<span class="n">3</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#send"/></svg>Отправленные</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#archive"/></svg>Архив</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#alarm"/></svg>Отложенные</div>
+          <div class="it on"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n q">4</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#trash"/></svg>Корзина</div>
+        </aside>
+        <section class="list" style="width:auto;flex:1;border-right:none">
+          <header><div class="title"><h2>Ждут ответа</h2><span class="trigger"><svg class="i" width="13" height="13"><use href="#sort"/></svg>Сначала новые</span></div></header>
+          <div class="rows">
+            <div class="row"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="size">38 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="size">120 КБ</span></div></div>
+            <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">1 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="size">96 КБ</span></div></div>
+          </div>
+        </section>
+      </div>
+      <div class="cap">Серверная папка — обычная папка ящика, как «Отложенные». Локальный раздел из #6/#37 переименован в «Напоминания»: в нём только письма, о которых попросили напомнить.</div>
+    </div>
+  </div>
+  <div class="vars" style="margin-top:16px">
+    <div class="v" style="flex:0 0 610px">
+      <div class="vh"><span class="var c">Вариант В</span> два «Ждут ответа» рядом, ничего не связываем <span class="prop no">не советую</span></div>
+      <div class="app theme" style="height:250px">
+        <aside class="side" style="width:222px">
+          <div class="brand"><i></i>Депеша</div>
+          <div class="it on"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n">2</span></div>
+          <div class="acct">КЭРОЛ ТЕСТОВА</div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#inbox"/></svg>Входящие<span class="n">3</span></div>
+          <div class="it"><svg class="i" width="15" height="15"><use href="#alarm"/></svg>Отложенные</div>
+          <div class="it new"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n q">4</span></div>
+        </aside>
+        <section class="list" style="width:auto;flex:1;border-right:none">
+          <header><div class="seg"><span class="on">Активные<span class="c">2</span></span><span>Закрытые</span></div><div class="title"><h2>Ждут ответа</h2></div></header>
+          <div class="rows">
+            <div class="row"><div class="line1"><span class="from">Кому: Иван Петров</span><span class="date">2 окт</span></div><div class="line2"><span class="subject">Договор поставки, финальная редакция</span><span class="tag due">просрочено на 1 день</span></div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="v">
+      <ul class="notes" style="margin:22px 0 0">
+        <li><b>В</b> — так получится, если сделать #59 буквально. <span class="minus">−</span> Два пункта с одним именем и разным содержимым: «Счёт за сентябрь» есть в папке, но его нет в разделе. Напоминание по «Смете» висит в разделе, а письмо — в папке. Человек должен помнить, где что.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>А — одна сущность «ожидание ответа».</b> Перенос в папку и напоминание — две стороны одного ожидания. Ожидание есть, когда письмо уехало в папку, когда попросили напомнить или и то и другое. Раздел «Ждут ответа» показывает все ожидания из всех ящиков; папка ящика — это способ хранения, она открывает тот же вид по одному ящику. <span class="plus">+</span> Одно имя — одно место. <span class="plus">+</span> «Активные / Закрытые», статусы, «Не ждать», история из #37 работают и для писем из папки. Пришёл ответ — ожидание закрыто, письмо вернулось (кадр 11). <span class="plus">+</span> R5 выполняется сам собой: таймер привязан к ожиданию, а не к UID. <span class="minus">−</span> В одном списке строки двух видов: «от кого» (входящее из папки) и «Кому:» (моё новое письмо). Так уже показываются «Отправленные». <span class="minus">−</span> Ожидания хранятся локально, а папка серверная: на другом компьютере есть только папка, без сроков (это вне рамок #59).</li>
+  <li><b>Б — две сущности с разными именами.</b> <span class="plus">+</span> Проще в реализации: папка — просто роль, как «Отложенные». <span class="minus">−</span> Переименование раздела, к которому уже привыкли с 0.6.0. <span class="minus">−</span> Одно и то же ожидание (ответил и попросил напомнить) лежит в двух местах.</li>
+  <li><b>Автоответ</b> (<code>Auto-Submitted</code>, <code>X-Autoreply</code>) и рассылка письмо не возвращают (R3). В строке это видно как «автоответ 3 окт — не в счёт», иначе непонятно, почему письмо до сих пор в очереди. <span class="prop">предложение</span></li>
+  <li>В варианте А плагин <code>followups</code> придётся научить ещё одному источнику ожиданий — папке. Логику кладём рядом в отдельный модуль, а не в <code>wait.ts</code> (решение 0.6.0 «без god object»).</li>
+</ul>
+</div>
+
+<!-- 10 ==================================================================== -->
+<div class="state" id="s10">
+<h2><span class="num">10</span>Открыто письмо из очереди <span class="prop">при варианте А из кадра 9</span></h2>
+<div class="frame">
+  <div class="app theme" style="height:520px">
+    <aside class="side">
+      <div class="brand"><i></i>Депеша</div>
+      <div class="write"><svg class="i" width="14" height="14"><use href="#pencil"/></svg>Написать</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#inboxes"/></svg>Все входящие<span class="n">3</span></div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#mail"/></svg>Непрочитанные</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#flag"/></svg>С флагом</div>
+      <div class="it on"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n">5</span></div>
+      <div class="acct">КЭРОЛ ТЕСТОВА</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#inbox"/></svg>Входящие<span class="n">3</span></div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#file"/></svg>Черновики</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#send"/></svg>Отправленные</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#archive"/></svg>Архив</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#alarm"/></svg>Отложенные</div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#wait"/></svg>Ждут ответа<span class="n q">4</span></div>
+      <div class="it"><svg class="i" width="15" height="15"><use href="#trash"/></svg>Корзина</div>
+      <div class="foot"><svg class="i" width="14" height="14"><use href="#plus"/></svg>Добавить ящик</div>
+    </aside>
+    <section class="list">
+      <header><div class="search"><svg class="i" width="14" height="14"><use href="#search"/></svg>Поиск по почте&nbsp; /</div><div class="seg"><span class="on">Активные<span class="c">5</span></span><span>Закрытые</span></div><div class="title"><h2>Ждут ответа</h2><span class="trigger"><svg class="i" width="13" height="13"><use href="#sort"/></svg>Сначала новые</span></div></header>
+      <div class="rows">
+        <div class="row"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag">ждём с сегодня</span></div></div>
+        <div class="row opened"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="tag"><svg class="i" width="12" height="12"><use href="#alarm"/></svg> напомню 9 окт</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Кому: Иван Петров</span><span class="date">2 окт</span></div><div class="line2"><span class="subject">Договор поставки, финальная редакция</span><span class="tag due"><svg class="i" width="12" height="12"><use href="#wait"/></svg> просрочено на 1 день</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Бухгалтерия</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">1 окт</span></div><div class="line2"><span class="subject">Акт сверки за III квартал</span><span class="tag"><svg class="i" width="12" height="12"><use href="#bot"/></svg> автоответ 3 окт</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Кому: Светлана Белова</span><span class="date">30 сент</span></div><div class="line2"><span class="subject">Авансовый отчёт</span><span class="tag">осталось 2 дня</span></div></div>
+      </div>
+    </section>
+    <section class="reader">
+      <div class="tb"><span class="btn"><svg class="i" width="15" height="15"><use href="#reply"/></svg> Ответить</span><span class="btn icon"><svg class="i" width="15" height="15"><use href="#replyall"/></svg></span><span class="btn icon"><svg class="i" width="15" height="15"><use href="#fwd"/></svg></span><span class="sp"></span><span class="btn ghost"><svg class="i" width="15" height="15"><use href="#archive"/></svg> Готово</span><span class="btn ghost"><svg class="i" width="15" height="15"><use href="#alarm"/></svg> Отложить</span><span class="btn ghost">⋯</span></div>
+      <div class="head" style="padding-bottom:8px"><h1>Смета на ноябрь</h1>
+        <div class="from"><span class="avatar" style="background:#6d8a3a">О</span>
+          <div class="who"><span class="sender">Ольга Смирнова</span> <span class="muted">&lt;o.smirnova@example.ru&gt;</span>
+            <div class="rcpt">Кому: Кэрол Тестова · Копия: Пётр Иванов</div>
+            <div class="hline"><span><svg class="i" width="13" height="13"><use href="#replyall"/></svg> Вы ответили всем 6 окт в 16:40 · <a>открыть</a></span></div>
+          </div>
+          <div class="hdate">6 окт 2026, 12:05<br>120 КБ</div>
+        </div></div>
+      <div class="banner info"><span class="t"><svg class="i" width="15" height="15"><use href="#wait"/></svg><span>Вы ждёте ответа. Письмо вернётся во «Входящие», когда ответят. Напомню <b>9 окт в 10:00</b>, если ответа не будет.</span></span><span class="btn">Вернуть во входящие</span><span class="btn ghost">Напомнить…</span><span class="btn ghost">Не ждать</span></div>
+      <div class="sheet">Кэрол, добрый день! Прикладываю смету на ноябрь. Пётр, посмотри, пожалуйста, строку по транспорту — там выросло на 12 %…</div>
+    </section>
+  </div>
+</div>
+<ul class="notes">
+  <li>Плашка — существующая <code>ctx.ui.banner</code> из #37, синяя (ожидание идёт). Новые только первая фраза и кнопка <b>«Вернуть во входящие»</b>: она снимает ожидание и переносит письмо обратно, как отмена.</li>
+  <li><b>«Не ждать»</b> у письма из папки — открытый вопрос 7: вернуть во «Входящие» или убрать в «Архив», как «Готово». Сейчас в #37 «Не ждать» только закрывает ожидание.</li>
+  <li><b>«Готово»</b> на письме из очереди убирает его в «Архив» и закрывает ожидание (R6: смысл «Готово» не меняется). Пришедший потом ответ обычным образом ляжет во «Входящие», но архивное письмо не вернёт.</li>
+  <li>«Напомнить…» — тот же выбор срока, что «Назначить новый срок» в #37. Без напоминания строка показывает «ждём с …», серым.</li>
+</ul>
+</div>
+
+<!-- 11 ==================================================================== -->
+<div class="state" id="s11">
+<h2><span class="num">11</span>Адресат ответил: письмо возвращается во «Входящие» <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars theme">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> метка «пришёл ответ» <span class="prop rec">рекомендую</span></div>
+      <div class="step"><div class="sl"><i>а</i> Группировка цепочек включена (по умолчанию)</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова, я</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">11:30</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag good"><svg class="i" width="12" height="12"><use href="#check"/></svg> пришёл ответ</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span></div></div>
+      </div></div></div></div>
+      <div class="step" style="margin-top:8px"><div class="sl"><i>б</i> Группировка выключена: две строки</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова</span><span class="date">11:30</span></div><div class="line2"><span class="subject">Re: Счёт за сентябрь</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag good"><svg class="i" width="12" height="12"><use href="#check"/></svg> пришёл ответ</span></div></div>
+      </div></div></div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> возвращается непрочитанным, как отложенное</div>
+      <div class="step"><div class="sl"><i>а</i> Группировка включена</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова, я</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">11:30</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span></div></div>
+      </div></div></div></div>
+      <div class="step" style="margin-top:8px"><div class="sl"><i>б</i> Группировка выключена</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова</span><span class="date">11:30</span></div><div class="line2"><span class="subject">Re: Счёт за сентябрь</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span></div></div>
+      </div></div></div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var c">Вариант В</span> исходное не видно отдельно, метка на ответе</div>
+      <div class="step"><div class="sl"><i>а</i> Группировка включена</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова, я</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">11:30</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span></div></div>
+      </div></div></div></div>
+      <div class="step" style="margin-top:8px"><div class="sl"><i>б</i> Группировка выключена</div>
+      <div class="card"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова</span><span class="date">11:30</span></div><div class="line2"><span class="subject">Re: Счёт за сентябрь</span><span class="tag good"><svg class="i" width="12" height="12"><use href="#wait"/></svg> ответ на ваше письмо</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span></div></div>
+      </div></div></div></div>
+    </div>
+  </div>
+  <div class="vars" style="margin-top:18px">
+    <div class="v" style="flex:0 0 384px">
+      <div class="vh"><span class="var">Вариант А</span> тёмная тема</div>
+      <div class="card theme dark"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row unread"><div class="line1"><span class="from">Мария Соколова, я</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">11:30</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag good"><svg class="i" width="12" height="12"><use href="#check"/></svg> пришёл ответ</span></div></div>
+        <div class="row unread"><div class="line1"><span class="from">Иван Петров</span><span class="date">10:42</span></div><div class="line2"><span class="subject">Договор поставки: правки к п. 4.2</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Пётр Иванов</span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Обед в пятницу</span></div></div>
+      </div></div></div>
+    </div>
+    <div class="v" style="flex:0 0 384px">
+      <div class="vh"><span class="var d">Любой вариант</span> в этот момент открыт «Ждут ответа»</div>
+      <div class="card theme"><div class="list w-full"><div class="rows" style="padding-top:6px">
+        <div class="row opened"><div class="line1"><span class="from">Мария Соколова</span><span class="acts"><svg class="i" width="13" height="13"><use href="#reply"/></svg></span><span class="date">09:15</span></div><div class="line2"><span class="subject">Счёт за сентябрь</span><span class="tag good"><svg class="i" width="12" height="12"><use href="#inbox"/></svg> ответ: Мария Соколова, 11:30</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Ольга, я, Пётр</span><span class="count">3</span><span class="acts"><svg class="i" width="13" height="13"><use href="#replyall"/></svg></span><span class="date">6 окт</span></div><div class="line2"><span class="subject">Смета на ноябрь</span><span class="tag"><svg class="i" width="12" height="12"><use href="#alarm"/></svg> напомню 9 окт</span></div></div>
+        <div class="row"><div class="line1"><span class="from">Кому: Иван Петров</span><span class="date">2 окт</span></div><div class="line2"><span class="subject">Договор поставки, финальная редакция</span><span class="tag due">просрочено на 1 день</span></div></div>
+      </div></div></div>
+      <div class="cap">Строка не исчезает из-под руки (принцип 7). Метка зелёная, формулировка — из #37. Строка уйдёт в «Закрытые», когда вы покинете вид.</div>
+    </div>
+    <div class="v">
+      <ul class="notes" style="margin:22px 0 0">
+        <li><b>А — зелёная метка «пришёл ответ» на вернувшемся письме.</b> <span class="plus">+</span> С группировкой — одна строка цепочки наверху, её подняла дата ответа. Метка объясняет, почему цепочка снова здесь. <span class="plus">+</span> Без группировки исходное письмо встаёт на свою старую дату, глубоко в списке. Метка помогает его найти, но наверху его нет. <span class="minus">−</span> Ещё одна метка во второй строке. Снимается, когда письмо открыли или закрыли «Готово». <span class="prop">предложение</span></li>
+        <li><b>Б — непрочитанным, как «Отложенные».</b> <span class="plus">+</span> Ничего нового: привычный приём snooze. <span class="minus">−</span> Письмо, которое уже прочитано, врёт о себе. Счётчик непрочитанных растёт на 2 за один ответ. На сервере снимается <code>\Seen</code>, и это видно в других клиентах.</li>
+        <li><b>В — метка на самом ответе.</b> <span class="plus">+</span> Внимание идёт на новое письмо, а не на старое. <span class="minus">−</span> С группировкой разницы с обычным ответом нет вообще. Без неё исходное возвращается молча.</li>
+        <li>Если Депеша была закрыта, возврат делается при запуске, после первой синхронизации «Входящих» (R4). Метка та же, время — время ответа, а не запуска.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 12 ==================================================================== -->
+<div class="state" id="s12">
+<h2><span class="num">12</span>Ответ на письмо не из «Входящих» <span class="prop">Вариант А / Б</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> флажка нет, строка как в 0.6</div>
+      <div class="card theme"><div class="compose">
+        <div class="ch">Re: Акт сверки за II квартал<span class="x">—&nbsp;&nbsp;⤢&nbsp;&nbsp;×</span></div>
+        <div class="f"><span class="k">Кому</span><span class="chip">Бухгалтерия</span></div>
+        <div class="txt">…письмо из «Архива»…</div>
+        <div class="remline"><svg class="i" width="14" height="14"><use href="#alarm"/></svg><span class="select">Напомнить через 3 дня без ответа<svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> флажок виден, но выключен, с причиной <span class="prop rec">рекомендую</span></div>
+      <div class="card theme"><div class="compose">
+        <div class="ch">Re: Акт сверки за II квартал<span class="x">—&nbsp;&nbsp;⤢&nbsp;&nbsp;×</span></div>
+        <div class="f"><span class="k">Кому</span><span class="chip">Бухгалтерия</span></div>
+        <div class="txt">…письмо из «Архива»…</div>
+        <div class="remline"><span class="cb off" title="Убираются только письма из «Входящих». Это письмо останется в «Архиве»."><span class="box dis"></span>Письмо в «Архиве», останется там</span><span style="color:var(--line)">|</span><svg class="i" width="14" height="14"><use href="#alarm"/></svg><span class="select">Напомнить через 3 дня без ответа<svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="vars" style="margin-top:14px">
+    <div class="v">
+      <div class="vh"><span class="var d">Пересылка</span> строка без флажка в обоих вариантах</div>
+      <div class="card theme"><div class="compose">
+        <div class="ch">Fwd: Счёт за сентябрь<span class="x">—&nbsp;&nbsp;⤢&nbsp;&nbsp;×</span></div>
+        <div class="f"><span class="k">Кому</span><span class="chip">Бухгалтерия</span></div>
+        <div class="remline"><svg class="i" width="14" height="14"><use href="#alarm"/></svg><span class="select">Без напоминания<svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var d">«Написать ещё раз»</span> из «Ждут ответа»</div>
+      <div class="card theme"><div class="compose">
+        <div class="ch">Re: Смета на ноябрь<span class="x">—&nbsp;&nbsp;⤢&nbsp;&nbsp;×</span></div>
+        <div class="f"><span class="k">Кому</span><span class="chip">Ольга Смирнова</span><span class="chip">Пётр Иванов</span></div>
+        <div class="remline"><span class="cb off"><span class="box on dis"><svg class="i" width="11" height="11" style="stroke-width:3"><use href="#check"/></svg></span>Письмо уже ждёт ответа</span><span style="color:var(--line)">|</span><svg class="i" width="14" height="14"><use href="#alarm"/></svg><span class="select">Напомнить 9 окт<svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><b>Что считается «из Входящих»:</b> роль папки <code>inbox</code> у ящика, в том числе строка в «Все входящие». Подпапки «Входящих» (<code>INBOX/Проекты</code>) — нет. <span class="prop">предложение</span>, см. открытый вопрос 8.</li>
+  <li><b>А.</b> <span class="plus">+</span> Тише: нет флажка — нет вопроса. <span class="minus">−</span> Человек, который привык, что ответ убирает письмо, не поймёт, почему в этот раз оно осталось в «Архиве».</li>
+  <li><b>Б.</b> <span class="plus">+</span> Правило R2 видно в момент действия: «Письмо в «Архиве», останется там». <span class="minus">−</span> Серая строка в каждом ответе не из «Входящих». Показываем её, только если перенос в ящике включён.</li>
+  <li>Пересылка и новое письмо ничего не переносят (R2), поэтому флажка у них нет никогда. Ответ на письмо, которое уже ждёт в очереди, оставляет его там и только сдвигает «ждём с».</li>
+  <li>Если в цепочке во «Входящих» несколько писем, переносится только то, на которое ответили (рекомендация из issue). Остальные письма цепочки остаются во «Входящих», и с группировкой строка цепочки там тоже остаётся, см. открытый вопрос 9.</li>
+</ul>
+</div>
+
+<!-- 13 ==================================================================== -->
+<div class="state" id="s13">
+<h2><span class="num">13</span>Сервер не дал создать папку <span class="prop">Вариант А / Б / В</span></h2>
+<div class="frame">
+  <div class="vars">
+    <div class="v">
+      <div class="vh"><span class="var">Вариант А</span> тост с выходом, письмо остаётся во входящих <span class="prop rec">рекомендую</span></div>
+      <div class="theme" style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+        <div class="toast error"><span>Не удалось создать папку «Ждут ответа»: сервер не разрешает. Письмо осталось во входящих</span><span class="act">Выбрать папку</span><span class="close">×</span></div>
+        <div class="cap">Ответ при этом ушёл: ошибка касается только переноса. «Выбрать папку» открывает выбор существующей папки (<code>FolderPicker</code>) и запоминает её в ящике. Пока папка не выбрана, перенос в этом ящике не пробуется и тост не повторяется.</div>
+      </div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var b">Вариант Б</span> то же, плюс объяснение в настройках ящика</div>
+      <div class="card theme"><div class="prefs" style="height:236px">
+        <div class="pane">
+          <div class="toc"><span>Общее</span><span class="on">Письма и подписи</span><span>Хранилище</span><span>Сервер</span></div>
+          <h4 style="margin-top:4px">После ответа</h4>
+          <div class="opt"><span class="box on"><svg class="i" width="11" height="11" style="stroke-width:3"><use href="#check"/></svg></span><div>Убирать письмо из входящих, пока не ответят</div></div>
+          <div class="warnbox"><svg class="i" width="14" height="14" style="color:var(--warn);margin-top:1px"><use href="#warn"/></svg><span>Сервер не разрешил создать папку «Ждут ответа» (7 окт, 09:16). Выберите существующую папку или попросите администратора создать её.</span></div>
+          <div class="fieldrow"><span class="k">Папка</span><span class="select">Выбрать…<svg class="i" width="12" height="12"><use href="#chev"/></svg></span></div>
+        </div>
+      </div></div>
+    </div>
+    <div class="v">
+      <div class="vh"><span class="var c">Вариант В</span> молча прятать письмо только у себя <span class="prop no">не советую</span></div>
+      <div class="cap">Письмо остаётся во «Входящих» на сервере, а Депеша просто его не показывает. <span class="minus">−</span> Ломает главное обещание #59: «Входящие» пустеют и в OWA. <span class="minus">−</span> Письмо, которого нет в списке, но которое лежит в папке, — источник «куда делось?».</div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Ошибку видно сразу — она не прячется в «Фоновых задачах» (принцип 3 говорит о фоне, а это ответ на действие человека). Тост красной полосой, как <code>toast.error</code>.</li>
+  <li><b>Б</b> — дополнение к А для тех, кто закрыл тост. Жёлтая точка у «Письма и подписи» в оглавлении, как у «Сервер» из #11. <span class="prop">предложение</span></li>
+  <li>Exchange: папка создаётся через <code>CreateFolder</code> под корнем почтовых папок, рядом с «Входящими», как «Отложенные». Если имя занято папкой, созданной вручную, — берём её, а не создаём «Ждут ответа (2)».</li>
+  <li>Сеть пропала в момент переноса: обычная повторная попытка в фоне, как у «Готово». Строка уже ушла из списка; если перенос так и не удался, письмо возвращается, и это видно в тосте (принцип 2).</li>
+</ul>
+</div>
+
+<!-- Вопросы ================================================================ -->
+<div class="state" id="q">
+<h2><span class="num">?</span>Открытые вопросы к оператору</h2>
+<div class="frame" style="background:#f3eee4">
+<ol class="notes" style="margin:0;padding-left:22px;font-size:14px;line-height:1.6;color:#2b313a">
+  <li><b>#55, громкость значков (кадр 2).</b> А (как скрепка, 13 px), Б (12 px, приглушённее, вплотную) или В (постоянное место, даты в столбец)? Рекомендую А.</li>
+  <li><b>#55, ответ и ответ всем одновременно.</b> Показывать оба значка или только «ответ всем» как более полный? R1 говорит «каждое действие», но два почти одинаковых значка подряд шумят. Рекомендую один «ответ всем», в подсказке — оба.</li>
+  <li><b>#55, подсказка (кадр 3).</b> Храним ли время действия, чтобы писать «Отвечено: 5 окт, 14:20»? Если отметка только с сервера (IMAP <code>\Answered</code>), пишем просто «Отвечено» или поясняем «отметка сервера, время неизвестно»?</li>
+  <li><b>#55, узкий список (кадр 4)</b> — все значки (А) или один последний (Б)? И <b>шапка письма (кадр 5)</b>: строка «Вы ответили … · открыть» (А), значки у даты (Б) или ничего (В)?</li>
+  <li><b>#59, главное: одна сущность или две (кадр 9).</b> Сливаем серверную папку с разделом «Ждут ответа» из 0.6.0 в одно «ожидание» (А) или разводим: раздел становится «Напоминаниями», папка — обычной ролью ящика (Б)?</li>
+  <li><b>#59, включение (кадр 6).</b> Настройка у ящика + флажок в окне письма (А + В)? Что по умолчанию: выключено у существующих ящиков — точно, а у новых?</li>
+  <li><b>#59, «Не ждать» у письма из папки (кадр 10)</b> — вернуть во «Входящие» или убрать в «Архив»?</li>
+  <li><b>#59, что считать «Входящими».</b> Только папку с ролью <code>inbox</code> или и её подпапки, куда письма раскладывают правила сервера?</li>
+  <li><b>#59, цепочка с несколькими письмами во «Входящих».</b> Переносим только то, на которое ответили (рекомендация issue). Но если группировка включена, строка цепочки остаётся во «Входящих» с остальными письмами — не выглядит ли это как «ответ не сработал»? Альтернатива: переносить всю цепочку из «Входящих», если ответили на последнее письмо в ней.</li>
+  <li><b>#59, момент ухода из списка (кадр 7).</b> Б — строка остаётся, пока вы на ней (рекомендую), или А — сразу, как «Готово»?</li>
+  <li><b>#59, возврат (кадр 11).</b> Зелёная метка «пришёл ответ» (А) — да? Сколько она живёт: до открытия письма или до «Готово»?</li>
+  <li><b>#59 и #55 вместе.</b> Значок ответа в строке теперь подсказывает «письмо в очереди». Нужно ли в «Ждут ответа» что-то кроме значка ответа и статуса справа, или этого достаточно?</li>
+</ol>
+</div>
+</div>
+
+</div>
+</body>
+</html>
