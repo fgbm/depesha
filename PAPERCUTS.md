@@ -237,3 +237,36 @@ e2e-проверка подсветки подписи на прокрученн
 ## 2026-10-07 18:53 — deepseek-v4.1-flash
 
 Слияние готовых веток в main → через минуту после `git merge --ff-only` `scripts/check.sh --fast` упал в vitest: «Cannot find module MailFrame.test.ts / lockedBlock.test.ts», а `git status` показал рабочее дерево, откатанное ровно к прежнему HEAD по файлам слитых веток. Причина: в основном дереве /home/vch/Projects/depesha параллельно работает ещё одна сессия claude (PID с `--resume`), и её проверка/`git checkout` вернула файлы. Fix: после каждого слияния и перед проверкой сверять `git status` с ожидаемым и восстанавливать `git checkout -- .` (HEAD цел), а лучше сливать в отдельном worktree.
+
+## 2026-10-07 19:40 — deepseek-v4.1-flash
+
+Запустил e2e из worktree `depesha-wt/prefs` → `tauri-driver` не поднялся: «Unable to listen for HTTP server at 127.0.0.1 and port 4445», «Maximum number of active sessions». Порт 4444 был занят чужим драйвером (в `pgrep` его в тот момент не было), а на второй попытке мой же `tauri-driver` висел от прошлого прогона, оборванного по `| tail`. Fix: перед прогоном проверять `ss -ltnp | grep 4444` и убивать свои осиротевшие `tauri-driver`/`WebKitWebDriver` по PID; прогон из worktree не отдавать в `| tail` — он буферизует и прячет прогресс до самого конца.
+
+## 2026-10-07 19:40 — deepseek-v4.1-flash
+
+Правил `Preferences.svelte` под #68 в worktree → `scripts/frontend-metrics.sh` и `frontend-invariants.sh` сообщают «РОСТ»/«ДРЕЙФ» не из-за ошибки: новые функции и новые ключи `t()` законно меняют baseline, а `check.sh --fast` из-за них не доходит до конца. Fix: после осознанной правки обновлять baseline (`frontend-metrics.sh --save`, `frontend-invariants.sh --save`, `frontend-bundle.sh --save`) и только тогда сверяться; «РОСТ» в выводе — не регрессия.
+
+## 2026-10-07 20:05 — deepseek-v4.1-flash
+
+Читал NAMESPACE через async-imap (RFC 2342) → `Response::parse` из imap-proto 0.17 не знает этого ответа и возвращает `Err(TakeWhile1)`; в `Client::run_command`+`read_response` незапарсенная строка валит соединение `io::Error` («TakeWhile1 during parsing»). Fix: команду писать через `run_command` (тег библиотеки), а ответ дочитывать сырыми байтами из `session.get_mut()` до строки с тегом и разбирать своей регуляркой; MYRIGHTS/ACL/PERMANENTFLAGS, наоборот, imap-proto разбирает штатно.
+
+## 2026-10-07 20:05 — deepseek-v4.1-flash
+
+Проверял `PERMANENTFLAGS` у Dovecot тестового стенда → `EXAMINE` отдаёт `[PERMANENTFLAGS ()]` (папка read-only), а `SELECT` — полный список с `\*`. Fix: свойства папки читать через SELECT, не EXAMINE, иначе свои метки всегда выглядят запрещёнными.
+
+## 2026-10-07 20:20 — deepseek-v4.1-flash
+
+Замерял рост главного чанка из worktree #45 → чтобы снять свои правки и собрать baseline, сделал `git stash push -u`, собрал, `git stash pop`; pop дал конфликт в baseline-файлах, я разрешил его через `git checkout HEAD -- <файлы>` и потерял собственные незакоммиченные правки (они лежали в том же stash и в рабочем дереве). Восстановил через `git stash apply` — stash после конфликтного pop не удаляется сам. Fix: для временного отката собирать патч по своим файлам (`git diff > /tmp/x.patch`), а не прятать всю копию; после конфликтного `stash pop` не делать `checkout HEAD` по конфликтным путям, а разрешать их вручную и сразу `git stash drop` отдельной командой.
+
+## 2026-10-07 20:20 — deepseek-v4.1-flash
+
+Отлаживал виджет таблицы CodeMirror в прогоне e2e → `pgrep -f 'node .*vite --port 5310' | xargs kill` снова совпал с командной строкой собственной оболочки и убил её (SIGTERM), `rm public/md-harness.html` не выполнился. Fix: убивать по PID из `ss -ltnp`, а не по шаблону `pgrep -f`; временные файлы удалять отдельной командой заранее.
+
+
+## 2026-10-07 20:35 — deepseek-v4.1-flash
+
+Создавал worktree для #66/#44/#69 → `cp -a --reflink=auto ../../depesha-wt/prefs/target ./target` (46 ГБ) шёл 24 с, но места на диске занял все 46 ГБ: на ZFS блок-клонирование не сработало между каталогами, свободное место упало 109→103 ГБ. Fix: сверить `df -h` до и после копирования; при нехватке места делиться `CARGO_TARGET_DIR` основного дерева (cargo сам сериализует сборки локом), а не копировать `target` целиком.
+
+## 2026-10-07 20:40 — deepseek-v4.1-flash
+
+Добавлял Tauri-команды `people`/`hint_save` в src-tauri → одна и та же команда перечисляется в четырёх местах: `build.rs::COMMANDS`, `generate_handler!` в `lib.rs`, `capabilities/main.json` и `capabilities/message.json`; тест `acl_matches_the_commands` требует, чтобы `main.json` совпадал с набором команд ровно, а ошибка всплывает только на `cargo test`, не на `cargo check`. Fix: заводить команду сразу во всех четырёх местах и прогонять `cargo test -p depesha --lib acl_matches_the_commands`.
