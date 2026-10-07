@@ -245,6 +245,21 @@
     if (line && fmt.hasOwnText) line = null;
   });
 
+  /** The send-format hint (#69) waits for the next letter to that person: it is offered as
+   *  the quiet line of this window, once per window, while the letter is written in Markdown. */
+  let offered = false;
+  $effect(() => {
+    if (offered || line || (c.draft.format ?? "plain") !== "markdown") return;
+    for (const a of [...c.draft.to, ...c.draft.cc, ...c.draft.bcc]) {
+      if (peopleBook.find(a.email)?.send_format) continue;
+      const h = hints.sendFormatHint(a.email, a.name?.trim() || a.email);
+      if (!h) continue;
+      offered = true;
+      void hints.show(h);
+      return;
+    }
+  });
+
   /** The accepting button of the hint: the rule is set by the runtime, marked «by a hint». */
   async function acceptHint() {
     await hints.accept();

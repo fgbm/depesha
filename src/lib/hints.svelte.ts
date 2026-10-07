@@ -4,7 +4,6 @@
 // rule to the address book. Time is the clock's, read once per call.
 import { api } from "./api";
 import { app } from "./store.svelte";
-import { t } from "./i18n.svelte";
 import {
   answer,
   countOf,
@@ -107,6 +106,16 @@ class Hints {
     return true;
   }
 
+  /** The send-format hint about this address, if it may be shown now: the letter is written
+   *  in Markdown to them often enough, and no rule was set. It waits for such a letter and
+   *  is put on the window's quiet line; nothing is shown by asking (#69). */
+  sendFormatHint(email: string, who: string): Hint | null {
+    const spec = specById("send-format");
+    if (!spec) return null;
+    const hint = detected(spec, email, who, countOf(this.counters, spec.id, email));
+    return hint && this.mayShow(hint) ? hint : null;
+  }
+
   /** The user answered the shown hint; the accepted rule is set, the counter forgotten. */
   async decide(what: HintAnswer): Promise<void> {
     const hint = this.active;
@@ -153,17 +162,14 @@ class Hints {
 
   // ---- The detectors (#69): what they watch, and the hint they ask for when it is enough.
 
-  /** A Markdown letter sent to these people: the ones without a rule are counted. */
+  /** A Markdown letter sent to these people: the ones without a rule are counted. The
+   *  suggestion itself waits for the next letter to them, where it is shown as a quiet line. */
   async recordSend(draft: ComposeDraft): Promise<void> {
     if ((draft.format ?? "plain") !== "markdown") return;
     for (const a of draft.to) {
       const person = peopleBook.find(a.email);
       if (person?.send_format) continue;
-      const n = await this.bump("send-format", a.email);
-      const spec = specById("send-format");
-      if (!spec) continue;
-      const hint = detected(spec, a.email, person?.name || a.email, n);
-      if (hint && this.mayShow(hint)) this.toast(hint);
+      await this.bump("send-format", a.email);
     }
   }
 
@@ -182,12 +188,6 @@ class Hints {
   /** The form the user last switched to for a sender. */
   lastViewOf(email: string): ViewRule | undefined {
     return this.lastView[email.trim().toLowerCase()];
-  }
-
-  /** Offers a hint as a toast: shown where there is no window to put a quiet line in. */
-  private toast(hint: Hint): void {
-    void this.show(hint);
-    app.toast(t(hint.text, { who: hint.who }), false, { label: t(hint.accept), run: () => void this.accept() }, 12000);
   }
 
   private async bump(id: string, subject: string): Promise<number> {
