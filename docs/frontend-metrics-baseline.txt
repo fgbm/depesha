@@ -599,8 +599,10 @@ function	src/lib/labels.ts::keywordForName	17
 function	src/lib/labels.ts::actionsOf	3
 function	src/lib/labels.ts::readOnly	15
 function	src/lib/labels.ts::under	3
+function	src/lib/labels.ts::rootOf	5
+function	src/lib/labels.ts::namespaceRoot	9
 function	src/lib/labels.ts::ownerOf	10
-function	src/lib/labels.ts::groupFolders	18
+function	src/lib/labels.ts::groupFolders	19
 function	src/lib/labels.ts::labelChips	11
 function	src/lib/labels.ts::labelNames	4
 function	src/lib/labels.ts::refusalOf	7
