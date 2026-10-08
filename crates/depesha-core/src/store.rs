@@ -598,10 +598,10 @@ pub struct MessageRow {
     pub answer_came: bool,
 }
 
-/// Largest message downloaded for offline reading with attachments, bytes. A message
-/// bigger than this (a lone huge attachment) would take a slow link's whole download
-/// window, so it is not prefetched; it is loaded when opened.
-const OFFLINE_MAX_SIZE: u32 = 5 * 1024 * 1024;
+/// Largest message downloaded for offline reading with attachments, bytes. A product
+/// setting: the offline window is not narrowed here. A letter that stalls the download
+/// (a slow link, a timeout) is given up on by the prefetch itself.
+const OFFLINE_MAX_SIZE: u32 = 25 * 1024 * 1024;
 /// Largest message without attachments downloaded for offline reading: bigger ones
 /// carry files the server did not mark as attachments.
 const OFFLINE_MAX_TEXT: u32 = 2 * 1024 * 1024;
@@ -3186,6 +3186,35 @@ mod tests {
         assert_eq!(store.offline_progress("a", 500, false).unwrap(), (1, 2));
         assert_eq!(store.offline_progress("a", 0, false).unwrap(), (1, 3));
         assert!(!ids(false).contains(&old));
+    }
+
+    /// The offline window is a product setting: a letter bigger than the background
+    /// prefetch's byte budget stays offline. A letter that stalls the download is given up
+    /// on by the prefetch itself (`prefetch_failed`), not by narrowing the window.
+    #[test]
+    fn offline_window_keeps_large_attachments() {
+        let store = mailbox();
+        let big = Summary {
+            has_attachments: true,
+            ..summary("Большое", 1_000)
+        };
+        let msg = NewMessage {
+            uid: 9,
+            summary: &big,
+            fallback_date: 0,
+            size: 10 * 1024 * 1024,
+            flags: Flags::default(),
+            keywords: Vec::new(),
+        };
+        let id = store.insert_message("a", "INBOX", &msg).unwrap();
+        let missing: Vec<i64> = store
+            .bodies_missing("a", 500, true, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _, _, _)| id)
+            .collect();
+        assert!(missing.contains(&id), "a 10 MiB letter stays in the offline window");
+        assert_eq!(store.offline_progress("a", 500, true).unwrap(), (0, 1));
     }
 
     pub(super) fn mailbox() -> Store {
