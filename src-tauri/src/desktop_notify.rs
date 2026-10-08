@@ -40,19 +40,28 @@ impl Letter {
             account_id: row.account_id.clone(),
             folder: row.folder.clone(),
             message_id: row.message_id.clone(),
-            from: from
-                .map(|a| {
-                    a.name
-                        .clone()
-                        .filter(|n| !n.trim().is_empty())
-                        .unwrap_or_else(|| a.email.clone())
-                })
-                .unwrap_or_default(),
+            from: plain(
+                &from
+                    .map(|a| {
+                        a.name
+                            .clone()
+                            .filter(|n| !n.trim().is_empty())
+                            .unwrap_or_else(|| a.email.clone())
+                    })
+                    .unwrap_or_default(),
+            ),
             from_email: from.map(|a| a.email.clone()).unwrap_or_default(),
-            subject: row.subject.clone(),
+            subject: plain(&row.subject),
             bulk: row.bulk,
         }
     }
+}
+
+/// The text of a letter as a notification carries it: line breaks and other control
+/// characters become spaces, so a subject or a sender's name cannot forge a second line
+/// (the line breaks the body itself adds on purpose stay out of this).
+fn plain(text: &str) -> String {
+    text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
 /// Where a click on a notification leads in the main window.
@@ -506,13 +515,48 @@ fn clicked(app: &AppHandle, target: Option<Target>) {
     let store = &state.store;
     let open = resolve(
         &target,
-        |id| store.get(id).ok().flatten().map(|r| r.folder),
+        |id| store.get(id).ok().flatten().map(|r| (r.folder, r.message_id)),
         |account, mid| {
             let id = store.find_any_by_message_id(account, mid).ok().flatten()?;
             Some((id, store.get(id).ok().flatten()?.folder))
         },
+        |account, folder, mid| store.find_by_message_id_any(account, mid, Some(folder)).ok().flatten(),
     );
     state.emit_main("notification-open", serde_json::to_value(open).unwrap_or_default());
+}
+
+/// `&`, `<`, `>` as entities: what a server drawing markup reads as text, not as tags.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn entities(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// The text as the notification server reads it: escaped only where it draws markup,
+/// so a server that shows the body as plain text keeps the characters as written.
+#[cfg(target_os = "linux")]
+fn escaped(text: &str) -> String {
+    if marks_up() { entities(text) } else { text.to_owned() }
+}
+
+/// Whether the notification server draws markup in the body (checked once).
+#[cfg(target_os = "linux")]
+fn marks_up() -> bool {
+    use std::sync::OnceLock;
+    static CAPS: OnceLock<bool> = OnceLock::new();
+    *CAPS.get_or_init(|| {
+        notify_rust::get_capabilities()
+            .map(|caps| caps.iter().any(|c| c == "body-markup" || c == "body-hyperlinks"))
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -527,10 +571,14 @@ fn show(
     replaces: Option<usize>,
     absorbs: &[usize],
 ) {
+    // A server that draws markup (body-markup, body-hyperlinks) would turn `<a href>` in a
+    // subject into a link, or a `<img>` into a picture, inside Depesha's own notification:
+    // there the text goes out with its `&`, `<`, `>` as entities.
+    let (title, body) = (escaped(title), escaped(body));
     let mut n = notify_rust::Notification::new();
     n.appname(pick("Depesha", "Депеша"))
-        .summary(title)
-        .body(body)
+        .summary(&title)
+        .body(&body)
         .auto_icon()
         // The click on the notification itself; servers draw no button for `default`.
         .action("default", pick("Open", "Открыть"))
