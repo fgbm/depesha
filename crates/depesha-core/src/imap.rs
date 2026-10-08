@@ -1593,6 +1593,21 @@ mod tests {
 
     /// The FETCH of changed flags carries the keywords too; the sync writes them into the
     /// cache, so a label another client set shows up.
+    /// The raw read of the NAMESPACE answer must stop exactly at the tagged line: a
+    /// chunked read swallows the bytes of the next answer and desyncs the session.
+    #[tokio::test]
+    async fn namespace_reading_leaves_the_next_answer_alone() {
+        use tokio::io::AsyncReadExt;
+        let raw = b"* NAMESPACE ((\"\" \"/\")) NIL ((\"shared/\" \"/\"))\r\nA0001 OK NAMESPACE done\r\n* 1 EXISTS\r\n";
+        let mut stream: &[u8] = raw;
+        let text = read_tagged(&mut stream, "A0001").await.unwrap();
+        assert!(text.contains("* NAMESPACE"), "{text}");
+        // The bytes after the tagged line stay for the session.
+        let mut rest = Vec::new();
+        stream.read_to_end(&mut rest).await.unwrap();
+        assert_eq!(rest, b"* 1 EXISTS\r\n");
+    }
+
     #[test]
     fn changed_flags_carry_their_keywords() {
         let (_, resp) =
