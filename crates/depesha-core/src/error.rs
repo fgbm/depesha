@@ -315,6 +315,9 @@ impl Error {
                 let upper = m.to_ascii_uppercase();
                 ["OVERQUOTA", "TRYCREATE", "NONEXISTENT", "TOOBIG", "NOPERM"]
                     .iter()
+                    // GreenMail's answer to the EXAMINE that looks for the copy in a «Sent» that
+                    // is gone carries no code: only the words say the mailbox is missing.
+                    .chain(["NO SUCH MAILBOX", "NO SUCH FOLDER"].iter())
                     .any(|code| upper.contains(code))
             }
             Self::Ews { code, .. } => matches!(
@@ -667,6 +670,10 @@ mod tests {
         assert!(no("[NONEXISTENT] Mailbox does not exist").append_refused());
         assert!(no("[NOPERM] Access denied").append_refused());
         assert!(Error::Imap(E::Bad("[TOOBIG] too large".into())).append_refused());
+        assert!(
+            no("outcome: Outcome { code: None, information: Some(\"EXAMINE failed. No such mailbox\") }")
+                .append_refused()
+        );
         // No code, or a code that says "later": it passes.
         assert!(!Error::Imap(E::Bad("bad command".into())).append_refused());
         assert!(!no("Mailbox is busy").append_refused());
