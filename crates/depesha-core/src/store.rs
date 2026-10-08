@@ -6,7 +6,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use rusqlite::functions::FunctionFlags;
-use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
@@ -33,7 +33,13 @@ pub use waiting::{ParkJob, ParkKind, Parking, WaitFolder, parks, waiting_folder}
 /// `synchronous = NORMAL`: in WAL mode a power cut may lose the last commits, never
 /// corrupt the file, and commits are lost from the end only: folder states are written
 /// after their mail, so they never run ahead of it, and the next sync fetches it again.
-const PRAGMAS: &str = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;";
+/// `busy_timeout`: a writer waits for a reader rather than failing at once.
+const PRAGMAS: &str = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
+
+/// The read connection: no `journal_mode` (a read-only connection cannot set it, and WAL is
+/// already the file's), `query_only` so nothing here can write, and the same wait as the
+/// writer for a lock held meanwhile.
+const READ_PRAGMAS: &str = "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA query_only = ON;";
 
 /// A change of the cache: run once, in one transaction with the new `user_version`.
 type Step = fn(&Connection) -> Result<()>;
@@ -989,7 +995,7 @@ fn register_fold(conn: &Connection) -> Result<()> {
 
 /// The read connection: the same settings and the `fold` function, and nothing that writes.
 fn prepare_read(conn: &Connection) -> Result<()> {
-    conn.execute_batch(PRAGMAS)?;
+    conn.execute_batch(READ_PRAGMAS)?;
     register_fold(conn)
 }
 
@@ -1025,8 +1031,9 @@ impl Store {
         let path = path.as_ref();
         let mut store = Self::init(Connection::open(path)?)?;
         // A second connection for the heavy reads. Opened after the migrations, so it
-        // reads the current shape. A failure is not fatal: reads then share the writer's.
-        if let Ok(read) = Connection::open(path)
+        // reads the current shape, and read-only, so a stray write cannot slip through it.
+        // A failure is not fatal: reads then share the writer's.
+        if let Ok(read) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
             && prepare_read(&read).is_ok()
         {
             store.read = Some(Mutex::new(read));
@@ -2910,6 +2917,15 @@ mod tests {
         assert_eq!(store.list(&ListQuery::default()).unwrap().len(), 1);
         assert_eq!(store.folders(Some("a")).unwrap()[0].total, 1);
         assert_eq!(store.search("привет", None, 0, &[]).unwrap().len(), 1);
+        // The second connection is read-only: it reads the writer's commit, and a stray write
+        // through it is refused by the database rather than silently changing the cache.
+        let read = store.read.as_ref().unwrap().lock().unwrap();
+        assert!(read.is_readonly("main").unwrap(), "the read connection is read-only");
+        let query_only: i64 = read.query_row("PRAGMA query_only", [], |r| r.get(0)).unwrap();
+        assert_eq!(query_only, 1);
+        let busy: i64 = read.query_row("PRAGMA busy_timeout", [], |r| r.get(0)).unwrap();
+        assert_eq!(busy, 5000);
+        assert!(read.execute("CREATE TABLE probe (x)", []).is_err(), "a write is refused");
     }
 
     /// "Snooze" on a series is one commit; a letter snoozed again keeps where it first came
