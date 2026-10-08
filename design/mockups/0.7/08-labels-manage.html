@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>#42 — Управление метками</title>
+<style>
+/* Переменные темы — из src/app.css (:root = paper, .dark = «Ночь»). */
+:root, .light {
+  --paper: #faf7f1;
+  --paper-2: #f3eee4;
+  --ink: #1d232b;
+  --muted: #6b7480;
+  --line: #e4ddcf;
+  --hover: #f0e9dc;
+  --selected: #e6dbc6;
+  --accent: #b3261e;
+  --accent-ink: #fff8f0;
+  --link: #1f5fa8;
+  --side: #1f2a37;
+  --side-2: #263444;
+  --side-ink: #d5dde6;
+  --side-muted: #8c99a8;
+  --side-warn: #e3a63c;
+  --side-alert: #ff8a80;
+  --ok: #2e7d4f;
+  --warn: #b26a00;
+  --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  /* только для пометок макета, не цвета приложения */
+  --note: #5b4bb7;
+  color-scheme: light;
+}
+.dark {
+  --paper: #171a1f;
+  --paper-2: #1d2128;
+  --ink: #e4e0d8;
+  --muted: #8f97a2;
+  --line: #2c323b;
+  --hover: #222831;
+  --selected: #2e3742;
+  --link: #7fb0ec;
+  --side: #11161c;
+  --side-2: #1a222b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--font); font-size: 14px; color: #1d232b; background: #dcd7cd; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -3px; }
+svg.i.s13 { width: 13px; height: 13px; }
+svg.i.s14 { width: 14px; height: 14px; }
+svg.i.s15 { width: 15px; height: 15px; }
+svg.i.s18 { width: 18px; height: 18px; }
+
+/* ---------- страница макета ---------- */
+.doc { width: 1320px; margin: 0 auto; padding: 28px 20px 80px; }
+.doc > h1 { font-size: 24px; margin: 0 0 6px; }
+.doc > .lead { max-width: 1040px; line-height: 1.55; color: #3b4350; margin: 0 0 8px; }
+.doc > .lead a, .toc-doc a { color: #1f5fa8; }
+.toc-doc { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 24px; font-size: 13px; }
+.state { margin: 42px 0 0; }
+.state > h2 { font-size: 17px; margin: 0 0 4px; }
+.state > h2 .num { color: #6b7480; font-weight: 500; margin-right: 6px; }
+.state > .cap { max-width: 1080px; line-height: 1.5; color: #3b4350; margin: 0 0 12px; font-size: 13.5px; }
+.state > .cap b { color: #1d232b; }
+.frame { position: relative; width: 1280px; overflow: hidden; border-radius: 10px; box-shadow: 0 2px 4px rgb(0 0 0 / 12%), 0 12px 32px rgb(0 0 0 / 18%); background: var(--paper); color: var(--ink); font-size: 14px; }
+.frame + .frame { margin-top: 16px; }
+.frame.board { background: #e9e4da; padding: 20px; display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; height: auto; }
+.frame.board.dark { background: #0e1115; }
+.pair { display: flex; gap: 20px; align-items: flex-start; }
+.pair > div { flex: 1; min-width: 0; }
+.pair .frame { width: 100%; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.vlabel { display: inline-block; background: #1d232b; color: #fff; font: 600 12px/1.35 var(--font); padding: 6px 10px; border-radius: 4px; margin: 0 0 8px; }
+.vlabel.rec { background: #1f6b3d; }
+.vlabel span { font-weight: 400; opacity: 0.85; }
+.prop { display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; color: var(--note); border: 1px dashed var(--note); border-radius: 4px; padding: 0 4px; line-height: 15px; vertical-align: 2px; margin-left: 6px; white-space: nowrap; background: #fff; }
+.prop.rec { color: #1f6b3d; border-color: #1f6b3d; background: #e9f6ee; }
+.notes { margin: 10px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3b4350; max-width: 1180px; }
+.notes li { display: flex; gap: 8px; margin: 4px 0; }
+.notes li .n { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--note); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.notes li .pm { flex: none; font-weight: 700; width: 20px; text-align: center; }
+.notes li .pm.plus { color: #2e7d4f; }
+.notes li .pm.minus { color: #b3261e; }
+.notes code, .cap code, .lead code { font-family: var(--mono); font-size: 12px; }
+.open-q { margin-top: 48px; padding: 14px 18px; border-left: 4px solid var(--note); background: #f4f2fb; border-radius: 6px; font-size: 13.5px; line-height: 1.55; max-width: 1180px; }
+.open-q h2 { margin: 0 0 8px; font-size: 17px; color: var(--note); }
+.open-q ol { margin: 0; padding-left: 22px; }
+.open-q li { margin: 7px 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 12px 0 0; padding: 10px 14px; background: #f3eee4; border: 1px solid #ddd4c4; border-radius: 8px; font-size: 13px; max-width: 1180px; color: #3b4350; }
+
+/* ---------- приложение: общие элементы (src/app.css) ---------- */
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 5px 11px; line-height: 1.3; white-space: nowrap; font-size: 14px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.sm { font-size: 12.5px; padding: 4px 9px; }
+.btn.icon { padding: 4px 6px; }
+.btn:disabled, .btn.off { opacity: 0.45; cursor: default; }
+.link { border: none; background: none; color: var(--link); padding: 0; text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); background: var(--paper); }
+.field { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: var(--paper); color: var(--ink); font-size: 14px; }
+.field.on { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 22%, transparent); }
+.field .ph { color: var(--muted); }
+.sp { flex: 1; }
+input[type="checkbox"] { appearance: none; -webkit-appearance: none; flex: none; width: 16px; height: 16px; margin: 0; border: 1.5px solid color-mix(in srgb, var(--muted) 75%, transparent); border-radius: 4px; background: var(--paper) center / 12px no-repeat; }
+input[type="checkbox"]:checked { border-color: var(--accent); background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.5-5' fill='none' stroke='%23fff8f0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+
+/* ---------- главное окно (для кадра 1В) ---------- */
+.app { position: absolute; inset: 0; display: grid; background: var(--paper); }
+.app.nos { grid-template-columns: 340px 1fr; }
+.side { background: var(--side); color: var(--side-ink); display: flex; flex-direction: column; min-height: 0; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 8px; font-weight: 700; font-size: 17px; letter-spacing: 0.02em; }
+.brand .logo { width: 22px; height: 16px; border-radius: 3px; background: #f4ece0; position: relative; }
+.brand .logo::after { content: ""; position: absolute; left: 8px; top: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.brand .version { align-self: flex-end; margin-bottom: 3px; font-size: 11px; font-weight: 400; color: var(--side-muted); opacity: 0.7; }
+.item { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 14px; background: none; border: none; color: var(--side-ink); text-align: left; font-size: 14px; }
+.item .icon { width: 18px; display: inline-flex; justify-content: center; opacity: 0.8; }
+.item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .fx { display: inline-flex; color: var(--side-muted); opacity: 0.9; }
+.count { font-size: 12px; font-weight: 600; color: var(--side-ink); background: color-mix(in srgb, var(--side-ink) 12%, transparent); border-radius: 10px; padding: 0 7px; }
+.account { display: flex; align-items: center; padding-right: 6px; }
+.account-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: none; color: var(--side-muted); padding: 6px 4px 6px 14px; font-size: 12px; font-weight: 600; text-align: left; text-transform: uppercase; letter-spacing: 0.04em; }
+.subhead { display: flex; align-items: center; gap: 6px; padding: 8px 14px 3px 22px; font-size: 11px; color: var(--side-muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dot, var(--side-muted)); }
+.list { background: var(--paper); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.list-head { padding: 12px 14px 6px; }
+.search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; color: var(--muted); background: var(--paper); font-size: 14px; }
+.list-title { display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; border-bottom: 1px solid var(--line); }
+.list-title b { font-size: 16px; }
+.list-title .cnt { margin-left: auto; font-size: 12px; color: var(--muted); }
+.row { padding: 9px 14px 9px 18px; border-bottom: 1px solid var(--line); position: relative; }
+.row .l1 { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; align-items: baseline; }
+.row .l1 .when { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.row .l2 { font-size: 14px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row .l2 .subj { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row.sel { background: var(--selected); }
+.reader { background: var(--paper-2); display: flex; flex-direction: column; min-width: 0; position: relative; }
+.reader .bar { display: flex; gap: 6px; align-items: center; padding: 10px 12px; }
+.reader h1 { font-size: 20px; margin: 4px 22px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.reader .from { display: flex; gap: 10px; margin: 0 22px 12px; align-items: center; }
+.ava { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 14px; flex: none; }
+.reader .body { flex: 1; margin: 0 16px 16px; background: #fff; color: #2a2f36; border-radius: 6px; padding: 20px 22px; line-height: 1.55; }
+
+/* меню и всплывающие карточки (Popover.svelte) */
+.pop { position: absolute; z-index: 25; min-width: 210px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; display: flex; flex-direction: column; font-size: 14px; }
+.dark .pop { box-shadow: 0 10px 28px rgb(0 0 0 / 45%); }
+.pop .mt { padding: 6px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.pop .mi { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: none; color: var(--ink); text-align: left; padding: 6px 10px; border-radius: 5px; white-space: nowrap; font-size: 14px; }
+.pop .mi.hl { background: var(--hover); }
+.pop .mi.danger { color: var(--accent); }
+.pop .mi .hint { margin-left: auto; padding-left: 16px; color: var(--muted); font-size: 12px; }
+.pop hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+.pop .new { font-size: 12px; font-weight: 600; color: var(--note); }
+
+/* метки: ярлык, точка, квадратик, статус хранения */
+.lbl { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; line-height: 17px; padding: 0 6px; border-radius: 9px; color: var(--ink); background: color-mix(in srgb, var(--c) 16%, var(--paper)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); white-space: nowrap; font-weight: 500; flex: none; }
+.lbl.local { border-style: dashed; }
+.lsw { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; display: inline-block; }
+.chip { width: 14px; height: 14px; border-radius: 4px; background: var(--c); flex: none; display: inline-block; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.chip.local { border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--c); background: transparent; }
+.keep { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.keep.srv { color: var(--ok); }
+.keep.loc { color: var(--muted); }
+.keep.unk { color: var(--warn); }
+
+/* окно настроек (Preferences.svelte, большое окно) */
+.prefs { display: flex; background: var(--paper); color: var(--ink); border-radius: 12px; box-shadow: 0 12px 40px rgb(0 0 0 / 22%); overflow: hidden; font-size: 13.5px; position: relative; flex: none; }
+.pages { flex: none; width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 16px 10px; background: var(--paper-2); border-right: 1px solid var(--line); }
+.pages h3 { margin: 0 8px 12px; font-size: 15px; }
+.psearch { white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: 7px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); padding: 0 8px; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.psearch kbd { font-size: 10px; }
+.tab { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: none; background: none; border-radius: 6px; font-size: 13px; white-space: nowrap; color: var(--ink); text-align: left; width: 100%; }
+.tab svg.i { color: var(--muted); }
+.tab.sub { padding-left: 36px; }
+.tab.on { background: var(--selected); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.newdot { width: 6px; height: 6px; border-radius: 50%; background: var(--note); margin-left: auto; }
+.group { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 12px 10px 4px; }
+.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pane > header { padding: 18px 28px 8px; display: flex; align-items: baseline; gap: 10px; }
+.pane h2 { margin: 0; font-size: 18px; }
+.content { flex: 1; overflow: hidden; padding: 0 28px 12px; position: relative; }
+.content section { padding: 14px 0; border-bottom: 1px solid var(--line); max-width: 680px; }
+.content section:last-child { border-bottom: none; }
+.content section.wide { max-width: none; }
+.content h4 { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.content h4 .r { margin-left: auto; font-weight: 400; }
+.anchors { display: flex; gap: 4px; padding: 2px 28px 8px; border-bottom: 1px solid var(--line); font-size: 13px; flex: none; }
+.anchors span { padding: 3px 10px; border-radius: 6px; color: var(--muted); }
+.anchors span.on { background: var(--selected); color: var(--ink); font-weight: 600; }
+.prefs footer { display: flex; gap: 8px; padding: 12px 28px; border-top: 1px solid var(--line); }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.45; margin: 6px 0 0; }
+
+/* таблицы в настройках */
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.tbl td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.tbl tr.grp td { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding-top: 12px; border-bottom: none; }
+table.tbl tr.sel td { background: var(--selected); }
+table.tbl .lname { display: inline-flex; align-items: center; gap: 8px; }
+table.tbl .cnt { font-variant-numeric: tabular-nums; }
+.acts { display: inline-flex; gap: 2px; }
+
+/* диалог (Confirm.svelte) */
+.backdrop { position: absolute; inset: 0; background: rgb(10 14 20 / 45%); display: flex; align-items: center; justify-content: center; z-index: 40; }
+.backdrop.plain { background: #8f8a81; }
+.dark .backdrop.plain { background: #0b0d10; }
+.dlg { width: 470px; background: var(--paper); color: var(--ink); border-radius: 12px; box-shadow: 0 20px 60px rgb(0 0 0 / 35%); padding: 18px 20px 16px; font-size: 14px; line-height: 1.5; }
+.dlg.wide { width: 560px; }
+.dlg h3 { margin: 0 0 8px; font-size: 16px; }
+.dlg p { margin: 0 0 8px; }
+.dlg .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.dlg .res { display: grid; gap: 6px; margin: 8px 0; }
+.dlg .res div { display: flex; gap: 8px; align-items: flex-start; }
+.dlg .res .m { color: var(--ok); margin-top: 1px; display: inline-flex; }
+.dlg .res .m.w { color: var(--warn); }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
+.choice.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
+.choice .t { flex: 1; min-width: 0; }
+.choice .t b { display: block; }
+.choice .t small { color: var(--muted); }
+
+/* палитра */
+.palette { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; }
+.sw { width: 26px; height: 26px; border-radius: 6px; background: var(--c); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); position: relative; }
+.sw.on::after { content: ""; position: absolute; inset: 4px; border-radius: 4px; box-shadow: inset 0 0 0 2px #fff; }
+.hex { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--paper); font-family: var(--mono); font-size: 12px; }
+.preview { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 8px; }
+
+/* выбор метки на письме */
+.lpick { width: 300px; }
+.lpick .search { margin: 4px 4px 6px; padding: 5px 8px; font-size: 13px; }
+.lpick .mi input { margin: 0; }
+.lpick .mi .dots { margin-left: auto; color: var(--muted); display: inline-flex; padding: 0 2px; }
+.lpick .mi:hover .dots { color: var(--ink); }
+.lpick .stat { padding: 6px 10px 6px; font-size: 12px; line-height: 1.45; color: var(--muted); border-top: 1px solid var(--line); margin-top: 4px; display: flex; gap: 6px; align-items: flex-start; }
+</style>
+</head>
+<body>
+<div class="doc">
+<h1>#42 — Управление метками</h1>
+<p class="lead">Продолжение <a href="04-server-labels-acl.html">04</a>. Там метки появились на письме: выбор галочками и подпись «где хранятся». Здесь — сами метки как объект: завести, переименовать, сменить цвет, удалить, посмотреть все метки ящика, сколько писем с меткой и найти эти письма. Бэкенд уже есть: <code>label_save(accountId, name, color)</code> и <code>label_remove(accountId, name)</code>, модель метки — имя, цвет и ключ на сервере (<code>crates/depesha-core/src/acl.rs</code>, <code>Label</code>).</p>
+<p class="lead">Ключевое свойство, на котором держатся решения ниже: <b>имя и цвет метки живут только в Депеше</b>, а на сервер уходит ключ, сделанный из имени (<code>depesha-&lt;slug&gt;</code> для латиницы, <code>depesha-&lt;hash&gt;</code> для кириллицы). Переименование сохраняет прежний ключ — письма не теряют метку. У Exchange метка — это категория, а категория на сервере и есть её имя: там переименование меняет её у всех.</p>
+<div class="toc-doc"><a href="#s1">1. Где живёт управление</a><a href="#s2">2. Список меток ящика</a><a href="#s3">3. Переименование</a><a href="#s4">4. Удаление</a><a href="#s5">5. Выбор цвета</a><a href="#s6">6. Найти письма с меткой</a><a href="#s7">7. Exchange: категории</a><a href="#s8">8. Тёмная тема</a><a href="#q">Открытые вопросы</a></div>
+
+<div class="legend">
+  <span><b>Статус хранения</b> (из #11/#42):</span>
+  <span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span>
+  <span class="keep loc"><i data-i="monitor" class="s13"></i>только на этом устройстве</span>
+  <span class="keep unk"><i data-i="help" class="s13"></i>не подтверждено</span>
+  <span>Метка только для этого устройства в списке — круглый значок вместо квадратного и пунктирная рамка.</span>
+</div>
+
+<!-- ================================================================ 1 -->
+<div class="state" id="s1">
+  <h2><span class="num">1</span>Где живёт управление метками</h2>
+  <p class="cap">Метку заводят редко, а ищут письма с ней — часто. Поэтому управление — рядом с «Папками» на странице ящика, а быстрый путь (переименовать, покрасить, удалить прямо у метки) — ещё и в выборе меток на письме. Три входа; А и В хорошо совмещаются.</p>
+
+  <div class="vlabel rec">Вариант А — раздел «Метки» на странице ящика <span>· рекомендую как основное место</span></div>
+  <div class="frame board"><div class="col" style="width:1040px"><div class="prefs" style="height:620px">
+    <nav class="pages" data-include="nav"></nav>
+    <div class="pane"><header><h2>Работа</h2><span class="muted">ivan.petrov@example.com · IMAP</span></header>
+      <div class="anchors"><span>Общее</span><span>Письма и подписи</span><span>Хранилище</span><span>Сервер</span><span>Папки</span><span class="on">Метки</span></div>
+      <div class="content">
+        <section class="wide">
+          <h4>Метки ящика · 4 <span class="r"><button class="link">Список меток — в кадре 2</button></span></h4>
+          <p class="hint" style="margin-top:0">Раздел живёт там же, где «Папки»: и папки, и метки — про ящик, а не про всю программу. Строка «Метки» встаёт шестым пунктом в полосе разделов.</p>
+          <div class="preview" style="max-width:520px">
+            <span class="lbl" style="--c:#3f7fd0">Клиенты</span>
+            <span class="lbl" style="--c:#d0573f">Срочно</span>
+            <span class="lbl" style="--c:#d9a441">Счета</span>
+            <span class="lbl local" style="--c:#8a5ad0">Личное</span>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="pm plus">+</span><span>Одно место для всего про ящик; не заводит новой страницы в настройках; метки разных ящиков не путаются, потому что виден только текущий.</span></li>
+    <li><span class="pm minus">−</span><span>Чтобы переименовать метку другого ящика, нужно переключить ящик. Полный список по всем ящикам сразу — в варианте Б.</span></li>
+  </ul>
+
+  <div class="vlabel">Вариант Б — отдельная страница настроек «Метки» по всем ящикам</div>
+  <div class="frame board"><div class="col" style="width:1040px"><div class="prefs" style="height:560px">
+    <nav class="pages">
+      <h3>Настройки</h3>
+      <div class="psearch"><i data-i="search" class="s14"></i><span class="muted">Найти настройку</span><span class="sp"></span><kbd>Ctrl+F</kbd></div>
+      <button class="tab"><i data-i="sliders"></i><span>Общие</span></button>
+      <button class="tab"><i data-i="mail"></i><span>Почта</span></button>
+      <button class="tab on"><i data-i="tag"></i><span>Метки</span></button>
+      <button class="tab"><i data-i="users"></i><span>Люди</span></button>
+      <button class="tab"><i data-i="bell"></i><span>Уведомления</span></button>
+      <div class="group">Ящики</div>
+      <button class="tab"><i data-i="inbox"></i><span>Все ящики</span></button>
+      <button class="tab sub"><span>Работа</span></button>
+      <button class="tab sub"><span>Личное</span></button>
+    </nav>
+    <div class="pane"><header><h2>Метки</h2><span class="muted">все ящики</span></header>
+      <div class="content">
+        <section class="wide">
+          <h4>Работа · 3</h4>
+          <div class="preview" style="max-width:560px"><span class="lbl" style="--c:#3f7fd0">Клиенты</span><span class="lbl" style="--c:#d0573f">Срочно</span><span class="lbl" style="--c:#d9a441">Счета</span></div>
+          <h4 style="margin-top:16px">Личное · 1</h4>
+          <div class="preview" style="max-width:560px"><span class="lbl local" style="--c:#8a5ad0">Личное</span></div>
+          <p class="hint">Одна страница, чтобы увидеть все метки разом и не плодить одинаковые в двух ящиках.</p>
+        </section>
+      </div>
+      <footer><span class="sp"></span><span class="btn ghost">Отмена</span><span class="btn primary">Сохранить</span></footer>
+    </div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="pm plus">+</span><span>Видно все метки сразу; удобно навести порядок (убрать дубли «Клиенты» в двух ящиках).</span></li>
+    <li><span class="pm minus">−</span><span>Метка привязана к ящику, а страница — общая: переименование и удаление нужно привязывать к ящику, иначе непонятно, какую именно метку правишь. Лишняя страница там, где всё остальное — про ящик.</span></li>
+  </ul>
+
+  <div class="vlabel">Вариант В — прямо в выборе меток на письме</div>
+  <div class="frame" style="height:460px"><div class="app nos">
+    <div class="list"><div class="list-head"><div class="search"><i data-i="search" class="s14"></i>Поиск по почте&nbsp;&nbsp;/</div></div>
+      <div class="list-title"><b>Входящие</b><span class="cnt">1 248 писем</span></div>
+      <div class="row sel"><div class="l1"><b>Иван Петров</b><span class="when">04:54</span></div><div class="l2"><span class="lbl" style="--c:#d0573f">Счета</span><span class="lbl" style="--c:#3f7fd0">Клиенты</span><span class="subj">Счёт за октябрь</span></div></div>
+      <div class="row"><div class="l1"><b>Мария Соколова</b><span class="when">03:44</span></div><div class="l2"><span class="subj">Re: Бюджет на ноябрь</span></div></div>
+      <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">вчера</span></div><div class="l2"><span class="subj">Акт сверки за III квартал</span></div></div>
+    </div>
+    <div class="reader"><div class="bar"><button class="btn"><i data-i="reply" class="s15"></i> Ответить</button><span class="sp"></span><button class="btn ghost"><i data-i="tag" class="s15"></i></button><button class="btn ghost"><i data-i="more" class="s15"></i></button></div>
+      <div class="pop lpick" style="right:10px;top:46px;width:290px">
+        <div class="search"><i data-i="search" class="s14"></i>Метка…</div>
+        <button class="mi"><input type="checkbox" checked><span class="lsw" style="--c:#d0573f"></span>Счета<span class="dots"><i data-i="more" class="s15"></i></span></button>
+        <button class="mi hl"><input type="checkbox" checked><span class="lsw" style="--c:#3f7fd0"></span>Клиенты<span class="dots"><i data-i="more" class="s15"></i></span></button>
+        <button class="mi"><input type="checkbox"><span class="lsw" style="--c:#d9a441"></span>Срочно<span class="dots"><i data-i="more" class="s15"></i></span></button>
+        <hr><button class="mi"><i data-i="plus" class="s15"></i>Новая метка…</button>
+        <div class="stat"><span class="keep srv"><i data-i="cloud" class="s13"></i></span><span><b class="keep srv">Сохраняется на сервере</b> — видно на других устройствах. Названия и цвета хранятся в Депеше.</span></div>
+      </div>
+      <div class="pop" style="right:10px;top:312px;width:210px">
+        <button class="mi"><i data-i="pencil" class="s15"></i>Переименовать…</button>
+        <button class="mi"><i data-i="palette" class="s15"></i>Цвет…</button>
+        <button class="mi"><i data-i="search" class="s15"></i>Найти письма<span class="hint">метка:</span></button>
+        <hr><button class="mi danger"><i data-i="trash" class="s15"></i>Удалить метку…</button>
+      </div>
+      <h1>Счёт за октябрь <span class="lbl" style="--c:#d0573f">Счета</span><span class="lbl" style="--c:#3f7fd0">Клиенты</span></h1>
+      <div class="from"><span class="ava" style="background:#7a5ab8">ИП</span><div><b>Иван Петров</b> <span class="muted small">&lt;ivan.petrov@example.com&gt;</span></div></div>
+      <div class="body"><p>Мария, добрый день!</p><p>Во вложении счёт за октябрь.</p></div>
+    </div>
+  </div></div>
+  <ul class="notes">
+    <li><span class="pm plus">+</span><span>Метку правят там, где на неё смотрят: увидел «Срочно» в списке — сразу переименовал. Не нужно идти в настройки.</span></li>
+    <li><span class="pm minus">−</span><span>Не видно всех меток ящика и счётчиков писем; удаление метки из письма выглядит как правка письма, а не метки. Как единственное место не годится — только как быстрый путь к А.</span></li>
+  </ul>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Рекомендую <b class="rec">А как основное место</b> и <b class="rec">«⋯» в выборе меток (В) как быстрый путь</b> к тем же действиям. Б — отдельной задачей, если попросят свести метки разных ящиков на одну страницу.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 2 -->
+<div class="state" id="s2">
+  <h2><span class="num">2</span>Список меток ящика<span class="prop rec">рекомендую</span></h2>
+  <p class="cap">Раздел «Метки» на странице ящика. Таблица: <b>цвет и имя, где хранится, сколько писем, действия</b>. Цвет виден сразу; «где хранится» — три состояния из #11. Строка ищется по имени, если меток много. «⋯» открывает меню действий (кадры 3–4).</p>
+  <div class="frame board" id="f2"><div class="col" style="width:1040px"><div class="prefs" style="height:600px">
+    <nav class="pages" data-include="nav"></nav>
+    <div class="pane"><header><h2>Работа</h2><span class="muted">ivan.petrov@example.com · IMAP</span></header>
+      <div class="anchors"><span>Общее</span><span>Письма и подписи</span><span>Хранилище</span><span>Сервер</span><span>Папки</span><span class="on">Метки</span></div>
+      <div class="content" style="padding-top:8px">
+        <section class="wide">
+          <h4>Метки ящика · 4 <span class="r"><button class="link">Найти письма с меткой…</button></span></h4>
+          <div class="field" style="max-width:280px;margin:0 0 10px"><i data-i="search" class="s14"></i><span class="ph">Найти метку</span></div>
+          <table class="tbl">
+            <tr><th style="width:34%">Метка</th><th>Где хранится</th><th style="width:96px">Писем</th><th style="width:96px">Действия</th></tr>
+            <tr><td><span class="lname"><span class="chip" style="--c:#3f7fd0"></span>Клиенты</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">128</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+            <tr class="sel"><td><span class="lname"><span class="chip" style="--c:#d0573f"></span>Срочно</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">12</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+            <tr><td><span class="lname"><span class="chip" style="--c:#d9a441"></span>Счета</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">47</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+            <tr><td><span class="lname"><span class="chip local" style="--c:#8a5ad0"></span>Личное</span></td><td><span class="keep loc"><i data-i="monitor" class="s13"></i>только на этом устройстве</span></td><td class="cnt">9</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+          </table>
+          <p class="hint">«Писем» — по кэшу Депеши, поэтому может быть чуть меньше, чем на сервере у старой почты. Наведите на число — «в кэше, старше окна синхронизации не считаны».</p>
+        </section>
+        <!-- меню действий, открытое у строки «Срочно» -->
+        <div class="pop" style="right:28px;top:120px;width:230px">
+          <div class="mt">Метка «Срочно»</div>
+          <button class="mi hl"><i data-i="pencil" class="s15"></i>Переименовать…</button>
+          <button class="mi"><i data-i="palette" class="s15"></i>Сменить цвет…</button>
+          <button class="mi"><i data-i="search" class="s15"></i>Найти письма<span class="hint">метка:</span></button>
+          <hr><button class="mi danger"><i data-i="trash" class="s15"></i>Удалить метку…</button>
+        </div>
+      </div>
+      <footer><span class="sp"></span><span class="btn ghost">Отмена</span><span class="btn primary">Сохранить</span></footer>
+    </div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Цвет — квадратик; у метки только для этого устройства квадратик круглый и рамка пунктирная, как ярлык в списке писем (04, кадр 10). Форма отличает локальную метку, не только цвет.</span></li>
+    <li><span class="n">2</span><span>«Где хранится» берётся из свойств папок (04, кадр 2). Если ни одна папка не проверена — <span class="keep unk"><i data-i="help" class="s13"></i>не подтверждено</span>, со ссылкой на проверку. У одной метки состояние одно: письма с ней лежат в разных папках, но метка хранится там, где её поставили; показываем самое частое.</span></li>
+    <li><span class="n">3</span><span>Счётчик писем считается локально по ключевым словам в кэше. Для больших ящиков — в фоне, чтобы не тормозить страницу.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 3 -->
+<div class="state" id="s3">
+  <h2><span class="num">3</span>Переименование метки</h2>
+  <p class="cap">Имя метки хранится в Депеше, а на сервер уходит ключ из имени. Значит, переименование можно сделать <b>тихим</b>: меняем только имя, ключ на сервере остаётся прежним, письма не трогаем. Альтернатива — переписать ключ на всех письмах, но это долго и дорого. По умолчанию — тихо, с честной подписью.</p>
+  <div class="pair">
+    <div><div class="vlabel rec">Вариант А — правка прямо в строке <span>· рекомендую</span></div>
+      <div class="frame board" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:300px">
+        <div class="pane"><header><h2>Метки</h2><span class="muted">Работа</span></header>
+          <div class="content" style="padding-top:8px"><section class="wide">
+            <table class="tbl">
+              <tr><th style="width:40%">Метка</th><th>Где хранится</th><th style="width:80px">Писем</th></tr>
+              <tr><td><span class="lname"><span class="chip" style="--c:#3f7fd0"></span>Клиенты</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">128</td></tr>
+              <tr class="sel"><td><span class="lname"><span class="chip" style="--c:#d0573f"></span><span class="field on" style="padding:3px 7px"><span>Срочно</span><i data-i="pencil" class="s13 muted"></i></span></span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">12</td></tr>
+            </table>
+            <p class="hint">Ввод в строке, <kbd>Enter</kbd> — сохранить, <kbd>Esc</kbd> — отменить. Ключ на сервере не меняется, письма с меткой остаются.</p>
+          </section></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Быстро, без окна; видно и имя, и место метки. Подпись объясняет, что на сервере ничего не переписывается.</span></li>
+        <li><span class="pm minus">−</span><span>Мало места для объяснения; при длинном имени тесно.</span></li>
+      </ul>
+    </div>
+    <div><div class="vlabel">Вариант Б — диалог</div>
+      <div class="frame board" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:300px;align-items:center;justify-content:center">
+        <div class="dlg" style="width:420px">
+          <h3>Переименовать метку</h3>
+          <div class="field on" style="margin:0 0 10px"><span>Срочно</span><i data-i="pencil" class="s13 muted"></i></div>
+          <div class="res">
+            <div><span class="m"><i data-i="check" class="s14"></i></span><span>Имя метки в Депеше изменится: <b>«Срочно» → «Важное»</b>.</span></div>
+            <div><span class="m"><i data-i="check" class="s14"></i></span><span>Письма остаются с меткой: на сервере ключ <span class="mono">depesha-…</span> не меняется.</span></div>
+          </div>
+          <p class="hint">Если нужно, чтобы метка называлась «Важное» и в другом клиенте, — это перезапись ключа на всех письмах, отдельно и долго.</p>
+          <div class="acts"><button class="btn">Отмена</button><button class="btn primary">Переименовать</button></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Место для объяснения, что происходит на сервере, и для перехода к «переименовать везде».</span></li>
+        <li><span class="pm minus">−</span><span>Лишний шаг для частого мелкого действия.</span></li>
+      </ul>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Так уже устроен бэкенд: <code>save_label</code> при совпадении имени обновляет только цвет, а <code>label_keyword</code> возвращает прежний ключ — переименование письма не трогает.</span></li>
+    <li><span class="n">2</span><span>«Переименовать везде» (сменить ключ на всех письмах) — не в 0.7. Если понадобится, это фоновая задача: обойти папки, снять старый ключ, поставить новый. Дорого, и на Exchange не нужно вовсе (там метка и есть её имя).</span></li>
+    <li><span class="n">3</span><span>Пустое имя не сохраняется: «у метки должно быть название» (готовая строка в бэкенде).</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 4 -->
+<div class="state" id="s4">
+  <h2><span class="num">4</span>Удаление метки</h2>
+  <p class="cap">Два разных удаления, и разница неочевидна, поэтому в диалоге её объясняем. <b>Убрать из списка</b> — метка исчезает из Депеши, письма сохраняют ключ на сервере (если завести метку с тем же именем — она вернётся на письма). <b>Снять со всех писем</b> — обойти папки и снять ключ; долго, поэтому фоном.</p>
+  <div class="pair">
+    <div><div class="vlabel rec">Вариант А — убрать из списка по умолчанию <span>· рекомендую</span></div>
+      <div class="frame board" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:360px;align-items:center;justify-content:center">
+        <div class="dlg wide" style="width:100%">
+          <h3>Удалить метку «Срочно»?</h3>
+          <p class="muted" style="margin-top:0">Писем с меткой: <b>12</b>.</p>
+          <label class="choice on"><input type="checkbox" checked><span class="t"><b>Убрать из списка меток</b><small>Письма сохранят метку на сервере, но в Депеше её больше не видно. Метка с тем же именем вернёт её на письма. Ничего не переписываем.</small></span></label>
+          <label class="choice"><input type="checkbox"><span class="t"><b>Снять со всех писем на сервере</b><small>Депеша обойдёт папки и снимет ключ с 12 писем. Пойдёт в «Фоновые задачи»; отменить нельзя. То же сделают другие клиенты.</small></span></label>
+          <div class="acts"><button class="btn">Отмена</button><button class="btn primary">Удалить</button></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Безопасно и быстро; письма и их метки на сервере не трогаются. Правильный выбор по умолчанию.</span></li>
+        <li><span class="pm minus">−</span><span>Метка остаётся на письмах невидимой; человек может удивиться, если снова заведёт метку с тем же именем.</span></li>
+      </ul>
+    </div>
+    <div><div class="vlabel">Вариант Б — сразу снять со всех писем</div>
+      <div class="frame board" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:360px;align-items:center;justify-content:center">
+        <div class="dlg" style="width:100%">
+          <h3>Удалить метку «Срочно» везде?</h3>
+          <div class="res">
+            <div><span class="m w"><i data-i="alert" class="s14"></i></span><span>Ключ будет снят с <b>12 писем</b> во всех папках ящика.</span></div>
+            <div><span class="m w"><i data-i="alert" class="s14"></i></span><span>Это фоновая задача; на большой почте займёт время.</span></div>
+            <div><span class="m"><i data-i="check" class="s14"></i></span><span>В Outlook, Thunderbird и на телефоне метка тоже пропадёт.</span></div>
+          </div>
+          <div class="acts"><button class="btn">Отмена</button><button class="btn primary">Снять со всех писем</button></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Честно убирает метку отовсюду; не остаётся «фантомных» ключей.</span></li>
+        <li><span class="pm minus">−</span><span>Дорого и необратимо; легко нажать по ошибке. Как единственное поведение — плохо.</span></li>
+      </ul>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Сейчас <code>label_remove</code> удаляет только строку метки — это ровно вариант А. Вариант Б потребует новой фоновой операции «снять ключ со всех писем»; в 0.7 можно оставить только А, а Б — позже.</span></li>
+    <li><span class="n">2</span><span>После удаления — тост «Метка удалена» с «Отменить» (возвращает строку; письма и не трогали).</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 5 -->
+<div class="state" id="s5">
+  <h2><span class="num">5</span>Выбор цвета метки</h2>
+  <p class="cap">Цвет хранится только в Депеше и на сервер не уходит. Палитра из готовых цветов — как у цветов ящиков; «свой цвет» — по желанию. Выбранный цвет сразу виден и в списке меток, и на письме.</p>
+  <div class="pair">
+    <div><div class="vlabel rec">Вариант А — палитра из 8 цветов <span>· рекомендую</span></div>
+      <div class="frame board" id="f5" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:330px;align-items:center;justify-content:center">
+        <div class="dlg" style="width:420px">
+          <h3>Цвет метки «Срочно»</h3>
+          <div class="palette">
+            <span class="sw" style="--c:#d0573f"></span><span class="sw on" style="--c:#d0573f"></span><span class="sw" style="--c:#d9a441"></span><span class="sw" style="--c:#3f9a5b"></span>
+            <span class="sw" style="--c:#3f7fd0"></span><span class="sw" style="--c:#8a5ad0"></span><span class="sw" style="--c:#c2508e"></span><span class="sw" style="--c:#6b7480"></span>
+          </div>
+          <div class="preview" style="margin-top:12px"><span class="lbl" style="--c:#d0573f">Срочно</span><span class="small muted">так метка выглядит в списке писем и на письме</span></div>
+          <div class="acts"><button class="btn">Отмена</button><button class="btn primary">Готово</button></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Цвета согласованы между собой и с темой; две метки не сольются; выбор в один щелчок.</span></li>
+        <li><span class="pm minus">−</span><span>Восьми цветов может не хватить, если меток много.</span></li>
+      </ul>
+    </div>
+    <div><div class="vlabel">Вариант Б — палитра и свой цвет</div>
+      <div class="frame board" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:330px;align-items:center;justify-content:center">
+        <div class="dlg" style="width:420px">
+          <h3>Цвет метки «Срочно»</h3>
+          <div class="palette">
+            <span class="sw" style="--c:#d0573f"></span><span class="sw on" style="--c:#d0573f"></span><span class="sw" style="--c:#d9a441"></span><span class="sw" style="--c:#3f9a5b"></span>
+            <span class="sw" style="--c:#3f7fd0"></span><span class="sw" style="--c:#8a5ad0"></span><span class="sw" style="--c:#c2508e"></span><span class="sw" style="--c:#6b7480"></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:12px"><span class="hex"><span class="chip" style="--c:#d0573f"></span>#d0573f</span><span class="small muted">или свой цвет</span></div>
+          <div class="preview" style="margin-top:12px"><span class="lbl" style="--c:#d0573f">Срочно</span><span class="small muted">так метка выглядит в списке писем и на письме</span></div>
+          <div class="acts"><button class="btn">Отмена</button><button class="btn primary">Готово</button></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Полная свобода; можно взять корпоративные цвета.</span></li>
+        <li><span class="pm minus">−</span><span>Свой цвет легко сделать нечитаемым в светлой или тёмной теме; нужен предпросмотр в обеих.</span></li>
+      </ul>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Палитра — те же цвета, что у меток в 04 (кадр 10) и у ящиков: <span class="mono">#d0573f #d9a441 #3f9a5b #3f7fd0 #8a5ad0 #c2508e</span> и два нейтральных.</span></li>
+    <li><span class="n">2</span><span>Помнить последние использованные цвета — предложение: показывать их первыми, как недавние запросы в поиске.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 6 -->
+<div class="state" id="s6">
+  <h2><span class="num">6</span>Как найти письма с меткой</h2>
+  <p class="cap">Оператора метки в поиске сейчас <b>нет</b> — в <code>crates/depesha-core/src/query.rs</code> есть <code>from:</code>, <code>subject:</code>, <code>in:</code>, <code>account:</code> и другие, но не <code>метка:</code>. Предлагаю добавить <code>метка:</code> (и <code>label:</code>) и два способа перейти к письмам: щелчок по метке в списке и метки в сайдбаре.</p>
+  <div class="pair">
+    <div><div class="vlabel rec">Вариант А — щелчок по метке ведёт в поиск <span>· рекомендую</span></div>
+      <div class="frame board" style="width:100%;padding:14px"><div class="col" style="width:100%"><div class="prefs" style="width:100%;height:340px">
+        <div class="pane"><header><h2>Поиск</h2><span class="muted">метка:Срочно</span></header>
+          <div class="content" style="padding-top:8px"><section class="wide">
+            <div class="field on" style="max-width:420px"><i data-i="search" class="s14"></i><span>метка:</span><b>Срочно</b><span class="sp"></span><span class="lbl" style="--c:#d0573f">Срочно</span></div>
+            <p class="hint">Набрали «метка:» — подсказка дописала имя метки. Результат: 12 писем, 4 в кэше, 8 спросим на сервере.</p>
+            <table class="tbl">
+              <tr><th>От</th><th>Тема</th><th style="width:90px">Дата</th></tr>
+              <tr><td>Иван Петров</td><td>Счёт за октябрь</td><td class="muted">04:54</td></tr>
+              <tr><td>Мария Соколова</td><td>Правки к договору</td><td class="muted">2 окт</td></tr>
+              <tr><td>Бухгалтерия</td><td>Оплата до пятницы</td><td class="muted">1 окт</td></tr>
+            </table>
+          </section></div>
+        </div>
+      </div></div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Один щелчок по метке — и вот её письма; запрос видно и можно поправить (<code>метка:Срочно from:ivan</code>). Работает и на сервере для старой почты.</span></li>
+        <li><span class="pm minus">−</span><span>Нужен новый оператор в <code>query.rs</code> и в поиске на сервере (IMAP <code>KEYWORD</code>, Exchange — категория).</span></li>
+      </ul>
+    </div>
+    <div><div class="vlabel">Вариант Б — метки в сайдбаре как папки</div>
+      <div class="frame" style="width:100%;height:340px"><div class="app" style="grid-template-columns:248px 1fr">
+        <nav class="side">
+          <div class="brand"><span class="logo"></span>Депеша<span class="version">0.7</span></div>
+          <div class="group" style="margin-top:8px">
+            <div class="account"><button class="account-name"><span class="dot" style="--dot:#3f7fd0"></span>Работа</button></div>
+            <button class="item"><span class="icon"><i data-i="inbox"></i></span><span class="name">Входящие</span><span class="count">4</span></button>
+            <button class="item"><span class="icon"><i data-i="send"></i></span><span class="name">Отправленные</span></button>
+            <div class="subhead"><i data-i="tag" class="s13"></i>Метки</div>
+            <button class="item"><span class="icon"><span class="lsw" style="--c:#3f7fd0"></span></span><span class="name">Клиенты</span><span class="count">128</span></button>
+            <button class="item"><span class="icon"><span class="lsw" style="--c:#d0573f"></span></span><span class="name">Срочно</span><span class="count">12</span></button>
+            <button class="item"><span class="icon"><span class="lsw" style="--c:#d9a441"></span></span><span class="name">Счета</span><span class="count">47</span></button>
+          </div>
+        </nav>
+        <div class="list" style="border-right:none"><div class="list-head"><div class="search"><i data-i="search" class="s14"></i>Поиск по почте&nbsp;&nbsp;/</div></div>
+          <div class="list-title"><b><span class="lsw" style="--c:#d0573f"></span>Срочно</b><span class="cnt">12 писем</span></div>
+          <div class="row sel"><div class="l1"><b>Иван Петров</b><span class="when">04:54</span></div><div class="l2"><span class="subj">Счёт за октябрь</span></div></div>
+          <div class="row"><div class="l1"><b>Мария Соколова</b><span class="when">2 окт</span></div><div class="l2"><span class="subj">Правки к договору</span></div></div>
+          <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">1 окт</span></div><div class="l2"><span class="subj">Оплата до пятницы</span></div></div>
+        </div>
+      </div></div>
+      <ul class="notes">
+        <li><span class="pm plus">+</span><span>Метки на виду постоянно, как папки; счётчики рядом; привычно.</span></li>
+        <li><span class="pm minus">−</span><span>Сайдбар растёт, если меток много; метка — не папка (письмо в ней же, где и было), и это надо объяснять. Список в сайдбаре не для этого.</span></li>
+      </ul>
+    </div>
+  </div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Рекомендую <b class="rec">А</b> (оператор + щелчок) в 0.7; Б — позже и, возможно, группой «Метки» в сайдбаре, если оператор захочет.</span></li>
+    <li><span class="n">2</span><span>Метка в сайдбаре — это сохранённый поиск <code>метка:Имя</code>, а не папка: письмо остаётся на месте. Так честнее и не ломает перенос.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 7 -->
+<div class="state" id="s7">
+  <h2><span class="num">7</span>Exchange: категории общие с Outlook</h2>
+  <p class="cap">У Exchange метка — это <b>категория</b>, и категория на сервере и есть её имя. Отсюда отличия: «где хранится» всегда «на сервере», переименование меняет категорию у всех (в Outlook и OWA тоже), цвета берутся из общего списка категорий ящика. В разделе «Метки» это подписано, чтобы не ждали тихого переименования, как на IMAP.</p>
+  <div class="frame board"><div class="col" style="width:1040px"><div class="prefs" style="height:480px">
+    <nav class="pages" data-include="nav"></nav>
+    <div class="pane"><header><h2>Компания</h2><span class="muted">o.smirnov@company.example.com · Exchange</span></header>
+      <div class="anchors"><span>Общее</span><span>Письма и подписи</span><span>Хранилище</span><span class="on">Метки</span></div>
+      <div class="content" style="padding-top:8px">
+        <section class="wide">
+          <h4>Категории ящика · 3 <span class="r small muted">общие с Outlook и OWA</span></h4>
+          <table class="tbl">
+            <tr><th style="width:38%">Категория</th><th>Где хранится</th><th style="width:96px">Писем</th><th style="width:96px">Действия</th></tr>
+            <tr><td><span class="lname"><span class="chip" style="--c:#3f7fd0"></span>Проект «Север»</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">64</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+            <tr><td><span class="lname"><span class="chip" style="--c:#d0573f"></span>Красная категория</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">18</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+            <tr><td><span class="lname"><span class="chip" style="--c:#3f9a5b"></span>Готово</span></td><td><span class="keep srv"><i data-i="cloud" class="s13"></i>на сервере</span></td><td class="cnt">5</td><td><button class="btn icon sm"><i data-i="more" class="s15"></i></button></td></tr>
+          </table>
+          <p class="hint">Переименование категории меняет её в Outlook и OWA у всех. Цвета Депеша читает из общего списка категорий ящика; если прочитать не удалось — цвета свои, с подписью «в Outlook могут отличаться».</p>
+        </section>
+      </div>
+      <footer><span class="sp"></span><span class="btn ghost">Отмена</span><span class="btn primary">Сохранить</span></footer>
+    </div>
+  </div></div></div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Чем Exchange отличается от IMAP — коротко: <b>нет</b> «только на этом устройстве» (категории всегда серверные); <b>нет</b> тихого переименования (имя = категория); удаление снимает категорию у всех сразу (это и есть «снять со всех писем»); ключ <code>depesha-…</code> не нужен — категория и есть имя.</span></li>
+    <li><span class="n">2</span><span>В папке только для чтения (общая чужая) категории не поставить — строка «нет прав», как в 04 (кадр 11).</span></li>
+    <li><span class="n">3</span><span>Это совпадает с решением #42: категории делаем в этой же задаче, изучив документацию Exchange.</span></li>
+  </ul>
+</div>
+
+<!-- ================================================================ 8 -->
+<div class="state" id="s8">
+  <h2><span class="num">8</span>Тёмная тема: ключевые кадры</h2>
+  <p class="cap">Список меток (кадр 2) и выбор цвета (кадр 5) в теме «Ночь». Цвета меток те же; светлая бумага письма остаётся светлой. Проверяем, что цветные квадратики и подписи хранения читаются на тёмном.</p>
+  <div class="frame board dark" data-clone="f2"></div>
+  <div class="frame board dark" data-clone="f5" style="margin-top:20px"></div>
+  <ul class="notes">
+    <li><span class="n">1</span><span>Свой цвет метки на тёмной бумаге может слиться; предпросмотр в кадре 5 стоит показывать в обеих темах. Зелёный «на сервере» (<code>--ok</code>) на тёмном темноват — при проверке решим, брать ли светлее.</span></li>
+  </ul>
+</div>
+
+<div class="open-q" id="q">
+  <h2>Открытые вопросы к оператору</h2>
+  <ol>
+    <li><b>Где живёт управление метками</b> (кадр 1): раздел «Метки» на странице ящика (А, рекомендую) или отдельная страница по всем ящикам (Б)? И берём ли «⋯» в выборе меток на письме (В) как быстрый путь к тем же действиям?</li>
+    <li><b>Список меток</b> (кадр 2): колонки «цвет и имя, где хранится, писем, действия» — так? Нужен ли поиск по меткам в разделе или списка хватит?</li>
+    <li><b>Переименование</b> (кадр 3): делаем тихим — меняем только имя, ключ на сервере не трогаем (рекомендую) — или перезаписываем ключ на всех письмах? Нужен ли отдельный вход «переименовать везде»?</li>
+    <li><b>Удаление</b> (кадр 4): по умолчанию «убрать из списка», письма сохраняют метку на сервере (рекомендую), а «снять со всех писем» — вторым пунктом? Или в 0.7 только «убрать из списка»?</li>
+    <li><b>Цвет</b> (кадр 5): палитра из 8 цветов (рекомендую) или палитра плюс свой цвет? Сколько цветов и помнить ли последние?</li>
+    <li><b>Поиск писем с меткой</b> (кадр 6): добавляем оператор <code>метка:</code> в <code>query.rs</code> (сейчас его нет) — да? Щелчок по метке ведёт в поиск (А, рекомендую) или метки стоят в сайдбаре как папки (Б)? Оба?</li>
+    <li><b>Exchange</b> (кадр 7): согласны, что у категорий нет тихого переименования и строки «где хранится» (всегда на сервере)? Переименование категории в Депеше меняет её в Outlook — принимаем?</li>
+    <li><b>Счётчик писем</b>: считать по кэшу (может быть меньше сервера) и писать «приблизительно», или не показывать число там, где точно неизвестно?</li>
+    <li><b>Ключи на сервере</b>: оставляем <code>depesha-&lt;slug&gt;</code>/<code>depesha-&lt;hash&gt;</code> (уже в бэкенде; в 04 решено «свои имена»)? Или показывать ключ человеку в подсказке?</li>
+    <li><b>Номера задач</b>: управление метками — отдельный issue или продолжение #42? Нужен ли новый фон «снять метку со всех писем»?</li>
+  </ol>
+</div>
+</div>
+
+<!-- общие куски кадров: вставляются скриптом ниже -->
+<template id="t-nav">
+  <h3>Настройки</h3>
+  <div class="psearch"><i data-i="search" class="s14"></i><span class="muted">Найти настройку</span><span class="sp"></span><kbd>Ctrl+F</kbd></div>
+  <button class="tab"><i data-i="sliders"></i><span>Общие</span></button>
+  <button class="tab"><i data-i="sun" class="s15"></i><span>Фон и запуск</span><i class="newdot"></i></button>
+  <button class="tab"><i data-i="mail"></i><span>Почта</span></button>
+  <button class="tab"><i data-i="users"></i><span>Люди</span><i class="newdot"></i></button>
+  <button class="tab"><i data-i="bell"></i><span>Уведомления</span></button>
+  <button class="tab"><i data-i="keyboard"></i><span>Клавиши</span><i class="newdot"></i></button>
+  <button class="tab"><i data-i="cloudoff"></i><span>Офлайн-доступ</span></button>
+  <button class="tab"><i data-i="download"></i><span>Обновления</span></button>
+  <div class="group">Ящики</div>
+  <button class="tab"><i data-i="inbox"></i><span>Все ящики</span></button>
+  <button class="tab sub on"><span>Работа</span></button>
+  <button class="tab sub"><span>Личное</span></button>
+  <button class="tab sub"><span>Компания (Exchange)</span></button>
+  <div class="group">Плагины</div>
+  <button class="tab"><i data-i="puzzle"></i><span>Все плагины</span></button>
+  <button class="tab sub"><span>Переводчик</span></button>
+</template>
+
+<script>
+// Иконки — пути Lucide, вставляются вместо <i data-i="…">.
+const I = {
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  sliders: '<path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
+  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  reply: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  keyboard: '<path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/>',
+  cloudoff: '<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  puzzle: '<path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/>',
+};
+for (const el of document.querySelectorAll("[data-include]")) {
+  el.innerHTML = document.getElementById("t-" + el.dataset.include).innerHTML;
+}
+for (const el of document.querySelectorAll("[data-clone]")) {
+  const s = document.getElementById(el.dataset.clone);
+  el.innerHTML = s.innerHTML;
+}
+for (const el of document.querySelectorAll("i[data-i]")) {
+  const cls = el.className ? " " + el.className : "";
+  el.outerHTML = `<svg class="i${cls}" viewBox="0 0 24 24">${I[el.dataset.i] ?? ""}</svg>`;
+}
+</script>
+</body>
+</html>
