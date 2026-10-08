@@ -128,6 +128,17 @@ describe("a click on a notification about a letter moved or gone", () => {
 
 });
 
+describe("a click on a notification about letters that missed their time", () => {
+  it("opens the Outbox rather than a letter", async () => {
+    const s = await started();
+    emit("notification-open", { account_id: null, folder: null, id: null, ids: [], outbox: true, gone: null });
+    await flush();
+    expect(s.view).toEqual({ kind: "outbox" });
+    expect(s.selected.size).toBe(0);
+    expect(s.opened).toBeNull();
+  });
+});
+
 describe("a click on a notification over the settings or a question", () => {
   it("closes the settings, the tasks and a question on the way, without saving", async () => {
     api.messages.mockResolvedValue([row(7)]);

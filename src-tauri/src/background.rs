@@ -206,7 +206,15 @@ pub fn show_main(app: &AppHandle) {
     }
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         crate::tray::refresh_soon(&state);
+        // Letters held back while the window was away are told now that it is back.
+        report_missed(&state);
     }
+}
+
+/// The main window is not on screen: a toast in it would not be seen.
+pub fn main_hidden(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .is_none_or(|w| !w.is_visible().unwrap_or(false))
 }
 
 /// Hides the main window; the app works on.
@@ -229,6 +237,10 @@ pub fn main_in_front(app: &AppHandle) -> bool {
 pub fn focused(app: &AppHandle, focused: bool) {
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         *lock(&state.background.blurred) = (!focused).then(Instant::now);
+        // Back on screen: letters held back while the window was hidden are told.
+        if focused {
+            report_missed(&state);
+        }
     }
 }
 
@@ -365,12 +377,14 @@ pub fn sync_autostart(app: &AppHandle, before: Option<&Settings>, now: &Settings
 }
 
 /// Letters that missed their time wait for the user; the main window offers to send them.
-pub fn hold_missed(state: &AppState, now: i64) -> depesha_core::Result<()> {
+/// `awake_since` is when the app last (re)started or woke: only a letter overdue from
+/// before that was missed — one held back while the app ran goes its usual way.
+pub fn hold_missed(state: &AppState, now: i64, awake_since: i64) -> depesha_core::Result<()> {
     let late: Vec<i64> = state
         .store
         .outbox()?
         .iter()
-        .filter(|i| missed(i, now))
+        .filter(|i| missed(i, now, awake_since))
         .map(|i| i.id)
         .collect();
     if late.is_empty() {
@@ -383,10 +397,50 @@ pub fn hold_missed(state: &AppState, now: i64) -> depesha_core::Result<()> {
     for id in &late {
         state.store.outbox_retry_later(*id, now, &why, true)?;
     }
-    lock(&state.background.missed).extend(late);
+    {
+        let mut missed = lock(&state.background.missed);
+        for id in late {
+            if !missed.contains(&id) {
+                missed.push(id);
+            }
+        }
+    }
     state.emit("outbox-changed", json!({}));
-    state.emit_main("outbox-missed", json!({}));
+    report_missed(state);
     Ok(())
+}
+
+/// Tells the user about the letters waiting in the Outbox: a toast in the window, or a
+/// system notification when the window is hidden (a click on it opens the Outbox). The
+/// list is emptied only once the word has been given.
+fn report_missed(state: &AppState) {
+    if lock(&state.background.missed).is_empty() {
+        return;
+    }
+    if main_hidden(&state.app) {
+        // Nothing to show a toast in: the system notification carries the word. With
+        // notifications off the letters are held back for when the window is on screen.
+        if !state.settings().may_notify(false) {
+            return;
+        }
+        let title = tr!("Letters were not sent on time", "Письма не ушли вовремя");
+        let body = tr!(
+            "Depesha was closed or the computer slept. Open the Outbox to send them now.",
+            "Депеша была закрыта или компьютер спал. Откройте «Исходящие», чтобы отправить их сейчас."
+        );
+        state.notify_target(
+            &title,
+            &body,
+            false,
+            Some(Target {
+                outbox: true,
+                ..Target::default()
+            }),
+        );
+        lock(&state.background.missed).clear();
+    } else {
+        state.emit_main("outbox-missed", json!({}));
+    }
 }
 
 /// The letters held back since the window asked last.

@@ -69,6 +69,8 @@ pub struct Target {
     pub message_id: Option<String>,
     pub subject: String,
     pub from_email: String,
+    /// The Outbox: a letter that missed its time waits there, no single letter to open.
+    pub outbox: bool,
 }
 
 /// A letter of a notification that is no longer where it was, nor anywhere else known.
@@ -85,33 +87,56 @@ pub struct Open {
     pub folder: Option<String>,
     pub id: Option<i64>,
     pub ids: Vec<i64>,
+    /// The Outbox opens instead of a letter (one that missed its time).
+    pub outbox: bool,
     pub gone: Option<Gone>,
 }
 
+/// Whether two Message-IDs name the same letter; the cache may keep the angle brackets
+/// or not, and a letter without one matches anything.
+fn same_message(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.trim_matches(['<', '>']) == b.trim_matches(['<', '>']),
+        _ => true,
+    }
+}
+
 /// The target as the cache has it now: the letter where it is, found again by its
-/// Message-ID after a move, or gone. `folder_of` answers the folder of a cached letter;
-/// `find` a letter by account and Message-ID.
+/// Message-ID after a move, or gone. `in_place` answers a cached letter's folder and
+/// Message-ID; `find` a letter by account and Message-ID anywhere; `find_in` the copy in
+/// one folder.
 pub fn resolve(
     target: &Target,
-    folder_of: impl Fn(i64) -> Option<String>,
+    in_place: impl Fn(i64) -> Option<(String, Option<String>)>,
     find: impl Fn(&str, &str) -> Option<(i64, String)>,
+    find_in: impl Fn(&str, &str, &str) -> Option<(i64, String)>,
 ) -> Open {
     let mut open = Open {
         account_id: target.account_id.clone(),
         folder: target.folder.clone(),
         id: target.id,
         ids: target.ids.clone(),
+        outbox: target.outbox,
         gone: None,
     };
     let Some(id) = target.id else {
         return open;
     };
-    if let Some(folder) = folder_of(id) {
+    // The id is the letter the notification was about only when the Message-ID matches:
+    // an id freed by a deletion and taken by a new letter must not open that letter.
+    if let Some((folder, message_id)) = in_place(id)
+        && same_message(message_id.as_deref(), target.message_id.as_deref())
+    {
         open.folder = Some(folder);
         return open;
     }
     let moved = match (&target.account_id, &target.message_id) {
-        (Some(account), Some(message_id)) => find(account, message_id),
+        // The copy in the folder the notification named is the one to open.
+        (Some(account), Some(message_id)) => target
+            .folder
+            .as_ref()
+            .and_then(|folder| find_in(account, folder, message_id))
+            .or_else(|| find(account, message_id)),
         _ => None,
     };
     match moved {
@@ -193,6 +218,7 @@ pub fn word(letters: &[Letter], bulk: bool, label: &dyn Fn(&str) -> String, mail
                 message_id: one.message_id.clone(),
                 subject: one.subject.clone(),
                 from_email: one.from_email.clone(),
+                outbox: false,
             },
         });
     }
@@ -687,6 +713,7 @@ mod tests {
                 message_id: Some("<7@example.com>".into()),
                 subject: "Счёт за октябрь".into(),
                 from_email: "7@example.com".into(),
+                outbox: false,
             }
         );
         // With more mailboxes the notification names its one; never the text of the letter.
@@ -832,13 +859,19 @@ mod tests {
             message_id: Some("<7@example.com>".into()),
             subject: "Счёт за октябрь".into(),
             from_email: "ivan.petrov@example.com".into(),
+            outbox: false,
         }
     }
 
     #[test]
     fn a_click_finds_the_letter_where_it_is_now() {
-        // In place.
-        let open = resolve(&target(Some(7)), |id| (id == 7).then(|| "INBOX".into()), |_, _| None);
+        // In place, the Message-ID matching.
+        let open = resolve(
+            &target(Some(7)),
+            |id| (id == 7).then(|| ("INBOX".into(), Some("<7@example.com>".into()))),
+            |_, _| None,
+            |_, _, _| None,
+        );
         assert_eq!(
             (open.id, open.folder.as_deref(), open.gone.clone()),
             (Some(7), Some("INBOX"), None)
@@ -885,8 +918,41 @@ mod tests {
                 folder: Some("INBOX".into()),
                 id: None,
                 ids: vec![1, 2, 3],
+                outbox: false,
                 gone: None
             }
         );
+    }
+
+    #[test]
+    fn an_outbox_notification_opens_the_outbox() {
+        let t = Target {
+            account_id: None,
+            folder: None,
+            id: None,
+            message_id: None,
+            outbox: true,
+            ..Target::default()
+        };
+        let open = resolve(
+            &t,
+            |_| panic!("no letter to look up"),
+            |_, _| panic!("no letter to look up"),
+            |_, _, _| panic!("no letter to look up"),
+        );
+        assert!(open.outbox);
+        assert_eq!(open.id, None);
+    }
+
+    #[test]
+    fn markup_in_a_notification_is_neutralized() {
+        // A subject carrying markup (a phishing link) goes out as text on a server that draws it.
+        assert_eq!(
+            entities("Счёт <a href=\"https://phish\">открыть</a> & <b>"),
+            "Счёт &lt;a href=\"https://phish\"&gt;открыть&lt;/a&gt; &amp; &lt;b&gt;"
+        );
+        // A subject or a name with a line break cannot forge another line of the body.
+        assert_eq!(plain("Счёт\nBcc: evil@x"), "Счёт Bcc: evil@x");
+        assert_eq!(plain("Иван\r\nПётр\tконец"), "Иван  Пётр конец");
     }
 }

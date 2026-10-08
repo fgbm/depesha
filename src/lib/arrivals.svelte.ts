@@ -18,6 +18,8 @@ export interface NotificationOpen {
   id: number | null;
   /** The new letters a summary tells about. */
   ids: number[];
+  /** The Outbox opens instead of a letter (one that missed its time). */
+  outbox?: boolean;
   gone: { subject: string; from: string } | null;
 }
 
@@ -65,6 +67,12 @@ export class Arrivals {
 
   async open(host: ArrivalsHost, p: NotificationOpen) {
     closeOverlays(host);
+    // A letter that missed its time waits in the Outbox: the notification opens it.
+    if (p.outbox) {
+      await host.setView({ kind: "outbox" });
+      layout.showList();
+      return;
+    }
     if (p.id !== null) await this.openLetter(host, p, p.id);
     else await this.openList(host, p);
   }
