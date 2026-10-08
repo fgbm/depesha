@@ -177,7 +177,14 @@ pub async fn round(state: Arc<AppState>) {
 }
 
 async fn jobs_of_account(state: &AppState, jobs: Vec<ParkJob>) {
+    let now = chrono::Utc::now().timestamp();
     for job in jobs {
+        // The rest of a chain whose one letter was taken out waits out the undo toast
+        // before it goes back: an undo in the meantime finds it still in the folder
+        // (`UNDO_SECS` in the store). The job is not lost, only held back.
+        if job.since > now {
+            continue;
+        }
         let done = match job.kind {
             ParkKind::In => take_in(state, &job).await,
             ParkKind::Back | ParkKind::Undo => bring_back(state, &job).await,

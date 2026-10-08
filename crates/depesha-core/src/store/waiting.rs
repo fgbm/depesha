@@ -117,6 +117,11 @@ fn bare(id: &str) -> &str {
     id.trim_matches(['<', '>'])
 }
 
+/// How long the return of the rest of a chain waits after one letter was taken out of the
+/// folder: the "Done" toast offers an undo for this long, and the wait's letters must stay
+/// in the folder until it lapses, or an undo would find them already back in the inbox.
+const UNDO_SECS: i64 = 8;
+
 /// A letter joined to the one answered: row id, Message-ID, In-Reply-To, date, read, sender.
 type Neighbour = (i64, String, Option<String>, i64, bool, Option<String>);
 
@@ -418,9 +423,9 @@ impl Store {
                 "UPDATE followups SET parked = ?3, park = ?4,
                     ended = CASE WHEN status = 'waiting' THEN ?5 ELSE ended END,
                     status = CASE WHEN status = 'waiting' THEN 'closed' ELSE status END,
-                    park_since = CASE WHEN ?4 = 'back' THEN ?5 ELSE park_since END
+                    park_since = CASE WHEN ?4 = 'back' THEN ?5 + ?6 ELSE park_since END
                  WHERE account_id = ?1 AND message_id = ?2",
-                params![account_id, key, json_list(&left), park, now],
+                params![account_id, key, json_list(&left), park, now, UNDO_SECS],
             )?;
             touched.push(key);
         }
@@ -1018,6 +1023,20 @@ mod tests {
         );
         let f = the_wait(&store, FollowupFilter::Closed);
         assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Closed, "done"));
+    }
+
+    #[test]
+    fn the_rest_of_a_chain_waits_out_the_undo_toast() {
+        let store = mailbox();
+        waiting(&store, 0);
+        // "Done" on one letter of the chain: the rest are due back, but the move is held
+        // until the undo toast lapses, or an undo would find them already in the inbox.
+        let now = SENT + 10;
+        store.followups_left("a", WAIT, &["q1@x".into()], now).unwrap();
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(jobs.len(), 1, "{jobs:#?}");
+        assert_eq!(jobs[0].kind, ParkKind::Back);
+        assert_eq!(jobs[0].since, now + UNDO_SECS, "held back for the undo toast");
     }
 
     #[test]
