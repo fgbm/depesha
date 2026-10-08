@@ -295,10 +295,13 @@ describe("settings changed elsewhere", () => {
   it("switch the language of the main window too", async () => {
     const s = new AppStore();
     await s.init();
+    vi.useFakeTimers();
+    api.settings.mockResolvedValue({ ...settings(), language: "ru" });
     api.language.mockResolvedValue("ru");
     emit("settings-changed");
-    await flush();
+    await vi.advanceTimersByTimeAsync(300);
     expect(i18n.lang).toBe("ru");
+    vi.useRealTimers();
   });
 
   // An already open window — a message of its own too — hears the event and takes the
@@ -306,11 +309,27 @@ describe("settings changed elsewhere", () => {
   it("bring the new keys to an open message window at once", async () => {
     const s = new AppStore();
     await s.initWindow(1);
+    vi.useFakeTimers();
     const changed = { ...settings(), keybindings: { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] } };
     api.settings.mockResolvedValue(changed);
     emit("settings-changed");
-    await flush();
+    await vi.advanceTimersByTimeAsync(300);
     expect(shortcuts.keys("core.reply-all")).toEqual(["Shift+r"]);
+    vi.useRealTimers();
+  });
+
+  it("read neither the language nor the extensions again when nothing relevant changed", async () => {
+    const s = new AppStore();
+    await s.init();
+    vi.useFakeTimers();
+    api.language.mockClear();
+    const load = vi.spyOn(extensions, "load");
+    emit("settings-changed");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.language).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+    load.mockRestore();
+    vi.useRealTimers();
   });
 });
 
