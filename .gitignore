@@ -2,6 +2,7 @@ target/
 node_modules
 dist/
 e2e/screens/
+e2e/perf-result.json
 src-tauri/gen/
 design/mockups/*/poll/*.png
 .openchamber/
