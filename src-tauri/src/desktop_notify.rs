@@ -870,9 +870,16 @@ fn show(
 
 #[cfg(windows)]
 mod windows_toast {
-    use super::{Target, clicked};
+    use super::{IDS_MAX, Target, enc};
     use tauri::AppHandle;
     use tauri_winrt_notification::Toast;
+    use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+    use windows::core::HSTRING;
+
+    /// Windows refuses a toast whose `launch` is over 512 characters, so a summary's
+    /// letters go in only while they fit.
+    const LAUNCH_MAX: usize = 500;
 
     /// The AppUserModelID of the installed app is its identifier (the installer's shortcut
     /// carries it); a build run from `target/` has none, and borrows PowerShell's.
@@ -888,21 +895,86 @@ mod windows_toast {
         }
     }
 
-    pub fn show(app: &AppHandle, title: &str, body: &str, target: Option<Target>) {
-        let mut lines = body.lines();
-        let mut toast = Toast::new(&app_id(app))
-            .title(title)
-            .text1(lines.next().unwrap_or_default());
-        if let Some(more) = lines.next() {
-            toast = toast.text2(more);
+    /// The `depesha://` URL a click opens: a letter by its id and Message-ID, a summary by
+    /// its mailbox (or all inboxes) and the new letters, the Outbox by name, anything else
+    /// just brings the window. Windows opens it as a new process; single-instance hands it
+    /// to the running app, and with the app closed it starts Depesha.
+    pub(super) fn launch_url(target: Option<&Target>) -> String {
+        let Some(t) = target else {
+            return "depesha://open".to_owned();
+        };
+        if t.outbox {
+            return "depesha://outbox".to_owned();
         }
-        let handle = app.clone();
-        let shown = toast
-            .on_activated(move |_| {
-                clicked(&handle, target.clone());
-                Ok(())
-            })
-            .show();
+        if let (Some(account), Some(id)) = (&t.account_id, t.id) {
+            let mut url = format!("depesha://message/{}/{}", enc(account), id);
+            if let Some(mid) = t.message_id.as_deref() {
+                url.push_str("?mid=");
+                url.push_str(&enc(mid));
+            }
+            return url;
+        }
+        let mut url = match &t.account_id {
+            Some(account) => format!("depesha://inbox/{}", enc(account)),
+            None => "depesha://inbox".to_owned(),
+        };
+        let mut listed = String::new();
+        for id in t.ids.iter().take(IDS_MAX) {
+            let next = if listed.is_empty() {
+                id.to_string()
+            } else {
+                format!("{listed},{id}")
+            };
+            if url.len() + "?ids=".len() + next.len() > LAUNCH_MAX {
+                break;
+            }
+            listed = next;
+        }
+        if !listed.is_empty() {
+            url.push_str("?ids=");
+            url.push_str(&listed);
+        }
+        url
+    }
+
+    /// The toast XML, built through the DOM so the sender and the subject go in as text
+    /// (`SetInnerText`) and never as markup: a subject cannot forge a tag or an attribute.
+    pub(super) fn xml(title: &str, body: &str, launch: &str) -> windows::core::Result<XmlDocument> {
+        let doc = XmlDocument::new()?;
+        let toast = doc.CreateElement(&HSTRING::from("toast"))?;
+        toast.SetAttribute(&HSTRING::from("launch"), &HSTRING::from(launch))?;
+        toast.SetAttribute(&HSTRING::from("activationType"), &HSTRING::from("protocol"))?;
+        doc.AppendChild(&toast)?;
+        let visual = doc.CreateElement(&HSTRING::from("visual"))?;
+        toast.AppendChild(&visual)?;
+        let binding = doc.CreateElement(&HSTRING::from("binding"))?;
+        binding.SetAttribute(&HSTRING::from("template"), &HSTRING::from("ToastGeneric"))?;
+        visual.AppendChild(&binding)?;
+        let mut lines = body.lines();
+        let mut texts = vec![title, lines.next().unwrap_or_default()];
+        if let Some(more) = lines.next() {
+            texts.push(more);
+        }
+        for text in texts {
+            let element = doc.CreateElement(&HSTRING::from("text"))?;
+            element.SetInnerText(&HSTRING::from(text))?;
+            binding.AppendChild(&element)?;
+        }
+        Ok(doc)
+    }
+
+    pub fn show(app: &AppHandle, title: &str, body: &str, target: Option<Target>) {
+        let launch = launch_url(target.as_ref());
+        let doc = match xml(title, body, &launch) {
+            Ok(doc) => doc,
+            Err(e) => {
+                tracing::debug!("notification failed: {e}");
+                return;
+            }
+        };
+        let shown = ToastNotification::CreateToastNotification(&doc).and_then(|toast| {
+            ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(app_id(app)))?.Show(&toast)
+        });
         if let Err(e) = shown {
             tracing::debug!("notification failed: {e}");
         }
@@ -910,13 +982,13 @@ mod windows_toast {
 
     /// Toasts left in the notification centre after the app quit would open nothing.
     pub fn clear(app: &AppHandle) {
-        use windows::UI::Notifications::ToastNotificationManager;
-        let id = windows::core::HSTRING::from(app_id(app));
+        let id = HSTRING::from(app_id(app));
         if let Err(e) = ToastNotificationManager::History().and_then(|h| h.ClearWithId(&id)) {
             tracing::debug!("notifications not cleared: {e}");
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1392,5 +1464,55 @@ mod tests {
                 ..Target::default()
             })
         );
+    }
+
+    /// The `depesha://` URLs a toast opens; only Windows shows the toasts, so the test is
+    /// there too.
+    #[cfg(windows)]
+    #[test]
+    fn a_toast_opens_its_letter_or_its_summary() {
+        assert_eq!(super::windows_toast::launch_url(None), "depesha://open");
+        let outbox = Target {
+            outbox: true,
+            ..Target::default()
+        };
+        assert_eq!(super::windows_toast::launch_url(Some(&outbox)), "depesha://outbox");
+        let one = Target {
+            account_id: Some("a@x-1".into()),
+            id: Some(7),
+            message_id: Some("<7@x>".into()),
+            ..Target::default()
+        };
+        assert_eq!(
+            super::windows_toast::launch_url(Some(&one)),
+            "depesha://message/a%40x-1/7?mid=%3C7%40x%3E"
+        );
+        let summary = Target {
+            account_id: Some("a".into()),
+            ids: vec![3, 5],
+            ..Target::default()
+        };
+        assert_eq!(
+            super::windows_toast::launch_url(Some(&summary)),
+            "depesha://inbox/a?ids=3,5"
+        );
+        let all = Target {
+            ids: vec![3, 5],
+            ..Target::default()
+        };
+        assert_eq!(super::windows_toast::launch_url(Some(&all)), "depesha://inbox?ids=3,5");
+    }
+
+    /// The toast XML carries the launch and holds a subject as text, never as markup.
+    #[cfg(windows)]
+    #[test]
+    fn the_toast_xml_escapes_the_text() {
+        let doc = super::windows_toast::xml("Иван <b>", "Счёт & <a href=\"x\">", "depesha://message/a/7").unwrap();
+        let xml = doc.GetXml().unwrap().to_string();
+        assert!(xml.contains("activationType=\"protocol\""), "{xml}");
+        assert!(xml.contains("launch=\"depesha://message/a/7\""), "{xml}");
+        assert!(xml.contains("Иван &lt;b&gt;"), "{xml}");
+        assert!(xml.contains("Счёт &amp; &lt;a href=\"x\"&gt;"), "{xml}");
+        assert!(!xml.contains("<b>"), "{xml}");
     }
 }
