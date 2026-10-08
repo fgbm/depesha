@@ -8,6 +8,9 @@ import { extensions } from "./extensions.svelte";
 import type { ListController } from "./list.svelte";
 import type { AccountView, CmdError, MessageRow, OpenedMessage } from "./types";
 
+/** A letter counts as read once it was shown this long; flitting through the list does not. */
+const SEEN_MS = 1000;
+
 /** What the reader needs from the app store. */
 export interface ReaderHost {
   readonly list: ListController;
@@ -29,6 +32,8 @@ export class Reader {
   /** Bumped by every flag change the user makes; late automatic marks yield to it. */
   flagEpoch = 0;
   private openSeq = 0;
+  /** The read mark of the letter shown now waits for it to stay on screen (#71). */
+  private seenTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private host: ReaderHost) {}
 
@@ -39,6 +44,7 @@ export class Reader {
 
   /** Nothing is open any more. */
   close() {
+    this.cancelSeen();
     this.opened = null;
     this.conversation = [];
   }
@@ -46,6 +52,7 @@ export class Reader {
   async open(id: number, allowRemote = false) {
     const seq = ++this.openSeq;
     const { list } = this.host;
+    this.cancelSeen();
     this.opening = true;
     this.openingRow = list.messages.find((m) => m.id === id) ?? this.conversation.find((m) => m.id === id) ?? null;
     this.openError = null;
@@ -60,14 +67,9 @@ export class Reader {
       // Banners of the previous letter go, unless it shares a conversation with this one.
       extensions.showing([id, ...this.conversation.map((m) => m.id)]);
       this.conversation = [];
-      // Marked read on the server only after it was shown.
-      if (wasUnread) {
-        list.mark(id, list.messages.find((m) => m.id === id) ?? { ...msg.row, flags: { ...msg.row.flags, seen: false } });
-        api.setFlag([id], { flag: "seen", value: true }).catch((e) => this.host.fail(e));
-        const row = list.messages.find((m) => m.id === id);
-        if (row) row.flags.seen = true;
-      }
-      this.loadConversation(id, seq, epoch, msg.row.folder);
+      // The view holds the open letter at once; the read mark waits for it to stay (#71).
+      if (wasUnread) list.mark(id, list.messages.find((m) => m.id === id) ?? { ...msg.row, flags: { ...msg.row.flags, seen: false } });
+      this.loadConversation(id, seq, epoch, msg.row.folder, wasUnread);
       extensions.messageOpen(msg, this.host.account(msg.row.account_id)?.email ?? "");
     } catch (e) {
       if (seq === this.openSeq) {
@@ -82,18 +84,42 @@ export class Reader {
     }
   }
 
-  private async loadConversation(id: number, seq: number, epoch: number, folder: string) {
+  private async loadConversation(id: number, seq: number, epoch: number, folder: string, wasUnread: boolean) {
     const conversation = await api.thread(id).catch(() => [] as MessageRow[]);
     if (seq !== this.openSeq) return;
     this.conversation = shownConversation(conversation, id, folder);
     extensions.showing(this.showing());
-    // Reading a conversation reads all of it, unless the user changed flags meanwhile.
-    const unread = conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
-    if (unread.length && epoch === this.flagEpoch) {
-      for (const m of conversation) if (unread.includes(m.id)) this.host.list.mark(m.id, m);
-      api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
-      for (const m of this.host.list.messages) if (unread.includes(m.id)) m.flags.seen = true;
-    }
+    // Reading a conversation reads all of it — once the letter stayed on screen (#71).
+    for (const m of this.conversation) if (!m.flags.seen && m.id !== id) this.host.list.mark(m.id, m);
+    if (wasUnread || conversation.some((m) => !m.flags.seen && m.id !== id)) this.scheduleSeen(id, seq, epoch, wasUnread);
+  }
+
+  /** Marks the shown letter (and its conversation) read once it stayed on screen. */
+  private scheduleSeen(id: number, seq: number, epoch: number, wasUnread: boolean) {
+    this.cancelSeen();
+    this.seenTimer = setTimeout(() => {
+      this.seenTimer = null;
+      this.markSeen(id, seq, epoch, wasUnread);
+    }, SEEN_MS);
+  }
+
+  private cancelSeen() {
+    if (this.seenTimer) clearTimeout(this.seenTimer);
+    this.seenTimer = null;
+  }
+
+  private markSeen(id: number, seq: number, epoch: number, wasUnread: boolean) {
+    // Another letter opened, or the user changed flags by hand meanwhile: nothing to mark.
+    if (seq !== this.openSeq || epoch !== this.flagEpoch) return;
+    const opened = this.opened;
+    if (!opened || opened.row.id !== id) return;
+    const { list } = this.host;
+    const unread = this.conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
+    const ids = [...(wasUnread ? [id] : []), ...unread];
+    if (!ids.length) return;
+    api.setFlag(ids, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
+    for (const m of this.conversation) if (ids.includes(m.id)) m.flags.seen = true;
+    for (const m of list.messages) if (ids.includes(m.id)) m.flags.seen = true;
   }
 
   /** A letter joined the open conversation (an answer, a forward, new mail): show it, flags untouched. */
