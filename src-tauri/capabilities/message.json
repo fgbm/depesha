@@ -32,6 +32,7 @@
     "allow-archive",
     "allow-mark-spam",
     "allow-snooze",
+    "allow-unsnooze",
     "allow-counters",
     "allow-followup-cancel",
     "allow-followup-postpone",

@@ -32,6 +32,7 @@ const COMMANDS: &[&str] = &[
     "archive",
     "mark_spam",
     "snooze",
+    "unsnooze",
     "undo",
     "thread",
     "counters",

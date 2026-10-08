@@ -45,6 +45,7 @@
     "allow-archive",
     "allow-mark-spam",
     "allow-snooze",
+    "allow-unsnooze",
     "allow-undo",
     "allow-thread",
     "allow-counters",
