@@ -28,6 +28,10 @@ const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Messages downloaded for offline reading per round: user actions wait for a
 /// round at most, they are queued between rounds.
 const PREFETCH_BATCH: u32 = 25;
+/// A prefetch batch is bounded by bytes too: with attachments, 25 messages can be hundreds
+/// of megabytes, and the whole mailbox waits for them. A short batch lets a body somebody
+/// opens (or their next action) run between them.
+const PREFETCH_BYTES: u64 = 20 * 1024 * 1024;
 /// How often INBOX is checked on a server without IDLE; the "Server" section says so.
 pub const POLL_WITHOUT_IDLE: Duration = Duration::from_secs(120);
 /// Pause after "server busy" (Exchange throttling) when the server names none; it
@@ -276,6 +280,7 @@ fn drain_flags(
 
 /// The same for labels: the `SetLabels` of one folder with the same labels waiting behind the
 /// first become one request for all the UIDs.
+#[allow(clippy::too_many_arguments)]
 fn drain_labels(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
@@ -493,6 +498,7 @@ enum Next {
 /// (`stepping`), one folder per call, and other background work last. Actions taken out of
 /// `urgent` but not run yet wait in `deferred` and go before it. While a busy server asks to
 /// wait (`busy_until`), only user actions are taken: they get their answer at once.
+#[allow(clippy::too_many_arguments)]
 async fn next(
     reads: &mut mpsc::Receiver<(Work, Reply)>,
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
@@ -1267,7 +1273,17 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result
     };
     let files = settings.offline_attachments;
     let store = &state.store;
-    let batch = store.bodies_missing(account_id, since, files, PREFETCH_BATCH)?;
+    // A batch bounded by bytes as well as by count: a short one leaves the mailbox's queue
+    // free for a body somebody opens between them.
+    let mut batch: Vec<(i64, String, u32)> = Vec::new();
+    let mut bytes = 0u64;
+    for (id, folder, uid, size) in store.bodies_missing(account_id, since, files, PREFETCH_BATCH)? {
+        if !batch.is_empty() && bytes + u64::from(size) > PREFETCH_BYTES {
+            break;
+        }
+        bytes += u64::from(size);
+        batch.push((id, folder, uid));
+    }
     if batch.is_empty() {
         state.task_done(&key);
         return Ok(Output::Count(0));
@@ -1287,7 +1303,9 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result
     for (folder, messages) in &by_folder {
         saved += mail::prefetch_bodies(conn, store, folder, messages).await?;
     }
-    let last = saved == 0 || batch.len() < PREFETCH_BATCH as usize;
+    // Done only when the count was short of the limit and the byte cap did not cut it: a
+    // batch stopped at the cap has more behind it.
+    let last = saved == 0 || (batch.len() < PREFETCH_BATCH as usize && bytes < PREFETCH_BYTES);
     if last {
         state.task_done(&key);
     } else {

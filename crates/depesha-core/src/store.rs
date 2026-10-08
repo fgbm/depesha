@@ -1673,15 +1673,18 @@ impl Store {
 
     /// Offline messages whose text is not downloaded yet, newest first: `(id, folder, uid)`.
     /// Goes from the newest down and stops at `limit`.
+    /// `(id, folder, uid, size)` of the newest messages whose text is not downloaded yet.
+    /// The size lets the caller bound a batch by bytes: with attachments one batch can be
+    /// hundreds of megabytes.
     pub fn bodies_missing(
         &self,
         account_id: &str,
         since: i64,
         attachments: bool,
         limit: u32,
-    ) -> Result<Vec<(i64, String, u32)>> {
+    ) -> Result<Vec<(i64, String, u32, u32)>> {
         let sql = format!(
-            "SELECT m.id, m.folder, m.uid FROM messages m
+            "SELECT m.id, m.folder, m.uid, m.size FROM messages m
              WHERE {} AND NOT EXISTS (SELECT 1 FROM bodies b WHERE b.message_id = m.id)
              ORDER BY m.date DESC LIMIT ?3",
             Self::offline_cond(attachments)
@@ -1689,7 +1692,7 @@ impl Store {
         let conn = self.conn();
         let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map(params![account_id, since, limit], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
@@ -3071,7 +3074,7 @@ mod tests {
                 .bodies_missing("a", 500, attachments, 10)
                 .unwrap()
                 .into_iter()
-                .map(|(id, _, _)| id)
+                .map(|(id, _, _, _)| id)
                 .collect()
         };
         // Newest first; the old one, Trash and (by default) attachments stay out.
