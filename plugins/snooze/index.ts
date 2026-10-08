@@ -1,11 +1,29 @@
 import AlarmClock from "@lucide/svelte/icons/alarm-clock";
 import AlarmClockOff from "@lucide/svelte/icons/alarm-clock-off";
-import { snoozePresets, when, type Plugin } from "@depesha/plugin-api";
+import { when, type Plugin, type PluginContext } from "@depesha/plugin-api";
 import { snoozeMail, unsnoozeMail } from "./actions";
+import { readerButtonAnchor } from "./anchor";
+import { fmtDay } from "./format";
 import SnoozeButton from "./SnoozeButton.svelte";
-import SnoozeRowMenu from "./SnoozeRowMenu.svelte";
-import { snooze } from "./state.svelte";
+import SnoozeOverlay from "./SnoozeOverlay.svelte";
+import { closeSnooze, openSnooze, snooze } from "./state.svelte";
 import { S } from "./strings";
+import { slots, type SlotId } from "./times";
+
+/** The palette offers the moments of the menu: «Snooze: tomorrow»; they move with the clock. */
+function presetCommands(ctx: PluginContext) {
+  const ids: SlotId[] = ["evening", "tomorrow", "weekend", "nextWeek", "nextMonth"];
+  for (const id of ids) {
+    const slot = () => slots(new Date(), ctx.workTime()).find((x) => x.id === id)!;
+    ctx.ui.command({
+      id: `snooze.preset.${id}`,
+      title: () => ctx.t(S.command, { when: ctx.t(S[id]).toLowerCase() }),
+      hint: () => (slot().at ? fmtDay(slot().at!, ctx.lang()) : ""),
+      when: () => ctx.mail.selection().length > 0 && slot().off === null,
+      run: () => snoozeMail(ctx, Math.floor(slot().at!.getTime() / 1000)),
+    });
+  }
+}
 
 export default {
   manifest: { id: "snooze", name: S.name, description: S.about },
@@ -36,9 +54,17 @@ export default {
       title: () => `${ctx.t(S.action)}…`,
       icon: AlarmClock,
       command: "snooze.open",
-      menu: { component: SnoozeRowMenu, props: { ctx } },
+      run: (ids, at) => openSnooze(ids, at ?? ctx.anchor()),
     });
-    ctx.ui.keybinding({ id: "snooze.open", title: () => ctx.t(S.action), key: "h", run: () => (snooze.open = true), when: () => ctx.mail.opened() !== null });
+    ctx.ui.overlay({ component: SnoozeOverlay, props: { ctx } });
+    // By a key the menu hangs on the selected row; a letter's own window has no list, there it hangs on the button.
+    ctx.ui.keybinding({
+      id: "snooze.open",
+      title: () => ctx.t(S.action),
+      key: "h",
+      run: () => openSnooze(ctx.mail.selection(), (!ctx.mail.main() && readerButtonAnchor()) || ctx.anchor()),
+      when: () => ctx.mail.selection().length > 0,
+    });
     // "w" is shared with "Stop waiting" (the core's `core.release`): the letter's state tells which one runs.
     const snoozed = () => ctx.mail.opened()?.row.snoozed_until != null;
     ctx.ui.keybinding({ id: "core.release", title: () => ctx.t(S.release), run: () => void unsnoozeMail(ctx, [ctx.mail.opened()!.row.id]), when: snoozed });
@@ -50,16 +76,7 @@ export default {
       when: (_ids, rows) => rows.length > 0 && rows.every((r) => r.snoozed_until != null),
       run: (ids) => void unsnoozeMail(ctx, ids),
     });
-    for (const [i, p] of snoozePresets().entries()) {
-      ctx.ui.command({
-        id: `snooze.preset.${i}`,
-        // Presets move with the clock: recomputed each time the palette asks.
-        title: () => ctx.t(S.command, { when: (snoozePresets()[i] ?? p).label.toLowerCase() }),
-        hint: () => (snoozePresets()[i] ?? p).hint,
-        when: () => ctx.mail.selection().length > 0 && snoozePresets()[i] !== undefined,
-        run: () => snoozeMail(ctx, snoozePresets()[i].at),
-      });
-    }
+    presetCommands(ctx);
     ctx.ui.rowTag((row) => (row.snoozed_until ? { icon: AlarmClock, text: when(row.snoozed_until), title: ctx.t(S.tag) } : null));
     // "Bring back now" sits in the line over the letter like "Stop waiting" does for a wait.
     ctx.ui.banner((msg) =>
@@ -71,6 +88,6 @@ export default {
           }
         : null,
     );
-    return () => (snooze.open = false);
+    return closeSnooze;
   },
 } satisfies Plugin;

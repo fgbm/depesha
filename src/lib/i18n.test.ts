@@ -4,7 +4,7 @@ import { en } from "./locales/en";
 import { ru } from "./locales/ru";
 import { forward, reply, emptyDraft } from "./compose";
 import { putSignatureText, splitPlain, withSignature } from "./signatures";
-import { snoozePresets, when } from "./later";
+import { when } from "./later";
 import { size } from "./format";
 import type { OpenedMessage } from "./types";
 
@@ -65,7 +65,6 @@ describe("English mail text", () => {
 
   it("names times and sizes in English", () => {
     const now = new Date(2026, 9, 2, 10, 0);
-    expect(snoozePresets(now).map((p) => p.label)).toEqual(["In an hour", "This evening", "Tomorrow morning", "Next Monday", "In a week"]);
     expect(when(new Date(2026, 9, 3, 9, 0).getTime() / 1000, now)).toBe("tomorrow at 09:00");
     expect(size(1536 * 1024)).toBe("1.5 MB");
     i18n.lang = "ru";

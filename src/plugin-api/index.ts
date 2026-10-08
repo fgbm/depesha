@@ -12,7 +12,7 @@ export { default as LaterMenu } from "../components/LaterMenu.svelte";
 export { default as Select } from "../components/Select.svelte";
 /** A key as menus and the palette show it, `e у`: `key="Mod+k"`, or `of` a command's key. */
 export { default as Keys } from "../components/Keys.svelte";
-export { fromLocalInput, sendLaterPresets, snoozePresets, toLocalInput, when, type Preset } from "../lib/later";
+export { fromLocalInput, sendLaterPresets, toLocalInput, when, type Preset } from "../lib/later";
 export { keyAnchor, placeMenu, placeSide, type Anchor, type Placed } from "../lib/anchor";
 export { DEFAULT_WORK_TIME, formatClock, parseClock, type Clock, type WorkTime } from "../lib/workTime";
 export { addrName, listDate, matches, roleLabel, size } from "../lib/format";

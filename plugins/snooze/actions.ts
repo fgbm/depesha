@@ -1,4 +1,5 @@
-import { roleLabel, when, type Moved, type PluginContext } from "@depesha/plugin-api";
+import { roleLabel, type Moved, type PluginContext } from "@depesha/plugin-api";
+import { fmtWhen } from "./format";
 import { S } from "./strings";
 
 /** Brings snoozed messages back now, to where they were snoozed from; undo snoozes them again for the same time. */
@@ -22,7 +23,7 @@ export function unsnoozeMail(ctx: PluginContext, ids = ctx.mail.selection()) {
 /** Moves the messages to the server's Snoozed folder until `until`; undoable. */
 export function snoozeMail(ctx: PluginContext, until: number, ids = ctx.mail.selection()) {
   return ctx.mail.perform(
-    ctx.t(S.done, { when: when(until) }),
+    ctx.t(S.done, { when: fmtWhen(new Date(until * 1000), ctx.lang()) }),
     ids,
     (all) => ctx.backend<Moved[]>("snooze", { ids: all, until }),
     ctx.t(S.failed),

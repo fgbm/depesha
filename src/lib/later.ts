@@ -1,4 +1,4 @@
-// Points in time offered by "Snooze" and "Send later". Local time, pure functions.
+// Points in time offered by "Send later". Local time, pure functions.
 
 import { locale, t } from "./i18n.svelte";
 
@@ -44,18 +44,6 @@ function preset(label: string, d: Date, now: Date): Preset {
 
 function uniq(list: Preset[]): Preset[] {
   return list.filter((p, i) => list.findIndex((q) => q.at === p.at) === i);
-}
-
-export function snoozePresets(now = new Date()): Preset[] {
-  const list: Preset[] = [];
-  const inHour = new Date(now.getTime() + 3_600_000);
-  inHour.setMinutes(Math.ceil(inHour.getMinutes() / 5) * 5, 0, 0);
-  list.push(preset(t("later.inHour"), inHour, now));
-  if (now.getHours() < 17) list.push(preset(t("later.tonight"), at(now, 0, 18), now));
-  list.push(preset(t("later.tomorrow"), at(now, 1, 9), now));
-  list.push(preset(t("later.monday"), nextMonday(now), now));
-  list.push(preset(t("later.nextWeek"), at(now, 7, 9), now));
-  return uniq(list);
 }
 
 export function sendLaterPresets(now = new Date()): Preset[] {
