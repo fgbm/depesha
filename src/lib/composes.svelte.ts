@@ -14,6 +14,8 @@ export interface ComposeState {
   draft: ComposeDraft;
   /** Server draft this composition came from or was last saved as; removed after sending. */
   draft_id: number | null;
+  /** The Message-ID of that server copy: a delete checks it, as the number may be handed out again (#92). */
+  draft_message_id?: string | null;
   /** The content is kept nowhere yet (typed in a quick reply, taken back from the outbox): save it. */
   unsaved?: boolean;
 }
@@ -87,7 +89,7 @@ export class ComposeManager {
   /** Opens the drafts kept locally when the app last stopped, and drops their copies. */
   async restoreLocal(drafts: CachedDraft[]) {
     for (const d of drafts) {
-      this.open({ account_id: d.account_id, draft: d.draft, draft_id: d.draft_id ?? null, unsaved: true });
+      this.open({ account_id: d.account_id, draft: d.draft, draft_id: d.draft_id ?? null, draft_message_id: d.draft_message_id ?? null, unsaved: true });
       await api.draftCacheDrop(d.key).catch(() => {});
     }
   }
@@ -188,8 +190,8 @@ export class ComposeManager {
   }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
-  async send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
-    const queued = await api.send(accountId, draft, draftId, at, followupSecs, followup);
+  async send(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
+    const queued = await api.send(accountId, draft, draftId, draftMessageId, at, followupSecs, followup);
     const undo = { label: t("undo"), run: () => void this.reopenOutbox(queued.id) };
     const secs = Math.round(queued.at - Date.now() / 1000);
     if (at) this.host.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);

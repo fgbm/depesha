@@ -188,14 +188,14 @@ export const api = {
   /** A letter in Markdown as the HTML it goes out as. */
   markdownHtml: (text: string) => call<string>("markdown_html", { text }),
   openLink: (url: string) => call<void>("open_link", { url }),
-  send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) =>
-    call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupSecs, followup }),
-  draftSave: (accountId: string, draft: ComposeDraft, replace: number | null) =>
-    call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
-  draftDiscard: (accountId: string, id: number) => call<void>("draft_discard", { accountId, id }),
+  send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, discardMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) =>
+    call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, discardMessageId, at, followupSecs, followup }),
+  draftSave: (accountId: string, draft: ComposeDraft, replace: number | null, replaceMessageId: string | null) =>
+    call<{ id: number; message_id: string | null } | null>("draft_save", { accountId, draft: wireDraft(draft), replace, replaceMessageId }),
+  draftDiscard: (accountId: string, id: number, messageId: string | null) => call<void>("draft_discard", { accountId, id, messageId }),
   /** The local copy of a draft, kept on every typing pause as a fallback for a crash (#71). */
-  draftCachePut: (key: string, accountId: string, draft: ComposeDraft, draftId: number | null = null) =>
-    call<void>("draft_cache_put", { key, accountId, draft, draftId }),
+  draftCachePut: (key: string, accountId: string, draft: ComposeDraft, draftId: number | null = null, draftMessageId: string | null = null) =>
+    call<void>("draft_cache_put", { key, accountId, draft, draftId, draftMessageId }),
   /** Drafts kept locally, to offer restoring when the app starts. */
   draftCacheList: () => call<CachedDraft[]>("draft_cache_list"),
   /** The draft reached the server (or was thrown away): its local copy goes. */

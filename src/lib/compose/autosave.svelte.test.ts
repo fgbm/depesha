@@ -24,7 +24,7 @@ describe("the draft saves one at a time", () => {
     vi.clearAllMocks();
     let release!: () => void;
     api.draftCachePut.mockImplementationOnce(() => new Promise<void>((r) => (release = r)));
-    api.draftSave.mockResolvedValue(7);
+    api.draftSave.mockResolvedValue({ id: 7, message_id: "m7@depesha.local" });
     const autosave = setup();
     const pending = autosave.save(false);
     // The send: nothing new may start, and the file goes even though it is still being written.
@@ -47,7 +47,7 @@ describe("the draft saves one at a time", () => {
       most = Math.max(most, ++running);
       await new Promise((r) => setTimeout(r, 5));
       running--;
-      return 7;
+      return { id: 7, message_id: "m7@depesha.local" };
     });
     const autosave = setup();
     await Promise.all([autosave.save(), autosave.save()]);

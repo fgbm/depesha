@@ -55,10 +55,20 @@ describe("keeping the drafts of a window", () => {
   it("keeps the server copy of a restored draft, so a save replaces it", async () => {
     const mgr = manager();
     api.draftCacheDrop.mockResolvedValue(undefined);
-    api.draftSave.mockResolvedValue(42);
+    const draft = emptyDraft({ name: "Me", email: "me@example.com" });
+    await mgr.restoreLocal([{ key: "k1", account_id: "a", draft, draft_id: 42, draft_message_id: "m42@depesha.local", updated: 1 }]);
+    expect(mgr.windows[0].draft_id).toBe(42);
+    // The number alone may name another draft by now: the Message-ID goes with it (#92).
+    expect(mgr.windows[0].draft_message_id).toBe("m42@depesha.local");
+  });
+
+  it("restores a copy written before the Message-ID was kept", async () => {
+    const mgr = manager();
+    api.draftCacheDrop.mockResolvedValue(undefined);
     const draft = emptyDraft({ name: "Me", email: "me@example.com" });
     await mgr.restoreLocal([{ key: "k1", account_id: "a", draft, draft_id: 42, updated: 1 }]);
     expect(mgr.windows[0].draft_id).toBe(42);
+    expect(mgr.windows[0].draft_message_id).toBeNull();
   });
 });
 
@@ -75,7 +85,7 @@ describe("the «Sending…» toast", () => {
         toast: (text: string) => (texts.push(text), 7),
         retext: (_id: number, text: string) => (texts.push(text), true),
       } as unknown as ComposeHost;
-      await new ComposeManager(host).send("a", emptyDraft({ name: "Me", email: "me@example.com" }), null, null, null);
+      await new ComposeManager(host).send("a", emptyDraft({ name: "Me", email: "me@example.com" }), null, null, null, null);
       expect(texts[0]).toMatch(/10 seconds/);
       await vi.advanceTimersByTimeAsync(3000);
       expect(texts.at(-1)).toMatch(/7 seconds/);

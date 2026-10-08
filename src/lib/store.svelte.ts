@@ -249,8 +249,8 @@ export class AppStore {
   undo() { return this.actions.undo(); }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
-  send(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
-    return this.compose.send(accountId, draft, draftId, at, followupSecs, followup);
+  send(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
+    return this.compose.send(accountId, draft, draftId, draftMessageId, at, followupSecs, followup);
   }
 
   /** Takes a queued message back into the composer. */

@@ -63,7 +63,7 @@
     app.openCompose({
       account_id: account.id,
       draft: fromDraft(msg, { name: account.display_name, email: account.email }),
-      draft_id: msg.row.id,
+      draft_id: msg.row.id, draft_message_id: msg.row.message_id,
     });
   }
 </script>

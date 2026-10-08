@@ -24,6 +24,10 @@ pub struct CachedDraft {
     /// The server copy this one continues, so a restore replaces it instead of adding a twin.
     #[serde(default)]
     pub draft_id: Option<i64>,
+    /// The Message-ID of that server copy: the number alone may be handed out again to
+    /// another draft, so a delete checks both (#92). Absent in copies written before.
+    #[serde(default)]
+    pub draft_message_id: Option<String>,
     /// When it was last written, seconds since the epoch.
     pub updated: i64,
 }
@@ -59,12 +63,14 @@ pub async fn draft_cache_put(
     account_id: String,
     draft: serde_json::Value,
     draft_id: Option<i64>,
+    draft_message_id: Option<String>,
 ) -> CmdResult<()> {
     let entry = CachedDraft {
         key,
         account_id,
         draft,
         draft_id,
+        draft_message_id,
         updated: chrono::Utc::now().timestamp(),
     };
     write(&dir(&app)?, &entry).await
@@ -136,8 +142,20 @@ mod tests {
             account_id: "a".into(),
             draft: json!({ "subject": "Привет", "text": "тело" }),
             draft_id: None,
+            draft_message_id: None,
             updated,
         }
+    }
+
+    #[test]
+    fn a_copy_written_before_the_message_id_was_kept_still_reads() {
+        let old = r#"{"key":"k","account_id":"a","draft":{},"draft_id":7,"updated":1}"#;
+        let d: CachedDraft = serde_json::from_str(old).unwrap();
+        assert_eq!((d.draft_id, d.draft_message_id), (Some(7), None));
+        let new =
+            r#"{"key":"k","account_id":"a","draft":{},"draft_id":7,"draft_message_id":"x@depesha.local","updated":1}"#;
+        let d: CachedDraft = serde_json::from_str(new).unwrap();
+        assert_eq!(d.draft_message_id.as_deref(), Some("x@depesha.local"));
     }
 
     #[test]

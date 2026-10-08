@@ -2426,6 +2426,7 @@ pub async fn send(
     account_id: String,
     draft: ComposeDraft,
     discard_draft: Option<i64>,
+    discard_message_id: Option<String>,
     at: Option<i64>,
     followup_days: Option<u32>,
     followup_secs: Option<i64>,
@@ -2448,28 +2449,37 @@ pub async fn send(
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {
-        let _ = discard(&state, &account.id, d).await;
+        let _ = discard(&state, &account.id, d, discard_message_id.as_deref()).await;
     }
     Ok(Queued { id, at: at.max(now) })
 }
 
 /// Whether the cached letter is a draft Depesha wrote in this mailbox: a number kept from an
-/// earlier run may name any letter by now, because `messages.id` is handed out again.
-fn is_own_draft(store: &depesha_core::store::Store, account_id: &str, r: &MessageRow) -> CmdResult<bool> {
+/// earlier run may name any letter by now, because `messages.id` is handed out again. With
+/// `expected` (the Message-ID of the version the caller saved) only that exact version
+/// counts: a number reissued to another Depesha draft of the folder is left alone (#92).
+fn is_own_draft(
+    store: &depesha_core::store::Store,
+    account_id: &str,
+    r: &MessageRow,
+    expected: Option<&str>,
+) -> CmdResult<bool> {
     let in_drafts = store.folder_by_role(account_id, FolderRole::Drafts)?.as_deref() == Some(r.folder.as_str());
     let own_id = r.message_id.as_deref().is_some_and(|mid| {
         let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
         bare.rsplit_once('@')
             .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(message::DRAFT_DOMAIN))
     });
-    Ok(r.account_id == account_id && in_drafts && own_id)
+    let bare = |mid: &str| mid.trim().trim_start_matches('<').trim_end_matches('>').to_owned();
+    let exact = expected.is_none_or(|want| r.message_id.as_deref().map(bare) == Some(bare(want)));
+    Ok(r.account_id == account_id && in_drafts && own_id && exact)
 }
 
 /// Deletes the draft `id` for good, and nothing else: a number that no longer names one of
 /// Depesha's drafts in this mailbox is left alone.
-async fn discard(state: &AppState, account_id: &str, id: i64) -> CmdResult<()> {
+async fn discard(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>) -> CmdResult<()> {
     let (r, validity) = state.store.get_at(id)?.ok_or_else(gone)?;
-    if !is_own_draft(&state.store, account_id, &r)? {
+    if !is_own_draft(&state.store, account_id, &r, message_id)? {
         return Ok(());
     }
     state
@@ -2485,8 +2495,8 @@ async fn discard(state: &AppState, account_id: &str, id: i64) -> CmdResult<()> {
 
 /// Deletes a saved draft for good: the user threw the composition away.
 #[tauri::command]
-pub async fn draft_discard(state: St<'_>, account_id: String, id: i64) -> CmdResult<()> {
-    discard(&state, &account_id, id).await
+pub async fn draft_discard(state: St<'_>, account_id: String, id: i64, message_id: Option<String>) -> CmdResult<()> {
+    discard(&state, &account_id, id, message_id.as_deref()).await
 }
 
 /// The Message-ID a Depesha draft carries: the local part the builder gave it, under
@@ -2511,6 +2521,14 @@ fn replace_once(raw: Vec<u8>, from: &[u8], to: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The server copy a save made: its number in the cache and its Message-ID, which the next
+/// save, the send or the discard must find on that number to delete it (#92).
+#[derive(Serialize)]
+pub struct SavedDraft {
+    id: i64,
+    message_id: Option<String>,
+}
+
 /// Saves the draft into the server's Drafts folder, replacing the previous version.
 /// Returns the saved copy, for the next save to replace it.
 #[tauri::command]
@@ -2519,7 +2537,8 @@ pub async fn draft_save(
     account_id: String,
     draft: ComposeDraft,
     replace: Option<i64>,
-) -> CmdResult<Option<i64>> {
+    replace_message_id: Option<String>,
+) -> CmdResult<Option<SavedDraft>> {
     let account = state.account(&account_id)?;
     // A mailbox without Drafts gets one, as it gets an Archive for "Done".
     let folder = role_folder(&state, &account.id, FolderRole::Drafts, pick("Drafts", "Черновики")).await?;
@@ -2571,14 +2590,17 @@ pub async fn draft_save(
         })
         .await?;
     if let Some(old) = replace {
-        let _ = discard(&state, &account.id, old).await;
+        let _ = discard(&state, &account.id, old, replace_message_id.as_deref()).await;
     }
     // The append synced the folder: the copy is in the cache unless the server hides it.
     let saved = match message_id {
         Some(mid) => state
             .store
             .find_by_message_id(&account.id, &folder, &mid)?
-            .map(|r| r.id),
+            .map(|r| SavedDraft {
+                id: r.id,
+                message_id: r.message_id,
+            }),
         None => None,
     };
     Ok(saved)
@@ -3008,10 +3030,53 @@ mod tests {
         let inbox = add("a", "INBOX", 2, "<y@depesha.local>");
         let foreign = add("a", "Drafts", 3, "<z@example.org>");
         let other = add("b", "Drafts", 4, "<w@depesha.local>");
-        assert!(super::is_own_draft(&store, "a", &own).unwrap());
-        assert!(!super::is_own_draft(&store, "a", &inbox).unwrap());
-        assert!(!super::is_own_draft(&store, "a", &foreign).unwrap());
-        assert!(!super::is_own_draft(&store, "a", &other).unwrap());
+        assert!(super::is_own_draft(&store, "a", &own, None).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &inbox, None).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &foreign, None).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &other, None).unwrap());
+    }
+
+    #[test]
+    fn a_reissued_number_does_not_delete_the_draft_that_took_it() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Store};
+        let store = Store::open_in_memory().unwrap();
+        let drafts_f = Folder {
+            name: "Drafts".into(),
+            display_name: "Drafts".into(),
+            delimiter: Some("/".into()),
+            role: Some(FolderRole::Drafts),
+            selectable: true,
+            hidden: false,
+        };
+        store.replace_folders("a", &[drafts_f]).unwrap();
+        let add = |uid: u32, mid: &str| {
+            let s = Summary {
+                message_id: Some(mid.into()),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            let id = store.insert_message("a", "Drafts", &msg).unwrap();
+            store.get_at(id).unwrap().unwrap().0
+        };
+        let first = add(1, "<one@depesha.local>");
+        let second = add(2, "<two@depesha.local>");
+        // A restored window remembers the first draft, but the number it kept is the second's now.
+        assert!(!super::is_own_draft(&store, "a", &second, Some("one@depesha.local")).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &second, Some("<one@depesha.local>")).unwrap());
+        // The exact version goes, with or without the brackets.
+        assert!(super::is_own_draft(&store, "a", &first, Some("<one@depesha.local>")).unwrap());
+        assert!(super::is_own_draft(&store, "a", &second, Some("two@depesha.local")).unwrap());
+        // A copy of the old format has no Message-ID: the plain check stays.
+        assert!(super::is_own_draft(&store, "a", &second, None).unwrap());
     }
 
     #[test]

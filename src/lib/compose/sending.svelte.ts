@@ -26,7 +26,7 @@ export interface ComposeSendHost {
   fail(e: unknown, prefix?: string): void;
   toast(text: string): void;
   /** Sends the letter through the outbox and closes the window when it is queued. */
-  sendApp(accountId: string, draft: ComposeDraft, draftId: number | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null): Promise<void>;
+  sendApp(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null): Promise<void>;
   closeCompose(id: number): void;
   showCompose(id: number, mode?: "open" | "max"): void;
   /** The address fields were committed; false when something could not be parsed. */
@@ -122,7 +122,7 @@ export class ComposeSending {
       // The saved draft goes away once the letter is sent: the latest copy must be known.
       this.host.autosave.cancel();
       await this.host.autosave.settled();
-      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withPark(this.options.followup, this.park));
+      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withPark(this.options.followup, this.park));
       // The letter left: its local copy is done with.
       await this.host.autosave.forgetLocal();
       this.host.closeCompose(win.id);
@@ -154,7 +154,7 @@ export class ComposeSending {
     this.host.autosave.cancel();
     await this.host.autosave.settled();
     await this.host.autosave.forgetLocal();
-    if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id).catch((e) => this.host.fail(e));
+    if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id, win.draft_message_id ?? null).catch((e) => this.host.fail(e));
     this.host.closeCompose(win.id);
   }
 

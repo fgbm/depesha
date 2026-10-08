@@ -119,10 +119,10 @@
     accountColor: (id) => app.accountColor(id),
     fail: (e, prefix) => app.fail(e, prefix),
     toast: (text) => app.toast(text),
-    sendApp: (a, d, id, at, secs, f) => {
+    sendApp: (a, d, id, mid, at, secs, f) => {
       // The detector of #69 counts a Markdown letter sent to a person without a rule.
       void hints.recordSend(d);
-      return app.send(a, d, id, at, secs, f);
+      return app.send(a, d, id, mid, at, secs, f);
     },
     closeCompose: (id) => app.closeCompose(id),
     showCompose: (id, mode) => app.showCompose(id, mode),

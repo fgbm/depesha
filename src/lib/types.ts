@@ -502,6 +502,8 @@ export interface CachedDraft {
   draft: ComposeDraft;
   /** The server copy this one continues, if the draft was saved there before. */
   draft_id?: number | null;
+  /** The Message-ID of that server copy; absent in copies written before it was kept (#92). */
+  draft_message_id?: string | null;
   updated: number;
 }
 

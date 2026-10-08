@@ -111,7 +111,9 @@ export class ComposeAutosave {
           return true;
         }
         this.savingNow = true;
-        win.draft_id = await api.draftSave(win.account_id, draft, win.draft_id);
+        const saved = await api.draftSave(win.account_id, draft, win.draft_id, win.draft_message_id ?? null);
+        win.draft_id = saved?.id ?? null;
+        win.draft_message_id = saved?.message_id ?? null;
         this.lastSaved = text;
         this.lastServerAt = Date.now();
         win.unsaved = false;
@@ -136,7 +138,7 @@ export class ComposeAutosave {
     // Marked before the write: a drop that comes while it is under way still removes the file.
     this.localStored = true;
     try {
-      await api.draftCachePut(this.host.win.local_id, this.host.win.account_id, draft, this.host.win.draft_id);
+      await api.draftCachePut(this.host.win.local_id, this.host.win.account_id, draft, this.host.win.draft_id, this.host.win.draft_message_id ?? null);
     } catch {
       // Best effort: the next pause, or the server copy, tries again.
     }

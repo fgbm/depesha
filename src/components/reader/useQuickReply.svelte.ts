@@ -66,9 +66,9 @@ export class QuickReplyState {
   /** Saves an answer left behind; when the server refuses, it waits folded in a window that says why. */
   private async keep(account_id: string, draft: ComposeDraft) {
     try {
-      const draft_id = await api.draftSave(account_id, draft, null);
+      const saved = await api.draftSave(account_id, draft, null, null);
       // Without the saved copy's id a window would save a second draft beside it.
-      this.host.keptAsDraft(draft_id === null ? null : () => app.openCompose({ account_id, draft, draft_id }));
+      this.host.keptAsDraft(saved === null ? null : () => app.openCompose({ account_id, draft, draft_id: saved.id, draft_message_id: saved.message_id }));
     } catch {
       app.openCompose({ account_id, draft, draft_id: null, unsaved: true }, "min");
     }
@@ -119,7 +119,7 @@ export class QuickReplyState {
       const found = await sendWarnings(draft, q.email);
       // Warnings are read and answered in the full window.
       if (found.length) return this.toWindow();
-      await app.send(q.account_id, draft, null, null, null);
+      await app.send(q.account_id, draft, null, null, null, null);
       this.quick = null;
       this.text = "";
     } catch (e) {
