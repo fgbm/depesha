@@ -48,4 +48,8 @@ describe("the frame Depesha draws Markdown in", () => {
     expect(doc).toContain("hl-kw");
     expect(doc).not.toContain("<script");
   });
+
+  it("turns DNS prefetching off, so a letter's link does not resolve ahead of a click", () => {
+    expect(srcdoc({})).toContain('<meta http-equiv="x-dns-prefetch-control" content="off">');
+  });
 });

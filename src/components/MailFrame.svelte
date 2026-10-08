@@ -49,6 +49,7 @@ body th{background:var(--md-head);font-weight:600}`;
   }
 
   const srcdoc = $derived(`<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="x-dns-prefetch-control" content="off">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:">
 <style>
 html{background:#fff;color:#1d232b}
