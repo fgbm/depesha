@@ -280,6 +280,20 @@ describe("the caret of a quick answer unfolded into a window", () => {
   });
 });
 
+describe("a message window and mail changes", () => {
+  it("does not read the folders list it has no use for", async () => {
+    const s = new AppStore();
+    await s.initWindow(1);
+    api.folders.mockClear();
+    vi.useFakeTimers();
+    emit("mail-changed", { account_id: "a", folder: "INBOX" });
+    vi.advanceTimersByTime(500);
+    await flush();
+    expect(api.folders).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
 describe("the address book changed elsewhere", () => {
   it("reads the book again", async () => {
     const s = new AppStore();
