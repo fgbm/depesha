@@ -2773,6 +2773,34 @@ mod tests {
         store.insert_message("a", folder, &msg).unwrap()
     }
 
+    /// A label set elsewhere reaches the cache only if a later fetch of the same letter
+    /// updates its keywords: `keywords` was written at the first insert and never again.
+    #[test]
+    fn a_later_fetch_updates_the_keywords_it_brought() {
+        let store = mailbox();
+        let s = summary("Отчёт", 100);
+        let first = NewMessage {
+            uid: 7,
+            summary: &s,
+            fallback_date: 0,
+            size: 1,
+            flags: Flags {
+                seen: true,
+                ..Default::default()
+            },
+            keywords: Vec::new(),
+        };
+        let id = store.insert_message("a", "INBOX", &first).unwrap();
+        assert!(store.get(id).unwrap().unwrap().keywords.is_empty());
+
+        let again = NewMessage {
+            keywords: vec!["depesha-work".into()],
+            ..first
+        };
+        store.insert_message("a", "INBOX", &again).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, ["depesha-work"]);
+    }
+
     #[test]
     fn sync_keeps_flags_the_server_has_not_stored_yet() {
         let store = mailbox();

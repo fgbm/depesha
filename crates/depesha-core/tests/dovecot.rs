@@ -844,6 +844,84 @@ async fn labels_and_namespace_over_starttls() {
     );
 }
 
+/// A label reaches the cache: one set by another client arrives with the sync, one set
+/// here at once, and can be taken off again. The row reads `keywords`, so this is what
+/// the list shows (#42).
+#[tokio::test]
+async fn labels_reach_the_cache_from_the_sync_and_at_once() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("labelscache").await;
+    imap::append(&mut conn, "INBOX", &mail("Метки", 0), "").await.unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let opts = SyncOptions { initial_limit: 20 };
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
+    let keywords = || {
+        store
+            .list(&ListQuery {
+                account_id: Some("d".into()),
+                folder: Some("INBOX".into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap()
+            .keywords
+    };
+    assert!(keywords().is_empty(), "{:?}", keywords());
+
+    // Another client sets a keyword; the next sync brings it into the cache.
+    let theirs = depesha_core::acl::keyword_of("Своя метка");
+    imap::set_keywords(&mut conn, "INBOX", None, &[1], std::slice::from_ref(&theirs), &[])
+        .await
+        .unwrap();
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
+    assert!(keywords().contains(&theirs), "{:?}", keywords());
+
+    // Depesha sets a label itself: the cache takes it in at once, without a sync.
+    let (validity, _) = store.folder_state("d", "INBOX").unwrap();
+    let label = depesha_core::acl::Label {
+        name: "Депеша".into(),
+        keyword: depesha_core::acl::keyword_of("Депеша"),
+        color: String::new(),
+    };
+    let mut conn = mail::Conn::Imap(conn);
+    mail::set_labels(
+        &mut conn,
+        &store,
+        "d",
+        "INBOX",
+        validity,
+        &[1],
+        mail::LabelChange {
+            add: std::slice::from_ref(&label),
+            remove: &[],
+        },
+    )
+    .await
+    .unwrap();
+    assert!(keywords().contains(&label.keyword), "{:?}", keywords());
+
+    // Taken off again.
+    mail::set_labels(
+        &mut conn,
+        &store,
+        "d",
+        "INBOX",
+        validity,
+        &[1],
+        mail::LabelChange {
+            add: &[],
+            remove: std::slice::from_ref(&label),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!keywords().contains(&label.keyword), "{:?}", keywords());
+}
+
 /// The ACL plugin and the public read-only namespace the stand adds (#42). MYRIGHTS
 /// answers "only read" for the shared folder, a move out of it is refused with [NOPERM],
 /// and the folder is grouped under its owner from NAMESPACE. Both the ACL plugin and the
