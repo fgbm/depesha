@@ -3635,6 +3635,39 @@ mod tests {
         }
     }
 
+    /// Step 12 first shipped without `label_check`; intermediate builds and CI left caches
+    /// numbered 12 that lack the column. A later step must add it, and a fresh cache must
+    /// already have it.
+    #[test]
+    fn a_cache_that_ran_the_first_v12_gains_the_label_check_column() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            migrate(&mut conn, &MIGRATIONS[..12]).unwrap();
+            conn.execute_batch("ALTER TABLE folder_props DROP COLUMN label_check").unwrap();
+            assert_eq!(user_version(&conn).unwrap(), 12);
+            assert!(
+                !conn
+                    .prepare("SELECT 1 FROM pragma_table_info('folder_props') WHERE name = 'label_check'")
+                    .unwrap()
+                    .exists([])
+                    .unwrap(),
+                "the column is gone: this is the first v12"
+            );
+        }
+        let store = Store::open(&path).unwrap();
+        let conn = store.conn();
+        assert_eq!(user_version(&conn).unwrap(), MIGRATIONS.len() as i64);
+        assert!(
+            conn.prepare("SELECT 1 FROM pragma_table_info('folder_props') WHERE name = 'label_check'")
+                .unwrap()
+                .exists([])
+                .unwrap(),
+            "the column was added back"
+        );
+    }
+
     #[test]
     fn a_failed_step_changes_nothing_and_the_next_start_goes_on() {
         fn broken(conn: &Connection) -> Result<()> {
