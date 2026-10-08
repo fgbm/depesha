@@ -640,12 +640,15 @@ pub async fn myrights(conn: &mut Conn, folder: &str) -> Result<Option<Rights>> {
 
 /// Reads the server's NAMESPACE answer (RFC 2342). imap-proto does not parse this
 /// response and would kill the connection on the untagged line, so the command is tagged
-/// and its answer read from the raw stream, line by line. A malformed or refused answer is
-/// an empty namespace: the folders simply stay ungrouped.
+/// and its answer read from the raw stream, line by line. A malformed or refused answer
+/// whose tagged line was reached is an empty namespace: the folders simply stay ungrouped.
+/// A read error (a timeout, an over-long answer, a closed link) leaves the rest of the
+/// answer unread and the session out of step, so it is passed on and the connection is
+/// not used again.
 pub async fn namespace(conn: &mut Conn) -> Result<Namespace> {
     let id = conn.session.run_command("NAMESPACE").await?;
     let tag = id.0.clone();
-    let text = read_tagged(conn.session.get_mut(), &tag).await.unwrap_or_default();
+    let text = read_tagged(conn.session.get_mut(), &tag).await?;
     let line = text.lines().find(|l| l.starts_with("* NAMESPACE")).unwrap_or_default();
     Ok(Namespace::parse(line.trim_start_matches("* NAMESPACE").trim()))
 }
@@ -654,14 +657,17 @@ pub async fn namespace(conn: &mut Conn) -> Result<Namespace> {
 /// way (the untagged lines), and leaves everything after the tagged line unread. One byte
 /// at a time on purpose: a chunked read could swallow the first bytes of the next answer,
 /// which are then missing from the session's own buffer, and the session would desync.
+/// One deadline covers the whole answer: a server that dribbles one byte at a time cannot
+/// hold the session open forever.
 async fn read_tagged(stream: &mut (impl AsyncRead + Unpin), tag: &str) -> Result<String> {
     use tokio::io::AsyncReadExt;
+    let deadline = tokio::time::Instant::now() + ANSWER_TIMEOUT;
     let tag = tag.as_bytes();
     let mut text = String::new();
     let mut line: Vec<u8> = Vec::new();
     loop {
         let mut byte = [0u8; 1];
-        match timeout(ANSWER_TIMEOUT, stream.read(&mut byte)).await {
+        match tokio::time::timeout_at(deadline, stream.read(&mut byte)).await {
             Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return Err(Error::Closed),
             Ok(Ok(_)) => {}
         }
@@ -1481,12 +1487,12 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
         ..
     } = conn;
     let mut handle = session.idle();
-    // Nothing is asked of the server while it idles: the silence watchdog stands down.
-    idling.store(true, Ordering::Relaxed);
+    // The `+ idling` wait is an ordinary command answer and stays under the silence
+    // watchdog; the watchdog stands down only once the server is actually idling.
     if let Err(e) = handle.init().await {
-        idling.store(false, Ordering::Relaxed);
         return Err(e.into());
     }
+    idling.store(true, Ordering::Relaxed);
     let (wait, _stop) = handle.wait_with_timeout(IDLE_RENEW);
     let response = wait.await;
     idling.store(false, Ordering::Relaxed);

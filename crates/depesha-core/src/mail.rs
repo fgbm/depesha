@@ -278,7 +278,10 @@ async fn ensure_namespaces(conn: &mut Conn, store: &Store, account_id: &str) -> 
         return Ok(ns);
     }
     let ns = match conn {
-        Conn::Imap(c) => imap::namespace(c).await.unwrap_or_default(),
+        // A read error (a timeout, a desynced session) is passed on: the connection is
+        // dropped rather than reused. A refused answer is an empty namespace, handled
+        // inside `imap::namespace`.
+        Conn::Imap(c) => imap::namespace(c).await?,
         // Exchange has no namespaces: delegated mailboxes are named by their owner instead.
         Conn::Ews(_) => crate::acl::Namespace::default(),
     };
