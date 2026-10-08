@@ -12,6 +12,15 @@
 # (сам шаблон — никогда), код выхода 1.
 set -eu
 
+# A UTF-8 locale, so `grep -i` folds the case of Cyrillic and not only of ASCII: a pattern
+# must not slip through by its case.
+for candidate in C.UTF-8 C.utf8 en_US.UTF-8; do
+  if LC_ALL="$candidate" locale charmap >/dev/null 2>&1; then
+    export LC_ALL="$candidate"
+    break
+  fi
+done
+
 patterns_file="${DEPESHA_PRIVATE_PATTERNS:-$HOME/.config/depesha/private-patterns}"
 [ -f "$patterns_file" ] || exit 0
 
@@ -19,9 +28,27 @@ patterns="$(grep -v '^[[:space:]]*#' "$patterns_file" 2>/dev/null \
   | grep -v '^[[:space:]]*$' | paste -sd'|' -)"
 [ -n "$patterns" ] || exit 0
 
+# A broken pattern makes grep fail with 2 and would let every commit through in silence.
+if printf '' | grep -E "$patterns" >/dev/null 2>&1; then
+  :
+elif [ "$?" -eq 2 ]; then
+  printf 'pre-commit: шаблоны в %s — некорректное регулярное выражение\n' "$patterns_file" >&2
+  exit 1
+fi
+
 found=0
 
-# Имена добавленных, переименованных и скопированных файлов.
+# A value against the patterns: 0 match, 1 no match, 2 an error (never a silent pass).
+matches() {
+  printf '%s' "$1" | grep -Eiq -e "$patterns" && return 0
+  local code=$?
+  [ "$code" -eq 1 ] && return 1
+  printf 'pre-commit: не удалось применить шаблоны (grep %s)\n' "$code" >&2
+  exit 1
+}
+
+# Имена добавленных, переименованных и скопированных файлов. `core.quotePath=false`, иначе
+# имя с кириллицей приходит как "\320\237…" и не совпадает с шаблоном.
 while IFS=$'\t' read -r status old new; do
   case "$status" in
     A|A*|R|R*|C|C*) ;;
@@ -29,12 +56,12 @@ while IFS=$'\t' read -r status old new; do
   esac
   for name in "$old" "$new"; do
     [ -n "$name" ] || continue
-    if printf '%s' "$name" | grep -Eiq -e "$patterns"; then
+    if matches "$name"; then
       printf '%s\n' "$name"
       found=1
     fi
   done
-done < <(git diff --cached --name-status)
+done < <(git -c core.quotePath=false diff --cached --name-status)
 
 # Содержимое текстовых файлов: бинарные пропускаем, у них проверяется только имя.
 text_files=()
@@ -47,11 +74,11 @@ done < <(git diff --cached --name-only -z)
 if [ "${#text_files[@]}" -gt 0 ]; then
   while IFS=$'\t' read -r file lineno content; do
     [ -n "$file" ] || continue
-    if printf '%s' "$content" | grep -Eiq -e "$patterns"; then
+    if matches "$content"; then
       printf '%s:%s\n' "$file" "$lineno"
       found=1
     fi
-  done < <(git diff --cached --text -U0 --no-color -- "${text_files[@]}" \
+  done < <(git -c core.quotePath=false diff --cached --text -U0 --no-color -- "${text_files[@]}" \
     | awk '
         /^\+\+\+ b\// { file = substr($0, 7); next }
         /^\+\+\+ \/dev\/null/ { next }
