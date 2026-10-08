@@ -232,7 +232,12 @@ function markup(text: string, i: number, at: number, spans: Span[]): number {
 }
 
 function escape(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /** A piece of code as HTML with the runs wrapped in `span.hl-…`, ready for the frame. */
@@ -260,13 +265,41 @@ export const HL_CSS = `<style>
 
 /** `<pre><code class="language-x">…</code></pre>` of a letter's HTML: the code inside it gets
  *  the runs of the language it names. A block with no language (or one we do not know) stays
- *  as it was. Called in a lazy chunk, the frame's own styles give the runs their colours. */
+ *  as it was. Called in a lazy chunk, the frame's own styles give the runs their colours.
+ *  The letter is read the way the browser reads it, not by a pattern of our own: a `>` inside
+ *  another attribute is no end of a tag, and `&quot;` in the code is a quote, not markup. */
 export function highlightDocument(html: string): string {
-  return html.replace(/(<pre\b[^>]*>\s*<code\b[^>]*\bclass\s*=\s*["']([^"']*)["'][^>]*>)([\s\S]*?)(<\/code>)/gi, (all, open: string, classes: string, body: string, close: string) => {
-    const m = /(?:^|\s)(?:language-|lang-)([\w+#.-]+)/i.exec(classes) ?? /(?:^|\s)([\w+#.-]+)/.exec(classes);
-    const lang = m ? canonicalLang(m[1]) : null;
-    if (!lang) return all;
-    const code = body.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
-    return open + highlightHtml(code, lang) + close;
-  });
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  let changed = false;
+  for (const code of doc.querySelectorAll("pre > code")) {
+    const lang = languageOf(code.getAttribute("class") ?? "");
+    if (!lang) continue;
+    code.replaceChildren(...highlightNodes(doc, code.textContent ?? "", lang));
+    changed = true;
+  }
+  return changed ? doc.body.innerHTML : html;
+}
+
+/** The language a `<code>` names: `language-…`/`lang-…` first, else its only word. */
+function languageOf(classes: string): string | null {
+  const m = /(?:^|\s)(?:language-|lang-)([\w+#.-]+)/i.exec(classes) ?? /(?:^|\s)([\w+#.-]+)/.exec(classes);
+  return m ? canonicalLang(m[1]) : null;
+}
+
+/** The code's runs as nodes: the text as it is, a run in a `span.hl-…`. */
+function highlightNodes(doc: Document, code: string, lang: string): Node[] {
+  const spans = highlightTokens(code, lang);
+  const nodes: Node[] = [];
+  let at = 0;
+  for (const s of spans) {
+    if (s.from < at) continue;
+    if (s.from > at) nodes.push(doc.createTextNode(code.slice(at, s.from)));
+    const span = doc.createElement("span");
+    span.className = `hl-${s.cls}`;
+    span.textContent = code.slice(s.from, s.to);
+    nodes.push(span);
+    at = s.to;
+  }
+  if (at < code.length) nodes.push(doc.createTextNode(code.slice(at)));
+  return nodes;
 }
