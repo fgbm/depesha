@@ -255,7 +255,7 @@ async fn idle_sees_new_mail() {
     if !enabled() {
         return;
     }
-    let carol = Credentials::new("bob", "secret");
+    let carol = Credentials::new("carol", "secret");
     let conn = imap::connect(&imap_server(), &carol).await.unwrap();
     let waiter = tokio::spawn(async move {
         imap::wait_for_changes(conn, "INBOX", std::time::Duration::from_secs(2))
@@ -265,7 +265,7 @@ async fn idle_sees_new_mail() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let draft = Draft {
         from: Some(addr("alice@local.test")),
-        to: vec![addr("bob@local.test")],
+        to: vec![addr("carol@local.test")],
         subject: "IDLE".into(),
         text: "ping".into(),
         ..Default::default()
