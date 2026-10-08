@@ -568,10 +568,14 @@ settings.checking
 settings.chooseFolder
 settings.composeFormat
 settings.composeFormatNote
+settings.dayStart
+settings.dayStartNote
 settings.defaultAccount
 settings.defaultAccountContext
 settings.defaultAccountNote
 settings.dndNote
+settings.eveningStart
+settings.eveningStartNote
 settings.find
 settings.findNone
 settings.formatByPeople
@@ -599,6 +603,7 @@ settings.letterViewInherit
 settings.list
 settings.newMessages
 settings.noWait
+settings.noWorkDays
 settings.notifications
 settings.notifyAll
 settings.notifyNone
@@ -633,6 +638,8 @@ settings.senderLogos
 settings.senderLogosNote
 settings.sending
 settings.signedNote
+settings.snoozeTimes
+settings.snoozeTimesNote
 settings.theme.systemNote
 settings.threads
 settings.title
@@ -643,6 +650,7 @@ settings.updatesAuto
 settings.updatesAutoNote
 settings.updatesNotify
 settings.updatesOff
+settings.workDays
 sidebar.fold
 sidebar.foldFolder
 sidebar.labels

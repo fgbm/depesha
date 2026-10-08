@@ -1,4 +1,4 @@
-component	src/App.svelte	340	223	71	46
+component	src/App.svelte	334	217	71	46
 component	src/MessageWindow.svelte	120	86	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
@@ -23,8 +23,8 @@ component	src/components/MessageList.svelte	676	187	111	378
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
-component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	639	252	93	294
+component	src/components/Popover.svelte	230	123	33	74
+component	src/components/Preferences.svelte	643	256	93	294
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
@@ -61,7 +61,7 @@ component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
 component	src/components/prefs/FolderProps.svelte	415	19	179	217
-component	src/components/prefs/GeneralPanel.svelte	257	27	73	157
+component	src/components/prefs/GeneralPanel.svelte	321	40	96	185
 component	src/components/prefs/HintsSection.svelte	115	35	29	51
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
 component	src/components/prefs/MailPanel.svelte	230	17	128	85
@@ -138,6 +138,8 @@ function	plugins/followups/fixtures.ts::sayIn	11
 function	plugins/followups/fixtures.ts::wait	20
 function	plugins/followups/fixtures.ts::letter	29
 function	plugins/followups/fixtures.ts::incoming	13
+function	plugins/followups/index.test.ts::fakeContext	18
+function	plugins/followups/index.test.ts::opened	1
 function	plugins/followups/index.ts::waiting	4
 function	plugins/followups/index.ts::repick	1
 function	plugins/followups/labels.ts::labelMaker	21
@@ -151,6 +153,8 @@ function	plugins/followups/rows.test.ts::f	1
 function	plugins/followups/rows.ts::rowTag	43
 function	plugins/followups/rows.ts::goingTag	9
 function	plugins/followups/rows.ts::since	6
+function	plugins/followups/stop.ts::isWaiting	4
+function	plugins/followups/stop.ts::registerStop	22
 function	plugins/followups/strings.test.ts::holes	1
 function	plugins/followups/strings.test.ts::pairs	10
 function	plugins/followups/view.test.ts::fakeContext	13
@@ -173,16 +177,74 @@ function	plugins/preflight/check.test.ts::draft	3
 function	plugins/preflight/check.ts::ownText	8
 function	plugins/preflight/check.ts::domain	3
 function	plugins/preflight/check.ts::preflight	19
-function	plugins/snooze/SnoozeButton.svelte::pick	5
-function	plugins/snooze/SnoozeRowMenu.svelte::pick	4
+function	plugins/snooze/SnoozeButton.svelte::toggle	4
+function	plugins/snooze/SnoozeMenu.svelte::env	6
+function	plugins/snooze/SnoozeMenu.svelte::win	1
+function	plugins/snooze/SnoozeMenu.svelte::place	6
+function	plugins/snooze/SnoozeMenu.svelte::focusPicker	8
+function	plugins/snooze/SnoozeMenu.svelte::apply	8
+function	plugins/snooze/SnoozeMenu.svelte::onKey	26
+function	plugins/snooze/SnoozeMenu.svelte::outside	5
+function	plugins/snooze/SnoozeMenu.svelte::weekday	1
+function	plugins/snooze/SnoozeMenu.svelte::title	1
+function	plugins/snooze/SnoozeMenu.svelte::clock	1
+function	plugins/snooze/actions.ts::unsnoozeMail	16
 function	plugins/snooze/actions.ts::snoozeMail	8
+function	plugins/snooze/anchor.ts::anchorOfButton	4
+function	plugins/snooze/anchor.ts::readerButtonAnchor	4
+function	plugins/snooze/format.ts::fmtDay	3
+function	plugins/snooze/format.ts::fmtTime	3
+function	plugins/snooze/format.ts::fmtWhen	3
+function	plugins/snooze/index.test.ts::fakeContext	44
+function	plugins/snooze/index.test.ts::message	1
+function	plugins/snooze/index.ts::presetCommands	13
+function	plugins/snooze/index.ts::snoozed	2
+function	plugins/snooze/menu.svelte.ts::digitOf	4
+function	plugins/snooze/menu.svelte.ts::row	10
+function	plugins/snooze/menu.test.ts::open	3
+function	plugins/snooze/menu.test.ts::press	1
+function	plugins/snooze/menu.test.ts::stamp	1
+function	plugins/snooze/menu.test.ts::type	4
+function	plugins/snooze/parse.test.ts::stamp	1
+function	plugins/snooze/parse.test.ts::when	4
+function	plugins/snooze/parse.ts::weekdayOf	9
+function	plugins/snooze/parse.ts::monthOf	3
+function	plugins/snooze/parse.ts::dateOf	6
+function	plugins/snooze/parse.ts::take	5
+function	plugins/snooze/parse.ts::readRelative	12
+function	plugins/snooze/parse.ts::readDate	13
+function	plugins/snooze/parse.ts::readDayWord	10
+function	plugins/snooze/parse.ts::readTime	17
+function	plugins/snooze/parse.ts::rest	3
+function	plugins/snooze/parse.ts::parseWhen	22
+function	plugins/snooze/picker.svelte.ts::moveMonth	6
+function	plugins/snooze/picker.svelte.ts::offset	2
+function	plugins/snooze/picker.svelte.ts::total	2
+function	plugins/snooze/picker.svelte.ts::weekday	11
+function	plugins/snooze/picker.test.ts::open	1
+function	plugins/snooze/picker.test.ts::press	1
+function	plugins/snooze/picker.test.ts::day	1
+function	plugins/snooze/picker.test.ts::stamp	1
+function	plugins/snooze/state.svelte.ts::openSnooze	3
+function	plugins/snooze/state.svelte.ts::closeSnooze	3
+function	plugins/snooze/times.test.ts::show	2
+function	plugins/snooze/times.test.ts::week	1
+function	plugins/snooze/times.ts::isoDay	3
+function	plugins/snooze/times.ts::addDays	5
+function	plugins/snooze/times.ts::atClock	5
+function	plugins/snooze/times.ts::sameDay	3
+function	plugins/snooze/times.ts::nextIsoDay	3
+function	plugins/snooze/times.ts::firstWorkDay	7
+function	plugins/snooze/times.ts::addMonths	4
+function	plugins/snooze/times.ts::slots	12
+function	plugins/snooze/times.ts::workdaySlots	3
+function	plugins/snooze/times.ts::inMinutes	5
 function	plugins/templates/TemplatesSettings.svelte::save	5
 function	plugins/templates/TemplatesSettings.svelte::changed	3
 function	src/App.svelte::drag	18
 function	src/App.svelte::refocusList	6
 function	src/App.svelte::zoneAt	5
 function	src/App.svelte::labelTarget	4
-function	src/App.svelte::labelsAnchor	5
 function	src/App.svelte::action	4
 function	src/App.svelte::onKey	55
 function	src/MessageWindow.svelte::onKey	27
@@ -262,13 +324,13 @@ function	src/components/Plugins.svelte::put	7
 function	src/components/Plugins.svelte::answer	15
 function	src/components/Plugins.svelte::remove	11
 function	src/components/Plugins.svelte::permission	7
-function	src/components/Popover.svelte::place	23
+function	src/components/Popover.svelte::place	28
 function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
 function	src/components/Preferences.svelte::start	5
 function	src/components/Preferences.svelte::openHit	12
-function	src/components/Preferences.svelte::savePage	13
+function	src/components/Preferences.svelte::savePage	16
 function	src/components/Preferences.svelte::revertPage	14
 function	src/components/Preferences.svelte::save	4
 function	src/components/Preferences.svelte::cancel	5
@@ -379,6 +441,8 @@ function	src/components/account/sections.ts::sectionsFor	3
 function	src/components/prefs/FolderProps.svelte::rightsLetters	16
 function	src/components/prefs/FolderProps.svelte::runCheck	9
 function	src/components/prefs/FolderProps.svelte::pos	8
+function	src/components/prefs/GeneralPanel.svelte::weekday	4
+function	src/components/prefs/GeneralPanel.svelte::toggleDay	3
 function	src/components/prefs/GeneralPanel.svelte::choose	4
 function	src/components/prefs/HintsSection.svelte::load	7
 function	src/components/prefs/HintsSection.svelte::clear	10
@@ -427,9 +491,13 @@ function	src/lib/accountForm.svelte.ts::oauthFor	7
 function	src/lib/accountForm.svelte.ts::limitMb	4
 function	src/lib/accountForm.svelte.ts::fingerprint	3
 function	src/lib/accountForm.test.ts::waitingBrowser	8
-function	src/lib/actions.svelte.ts::moved	7
 function	src/lib/actions.test.ts::inbox	7
 function	src/lib/actions.test.ts::run	3
+function	src/lib/anchor.test.ts::row	1
+function	src/lib/anchor.ts::anchorOf	3
+function	src/lib/anchor.ts::placeMenu	13
+function	src/lib/anchor.ts::placeSide	7
+function	src/lib/anchor.ts::keyAnchor	4
 function	src/lib/api.ts::asError	4
 function	src/lib/api.ts::call	7
 function	src/lib/api.ts::wireDraft	8
@@ -658,7 +726,6 @@ function	src/lib/later.ts::nextMonday	4
 function	src/lib/later.ts::when	9
 function	src/lib/later.ts::preset	4
 function	src/lib/later.ts::uniq	3
-function	src/lib/later.ts::snoozePresets	11
 function	src/lib/later.ts::sendLaterPresets	7
 function	src/lib/later.ts::toLocalInput	5
 function	src/lib/later.ts::fromLocalInput	4
@@ -922,7 +989,7 @@ function	src/lib/store.test.ts::walk	9
 function	src/lib/store.test.ts::started	6
 function	src/lib/syntax.test.ts::runs	3
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	36
+function	src/lib/testing.ts::settings	39
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3
@@ -940,13 +1007,17 @@ function	src/lib/viewer.ts::blobType	4
 function	src/lib/viewer.ts::decodeText	12
 function	src/lib/viewer.ts::parseCsv	34
 function	src/lib/viewers.ts::registerCoreViewers	3
+function	src/lib/workTime.ts::parseClock	7
+function	src/lib/workTime.ts::formatClock	3
+function	src/lib/workTime.ts::workTimeFrom	8
+function	src/lib/workTime.ts::cleanWorkTime	11
 function	src/plugin-api/boundary.test.ts::files	7
 function	src/plugin-api/boundary.test.ts::imports	5
 function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
 function	src/plugin-host/host.svelte.ts::sharedCounters	21
 function	src/plugin-host/host.svelte.ts::allCommands	3
-function	src/plugin-host/host.svelte.ts::context	68
+function	src/plugin-host/host.svelte.ts::context	70
 function	src/plugin-host/host.svelte.ts::rest#1	2
 function	src/plugin-host/host.svelte.ts::rest#2	2
 function	src/plugin-host/host.test.ts::run#1	1
