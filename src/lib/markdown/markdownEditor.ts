@@ -12,7 +12,7 @@ import { composeAction } from "../composeKeys";
 import { t } from "../i18n.svelte";
 import { markdownSupport } from "./dialect";
 import { editSpec, formatsAt, inTableAt } from "./field";
-import { previewPieces, type PreviewOptions } from "./preview";
+import { isOwnPicture, previewPieces, type PreviewOptions } from "./preview";
 import { TableView, cellFocus } from "./tableWidget";
 import { codeEdit, headingEdit, imageAt, pictureAltEdit, pictureEdit, pictureRemoveEdit, tableEdit } from "./mdedits";
 import { tableSource } from "./table";
@@ -113,10 +113,20 @@ class Picture extends WidgetType {
   toDOM(view: EditorView) {
     const box = document.createElement("span");
     box.className = "md-picture";
-    const img = document.createElement("img");
-    img.src = this.url;
-    img.alt = this.alt;
-    box.append(img);
+    // Only a picture of its own is drawn: a remote one would load in the window (and tell
+    // the sender it was opened). Its address is shown instead.
+    if (isOwnPicture(this.url)) {
+      const img = document.createElement("img");
+      img.src = this.url;
+      img.alt = this.alt;
+      box.append(img);
+    } else {
+      const remote = document.createElement("span");
+      remote.className = "md-picture-remote";
+      remote.textContent = this.alt || this.url;
+      remote.title = this.url;
+      box.append(remote);
+    }
     box.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
@@ -396,6 +406,17 @@ const theme = EditorView.theme({
   // An image in the letter: shown in place, no wider than the text.
   ".md-picture": { display: "block", margin: "4px 0", cursor: "pointer" },
   ".md-picture img": { maxWidth: "100%", height: "auto", borderRadius: "4px", border: "1px solid var(--line)" },
+  // A remote picture is not drawn: its address stands in for it.
+  ".md-picture-remote": {
+    display: "inline-block",
+    maxWidth: "100%",
+    padding: "2px 8px",
+    border: "1px dashed var(--line)",
+    borderRadius: "4px",
+    color: "var(--muted)",
+    fontSize: "12px",
+    overflowWrap: "anywhere",
+  },
   // The table: drawn as the recipient sees it, edited in its cells.
   // `contain: inline-size` keeps the table's width out of the editor's own content width, so a
   // wide table scrolls in its own scroller (frame 4А) rather than the whole letter sideways.

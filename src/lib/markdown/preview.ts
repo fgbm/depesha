@@ -72,6 +72,15 @@ class Pass {
   }
 }
 
+/**
+ * A picture the letter may be drawn in place: one of its own (`data:`), an inline part of
+ * it (`cid:`) or a blob it just made. A remote one would load in the window (and tell the
+ * sender it was opened), so the editor shows its address instead.
+ */
+export function isOwnPicture(url: string): boolean {
+  return /^(?:data:|cid:|blob:)/i.test(url);
+}
+
 export function previewPieces(state: EditorState, opts: PreviewOptions): Piece[] {
   const pass = new Pass(state.doc, state, opts);
   const tree = ensureSyntaxTree(state, state.doc.length, PARSE_MS) ?? syntaxTree(state);

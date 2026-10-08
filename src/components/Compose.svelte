@@ -19,6 +19,7 @@
   import { app, type ComposeWindow } from "../lib/store.svelte";
   import { SIGNATURE_CLASS } from "../lib/richtext";
   import { signatureShown } from "../lib/signatures";
+  import { cleanRemoteHtml } from "../lib/sanitize";
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import type { BodyFormat, Signature } from "../lib/types";
@@ -406,7 +407,7 @@
           <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
             {#if shown && "html" in shown}
               <!-- eslint-disable-next-line svelte/no-at-html-tags -- the user's own signature -->
-              <div class="sig-html">{@html shown.html}</div>
+              <div class="sig-html">{@html cleanRemoteHtml(shown.html)}</div>
             {:else}
               <div class="sig-text">{(shown && shown.text) || t("compose.signature.noText")}</div>
             {/if}
