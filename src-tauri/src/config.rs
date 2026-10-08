@@ -99,6 +99,12 @@ pub struct Settings {
     pub tray_always: bool,
     /// The suggestions of 0.7 (#69): the one switch that turns every one of them off.
     pub hints: bool,
+    /// When the day begins for «Snooze» (#95), `H:MM`: «Tomorrow» and the working days point here.
+    pub day_start: String,
+    /// When the evening begins for «Snooze», `H:MM`: «This evening» points here.
+    pub evening_start: String,
+    /// Working days for «Snooze», ISO: 1 Monday … 7 Sunday. Empty means none.
+    pub work_days: Vec<u8>,
 }
 
 fn plain() -> BodyFormat {
@@ -146,6 +152,9 @@ impl Default for Settings {
             tray_count: true,
             tray_always: true,
             hints: true,
+            day_start: "9:00".into(),
+            evening_start: "18:00".into(),
+            work_days: vec![1, 2, 3, 4, 5],
         }
     }
 }
@@ -297,6 +306,20 @@ mod tests {
             assert_eq!(s.autostart, "off");
             assert!(s.tray_count && s.tray_always);
         }
+    }
+
+    /// The times of «Snooze» (#95): a config from before them reads with the defaults.
+    #[test]
+    fn snooze_times_default_for_old_configs() {
+        let old: Settings = serde_json::from_str(r#"{"undo_send_secs":5}"#).unwrap();
+        for s in [&old, &Settings::default()] {
+            assert_eq!((s.day_start.as_str(), s.evening_start.as_str()), ("9:00", "18:00"));
+            assert_eq!(s.work_days, vec![1, 2, 3, 4, 5]);
+        }
+        let mine: Settings = serde_json::from_str(r#"{"day_start":"8:30","work_days":[]}"#).unwrap();
+        assert_eq!(mine.day_start, "8:30");
+        assert!(mine.work_days.is_empty());
+        assert_eq!(mine.evening_start, "18:00");
     }
 
     #[test]

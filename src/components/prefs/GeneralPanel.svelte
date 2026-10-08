@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { t } from "../../lib/i18n.svelte";
+  import { i18n, t } from "../../lib/i18n.svelte";
+  import { parseClock } from "../../lib/workTime";
   import { THEMES } from "../../lib/theme";
   import { app } from "../../lib/store.svelte";
   import Select from "../Select.svelte";
@@ -19,6 +20,18 @@
     largeValue: number;
     largeUnit: "mb" | "gb";
   } = $props();
+
+  const WEEK = [1, 2, 3, 4, 5, 6, 7];
+
+  /** «Пн», «Mon»: ISO day 1 is a Monday; 1 January 2024 was one. */
+  function weekday(iso: number): string {
+    const name = new Intl.DateTimeFormat(i18n.lang, { weekday: "short" }).format(new Date(2024, 0, iso));
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+
+  function toggleDay(day: number) {
+    draft.work_days = draft.work_days.includes(day) ? draft.work_days.filter((d) => d !== day) : [...draft.work_days, day].sort((a, b) => a - b);
+  }
 
   /** A radio choice of the snippet below: the field and the value are its own. */
   function choose(group: "language" | "notify" | "updates" | "letter_view", value: string) {
@@ -69,6 +82,29 @@
       />
     </div>
     <p class="hint">{t("settings.largeMailNote")}</p>
+  </section>
+  <section data-settings="general-snooze">
+    <h4>{t("settings.snoozeTimes")}</h4>
+    <div class="inline">
+      <span class="lbl">{t("settings.dayStart")}</span>
+      <input class="input clock" class:bad={!parseClock(draft.day_start)} aria-label={t("settings.dayStart")} bind:value={draft.day_start} />
+      <span class="note">{t("settings.dayStartNote")}</span>
+    </div>
+    <div class="inline">
+      <span class="lbl">{t("settings.eveningStart")}</span>
+      <input class="input clock" class:bad={!parseClock(draft.evening_start)} aria-label={t("settings.eveningStart")} bind:value={draft.evening_start} />
+      <span class="note">{t("settings.eveningStartNote")}</span>
+    </div>
+    <div class="inline">
+      <span class="lbl">{t("settings.workDays")}</span>
+      <span class="days">
+        {#each WEEK as day (day)}
+          <label><input type="checkbox" checked={draft.work_days.includes(day)} onchange={() => toggleDay(day)} />{weekday(day)}</label>
+        {/each}
+      </span>
+    </div>
+    <p class="hint">{t("settings.snoozeTimesNote")}</p>
+    {#if draft.work_days.length === 0}<p class="hint warn">{t("settings.noWorkDays")}</p>{/if}
   </section>
   <section data-settings="general-hints">
     <h4>{t("settings.hints")}</h4>
@@ -253,5 +289,33 @@
 
   .large {
     width: 72px;
+  }
+
+  .lbl {
+    min-width: 120px;
+  }
+
+  .clock {
+    width: 72px;
+  }
+
+  .clock.bad {
+    border-color: var(--warn);
+  }
+
+  .days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .days label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .warn {
+    color: var(--accent);
   }
 </style>

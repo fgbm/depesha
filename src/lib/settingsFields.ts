@@ -36,6 +36,13 @@ export const SETTINGS_FIELDS: FieldSpec[] = [
   { page: "general", section: "settings.search", label: "settings.largeMail", also: ["unit.mb", "unit.gb"], anchor: "general-search" },
   {
     page: "general",
+    section: "settings.snoozeTimes",
+    label: "settings.dayStart",
+    also: ["settings.eveningStart", "settings.workDays"],
+    anchor: "general-snooze",
+  },
+  {
+    page: "general",
     section: "settings.hints",
     label: "hints.enable",
     also: ["hints.note", "hints.forget", "hints.what", "hints.answer"],

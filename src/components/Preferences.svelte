@@ -17,6 +17,7 @@
   import { applyTheme } from "../lib/theme";
   import { accountLabel } from "../lib/format";
   import { threshold } from "../lib/largeMail";
+  import { cleanWorkTime } from "../lib/workTime";
   import { levels } from "../lib/quota";
   import { buildSettingsIndex } from "../lib/settingsFields";
   import { searchSettings } from "../lib/settingsSearch";
@@ -157,7 +158,10 @@
     const patch: Record<string, unknown> = {};
     for (const k of keys) patch[k] = (d as unknown as Record<string, unknown>)[k];
     if (p === "mail") patch.attachments_dir = String(patch.attachments_dir ?? "").trim();
-    if (p === "general") patch.large_mb = threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb);
+    if (p === "general") {
+      patch.large_mb = threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb);
+      Object.assign(patch, cleanWorkTime(d, app.settings));
+    }
     if (p === "notifications") patch.quota_levels = levels(d.quota_levels).sort((a, b) => a - b) as [number, number];
     await app.patchSettings(patch);
   }

@@ -593,6 +593,10 @@ export interface Settings {
   tray_always: boolean;
   /** The suggestions of 0.7 (#69): the one switch that turns every one of them off. */
   hints: boolean;
+  /** When the day and the evening begin for «Snooze» (#95), «9:00»; the days it counts as work, ISO 1 Monday … 7 Sunday. */
+  day_start: string;
+  evening_start: string;
+  work_days: number[];
 }
 
 /** What a search found in the cache: letters and their bytes. */
