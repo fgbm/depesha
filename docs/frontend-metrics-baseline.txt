@@ -425,7 +425,7 @@ function	src/lib/arrivals.test.ts::letter	1
 function	src/lib/avatars.svelte.ts::avatarOf	15
 function	src/lib/background.svelte.ts::listenBackground	10
 function	src/lib/background.svelte.ts::quitApp	3
-function	src/lib/background.svelte.ts::askClose	29
+function	src/lib/background.svelte.ts::askClose	31
 function	src/lib/background.svelte.ts::askQuit	11
 function	src/lib/background.svelte.ts::trayAction	5
 function	src/lib/background.svelte.ts::tellMissed	15
@@ -883,6 +883,7 @@ function	src/lib/store.test.ts::accWith	7
 function	src/lib/store.test.ts::typing	9
 function	src/lib/store.test.ts::noAnimation	5
 function	src/lib/store.test.ts::caret	21
+function	src/lib/store.test.ts::walk	9
 function	src/lib/store.test.ts::started	6
 function	src/lib/syntax.test.ts::runs	3
 function	src/lib/testing.ts::emit	5
