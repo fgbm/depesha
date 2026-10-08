@@ -119,6 +119,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cargo test -p depesha-core --lib
+      # Attachment path spellings (#79): string tests plus one on a real file, which only Windows can run.
+      - if: runner.os == 'Windows'
+        run: cargo test -p depesha --lib paths::
       # Packages only; update artifacts need the signing key, which only releases get.
       - run: npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v7

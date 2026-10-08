@@ -203,6 +203,26 @@ mod tests {
         assert_ne!(windows_key(r"C:\a\b\..\c.pdf"), windows_key(r"C:\a\c.pdf"));
     }
 
+    /// A real file on a real Windows file system: a spelling of its path other than
+    /// the granted one (drive letter, `\\?\` prefix, `/`) is the same file (#79).
+    #[cfg(windows)]
+    #[test]
+    fn a_real_file_is_found_under_another_spelling() {
+        let file = std::env::temp_dir().join(format!("depesha-paths-{}.txt", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        let plain = file.to_string_lossy().into_owned();
+        let mut chars = plain.chars();
+        let lower_drive = format!("{}{}", chars.next().unwrap().to_ascii_lowercase(), chars.as_str());
+        let granted = lower_drive.replace('\\', "/");
+        let asked = format!(r"\\?\{}", plain.to_uppercase());
+
+        let paths = Paths::default();
+        paths.allow(Use::Attach, PathBuf::from(&granted));
+        let found = paths.check(Use::Attach, &asked);
+        std::fs::remove_file(&file).unwrap();
+        assert!(found.is_ok(), "{asked} was refused after {granted} was chosen");
+    }
+
     #[test]
     fn a_save_target_is_written_once() {
         let paths = Paths::default();
