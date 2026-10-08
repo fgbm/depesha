@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Banner, KeyBinding, Moved, OpenedMessage, PluginContext, RowAction } from "@depesha/plugin-api";
+import { i18n } from "../../src/lib/i18n.svelte";
 import { row } from "../../src/lib/testing";
 import plugin from "./index";
 
@@ -21,7 +22,7 @@ function fakeContext(opened: OpenedMessage | null = null) {
     mail: {
       opened: () => opened,
       selection: () => [],
-      folders: () => [{ account_id: "a", name: "INBOX", display_name: "Входящие" }],
+      folders: () => [{ account_id: "a", name: "INBOX", display_name: "INBOX", role: "inbox" }],
       perform: async (text: string | ((m: Moved[]) => string), ids: number[], run: (ids: number[]) => Promise<Moved[]>) => {
         const done = await run(ids);
         texts.push(typeof text === "function" ? text(done) : text);
@@ -48,6 +49,7 @@ const message = (snoozed_until: number | null) => ({ row: row(1, { snoozed_until
 
 describe("bringing snoozed mail back now (#93)", () => {
   it("is a button in the line over a snoozed letter, and only there", () => {
+    i18n.lang = "ru";
     const { banner, backend, texts } = fakeContext();
     expect(banner(message(null))).toBeNull();
     const action = banner(message(5000))?.actions?.[0];

@@ -762,15 +762,15 @@ try {
 
       // Record a key there: it takes effect with no «Save», at once.
       await d.click(await d.find(`${row("core.reply")} button.combo`));
-      await press("w");
+      await press("m");
       await d.until("changed", async () => (await d.findAll(`${row("core.reply")}.changed`)).length === 1);
       const saved = (await invoke("settings_get")).keybindings.custom;
-      if (saved["core.reply"]?.[0] !== "w") throw new Error(`не сохранилось сразу: ${JSON.stringify(saved)}`);
+      if (saved["core.reply"]?.[0] !== "m") throw new Error(`не сохранилось сразу: ${JSON.stringify(saved)}`);
       await closeSettings();
-      // The new key runs at once in the main window: w answers the open letter.
+      // The new key runs at once in the main window: m answers the open letter.
       await openFolder("Входящие");
       await openBySubject("Счёт за октябрь");
-      await press("w");
+      await press("m");
       await d.until("answered by the new key", async () => (await d.findAll(".compose")).length === 1);
       await d.click(await d.find(".compose header button:last-child"));
       await composeClosed();

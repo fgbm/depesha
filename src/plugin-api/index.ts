@@ -13,7 +13,7 @@ export { default as Select } from "../components/Select.svelte";
 /** A key as menus and the palette show it, `e у`: `key="Mod+k"`, or `of` a command's key. */
 export { default as Keys } from "../components/Keys.svelte";
 export { fromLocalInput, sendLaterPresets, snoozePresets, toLocalInput, when, type Preset } from "../lib/later";
-export { addrName, listDate, matches, size } from "../lib/format";
+export { addrName, listDate, matches, roleLabel, size } from "../lib/format";
 export type { FileViewer, ViewedFile } from "../lib/viewer";
 import type { FileViewer } from "../lib/viewer";
 
