@@ -2120,7 +2120,8 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft,
-                forwarded = excluded.forwarded, answered_all = excluded.answered_all
+                forwarded = excluded.forwarded, answered_all = excluded.answered_all,
+                keywords = excluded.keywords
              RETURNING id",
         )?
         .query_row(

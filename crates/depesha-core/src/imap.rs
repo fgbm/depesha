@@ -1027,6 +1027,9 @@ pub async fn enable_qresync(conn: &mut Conn) -> Result<()> {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Changes {
     pub flags: Vec<(u32, Flags)>,
+    /// The own keywords (labels) the same `FLAGS` reported, by UID: a label another client
+    /// set must reach the cache, not only the first insert of a letter.
+    pub keywords: Vec<(u32, Vec<String>)>,
     /// Expunged UIDs (QRESYNC); may name UIDs that were never cached.
     pub vanished: Vec<RangeInclusive<u32>>,
 }
@@ -1042,17 +1045,20 @@ impl Changes {
             Response::Fetch(_, attrs) => {
                 let mut uid = None;
                 let mut flags = None;
+                let mut keywords = None;
                 for a in attrs {
                     match a {
                         AttributeValue::Uid(u) => uid = Some(*u),
                         AttributeValue::Flags(f) => {
                             flags = Some(Flags::from_imap(f.iter().map(|s| Flag::from(s.to_string()))));
+                            keywords = Some(keywords_of(f.iter().map(|s| Flag::from(s.to_string()))));
                         }
                         _ => {}
                     }
                 }
-                if let (Some(uid), Some(flags)) = (uid, flags) {
+                if let (Some(uid), Some(flags), Some(keywords)) = (uid, flags, keywords) {
                     self.flags.push((uid, flags));
+                    self.keywords.push((uid, keywords));
                 }
             }
             Response::Vanished { uids, .. } => self.vanished.extend(uids.iter().cloned()),
@@ -1465,6 +1471,20 @@ mod tests {
         // A greeting without the list says nothing about the server.
         let (_, resp) = Response::parse(b"* OK Dovecot ready.\r\n").unwrap();
         assert_eq!(greeting_line(&resp), None);
+    }
+
+    /// The FETCH of changed flags carries the keywords too; the sync writes them into the
+    /// cache, so a label another client set shows up.
+    #[test]
+    fn changed_flags_carry_their_keywords() {
+        let (_, resp) =
+            Response::parse(b"* 1 FETCH (UID 7 FLAGS (\\Seen depesha-work $Forwarded))\r\n").unwrap();
+        let mut changes = Changes::default();
+        changes.take(&resp);
+        assert_eq!(changes.flags.len(), 1);
+        assert_eq!(changes.flags[0].0, 7);
+        // The convention keyword is not a label.
+        assert_eq!(changes.keywords, [(7, vec!["depesha-work".to_owned()])]);
     }
 
     #[test]

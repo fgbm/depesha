@@ -4,7 +4,7 @@
 //! "Check again" learned: MYRIGHTS or Exchange's EffectiveRights, the PERMANENTFLAGS,
 //! the owner from NAMESPACE, and the last refusal, remembered so the button stays off.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{Store, add_column};
 use crate::Result;
@@ -308,6 +308,73 @@ impl Store {
             params![account_id, folder, uid, json],
         )?;
         Ok(())
+    }
+
+    /// The own keywords of many messages as one fetch reported them: the sync writes here
+    /// for IMAP `FLAGS` and Exchange `Categories`, so a label another client set reaches
+    /// the cache, not only the first insert of a letter.
+    pub fn update_keywords(&self, account_id: &str, folder: &str, rows: &[(u32, Vec<String>)]) -> Result<usize> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let payload: Vec<serde_json::Value> = rows.iter().map(|(uid, kw)| serde_json::json!([uid, kw])).collect();
+        // Each listed UID found by the index, as in `write_flags`.
+        Ok(self
+            .conn()
+            .prepare_cached(
+                "WITH s AS MATERIALIZED (
+                    SELECT m.id AS id, j.value ->> 1 AS keywords
+                    FROM json_each(?3) j CROSS JOIN messages m
+                        ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value ->> 0
+                 )
+                 UPDATE messages SET keywords = s.keywords FROM s
+                 WHERE messages.id = s.id AND messages.keywords IS NOT s.keywords",
+            )?
+            .execute(params![
+                account_id,
+                folder,
+                serde_json::to_string(&payload).unwrap_or_else(|_| "[]".into())
+            ])?)
+    }
+
+    /// Adds and removes keywords on messages here alone, as a label set by the user just
+    /// did on the server: the row shows it at once, without waiting for a sync.
+    pub fn adjust_keywords(
+        &self,
+        account_id: &str,
+        folder: &str,
+        uids: &[u32],
+        add: &[String],
+        remove: &[String],
+    ) -> Result<usize> {
+        if uids.is_empty() || (add.is_empty() && remove.is_empty()) {
+            return Ok(0);
+        }
+        let conn = self.conn();
+        let mut n = 0;
+        for &uid in uids {
+            let current: Option<String> = conn
+                .query_row(
+                    "SELECT keywords FROM messages WHERE account_id = ?1 AND folder = ?2 AND uid = ?3",
+                    params![account_id, folder, uid],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let Some(current) = current else { continue };
+            let mut kw: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
+            kw.retain(|k| !remove.contains(k));
+            for a in add {
+                if !kw.contains(a) {
+                    kw.push(a.clone());
+                }
+            }
+            let json = serde_json::to_string(&kw).unwrap_or_else(|_| "[]".into());
+            n += conn.execute(
+                "UPDATE messages SET keywords = ?4 WHERE account_id = ?1 AND folder = ?2 AND uid = ?3",
+                params![account_id, folder, uid, json],
+            )?;
+        }
+        Ok(n)
     }
 }
 

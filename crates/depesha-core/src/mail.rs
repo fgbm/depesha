@@ -163,7 +163,13 @@ pub async fn set_labels(
             ews_check(store, account_id, folder, validity)?;
             ews::set_labels(s, store, account_id, folder, uids, change.add, change.remove).await
         }
-    }
+    }?;
+    // The server has the new keywords: the cache takes them in at once, so the row shows
+    // the label without waiting for a sync.
+    let add_kw: Vec<String> = change.add.iter().map(|l| l.keyword.clone()).collect();
+    let remove_kw: Vec<String> = change.remove.iter().map(|l| l.keyword.clone()).collect();
+    store.adjust_keywords(account_id, folder, uids, &add_kw, &remove_kw)?;
+    Ok(())
 }
 
 /// Checks a folder without changing it: what the user may do (MYRIGHTS), whether labels

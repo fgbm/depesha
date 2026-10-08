@@ -500,6 +500,9 @@ struct Scanned {
     id: String,
     received: i64,
     flags: Flags,
+    /// The item's Exchange categories, as the letter's labels (#42): the sync brings them
+    /// into the cache, so a category set in Outlook shows up.
+    categories: Vec<String>,
 }
 
 struct Page {
@@ -509,8 +512,9 @@ struct Page {
 
 fn scan_shape() -> String {
     format!(
-        "<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}</t:AdditionalProperties></m:ItemShape>",
+        "<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}</t:AdditionalProperties></m:ItemShape>",
         field("item:DateTimeReceived"),
+        field("item:Categories"),
         ext(PR_MESSAGE_FLAGS, "Integer"),
         ext(PR_FLAG_STATUS, "Integer"),
         ext(PR_LAST_VERB, "Integer"),
@@ -550,6 +554,7 @@ async fn find_page(
                 id: item_id(it)?,
                 received: text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0),
                 flags: flags_of(&ext_props(it)),
+                categories: categories_of(it),
             })
         })
         .collect();
@@ -811,6 +816,11 @@ pub async fn sync_folder(
         .filter_map(|i| known.get(i.id.as_str()).map(|uid| (*uid, i.flags)))
         .collect();
     report.updated = store.update_flags(account_id, folder, &flags)?;
+    let keywords: Vec<(u32, Vec<String>)> = seen
+        .iter()
+        .filter_map(|i| known.get(i.id.as_str()).map(|uid| (*uid, i.categories.clone())))
+        .collect();
+    store.update_keywords(account_id, folder, &keywords)?;
 
     let seen_ids: HashSet<&str> = seen.iter().map(|i| i.id.as_str()).collect();
     let gone: Vec<u32> = mapped

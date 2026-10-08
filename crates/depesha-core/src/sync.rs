@@ -124,6 +124,7 @@ pub async fn sync_folder(
                     gone.extend(known.into_iter().filter(|u| changes.vanished(*u)));
                 }
                 report.updated = store.update_flags(account_id, folder, &flags)?;
+                store.update_keywords(account_id, folder, &changes.keywords)?;
                 report.removed = store.remove_uids(account_id, folder, &gone)?;
             }
             None => {
@@ -138,16 +139,19 @@ pub async fn sync_folder(
                 report.fetched_flags = fetches.len();
                 let mut alive = HashSet::new();
                 let mut flags = Vec::with_capacity(fetches.len());
+                let mut keywords = Vec::with_capacity(fetches.len());
                 for f in &fetches {
                     if let Some(uid) = f.uid {
                         let fl = Flags::from_imap(f.flags());
                         if !fl.deleted {
                             alive.insert(uid);
                             flags.push((uid, fl));
+                            keywords.push((uid, imap::keywords_of(f.flags())));
                         }
                     }
                 }
                 report.updated = store.update_flags(account_id, folder, &flags)?;
+                store.update_keywords(account_id, folder, &keywords)?;
                 let gone: Vec<u32> = known.iter().copied().filter(|u| !alive.contains(u)).collect();
                 report.removed = store.remove_uids(account_id, folder, &gone)?;
             }
