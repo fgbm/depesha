@@ -535,6 +535,9 @@ pub async fn message_open(
     let trusted_sender = listed && auth.verified();
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     view.acts_on = message::trusted_acts_on(&raw, crate::install_secret::verify);
+    if view.acts_on.is_none() {
+        view.acts_on = rebound_acts_on(&state.store, &row, view.summary.in_reply_to.as_deref())?;
+    }
     view.authenticated = auth.dmarc;
     // Back from waiting with the reply: read now, the list no longer says so.
     if let Some(mid) = &row.message_id
@@ -2475,6 +2478,45 @@ fn is_own_draft(
     Ok(r.account_id == account_id && in_drafts && own_id && exact)
 }
 
+/// The letter an answer draft is written to when its signed mark no longer checks (the
+/// install secret is gone after a reinstall, #78): a draft of this mailbox that Depesha wrote
+/// is bound again by its `In-Reply-To`, if that letter is in the cache. A forward is not:
+/// it carries the same header, and the subject is all that tells it from an answer. Only
+/// our own drafts count, so a letter from anywhere else cannot name what it answers.
+fn rebound_acts_on(
+    store: &depesha_core::store::Store,
+    r: &MessageRow,
+    in_reply_to: Option<&str>,
+) -> CmdResult<Option<ActsOn>> {
+    let Some(parent) = in_reply_to
+        .map(|p| p.trim().trim_matches(['<', '>']))
+        .filter(|p| !p.is_empty())
+    else {
+        return Ok(None);
+    };
+    if !is_own_draft(store, &r.account_id, r, None)? {
+        return Ok(None);
+    }
+    let subject = r.subject.trim_start().to_lowercase();
+    let forwards = ["fwd", "fw", "пересл", "tr", "wg"];
+    if forwards.iter().any(|p| {
+        subject
+            .strip_prefix(p)
+            .is_some_and(|rest| rest.trim_start().starts_with(':'))
+    }) {
+        return Ok(None);
+    }
+    Ok(store
+        .find_by_message_id_any(&r.account_id, parent, None)?
+        .map(|(_, folder)| ActsOn {
+            account_id: r.account_id.clone(),
+            message_id: parent.to_owned(),
+            folder,
+            act: smtp::Act::Reply,
+            waiting: false,
+        }))
+}
+
 /// Deletes the draft `id` for good, and nothing else: a number that no longer names one of
 /// Depesha's drafts in this mailbox is left alone.
 async fn discard(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>) -> CmdResult<()> {
@@ -3077,6 +3119,76 @@ mod tests {
         assert!(super::is_own_draft(&store, "a", &second, Some("two@depesha.local")).unwrap());
         // A copy of the old format has no Message-ID: the plain check stays.
         assert!(super::is_own_draft(&store, "a", &second, None).unwrap());
+    }
+
+    #[test]
+    fn an_answer_draft_is_bound_again_by_in_reply_to_when_its_signature_is_lost() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Store};
+        let store = Store::open_in_memory().unwrap();
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        store
+            .replace_folders(
+                "a",
+                &[
+                    plain("INBOX", Some(FolderRole::Inbox)),
+                    plain("Drafts", Some(FolderRole::Drafts)),
+                ],
+            )
+            .unwrap();
+        let add = |folder: &str, uid: u32, mid: &str, subject: &str| {
+            let s = Summary {
+                message_id: Some(mid.into()),
+                subject: subject.into(),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            let id = store.insert_message("a", folder, &msg).unwrap();
+            store.get_at(id).unwrap().unwrap().0
+        };
+        add("INBOX", 1, "src@example.org", "Вопрос");
+        let answer = add("Drafts", 1, "<d1@depesha.local>", "Re: Вопрос");
+        let forward = add("Drafts", 2, "<d2@depesha.local>", "Fwd: Вопрос");
+        let foreign = add("Drafts", 3, "<d3@example.org>", "Re: Вопрос");
+        let bound = super::rebound_acts_on(&store, &answer, Some("<src@example.org>"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (bound.message_id.as_str(), bound.folder.as_str(), bound.act),
+            ("src@example.org", "INBOX", depesha_core::smtp::Act::Reply)
+        );
+        // A forward, a draft of another client, a letter missing from the cache: nothing to bind.
+        assert!(
+            super::rebound_acts_on(&store, &forward, Some("src@example.org"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            super::rebound_acts_on(&store, &foreign, Some("src@example.org"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            super::rebound_acts_on(&store, &answer, Some("gone@example.org"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(super::rebound_acts_on(&store, &answer, None).unwrap().is_none());
     }
 
     #[test]
