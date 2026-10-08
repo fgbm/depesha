@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Меню «Отложить» с клавиатуры и днями недели (0.7.2)</title>
+<style>
+/* ============================================================================
+   Макет к 0.7.2. Код приложения не тронут. Файл самодостаточный: без сети.
+   Переменные темы — из src/app.css (Бумага и Ночь), вид меню — из Popover.svelte
+   и LaterMenu.svelte, тост — из Dock.svelte. Данные вымышленные.
+   Часы макета остановлены: чт, 8 окт 2026, 14:30 — чтобы даты в пунктах не «плавали».
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --side: #1f2a37; --side-2: #263444; --side-ink: #d5dde6; --side-muted: #8c99a8; --side-warn: #e3a63c;
+  --ok: #2e7d4f; --warn: #b26a00; --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+body.night .theme {
+  --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #8f97a2; --line: #2c323b;
+  --hover: #222831; --selected: #2e3742; --link: #7fb0ec; --side: #11161c; --side-2: #1a222b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+.doc { width: 1180px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.q { font-size: 16px; margin: 30px 0 4px; }
+h3.q .n, h3.v .n { display: inline-block; background: #1f2a37; color: #fff; border-radius: 5px; padding: 0 8px; margin-right: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v { font-size: 17px; margin: 34px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+h3.v .n { background: #fff; color: #1d232b; border: 1px solid #b5ae9f; }
+h3.v em { font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 960px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.pc { margin: 8px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; }
+.pc li { margin: 2px 0; }
+.plus { color: #2e7d4f; font-weight: 700; }
+.minus { color: #b3261e; font-weight: 700; }
+.cap { font-size: 12.5px; color: #5a626c; margin: 4px 0 0; line-height: 1.45; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--paper); color: var(--muted); white-space: nowrap; }
+
+/* --- панель управления макетом --- */
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 8px 14px; margin: 14px 0; font-size: 13px; box-shadow: 0 4px 14px rgb(0 0 0 / 25%); }
+.ctl .grp { display: flex; gap: 4px; align-items: center; }
+.ctl button, .ctl select { font: inherit; font-size: 12.5px; color: #d5dde6; background: #263444; border: 1px solid #3a4a5e; border-radius: 5px; padding: 2px 9px; cursor: pointer; }
+.ctl button.on { background: #e6dbc6; color: #1d232b; border-color: #e6dbc6; }
+.ctl .clock { margin-left: auto; color: #8c99a8; font-size: 12px; }
+
+/* --- «Сейчас» --- */
+.now { display: flex; gap: 22px; align-items: flex-start; margin-top: 10px; }
+.now .probs { flex: 1; font-size: 13.5px; line-height: 1.5; }
+.now .probs ol { margin: 0; padding-left: 20px; } .now .probs li { margin: 0 0 6px; }
+.now code { font-family: var(--mono); font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+.static { width: 330px; flex: none; }
+
+/* --- сцена: мини-окно письма --- */
+.stage { position: relative; background: var(--paper); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 14px rgb(0 0 0 / 16%); font-size: 13px; min-height: 610px; outline: none; }
+.stage.hot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 55%, transparent), 0 2px 14px rgb(0 0 0 / 16%); }
+.reader { padding: 14px 22px; }
+.rhead { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.rhead .sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 3px 9px; white-space: nowrap; cursor: pointer; }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { font-size: 12px; padding: 2px 8px; }
+.btn.focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 55%, transparent); }
+.chip { font-size: 11px; border-radius: 4px; padding: 0 5px; line-height: 16px; background: var(--paper-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, var(--paper)); }
+.reader h4 { margin: 0 0 4px; font-size: 16px; }
+.reader .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+.reader p { margin: 6px 0; line-height: 1.5; max-width: 620px; }
+.try { margin-top: 14px; max-width: 560px; font-size: 12.5px; line-height: 1.55; color: var(--muted); background: var(--paper-2); border-radius: 6px; padding: 8px 12px; }
+.try b { color: var(--ink); }
+
+/* --- меню (Popover.svelte / LaterMenu.svelte) --- */
+.pop { position: absolute; z-index: 45; min-width: 200px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; font-size: 14px; outline: none; }
+.pop[hidden] { display: none; }
+.pop.main { width: 372px; }
+.pop.subm { width: 262px; }
+.pop .mt { padding: 6px 10px 2px; font-size: 12px; color: var(--muted); }
+.pop hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+.mi { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 5px; white-space: nowrap; cursor: default; }
+.mi .lab { flex: 1; }
+.mi .hint { color: var(--muted); font-size: 12px; }
+.mi .chev { color: var(--muted); }
+.mi:hover { background: var(--hover); }
+.mi.cur { background: var(--selected); }
+.mi.parent { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
+.mi.dis { opacity: .45; }
+.mi kbd { min-width: 20px; text-align: center; }
+.msg { padding: 8px 10px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.msg.err { color: var(--accent); }
+.qrow { padding: 2px 2px 4px; }
+.qrow input { width: 100%; font: inherit; font-size: 13.5px; color: var(--ink); background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; outline: none; }
+.qrow input:focus, .qrow.on input { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 25%, transparent); }
+.foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px 4px; border-top: 1px solid var(--line); margin-top: 4px; font-size: 12px; color: var(--muted); }
+.foot b { color: var(--ink); font-weight: 600; }
+.foot .step { cursor: pointer; padding: 0 5px; border-radius: 4px; } .foot .step:hover { background: var(--hover); }
+.foot .fk { margin-left: auto; }
+
+/* --- календарь --- */
+.pop.picker { width: 372px; padding: 8px; }
+.ph { font-weight: 600; padding: 0 2px 6px; }
+.cal { border: 1px solid transparent; border-radius: 6px; padding: 4px; }
+.cal.focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 25%, transparent); }
+.cm { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 6px; }
+.cm span { cursor: pointer; padding: 0 8px; border-radius: 4px; } .cm span:hover { background: var(--hover); }
+.cg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.cg .wh { font-size: 11px; color: var(--muted); padding: 2px 0; }
+.cg .d { padding: 5px 0; border-radius: 5px; cursor: pointer; }
+.cg .d:hover { background: var(--hover); }
+.cg .d.out { color: var(--muted); opacity: .55; }
+.cg .d.past { color: var(--muted); opacity: .4; text-decoration: line-through; text-decoration-thickness: 1px; }
+.cg .d.today { box-shadow: inset 0 0 0 1px var(--muted); }
+.cg .d.cur { background: var(--accent); color: var(--accent-ink); opacity: 1; font-weight: 600; text-decoration: none; }
+.trow { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; }
+.trow input { width: 76px; font: inherit; font-size: 14px; text-align: center; background: var(--paper-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; outline: none; }
+.trow input:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 25%, transparent); }
+.trow .muted { color: var(--muted); font-size: 12px; }
+.prev { padding: 8px 4px 4px; font-weight: 600; }
+.prev.err { color: var(--accent); }
+.pf { display: flex; justify-content: flex-end; gap: 6px; padding: 4px 2px 2px; }
+.pk { color: var(--muted); font-size: 12px; padding: 6px 4px 2px; border-top: 1px solid var(--line); margin-top: 6px; line-height: 1.7; }
+
+/* --- тост (Dock.svelte) --- */
+.toasts { position: absolute; left: 14px; bottom: 14px; z-index: 50; }
+.toast { display: inline-flex; align-items: center; gap: 8px; background: var(--side); color: var(--side-ink); border-radius: var(--radius); padding: 9px 8px 9px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 25%); line-height: 1.35; font-size: 13px; max-width: 520px; }
+.toast .act { color: inherit; text-decoration: underline; text-underline-offset: 3px; font-weight: 600; padding: 0 6px; white-space: nowrap; cursor: pointer; }
+.toast .act kbd { background: transparent; border-color: var(--side-muted); color: var(--side-muted); margin-left: 4px; text-decoration: none; display: inline-block; }
+.toast .close { color: var(--side-muted); padding: 0 6px; font-size: 16px; cursor: pointer; }
+
+/* --- блок вопросов --- */
+.qs { margin-top: 48px; background: #fff; border: 2px solid #1f2a37; border-radius: 10px; padding: 18px 24px 20px; color: #1d232b; }
+.qs h2 { margin: 0 0 8px; font-size: 21px; }
+.qs table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.qs th, .qs td { border-top: 1px solid #e4ddcf; padding: 7px 8px; text-align: left; vertical-align: top; line-height: 1.45; }
+.qs th { font-size: 12px; color: #5a626c; border-top: none; }
+.qs td.n { font-family: ui-monospace, Consolas, monospace; font-weight: 700; white-space: nowrap; }
+.qs td.r { font-weight: 600; color: #2e7d4f; }
+.qs .reply { margin-top: 14px; padding: 10px 14px; background: #ece8e1; border-radius: 8px; font-family: ui-monospace, Consolas, monospace; }
+.lett { border-collapse: collapse; font-size: 13px; margin: 6px 0; } .lett td { padding: 2px 14px 2px 0; }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<h1>Депеша 0.7.2 — меню «Отложить» с клавиатуры и днями недели</h1>
+<p class="lead">Меню ниже <b>живое</b>: откройте файл локально и пробуйте. Три варианта А, Б, В. У каждого вопроса номер (3.1…), у каждого варианта буква. В конце — блок «Вопросы», по нему можно ответить коротко: «3.1 А, 3.2 Б…». Данные вымышленные, часы макета остановлены на <b>чт, 8 окт 2026, 14:30</b>.</p>
+
+<div class="ctl theme" id="ctl">
+  <span class="grp">Тема: <button data-theme="paper" class="on">Бумага</button><button data-theme="night">Ночь</button></span>
+  <span class="grp">Письмо: <button data-sn="none" class="on">не отложено</button><button data-sn="set">отложено до пн, 13 окт, 9:00</button></span>
+  <span class="grp">Время по умолчанию (настройка): <select id="defH"></select></span>
+  <span class="clock">Как пробовать: мышь над макетом (или клик по нему) → клавиша <b>h</b></span>
+</div>
+
+<!-- ======================================================================= -->
+<h2 class="screen">Сейчас</h2>
+<div class="ctx"><b>Что есть.</b> Клавиша <kbd>h</kbd> (плагин <code>plugins/snooze</code>, <code>snooze.open</code>, срабатывает только при открытом письме) открывает <code>Popover</code> с <code>LaterMenu</code>: заголовок «Вернуть во входящие», пять пресетов из <code>src/lib/later.ts</code> (Через час, Сегодня вечером, Завтра утром, В понедельник, Через неделю) и внизу поле <code>datetime-local</code> с кнопкой «Отложить». Выбирается так: пресет — клик или стрелки + Enter; своя дата — только мышью.</div>
+<div class="now">
+  <div class="static">
+    <div class="pop main theme" style="position:static;width:330px">
+      <div class="mt">Вернуть во входящие</div>
+      <div class="mi cur"><span class="lab">Через час</span><span class="hint">сегодня в 15:30</span></div>
+      <div class="mi"><span class="lab">Сегодня вечером</span><span class="hint">сегодня в 18:00</span></div>
+      <div class="mi"><span class="lab">Завтра утром</span><span class="hint">завтра в 09:00</span></div>
+      <div class="mi"><span class="lab">В понедельник</span><span class="hint">пн, 09:00</span></div>
+      <div class="mi"><span class="lab">Через неделю</span><span class="hint">чт, 09:00</span></div>
+      <hr>
+      <div style="display:flex;gap:6px;padding:4px 6px 6px"><span class="btn" style="flex:1;justify-content:space-between;cursor:default">08.10.2026, 17:30 <span>📅</span></span><span class="btn" style="cursor:default">Отложить</span></div>
+    </div>
+    <p class="cap">Как сейчас (воспроизведено по коду, приложение не запускалось).</p>
+  </div>
+  <div class="probs">
+    <b>Проблемы</b>
+    <ol>
+      <li><b>Клавиатура кончается на пресетах.</b> <code>Popover</code> ходит стрелками только по <code>button.mi</code>; поле даты и кнопка «Отложить» в этот список не входят, а <kbd>Tab</kbd> меню закрывает. Свою дату и время с клавиатуры не выбрать — тянешься к мыши.</li>
+      <li><b>Нет дней недели.</b> Есть только «В понедельник» и «Через неделю». «В пятницу» — через календарь мышью.</li>
+      <li><b>Нет быстрых клавиш на пунктах</b> и нет ввода текстом. Справа в пункте — только дата, не клавиша.</li>
+      <li><b>Набор пунктов «плавает» с часами.</b> После 17:00 пропадает «Сегодня вечером», пункты с одинаковым временем схлопываются (<code>uniq</code>). Положение пункта не запомнить.</li>
+      <li><b>Время жёстко зашито:</b> утро 09:00, вечер 18:00. Сменить нельзя; в поле даты по умолчанию «сейчас + 3 часа».</li>
+      <li><b>Отложенное письмо не сдвинуть:</b> нет «+1 день / +1 неделя» и «Очистить дату» (вернуть сейчас — отдельная заявка #93, макет 01).</li>
+      <li><b><kbd>h</kbd> привязана к открытому письму</b> (<code>when: opened() !== null</code>); для строки списка — только контекстное меню.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ======================================================================= -->
+<h2 class="screen">Экран 3. Новое меню</h2>
+<div class="ctx"><b>Общие правила всех вариантов.</b> <kbd>↑</kbd><kbd>↓</kbd> — по пунктам, <kbd>Enter</kbd> — выбрать, <kbd>Esc</kbd> — один шаг назад (из подменю в меню, из календаря в меню, из меню — закрыть). <kbd>→</kbd> открывает подменю, <kbd>←</kbd> закрывает его. <kbd>Tab</kbd> меню <b>не закрывает</b>. Время по умолчанию (9:00) видно внизу меню и в каждой дате справа; <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> меняет его на час для этого открытия меню. Буквы на пунктах — русские, срабатывают и в латинской раскладке (по положению клавиши). «Выбрать дату и время…» везде одно и то же.</div>
+
+<h3 class="q"><span class="n">3.1</span>Меню целиком: подменю или дни прямо в меню, строка ввода, буквы, ±день/неделя</h3>
+
+<h3 class="v"><span class="n">А</span>Как в образце: подменю, буквы, без ввода текстом <em>(± показаны всегда)</em></h3>
+<div class="stage theme" id="stA"></div>
+<ul class="pc">
+<li><span class="plus">+</span> Знакомая структура из образца. Дни недели — подменю <b>рядом</b>, родитель остаётся виден и подсвечен.</li>
+<li><span class="plus">+</span> Положение пунктов неизменно, буквы запоминаются.</li>
+<li><span class="minus">−</span> Нет ввода текстом: «через 3 дня» и «18:00» только через календарь.</li>
+<li><span class="minus">−</span> У неотложенного письма ± показаны, но «−1 день» серый, а «+1 день» дублирует «Завтра».</li>
+</ul>
+
+<h3 class="v"><span class="n">Б</span>Строка ввода сверху и дни прямо в меню <em>(без подменю и букв)</em></h3>
+<div class="stage theme" id="stB"></div>
+<ul class="pc">
+<li><span class="plus">+</span> Курсор сразу в строке: <kbd>h</kbd>, «пт 9» (или «завтра 18», «через 3 дня»), Enter. Ни одной клавиши-буквы учить не нужно.</li>
+<li><span class="plus">+</span> Все семь дней видны сразу, подменю нет — нечему «закрывать/открывать».</li>
+<li><span class="minus">−</span> Меню длинное (17 строк). Букв нет: пункт — только стрелками или набором его названия.</li>
+<li><span class="minus">−</span> Цифры уходят в строку, поэтому «1–7 для дня недели» здесь не работают.</li>
+</ul>
+
+<h3 class="v rec"><span class="n">В</span>Буквы + подменю + ввод по «/» или Tab <em>(± только у отложенного)</em></h3>
+<div class="stage theme" id="stC"></div>
+<ul class="pc">
+<li><span class="plus">+</span> Быстрый путь: <kbd>h</kbd> <kbd>З</kbd> (завтра), <kbd>h</kbd> <kbd>5</kbd> (пятница, цифра прямо в главном меню), <kbd>h</kbd> <kbd>Д</kbd> <kbd>→</kbd>… либо <kbd>h</kbd> <kbd>/</kbd> «пт 9».</li>
+<li><span class="plus">+</span> Меню короткое: для нового письма ±-группы нет, «Очистить» нет — только то, что действует.</li>
+<li><span class="minus">−</span> Ввод текстом на шаг дальше (<kbd>/</kbd>), потому что в режиме списка буквы заняты под пункты.</li>
+</ul>
+
+<!-- ======================================================================= -->
+<div class="qs theme" style="color:#1d232b">
+<h2>Вопросы</h2>
+<table>
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
+<tr><td class="n">3.1</td><td>Общий вид: подменю или дни прямо в меню; ввод текстом</td><td><b>А</b> подменю «День недели ›», без ввода · <b>Б</b> дни в меню + строка ввода всегда в фокусе · <b>В</b> подменю + цифры 1–7 прямо в меню + ввод по <kbd>/</kbd></td><td class="r">В. Самая короткая цепочка для частых случаев (<kbd>h</kbd><kbd>5</kbd>) и всё доступно клавиатурой.</td></tr>
+<tr><td class="n">3.2</td><td>Состав пунктов</td><td><b>А</b> все из образца: ±день/неделя, Сегодня, Завтра, Эти выходные, Следующая неделя, Следующий месяц, День недели ›, Выбрать дату и время…, Очистить дату · <b>Б</b> то же, но без «Следующий месяц» · <b>В</b> то же, плюс «Через час» (есть в приложении сейчас)</td><td class="r">А. «Через час» уходит в ввод текстом («через 1 час»), «Следующий месяц» дёшев и иногда нужен.</td></tr>
+<tr><td class="n">3.3</td><td>±день / ±неделя и «Очистить дату» для письма, которое ещё <b>не</b> отложено</td><td><b>А</b> показывать всегда (отсчёт от сегодня, «−» серые) · <b>Б</b> только у уже отложенного · <b>В</b> нигде, сдвиг — через календарь</td><td class="r">Б. У нового письма «+1 день» дублирует «Завтра», а «Очистить» нечего очищать; у отложенного это самые частые действия (сдвинул на день/неделю).</td></tr>
+<tr><td class="n">3.4</td><td>Название подменю</td><td><b>А</b> «Рабочие дни ›» как в образце, но внутри Пн–Вс · <b>Б</b> «День недели ›» · <b>В</b> «Рабочие дни ›» и внутри только Пн–Пт, выходные — «Эти выходные»</td><td class="r">Б. Внутри все семь дней, «рабочие» было бы неточно. Если нужны только Пн–Пт — В.</td></tr>
+<tr><td class="n">3.5</td><td>Время по умолчанию для «Завтра», дней недели, «Следующая неделя» и т. п.</td><td><b>А</b> всегда 9:00 · <b>Б</b> настройка «Отложить» (час по умолчанию), в меню только показывается · <b>В</b> настройка + разовая смена в самом меню <kbd>Alt</kbd>+<kbd>↑/↓</kbd> (как в макете)</td><td class="r">В. Настройка снимает «9:00 не подходит», разовая смена — когда сегодня нужно «завтра в 14».</td></tr>
+<tr><td class="n">3.6</td><td>Что делает «Сегодня»</td><td><b>А</b> сегодня в 18:00, после 17:00 пункт серый · <b>Б</b> «через 3 часа» (всегда доступно, время «плавает») · <b>В</b> убрать, оставить ввод («сегодня 20»)</td><td class="r">А. Предсказуемо; позднее время — вводом текста.</td></tr>
+<tr><td class="n">3.7</td><td>Буквы на пунктах (русские, срабатывают и в латинской раскладке; показаны в варианте А и В)</td><td><b>А</b> есть: С Сегодня, З Завтра, В выходные, Н неделя, М месяц, Д день недели, К календарь, О очистить; ±день/неделя — <kbd>⇧</kbd>+стрелки · <b>Б</b> только стрелки и ввод · <b>В</b> буквы только на частых: Завтра, Д, К</td><td class="r">А. Восемь букв запоминаются за пару дней; без букв «быстро» остаётся только ввод.</td></tr>
+<tr><td class="n">3.8</td><td>Ввод текстом</td><td><b>А</b> нет · <b>Б</b> строка всегда в фокусе (буквы не возможны) · <b>В</b> строка по <kbd>/</kbd> или <kbd>Tab</kbd>; формы: «пт 9:00», «завтра 18», «через 3 дня», «15 окт», «через час»</td><td class="r">В. Совмещается с буквами, не теряя ни того ни другого.</td></tr>
+<tr><td class="n">3.9</td><td>Где работает <kbd>h</kbd></td><td><b>А</b> как сейчас: только при открытом письме · <b>Б</b> ещё и на выбранной строке списка (и на нескольких выбранных)</td><td class="r">Б. Откладывать из списка, не открывая письмо, — основной сценарий разбора почты.</td></tr>
+</table>
+<div class="reply">Ответ можно коротко: «3.1 В, 3.2 А, 3.3 Б, 3.4 Б, 3.5 В, 3.6 А, 3.7 А, 3.8 В, 3.9 Б».</div>
+</div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var MON = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  var MONF = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+  var WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+  var WDF = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+  var DOWS = [1, 2, 3, 4, 5, 6, 0];
+  var NOW = new Date(2026, 9, 8, 14, 30, 0);
+  var SNOOZED_SAMPLE = new Date(2026, 9, 13, 9, 0, 0);
+  var settingsHour = 9;
+  var snoozedAll = null;
+
+  function clone(d) { return new Date(d.getTime()); }
+  function addDays(d, n) { var x = clone(d); x.setDate(x.getDate() + n); return x; }
+  function at(d, h, m) { var x = clone(d); x.setHours(h, m || 0, 0, 0); return x; }
+  function same(a, b) { return a.toDateString() === b.toDateString(); }
+  function p2(n) { return (n < 10 ? "0" : "") + n; }
+  function fmtDay(d) { return WD[d.getDay()] + ", " + d.getDate() + " " + MON[d.getMonth()]; }
+  function fmtTime(d) { return d.getHours() + ":" + p2(d.getMinutes()); }
+  function fmt(d) { return fmtDay(d) + ", " + fmtTime(d); }
+  function nextWd(dow) { var diff = ((dow - NOW.getDay() + 7) % 7) || 7; return addDays(NOW, diff); }
+  function addMonths(d, n) {
+    var y = d.getFullYear(), m = d.getMonth() + n;
+    var last = new Date(y, m + 1, 0).getDate();
+    var x = new Date(y, m, Math.min(d.getDate(), last), d.getHours(), d.getMinutes());
+    return x;
+  }
+
+  /* ---------- разбор ввода текстом ---------- */
+  function parse(q, H) {
+    var s = " " + q.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim() + " ";
+    var m, day = null, hh = null, mm = 0, wdTok = false, todayTok = false, found = false;
+    if ((m = s.match(/\sчерез\s?(\d+)?\s?(мин\S*|час\S*|ч|мес\S*|дн\S*|день|д|нед\S*|н)\s/))) {
+      var n = m[1] ? +m[1] : 1, u = m[2];
+      s = s.replace(m[0], " "); found = true;
+      if (/^мин/.test(u) || /^ч/.test(u)) {
+        var mins = /^мин/.test(u) ? n : n * 60;
+        var d0 = new Date(NOW.getTime() + mins * 60000);
+        d0.setMinutes(Math.ceil(d0.getMinutes() / 5) * 5, 0, 0);
+        if (s.trim().replace(/\bв\b/g, "").trim()) return null;
+        return { at: d0 };
+      }
+      day = /^мес/.test(u) ? addMonths(NOW, n) : addDays(NOW, /^н/.test(u) ? 7 * n : n);
+    }
+    if ((m = s.match(/\s(\d{1,2})[.\/](\d{1,2})\s/)) && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) {
+      var dd = new Date(NOW.getFullYear(), +m[2] - 1, +m[1]);
+      if (dd < at(NOW, 0)) dd.setFullYear(dd.getFullYear() + 1);
+      day = dd; s = s.replace(m[0], " "); found = true;
+    } else if ((m = s.match(/\s(\d{1,2})\s?(янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)\S*\s/))) {
+      var mi = m[2].indexOf("ма") === 0 ? (m[2] === "мар" ? 2 : 4) : ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"].indexOf(m[2]);
+      var d2 = new Date(NOW.getFullYear(), mi, +m[1]);
+      if (d2 < at(NOW, 0)) d2.setFullYear(d2.getFullYear() + 1);
+      day = d2; s = s.replace(m[0], " "); found = true;
+    }
+    if ((m = s.match(/\s(сегодня|завтра|послезавтра)\s/))) {
+      day = m[1] === "сегодня" ? NOW : addDays(NOW, m[1] === "завтра" ? 1 : 2);
+      todayTok = m[1] === "сегодня"; s = s.replace(m[0], " "); found = true;
+    } else if ((m = s.match(/\s(пн|пон\S*|вт|втор\S*|ср|сред\S*|чт|чет\S*|пт|пят\S*|сб|суб\S*|вс|воскр\S*)\s/))) {
+      var w = m[1], dow = /^(пн|пон)/.test(w) ? 1 : /^(вт)/.test(w) ? 2 : /^(ср)/.test(w) ? 3 : /^(чт|чет)/.test(w) ? 4 : /^(пт|пят)/.test(w) ? 5 : /^(сб|суб)/.test(w) ? 6 : 0;
+      day = nextWd(dow); wdTok = true; s = s.replace(m[0], " "); found = true;
+    }
+    if ((m = s.match(/\s(утром|вечером|днем)\s/))) { hh = m[1] === "утром" ? 9 : m[1] === "днем" ? 13 : 18; s = s.replace(m[0], " "); found = true; }
+    else if ((m = s.match(/\s(?:в\s)?(\d{1,2})[:.](\d{2})\s/))) { hh = +m[1]; mm = +m[2]; s = s.replace(m[0], " "); found = true; }
+    else if ((m = s.match(/\s(?:в\s)?(\d{1,2})(?:\s?(?:ч|час\S*))?\s/))) { hh = +m[1]; s = s.replace(m[0], " "); found = true; }
+    if (!found) return null;
+    if (s.replace(/\bв\b/g, "").trim()) return null;
+    if (hh != null && (hh > 23 || mm > 59)) return null;
+    var d;
+    if (day == null) {
+      d = at(NOW, hh, mm);
+      if (d <= NOW) d = addDays(d, 1);
+    } else if (hh == null && todayTok) {
+      d = at(day, 18);
+    } else {
+      d = at(day, hh == null ? H : hh, hh == null ? 0 : mm);
+    }
+    if (d <= NOW) return { error: "Это время уже прошло" };
+    return { at: d, wd: wdTok };
+  }
+  function parseTime(str) {
+    var m = String(str).trim().match(/^(\d{1,2})(?:[:. ]?(\d{2}))?$/);
+    if (!m) return null;
+    var h = +m[1], mi = m[2] ? +m[2] : 0;
+    return h > 23 || mi > 59 ? null : { h: h, m: mi };
+  }
+
+  /* ---------- состав пунктов ---------- */
+  function stepItem(S, id, label, n, keys, shown) {
+    var d = S.snoozed ? addDays(S.snoozed, n) : (n > 0 ? at(addDays(NOW, n), S.hour) : null);
+    return { kind: "item", id: id, label: label, at: d, hint: d ? fmt(d) : "нет даты", disabled: !d || d <= NOW, keys: keys, kbd: shown };
+  }
+  function dayRows(S, withKeys) {
+    return DOWS.map(function (dow, i) {
+      var d = at(nextWd(dow), S.hour);
+      return { kind: "item", id: "wd" + dow, label: WDF[dow], at: d, hint: fmtDay(d), kbd: withKeys ? String(i + 1) : "", keys: withKeys ? [{ c: "Digit" + (i + 1) }, { c: "Numpad" + (i + 1) }] : [] };
+    });
+  }
+  function allRows(S) {
+    var c = S.cfg, rows = [], K = c.letters;
+    function key(code, shown) { return K ? { keys: [{ c: code }], kbd: shown } : { keys: [], kbd: "" }; }
+    var showSteps = c.steps === "always" || (c.steps === "snoozed" && S.snoozed);
+    if (showSteps) {
+      var sh = c.stepKeys;
+      rows.push(stepItem(S, "p1d", "+1 день", 1, sh ? [{ c: "ArrowRight", s: true }] : [], sh ? "⇧→" : ""));
+      rows.push(stepItem(S, "m1d", "−1 день", -1, sh ? [{ c: "ArrowLeft", s: true }] : [], sh ? "⇧←" : ""));
+      rows.push(stepItem(S, "p1w", "+1 неделя", 7, sh ? [{ c: "ArrowUp", s: true }] : [], sh ? "⇧↑" : ""));
+      rows.push(stepItem(S, "m1w", "−1 неделя", -7, sh ? [{ c: "ArrowDown", s: true }] : [], sh ? "⇧↓" : ""));
+      rows.push({ kind: "sep" });
+    }
+    var today = at(NOW, 18), tomorrow = at(addDays(NOW, 1), S.hour);
+    var sat = at(nextWd(6), S.hour), mon = at(nextWd(1), S.hour), nm = at(addMonths(NOW, 1), S.hour);
+    var r;
+    r = key("KeyC", "С"); rows.push({ kind: "item", id: "today", label: "Сегодня", at: today, hint: fmt(today), disabled: NOW.getHours() >= 17, keys: r.keys, kbd: r.kbd });
+    r = key("KeyP", "З"); rows.push({ kind: "item", id: "tom", label: "Завтра", at: tomorrow, hint: fmt(tomorrow), keys: r.keys, kbd: r.kbd });
+    r = key("KeyD", "В"); rows.push({ kind: "item", id: "wknd", label: "Эти выходные", at: sat, hint: fmt(sat), keys: r.keys, kbd: r.kbd });
+    r = key("KeyY", "Н"); rows.push({ kind: "item", id: "nw", label: "Следующая неделя", at: mon, hint: fmt(mon), keys: r.keys, kbd: r.kbd });
+    r = key("KeyV", "М"); rows.push({ kind: "item", id: "nm", label: "Следующий месяц", at: nm, hint: fmt(nm), keys: r.keys, kbd: r.kbd });
+    rows.push({ kind: "sep" });
+    if (c.days === "sub") {
+      r = key("KeyL", "Д");
+      var dk = r.keys.slice();
+      if (c.digitsMain) for (var i = 1; i <= 7; i++) dk.push({ c: "Digit" + i, digit: i });
+      rows.push({ kind: "sub", id: "days", label: c.daysLabel, hint: c.digitsMain ? "1–7" : "", keys: dk, kbd: r.kbd });
+    } else {
+      rows.push({ kind: "title", text: "День недели" });
+      dayRows(S, false).forEach(function (x) { rows.push(x); });
+    }
+    r = key("KeyR", "К"); rows.push({ kind: "custom", id: "custom", label: "Выбрать дату и время…", keys: r.keys, kbd: r.kbd });
+    if (S.snoozed || c.clearAlways) {
+      rows.push({ kind: "sep" });
+      r = key("KeyJ", "О"); rows.push({ kind: "clear", id: "clear", label: "Очистить дату", disabled: !S.snoozed, keys: r.keys, kbd: r.kbd });
+    }
+    return rows;
+  }
+  function selectable(r) { return (r.kind === "item" || r.kind === "sub" || r.kind === "custom" || r.kind === "clear") && !r.disabled; }
+  function visibleRows(S) {
+    var base = allRows(S), q = S.q.trim();
+    if (!q) return base;
+    var out = [], r = parse(q, S.hour);
+    if (r && r.at) out.push({ kind: "item", id: "parsed", label: fmt(r.at), hint: "по вашему вводу", at: r.at, kbd: "↵", keys: [] });
+    else if (r && r.error) out.push({ kind: "msg", err: true, text: r.error });
+    var low = q.toLowerCase();
+    var f = base.filter(function (x) { return selectable(x) && x.label.toLowerCase().indexOf(low) >= 0; });
+    if (f.length) { if (out.length) out.push({ kind: "sep" }); out = out.concat(f); }
+    if (!out.length) out.push({ kind: "msg", text: "Не понял. Примеры: пт 9:00 · завтра 18 · через 3 дня · 15 окт · через час" });
+    return out;
+  }
+  function firstSel(rows) { for (var i = 0; i < rows.length; i++) if (selectable(rows[i])) return i; return -1; }
+
+  /* ---------- одна сцена ---------- */
+  var stages = [], hot = null;
+  function makeStage(root, cfg) {
+    var S = { root: root, cfg: cfg, open: false, view: "main", focus: "list", cur: 0, subCur: 0, subOpen: false, q: "", hour: settingsHour, snoozed: null, prev: null, rows: [], P: null, toastTimer: 0 };
+    root.tabIndex = 0;
+    root.innerHTML =
+      '<div class="reader"><div class="rhead">' +
+      '<span class="btn ghost">← Назад</span><span class="btn ghost">Ответить</span><span class="btn ghost">Архив</span>' +
+      '<button class="btn ghost snbtn" type="button">⏰ Отложить <kbd>h</kbd></button><span class="sp"></span><span class="chipbox"></span></div>' +
+      '<h4>Договор, правки</h4><div class="meta">Иванов П. · чт, 8 окт, 10:41</div>' +
+      '<p>Добрый день! Посмотрите, пожалуйста, правки в разделах 3 и 5. Если всё устраивает, подпишем на следующей неделе.</p>' +
+      '<p>С уважением, Пётр</p>' + '<div class="try">' + cfg.tip + '</div></div>' +
+      '<div class="pop main" hidden tabindex="-1">' +
+      (cfg.input !== "none" ? '<div class="qrow"><input type="text" placeholder="' + cfg.ph + '" autocomplete="off" spellcheck="false"></div>' : "") +
+      '<div class="list"></div><div class="foot"></div></div>' +
+      '<div class="pop subm" hidden></div>' +
+      '<div class="pop picker" hidden tabindex="-1"></div>' +
+      '<div class="toasts"></div>';
+    S.$btn = root.querySelector(".snbtn"); S.$main = root.querySelector(".pop.main"); S.$list = root.querySelector(".list");
+    S.$foot = root.querySelector(".foot"); S.$sub = root.querySelector(".pop.subm"); S.$pick = root.querySelector(".picker");
+    S.$in = root.querySelector(".qrow input"); S.$toasts = root.querySelector(".toasts"); S.$chips = root.querySelector(".chipbox");
+    S.$btn.addEventListener("click", function (e) { e.stopPropagation(); S.open ? close(S) : openMenu(S); });
+    ["mouseenter", "focusin", "pointerdown"].forEach(function (ev) { root.addEventListener(ev, function () { setHot(S); }); });
+    root.addEventListener("pointerdown", function (e) { if (S.open && !S.$main.contains(e.target) && !S.$sub.contains(e.target) && !S.$pick.contains(e.target) && e.target !== S.$btn) close(S); });
+    // мышь: главное меню
+    S.$list.addEventListener("mousemove", function (e) {
+      var el = e.target.closest("[data-r]"); if (!el) return;
+      var i = +el.dataset.r, r = S.rows[i];
+      if (r && selectable(r) && S.cur !== i) { S.cur = i; if (S.focus === "sub") closeSub(S); paint(S); }
+    });
+    S.$pick.addEventListener("click", function (e) {
+      var P = S.P; if (!P) return;
+      var d = e.target.closest("[data-d]"), m = e.target.closest("[data-m]");
+      if (d) { P.d = new Date(+d.dataset.d); P.focus = "cal"; paintPicker(S); }
+      else if (m) { moveMonth(P, +m.dataset.m); paintPicker(S); }
+      else if (e.target.closest("[data-ok]")) confirmPicker(S);
+      else if (e.target.closest("[data-cancel]")) backFromPicker(S);
+    });
+    S.$list.addEventListener("click", function (e) {
+      var el = e.target.closest("[data-r]"); if (!el) return;
+      S.cur = +el.dataset.r; activate(S, S.rows[S.cur]);
+    });
+    S.$sub.addEventListener("click", function (e) {
+      var el = e.target.closest("[data-s]"); if (!el) return;
+      var rows = dayRows(S, true); pick(S, rows[+el.dataset.s].at);
+    });
+    S.$foot.addEventListener("click", function (e) {
+      var el = e.target.closest("[data-h]"); if (!el) return;
+      S.hour = Math.max(0, Math.min(23, S.hour + +el.dataset.h)); paint(S);
+    });
+    if (S.$in) S.$in.addEventListener("input", function () { S.q = S.$in.value; closeSub(S); var f = firstSel(visibleRows(S)); S.cur = f < 0 ? 0 : f; paint(S); });
+    stages.push(S);
+    renderChips(S);
+    return S;
+  }
+  function setHot(S) { hot = S; stages.forEach(function (x) { x.root.classList.toggle("hot", x === S); }); }
+
+  function openMenu(S) {
+    stages.forEach(function (x) { if (x !== S && x.open) close(x, true); });
+    setHot(S);
+    S.open = true; S.view = "main"; S.q = ""; S.hour = settingsHour; S.subOpen = false;
+    if (S.$in) S.$in.value = "";
+    S.$main.hidden = false; S.$pick.hidden = true; S.$sub.hidden = true;
+    S.focus = S.cfg.input === "always" ? "input" : "list";
+    var rows = visibleRows(S), tom = rows.findIndex(function (r) { return r.id === "tom"; });
+    S.cur = S.snoozed || tom < 0 ? Math.max(0, firstSel(rows)) : tom;
+    var b = S.$btn.getBoundingClientRect(), r = S.root.getBoundingClientRect();
+    var left = Math.max(8, b.left - r.left - 8), top = b.bottom - r.top + 4;
+    [S.$main, S.$pick].forEach(function (p) { p.style.left = left + "px"; p.style.top = top + "px"; });
+    paint(S);
+    if (S.focus === "input") S.$in.focus(); else S.$main.focus();
+  }
+  function close(S, quiet) {
+    S.open = false; S.subOpen = false;
+    S.$main.hidden = true; S.$sub.hidden = true; S.$pick.hidden = true;
+    if (!quiet) S.$btn.focus({ preventScroll: true });
+  }
+  function closeSub(S) { if (S.subOpen) { S.subOpen = false; S.$sub.hidden = true; if (S.focus === "sub") S.focus = "list"; } }
+
+  /* ---------- отрисовка ---------- */
+  function rowHtml(S, r, i) {
+    if (r.kind === "sep") return "<hr>";
+    if (r.kind === "title") return '<div class="mt">' + r.text + "</div>";
+    if (r.kind === "msg") return '<div class="msg' + (r.err ? " err" : "") + '">' + r.text + "</div>";
+    var cls = "mi";
+    if (i === S.cur) cls += S.focus === "sub" ? " parent" : " cur";
+    if (r.disabled) cls += " dis";
+    var h = '<div class="' + cls + '" data-r="' + i + '" id="' + S.root.id + "-r" + i + '"><span class="lab">' + r.label + "</span>";
+    if (r.hint) h += '<span class="hint">' + r.hint + "</span>";
+    if (r.kbd) h += "<kbd>" + r.kbd + "</kbd>";
+    if (r.kind === "sub") h += '<span class="chev">›</span>';
+    return h + "</div>";
+  }
+  function paint(S) {
+    S.rows = visibleRows(S);
+    if (S.cur >= S.rows.length || !selectable(S.rows[S.cur] || {})) { var f = firstSel(S.rows); S.cur = f < 0 ? 0 : f; }
+    S.$list.innerHTML = S.rows.map(function (r, i) { return rowHtml(S, r, i); }).join("");
+    var c = S.cfg;
+    S.$foot.innerHTML = '<span>Время</span><span class="step" data-h="-1">‹</span><b>' + S.hour + ':00</b><span class="step" data-h="1">›</span>' +
+      (S.hour !== settingsHour ? '<span>(в настройках ' + settingsHour + ":00)</span>" : "") +
+      '<span class="fk"><kbd>Alt</kbd> <kbd>↑</kbd><kbd>↓</kbd></span>';
+    if (S.$in) S.$main.querySelector(".qrow").classList.toggle("on", S.focus === "input");
+    if (S.subOpen) paintSub(S); else S.$sub.hidden = true;
+    var cur = S.$list.querySelector(".cur,.parent"); if (cur) cur.scrollIntoView({ block: "nearest" });
+  }
+  function paintSub(S) {
+    var rows = dayRows(S, true);
+    S.$sub.innerHTML = '<div class="mt">' + S.cfg.daysLabel + "</div>" + rows.map(function (r, i) {
+      return '<div class="mi' + (S.focus === "sub" && i === S.subCur ? " cur" : "") + '" data-s="' + i + '"><span class="lab">' + r.label + '</span><span class="hint">' + r.hint + "</span><kbd>" + r.kbd + "</kbd></div>";
+    }).join("");
+    S.$sub.hidden = false;
+    var par = S.$list.querySelector('[data-r="' + S.cur + '"]');
+    var mr = S.$main.getBoundingClientRect(), rr = S.root.getBoundingClientRect();
+    S.$sub.style.left = (mr.right - rr.left + 4) + "px";
+    S.$sub.style.top = (par ? par.getBoundingClientRect().top - rr.top - 30 : mr.top - rr.top) + "px";
+  }
+  function renderChips(S) {
+    S.$chips.innerHTML = S.snoozed ? '<span class="chip warn">⏰ ' + fmt(S.snoozed) + "</span>" : '<span class="chip">не отложено</span>';
+  }
+
+  /* ---------- действия ---------- */
+  function toast(S, text, undo) {
+    clearTimeout(S.toastTimer);
+    S.$toasts.innerHTML = '<div class="toast"><span>' + text + '</span><span class="act" data-undo>Отменить<kbd>Z</kbd></span><span class="close" data-close>×</span></div>';
+    var t = S.$toasts.firstChild;
+    t.querySelector("[data-undo]").onclick = function () { undo(); };
+    t.querySelector("[data-close]").onclick = function () { S.$toasts.innerHTML = ""; S.undo = null; };
+    S.undo = undo;
+    S.toastTimer = setTimeout(function () { S.$toasts.innerHTML = ""; S.undo = null; }, 12000);
+  }
+  function setSnooze(S, d) {
+    var prev = S.snoozed;
+    S.snoozed = d; renderChips(S);
+    return function () { S.snoozed = prev; renderChips(S); S.$toasts.innerHTML = ""; S.undo = null; };
+  }
+  function pick(S, d) {
+    var undo = setSnooze(S, d);
+    close(S);
+    toast(S, "Отложено до " + fmt(d), undo);
+  }
+  function activate(S, r) {
+    if (!r || !selectable(r)) return;
+    if (r.kind === "item") return pick(S, r.at);
+    if (r.kind === "sub") return openSub(S);
+    if (r.kind === "custom") return openPicker(S);
+    if (r.kind === "clear") {
+      var undo = setSnooze(S, null); close(S);
+      toast(S, "Возвращено во «Входящие»", undo);
+    }
+  }
+  function openSub(S) {
+    S.subOpen = true; S.focus = "sub"; S.subCur = 0; paint(S);
+    if (S.$in && S.cfg.input === "slash") S.$main.focus();
+  }
+
+  /* ---------- календарь ---------- */
+  function openPicker(S) {
+    var start = S.snoozed ? S.snoozed : at(addDays(NOW, 1), S.hour);
+    S.P = { d: at(start, 0), focus: "cal" };
+    S.view = "picker"; S.subOpen = false;
+    S.$main.hidden = true; S.$sub.hidden = true; S.$pick.hidden = false;
+    S.$pick.innerHTML =
+      '<div class="ph">Выбрать дату и время</div><div class="cal"><div class="cm"><span data-m="-1">‹</span><b></b><span data-m="1">›</span></div><div class="cg"></div></div>' +
+      '<div class="trow"><label>Время</label><input class="tin" value="' + p2(start.getHours()) + ":" + p2(start.getMinutes()) + '" autocomplete="off"><span class="muted">↑↓ ±15 мин · ⇧ ±1 ч</span></div>' +
+      '<div class="prev"></div><div class="pf"><span class="btn small" data-cancel>Отмена <kbd>Esc</kbd></span><span class="btn small primary ok" data-ok>Отложить <kbd>↵</kbd></span></div>' +
+      '<div class="pk"><kbd>←</kbd><kbd>→</kbd> день · <kbd>↑</kbd><kbd>↓</kbd> неделя · <kbd>PgUp</kbd><kbd>PgDn</kbd> месяц · <kbd>⇧</kbd>+<kbd>PgUp/PgDn</kbd> год<br><kbd>Tab</kbd> к времени · <kbd>Enter</kbd> отложить · <kbd>Esc</kbd> назад в меню</div>';
+    var P = S.P;
+    P.$in = S.$pick.querySelector(".tin"); P.$cal = S.$pick.querySelector(".cal"); P.$grid = S.$pick.querySelector(".cg");
+    P.$title = S.$pick.querySelector(".cm b"); P.$prev = S.$pick.querySelector(".prev"); P.$ok = S.$pick.querySelector(".ok");
+    P.$in.addEventListener("input", function () { paintPicker(S, true); });
+    paintPicker(S);
+  }
+  function moveMonth(P, n) { var d = clone(P.d); var day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last)); P.d = d; }
+  function pickerTarget(S) {
+    var t = parseTime(S.P.$in.value); if (!t) return { error: "Время: например 9:30" };
+    var d = at(S.P.d, t.h, t.m);
+    if (d <= NOW) return { error: "Это время уже прошло: " + fmt(d), at: d };
+    return { at: d };
+  }
+  function paintPicker(S, keepInput) {
+    var P = S.P, d = P.d, y = d.getFullYear(), m = d.getMonth();
+    P.$title.textContent = MONF[m] + " " + y;
+    var first = new Date(y, m, 1), off = (first.getDay() + 6) % 7, h = "";
+    ["пн", "вт", "ср", "чт", "пт", "сб", "вс"].forEach(function (w) { h += '<div class="wh">' + w + "</div>"; });
+    for (var i = 0; i < 42; i++) {
+      var c = addDays(first, i - off), cls = "d";
+      if (c.getMonth() !== m) cls += " out";
+      if (c < at(NOW, 0)) cls += " past";
+      if (same(c, NOW)) cls += " today";
+      if (same(c, d)) cls += " cur";
+      h += '<div class="' + cls + '" data-d="' + c.getTime() + '">' + c.getDate() + "</div>";
+    }
+    P.$grid.innerHTML = h;
+    P.$cal.classList.toggle("focus", P.focus === "cal");
+    P.$ok.classList.toggle("focus", P.focus === "ok");
+    var t = pickerTarget(S);
+    P.$prev.className = "prev" + (t.error ? " err" : "");
+    P.$prev.textContent = t.error ? t.error : "→ " + fmt(t.at);
+    if (!keepInput) {
+      if (P.focus === "time") { P.$in.focus(); P.$in.select(); } else { P.$in.blur(); S.$pick.focus({ preventScroll: true }); }
+    }
+  }
+  function confirmPicker(S) {
+    var t = pickerTarget(S);
+    if (t.error) { paintPicker(S, true); return; }
+    pick(S, t.at);
+  }
+  function backFromPicker(S) {
+    S.view = "main"; S.$pick.hidden = true; S.$main.hidden = false;
+    S.focus = S.cfg.input === "always" ? "input" : "list"; paint(S);
+    if (S.focus === "input") S.$in.focus(); else S.$main.focus();
+  }
+  function pickerKey(S, e) {
+    var P = S.P, k = e.code;
+    if (e.key === "Escape") { e.preventDefault(); return backFromPicker(S); }
+    if (e.key === "Enter") { e.preventDefault(); return confirmPicker(S); }
+    if (k === "Tab") {
+      e.preventDefault();
+      var order = ["cal", "time", "ok"], i = order.indexOf(P.focus);
+      P.focus = order[(i + (e.shiftKey ? 2 : 1)) % 3]; return paintPicker(S);
+    }
+    if (P.focus === "time") {
+      if (k === "ArrowUp" || k === "ArrowDown") {
+        e.preventDefault();
+        var t = parseTime(P.$in.value) || { h: settingsHour, m: 0 };
+        var delta = (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 60 : 15);
+        var tot = (((t.h * 60 + t.m + delta) % 1440) + 1440) % 1440;
+        P.$in.value = p2(Math.floor(tot / 60)) + ":" + p2(tot % 60);
+        paintPicker(S, true);
+      }
+      return;
+    }
+    if (P.focus !== "cal") return;
+    var step = null;
+    if (k === "ArrowLeft") step = ["d", -1]; else if (k === "ArrowRight") step = ["d", 1];
+    else if (k === "ArrowUp") step = ["d", -7]; else if (k === "ArrowDown") step = ["d", 7];
+    else if (k === "PageUp") step = e.shiftKey ? ["m", -12] : ["m", -1]; else if (k === "PageDown") step = e.shiftKey ? ["m", 12] : ["m", 1];
+    else if (k === "Home") step = ["d", -((P.d.getDay() + 6) % 7)]; else if (k === "End") step = ["d", 6 - ((P.d.getDay() + 6) % 7)];
+    if (step) { e.preventDefault(); if (step[0] === "d") P.d = addDays(P.d, step[1]); else moveMonth(P, step[1]); return paintPicker(S); }
+    if (/^Digit\d$/.test(k) || /^Numpad\d$/.test(k)) { P.focus = "time"; P.$in.focus(); P.$in.select(); } // цифра пойдёт в поле времени
+  }
+
+  /* ---------- клавиатура ---------- */
+  function matchKey(kd, e) { return kd.c === e.code && !!kd.s === !!e.shiftKey; }
+  function move(S, dir, key) {
+    var rows = S.rows, idxs = [];
+    rows.forEach(function (r, i) { if (selectable(r)) idxs.push(i); });
+    if (!idxs.length) return;
+    var p = idxs.indexOf(S.cur), n;
+    if (key === "Home") n = 0; else if (key === "End") n = idxs.length - 1; else n = (p + dir + idxs.length) % idxs.length;
+    S.cur = idxs[n]; paint(S);
+  }
+  function onKey(e) {
+    var S = stages.filter(function (x) { return x.open; })[0];
+    if (!S) return;
+    if (e.altKey && (e.code === "ArrowUp" || e.code === "ArrowDown") && S.view === "main") {
+      e.preventDefault(); S.hour = Math.max(0, Math.min(23, S.hour + (e.code === "ArrowUp" ? 1 : -1))); return paint(S);
+    }
+    if (S.view === "picker") return pickerKey(S, e);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (S.focus === "sub") { closeSub(S); S.focus = "list"; return paint(S); }
+      if (S.q) { S.q = ""; if (S.$in) S.$in.value = ""; var f = firstSel(visibleRows(S)); S.cur = Math.max(0, f); if (S.cfg.input === "slash") { S.focus = "list"; S.$main.focus(); } return paint(S); }
+      if (S.cfg.input === "slash" && S.focus === "input") { S.focus = "list"; S.$main.focus(); return paint(S); }
+      return close(S);
+    }
+    if (e.key === "Tab" && !(S.cfg.input === "slash" && S.focus !== "sub")) { e.preventDefault(); return; }
+    if (S.focus === "sub") return subKey(S, e);
+    if (S.focus === "input") return inputKey(S, e);
+    return listKey(S, e);
+  }
+  function subKey(S, e) {
+    var k = e.code, rows = dayRows(S, true);
+    if (k === "ArrowDown") { e.preventDefault(); S.subCur = (S.subCur + 1) % rows.length; return paint(S); }
+    if (k === "ArrowUp") { e.preventDefault(); S.subCur = (S.subCur + rows.length - 1) % rows.length; return paint(S); }
+    if (k === "Home") { e.preventDefault(); S.subCur = 0; return paint(S); }
+    if (k === "End") { e.preventDefault(); S.subCur = rows.length - 1; return paint(S); }
+    if (k === "ArrowLeft") { e.preventDefault(); closeSub(S); S.focus = "list"; return paint(S); }
+    if (e.key === "Enter") { e.preventDefault(); return pick(S, rows[S.subCur].at); }
+    var m = k.match(/^(?:Digit|Numpad)([1-7])$/);
+    if (m && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return pick(S, rows[+m[1] - 1].at); }
+  }
+  function inputKey(S, e) {
+    var k = e.code;
+    if (k === "ArrowDown" || k === "ArrowUp") {
+      e.preventDefault();
+      if (S.cfg.input === "slash" && !S.q) { S.focus = "list"; S.$main.focus(); return paint(S); }
+      return move(S, k === "ArrowDown" ? 1 : -1);
+    }
+    if (e.key === "Enter") { e.preventDefault(); return activate(S, S.rows[S.cur]); }
+    if (k === "ArrowRight" && !S.q) { var r = S.rows[S.cur]; if (r && r.kind === "sub") { e.preventDefault(); return openSub(S); } }
+    if (S.cfg.input === "slash" && e.key === "Tab") { e.preventDefault(); S.focus = "list"; S.$main.focus(); return paint(S); }
+  }
+  function listKey(S, e) {
+    var k = e.code;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    /* сначала горячие клавиши пунктов, в том числе ⇧+стрелки */
+    for (var i = 0; i < S.rows.length; i++) {
+      var r = S.rows[i];
+      if (!r.keys || !selectable(r)) continue;
+      for (var j = 0; j < r.keys.length; j++) {
+        var kd = r.keys[j];
+        if (!matchKey(kd, e) && !(kd.digit && (e.code === "Numpad" + kd.digit))) continue;
+        e.preventDefault(); S.cur = i;
+        if (kd.digit) { var dr = dayRows(S, true)[kd.digit - 1]; return pick(S, dr.at); }
+        return activate(S, r);
+      }
+    }
+    if (S.cfg.input === "slash" && (e.key === "/" || e.key === "Tab")) { e.preventDefault(); S.focus = "input"; paint(S); S.$in.focus(); return; }
+    if (k === "ArrowDown") { e.preventDefault(); return move(S, 1); }
+    if (k === "ArrowUp") { e.preventDefault(); return move(S, -1); }
+    if (k === "Home" || k === "End") { e.preventDefault(); return move(S, 0, k); }
+    if (e.key === "Enter") { e.preventDefault(); return activate(S, S.rows[S.cur]); }
+    if (k === "ArrowRight") { var cr = S.rows[S.cur]; if (cr && cr.kind === "sub") { e.preventDefault(); return openSub(S); } }
+  }
+  document.addEventListener("keydown", function (e) {
+    var openOne = stages.some(function (x) { return x.open; });
+    if (openOne) return onKey(e);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (e.target && e.target.tagName) || "";
+    if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+    if (!hot) return;
+    if (e.code === "KeyH") { e.preventDefault(); return openMenu(hot); }
+    if (e.code === "KeyZ" && hot.undo) { e.preventDefault(); hot.undo(); }
+  }, true);
+
+  /* ---------- конфиги вариантов ---------- */
+  var base = { daysLabel: "День недели", clearAlways: false };
+  var A = makeStage(document.getElementById("stA"), Object.assign({}, base, {
+    input: "none", days: "sub", steps: "always", letters: true, stepKeys: true, digitsMain: false, clearAlways: true,
+    tip: "<b>Попробуйте:</b> <kbd>h</kbd> → <kbd>Д</kbd> (или <kbd>↓</kbd> до «День недели» и <kbd>→</kbd>) → <kbd>5</kbd>; <kbd>←</kbd> — назад в меню; <kbd>К</kbd> — календарь; <kbd>Alt</kbd>+<kbd>↑</kbd> — час позже. Переключите «письмо отложено» вверху — ± получат даты."
+  }));
+  var B = makeStage(document.getElementById("stB"), Object.assign({}, base, {
+    input: "always", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", days: "inline", steps: "snoozed", letters: false, stepKeys: false, digitsMain: false,
+    tip: "<b>Попробуйте:</b> <kbd>h</kbd> и сразу печатайте «пт 9:00», «завтра 18», «через 3 дня», «через час»; <kbd>Enter</kbd>. Или «выбрать» — отфильтрует пункты. <kbd>↓</kbd> по списку."
+  }));
+  var C = makeStage(document.getElementById("stC"), Object.assign({}, base, {
+    input: "slash", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", days: "sub", steps: "snoozed", letters: true, stepKeys: true, digitsMain: true,
+    tip: "<b>Попробуйте:</b> <kbd>h</kbd> <kbd>5</kbd> — пятница сразу; <kbd>h</kbd> <kbd>З</kbd> — завтра; <kbd>h</kbd> <kbd>Д</kbd> — подменю; <kbd>h</kbd> <kbd>/</kbd> «пт 9» <kbd>Enter</kbd>; <kbd>К</kbd> — календарь (<kbd>PgDn</kbd>, <kbd>Tab</kbd> к времени)."
+  }));
+
+  /* ---------- панель управления ---------- */
+  var sel = document.getElementById("defH");
+  for (var h = 6; h <= 12; h++) { var o = document.createElement("option"); o.value = h; o.textContent = h + ":00"; if (h === 9) o.selected = true; sel.appendChild(o); }
+  sel.addEventListener("change", function () { settingsHour = +sel.value; stages.forEach(function (S) { S.hour = settingsHour; if (S.open) paint(S); }); });
+  document.querySelectorAll("[data-theme]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.body.classList.toggle("night", b.dataset.theme === "night");
+      document.querySelectorAll("[data-theme]").forEach(function (x) { x.classList.toggle("on", x === b); });
+    });
+  });
+  document.querySelectorAll("[data-sn]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      snoozedAll = b.dataset.sn === "set" ? SNOOZED_SAMPLE : null;
+      stages.forEach(function (S) { S.snoozed = snoozedAll; renderChips(S); S.$toasts.innerHTML = ""; S.undo = null; if (S.open) { close(S, true); } });
+      document.querySelectorAll("[data-sn]").forEach(function (x) { x.classList.toggle("on", x === b); });
+    });
+  });
+  window.__snoozeMock = { stages: stages };
+})();
+</script>
+</body>
+</html>
