@@ -122,6 +122,29 @@ export class Reader {
     for (const m of list.messages) if (ids.includes(m.id)) m.flags.seen = true;
   }
 
+  /**
+   * The user acts on these letters (flags, a move, an answer): their read mark lands at
+   * once, as if the second had passed. A letter dealt with is never left unread by the
+   * wait (#71), and the state is each letter's own — not the one that was open a moment
+   * ago, which a key move may already have left behind.
+   */
+  saw(ids: number[]) {
+    if (!ids.length) return;
+    const { list } = this.host;
+    const opened = this.opened;
+    const row = (id: number) =>
+      list.messages.find((m) => m.id === id) ?? this.conversation.find((m) => m.id === id) ?? (opened?.row.id === id ? opened.row : undefined);
+    const unread = ids.filter((id) => !(row(id)?.flags.seen ?? true));
+    if (!unread.length) return;
+    // Acting on the open letter takes over the mark the wait was about to make.
+    if (unread.includes(opened?.row.id ?? -1)) this.cancelSeen();
+    api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
+    for (const id of unread) {
+      const r = row(id);
+      if (r) r.flags.seen = true;
+    }
+  }
+
   /** A letter joined the open conversation (an answer, a forward, new mail): show it, flags untouched. */
   scheduleConversation = debounce(() => void this.refreshConversation(), 250, 1000);
 

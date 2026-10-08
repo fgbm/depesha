@@ -67,7 +67,7 @@
       "core.delete": () => app.remove(),
       "core.archive": () => app.archive(),
       "core.spam": () => app.spam(),
-      "core.unread": () => opened && app.flag("seen", !opened.row.flags.seen),
+      "core.unread": () => app.toggleSeen(),
       "core.flag": () => opened && app.flag("flagged", !opened.row.flags.flagged),
       "core.labels": () => opened && app.labels.openPick([opened.row.id]),
     };

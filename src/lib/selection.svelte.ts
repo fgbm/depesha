@@ -203,7 +203,9 @@ export class SelectionController {
 
   async flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) {
     if (!ids.length) return;
-    this.host.reader.flagEpoch++;
+    // A change of the read flag by hand stays the last word; tagging a letter is not a
+    // change of read state, so it does not cancel the read mark the window is about to make.
+    if (change === "seen") this.host.reader.flagEpoch++;
     for (const id of ids) this.host.list.mark(id, this.host.list.messages.find((m) => m.id === id));
     for (const m of this.host.list.messages) if (ids.includes(m.id)) m.flags[change] = value;
     if (this.host.reader.opened && ids.includes(this.host.reader.opened.row.id)) this.host.reader.opened.row.flags[change] = value;
@@ -212,6 +214,22 @@ export class SelectionController {
     } catch (e) {
       this.host.fail(e);
     }
+  }
+
+  /**
+   * `u`: reads or unreads the letters by their own state (#71), never by the letter that
+   * was open a moment ago — `j` then `u` within the key window must not carry the previous
+   * letter's read state onto the selected one.
+   */
+  toggleSeen(ids = this.selectedIds()) {
+    if (!ids.length) return;
+    const seen = (id: number) => {
+      // The open letter's own state: opening it marked it read at once (its `opened` row).
+      if (this.host.reader.opened?.row.id === id) return this.host.reader.opened.row.flags.seen;
+      const m = this.host.list.messages.find((r) => r.id === id) ?? this.host.reader.conversation.find((r) => r.id === id);
+      return m?.flags.seen ?? true;
+    };
+    return this.flag("seen", !ids.every(seen), ids);
   }
 
   /** Opens a letter in a window of its own; a draft opens in the composer instead. */

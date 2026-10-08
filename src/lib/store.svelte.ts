@@ -166,6 +166,10 @@ export class AppStore {
   takeOut(ids: number[]) { this.selection.takeOut(ids); }
   /** Reads or (un)flags rows: the list keeps them and their place meanwhile. */
   flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) { return this.selection.flag(change, value, ids); }
+  /** `u`: reads or unreads the letters by their own state, not the one open a moment ago (#71). */
+  toggleSeen(ids = this.selectedIds()) { return this.selection.toggleSeen(ids); }
+  /** The letters are acted on: their read mark lands at once (#71). */
+  markSeen(ids: number[]) { this.reader.saw(ids); }
   /** Opens a letter in a window of its own; a draft opens in the composer instead. */
   openWindow(row: MessageRow) { return this.selection.openWindow(row); }
 

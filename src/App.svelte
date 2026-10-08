@@ -123,7 +123,7 @@
     "core.archive": () => app.archive(),
     "core.delete": () => app.remove(),
     "core.spam": () => app.spam(),
-    "core.unread": () => app.opened && app.flag("seen", !app.opened.row.flags.seen),
+    "core.unread": () => app.toggleSeen(),
     "core.flag": () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
     "core.labels": () => app.labels.openPick(labelTarget()),
   };

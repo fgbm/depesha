@@ -43,3 +43,82 @@ describe("marking a letter read", () => {
     expect(markedSeen()).toEqual([3]);
   });
 });
+
+describe("acting on a letter", () => {
+  it("marks it read at once, not after the wait", async () => {
+    api.messages.mockResolvedValue(rows(1, 3));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    vi.useFakeTimers();
+    void s.open(1);
+    await flush();
+    vi.advanceTimersByTime(200);
+    expect(markedSeen()).toEqual([]);
+
+    // The user archives it (or flags, moves, answers): read now.
+    s.markSeen([1]);
+    await flush();
+    expect(markedSeen()).toEqual([1]);
+    // The wait that was pending does not mark it a second time.
+    vi.advanceTimersByTime(2000);
+    await flush();
+    expect(markedSeen()).toEqual([1]);
+  });
+
+  it("tagging a letter does not cancel its read mark", async () => {
+    api.messages.mockResolvedValue(rows(1, 3));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    vi.useFakeTimers();
+    void s.open(1);
+    await flush();
+    vi.advanceTimersByTime(200);
+    // A star, not a read flag: the mark the window was about to make still lands.
+    await s.flag("flagged", true);
+    vi.advanceTimersByTime(1200);
+    await flush();
+    expect(markedSeen()).toEqual([1]);
+  });
+
+  it("archiving a letter before the wait still marks it read", async () => {
+    api.messages.mockResolvedValue(rows(1, 3));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    vi.useFakeTimers();
+    void s.open(1);
+    await flush();
+    vi.advanceTimersByTime(200);
+    // "Done" a moment after opening: the letter is read all the same.
+    await s.archive([1]);
+    await flush();
+    expect(markedSeen()).toContain(1);
+  });
+});
+
+describe("`u` by the letter's own state", () => {
+  it("reads the state of the letter it applies to, not the one open a moment ago", async () => {
+    api.messages.mockResolvedValue([row(1, { flags: { ...row(1).flags, seen: true } }), row(2), row(3)]);
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.open(1);
+    await flush();
+
+    // The keys moved to letter 2 while letter 1 is still the open one for a moment.
+    s.selected = new Set([2]);
+    await s.toggleSeen();
+    // Letter 2 is unread, so it becomes read — never unread because letter 1 was read.
+    expect(markedSeen()).toEqual([2]);
+    expect(api.setFlag).toHaveBeenCalledWith([2], { flag: "seen", value: true });
+  });
+});
