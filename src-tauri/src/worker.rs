@@ -241,6 +241,9 @@ pub struct Worker {
     reads: mpsc::Sender<(Work, Reply)>,
     /// User actions and other work somebody waits for; they go ahead of `background`.
     urgent: mpsc::Sender<(Work, Reply)>,
+    /// Work nobody asked for just now (snoozed mail coming back, a Sent copy, a photo):
+    /// it waits behind the user's actions and the bodies being read, ahead of `background`.
+    quiet: mpsc::Sender<(Work, Reply)>,
     background: mpsc::Sender<Work>,
     queued: Queued,
     tasks: Arc<Vec<JoinHandle<()>>>,
@@ -274,7 +277,7 @@ impl Worker {
         if self.paused.load(Ordering::Relaxed) {
             return Err(Error::Paused);
         }
-        self.call(work).await
+        self.call_quiet(work).await
     }
 
     async fn call(&self, work: Work) -> Result<Output> {
@@ -287,6 +290,14 @@ impl Worker {
             &self.urgent
         };
         tx.send((work, reply)).await.map_err(|_| Error::Closed)?;
+        rx.await.map_err(|_| Error::Closed)?
+    }
+
+    /// Work nobody waits on with their hand on the keyboard: it queues behind the user's
+    /// actions and the bodies being opened, not among them.
+    async fn call_quiet(&self, work: Work) -> Result<Output> {
+        let (reply, rx) = oneshot::channel();
+        self.quiet.send((work, reply)).await.map_err(|_| Error::Closed)?;
         rx.await.map_err(|_| Error::Closed)?
     }
 }
@@ -308,6 +319,7 @@ fn busy_pause(back_off: Option<Duration>, streak: u32) -> Duration {
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (reads, reads_rx) = mpsc::channel(64);
     let (urgent, urgent_rx) = mpsc::channel(64);
+    let (quiet, quiet_rx) = mpsc::channel(64);
     let (background, background_rx) = mpsc::channel(64);
     let paused = Arc::new(AtomicBool::new(false));
     let queued: Queued = Arc::default();
@@ -324,7 +336,7 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         queued: queued.clone(),
         deferred: VecDeque::new(),
     };
-    let ops = tokio::spawn(ops.run(reads_rx, urgent_rx, background_rx));
+    let ops = tokio::spawn(ops.run(reads_rx, urgent_rx, quiet_rx, background_rx));
     let idle = tokio::spawn(idle_loop(
         state,
         account,
@@ -335,6 +347,7 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let worker = Worker {
         reads,
         urgent,
+        quiet,
         background,
         queued,
         tasks: Arc::new(vec![ops, idle]),
@@ -347,6 +360,8 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
 /// What the operations loop takes up next.
 enum Next {
     User(Work, Reply),
+    /// Work nobody is waiting on with their hand on the keyboard; it answers its caller.
+    Quiet(Work, Reply),
     Background(Work),
     /// The next folder of the full sync under way.
     Step,
@@ -354,14 +369,15 @@ enum Next {
     Closed,
 }
 
-/// Reads first (a body somebody is opening), then user actions in the order sent, then
-/// the full sync under way (`stepping`), one folder per call; then other background work.
-/// Actions taken out of `urgent` but not run yet wait in `deferred` and go before it.
-/// While a busy server asks to wait (`busy_until`), only user actions are taken: they get
-/// their answer at once.
+/// Reads first (a body somebody is opening), then user actions in the order sent, then the
+/// quiet work (snoozed mail coming back, a Sent copy, a photo), then the full sync under way
+/// (`stepping`), one folder per call, and other background work last. Actions taken out of
+/// `urgent` but not run yet wait in `deferred` and go before it. While a busy server asks to
+/// wait (`busy_until`), only user actions are taken: they get their answer at once.
 async fn next(
     reads: &mut mpsc::Receiver<(Work, Reply)>,
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
+    quiet: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
     background: &mut mpsc::Receiver<Work>,
     tick: &mut tokio::time::Interval,
@@ -398,6 +414,7 @@ async fn next(
         biased;
         item = reads.recv() => item.map_or(Next::Closed, |(w, r)| Next::User(w, r)),
         item = urgent.recv() => item.map_or(Next::Closed, |(w, r)| Next::User(w, r)),
+        item = quiet.recv() => item.map_or(Next::Closed, |(w, r)| Next::Quiet(w, r)),
         item = background.recv() => item.map_or(Next::Closed, Next::Background),
         _ = tick.tick() => Next::Tick,
     }
@@ -446,6 +463,7 @@ impl Ops {
         mut self,
         mut reads: mpsc::Receiver<(Work, Reply)>,
         mut urgent: mpsc::Receiver<(Work, Reply)>,
+        mut quiet: mpsc::Receiver<(Work, Reply)>,
         mut background: mpsc::Receiver<Work>,
     ) {
         let mut tick = tokio::time::interval(FULL_SYNC_EVERY);
@@ -456,6 +474,7 @@ impl Ops {
             match next(
                 &mut reads,
                 &mut urgent,
+                &mut quiet,
                 &mut self.deferred,
                 &mut background,
                 &mut tick,
@@ -490,9 +509,9 @@ impl Ops {
                             // so the whole held key is a couple of requests. A lone move runs now.
                             if replies.len() > 1 {
                                 let deadline = tokio::time::Instant::now() + MOVE_SETTLE_MAX;
-                                let mut quiet = 0u32;
+                                let mut settled = 0u32;
                                 while replies.len() < MAX_COALESCED_MOVES
-                                    && quiet < MOVE_SETTLE_QUIET
+                                    && settled < MOVE_SETTLE_QUIET
                                     && tokio::time::Instant::now() < deadline
                                 {
                                     tokio::time::sleep(MOVE_SETTLE_STEP).await;
@@ -506,7 +525,7 @@ impl Ops {
                                         &mut uids,
                                         &mut replies,
                                     );
-                                    quiet = if replies.len() == before { quiet + 1 } else { 0 };
+                                    settled = if replies.len() == before { settled + 1 } else { 0 };
                                 }
                             }
                             let merged = Work::Move {
@@ -536,6 +555,13 @@ impl Ops {
                             let _ = reply.send(result);
                         }
                     }
+                }
+                // Background work with a caller: the same handling as a user action, only
+                // queued below the user's own and behind the bodies being read.
+                Next::Quiet(work, reply) => {
+                    let result = self.user(&work).await;
+                    self.report(&work, &result, true);
+                    let _ = reply.send(result);
                 }
                 Next::Step => self.step().await,
                 Next::Background(work) => {
@@ -1304,10 +1330,12 @@ mod tests {
     ) -> Next {
         // Kept alive for the call: a dropped sender would read as closed.
         let (_reads_tx, mut reads) = mpsc::channel(1);
+        let (_quiet_tx, mut quiet) = mpsc::channel(1);
         let mut deferred = VecDeque::new();
         next(
             &mut reads,
             urgent,
+            &mut quiet,
             &mut deferred,
             background,
             tick,
@@ -1481,6 +1509,7 @@ mod tests {
     async fn a_body_read_goes_before_queued_moves() {
         let (reads_tx, mut reads) = mpsc::channel(8);
         let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let (_quiet_tx, mut quiet) = mpsc::channel(8);
         let (_background_tx, mut background) = mpsc::channel(8);
         let mut deferred = VecDeque::new();
         let mut tick = ticker().await;
@@ -1494,6 +1523,7 @@ mod tests {
                 next(
                     &mut reads,
                     &mut urgent,
+                    &mut quiet,
                     &mut deferred,
                     &mut background,
                     &mut tick,
@@ -1509,6 +1539,7 @@ mod tests {
             next(
                 &mut reads,
                 &mut urgent,
+                &mut quiet,
                 &mut deferred,
                 &mut background,
                 &mut tick,
@@ -1524,6 +1555,7 @@ mod tests {
     async fn deferred_actions_run_before_the_queue() {
         let (reads_tx, mut reads) = mpsc::channel(8);
         let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let (_quiet_tx, mut quiet) = mpsc::channel(8);
         let (_background_tx, mut background) = mpsc::channel(8);
         let mut tick = ticker().await;
         // A body read taken out while gathering a batch runs before anything else.
@@ -1536,6 +1568,7 @@ mod tests {
                 next(
                     &mut reads,
                     &mut urgent,
+                    &mut quiet,
                     &mut deferred,
                     &mut background,
                     &mut tick,
@@ -1545,6 +1578,66 @@ mod tests {
                 .await
             ),
             Some(7)
+        );
+    }
+
+    #[tokio::test]
+    async fn quiet_work_waits_behind_the_users_actions() {
+        let (reads_tx, mut reads) = mpsc::channel(8);
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let (quiet_tx, mut quiet) = mpsc::channel(8);
+        let (_background_tx, mut background) = mpsc::channel(8);
+        let mut deferred = VecDeque::new();
+        let mut tick = ticker().await;
+        quiet_tx.send((Work::Quota, oneshot::channel().0)).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
+        // The user's move goes first; the quiet work after it.
+        assert!(matches!(
+            next(
+                &mut reads,
+                &mut urgent,
+                &mut quiet,
+                &mut deferred,
+                &mut background,
+                &mut tick,
+                false,
+                None
+            )
+            .await,
+            Next::User(Work::Move { .. }, _)
+        ));
+        assert!(matches!(
+            next(
+                &mut reads,
+                &mut urgent,
+                &mut quiet,
+                &mut deferred,
+                &mut background,
+                &mut tick,
+                false,
+                None
+            )
+            .await,
+            Next::Quiet(Work::Quota, _)
+        ));
+        // And a body somebody is opening goes before the quiet work too.
+        reads_tx.send(load(5)).await.unwrap();
+        quiet_tx.send((Work::Quota, oneshot::channel().0)).await.unwrap();
+        assert_eq!(
+            loaded(
+                next(
+                    &mut reads,
+                    &mut urgent,
+                    &mut quiet,
+                    &mut deferred,
+                    &mut background,
+                    &mut tick,
+                    false,
+                    None
+                )
+                .await
+            ),
+            Some(5)
         );
     }
 
