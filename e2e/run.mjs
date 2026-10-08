@@ -1653,7 +1653,7 @@ try {
     await d.button("Входящие");
     await openBySubject("Скидки недели");
     await press("h");
-    await d.until("snooze menu", async () => (await textOf(".reader .pop")).includes("Завтра утром"));
+    await d.until("snooze menu", async () => (await textOf(".snooze .pop")).includes("Завтра"));
     await screenshot("snooze-menu");
     await press("Escape");
     // The offered times are hours away; the same command with a time 5 seconds ahead.
@@ -1672,7 +1672,7 @@ try {
       (await d.exec(`return [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]))?.querySelector('.count')?.innerText.trim() ?? ''`, subj)) === "2", 30000);
     await openBySubject(subj);
     await press("h");
-    await d.click(await d.until("snooze preset", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Завтра утром')]")));
+    await d.click(await d.until("snooze preset", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Завтра')]")));
     await d.until("both in Snoozed on server", async () => helper("count", "Отложенные", subj) === "2", 20000);
     await d.button("Отложенные");
     await rowBySubject(subj, 10000);
@@ -1684,6 +1684,41 @@ try {
       const badge = await d.exec(`return [...document.querySelectorAll('nav.side .item')].find(b => (b.querySelector('.name') ?? b).innerText.trim() === 'Отложенные')?.querySelector('.count')?.innerText.trim() ?? ''`);
       return badge === "1" ? true : null;
     });
+  });
+
+  await step("2.5", "«Отложить» по клавише: меню у строки, подменю рядом, день цифрой, тост и «Отменить» (#95, #96)", async () => {
+    const subj = `Меню ${stamp}`;
+    helper("deliver", subj);
+    await d.button("Входящие");
+    await rowBySubject(subj, 30000);
+    await openBySubject(subj);
+    const box = (css) => d.exec(`const r = document.querySelector(arguments[0])?.getBoundingClientRect(); return r ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null`, css);
+    // «h» on the selected row: the menu hangs on that row, under it or over it, never on top of it.
+    await press("h", { code: "KeyH" });
+    await d.until("menu open", async () => (await d.findAll(".snooze .pop.main")).length === 1);
+    const row = await box(".row.selected, .row.opened");
+    const menu = await box(".snooze .pop.main");
+    if (!(menu.t >= row.b - 1 || menu.b <= row.t + 1)) throw new Error(`меню закрывает строку: строка ${JSON.stringify(row)}, меню ${JSON.stringify(menu)}`);
+    if (menu.l < row.l - 1 || menu.l > row.r) throw new Error(`меню не у строки: строка ${JSON.stringify(row)}, меню ${JSON.stringify(menu)}`);
+    // «Д» (the key of «Рабочие дни») lights the item, → opens the submenu beside it.
+    await press("д", { code: "KeyL" });
+    await press("ArrowRight", { code: "ArrowRight" });
+    await d.until("submenu", async () => (await d.findAll(".snooze .pop.subm")).length === 1);
+    const sub = await box(".snooze .pop.subm");
+    const parent = await box(".snooze .pop.main");
+    if (!(sub.l >= parent.r - 1 || sub.r <= parent.l + 1)) throw new Error(`подменю закрывает меню: ${JSON.stringify({ parent, sub })}`);
+    if (sub.l < 0 || sub.r > (await d.exec("return window.innerWidth")) || sub.t < 0 || sub.b > (await d.exec("return window.innerHeight"))) {
+      throw new Error(`подменю вышло за окно: ${JSON.stringify(sub)}`);
+    }
+    if ((await d.findAll(".snooze .mi.parent")).length !== 1) throw new Error("родитель подменю не подсвечен");
+    await screenshot("snooze-submenu");
+    // «1» is Monday, ISO: lights it in the submenu; Enter snoozes.
+    await press("1", { code: "Digit1" });
+    await press("Enter", { code: "Enter" });
+    await d.until("in Snoozed on server", async () => helper("count", "Отложенные", subj) === "1", 20000);
+    await d.until("toast", async () => /Отложено до пн, \d+ [а-я]+, 9:00/.test(await textOf(".toasts")));
+    await d.click(await d.xpath("//div[contains(@class,'toasts')]//button[contains(., 'Отменить')]"));
+    await d.until("undone on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
   });
 
   await step("2.4", "«Вернуть сейчас»: «w» возвращает отложенное письмо в «Входящие», «z» откладывает обратно", async () => {

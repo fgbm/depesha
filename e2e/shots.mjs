@@ -294,7 +294,7 @@ try {
   await d.button("Входящие");
   await openBySubject("Смета на монтаж");
   await press("h");
-  await d.until("snooze menu", async () => (await textOf(".reader .pop")).includes("Завтра утром"));
+  await d.until("snooze menu", async () => (await textOf(".snooze .pop")).includes("Завтра"));
   await shot("snooze");
   await press("Escape");
 
