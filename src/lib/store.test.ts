@@ -300,6 +300,20 @@ describe("settings changed elsewhere", () => {
   });
 });
 
+describe("saving one setting", () => {
+  // The whole settings from memory would roll back what another window or the tray wrote
+  // meanwhile: a save names only its own keys, and the backend patches them over the file.
+  it("patches only the keys it names, not the whole settings from memory", async () => {
+    const s = new AppStore();
+    await s.init();
+    const keys = { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] };
+    await s.saveKeybindings(keys);
+    expect(api.settingsPatch).toHaveBeenCalledWith({ keybindings: keys });
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(s.settings.keybindings).toEqual(keys);
+  });
+});
+
 describe("extension banners", () => {
   it("are kept only for the open letter and its conversation", async () => {
     extensions.list = [{ id: "x", name: { en: "X" }, enabled: true, hooks: ["messageOpen"], permissions: [], contributes: { commands: [] } } as unknown as Extension];
