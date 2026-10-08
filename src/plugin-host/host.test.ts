@@ -4,6 +4,9 @@ const { settings, applied } = vi.hoisted(() => ({
   settings: { disabled_plugins: [] as string[], enabled_plugins: [] as string[] },
   applied: [] as Record<string, unknown>[],
 }));
+const { callMock } = vi.hoisted(() => ({ callMock: vi.fn(async () => ({})) }));
+
+vi.mock("../lib/api", () => ({ call: callMock }));
 
 vi.mock("../../plugins", () => ({
   BUILTIN: [
@@ -94,6 +97,29 @@ describe("activation follows the settings", () => {
     host.setEnabled("off-by-default", false);
     host.sync();
     expect(registry.removeOwner).toHaveBeenCalledWith("off-by-default");
+  });
+});
+
+describe("the counters of the plugins", () => {
+  it("are read once per burst and shared by every plugin", async () => {
+    vi.useFakeTimers();
+    callMock.mockResolvedValue({ snoozed: 1, followups: 2 });
+    const alwaysOn = BUILTIN.find((p) => p.manifest.id === "always-on")!;
+    host.setEnabled("always-on", false);
+    host.sync();
+    host.setEnabled("always-on", true);
+    host.sync();
+    const ctx = vi.mocked(alwaysOn.activate).mock.calls.at(-1)![0];
+    const first = ctx.backend("counters");
+    const second = ctx.backend("counters");
+    // Held back for the burst, then read once for both.
+    expect(callMock).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
+    const [a, b] = await Promise.all([first, second]);
+    expect(callMock).toHaveBeenCalledTimes(1);
+    expect(callMock).toHaveBeenCalledWith("counters", undefined);
+    expect(a).toBe(b);
+    vi.useRealTimers();
   });
 });
 
