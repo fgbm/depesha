@@ -241,9 +241,9 @@ pub fn adopt_old_signatures(config: &mut Config) {
     }
 }
 
-/// Applies a patch over a JSON value: the keys it names are set, the rest is left as it is.
-/// A patch over the settings changes only what one page or one control owns, so what
-/// another window or the tray wrote meanwhile is not rolled back.
+/// Applies a patch over a JSON value: every key the patch names is replaced by what it
+/// carries, the rest is left as it is. A patch over the settings changes only what one page
+/// or one control owns, so what another window or the tray wrote meanwhile is not rolled back.
 pub fn merge(base: &mut serde_json::Value, patch: serde_json::Value) {
     let serde_json::Value::Object(patch) = patch else {
         *base = patch;
@@ -254,7 +254,7 @@ pub fn merge(base: &mut serde_json::Value, patch: serde_json::Value) {
         return;
     };
     for (key, value) in patch {
-        merge(obj.entry(key).or_insert(serde_json::Value::Null), value);
+        obj.insert(key, value);
     }
 }
 
