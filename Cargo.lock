@@ -1051,6 +1051,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "socket2",
  "stop-token",
  "tempfile",
  "thiserror 2.0.21",

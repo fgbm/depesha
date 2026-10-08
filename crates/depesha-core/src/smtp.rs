@@ -844,6 +844,7 @@ async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Con
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
         .map_err(|_| Error::Timeout("connecting"))??;
+    crate::net::keepalive(&tcp);
     let pinned = server.trusted_cert.as_deref();
     let name = ehlo_name(hostname().as_deref(), tcp.local_addr().ok());
     let stream: Box<dyn Io> = match server.security {

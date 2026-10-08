@@ -318,6 +318,7 @@ fn timeout_label(what: &str) -> &str {
         "server greeting" => "приветствие сервера",
         "search answer" => "ответ на поиск",
         "SMTP answer" => "ответ SMTP",
+        "operation" => "операция",
         "connecting to the list server" => "подключение к серверу рассылки",
         "list server answer" => "ответ сервера рассылки",
         "HTTP answer" => "ответ HTTP",

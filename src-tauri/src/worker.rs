@@ -54,6 +54,16 @@ const MOVE_SETTLE_STEP: Duration = Duration::from_millis(50);
 const MOVE_SETTLE_MAX: Duration = Duration::from_millis(500);
 /// How many quiet steps (no new move) end the gather early.
 const MOVE_SETTLE_QUIET: u32 = 2;
+/// A single piece of work cannot run forever: long enough for a big body download, short
+/// enough that a stall the silence watchdog misses (a server that keeps dribbling bytes)
+/// cannot hold the mailbox for hours.
+const WORK_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// The first pause after a failed connect; it doubles while the network stays down.
+const NET_BACKOFF: Duration = Duration::from_secs(5);
+/// The longest pause between connect attempts: often enough to notice the network back.
+const NET_BACKOFF_MAX: Duration = Duration::from_secs(5 * 60);
+/// A wall-clock jump this far ahead of the monotonic clock means the machine slept.
+const SLEEP_GAP: Duration = Duration::from_secs(20);
 
 #[derive(Debug)]
 pub enum Work {
@@ -440,6 +450,41 @@ fn busy_pause(back_off: Option<Duration>, streak: u32) -> Duration {
     }
 }
 
+/// The pause after a failed connect, doubled each time with a ceiling: with no network
+/// every action would otherwise wait out its own 20 s connect before failing.
+fn net_backoff(current: Duration) -> Duration {
+    if current.is_zero() {
+        NET_BACKOFF
+    } else {
+        (current * 2).min(NET_BACKOFF_MAX)
+    }
+}
+
+/// "No network" as a transient error; the wording comes from `io_text`.
+fn no_network() -> Error {
+    Error::Io(std::io::Error::new(
+        std::io::ErrorKind::NetworkUnreachable,
+        "no network",
+    ))
+}
+
+/// Whether the machine slept since the last call: the wall clock ran on, the monotonic
+/// one did not. Updates both marks.
+fn slept_since(last_wall: &mut SystemTime, last_mono: &mut Instant) -> bool {
+    let wall = SystemTime::now();
+    let mono = Instant::now();
+    let slept = wall.duration_since(*last_wall).unwrap_or_default() > mono.duration_since(*last_mono) + SLEEP_GAP;
+    *last_wall = wall;
+    *last_mono = mono;
+    slept
+}
+
+/// Whether a failed connect still holds the mailbox out of touch: work gets an error at
+/// once then, instead of another 20 s connect.
+fn out_of_touch(until: Option<tokio::time::Instant>, now: tokio::time::Instant) -> bool {
+    until.is_some_and(|t| t > now)
+}
+
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (reads, reads_rx) = mpsc::channel(64);
     let (urgent, urgent_rx) = mpsc::channel(64);
@@ -459,6 +504,10 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         paused: paused.clone(),
         queued: queued.clone(),
         deferred: VecDeque::new(),
+        no_network_until: None,
+        net_backoff: Duration::ZERO,
+        last_wall: SystemTime::now(),
+        last_mono: Instant::now(),
     };
     let ops = tokio::spawn(ops.run(reads_rx, urgent_rx, quiet_rx, background_rx));
     let idle = tokio::spawn(idle_loop(
@@ -581,6 +630,14 @@ struct Ops {
     /// User actions taken out of `urgent` while gathering a move batch, in the order they
     /// were sent: they run before the queue is read again.
     deferred: VecDeque<(Work, Reply)>,
+    /// A failed connect puts the mailbox out of touch until this: work gets an error at
+    /// once instead of one 20 s connect after another.
+    no_network_until: Option<tokio::time::Instant>,
+    /// The current pause after a failed connect, growing with each failure.
+    net_backoff: Duration,
+    /// When the loop last ran: a wall clock ahead of the monotonic one means sleep.
+    last_wall: SystemTime,
+    last_mono: Instant,
 }
 
 impl Ops {
@@ -774,9 +831,19 @@ impl Ops {
     /// sleep) gets one fresh retry; a busy server keeps its connection and comes back
     /// as is: the caller decides how long to wait.
     async fn attempt(&mut self, op: Op<'_>) -> Result<Output> {
+        // The machine slept: TCP connections are probably dead, and the next command
+        // would wait out its whole watchdog before failing. Start fresh.
+        if slept_since(&mut self.last_wall, &mut self.last_mono) {
+            self.conn = None;
+        }
         let mut result = Err(Error::Closed);
         for attempt in 0..2 {
             if self.conn.is_none() {
+                // No network a moment ago: fail at once, do not try to connect again
+                // (one 20 s connect per action is what makes an offline mailbox crawl).
+                if out_of_touch(self.no_network_until, tokio::time::Instant::now()) {
+                    return Err(no_network());
+                }
                 self.state.set_status(
                     &self.account.id,
                     AccountStatus {
@@ -785,12 +852,38 @@ impl Ops {
                     },
                 );
                 match connect(&self.state, &self.account).await {
-                    Ok(c) => self.conn = Some(c),
-                    Err(e) => return Err(e),
+                    Ok(c) => {
+                        self.conn = Some(c);
+                        self.net_backoff = Duration::ZERO;
+                        self.no_network_until = None;
+                    }
+                    Err(e) => {
+                        // A failure the user must fix (a wrong password) is not "no
+                        // network"; a network one backs off, growing, with a ceiling.
+                        if e.is_transient() && !needs_user(&e) {
+                            self.net_backoff = net_backoff(self.net_backoff);
+                            self.no_network_until = Some(tokio::time::Instant::now() + self.net_backoff);
+                        }
+                        return Err(e);
+                    }
                 }
             }
             let c = self.conn.as_mut().expect("connected above");
-            match perform(&self.state, &self.account, c, op, &mut self.notify_new).await {
+            let outcome = match tokio::time::timeout(
+                WORK_TIMEOUT,
+                perform(&self.state, &self.account, c, op, &mut self.notify_new),
+            )
+            .await
+            {
+                Ok(r) => r,
+                // The work never finished: the connection is unusable, and a fresh login
+                // would hang the same way, so it is dropped and not retried.
+                Err(_) => {
+                    self.conn = None;
+                    return Err(Error::Timeout("operation"));
+                }
+            };
+            match outcome {
                 Ok(out) => {
                     self.busy_streak = 0;
                     return Ok(out);
@@ -1933,5 +2026,41 @@ mod tests {
         assert_eq!(busy_pause(None, 1), BUSY_PAUSE * 2);
         assert_eq!(busy_pause(None, 2), BUSY_PAUSE * 4);
         assert_eq!(busy_pause(None, 40), BUSY_PAUSE_MAX);
+    }
+
+    #[test]
+    fn a_failed_connect_backs_off_with_a_ceiling() {
+        let mut pause = Duration::ZERO;
+        pause = net_backoff(pause);
+        assert_eq!(pause, NET_BACKOFF);
+        pause = net_backoff(pause);
+        assert_eq!(pause, NET_BACKOFF * 2);
+        for _ in 0..20 {
+            pause = net_backoff(pause);
+        }
+        assert_eq!(pause, NET_BACKOFF_MAX);
+        // 30 actions in the pause wait no time at all: not 30 × the 20 s connect.
+        assert!(NET_BACKOFF_MAX < Duration::from_secs(30) * 30);
+    }
+
+    #[test]
+    fn work_is_refused_at_once_while_the_network_is_down() {
+        let now = tokio::time::Instant::now();
+        assert!(out_of_touch(Some(now + Duration::from_secs(5)), now));
+        // The pause over, or never set: connecting is tried again.
+        assert!(!out_of_touch(Some(now), now));
+        assert!(!out_of_touch(None, now));
+    }
+
+    #[test]
+    fn a_wall_clock_jump_is_sleep() {
+        let mut wall = SystemTime::now();
+        let mut mono = Instant::now();
+        assert!(!slept_since(&mut wall, &mut mono));
+        // The machine slept: the wall clock is a minute ahead, the monotonic one is not.
+        wall -= Duration::from_secs(60);
+        assert!(slept_since(&mut wall, &mut mono));
+        // Right after, no.
+        assert!(!slept_since(&mut wall, &mut mono));
     }
 }

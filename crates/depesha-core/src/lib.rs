@@ -12,6 +12,7 @@ pub mod imap;
 pub mod lang;
 pub mod mail;
 pub mod message;
+pub mod net;
 pub mod ntlm;
 pub mod oauth;
 pub mod query;

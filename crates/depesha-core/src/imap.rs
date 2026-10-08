@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::ops::RangeInclusive;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,6 +27,9 @@ pub const IDLE_RENEW: Duration = Duration::from_secs(25 * 60);
 /// The first byte of an answer must come this soon after a command (`Watchdog`):
 /// longer than a slow SEARCH or MOVE of many messages, far shorter than TCP's own hours.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(150);
+/// Once an answer has started, it must not fall silent for longer than this: a link that
+/// broke in the middle of a long `BODY.PEEK[]` or `UID FETCH` would otherwise wait forever.
+const SILENCE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + Debug {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> Io for T {}
@@ -101,10 +105,13 @@ pub struct Conn {
     pub greeting: Option<String>,
     /// How ENABLE went on this session, until the cache takes it (`take`).
     pub enabled: Option<Enabled>,
+    /// Set while this connection idles (`wait_for_changes`): the silence watchdog lets
+    /// the server stay quiet then, since nothing was asked of it.
+    pub idling: Arc<AtomicBool>,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
-    let (client, greeting) = open(server).await?;
+    let (client, greeting, idling) = open(server).await?;
     let mut session = match creds.xoauth2() {
         Some(initial) => {
             let detail = Arc::new(Mutex::new(None));
@@ -139,6 +146,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         capabilities,
         greeting,
         enabled: None,
+        idling,
     })
 }
 
@@ -177,17 +185,18 @@ fn greeting_line(resp: &Response<'_>) -> Option<String> {
 
 /// Checks that an IMAP server answers on this address with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<()> {
-    let (mut client, _) = open(server).await?;
+    let (mut client, _, _) = open(server).await?;
     let _ = client.run_command_and_check_ok("LOGOUT", None).await;
     Ok(())
 }
 
 /// Connected and greeted (and secured, for STARTTLS), not yet logged in; with the
-/// greeting's line when it lists capabilities.
-async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<String>)> {
+/// greeting's line when it lists capabilities and the flag the silence watchdog reads.
+async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<String>, Arc<AtomicBool>)> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
         .await
         .map_err(|_| Error::Timeout("connecting"))??;
+    crate::net::keepalive(&tcp);
     let pinned = server.trusted_cert.as_deref();
     let mut greeting = None;
 
@@ -208,13 +217,14 @@ async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<Stri
         }
     };
 
-    let stream: Box<dyn Io> = Box::new(Watchdog::new(stream, ANSWER_TIMEOUT));
+    let idling = Arc::new(AtomicBool::new(false));
+    let stream: Box<dyn Io> = Box::new(Watchdog::new(stream, ANSWER_TIMEOUT, SILENCE_TIMEOUT, idling.clone()));
     let mut client = Client::new(stream);
     // There is no second greeting after STARTTLS.
     if server.security != Security::StartTls {
         greeting = read_greeting(&mut client).await?;
     }
-    Ok((client, greeting))
+    Ok((client, greeting, idling))
 }
 
 /// SASL XOAUTH2. A refused token comes back as a continuation with a JSON error,
@@ -1403,12 +1413,20 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
         capabilities,
         greeting,
         enabled,
+        idling,
         ..
     } = conn;
     let mut handle = session.idle();
-    handle.init().await?;
+    // Nothing is asked of the server while it idles: the silence watchdog stands down.
+    idling.store(true, Ordering::Relaxed);
+    if let Err(e) = handle.init().await {
+        idling.store(false, Ordering::Relaxed);
+        return Err(e.into());
+    }
     let (wait, _stop) = handle.wait_with_timeout(IDLE_RENEW);
-    let response = wait.await?;
+    let response = wait.await;
+    idling.store(false, Ordering::Relaxed);
+    let response = response?;
     let session = handle.done().await?;
     let outcome = match response {
         IdleResponse::NewData(_) => IdleOutcome::Changed,
@@ -1428,6 +1446,7 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
             capabilities,
             greeting,
             enabled,
+            idling,
         },
         outcome,
     ))
