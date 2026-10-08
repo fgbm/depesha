@@ -24,6 +24,7 @@ export const eventModule = {
     handlers.set(name, h);
     return () => {};
   }),
+  emit: vi.fn(async () => {}),
   emitTo: vi.fn(async () => {}),
 };
 

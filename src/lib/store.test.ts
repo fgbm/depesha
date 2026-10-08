@@ -280,6 +280,17 @@ describe("the caret of a quick answer unfolded into a window", () => {
   });
 });
 
+describe("the address book changed elsewhere", () => {
+  it("reads the book again", async () => {
+    const s = new AppStore();
+    await s.init();
+    api.people.mockClear();
+    emit("people-changed");
+    await flush();
+    expect(api.people).toHaveBeenCalled();
+  });
+});
+
 describe("settings changed elsewhere", () => {
   it("switch the language of the main window too", async () => {
     const s = new AppStore();

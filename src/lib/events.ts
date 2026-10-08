@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { extensions, listenForMail } from "./extensions.svelte";
 import { listenBackground } from "./background.svelte";
+import { peopleBook } from "./peopleBook.svelte";
 import { t } from "./i18n.svelte";
 import { applyRules } from "./rules";
 import { api } from "./api";
@@ -32,6 +33,8 @@ function common(app: AppStore) {
       if (!e.payload.parking) app.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }));
     }),
     listen<{ error: CmdError }>("send-failed", (e) => app.toast(t("toast.sendFailed", { error: e.payload.error.message }), true)),
+    // The address book changed in another window: the cache follows.
+    listen("people-changed", () => peopleBook.changed()),
     // Settings saved elsewhere (another window, a plugin) may change the language too.
     listen("settings-changed", async () => {
       await app.loadSettings();
