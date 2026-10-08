@@ -74,8 +74,7 @@ pub enum Error {
     /// The label check cannot run here: without UIDPLUS its test letter could not be
     /// expunged by UID, so it would stay behind. Depesha does not run it.
     LabelCheckUnsupported,
-    /// The server refuses to file the copy of a sent letter in «Sent» in a way waiting will
-    /// not mend (see `append_refused`); the text is the refusal as it was worded.
+    /// The server refuses to file the copy of a sent letter in «Sent» (see `append_refused`); the text is the refusal as it was worded.
     CopyRefused(String),
 }
 
@@ -299,27 +298,17 @@ impl Error {
         }
     }
 
-    /// The server's answer to filing a copy in «Sent» that waiting will not change. Only an
-    /// explicit code says so: `[OVERQUOTA]`, `[TRYCREATE]`, `[NONEXISTENT]`, `[TOOBIG]`,
-    /// `[NOPERM]`, and our own `TooLarge`. A bare `NO`/`BAD`, `[LIMIT]`, `[SERVERBUG]`,
-    /// `[ALERT]`, a dead network, a timeout, a folder in use and a paused mailbox pass by
-    /// and are not counted here. `[OVERQUOTA]` is the one that differs from `retry_later`:
-    /// there the quota may clear by itself while mail is being moved around, but a copy
-    /// refused for a full mailbox stays refused until the user frees space, so retrying it
-    /// only repeats the refusal. GreenMail and Dovecot both answer a missing «Sent» with
-    /// `[TRYCREATE]`.
+    /// The server's answer to filing a copy in «Sent» (the APPEND and the search for the copy
+    /// before it) that is counted as a refusal: any IMAP `NO` or `BAD`, with a code or
+    /// without, and our own `TooLarge`. Even a code that says "later" (`[INUSE]`,
+    /// `[UNAVAILABLE]`, `[TRYAGAIN]`, `[LOCKED]`, `[LIMIT]`, `[SERVERBUG]`) is one: three
+    /// answers in a row over some eight hours are a reason to ask the user, and the hold
+    /// loses nothing. Only a failure of the connection itself — network, timeout, drop,
+    /// TLS, a paused mailbox — is not a refusal and is retried without the count.
     pub fn append_refused(&self) -> bool {
         match self {
             Self::TooLarge { .. } => true,
-            Self::Imap(async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m)) => {
-                let upper = m.to_ascii_uppercase();
-                ["OVERQUOTA", "TRYCREATE", "NONEXISTENT", "TOOBIG", "NOPERM"]
-                    .iter()
-                    // GreenMail's answer to the EXAMINE that looks for the copy in a «Sent» that
-                    // is gone carries no code: only the words say the mailbox is missing.
-                    .chain(["NO SUCH MAILBOX", "NO SUCH FOLDER"].iter())
-                    .any(|code| upper.contains(code))
-            }
+            Self::Imap(async_imap::error::Error::No(_) | async_imap::error::Error::Bad(_)) => true,
             Self::Ews { code, .. } => matches!(
                 code.as_str(),
                 "ErrorQuotaExceeded" | "ErrorFolderNotFound" | "ErrorMessageSizeExceeded"
@@ -662,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_append_is_told_from_a_trouble_that_passes() {
+    fn a_refused_append_is_told_from_a_connection_trouble() {
         let no = |m: &str| Error::Imap(E::No(m.into()));
         assert!(no("code: Some(OVERQUOTA), info: Some(\"Mailbox is full\")").append_refused());
         assert!(no("[TRYCREATE] Mailbox doesn't exist: Sent").append_refused());
@@ -674,17 +663,19 @@ mod tests {
             no("outcome: Outcome { code: None, information: Some(\"EXAMINE failed. No such mailbox\") }")
                 .append_refused()
         );
-        // No code, or a code that says "later": it passes.
-        assert!(!Error::Imap(E::Bad("bad command".into())).append_refused());
-        assert!(!no("Mailbox is busy").append_refused());
-        assert!(!no("[LIMIT] too many connections").append_refused());
-        assert!(!no("[SERVERBUG] oops").append_refused());
-        assert!(!no("[ALERT] maintenance").append_refused());
-        assert!(!no("[TRYAGAIN] later").append_refused());
-        assert!(!no("[LOCKED] locked").append_refused());
+        // No code, or a code that says "later": still a refusal, the count decides.
+        assert!(Error::Imap(E::Bad("bad command".into())).append_refused());
+        assert!(no("Mailbox is busy").append_refused());
+        assert!(no("APPEND failed").append_refused());
+        assert!(no("[LIMIT] too many connections").append_refused());
+        assert!(no("[SERVERBUG] oops").append_refused());
+        assert!(no("[ALERT] maintenance").append_refused());
+        assert!(no("[TRYAGAIN] later").append_refused());
+        assert!(no("[LOCKED] locked").append_refused());
         assert!(Error::TooLarge { size: 2, limit: 1 }.append_refused());
-        assert!(!no("code: Some(INUSE), info: Some(\"in use\")").append_refused());
-        assert!(!no("code: Some(UNAVAILABLE), info: Some(\"later\")").append_refused());
+        assert!(no("code: Some(INUSE), info: Some(\"in use\")").append_refused());
+        assert!(no("code: Some(UNAVAILABLE), info: Some(\"later\")").append_refused());
+        // Only the connection's own trouble passes.
         assert!(!Error::Timeout("operation").append_refused());
         assert!(!Error::Closed.append_refused());
         assert!(!Error::Paused.append_refused());

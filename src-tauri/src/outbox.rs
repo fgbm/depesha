@@ -603,6 +603,41 @@ mod tests {
         ))));
     }
 
+    /// Any `NO`/`BAD` is a refusal that is counted; the third in a row holds the copy, whatever code (or none) it carries.
+    #[test]
+    fn any_server_answer_three_times_puts_the_copy_on_hold() {
+        // The worker wraps each of these as `CopyRefused` (`append_refused`, tested in core).
+        let answers = ["BAD command", "NO [TRYAGAIN] later", "NO APPEND failed"];
+        for answer in answers {
+            let store = Store::open_in_memory().unwrap();
+            sent(&store);
+            for n in 0..3 {
+                let copy = store.sent_copies().unwrap().remove(0);
+                let got = settle_copy(&store, &copy, &Err(refused(answer)), 0).unwrap();
+                assert_eq!(got, if n == 2 { Settled::Held } else { Settled::Waiting });
+            }
+            assert_eq!(store.sent_copies_stuck().unwrap().len(), 1);
+        }
+    }
+
+    /// A connection trouble (`Io`, timeout) is retried without touching the refusal count.
+    #[test]
+    fn a_connection_trouble_does_not_count_as_a_refusal() {
+        use depesha_core::Error as E;
+        let store = Store::open_in_memory().unwrap();
+        sent(&store);
+        for failure in [
+            E::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "x")),
+            E::Timeout("operation"),
+            E::Closed,
+        ] {
+            assert!(!failure.append_refused());
+            let copy = store.sent_copies().unwrap().remove(0);
+            assert_eq!(settle_copy(&store, &copy, &Err(failure), 0).unwrap(), Settled::Waiting);
+        }
+        assert_eq!(store.sent_copies().unwrap()[0].refusals, 0);
+    }
+
     /// Refusals are waited out 30 min, 2 h, 6 h; the third puts the copy on hold, where it is
     /// neither due nor uploaded again, and the network's attempts do not count among them.
     #[test]
