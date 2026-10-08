@@ -4,12 +4,15 @@
 //! keeps the letter answered (`anchor`), the letters moved (`parked`) and where they are
 //! (`park`). The moves themselves are the app's: it takes `park_jobs` and reports back.
 
-use rusqlite::{Connection, params};
+use std::collections::HashSet;
+
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::{Followup, Store, add_column, json_list};
 use crate::Result;
 use crate::account::Waiting;
+use crate::message::Addr;
 use crate::smtp::ActsOn;
 
 /// 11: a wait keeps the letter answered and the letters it took to the folder.
@@ -116,16 +119,78 @@ fn bare(id: &str) -> &str {
 
 impl Store {
     /// Message-IDs of the conversation of `anchor` in the folder `inbox`, the letter
-    /// itself included; empty when it is not there.
+    /// itself included; empty when it is not there. Only letters joined to it by an
+    /// answer — its own In-Reply-To/References, or letters answering it — and only those
+    /// of the people of the conversation, read, and written not after it. A letter glued
+    /// by subject, or pulled in through a stranger's References, stays in the inbox, as
+    /// does a newer or unread one: a conversation grows while the answer waits to go.
     pub fn inbox_chain(&self, account_id: &str, inbox: &str, anchor: &str) -> Result<Vec<String>> {
+        let anchor = bare(anchor);
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT o.message_id FROM messages m
-             JOIN messages o ON o.account_id = m.account_id AND o.thread = m.thread AND o.folder = m.folder
-             WHERE m.account_id = ?1 AND m.folder = ?2 AND m.message_id = ?3 AND o.message_id IS NOT NULL",
+        let Some((id, date, in_reply_to, from, to, cc)) = conn
+            .query_row(
+                "SELECT id, date, in_reply_to, from_addr, to_addrs, cc_addrs FROM messages
+                 WHERE account_id = ?1 AND folder = ?2 AND message_id = ?3",
+                params![account_id, inbox, anchor],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(Vec::new());
+        };
+        let from: Option<Addr> = from.and_then(|s| serde_json::from_str(&s).ok());
+        let to: Vec<Addr> = serde_json::from_str(&to).unwrap_or_default();
+        let cc: Vec<Addr> = serde_json::from_str(&cc).unwrap_or_default();
+        let people = super::people(from.as_ref(), &to, &cc);
+
+        let mut chain = vec![anchor.to_owned()];
+        let mut known: HashSet<String> = HashSet::from([anchor.to_owned()]);
+        let mut frontier = vec![(id, anchor.to_owned(), in_reply_to)];
+        let mut neighbours = conn.prepare_cached(
+            "SELECT DISTINCT x.id, x.message_id, x.in_reply_to, x.date, x.seen, x.from_addr FROM messages x
+             WHERE x.account_id = ?1 AND x.folder = ?2 AND x.message_id IS NOT NULL
+               AND (x.message_id IN (SELECT r.parent FROM message_refs r WHERE r.message = ?3)
+                    OR x.message_id = ?4
+                    OR x.id IN (SELECT r.message FROM message_refs r WHERE r.parent = ?5)
+                    OR x.in_reply_to = ?5)",
         )?;
-        let ids = stmt.query_map(params![account_id, inbox, bare(anchor)], |r| r.get(0))?;
-        Ok(ids.collect::<rusqlite::Result<_>>()?)
+        while let Some((row, message_id, reply_to)) = frontier.pop() {
+            let found: Vec<(i64, String, Option<String>, i64, bool, Option<String>)> = neighbours
+                .query_map(params![account_id, inbox, row, reply_to, message_id], |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+            for (nid, nmid, nreply, ndate, seen, nfrom) in found {
+                if known.contains(&nmid) || !seen || ndate > date {
+                    continue;
+                }
+                let nfrom: Option<Addr> = nfrom.and_then(|s| serde_json::from_str(&s).ok());
+                let sender = nfrom.map(|a| a.email.to_lowercase());
+                if !sender.as_deref().is_some_and(|e| people.iter().any(|p| p == e)) {
+                    continue;
+                }
+                known.insert(nmid.clone());
+                chain.push(nmid.clone());
+                frontier.push((nid, nmid, nreply));
+            }
+        }
+        Ok(chain)
     }
 
     /// The wait an answer starts when it goes: its reminder (`f.due`, 0 for none) and the
