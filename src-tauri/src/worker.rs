@@ -224,9 +224,11 @@ fn offer(tx: &mpsc::Sender<Work>, queued: &Queued, work: Work) {
 
 /// Takes the moves of one source and target waiting in `urgent` into `uids` and `replies`:
 /// a held "archive" key becomes a single `UID MOVE` for all the letters, and both folders
-/// are synced once, not once per letter. Every caller keeps its own answer. Actions of
-/// another kind taken out on the way wait in `deferred` and run after the batch. Returns
-/// how many moves were merged.
+/// are synced once, not once per letter. Every caller keeps its own answer. Only a
+/// **continuous** series is merged: the first action of another kind stops the gather and
+/// waits in `deferred` in its place, so the order the user asked for is kept (a move, then
+/// a flag on a letter, then a move of it must not run as one move and a stale store).
+/// Returns how many moves were merged.
 fn drain_moves(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
@@ -256,7 +258,7 @@ fn drain_moves(
             }
             Ok(item) => {
                 deferred.push_back(item);
-                taken += 1;
+                break;
             }
             Err(_) => break,
         }
@@ -264,16 +266,17 @@ fn drain_moves(
     merged
 }
 
-/// The same for a flag: the `SetFlag` of one folder with the same change waiting behind the
-/// first become one `STORE` for all the UIDs. A held "read" or "flag" key is a couple of
-/// requests, not one per letter. Returns how many were merged.
+/// The same for a flag: a continuous series of `SetFlag` of one folder becomes one `STORE`
+/// per change. A UID said more than once ends as the last thing said of it (Seen, then
+/// Unseen, then Seen runs as Seen once), so a held "read" or "flag" key is a couple of
+/// requests and not one per letter. Another kind of work stops the series and waits its
+/// turn. `series` collects `(uid, change)` in the order they arrived.
 fn drain_flags(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
     folder: &str,
     validity: u32,
-    change: FlagChange,
-    uids: &mut Vec<u32>,
+    series: &mut Vec<(u32, FlagChange)>,
     replies: &mut Vec<Reply>,
 ) -> usize {
     let mut merged = 0usize;
@@ -288,15 +291,15 @@ fn drain_flags(
                     change: c,
                 },
                 reply,
-            )) if f == folder && v == validity && c == change => {
-                uids.extend(u);
+            )) if f == folder && v == validity => {
+                series.extend(u.into_iter().map(|uid| (uid, c)));
                 replies.push(reply);
                 merged += 1;
                 taken += 1;
             }
             Ok(item) => {
                 deferred.push_back(item);
-                taken += 1;
+                break;
             }
             Err(_) => break,
         }
@@ -304,8 +307,31 @@ fn drain_flags(
     merged
 }
 
-/// The same for labels: the `SetLabels` of one folder with the same labels waiting behind the
-/// first become one request for all the UIDs.
+/// A flag series by change: each UID once, carrying the last change said of it, grouped by
+/// change so each group is one `STORE`. Groups come in the order their change first took
+/// effect, which is only cosmetic (a UID is in one group).
+fn compact_flags(series: &[(u32, FlagChange)]) -> Vec<(FlagChange, Vec<u32>)> {
+    let mut last: std::collections::HashMap<u32, FlagChange> = std::collections::HashMap::new();
+    for (uid, change) in series {
+        last.insert(*uid, *change);
+    }
+    let mut placed: HashSet<u32> = HashSet::new();
+    let mut groups: Vec<(FlagChange, Vec<u32>)> = Vec::new();
+    for (uid, change) in series {
+        if !placed.insert(*uid) || last.get(uid) != Some(change) {
+            continue;
+        }
+        match groups.iter_mut().find(|(g, _)| g == change) {
+            Some((_, u)) => u.push(*uid),
+            None => groups.push((*change, vec![*uid])),
+        }
+    }
+    groups
+}
+
+/// The same for labels: a continuous series of `SetLabels` of one folder with the same
+/// labels becomes one request for all the UIDs. Another kind of work stops the series and
+/// waits its turn.
 #[allow(clippy::too_many_arguments)]
 fn drain_labels(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
@@ -338,7 +364,7 @@ fn drain_labels(
             }
             Ok(item) => {
                 deferred.push_back(item);
-                taken += 1;
+                break;
             }
             Err(_) => break,
         }
@@ -348,7 +374,9 @@ fn drain_labels(
 
 /// A series of the same work is under way (more than one caller): let it gather a moment, so
 /// a held key is a couple of requests, not one per letter. A lone one runs at once. `drain`
-/// takes whatever has queued meanwhile into `replies`.
+/// takes whatever has queued meanwhile into `replies`. The first action of another kind
+/// ends the series: it waits in `deferred`, and the gather stops there so the order the
+/// user asked for is kept.
 async fn settle_series(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
@@ -363,7 +391,12 @@ async fn settle_series(
     while replies.len() < MAX_COALESCED_MOVES && settled < MOVE_SETTLE_QUIET && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(MOVE_SETTLE_STEP).await;
         let before = replies.len();
+        let queued = deferred.len();
         drain(urgent, deferred, replies);
+        // A foreign action was set aside: the series is over, nothing behind it is merged.
+        if deferred.len() > queued {
+            break;
+        }
         settled = if replies.len() == before { settled + 1 } else { 0 };
     }
 }
@@ -694,6 +727,7 @@ impl Ops {
                             to,
                         } => {
                             let mut replies = vec![reply];
+                            let queued = self.deferred.len();
                             drain_moves(
                                 &mut urgent,
                                 &mut self.deferred,
@@ -703,10 +737,13 @@ impl Ops {
                                 &mut uids,
                                 &mut replies,
                             );
-                            settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
-                                drain_moves(u, d, &from, validity, &to, &mut uids, r);
-                            })
-                            .await;
+                            // A foreign action was set aside: the series is over, settle not.
+                            if self.deferred.len() == queued {
+                                settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
+                                    drain_moves(u, d, &from, validity, &to, &mut uids, r);
+                                })
+                                .await;
+                            }
                             let merged = Work::Move {
                                 from,
                                 validity,
@@ -717,35 +754,47 @@ impl Ops {
                             self.report(&merged, &result, true);
                             answer_all(replies, result);
                         }
-                        // A held "read" or "flag" key: one `STORE` for the whole series.
+                        // A held "read" or "flag" key: one `STORE` per change for the
+                        // whole series, and a UID said twice ends as the last thing said.
                         Work::SetFlag {
                             folder,
                             validity,
                             mut uids,
                             change,
                         } => {
+                            let mut series: Vec<(u32, FlagChange)> = uids.drain(..).map(|uid| (uid, change)).collect();
                             let mut replies = vec![reply];
+                            let queued = self.deferred.len();
                             drain_flags(
                                 &mut urgent,
                                 &mut self.deferred,
                                 &folder,
                                 validity,
-                                change,
-                                &mut uids,
+                                &mut series,
                                 &mut replies,
                             );
-                            settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
-                                drain_flags(u, d, &folder, validity, change, &mut uids, r);
-                            })
-                            .await;
-                            let merged = Work::SetFlag {
-                                folder,
-                                validity,
-                                uids,
-                                change,
-                            };
-                            let result = self.user(&merged).await;
-                            self.report(&merged, &result, true);
+                            if self.deferred.len() == queued {
+                                settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
+                                    drain_flags(u, d, &folder, validity, &mut series, r);
+                                })
+                                .await;
+                            }
+                            let mut result = Ok(Output::None);
+                            for (change, uids) in compact_flags(&series) {
+                                let merged = Work::SetFlag {
+                                    folder: folder.clone(),
+                                    validity,
+                                    uids,
+                                    change,
+                                };
+                                result = self.user(&merged).await;
+                                self.report(&merged, &result, true);
+                                if result.is_err() {
+                                    // The rest of the series is not applied either: the
+                                    // caller hears why, and retries the whole thing.
+                                    break;
+                                }
+                            }
                             answer_all(replies, result);
                         }
                         // A held label key: one request for the whole series.
@@ -757,6 +806,7 @@ impl Ops {
                             remove,
                         } => {
                             let mut replies = vec![reply];
+                            let queued = self.deferred.len();
                             drain_labels(
                                 &mut urgent,
                                 &mut self.deferred,
@@ -767,10 +817,12 @@ impl Ops {
                                 &mut uids,
                                 &mut replies,
                             );
-                            settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
-                                drain_labels(u, d, &folder, validity, &add, &remove, &mut uids, r);
-                            })
-                            .await;
+                            if self.deferred.len() == queued {
+                                settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
+                                    drain_labels(u, d, &folder, validity, &add, &remove, &mut uids, r);
+                                })
+                                .await;
+                            }
                             let merged = Work::SetLabels {
                                 folder,
                                 validity,
@@ -1790,7 +1842,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn another_target_is_deferred_not_merged() {
+    async fn a_move_to_another_folder_stops_the_series() {
         let (urgent_tx, mut urgent) = mpsc::channel(8);
         urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
         urgent_tx.send(mv("INBOX", "Trash", 2)).await.unwrap();
@@ -1816,10 +1868,125 @@ mod tests {
             &mut uids,
             &mut replies,
         );
-        assert_eq!(replies.len(), 2);
-        assert_eq!(uids, [1, 3]);
+        // Only a continuous series is merged: the other target stops the gather, waits its
+        // turn, and the later move of the same source and target keeps its place behind it.
+        assert_eq!(replies.len(), 1);
+        assert_eq!(uids, [1]);
         assert_eq!(deferred.len(), 1, "the move to another folder waits its turn");
         assert!(matches!(deferred[0].0, Work::Move { ref to, .. } if to == "Trash"));
+        assert!(matches!(urgent.try_recv(), Ok((Work::Move { ref to, .. }, _)) if to == "Archive"));
+    }
+
+    /// The first review scenario: Move(1), SetFlag(2), Move(2). The flag stops the gather,
+    /// so the second move runs after it — the store must not find uid 2 already gone.
+    #[tokio::test]
+    async fn a_move_series_stops_at_a_flag_of_the_same_folder() {
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
+        urgent_tx.send(flag("INBOX", 2, FlagChange::Seen(true))).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 2)).await.unwrap();
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::Move {
+            from,
+            validity,
+            mut uids,
+            to,
+        } = first.0
+        else {
+            panic!("not a move");
+        };
+        let mut replies = vec![first.1];
+        drain_moves(
+            &mut urgent,
+            &mut deferred,
+            &from,
+            validity,
+            &to,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(uids, [1], "the flag stops the move series");
+        assert_eq!(deferred.len(), 1);
+        assert!(matches!(deferred[0].0, Work::SetFlag { ref uids, .. } if uids == &[2]));
+        assert!(matches!(urgent.try_recv(), Ok((Work::Move { uids, .. }, _)) if uids == vec![2]));
+    }
+
+    /// Two moves, then a foreign action, then another move: the foreign action closes the
+    /// series, so the later move is not merged ahead of it.
+    #[tokio::test]
+    async fn a_foreign_action_closes_the_move_series() {
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 2)).await.unwrap();
+        urgent_tx.send(flag("INBOX", 3, FlagChange::Seen(true))).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 4)).await.unwrap();
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::Move {
+            from,
+            validity,
+            mut uids,
+            to,
+        } = first.0
+        else {
+            panic!("not a move");
+        };
+        let mut replies = vec![first.1];
+        let queued = deferred.len();
+        drain_moves(
+            &mut urgent,
+            &mut deferred,
+            &from,
+            validity,
+            &to,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(uids, [1, 2]);
+        // The caller settles only while the series stayed open; here it did not.
+        assert!(deferred.len() > queued, "the flag closes the series");
+        assert!(matches!(urgent.try_recv(), Ok((Work::Move { uids, .. }, _)) if uids == vec![4]));
+    }
+
+    /// A foreign action arriving while the series settles also closes it: the move behind
+    /// it keeps its place.
+    #[tokio::test]
+    async fn settle_series_stops_at_a_foreign_action() {
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 2)).await.unwrap();
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::Move {
+            from,
+            validity,
+            mut uids,
+            to,
+        } = first.0
+        else {
+            panic!("not a move");
+        };
+        let mut replies = vec![first.1];
+        drain_moves(
+            &mut urgent,
+            &mut deferred,
+            &from,
+            validity,
+            &to,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(uids, [1, 2]);
+        urgent_tx.send(flag("INBOX", 3, FlagChange::Seen(true))).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 4)).await.unwrap();
+        settle_series(&mut urgent, &mut deferred, &mut replies, |u, d, r| {
+            drain_moves(u, d, &from, validity, &to, &mut uids, r);
+        })
+        .await;
+        assert_eq!(uids, [1, 2], "the foreign action ends the series");
+        assert!(matches!(deferred[0].0, Work::SetFlag { .. }));
+        assert!(matches!(urgent.try_recv(), Ok((Work::Move { uids, .. }, _)) if uids == vec![4]));
     }
 
     fn flag(folder: &str, uid: u32, change: FlagChange) -> (Work, Reply) {
@@ -1835,8 +2002,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn flags_of_one_folder_and_change_are_one_store() {
-        // A held "read" key: 50 stores of one folder, one request.
+    async fn flags_of_one_folder_become_one_store_per_change() {
+        // A held "read" key: 50 stores of one folder become one request.
         let (urgent_tx, mut urgent) = mpsc::channel(64);
         for uid in 10..60 {
             urgent_tx
@@ -1844,7 +2011,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        // A different flag behind them is not merged in.
+        // A different flag of the same folder is part of the series too.
         urgent_tx
             .send(flag("INBOX", 99, FlagChange::Flagged(true)))
             .await
@@ -1854,27 +2021,50 @@ mod tests {
         let Work::SetFlag {
             folder,
             validity,
-            mut uids,
+            uids,
             change,
         } = first.0
         else {
             panic!("not a flag");
         };
+        let mut series: Vec<(u32, FlagChange)> = uids.into_iter().map(|uid| (uid, change)).collect();
         let mut replies = vec![first.1];
-        let merged = drain_flags(
-            &mut urgent,
-            &mut deferred,
-            &folder,
+        let merged = drain_flags(&mut urgent, &mut deferred, &folder, validity, &mut series, &mut replies);
+        assert_eq!(merged, 50);
+        assert_eq!(replies.len(), 51);
+        assert!(deferred.is_empty());
+        let groups = compact_flags(&series);
+        assert_eq!(groups.len(), 2, "one store per change");
+        assert_eq!(groups[0].0, FlagChange::Seen(true));
+        assert_eq!(groups[0].1.len(), 50);
+        assert_eq!(groups[1].0, FlagChange::Flagged(true));
+        assert_eq!(groups[1].1, [99]);
+    }
+
+    /// The second review scenario: Seen(1), Unseen(1), Seen(1). The last word on a UID
+    /// wins, so the letter ends read, in a single store.
+    #[tokio::test]
+    async fn the_last_flag_of_a_uid_wins() {
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        urgent_tx.send(flag("INBOX", 1, FlagChange::Seen(true))).await.unwrap();
+        urgent_tx.send(flag("INBOX", 1, FlagChange::Seen(false))).await.unwrap();
+        urgent_tx.send(flag("INBOX", 1, FlagChange::Seen(true))).await.unwrap();
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::SetFlag {
+            folder,
             validity,
+            uids,
             change,
-            &mut uids,
-            &mut replies,
-        );
-        assert_eq!(merged, 49);
-        assert_eq!(uids.len(), 50);
-        assert_eq!(replies.len(), 50);
-        assert_eq!(change, FlagChange::Seen(true));
-        assert_eq!(deferred.len(), 1, "the other flag waits its turn");
+        } = first.0
+        else {
+            panic!("not a flag");
+        };
+        let mut series: Vec<(u32, FlagChange)> = uids.into_iter().map(|uid| (uid, change)).collect();
+        let mut replies = vec![first.1];
+        drain_flags(&mut urgent, &mut deferred, &folder, validity, &mut series, &mut replies);
+        assert_eq!(replies.len(), 3, "every caller keeps its answer");
+        assert_eq!(compact_flags(&series), [(FlagChange::Seen(true), vec![1])]);
     }
 
     #[tokio::test]
