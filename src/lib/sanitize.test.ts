@@ -42,4 +42,24 @@ describe("what may be shown in the window outside the frame", () => {
     expect(styled).not.toContain("evil.example");
     expect(styled).not.toContain("style");
   });
+
+  it("does not load a remote resource by any of the ways HTML names one", () => {
+    const vectors = [
+      '<img src="data:image/png;base64,AA" srcset="https://evil.example/p.gif 2x">',
+      '<picture><source srcset="https://evil.example/p.gif"><img src="data:image/png;base64,AA"></picture>',
+      '<svg><image href="https://evil.example/p.gif"/></svg>',
+      '<table background="https://evil.example/p.gif"><tr><td>x</td></tr></table>',
+      '<style>div{background:url(https://evil.example/p)}</style>',
+      '<input type="image" src="https://evil.example/p.gif">',
+      '<video poster="https://evil.example/p.gif"></video>',
+      '<div style="background:image-set(url(https://evil.example/p))">x</div>',
+    ];
+    for (const html of vectors) {
+      const out = cleanRemoteHtml(html);
+      expect(out, html).not.toContain("evil.example");
+      expect(out, html).not.toContain("https:");
+    }
+    // A hidden character in the address does not sneak it past either.
+    expect(cleanRemoteHtml('<img src="ht\ntps://evil.example/p.gif">')).not.toContain("evil.example");
+  });
 });

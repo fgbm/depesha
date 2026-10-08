@@ -32,8 +32,28 @@ function remoteStyle(style: string): boolean {
   return plain.includes("url") || plain.includes("image-set") || plain.includes("image(") || plain.includes("src(") || style.includes("\\");
 }
 
-/** Elements that are neither text nor formatting: forms, media, embedded documents. */
+/** A URI attribute that names a network address: the browser would fetch it on its own.
+ *  The letter's own `data:` picture, a `cid:` part and a `mailto:` link are not remote. */
+function remoteUri(value: string): boolean {
+  const plain = unconfuse(value).trim().toLowerCase();
+  if (plain.startsWith("//")) return true;
+  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(plain);
+  return !!scheme && !["data", "cid", "mailto"].includes(scheme[1]);
+}
+
+/** Elements that are neither text nor formatting: forms, media, embedded documents.
+ *  Every remote-resource vector the editor forbids is here: `picture`/`source` (srcset),
+ *  `svg` (`<image href>`), `input type=image`, `video`/`audio` (poster), `style`. */
 const FORBID_TAGS = ["form", "input", "button", "textarea", "select", "option", "style", "link", "meta", "base", "iframe", "frame", "object", "embed", "video", "audio", "source", "track", "picture", "svg", "math", "dialog", "template", "slot"];
+
+/** Addresses no letter needs: `srcset` and `background` name pictures of their own. */
+const FORBID_ATTR = ["id", "name", "srcset", "background"];
+
+/** The letter the editor opens with may hold addresses the reader allowed. */
+const EDITOR_URI = /^(?:https?:|mailto:|data:image\/(?:png|gif|jpe?g|webp);)/i;
+
+/** A preview loads nothing of the network: its own `data:` picture, a link and an anchor stay. */
+const PREVIEW_URI = /^(?:data:image\/(?:png|gif|jpe?g|webp);|cid:|mailto:|https?:|#)/i;
 
 /** A pasted letter keeps its words, lines, lists, links and simple emphasis; no pictures, no layout. */
 const PASTE_TAGS = ["p", "div", "br", "span", "b", "strong", "i", "em", "u", "s", "strike", "del", "sub", "sup", "code", "pre", "ul", "ol", "li", "a", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "table", "thead", "tbody", "tr", "td", "th"];
@@ -75,8 +95,8 @@ export function cleanEditorHtml(html: string): string {
   purify ??= instance();
   return purify.sanitize(html, {
     FORBID_TAGS,
-    FORBID_ATTR: ["id", "name", "srcset", "background"],
-    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|data:image\/(?:png|gif|jpe?g|webp);)/i,
+    FORBID_ATTR,
+    ALLOWED_URI_REGEXP: EDITOR_URI,
   });
 }
 
@@ -92,24 +112,19 @@ export function cleanPastedHtml(html: string): string {
 
 /**
  * HTML shown in the window outside the letter's frame (a signature preview): no remote
- * resource is loaded, the same rule the editor applies. Used where DOMPurify is not: the
- * picture of its own (`data:`) stays, a remote one and a style that reaches out go.
+ * resource is loaded, the same rule the editor applies. The editor's cleaning runs whole,
+ * and every URI attribute that names a network address goes with it — a remote picture
+ * would load the moment it is shown. The letter's own `data:` picture, a `cid:` part and a
+ * `mailto:` link stay.
  */
 export function cleanRemoteHtml(html: string): string {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  let changed = false;
-  for (const el of doc.querySelectorAll<HTMLElement>("img, source")) {
-    const src = unconfuse(el.getAttribute("src") ?? "").toLowerCase();
-    if (src.includes("http:") || src.includes("https:") || src.includes("//")) {
-      el.remove();
-      changed = true;
-    }
-  }
-  for (const el of doc.querySelectorAll<HTMLElement>("[style]")) {
-    if (remoteStyle(el.getAttribute("style") ?? "")) {
-      el.removeAttribute("style");
-      changed = true;
-    }
-  }
-  return changed ? doc.body.innerHTML : html;
+  const purify = instance();
+  purify.addHook("uponSanitizeAttribute", (_node, data) => {
+    if (URI_ATTRS.has(data.attrName) && remoteUri(data.attrValue)) data.keepAttr = false;
+  });
+  return purify.sanitize(html, {
+    FORBID_TAGS,
+    FORBID_ATTR,
+    ALLOWED_URI_REGEXP: PREVIEW_URI,
+  });
 }
