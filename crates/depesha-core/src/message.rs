@@ -558,10 +558,41 @@ pub fn markdown_letter(text: &str, inline: &HashMap<String, String>, allow_remot
     let text = text.replace([TASK_DONE, TASK_OPEN], "");
     let html = render_markdown(&text, |done| if done { "\u{E0D1}" } else { "\u{E0D0}" });
     let (clean, remote) = sanitize_html(&html, inline, allow_remote);
-    let clean = clean
-        .replace(TASK_DONE, "<input type=\"checkbox\" checked disabled> ")
-        .replace(TASK_OPEN, "<input type=\"checkbox\" disabled> ");
-    (clean, remote)
+    (replace_task_markers(&clean), remote)
+}
+
+/// Turns the task markers into boxes, but only where they are text. A marker that came from
+/// an entity inside an attribute value (`title="x&#xE0D1;y"`) is no box: putting an element
+/// there would break the attribute — and the element — apart.
+fn replace_task_markers(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut quote: Option<char> = None;
+    for c in html.chars() {
+        if in_tag {
+            match quote {
+                Some(q) if c == q => quote = None,
+                None => match c {
+                    '"' | '\'' => quote = Some(c),
+                    '>' => in_tag = false,
+                    _ => {}
+                },
+                _ => {}
+            }
+            out.push(c);
+            continue;
+        }
+        match c {
+            '<' => {
+                in_tag = true;
+                out.push(c);
+            }
+            TASK_DONE => out.push_str("<input type=\"checkbox\" checked disabled> "),
+            TASK_OPEN => out.push_str("<input type=\"checkbox\" disabled> "),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// A letter's Markdown as HTML, not yet cleaned. A line break stays a line break, as
