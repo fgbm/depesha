@@ -66,9 +66,12 @@ describe("list reloads", () => {
     expect(s.searchTotals).toEqual({ count: 412, size: 9 * 1024 ** 3 });
 
     // Another order for searches by size stays theirs; other searches keep theirs.
-    api.saveSettings.mockResolvedValue(undefined);
+    api.settingsPatch.mockResolvedValue(undefined);
     await s.setSort([{ by: "date", desc: false }], true);
     expect(s.settings.view_sorts["search:size"]).toEqual([{ by: "date", desc: false }]);
+    // The order is saved as a patch of its own keys, not the whole settings from memory.
+    const patch = api.settingsPatch.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(Object.keys(patch).sort()).toEqual(["list_sort", "view_sorts"]);
     await s.setView({ kind: "search", text: "invoice" });
     expect(s.listKey()).toBe("search");
     expect(api.search).toHaveBeenLastCalledWith("invoice", []);

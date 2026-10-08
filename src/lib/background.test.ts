@@ -12,7 +12,7 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 import { AppStore } from "./store.svelte";
 import { quitApp } from "./background.svelte";
 import { i18n } from "./i18n.svelte";
-import { api, emit, flush, resetFakes, settings } from "./testing";
+import { api, emit, flush, resetFakes } from "./testing";
 
 async function started() {
   const s = new AppStore();
@@ -38,7 +38,7 @@ describe("closing the window, asked", () => {
     expect(q.note).toBe("You can change it in Settings → Background and startup.");
     q.resolve(true);
     await flush();
-    expect(api.saveSettings).toHaveBeenCalledWith({ ...settings(), close_action: "background" });
+    expect(api.settingsPatch).toHaveBeenCalledWith({ close_action: "background" });
     expect(api.windowHide).toHaveBeenCalled();
     expect(api.appQuit).not.toHaveBeenCalled();
   });
@@ -49,7 +49,7 @@ describe("closing the window, asked", () => {
     s.confirmation!.check!.checked = false;
     s.confirmation!.resolve(true);
     await flush();
-    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.settingsPatch).not.toHaveBeenCalled();
     expect(api.windowHide).toHaveBeenCalled();
   });
 
@@ -58,7 +58,7 @@ describe("closing the window, asked", () => {
     emit("close-asked", { no_tray: false });
     s.confirmation!.resolve(false);
     await flush();
-    expect(api.saveSettings).toHaveBeenCalledWith({ ...settings(), close_action: "quit" });
+    expect(api.settingsPatch).toHaveBeenCalledWith({ close_action: "quit" });
     // Letters waiting for their time may still stop the quit: the backend asks then.
     expect(api.appQuit).toHaveBeenCalledWith(false);
     expect(api.windowHide).not.toHaveBeenCalled();
@@ -69,7 +69,7 @@ describe("closing the window, asked", () => {
     emit("close-asked", { no_tray: false });
     s.confirmation!.resolve(null);
     await flush();
-    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.settingsPatch).not.toHaveBeenCalled();
     expect(api.windowHide).not.toHaveBeenCalled();
     expect(api.appQuit).not.toHaveBeenCalled();
   });
@@ -85,7 +85,7 @@ describe("closing the window, asked", () => {
     q.check!.checked = true;
     q.resolve(true);
     await flush();
-    expect(api.saveSettings).toHaveBeenCalledWith({ ...settings(), close_action: "background", background_without_tray: true });
+    expect(api.settingsPatch).toHaveBeenCalledWith({ close_action: "background", background_without_tray: true });
     expect(api.windowHide).toHaveBeenCalled();
   });
 });

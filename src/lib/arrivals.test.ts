@@ -152,7 +152,7 @@ describe("a click on a notification over the settings or a question", () => {
     expect(s.tasksOpen).toBe(false);
     expect(s.confirmation).toBeNull();
     await expect(answer).resolves.toBe(false);
-    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.settingsPatch).not.toHaveBeenCalled();
     expect([...s.selected]).toEqual([7]);
   });
 });

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { settings } = vi.hoisted(() => ({ settings: { disabled_plugins: [] as string[], enabled_plugins: [] as string[] } }));
+const { settings, applied } = vi.hoisted(() => ({
+  settings: { disabled_plugins: [] as string[], enabled_plugins: [] as string[] },
+  applied: [] as Record<string, unknown>[],
+}));
 
 vi.mock("../../plugins", () => ({
   BUILTIN: [
@@ -9,13 +12,15 @@ vi.mock("../../plugins", () => ({
   ],
 }));
 
-// The host reads and writes the settings through the store; here they are a plain object.
+// The host reads and writes the settings through the store; here they are a plain object,
+// and every patch is kept so a test can see it carries only the list that changed.
 vi.mock("../lib/store.svelte", () => ({
   app: {
     settings,
-    saveSettings: (next: { disabled_plugins: string[]; enabled_plugins: string[] }) => {
-      settings.disabled_plugins = next.disabled_plugins;
-      settings.enabled_plugins = next.enabled_plugins;
+    patchSettings: (patch: { disabled_plugins?: string[]; enabled_plugins?: string[] }) => {
+      applied.push(patch);
+      if (patch.disabled_plugins) settings.disabled_plugins = patch.disabled_plugins;
+      if (patch.enabled_plugins) settings.enabled_plugins = patch.enabled_plugins;
     },
   },
 }));
@@ -31,6 +36,7 @@ const offByDefault = BUILTIN.find((p) => p.manifest.id === "off-by-default")!;
 beforeEach(() => {
   settings.disabled_plugins = [];
   settings.enabled_plugins = [];
+  applied.length = 0;
   vi.clearAllMocks();
 });
 
@@ -51,6 +57,13 @@ describe("a plugin off until the user switches it on", () => {
     host.setEnabled("off-by-default", false);
     expect(host.enabled("off-by-default")).toBe(false);
     expect(settings.enabled_plugins).toEqual([]);
+  });
+
+  it("saves only the list it changed, as a patch", () => {
+    host.setEnabled("off-by-default", true);
+    expect(applied.at(-1)).toEqual({ enabled_plugins: ["off-by-default"] });
+    host.setEnabled("always-on", false);
+    expect(applied.at(-1)).toEqual({ disabled_plugins: ["always-on"] });
   });
 });
 
