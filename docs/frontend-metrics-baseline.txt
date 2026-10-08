@@ -446,6 +446,7 @@ function	src/lib/background.svelte.ts::quitApp	3
 function	src/lib/background.svelte.ts::askClose	31
 function	src/lib/background.svelte.ts::askQuit	11
 function	src/lib/background.svelte.ts::trayAction	5
+function	src/lib/background.svelte.ts::takePendingOpen	4
 function	src/lib/background.svelte.ts::tellMissed	15
 function	src/lib/background.test.ts::started	6
 function	src/lib/banner.test.ts::run	1
