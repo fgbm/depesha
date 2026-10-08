@@ -957,22 +957,72 @@ fn show(
     }
 }
 
+/// Windows refuses a toast whose `launch` is over 512 characters, so a summary's letters go
+/// in only while they fit.
+#[cfg_attr(not(windows), allow(dead_code))]
+const LAUNCH_MAX: usize = 500;
+/// What a signed URL adds around its body: `depesha://`, `&sig=`, and the 43 characters of
+/// the URL-safe base64 of a 32-byte HMAC tag (reserved so the id list cannot push the
+/// signature over the limit).
+#[cfg_attr(not(windows), allow(dead_code))]
+const SIGNED_OVERHEAD: usize = "depesha://".len() + "&sig=".len() + 43;
+
+/// The `depesha://` URL a click opens: a letter by its id and Message-ID, a summary by its
+/// mailbox (or all inboxes) and the new letters, the Outbox by name, anything else just
+/// brings the window (so does a letter without a Message-ID: the id alone names a reused
+/// row, and the URL would be refused). The URL carries the signature of the route, so only a
+/// link the app made opens mail; a summary signs the letters that went into the URL, not all
+/// of them. Windows opens it as a new process; single-instance hands it to the running app,
+/// and with the app closed it starts Depesha.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn launch_url(target: Option<&Target>) -> String {
+    let Some(t) = target else {
+        return signed_url("open", &Route::Window);
+    };
+    if t.outbox {
+        return signed_url("outbox", &Route::Target(t.clone()));
+    }
+    if let (Some(account), Some(id)) = (&t.account_id, t.id) {
+        let Some(mid) = t.message_id.as_deref() else {
+            return signed_url("open", &Route::Window);
+        };
+        let body = format!("message/{}/{}?mid={}", enc(account), id, enc(mid));
+        return signed_url(&body, &Route::Target(t.clone()));
+    }
+    let mut body = match &t.account_id {
+        Some(account) => format!("inbox/{}", enc(account)),
+        None => "inbox".to_owned(),
+    };
+    let mut listed = String::new();
+    let mut kept = Vec::new();
+    for id in t.ids.iter().take(IDS_MAX) {
+        let next = if listed.is_empty() {
+            id.to_string()
+        } else {
+            format!("{listed},{id}")
+        };
+        if SIGNED_OVERHEAD + body.len() + "?ids=".len() + next.len() > LAUNCH_MAX {
+            break;
+        }
+        listed = next;
+        kept.push(*id);
+    }
+    if !listed.is_empty() {
+        body.push_str("?ids=");
+        body.push_str(&listed);
+    }
+    let route = Target { ids: kept, ..t.clone() };
+    signed_url(&body, &Route::Target(route))
+}
+
 #[cfg(windows)]
 mod windows_toast {
-    use super::{IDS_MAX, Target, enc};
+    use super::{Target, launch_url};
     use tauri::AppHandle;
     use tauri_winrt_notification::Toast;
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::core::HSTRING;
-
-    /// Windows refuses a toast whose `launch` is over 512 characters, so a summary's
-    /// letters go in only while they fit.
-    const LAUNCH_MAX: usize = 500;
-    /// What a signed URL adds around its body: `depesha://`, `&sig=`, and the 43 characters
-    /// of the URL-safe base64 of a 32-byte HMAC tag (reserved so the id list cannot push the
-    /// signature over the limit).
-    const SIGNED_OVERHEAD: usize = "depesha://".len() + "&sig=".len() + 43;
 
     /// The AppUserModelID of the installed app is its identifier (the installer's shortcut
     /// carries it); a build run from `target/` has none, and borrows PowerShell's.
@@ -986,49 +1036,6 @@ mod windows_toast {
         } else {
             app.config().identifier.clone()
         }
-    }
-
-    /// The `depesha://` URL a click opens: a letter by its id and Message-ID, a summary by
-    /// its mailbox (or all inboxes) and the new letters, the Outbox by name, anything else
-    /// just brings the window. The URL carries the signature of the route, so only a link the
-    /// app made opens mail. Windows opens it as a new process; single-instance hands it to the
-    /// running app, and with the app closed it starts Depesha.
-    pub(super) fn launch_url(target: Option<&Target>) -> String {
-        let Some(t) = target else {
-            return super::signed_url("open", &super::Route::Window);
-        };
-        if t.outbox {
-            return super::signed_url("outbox", &super::Route::Target(t.clone()));
-        }
-        if let (Some(account), Some(id)) = (&t.account_id, t.id) {
-            let mut body = format!("message/{}/{}", enc(account), id);
-            if let Some(mid) = t.message_id.as_deref() {
-                body.push_str("?mid=");
-                body.push_str(&enc(mid));
-            }
-            return super::signed_url(&body, &super::Route::Target(t.clone()));
-        }
-        let mut body = match &t.account_id {
-            Some(account) => format!("inbox/{}", enc(account)),
-            None => "inbox".to_owned(),
-        };
-        let mut listed = String::new();
-        for id in t.ids.iter().take(IDS_MAX) {
-            let next = if listed.is_empty() {
-                id.to_string()
-            } else {
-                format!("{listed},{id}")
-            };
-            if SIGNED_OVERHEAD + body.len() + "?ids=".len() + next.len() > LAUNCH_MAX {
-                break;
-            }
-            listed = next;
-        }
-        if !listed.is_empty() {
-            body.push_str("?ids=");
-            body.push_str(&listed);
-        }
-        super::signed_url(&body, &super::Route::Target(t.clone()))
     }
 
     /// The toast XML, built through the DOM so the sender and the subject go in as text
@@ -1623,20 +1630,19 @@ mod tests {
         assert_eq!(parse_signed_url("depesha://other"), None);
     }
 
-    /// The `depesha://` URLs a toast opens; only Windows shows the toasts, so the test is
-    /// there too. Every URL carries the signature of its route, and reads back to it.
-    #[cfg(windows)]
+    /// The `depesha://` URLs a toast opens. Every URL carries the signature of its route, and
+    /// reads back to it.
     #[test]
     fn a_toast_opens_its_letter_or_its_summary() {
         crate::install_secret::init_with([1u8; 32]);
-        let url = super::windows_toast::launch_url(None);
+        let url = launch_url(None);
         assert!(url.starts_with("depesha://open"), "{url}");
         assert_eq!(parse_signed_url(&url), Some(Route::Window));
         let outbox = Target {
             outbox: true,
             ..Target::default()
         };
-        let url = super::windows_toast::launch_url(Some(&outbox));
+        let url = launch_url(Some(&outbox));
         assert!(url.starts_with("depesha://outbox"), "{url}");
         assert_eq!(parse_signed_url(&url), Some(Route::Target(outbox.clone())));
         let one = Target {
@@ -1647,7 +1653,7 @@ mod tests {
             message_id: Some("<7@x>".into()),
             ..Target::default()
         };
-        let url = super::windows_toast::launch_url(Some(&one));
+        let url = launch_url(Some(&one));
         assert!(url.starts_with("depesha://message/a%40x-1/7?mid=%3C7%40x%3E"), "{url}");
         assert_eq!(parse_signed_url(&url), Some(Route::Target(one.clone())));
         let summary = Target {
@@ -1656,16 +1662,47 @@ mod tests {
             ids: vec![3, 5],
             ..Target::default()
         };
-        let url = super::windows_toast::launch_url(Some(&summary));
+        let url = launch_url(Some(&summary));
         assert!(url.starts_with("depesha://inbox/a?ids=3,5"), "{url}");
         assert_eq!(parse_signed_url(&url), Some(Route::Target(summary.clone())));
         let all = Target {
             ids: vec![3, 5],
             ..Target::default()
         };
-        let url = super::windows_toast::launch_url(Some(&all));
+        let url = launch_url(Some(&all));
         assert!(url.starts_with("depesha://inbox?ids=3,5"), "{url}");
         assert_eq!(parse_signed_url(&url), Some(Route::Target(all.clone())));
+    }
+
+    /// A summary of more letters than the URL holds signs the letters it names, so the click
+    /// still passes the check; a letter without a Message-ID brings the window.
+    #[test]
+    fn a_long_summary_and_a_letter_without_message_id_still_open() {
+        crate::install_secret::init_with([1u8; 32]);
+        let long = Target {
+            account_id: Some("a".into()),
+            folder: Some("INBOX".into()),
+            ids: (1..=80).map(|i| 1_000_000 + i).collect(),
+            ..Target::default()
+        };
+        let url = launch_url(Some(&long));
+        assert!(url.len() <= 512, "{} chars", url.len());
+        let Some(Route::Target(read)) = parse_signed_url(&url) else {
+            panic!("a summary of 80 letters did not verify: {url}");
+        };
+        assert!(!read.ids.is_empty() && read.ids.len() < 80, "{:?}", read.ids);
+        assert_eq!(read.ids[..], long.ids[..read.ids.len()]);
+        let no_mid = Target {
+            account_id: Some("a".into()),
+            folder: Some("INBOX".into()),
+            id: Some(7),
+            ids: vec![7],
+            message_id: None,
+            ..Target::default()
+        };
+        let url = launch_url(Some(&no_mid));
+        assert_eq!(parse_signed_url(&url), Some(Route::Window), "{url}");
+        assert!(url.starts_with("depesha://open"), "{url}");
     }
 
     /// The toast XML carries the launch and holds a subject as text, never as markup.
