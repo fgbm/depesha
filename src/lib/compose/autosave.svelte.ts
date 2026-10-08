@@ -21,6 +21,13 @@ export interface ComposeAutosaveHost {
 
 /** Drafts save themselves this long after typing stops. */
 const AUTOSAVE_MS = 3000;
+/** How often a draft may go to the server; in between, the local copy alone changes. */
+export const SERVER_SAVE_MS = 60_000;
+
+/** Whether the draft is due to go to the server now: at most once a minute, unless forced. */
+export function serverDue(lastSavedAt: number, now: number, force: boolean): boolean {
+  return force || lastSavedAt === 0 || now - lastSavedAt >= SERVER_SAVE_MS;
+}
 
 export class ComposeAutosave {
   savingNow = $state(false);
@@ -28,6 +35,8 @@ export class ComposeAutosave {
   private lastSaved: string;
   private saving: Promise<boolean> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** When the draft last went to the server, ms; 0 is never. */
+  private lastServerAt = 0;
 
   constructor(private host: ComposeAutosaveHost) {
     const { win } = host;
@@ -39,7 +48,7 @@ export class ComposeAutosave {
       $state.snapshot(this.host.win.draft);
       this.cancel();
       if (first) first = false;
-      else this.timer = setTimeout(() => this.save(), AUTOSAVE_MS);
+      else this.timer = setTimeout(() => this.save(false), AUTOSAVE_MS);
     });
     onDestroy(() => this.cancel());
   }
@@ -59,8 +68,11 @@ export class ComposeAutosave {
     if (this.saving) await this.saving;
   }
 
-  /** Saves the draft on the server unless nothing changed; one save at a time. */
-  async save(): Promise<boolean> {
+  /**
+   * Saves the draft on the server unless nothing changed; one save at a time. The autosave
+   * holds it back to at most once a minute; closing the window and saving by hand force it.
+   */
+  async save(force = true): Promise<boolean> {
     this.cancel();
     while (this.saving) await this.saving;
     const { win } = this.host;
@@ -68,11 +80,17 @@ export class ComposeAutosave {
     const text = JSON.stringify(draft);
     if (text === this.lastSaved) return true;
     if (!isDirty(draft) && win.draft_id === null) return true;
+    if (!serverDue(this.lastServerAt, Date.now(), force)) {
+      // Held back: the server copy follows when the minute is up.
+      this.scheduleServer(SERVER_SAVE_MS - (Date.now() - this.lastServerAt));
+      return true;
+    }
     this.savingNow = true;
     this.saving = (async () => {
       try {
         win.draft_id = await api.draftSave(win.account_id, draft, win.draft_id);
         this.lastSaved = text;
+        this.lastServerAt = Date.now();
         win.unsaved = false;
         win.savedAt = Date.now();
         this.host.clearError();
@@ -86,5 +104,14 @@ export class ComposeAutosave {
       }
     })();
     return this.saving;
+  }
+
+  /** The held-back save: runs once the minute since the last server save is up. */
+  private scheduleServer(ms: number) {
+    if (this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.save(false);
+    }, Math.max(0, ms));
   }
 }
