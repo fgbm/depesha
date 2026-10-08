@@ -124,7 +124,8 @@ export class AppStore {
   folder(accountId: string, name: string) { return this.mailboxes.folder(accountId, name); }
   /** Where the app starts and comes back to: all inboxes, or the only account's inbox. */
   home(): View { return this.mailboxes.home(); }
-  toast(text: string, error = false, action?: { label: string; run: () => void }, ms?: number) { this.ui.toast(text, error, action, ms); }
+  toast(text: string, error = false, action?: { label: string; run: () => void }, ms?: number) { return this.ui.toast(text, error, action, ms); }
+  retext(id: number, text: string) { return this.ui.retext(id, text); }
   confirm(q: Omit<Confirmation, "resolve">) { return this.ui.confirm(q); }
   /** Asks with two answers and a dismissal apart, and a box to tick. */
   choose(q: Omit<Confirmation, "resolve">) { return this.ui.choose(q); }

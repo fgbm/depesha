@@ -43,7 +43,9 @@ export interface ComposeHost {
   account(id: string): AccountView | undefined;
   /** The mailbox a new letter is written from. */
   defaultAccount(): AccountView | undefined;
-  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): void;
+  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): number | void;
+  /** Changes the text of a toast on the screen; false when it is gone. */
+  retext?(id: number, text: string): boolean;
   fail(e: unknown, prefix?: string): void;
 }
 
@@ -191,7 +193,17 @@ export class ComposeManager {
     const undo = { label: t("undo"), run: () => void this.reopenOutbox(queued.id) };
     const secs = Math.round(queued.at - Date.now() / 1000);
     if (at) this.host.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);
-    else if (secs > 0) this.host.toast(tn("toast.sending", secs), false, undo, secs * 1000);
+    else if (secs > 0) this.countdown(queued.at, undo);
+  }
+
+  /** The «Sending…» toast shows the seconds left to undo, and counts them down (#75). */
+  private countdown(at: number, undo: { label: string; run: () => void }) {
+    const left = () => Math.max(1, Math.ceil(at - Date.now() / 1000));
+    const id = this.host.toast(tn("toast.sending", left()), false, undo, Math.max(0, at * 1000 - Date.now()));
+    if (typeof id !== "number") return;
+    const timer = setInterval(() => {
+      if (Date.now() >= at * 1000 || !this.host.retext?.(id, tn("toast.sending", left()))) clearInterval(timer);
+    }, 1000);
   }
 
   /** Takes a queued message back into the composer. */

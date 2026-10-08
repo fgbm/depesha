@@ -61,3 +61,26 @@ describe("keeping the drafts of a window", () => {
     expect(mgr.windows[0].draft_id).toBe(42);
   });
 });
+
+describe("the «Sending…» toast", () => {
+  it("counts the seconds down while it stays on the screen (#75)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000_000_000));
+      const now = Date.now() / 1000;
+      api.send.mockResolvedValue({ id: 1, at: now + 10 });
+      const texts: string[] = [];
+      const host = {
+        windowOf: null,
+        toast: (text: string) => (texts.push(text), 7),
+        retext: (_id: number, text: string) => (texts.push(text), true),
+      } as unknown as ComposeHost;
+      await new ComposeManager(host).send("a", emptyDraft({ name: "Me", email: "me@example.com" }), null, null, null);
+      expect(texts[0]).toMatch(/10 seconds/);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(texts.at(-1)).toMatch(/7 seconds/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

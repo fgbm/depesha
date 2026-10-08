@@ -76,10 +76,18 @@ export class UiController {
 
   private toastSeq = 0;
 
-  toast(text: string, error = false, action?: Toast["action"], ms?: number) {
+  toast(text: string, error = false, action?: Toast["action"], ms?: number): number {
     const id = ++this.toastSeq;
     this.toasts.push({ id, text, error, action });
     setTimeout(() => this.dismiss(id), ms ?? (error ? 12000 : action ? 8000 : 4000));
+    return id;
+  }
+
+  /** Changes the text of a toast still on the screen (a countdown); false when it is gone. */
+  retext(id: number, text: string): boolean {
+    const toast = this.toasts.find((t) => t.id === id);
+    if (toast) toast.text = text;
+    return !!toast;
   }
 
   /** Asks in the app's own dialog; true when the user agreed. */
