@@ -27,6 +27,17 @@ pub(super) fn v19_sent_copies(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 20: a copy the server keeps refusing is counted apart from a dead network, and is put
+/// on hold after the last refusal; the subject is kept to name it in the tasks.
+pub(super) fn v20_stuck_copies(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "ALTER TABLE sent_copies ADD COLUMN refusals INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE sent_copies ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE sent_copies ADD COLUMN subject TEXT NOT NULL DEFAULT '';",
+    )?;
+    Ok(())
+}
+
 /// A copy to file in «Sent».
 #[derive(Debug, Clone)]
 pub struct SentCopy {
@@ -39,6 +50,13 @@ pub struct SentCopy {
     pub attempts: u32,
     pub next_attempt: i64,
     pub last_error: Option<String>,
+    /// Refusals by the server that will not change by waiting (a full mailbox, a missing
+    /// folder), counted apart from attempts lost to the network.
+    pub refusals: u32,
+    /// After the last refusal the copy waits for the user: it is not tried again, and the
+    /// letter is not uploaded again.
+    pub paused: bool,
+    pub subject: String,
     /// The sent letter whose answered mark and wait for a reply start once the copy is in
     /// the cache: a wait is countable and cancellable only while its letter is cached.
     pub pending: Option<OutboxItem>,
@@ -51,7 +69,18 @@ pub struct NewSentCopy<'a> {
     pub raw: &'a [u8],
     pub flags: &'a str,
     pub message_id: Option<&'a str>,
+    pub subject: &'a str,
     pub pending: Option<&'a OutboxItem>,
+}
+
+/// A paused copy as the tasks show it: no bytes, they stay in the cache.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StuckCopy {
+    pub id: i64,
+    pub account_id: String,
+    pub subject: String,
+    pub last_error: Option<String>,
+    pub refusals: u32,
 }
 
 impl Store {
@@ -66,15 +95,16 @@ impl Store {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let id = tx.query_row(
-            "INSERT INTO sent_copies (account_id, folder, raw, flags, message_id, pending)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id",
+            "INSERT INTO sent_copies (account_id, folder, raw, flags, message_id, pending, subject)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id",
             params![
                 copy.account_id,
                 copy.folder,
                 copy.raw,
                 copy.flags,
                 copy.message_id,
-                pending
+                pending,
+                copy.subject
             ],
             |r| r.get(0),
         )?;
@@ -85,7 +115,7 @@ impl Store {
 
     /// The copies whose time has come, oldest first.
     pub fn sent_copies_due(&self, now: i64) -> Result<Vec<SentCopy>> {
-        self.sent_copies_where("WHERE next_attempt <= ?1", now)
+        self.sent_copies_where("WHERE next_attempt <= ?1 AND paused = 0", now)
     }
 
     /// Every copy still to be filed.
@@ -96,7 +126,7 @@ impl Store {
     fn sent_copies_where(&self, filter: &str, arg: i64) -> Result<Vec<SentCopy>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!(
-            "SELECT id, account_id, folder, raw, flags, message_id, attempts, next_attempt, last_error, pending
+            "SELECT id, account_id, folder, raw, flags, message_id, attempts, next_attempt, last_error, pending, refusals, paused, subject
              FROM sent_copies {filter} ORDER BY id"
         ))?;
         let rows = stmt.query_map([arg], |r| {
@@ -113,6 +143,9 @@ impl Store {
                 pending: r
                     .get::<_, Option<String>>(9)?
                     .and_then(|j| serde_json::from_str(&j).ok()),
+                refusals: r.get(10)?,
+                paused: r.get::<_, i64>(11)? != 0,
+                subject: r.get(12)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -131,6 +164,50 @@ impl Store {
             params![id, next_attempt, error],
         )?;
         Ok(())
+    }
+
+    /// The server refused the copy for good: the refusal is counted, and at the last one
+    /// (`pause`) the copy waits for the user instead of for its time.
+    pub fn sent_copy_refused(&self, id: i64, next_attempt: i64, error: &str, pause: bool) -> Result<()> {
+        self.conn().execute(
+            "UPDATE sent_copies SET attempts = attempts + 1, refusals = refusals + 1, next_attempt = ?2,
+                    last_error = ?3, paused = ?4 WHERE id = ?1",
+            params![id, next_attempt, error, pause],
+        )?;
+        Ok(())
+    }
+
+    /// The copies waiting for the user, without their bytes.
+    pub fn sent_copies_stuck(&self) -> Result<Vec<StuckCopy>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, account_id, subject, last_error, refusals FROM sent_copies WHERE paused = 1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(StuckCopy {
+                id: r.get(0)?,
+                account_id: r.get(1)?,
+                subject: r.get(2)?,
+                last_error: r.get(3)?,
+                refusals: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// One copy by its id, bytes included.
+    pub fn sent_copy(&self, id: i64) -> Result<Option<SentCopy>> {
+        Ok(self.sent_copies()?.into_iter().find(|c| c.id == id))
+    }
+
+    /// "Try again": the hold and the count of refusals are dropped, the copy is due now.
+    /// False when there is no such copy.
+    pub fn sent_copy_resume(&self, id: i64) -> Result<bool> {
+        let n = self.conn().execute(
+            "UPDATE sent_copies SET paused = 0, refusals = 0, attempts = 0, next_attempt = 0 WHERE id = ?1",
+            [id],
+        )?;
+        Ok(n > 0)
     }
 
     /// The wait for a reply no longer waits for the copy (it was started without it).
@@ -152,6 +229,7 @@ mod tests {
             raw,
             flags: "(\\Seen)",
             message_id: Some("m@x"),
+            subject: "Contract",
             pending: None,
         }
     }
@@ -185,6 +263,63 @@ mod tests {
         assert_eq!(due[0].last_error.as_deref(), Some("no network"));
         store.sent_copy_done(copy_id).unwrap();
         assert!(store.sent_copies().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_refused_copy_is_held_until_the_user_resumes_it() {
+        let store = Store::open_in_memory().unwrap();
+        let id = store
+            .outbox_add("a", &Default::default(), 1, 1, 0, &Default::default())
+            .unwrap();
+        let copy_id = store.outbox_sent_with_copy(id, &copy(b"raw")).unwrap();
+        store.sent_copy_refused(copy_id, 100, "full", false).unwrap();
+        assert!(store.sent_copies_stuck().unwrap().is_empty(), "still counting down");
+        store.sent_copy_refused(copy_id, 200, "full", true).unwrap();
+        assert!(
+            store.sent_copies_due(i64::MAX).unwrap().is_empty(),
+            "held copies are not due"
+        );
+        let stuck = store.sent_copies_stuck().unwrap();
+        assert_eq!((stuck.len(), stuck[0].refusals), (1, 2));
+        assert_eq!(stuck[0].subject, "Contract");
+        assert_eq!(stuck[0].last_error.as_deref(), Some("full"));
+        assert!(store.sent_copy_resume(copy_id).unwrap());
+        let due = store.sent_copies_due(0).unwrap();
+        assert_eq!(
+            (due.len(), due[0].refusals, due[0].attempts, due[0].paused),
+            (1, 0, 0, false)
+        );
+        assert!(!store.sent_copy_resume(copy_id + 1).unwrap());
+    }
+
+    /// A cache of 0.7.1 holds copies without the columns of step 20: they migrate, are due
+    /// as before and can be refused and resumed.
+    #[test]
+    fn a_copy_of_the_previous_version_migrates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        {
+            let store = Store::open(&path).unwrap();
+            let conn = store.conn();
+            conn.execute_batch(
+                "ALTER TABLE sent_copies DROP COLUMN refusals;
+                 ALTER TABLE sent_copies DROP COLUMN paused;
+                 ALTER TABLE sent_copies DROP COLUMN subject;
+                 INSERT INTO sent_copies (account_id, folder, raw, flags, attempts)
+                 VALUES ('a', 'Sent', x'72617700', '(\\Seen)', 2);
+                 PRAGMA user_version = 19;",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let due = store.sent_copies_due(0).unwrap();
+        assert_eq!(
+            (due.len(), due[0].attempts, due[0].refusals, due[0].paused),
+            (1, 2, 0, false)
+        );
+        assert_eq!(due[0].subject, "");
+        store.sent_copy_refused(due[0].id, 5, "full", true).unwrap();
+        assert_eq!(store.sent_copies_stuck().unwrap().len(), 1);
     }
 
     #[test]

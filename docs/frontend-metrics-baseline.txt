@@ -36,7 +36,7 @@ component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
 component	src/components/Sidebar.svelte	31	24	7	0
 component	src/components/SignaturePicker.svelte	122	31	31	60
-component	src/components/Tasks.svelte	320	81	90	149
+component	src/components/Tasks.svelte	333	85	99	149
 component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	253	102	42	109
 component	src/components/WindowControls.svelte	57	16	11	30
@@ -83,7 +83,7 @@ component	src/components/sidebar/FolderRow.svelte	104	8	96	0
 component	src/components/sidebar/Labels.svelte	60	19	28	13
 component	src/components/sidebar/Problem.svelte	39	14	25	0
 component	src/components/sidebar/SidebarFolded.svelte	115	33	82	0
-component	src/components/sidebar/SidebarFull.svelte	106	34	72	0
+component	src/components/sidebar/SidebarFull.svelte	111	36	75	0
 component	src/components/sidebar/SidebarTree.svelte	44	25	19	0
 component	src/components/sidebar/SmartSections.svelte	75	25	50	0
 component	src/components/sidebar/TasksButton.svelte	18	12	6	0

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use depesha_core::imap::FolderRole;
-use depesha_core::store::{NewSentCopy, OutboxItem, SentCopy};
+use depesha_core::store::{NewSentCopy, OutboxItem, SentCopy, StuckCopy};
 use depesha_core::{mail, message, smtp};
 use serde_json::json;
 
@@ -22,7 +22,9 @@ const SLEEP_GAP: Duration = Duration::from_secs(20);
 pub async fn run(state: Arc<AppState>) {
     // A send cut short by a quit may or may not have left: it waits for the user.
     recover_interrupted(&state);
-    // Copies in «Sent» a quit cut short are filed again.
+    // Copies in «Sent» a quit cut short are filed again; those the server refused for good
+    // and that wait for the user are shown in the tasks again.
+    restore_stuck_tasks(&state);
     deliver_copies(&state);
     // When the app last ran without a break: a letter due before that was missed.
     let mut awake_since = chrono::Utc::now().timestamp();
@@ -200,6 +202,7 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
                                 raw: &raw,
                                 flags: "(\\Seen)",
                                 message_id: message_id.as_deref(),
+                                subject: &item.draft.subject,
                                 pending: defer_wait.then_some(&item),
                             },
                         )?;
@@ -316,7 +319,7 @@ fn with_known_mailbox(due: Vec<SentCopy>, known: impl Fn(&str) -> bool) -> Vec<S
 /// How many tries a wait for a reply stays held for its copy before it starts without one.
 const COPY_WAIT_TRIES: u32 = 3;
 
-async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Result<(), CmdError> {
+pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Result<(), CmdError> {
     let Ok(account) = state.account(&copy.account_id) else {
         // See `with_known_mailbox`: the copy waits.
         return Ok(());
@@ -351,31 +354,112 @@ async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Result<(), CmdE
             return Err(e);
         }
     }
-    settle_copy(&state.store, copy, &outcome, chrono::Utc::now().timestamp())?;
+    let settled = settle_copy(&state.store, copy, &outcome, chrono::Utc::now().timestamp())?;
+    if settled == Settled::Held
+        && let Some(held) = state.store.sent_copies_stuck()?.into_iter().find(|c| c.id == copy.id)
+    {
+        stuck_task(state, &held);
+    }
     if matches!(ready, Some((_, false))) {
         state.store.sent_copy_forget_wait(copy.id)?;
     }
     Ok(())
 }
 
+/// What a try at a copy came to.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Settled {
+    /// The server has it: nothing is left to file.
+    Filed,
+    /// It waits for its next try.
+    Waiting,
+    /// The server refused it for the last time: it waits for the user, and is not uploaded again.
+    Held,
+}
+
+/// Refusals the server may give before the copy is put on hold.
+const REFUSALS_BEFORE_HOLD: u32 = 3;
+
+/// A refusal waited out the longer, the more of them came: 30 min, 2 h, 6 h. The e2e run
+/// shortens it (`DEPESHA_E2E_COPY_BACKOFF`, seconds) to see a copy held within a minute.
+fn refusal_delay(refusals: u32) -> i64 {
+    if let Some(secs) = std::env::var("DEPESHA_E2E_COPY_BACKOFF")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+    {
+        return secs;
+    }
+    match refusals {
+        0 | 1 => 30 * 60,
+        2 => 2 * 3_600,
+        _ => 6 * 3_600,
+    }
+}
+
+/// The worker found the server's answer to the APPEND final (`append_refused`).
+pub(crate) fn copy_refused(e: &depesha_core::Error) -> bool {
+    matches!(e, depesha_core::Error::CopyRefused(_))
+}
+
 /// What the try at a copy leaves in the cache: nothing when the server has it, otherwise
-/// the copy waits for its next try. Returns whether it was filed.
+/// the copy waits for its next try. A network trouble repeats with a growing pause; a
+/// refusal is counted apart, and the third one puts the copy on hold.
 fn settle_copy(
     store: &depesha_core::store::Store,
     copy: &SentCopy,
     outcome: &Result<(), depesha_core::Error>,
     now: i64,
-) -> Result<bool, CmdError> {
+) -> Result<Settled, CmdError> {
     match outcome {
         Ok(()) => {
             store.sent_copy_done(copy.id)?;
-            Ok(true)
+            Ok(Settled::Filed)
+        }
+        Err(e) if copy_refused(e) => {
+            let refusals = copy.refusals + 1;
+            let hold = refusals >= REFUSALS_BEFORE_HOLD;
+            store.sent_copy_refused(copy.id, now + refusal_delay(refusals), &e.to_string(), hold)?;
+            Ok(if hold { Settled::Held } else { Settled::Waiting })
         }
         Err(e) => {
             let delay = (30_i64 << copy.attempts.min(6)).min(1800);
             let delay = delay.max(e.back_off().map_or(0, |d| d.as_secs().min(1800) as i64 + 1));
             store.sent_copy_retry_later(copy.id, now + delay, &e.to_string())?;
-            Ok(false)
+            Ok(Settled::Waiting)
+        }
+    }
+}
+
+/// The task of a copy on hold: plain words on top, the server's own on the line below.
+fn stuck_task(state: &AppState, copy: &StuckCopy) {
+    let subject = if copy.subject.is_empty() {
+        depesha_core::lang::pick("(no subject)", "(без темы)").to_owned()
+    } else {
+        copy.subject.clone()
+    };
+    let key = stuck_key(copy.id);
+    state.task(
+        &key,
+        "stuck-copy",
+        Some(&copy.account_id),
+        tr!("Copy not saved: «{subject}»", "Копия не сохранена: «{subject}»"),
+        0,
+        0,
+    );
+    let reason = copy.last_error.clone().unwrap_or_default();
+    state.task_failed(&key, CmdError::new("other", reason));
+}
+
+/// The key of the task of a held copy; the interface reads the copy's id from it.
+pub(crate) fn stuck_key(id: i64) -> String {
+    format!("stuck-copy:{id}")
+}
+
+/// After a start the copies on hold are in the tasks again (the tasks live in memory).
+fn restore_stuck_tasks(state: &AppState) {
+    for copy in state.store.sent_copies_stuck().unwrap_or_default() {
+        if state.account(&copy.account_id).is_ok() {
+            stuck_task(state, &copy);
         }
     }
 }
@@ -420,6 +504,7 @@ mod tests {
                     raw: b"raw",
                     flags: "(\\Seen)",
                     message_id: Some("m@x"),
+                    subject: "Contract",
                     pending: None,
                 },
             )
@@ -469,7 +554,10 @@ mod tests {
             )),
         ] {
             let copy = store.sent_copies().unwrap().remove(0);
-            assert!(!settle_copy(&store, &copy, &Err(failure), now).unwrap());
+            assert_eq!(
+                settle_copy(&store, &copy, &Err(failure), now).unwrap(),
+                Settled::Waiting
+            );
             assert!(store.sent_copies_due(now).unwrap().is_empty(), "not hammered at once");
             assert_eq!(store.sent_copies().unwrap().len(), 1, "the copy is kept");
             assert!(store.outbox().unwrap().is_empty(), "the letter is not sent twice");
@@ -477,7 +565,93 @@ mod tests {
         let due = store.sent_copies_due(now + 3_600).unwrap();
         assert_eq!(due.len(), 1);
         assert_eq!((due[0].id, due[0].raw.as_slice()), (copy.id, &b"raw"[..]));
-        assert!(settle_copy(&store, &due[0], &Ok(()), now + 3_600).unwrap());
+        assert_eq!(
+            settle_copy(&store, &due[0], &Ok(()), now + 3_600).unwrap(),
+            Settled::Filed
+        );
         assert!(store.sent_copies().unwrap().is_empty());
+    }
+
+    fn refused(text: &str) -> depesha_core::Error {
+        depesha_core::Error::CopyRefused(text.into())
+    }
+
+    /// Only the worker's verdict counts as a refusal: a dead network or a paused mailbox
+    /// passes by and is retried as before.
+    #[test]
+    fn a_refusal_is_told_from_a_trouble_that_passes() {
+        use depesha_core::Error as E;
+        assert!(copy_refused(&refused("mailbox is full")));
+        assert!(!copy_refused(&E::Timeout("operation")));
+        assert!(!copy_refused(&E::Closed));
+        assert!(!copy_refused(&E::Paused));
+        assert!(!copy_refused(&E::Io(std::io::Error::new(
+            std::io::ErrorKind::NetworkUnreachable,
+            "no network"
+        ))));
+    }
+
+    /// Refusals are waited out 30 min, 2 h, 6 h; the third puts the copy on hold, where it is
+    /// neither due nor uploaded again, and the network's attempts do not count among them.
+    #[test]
+    fn a_copy_refused_three_times_is_put_on_hold() {
+        let store = Store::open_in_memory().unwrap();
+        sent(&store);
+        let now = 10_000;
+        // A dead network between the refusals does not count as one.
+        let net = depesha_core::Error::Closed;
+        let copy = store.sent_copies().unwrap().remove(0);
+        assert_eq!(settle_copy(&store, &copy, &Err(net), now).unwrap(), Settled::Waiting);
+        for (n, (wait, expect)) in [
+            (1_800, Settled::Waiting),
+            (7_200, Settled::Waiting),
+            (21_600, Settled::Held),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let copy = store.sent_copies().unwrap().remove(0);
+            assert_eq!(copy.refusals, n as u32);
+            let got = settle_copy(&store, &copy, &Err(refused("OVERQUOTA full")), now).unwrap();
+            assert_eq!(got, expect);
+            let after = store.sent_copies().unwrap().remove(0);
+            assert_eq!(after.next_attempt, now + wait, "refusal {}", n + 1);
+        }
+        assert!(
+            store.sent_copies_due(i64::MAX).unwrap().is_empty(),
+            "no automatic retry on hold"
+        );
+        let stuck = store.sent_copies_stuck().unwrap();
+        assert_eq!(stuck.len(), 1);
+        assert!(stuck[0].last_error.as_deref().unwrap().contains("full"));
+        assert_eq!(
+            store.sent_copies().unwrap()[0].raw,
+            b"raw",
+            "the letter is kept, not dropped"
+        );
+    }
+
+    /// «Try again» lifts the hold and the count; «Don't keep» removes the copy.
+    #[test]
+    fn a_held_copy_can_be_resumed_or_dropped() {
+        let store = Store::open_in_memory().unwrap();
+        let copy = sent(&store);
+        let held = SentCopy {
+            refusals: 2,
+            ..copy.clone()
+        };
+        settle_copy(&store, &held, &Err(refused("OVERQUOTA")), 0).unwrap();
+        assert!(store.sent_copies_due(i64::MAX).unwrap().is_empty());
+        assert!(store.sent_copy_resume(copy.id).unwrap());
+        let due = store.sent_copies_due(0).unwrap();
+        assert_eq!((due.len(), due[0].refusals, due[0].paused), (1, 0, false));
+        // It is refused once more: the count starts from one again, not on hold.
+        assert_eq!(
+            settle_copy(&store, &due[0], &Err(refused("OVERQUOTA")), 0).unwrap(),
+            Settled::Waiting
+        );
+        store.sent_copy_done(copy.id).unwrap();
+        assert!(store.sent_copies().unwrap().is_empty());
+        assert!(!store.sent_copy_resume(copy.id).unwrap());
     }
 }

@@ -1370,6 +1370,7 @@ fn clone_error(e: &Error) -> Error {
         Error::Timeout(t) => Error::Timeout(t),
         Error::Closed => Error::Closed,
         Error::Paused => Error::Paused,
+        Error::CopyRefused(m) => Error::CopyRefused(m.clone()),
         other => Error::Protocol(other.to_string()),
     }
 }
@@ -1604,6 +1605,12 @@ async fn perform(
                     }
                     state.task_done(&key);
                     Ok(Output::None)
+                }
+                Err(e) if e.append_refused() => {
+                    // A refusal that waiting will not mend is counted by the outbox, which shows
+                    // one task when the copy is put on hold; a red task per try is only noise.
+                    state.task_done(&key);
+                    Err(Error::CopyRefused(e.to_string()))
                 }
                 Err(e) => {
                     state.task_failed(&key, CmdError::from(clone_error(&e)));

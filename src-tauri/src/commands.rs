@@ -1675,6 +1675,60 @@ pub fn task_dismiss(state: St<'_>, key: String) {
     state.task_dismiss(&key);
 }
 
+/// The copies of sent letters the server refuses for good and that wait for the user.
+#[tauri::command]
+pub fn stuck_copies(state: St<'_>) -> CmdResult<Vec<depesha_core::store::StuckCopy>> {
+    Ok(state.store.sent_copies_stuck()?)
+}
+
+/// «Try again»: the hold and the count of refusals are dropped and the copy is tried now.
+/// Fails with the server's answer when it is refused again.
+#[tauri::command]
+pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<()> {
+    let state = state.inner().clone();
+    if !state.store.sent_copy_resume(id)? {
+        return Err(CmdError::new(
+            "not-found",
+            tr!("the copy is no longer kept", "копии больше нет"),
+        ));
+    }
+    state.task_done(&crate::outbox::stuck_key(id));
+    let Some(copy) = state.store.sent_copy(id)? else {
+        return Ok(());
+    };
+    if !state.copy_claim(id) {
+        return Ok(());
+    }
+    let done = crate::outbox::deliver_copy(&state, &copy).await;
+    state.copy_release(id);
+    done?;
+    match state.store.sent_copy(id)? {
+        Some(left) => Err(CmdError::new("other", left.last_error.unwrap_or_default())),
+        None => Ok(()),
+    }
+}
+
+/// «Save .eml»: the copy goes to the file the user picked in the save dialog. The copy is
+/// kept until the user says «Don't keep».
+#[tauri::command]
+pub async fn sent_copy_save(state: St<'_>, id: i64, path: String) -> CmdResult<()> {
+    let path = state.paths.check(Use::SaveFile, &path)?;
+    let copy = state
+        .store
+        .sent_copy(id)?
+        .ok_or_else(|| CmdError::new("not-found", tr!("the copy is no longer kept", "копии больше нет")))?;
+    tokio::fs::write(&path, &copy.raw).await?;
+    Ok(())
+}
+
+/// «Don't keep the copy»: the record and its bytes are deleted.
+#[tauri::command]
+pub fn sent_copy_drop(state: St<'_>, id: i64) -> CmdResult<()> {
+    state.store.sent_copy_done(id)?;
+    state.task_done(&crate::outbox::stuck_key(id));
+    Ok(())
+}
+
 /// Per account: the last full sync and how much of the offline window is downloaded.
 #[tauri::command(async)]
 pub fn sync_overview(state: St<'_>) -> CmdResult<Vec<crate::tasks::AccountSync>> {

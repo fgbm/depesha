@@ -15,7 +15,7 @@ import { peopleBook } from "./peopleBook.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
-import type { AccountView, CachedDraft, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey } from "./types";
+import type { AccountView, CachedDraft, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey, StuckCopy } from "./types";
 
 export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
@@ -203,6 +203,7 @@ export class AppStore {
     void tellMissed(this);
     // Drafts kept locally when the app last stopped: offered for restore (#71).
     void this.offerLocalDrafts();
+    void this.tellStuckCopies();
     // A toast click while the app was closed: the backend kept the URL for this window.
     void takePendingOpen(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
@@ -288,6 +289,13 @@ export class AppStore {
       { label: t("compose.localDraftRestore"), run: () => void this.compose.restoreLocal(drafts) },
       30_000,
     );
+  }
+
+  /** Copies of sent letters the server refuses to keep: said once per start, until decided (#88). */
+  async tellStuckCopies() {
+    const stuck = (await api.stuckCopies().catch(() => [] as StuckCopy[])) ?? [];
+    if (!stuck.length) return;
+    this.toast(tn("stuck.toast", stuck.length, { n: stuck.length }), false, { label: t("stuck.open"), run: () => (this.tasksOpen = true) }, 30_000);
   }
 
   /** The window that takes dropped files: the unfolded one, else the newest. */

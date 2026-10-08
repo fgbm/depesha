@@ -74,6 +74,9 @@ pub enum Error {
     /// The label check cannot run here: without UIDPLUS its test letter could not be
     /// expunged by UID, so it would stay behind. Depesha does not run it.
     LabelCheckUnsupported,
+    /// The server refuses to file the copy of a sent letter in «Sent» in a way waiting will
+    /// not mend (see `append_refused`); the text is the refusal as it was worded.
+    CopyRefused(String),
 }
 
 impl std::fmt::Display for Error {
@@ -154,6 +157,7 @@ impl std::fmt::Display for Error {
                 "this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run",
                 "на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется"
             ),
+            Self::CopyRefused(text) => text.clone(),
             Self::Parse => tr!("the message could not be parsed", "не удалось разобрать письмо"),
             Self::PrivateAddress(host) => tr!(
                 "{host} is an address in a private network; Depesha does not send requests there from a letter",
@@ -291,6 +295,27 @@ impl Error {
                     || upper.contains("MAILBOX DOES NOT EXIST")
                     || upper.contains("DOES NOT EXIST")
             }
+            _ => false,
+        }
+    }
+
+    /// The server's answer to filing a copy in «Sent» that waiting will not change: the
+    /// mailbox is full, the letter is over the limit, «Sent» is gone, or the command is
+    /// refused outright (`NO`/`BAD`). A dead network, a timeout, a folder in use and a paused
+    /// mailbox pass by and are not counted here.
+    pub fn append_refused(&self) -> bool {
+        match self {
+            Self::TooLarge { .. } => true,
+            Self::Imap(async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m)) => {
+                let upper = m.to_ascii_uppercase();
+                !["INUSE", "UNAVAILABLE", "TRYAGAIN", "LOCKED"]
+                    .iter()
+                    .any(|code| upper.contains(code))
+            }
+            Self::Ews { code, .. } => matches!(
+                code.as_str(),
+                "ErrorQuotaExceeded" | "ErrorFolderNotFound" | "ErrorMessageSizeExceeded"
+            ),
             _ => false,
         }
     }
@@ -626,5 +651,23 @@ mod tests {
         assert!(!Error::Imap(E::No("code: Some(INUSE), info: Some(\"in use\")".into())).folder_gone());
         assert!(!Error::Paused.folder_gone());
         assert!(!Error::Protocol("unexpected".into()).folder_gone());
+    }
+
+    #[test]
+    fn a_refused_append_is_told_from_a_trouble_that_passes() {
+        let no = |m: &str| Error::Imap(E::No(m.into()));
+        assert!(no("code: Some(OVERQUOTA), info: Some(\"Mailbox is full\")").append_refused());
+        assert!(no("[TRYCREATE] Mailbox doesn't exist: Sent").append_refused());
+        assert!(no("code: Some(TOOBIG), info: Some(\"too large\")").append_refused());
+        assert!(Error::Imap(E::Bad("bad command".into())).append_refused());
+        assert!(Error::TooLarge { size: 2, limit: 1 }.append_refused());
+        assert!(!no("code: Some(INUSE), info: Some(\"in use\")").append_refused());
+        assert!(!no("code: Some(UNAVAILABLE), info: Some(\"later\")").append_refused());
+        assert!(!Error::Timeout("operation").append_refused());
+        assert!(!Error::Closed.append_refused());
+        assert!(!Error::Paused.append_refused());
+        assert!(!Error::Io(std::io::Error::new(std::io::ErrorKind::NetworkUnreachable, "x")).append_refused());
+        assert_eq!(Error::CopyRefused("full".into()).to_string(), "full");
+        assert!(!Error::CopyRefused("full".into()).is_transient());
     }
 }

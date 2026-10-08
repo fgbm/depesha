@@ -353,6 +353,20 @@ nav.side {
     color: var(--side-ink);
   }
 
+  /* A copy of a sent letter the server refuses to keep: seen from any folder, opens the tasks. */
+  .side .stuck-badge {
+    display: inline-flex;
+    background: none;
+    border: none;
+    padding: 3px 5px;
+    border-radius: 4px;
+    color: var(--side-warn);
+  }
+
+  .side .stuck-badge:hover {
+    background: var(--side-2);
+  }
+
   /* The mailbox's colour; how it is connected shows as a ring around it. */
   .side .dot {
     width: 8px;

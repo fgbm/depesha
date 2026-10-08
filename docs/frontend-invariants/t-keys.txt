@@ -717,6 +717,15 @@ storage.used
 storage.usedAlone
 storage.warn
 storage.warnings
+stuck.badge
+stuck.drop
+stuck.retried
+stuck.save
+stuck.saveTitle
+stuck.savedFile
+stuck.stillRefused
+stuck.text
+stuck.title
 suggest.keys
 suggest.operators
 suggest.ready

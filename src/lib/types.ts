@@ -619,7 +619,7 @@ export type BodyView = "text" | "html" | "markdown";
 /** Background work shown in the tasks window. */
 export interface Task {
   key: string;
-  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels";
+  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels" | "stuck-copy";
   account_id?: string;
   label: string;
   done: number;
@@ -628,6 +628,15 @@ export interface Task {
   state: "running" | "failed";
   error?: CmdError;
   started: number;
+}
+
+/** A copy of a sent letter the server refuses to keep in «Sent»; it waits for the user. */
+export interface StuckCopy {
+  id: number;
+  account_id: string;
+  subject: string;
+  last_error?: string;
+  refusals: number;
 }
 
 export interface AccountSync {

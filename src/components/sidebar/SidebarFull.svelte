@@ -8,6 +8,7 @@
   import ChevronsLeft from "@lucide/svelte/icons/chevrons-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Inbox from "@lucide/svelte/icons/inbox";
   import Plus from "@lucide/svelte/icons/plus";
   import RotateCw from "@lucide/svelte/icons/rotate-cw";
@@ -16,6 +17,7 @@
   import { t } from "../../lib/i18n.svelte";
   import { shortcuts } from "../../lib/shortcuts.svelte";
   import { accountLabel } from "../../lib/format";
+  import { stuckOf } from "../../lib/stuckCopies";
   import { layout } from "../../lib/layout.svelte";
   import { favourites } from "../../lib/favourites.svelte";
   import Popover from "../Popover.svelte";
@@ -58,6 +60,9 @@
             <span class="name">{accountLabel(acc)}</span>
             <span class="chev"><ChevronRight size={13} /></span>
           </button>
+          {#if stuckOf(app.tasks, acc.id).length}
+            <button class="stuck-badge" onclick={() => (app.tasksOpen = true)} title={t("stuck.badge")} aria-label={t("stuck.badge")}><TriangleAlert size={14} /></button>
+          {/if}
           <button class="menu-btn" onclick={() => (sidebarUi.menuFor = sidebarUi.menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
           <Popover bind:open={() => sidebarUi.menuFor === acc.id, (v) => (sidebarUi.menuFor = v ? acc.id : null)}>
             <button class="mi" onclick={() => sidebarUi.refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>

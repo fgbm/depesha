@@ -25,7 +25,7 @@ pub use marks::{Done, Mark, Outgoing, marks_of};
 mod people;
 pub use people::{HintCount, HintState, Person};
 mod sent_copies;
-pub use sent_copies::{NewSentCopy, SentCopy};
+pub use sent_copies::{NewSentCopy, SentCopy, StuckCopy};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 mod waiting;
@@ -69,6 +69,7 @@ const MIGRATIONS: &[Step] = &[
     v17_outbox_sending,
     labels::v18_label_stripping,
     sent_copies::v19_sent_copies,
+    sent_copies::v20_stuck_copies,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -4403,6 +4404,7 @@ mod tests {
                         raw: b"raw",
                         flags: "(\\Seen)",
                         message_id: None,
+                        subject: "",
                         pending: None,
                     },
                 )

@@ -33,6 +33,8 @@ const env = {
   DEPESHA_NO_NOTIFICATIONS: "1",
   // A build with the `e2e` feature takes files here as chosen in a dialog: WebDriver cannot answer one.
   DEPESHA_E2E_ROOT: [profile, root].join(delimiter),
+  // A copy of a sent letter the server refuses waits seconds, not half an hour, before its next try (#88).
+  DEPESHA_E2E_COPY_BACKOFF: "3",
   // The scenario reads Russian text; the language follows the locale (LANGUAGE wins).
   LANGUAGE: "ru",
   // E2E_DARK=1: the whole run in the dark theme, for its screenshots.
@@ -1337,6 +1339,48 @@ try {
     await new Promise((r) => setTimeout(r, 2000));
     const n = helper("count", "Sent", subject);
     if (n !== "1") throw new Error(`копий: ${n}`);
+  });
+
+  await step("5.12", "сервер отвергает копию в «Отправленные»: после 3 отказов пауза, задача с тремя кнопками и значок у ящика; «Повторить» кладёт копию (#88)", async () => {
+    const subj = `Копия отвергнута ${stamp}`;
+    // Without «Sent» on the server the APPEND is refused for good; the letter itself goes.
+    helper("rename-folder", "Sent", "SentAway");
+    try {
+      await newMessage("carol@local.test", subj, "Копию сервер не примет.");
+      await d.button("Отправить");
+      await composeClosed();
+      await d.until("letter delivered", async () => helper("count", "INBOX", subj) !== "0", 60000, 1000);
+      await d.until("copy on hold", async () => (await invoke("stuck_copies")).length === 1, 150000, 1000);
+      await d.until("badge at the mailbox", async () => (await d.findAll("button.stuck-badge")).length > 0, 10000);
+      await d.click(await d.find("button[aria-label='Фоновые задачи']"));
+      await d.until("task", async () => (await textOf(".modal.tasks")).includes(`Копия не сохранена: «${subj}»`), 10000);
+      const text = await textOf(".modal.tasks");
+      for (const part of ["Письмо адресату ушло", "Повторить", "Сохранить .eml", "Не сохранять копию"]) {
+        if (!text.includes(part)) throw new Error(`в задаче нет «${part}»: ${text}`);
+      }
+      await screenshot("stuck-copy-task");
+      // On hold nothing is tried again by itself: the copy stays, still refused 3 times, and nothing is uploaded.
+      await new Promise((r) => setTimeout(r, 20000));
+      const [held] = await invoke("stuck_copies");
+      if (!held || held.refusals !== 3) throw new Error(`копия на паузе: ${JSON.stringify(held)}`);
+      if (helper("count", "SentAway", subj) !== "0") throw new Error("копия загружена, хотя папки «Отправленные» нет");
+      // «Save .eml»: the file is the letter, and the copy stays until the user lets it go. (The button
+      // opens the system dialog, which WebDriver cannot answer; the command is the same.)
+      const file = join(profile, "stuck-copy.eml");
+      await invoke("sent_copy_save", { id: held.id, path: file });
+      if (!readFileSync(file, "utf-8").includes(subj)) throw new Error("в .eml нет письма");
+      if ((await invoke("stuck_copies")).length !== 1) throw new Error("копия пропала после сохранения в файл");
+    } finally {
+      helper("rename-folder", "SentAway", "Sent");
+    }
+    // The folder is back: «Retry» files the copy, the task and the badge go, the letter is not sent again.
+    await d.button("Повторить");
+    await d.until("copy filed", async () => helper("count", "Sent", subj) === "1", 30000, 1000);
+    await d.until("task gone", async () => !(await textOf(".modal.tasks")).includes("Копия не сохранена"), 10000);
+    if ((await d.findAll("button.stuck-badge")).length) throw new Error("значок остался после «Повторить»");
+    if (helper("count", "INBOX", subj) !== "1") throw new Error("письмо ушло не один раз");
+    await d.button("Закрыть");
+    await d.until("tasks closed", async () => (await d.findAll(".modal.tasks")).length === 0);
   });
 
   await step("5.1", "ответ: тема, цитата, цепочка", async () => {

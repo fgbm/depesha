@@ -2,6 +2,7 @@ data-account
 data-action
 data-command
 data-consent
+data-copy
 data-count
 data-drop-zone
 data-ext

@@ -342,6 +342,15 @@ def main():
         c.logout()
         print(n)
         return
+    if cmd == "rename-folder":
+        # The stand's way to make the copy in «Sent» impossible (and to undo it): APPEND to a
+        # folder that is not there is refused.
+        c = conn()
+        typ, data = c.rename(utf7_path(sys.argv[2]), utf7_path(sys.argv[3]))
+        assert typ == "OK", data
+        c.logout()
+        print("ok")
+        return
     folder, subject = sys.argv[2], sys.argv[3]
     c = conn()
     c._encoding = "utf-8"

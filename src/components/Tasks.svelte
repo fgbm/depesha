@@ -10,6 +10,8 @@
   import { accountLabel } from "../lib/format";
   import { when } from "../lib/later";
   import type { AccountSync, Task } from "../lib/types";
+  import StuckCopy from "./StuckCopy.svelte";
+  import { stuckTasks } from "../lib/stuckCopies";
 
   /** Background work: what runs now, what failed, and how far each account is synced. */
   let overview = $state<AccountSync[]>([]);
@@ -30,7 +32,9 @@
   });
 
   const running = $derived(app.tasks.filter((x) => x.state === "running"));
-  const failed = $derived(app.tasks.filter((x) => x.state === "failed"));
+  const failed = $derived(app.tasks.filter((x) => x.state === "failed" && x.kind !== "stuck-copy"));
+  // A copy the server refuses is not a failure to dismiss: it waits for a decision.
+  const stuck = $derived(stuckTasks(app.tasks));
   const offline = $derived(app.settings.offline !== "off");
 
   function percent(x: { done: number; total: number }): number {
@@ -101,6 +105,15 @@
           <p class="muted small">{t("tasks.idle")}</p>
         {/each}
       </section>
+
+      {#if stuck.length}
+        <section>
+          <h4>{t("stuck.title")}</h4>
+          {#each stuck as task (task.key)}
+            <StuckCopy {task} />
+          {/each}
+        </section>
+      {/if}
 
       {#if failed.length}
         <section>
