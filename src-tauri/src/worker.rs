@@ -1629,8 +1629,14 @@ async fn perform(
             unseen,
         } => {
             let n = mail::move_by_message_id(conn, store, id, from, message_ids, to, *unseen).await?;
-            sync_one(state, account, conn, from, false).await?;
-            sync_one(state, account, conn, to, false).await?;
+            // The letters are moved: a failed sync is not a failed move. An error here would
+            // cut short the caller's next run (the undo of an archive does two, read and
+            // unread). The cache catches up with the next sync.
+            for folder in [from, to] {
+                if let Err(e) = sync_one(state, account, conn, folder, false).await {
+                    tracing::warn!(account = %id, "sync of {folder} after a move by Message-ID failed: {e}");
+                }
+            }
             Ok(Output::Count(n))
         }
         Work::LoadOlder { folder } => {
