@@ -299,16 +299,21 @@ impl Error {
         }
     }
 
-    /// The server's answer to filing a copy in «Sent» that waiting will not change: the
-    /// mailbox is full, the letter is over the limit, «Sent» is gone, or the command is
-    /// refused outright (`NO`/`BAD`). A dead network, a timeout, a folder in use and a paused
-    /// mailbox pass by and are not counted here.
+    /// The server's answer to filing a copy in «Sent» that waiting will not change. Only an
+    /// explicit code says so: `[OVERQUOTA]`, `[TRYCREATE]`, `[NONEXISTENT]`, `[TOOBIG]`,
+    /// `[NOPERM]`, and our own `TooLarge`. A bare `NO`/`BAD`, `[LIMIT]`, `[SERVERBUG]`,
+    /// `[ALERT]`, a dead network, a timeout, a folder in use and a paused mailbox pass by
+    /// and are not counted here. `[OVERQUOTA]` is the one that differs from `retry_later`:
+    /// there the quota may clear by itself while mail is being moved around, but a copy
+    /// refused for a full mailbox stays refused until the user frees space, so retrying it
+    /// only repeats the refusal. GreenMail and Dovecot both answer a missing «Sent» with
+    /// `[TRYCREATE]`.
     pub fn append_refused(&self) -> bool {
         match self {
             Self::TooLarge { .. } => true,
             Self::Imap(async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m)) => {
                 let upper = m.to_ascii_uppercase();
-                !["INUSE", "UNAVAILABLE", "TRYAGAIN", "LOCKED"]
+                ["OVERQUOTA", "TRYCREATE", "NONEXISTENT", "TOOBIG", "NOPERM"]
                     .iter()
                     .any(|code| upper.contains(code))
             }
@@ -659,7 +664,17 @@ mod tests {
         assert!(no("code: Some(OVERQUOTA), info: Some(\"Mailbox is full\")").append_refused());
         assert!(no("[TRYCREATE] Mailbox doesn't exist: Sent").append_refused());
         assert!(no("code: Some(TOOBIG), info: Some(\"too large\")").append_refused());
-        assert!(Error::Imap(E::Bad("bad command".into())).append_refused());
+        assert!(no("[NONEXISTENT] Mailbox does not exist").append_refused());
+        assert!(no("[NOPERM] Access denied").append_refused());
+        assert!(Error::Imap(E::Bad("[TOOBIG] too large".into())).append_refused());
+        // No code, or a code that says "later": it passes.
+        assert!(!Error::Imap(E::Bad("bad command".into())).append_refused());
+        assert!(!no("Mailbox is busy").append_refused());
+        assert!(!no("[LIMIT] too many connections").append_refused());
+        assert!(!no("[SERVERBUG] oops").append_refused());
+        assert!(!no("[ALERT] maintenance").append_refused());
+        assert!(!no("[TRYAGAIN] later").append_refused());
+        assert!(!no("[LOCKED] locked").append_refused());
         assert!(Error::TooLarge { size: 2, limit: 1 }.append_refused());
         assert!(!no("code: Some(INUSE), info: Some(\"in use\")").append_refused());
         assert!(!no("code: Some(UNAVAILABLE), info: Some(\"later\")").append_refused());
