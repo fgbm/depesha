@@ -783,21 +783,86 @@ pub async fn check_labels(
     message_id: &str,
     subject: &str,
 ) -> Result<LabelCheck> {
+    // A letter an interrupted run left behind goes first, before a new one is added.
+    let _ = cleanup_test_messages(conn, folder).await;
+    // Without UIDPLUS the test letter cannot be expunged by UID: it would stay marked
+    // \Deleted until the whole folder is cleaned. Depesha does not check there, and says
+    // so instead of leaving something behind.
+    if !conn.caps.uidplus {
+        return Err(Error::Protocol(tr!(
+            "this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run",
+            "на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется"
+        )));
+    }
     let raw = format!(
         "From: Depesha <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: {subject}\r\n\
          Message-ID: <{message_id}>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{subject}\r\n"
     );
-    // APPEND with \Seen, so the test letter does not show unread on the user's phone.
-    append(conn, folder, raw.as_bytes(), "\\Seen").await?;
-    let uids = find_by_message_id(conn, folder, message_id).await?;
-    let Some(&uid) = uids.first() else {
-        // Appended but not found: nothing to check, nothing to delete.
-        return Ok(LabelCheck::NotSaves);
+    // APPEND with \Seen, so the test letter does not show unread on the user's phone. The
+    // UID comes from APPENDUID; when the server does not name it, the letter is found by
+    // its exact Message-ID, with retries for a search index that lags behind APPEND.
+    let uid = match append_uid(conn, folder, raw.as_bytes(), "\\Seen").await? {
+        Some(uid) => uid,
+        None => match find_after_append(conn, folder, message_id).await? {
+            Some(uid) => uid,
+            // Appended but not found: nothing to check. The next run's cleanup takes it.
+            None => return Ok(LabelCheck::NotSaves),
+        },
     };
     // From here the test letter must go away whatever happens.
     let outcome = labels_round(conn, folder, uid, keyword).await;
     let _ = remove_uids(conn, folder, &[uid]).await;
     outcome
+}
+
+/// Finds a just-appended letter by its exact Message-ID, retrying a few times with a
+/// growing pause: a server's search index (Yandex, some Exchange setups) may lag.
+async fn find_after_append(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Option<u32>> {
+    for attempt in 0..5 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(300 * attempt)).await;
+        }
+        if let Some(&uid) = find_by_message_id(conn, folder, message_id).await?.first() {
+            return Ok(Some(uid));
+        }
+    }
+    Ok(None)
+}
+
+/// UIDs of Depesha's label-check test letters left in the folder
+/// (`depesha-test-*@depesha.local`), from an interrupted check.
+pub async fn find_test_messages(conn: &mut Conn, folder: &str) -> Result<Vec<u32>> {
+    conn.session.examine(folder).await?;
+    let uids = uid_search(conn, "HEADER Message-ID \"depesha-test-\"").await?;
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fetches: Vec<_> = conn
+        .session
+        .uid_fetch(uid_set(&uids), "(UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+        .await?
+        .try_collect()
+        .await?;
+    Ok(fetches
+        .iter()
+        .filter(|f| f.header().and_then(message_id_of).is_some_and(|id| is_test_message_id(&id)))
+        .filter_map(|f| f.uid)
+        .collect())
+}
+
+/// Removes the test letters an interrupted check left behind; returns how many.
+pub async fn cleanup_test_messages(conn: &mut Conn, folder: &str) -> Result<usize> {
+    let uids = find_test_messages(conn, folder).await?;
+    if uids.is_empty() {
+        return Ok(0);
+    }
+    remove_uids(conn, folder, &uids).await?;
+    Ok(uids.len())
+}
+
+/// Whether a Message-ID is one of the label-check test letters.
+fn is_test_message_id(id: &str) -> bool {
+    id.starts_with("depesha-test-") && id.ends_with("@depesha.local")
 }
 
 async fn labels_round(conn: &mut Conn, folder: &str, uid: u32, keyword: &str) -> Result<LabelCheck> {
@@ -927,6 +992,59 @@ pub async fn append(conn: &mut Conn, folder: &str, raw: &[u8], flags: &str) -> R
     let flags = append_flags(flags);
     conn.session.append(folder, flags.as_deref(), None, raw).await?;
     Ok(())
+}
+
+/// APPEND that returns the UID the server gave, from `APPENDUID` (RFC 4315), when the
+/// server offers UIDPLUS; `None` otherwise. The UID lets a just-appended letter be
+/// deleted without searching for it, so a lagging index cannot leave it behind.
+pub async fn append_uid(conn: &mut Conn, folder: &str, raw: &[u8], flags: &str) -> Result<Option<u32>> {
+    use async_imap::imap_proto::Status;
+    use tokio::io::AsyncWriteExt;
+    let flags = append_flags(flags);
+    let id = conn
+        .session
+        .run_command(format!(
+            "APPEND {}{}{} {{{}}}",
+            quoted(folder),
+            if flags.is_some() { " " } else { "" },
+            flags.as_deref().unwrap_or(""),
+            raw.len()
+        ))
+        .await?;
+    // The server asks for the literal before it reads it.
+    match next_response!(conn, "append continuation").parsed() {
+        Response::Continue(_) => {}
+        _ => return Err(Error::Protocol("APPEND was not accepted".into())),
+    }
+    {
+        let stream = conn.session.get_mut();
+        stream.write_all(raw).await?;
+        stream.write_all(b"\r\n").await?;
+        stream.flush().await?;
+    }
+    loop {
+        let resp = next_response!(conn, "append answer");
+        if let Response::Done { tag, status, outcome } = resp.parsed()
+            && *tag == id
+        {
+            if *status != Status::Ok {
+                return Err(Error::Protocol("APPEND was refused".into()));
+            }
+            return Ok(match &outcome.code {
+                Some(async_imap::imap_proto::ResponseCode::AppendUid(_, uids)) => uids.first().and_then(uid_of),
+                _ => None,
+            });
+        }
+    }
+}
+
+/// The single UID of an `APPENDUID` set member (a plain UID, or the first of a range).
+fn uid_of(member: &async_imap::imap_proto::rfc4315::UidSetMember) -> Option<u32> {
+    use async_imap::imap_proto::rfc4315::UidSetMember;
+    match member {
+        UidSetMember::Uid(uid) => Some(*uid),
+        UidSetMember::UidRange(range) => Some(*range.start()),
+    }
 }
 
 /// The flag list of APPEND (RFC 3501) is parenthesized. Dovecot does not refuse bare

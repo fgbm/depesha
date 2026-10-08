@@ -302,6 +302,7 @@ export const en = {
   "folder.labelsLocal": "on this device only",
   "folder.labelsLocalHint": "The server keeps only the standard flags in this folder. Labels stay on this computer.",
   "folder.labelsNoRead": "The folder cannot be read — there is no label to check.",
+  "folder.labelsNoCheck": "The label check writes and deletes a test letter — this folder does not allow adding and deleting messages.",
   "folder.owner": "Whose folder",
   "folder.owner.mine": "yours",
   "folder.owner.shared": "shared",

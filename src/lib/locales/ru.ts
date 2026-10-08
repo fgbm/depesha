@@ -294,6 +294,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "folder.labelsLocal": "только на этом устройстве",
   "folder.labelsLocalHint": "В этой папке сервер хранит лишь стандартные флаги. Метки остаются на этом компьютере.",
   "folder.labelsNoRead": "Папку читать нельзя — проверять метки нечего.",
+  "folder.labelsNoCheck": "Проверка меток пишет и удаляет тестовое письмо — в этой папке нет прав класть и удалять письма.",
   "folder.owner": "Чья папка",
   "folder.owner.mine": "ваша",
   "folder.owner.shared": "общая",

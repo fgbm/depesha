@@ -71,6 +71,13 @@ export function readOnly(rights: Rights): boolean {
   );
 }
 
+/** Проверка меток пишет тестовое письмо и удаляет его: нужны права `i` (APPEND), `t` и
+ *  `e` (удаление). Права неизвестны (`null`) — не отказываем: сервер ответит сам. */
+export function canCheckLabels(rights: Rights | null | undefined): boolean {
+  if (!rights) return true;
+  return rights.insert && rights.delete_messages && rights.expunge;
+}
+
 /** Папка в списке «Папки» подраздела «Сервер» (кадр 2). */
 export interface FolderGrouping {
   mine: FolderInfo[];

@@ -29,7 +29,7 @@
   import { app } from "../../lib/store.svelte";
   import { t, type Key } from "../../lib/i18n.svelte";
   import { when } from "../../lib/later";
-  import { actionsOf, readOnly } from "../../lib/labels";
+  import { actionsOf, canCheckLabels, readOnly } from "../../lib/labels";
   import type { AccountView, FolderAction, FolderInfo, LabelCheck } from "../../lib/types";
   import { untrack } from "svelte";
 
@@ -151,6 +151,8 @@
     {#if info?.labels_on_server === false && !checkOutcome}<p>{t("folder.labelsLocalHint")}</p>{/if}
     {#if account && !account.ews && rights && !rights.read}
       <p class="hint">{t("folder.labelsNoRead")}</p>
+    {:else if account && !account.ews && !canCheckLabels(rights)}
+      <p class="hint">{t("folder.labelsNoCheck")}</p>
     {:else if account && !account.ews}
       <p class="hint">
         <button class="link" onclick={() => (confirmCheck = true)} disabled={checking || checkRunning}>

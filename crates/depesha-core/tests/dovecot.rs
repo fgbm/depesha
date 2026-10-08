@@ -855,6 +855,7 @@ async fn labels_reach_the_cache_from_the_sync_and_at_once() {
     let mut conn = connect("labelscache").await;
     imap::append(&mut conn, "INBOX", &mail("Метки", 0), "").await.unwrap();
     let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
     let opts = SyncOptions { initial_limit: 20 };
     sync::sync_folder(&mut conn, &store, "d", "INBOX", opts).await.unwrap();
     let keywords = || {
