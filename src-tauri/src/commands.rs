@@ -2683,6 +2683,14 @@ pub fn background_status(state: St<'_>) -> serde_json::Value {
     serde_json::json!({ "tray": tray })
 }
 
+/// A `depesha://` URL the app was started with (a toast click while it was closed): the
+/// main window asks for it once it listens, and turns to what it names.
+#[tauri::command]
+pub fn deep_link_take(state: St<'_>) -> Option<crate::desktop_notify::Open> {
+    let url = state.take_pending_deep_link()?;
+    crate::desktop_notify::open_from_url(&state, &url)
+}
+
 /// Hides the main window; the app works on in the background.
 #[tauri::command]
 pub fn window_hide(app: tauri::AppHandle) {

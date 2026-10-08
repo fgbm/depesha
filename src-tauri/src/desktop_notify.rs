@@ -1,6 +1,9 @@
 //! Desktop notifications that open what they tell about (#63). tauri-plugin-notification
 //! drops the handle on the desktop, so a click never came back; here it does: on Linux
-//! over D-Bus (notify-rust), on Windows through the toast's activation (WinRT).
+//! over D-Bus (notify-rust), on Windows through the toast's own XML, whose `launch` is a
+//! `depesha://` URL (`activationType="protocol"`). Windows opens that URL in a new
+//! process: single-instance hands it to the running app (deep-link), and with Depesha
+//! closed it starts it, so a toast left in the Notification Centre still works.
 //!
 //! New mail is told once per check of all mailboxes: one letter by its sender and
 //! subject, several by a summary (#4/#63 decisions, frames 10A and 11В). A notification
@@ -512,17 +515,215 @@ fn clicked(app: &AppHandle, target: Option<Target>) {
     let (Some(target), Some(state)) = (target, app.try_state::<Arc<AppState>>()) else {
         return;
     };
+    let open = resolve_target(&state, &target);
+    state.emit_main("notification-open", serde_json::to_value(open).unwrap_or_default());
+}
+
+/// The target as the cache has it now (see [`resolve`]).
+fn resolve_target(state: &AppState, target: &Target) -> Open {
     let store = &state.store;
-    let open = resolve(
-        &target,
+    resolve(
+        target,
         |id| store.get(id).ok().flatten().map(|r| (r.folder, r.message_id)),
         |account, mid| {
             let id = store.find_any_by_message_id(account, mid).ok().flatten()?;
             Some((id, store.get(id).ok().flatten()?.folder))
         },
         |account, folder, mid| store.find_by_message_id_any(account, mid, Some(folder)).ok().flatten(),
-    );
-    state.emit_main("notification-open", serde_json::to_value(open).unwrap_or_default());
+    )
+}
+
+/// A `depesha://` URL at runtime (a toast click from a second process): the window comes
+/// forward and the main window turns to what the URL names. An unknown URL is ignored:
+/// this is an entry from outside, anyone can open a `depesha://` link.
+pub fn open_url(app: &AppHandle, url: &str) {
+    match parse_url(url) {
+        None => {}
+        Some(Route::Window) => crate::background::show_main(app),
+        Some(Route::Target(target)) => clicked(app, Some(target)),
+    }
+}
+
+/// A `depesha://` URL the app was started with (a toast click while it was closed),
+/// resolved against the cache; `None` when it only brings the window or is unknown. The
+/// main window asks for it once it listens, so the event is not lost to the page loading.
+pub fn open_from_url(state: &AppState, url: &str) -> Option<Open> {
+    match parse_url(url)? {
+        Route::Window => None,
+        Route::Target(target) => Some(resolve_target(state, &target)),
+    }
+}
+
+/// How long a `depesha://` URL may be. Windows caps a toast's `launch` at 512, but a link
+/// opened by hand can be anything, so there is a limit of our own.
+const URL_MAX: usize = 2048;
+/// The longest mailbox id a URL may carry (an address plus a timestamp, well under this).
+const ACCOUNT_MAX: usize = 320;
+/// The longest Message-ID a URL may carry (RFC 5322 puts a line at 998).
+const MESSAGE_ID_MAX: usize = 998;
+/// The most new letters a summary URL names.
+const IDS_MAX: usize = 50;
+
+/// What a `depesha://` URL asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Route {
+    /// Just bring the main window forward (a notification without a letter of its own).
+    Window,
+    /// Turn the main window to this.
+    Target(Target),
+}
+
+/// Reads a `depesha://` URL. Strict on purpose: this is an entry from outside, so only the
+/// known paths are read, an id must be a positive number, and a Message-ID comes from its
+/// own parameter with a length limit. Anything else — a foreign scheme, an unknown path, a
+/// malformed value, too long a URL — is `None`.
+///
+/// * `depesha://message/<account>/<id>?mid=<message-id>` — one letter;
+/// * `depesha://inbox/<account>?ids=<id,id,…>` — one mailbox's summary;
+/// * `depesha://inbox?ids=<id,id,…>` — all inboxes;
+/// * `depesha://outbox` — the Outbox;
+/// * `depesha://open` — the window, nothing else.
+pub fn parse_url(url: &str) -> Option<Route> {
+    if url.len() > URL_MAX {
+        return None;
+    }
+    let u = url::Url::parse(url).ok()?;
+    if u.scheme() != "depesha" {
+        return None;
+    }
+    let path = u.path().trim_start_matches('/');
+    let mut parts = path.split('/').filter(|p| !p.is_empty());
+    match u.host_str()? {
+        "open" => parts.next().is_none().then_some(Route::Window),
+        "outbox" => parts.next().is_none().then_some(Route::Target(Target {
+            outbox: true,
+            ..Target::default()
+        })),
+        "message" => {
+            let account_id = account(parts.next()?)?;
+            let id: i64 = parts.next()?.parse().ok()?;
+            if id <= 0 || parts.next().is_some() {
+                return None;
+            }
+            let message_id = match query(&u, "mid") {
+                Some(mid) if mid.len() > MESSAGE_ID_MAX => return None,
+                mid => mid,
+            };
+            Some(Route::Target(Target {
+                account_id: Some(account_id),
+                folder: Some("INBOX".into()),
+                id: Some(id),
+                ids: vec![id],
+                message_id,
+                subject: String::new(),
+                from_email: String::new(),
+                outbox: false,
+            }))
+        }
+        "inbox" => {
+            let account_id = match parts.next() {
+                Some(part) => Some(account(part)?),
+                None => None,
+            };
+            if parts.next().is_some() {
+                return None;
+            }
+            Some(Route::Target(Target {
+                account_id: account_id.clone(),
+                folder: account_id.map(|_| "INBOX".to_owned()),
+                id: None,
+                ids: ids(&u)?,
+                message_id: None,
+                subject: String::new(),
+                from_email: String::new(),
+                outbox: false,
+            }))
+        }
+        _ => None,
+    }
+}
+
+/// A mailbox id from a URL path segment, percent-decoded, non-empty and within its limit.
+fn account(part: &str) -> Option<String> {
+    let account = dec(part)?;
+    (!account.is_empty() && account.len() <= ACCOUNT_MAX).then_some(account)
+}
+
+/// The `ids` parameter of a summary URL: comma-separated letter numbers, at most
+/// [`IDS_MAX`]. Absent reads as none; a non-number refuses the whole URL.
+fn ids(u: &url::Url) -> Option<Vec<i64>> {
+    let Some(raw) = query(u, "ids") else {
+        return Some(Vec::new());
+    };
+    let mut found = Vec::new();
+    for part in raw.split(',').filter(|p| !p.is_empty()) {
+        if found.len() >= IDS_MAX {
+            break;
+        }
+        let id: i64 = part.parse().ok()?;
+        if id > 0 {
+            found.push(id);
+        }
+    }
+    Some(found)
+}
+
+/// The first value of a query parameter, percent-decoded.
+fn query(u: &url::Url, key: &str) -> Option<String> {
+    for pair in u.query()?.split('&') {
+        if let Some((k, v)) = pair.split_once('=')
+            && k == key
+        {
+            return dec(v);
+        }
+    }
+    None
+}
+
+/// Percent-encodes a value for a `depesha://` URL (everything outside the unreserved set).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn enc(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push(HEX[(b >> 4) as usize] as char);
+            out.push(HEX[(b & 0xf) as usize] as char);
+        }
+    }
+    out
+}
+
+/// Percent-decodes a URL component (`+` stays `+`: this is not a form). `None` on a broken
+/// escape or invalid UTF-8.
+fn dec(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hi = hex(*bytes.get(i + 1)?)?;
+            let lo = hex(*bytes.get(i + 2)?)?;
+            out.push((hi << 4) | lo);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }
 
 /// `&`, `<`, `>` as entities: what a server drawing markup reads as text, not as tags.
@@ -716,7 +917,6 @@ mod windows_toast {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1043,5 +1243,154 @@ mod tests {
         // A subject or a name with a line break cannot forge another line of the body.
         assert_eq!(plain("Счёт\nBcc: evil@x"), "Счёт Bcc: evil@x");
         assert_eq!(plain("Иван\r\nПётр\tконец"), "Иван  Пётр конец");
+    }
+
+    #[test]
+    fn a_depesha_url_names_what_to_open() {
+        assert_eq!(parse_url("depesha://open"), Some(Route::Window));
+        assert_eq!(
+            parse_url("depesha://outbox"),
+            Some(Route::Target(Target {
+                outbox: true,
+                ..Target::default()
+            }))
+        );
+        // A letter: its mailbox, its id and its Message-ID (percent-encoded in the URL).
+        assert_eq!(
+            parse_url("depesha://message/a/7?mid=%3C7%40x%3E"),
+            Some(Route::Target(Target {
+                account_id: Some("a".into()),
+                folder: Some("INBOX".into()),
+                id: Some(7),
+                ids: vec![7],
+                message_id: Some("<7@x>".into()),
+                ..Target::default()
+            }))
+        );
+        // Nothing selected: the folder opens with the new letters named.
+        assert_eq!(
+            parse_url("depesha://inbox?ids=1,2,3"),
+            Some(Route::Target(Target {
+                ids: vec![1, 2, 3],
+                ..Target::default()
+            }))
+        );
+        // One mailbox, its id read back with `@` and `-` intact.
+        assert_eq!(
+            parse_url("depesha://inbox/a%40x-1"),
+            Some(Route::Target(Target {
+                account_id: Some("a@x-1".into()),
+                folder: Some("INBOX".into()),
+                ..Target::default()
+            }))
+        );
+        // No `ids` reads as none, not as an error.
+        assert_eq!(
+            parse_url("depesha://inbox/a"),
+            Some(Route::Target(Target {
+                account_id: Some("a".into()),
+                folder: Some("INBOX".into()),
+                ..Target::default()
+            }))
+        );
+        // A letter without a Message-ID still names its id.
+        assert_eq!(
+            parse_url("depesha://message/a/7"),
+            Some(Route::Target(Target {
+                account_id: Some("a".into()),
+                folder: Some("INBOX".into()),
+                id: Some(7),
+                ids: vec![7],
+                ..Target::default()
+            }))
+        );
+    }
+
+    #[test]
+    fn garbage_urls_are_refused() {
+        for url in [
+            "",
+            "depesha://",
+            "depesha://:",
+            "https://message/a/7",
+            "depesha://other",
+            "depesha://message",
+            "depesha://message/a",
+            "depesha://message//7",
+            "depesha://message/a/seven",
+            "depesha://message/a/0",
+            "depesha://message/a/-1",
+            "depesha://message/a/7/extra",
+            "depesha://inbox/a/extra",
+            "depesha://inbox?ids=1,x",
+            "depesha://open/extra",
+            "depesha://outbox/extra",
+            "not a url",
+        ] {
+            assert_eq!(parse_url(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn an_outside_url_cannot_walk_the_cache() {
+        // A traversal stays data: the mailbox is only ever looked up by its exact value.
+        assert_eq!(
+            parse_url("depesha://message/..%2F..%2Fetc/7"),
+            Some(Route::Target(Target {
+                account_id: Some("../../etc".into()),
+                folder: Some("INBOX".into()),
+                id: Some(7),
+                ids: vec![7],
+                ..Target::default()
+            }))
+        );
+        // A markup payload in the Message-ID is a value, not a tag.
+        assert_eq!(
+            parse_url("depesha://message/a/7?mid=%3Cscript%3E%22"),
+            Some(Route::Target(Target {
+                account_id: Some("a".into()),
+                folder: Some("INBOX".into()),
+                id: Some(7),
+                ids: vec![7],
+                message_id: Some("<script>\"".into()),
+                ..Target::default()
+            }))
+        );
+        // A broken escape is refused, not guessed at.
+        assert_eq!(
+            parse_url("depesha://message/a/7?mid=%zz"),
+            Some(Route::Target(Target {
+                account_id: Some("a".into()),
+                folder: Some("INBOX".into()),
+                id: Some(7),
+                ids: vec![7],
+                ..Target::default()
+            }))
+        );
+        assert_eq!(parse_url("depesha://inbox/a%zz"), None);
+    }
+
+    #[test]
+    fn an_overlong_url_is_refused() {
+        assert_eq!(
+            parse_url(&format!("depesha://inbox/{}", "a".repeat(ACCOUNT_MAX + 1))),
+            None
+        );
+        assert_eq!(
+            parse_url(&format!("depesha://message/a/7?mid={}", "a".repeat(MESSAGE_ID_MAX + 1))),
+            None
+        );
+        assert_eq!(parse_url(&format!("depesha://inbox/{}", "a".repeat(URL_MAX))), None);
+        // Just within the limits is fine, and a summary keeps at most IDS_MAX letters.
+        assert!(parse_url(&format!("depesha://inbox/{}", "a".repeat(ACCOUNT_MAX))).is_some());
+        let many: Vec<String> = (1..=(IDS_MAX as i64 + 10)).map(|id| id.to_string()).collect();
+        let route = parse_url(&format!("depesha://inbox?ids={}", many.join(","))).unwrap();
+        assert_eq!(
+            route,
+            Route::Target(Target {
+                ids: (1..=IDS_MAX as i64).collect(),
+                ..Target::default()
+            })
+        );
     }
 }

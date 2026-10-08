@@ -109,6 +109,7 @@ const COMMANDS: &[&str] = &[
     "pick_folder",
     "pick_save_file",
     "background_status",
+    "deep_link_take",
     "window_hide",
     "app_quit",
     "outbox_missed",

@@ -72,6 +72,10 @@ pub fn run() {
                 background::show_main(app);
             }
         }))
+        // `depesha://` links: a toast click (see desktop_notify) comes back as a URL.
+        // After single-instance, whose `deep-link` feature hands a second process's URL
+        // to the running app through this plugin before its callback runs.
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .args([background::BACKGROUND_ARG])
@@ -133,9 +137,29 @@ pub fn run() {
                 tray: Default::default(),
                 background: Default::default(),
                 open_seq: Default::default(),
+                pending_deep_link: Mutex::new(None),
             });
             app.manage(state.clone());
             state.apply_language();
+
+            // A `depesha://` link: the deep-link plugin read one from the command line at
+            // startup (a toast click while Depesha was closed), and emits an event for one
+            // that arrives later (a second process, the app already running). The startup
+            // URL waits for the main window to listen; the later one goes straight to it.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        desktop_notify::open_url(&handle, url.as_str());
+                    }
+                });
+                if let Ok(Some(urls)) = app.deep_link().get_current()
+                    && let Some(url) = urls.first()
+                {
+                    state.set_pending_deep_link(url.as_str().to_owned());
+                }
+            }
 
             // The window starts hidden (tauri.conf.json): shown now, unless started at
             // login to wait in the background.
@@ -296,6 +320,7 @@ pub fn run() {
             commands::pick_folder,
             commands::pick_save_file,
             commands::background_status,
+            commands::deep_link_take,
             commands::window_hide,
             commands::app_quit,
             commands::outbox_missed,

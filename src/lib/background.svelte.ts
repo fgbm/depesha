@@ -102,6 +102,13 @@ function trayAction(host: BackgroundHost, action: string, accountId?: string | n
   else if (action === "account" && accountId) host.openSettings(`account:${accountId}`);
 }
 
+/** A toast click while Depesha was closed: the backend kept the `depesha://` URL for the
+ * window that just started. Asked once, as the missed letters are. */
+export async function takePendingOpen(host: BackgroundHost) {
+  const open = await api.deepLinkTake().catch(() => null);
+  if (open) await arrivals.open(host, open);
+}
+
 /** Letters that missed their time wait in the outbox: one toast offers to send them now.
  * Asked again once the window started, in its language: held back before it listened. */
 export async function tellMissed(host: BackgroundHost) {

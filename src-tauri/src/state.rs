@@ -55,6 +55,9 @@ pub struct AppState {
     /// The newest `message_open` sequence per window: an open older than the window's
     /// newest is dropped before its body is fetched (#71).
     pub open_seq: OpenSeqs,
+    /// A `depesha://` URL the app was started with (a toast click while it was closed),
+    /// taken once by the main window when it listens (`deep_link_take`).
+    pub pending_deep_link: Mutex<Option<String>>,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load
@@ -73,6 +76,7 @@ pub fn open_is_current(seqs: &OpenSeqs, window: &str, seq: u64) -> bool {
         Some(newest) => *newest <= seq,
         None => true,
     }
+}
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -305,6 +309,16 @@ impl AppState {
     /// An event only the main window handles (a letter's window never answers it).
     pub fn emit_main(&self, event: &str, payload: serde_json::Value) {
         let _ = self.app.emit_to("main", event, payload);
+    }
+
+    /// Keeps the `depesha://` URL the app was started with, for the main window to take.
+    pub fn set_pending_deep_link(&self, url: String) {
+        *lock(&self.pending_deep_link) = Some(url);
+    }
+
+    /// Takes that URL, if any; the second call answers none.
+    pub fn take_pending_deep_link(&self) -> Option<String> {
+        lock(&self.pending_deep_link).take()
     }
 }
 

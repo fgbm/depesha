@@ -1,7 +1,7 @@
 import { api } from "./api";
 import { extensions } from "./extensions.svelte";
 import { listenMain, listenWindow } from "./events";
-import { tellMissed } from "./background.svelte";
+import { takePendingOpen, tellMissed } from "./background.svelte";
 import { ListController, type View } from "./list.svelte";
 import { ActionRunner } from "./actions.svelte";
 import { Reader } from "./reader.svelte";
@@ -193,6 +193,8 @@ export class AppStore {
     void Promise.all(this.accounts.map((a) => labels.load(a.id)));
     await this.reload();
     void tellMissed(this);
+    // A toast click while the app was closed: the backend kept the URL for this window.
+    void takePendingOpen(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
     if (accounts && this.accounts.length === 0) this.wizard = { account: null };
   }

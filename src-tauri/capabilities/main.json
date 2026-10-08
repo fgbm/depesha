@@ -7,6 +7,7 @@
   ],
   "permissions": [
     "core:default",
+    "deep-link:default",
     "core:window:allow-start-dragging",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
@@ -121,6 +122,7 @@
     "allow-pick-folder",
     "allow-pick-save-file",
     "allow-background-status",
+    "allow-deep-link-take",
     "allow-window-hide",
     "allow-app-quit",
     "allow-outbox-missed",

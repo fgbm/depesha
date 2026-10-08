@@ -41,6 +41,7 @@ import type {
 } from "./types";
 import type { Person } from "./people";
 import type { HintCount, HintState } from "./hints";
+import type { NotificationOpen } from "./arrivals.svelte";
 
 /** Backend errors arrive as `CmdError`; anything else is wrapped so callers can rely on the shape. */
 export function asError(e: unknown): CmdError {
@@ -199,6 +200,8 @@ export const api = {
   quitCancel: () => call<void>("quit_cancel"),
   /** Whether the system shows tray icons. */
   backgroundStatus: () => call<{ tray: "checking" | "present" | "absent" }>("background_status"),
+  /** A toast click while the app was closed, kept until the window listens; null otherwise. */
+  deepLinkTake: () => call<NotificationOpen | null>("deep_link_take"),
   /** Hides the main window; the app works on in the background. */
   windowHide: () => call<void>("window_hide"),
   /** Quits; letters due soon make the window ask first, unless `force`. */
