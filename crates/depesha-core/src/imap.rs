@@ -860,7 +860,11 @@ pub async fn find_test_messages(conn: &mut Conn, folder: &str) -> Result<Vec<u32
         .await?;
     Ok(fetches
         .iter()
-        .filter(|f| f.header().and_then(message_id_of).is_some_and(|id| is_test_message_id(&id)))
+        .filter(|f| {
+            f.header()
+                .and_then(message_id_of)
+                .is_some_and(|id| is_test_message_id(&id))
+        })
         .filter_map(|f| f.uid)
         .collect())
 }
@@ -1625,8 +1629,7 @@ mod tests {
 
     #[test]
     fn changed_flags_carry_their_keywords() {
-        let (_, resp) =
-            Response::parse(b"* 1 FETCH (UID 7 FLAGS (\\Seen depesha-work $Forwarded))\r\n").unwrap();
+        let (_, resp) = Response::parse(b"* 1 FETCH (UID 7 FLAGS (\\Seen depesha-work $Forwarded))\r\n").unwrap();
         let mut changes = Changes::default();
         changes.take(&resp);
         assert_eq!(changes.flags.len(), 1);

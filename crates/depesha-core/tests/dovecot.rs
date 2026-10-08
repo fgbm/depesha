@@ -1002,9 +1002,14 @@ async fn a_leftover_test_message_is_cleaned_before_the_next_check() {
         "From: Depesha <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: Депеша: проверка меток\r\n\
          Message-ID: <{leftover}>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nпроверка\r\n"
     );
-    imap::append(&mut conn, "INBOX", raw.as_bytes(), "\\Seen").await.unwrap();
+    imap::append(&mut conn, "INBOX", raw.as_bytes(), "\\Seen")
+        .await
+        .unwrap();
     assert_eq!(
-        imap::find_by_message_id(&mut conn, "INBOX", leftover).await.unwrap().len(),
+        imap::find_by_message_id(&mut conn, "INBOX", leftover)
+            .await
+            .unwrap()
+            .len(),
         1,
         "the leftover is there"
     );

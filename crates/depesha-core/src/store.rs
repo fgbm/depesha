@@ -3680,7 +3680,8 @@ mod tests {
         {
             let mut conn = Connection::open(&path).unwrap();
             migrate(&mut conn, &MIGRATIONS[..12]).unwrap();
-            conn.execute_batch("ALTER TABLE folder_props DROP COLUMN label_check").unwrap();
+            conn.execute_batch("ALTER TABLE folder_props DROP COLUMN label_check")
+                .unwrap();
             assert_eq!(user_version(&conn).unwrap(), 12);
             assert!(
                 !conn
