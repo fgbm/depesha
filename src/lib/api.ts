@@ -186,6 +186,10 @@ export const api = {
   outboxRetry: (id: number) => call<void>("outbox_retry", { id }),
   /** Letters held back since the last call: they missed their time. */
   outboxMissed: () => call<number[]>("outbox_missed"),
+  /** A letter's window says whether it holds a letter being written: a quit asks it first. */
+  composeUnsaved: (unsaved: boolean) => call<void>("compose_unsaved", { unsaved }),
+  /** The user keeps the letter being written: a quit waiting for the window stops. */
+  quitCancel: () => call<void>("quit_cancel"),
   /** Whether the system shows tray icons. */
   backgroundStatus: () => call<{ tray: "checking" | "present" | "absent" }>("background_status"),
   /** Hides the main window; the app works on in the background. */

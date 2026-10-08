@@ -119,6 +119,8 @@
     "allow-background-status",
     "allow-window-hide",
     "allow-app-quit",
-    "allow-outbox-missed"
+    "allow-outbox-missed",
+    "allow-compose-unsaved",
+    "allow-quit-cancel"
   ]
 }

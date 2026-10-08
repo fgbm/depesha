@@ -294,20 +294,25 @@ pub fn run() {
             commands::window_hide,
             commands::app_quit,
             commands::outbox_missed,
+            commands::compose_unsaved,
+            commands::quit_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Depesha")
         .run(|app, event| {
-            // The main window gone (the cache refused to open) takes the app with it,
-            // letters open in their own windows too.
+            // The main window gone (the cache refused to open) takes the app with it.
+            // A letter's window gone frees a quit that was waiting for it.
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,
                 ..
             } = &event
-                && label == "main"
             {
-                app.exit(0);
+                if label == "main" {
+                    app.exit(0);
+                } else if label.starts_with("message-") {
+                    background::window_gone(app, label);
+                }
             }
             // A Windows update downloaded in the background installs when the app quits.
             if let tauri::RunEvent::Exit = event

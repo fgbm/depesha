@@ -2,6 +2,8 @@
 //! starting at login and quitting for real. The window hides instead of closing: the
 //! mail rules and plugins live in its page and keep running.
 
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -9,8 +11,10 @@ use depesha_core::store::OutboxItem;
 use depesha_core::tr;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
+use tokio::sync::Notify;
 
 use crate::config::Settings;
+use crate::desktop_notify::Target;
 use crate::state::AppState;
 
 /// Whether the system shows tray icons. Known only after the icon was tried: a panel
@@ -104,16 +108,89 @@ pub fn due_soon(items: &[OutboxItem], now: i64) -> Vec<&OutboxItem> {
 /// it waits for the user instead of leaving hours late.
 pub const MISSED_AFTER: i64 = 10 * 60;
 
-pub fn missed(item: &OutboxItem, now: i64) -> bool {
-    !item.failed && item.attempts == 0 && now - item.next_attempt > MISSED_AFTER
+/// A letter is missed only when the app was not running since it was due: `awake_since`
+/// is when the app last (re)started or woke from sleep. A letter held back while the app
+/// ran — the queue is busy, the network is down — is not missed: it goes its usual way.
+pub fn missed(item: &OutboxItem, now: i64, awake_since: i64) -> bool {
+    !item.failed
+        && item.sending_started == 0
+        && item.attempts == 0
+        && item.next_attempt < awake_since
+        && now - item.next_attempt > MISSED_AFTER
 }
 
 /// What the background keeps between events: when the window lost the focus, letters
-/// held back because they missed their time.
+/// held back because they missed their time, a round of sending under way, and the
+/// message windows holding letters nobody saved yet.
 #[derive(Default)]
 pub struct Background {
     blurred: Mutex<Option<Instant>>,
     missed: Mutex<Vec<i64>>,
+    /// A round of sending is under way: a quit waits for it to end.
+    sending: AtomicBool,
+    /// Notified when a round of sending ends.
+    sent_idle: Notify,
+    /// Message windows with letters being written that are saved nowhere.
+    unsaved: Mutex<HashSet<String>>,
+    /// A quit is waiting for those windows to close.
+    quit_pending: AtomicBool,
+}
+
+impl Background {
+    /// A round of sending has begun.
+    pub fn outbox_begin(&self) {
+        self.sending.store(true, Ordering::Release);
+    }
+
+    /// A round of sending has ended: a quit waiting for it goes on.
+    pub fn outbox_end(&self) {
+        self.sending.store(false, Ordering::Release);
+        self.sent_idle.notify_waiters();
+    }
+
+    /// Waits for a round of sending to end, at most `limit`.
+    pub async fn wait_sending(&self, limit: Duration) {
+        let _ = tokio::time::timeout(limit, async {
+            loop {
+                let notified = self.sent_idle.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if !self.sending.load(Ordering::Acquire) {
+                    return;
+                }
+                notified.await;
+            }
+        })
+        .await;
+    }
+
+    /// The window now holds (or no longer holds) letters being written.
+    pub fn set_unsaved(&self, label: &str, unsaved: bool) {
+        let mut set = lock(&self.unsaved);
+        if unsaved {
+            set.insert(label.to_owned());
+        } else {
+            set.remove(label);
+        }
+    }
+
+    /// The window is gone: it no longer holds letters being written.
+    pub fn forget_unsaved(&self, label: &str) {
+        lock(&self.unsaved).remove(label);
+    }
+
+    /// The message windows holding letters being written.
+    pub fn unsaved_windows(&self) -> Vec<String> {
+        lock(&self.unsaved).iter().cloned().collect()
+    }
+
+    pub fn quit_pending(&self) -> bool {
+        self.quit_pending.load(Ordering::Acquire)
+    }
+
+    pub fn set_quit_pending(&self, pending: bool) {
+        self.quit_pending.store(pending, Ordering::Release);
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -188,8 +265,13 @@ pub fn tray_click(app: &AppHandle) {
     }
 }
 
+/// How long a quit waits for the round of sending under way: a letter mid-SMTP is given
+/// this long to finish, so it is not sent twice after a restart.
+pub const QUIT_WAIT: Duration = Duration::from_secs(5);
+
 /// Quits for real. Letters due within a day would not leave: the window asks first
-/// (frame 9A), unless `force`.
+/// (frame 9A), unless `force`. Windows with letters being written are asked too, and the
+/// round of sending under way is waited for.
 pub fn quit(app: &AppHandle, force: bool) {
     if !force && let Some(state) = app.try_state::<Arc<AppState>>() {
         let items = state.store.outbox().unwrap_or_default();
@@ -204,7 +286,67 @@ pub fn quit(app: &AppHandle, force: bool) {
             return;
         }
     }
-    app.exit(0);
+    quit_windows(app);
+}
+
+/// Asks the message windows with letters being written to close, as their own close
+/// button does, before quitting. With none, the quit goes on at once.
+fn quit_windows(app: &AppHandle) {
+    let Some(state) = app.try_state::<Arc<AppState>>() else {
+        exit_now(app);
+        return;
+    };
+    let labels = state.background.unsaved_windows();
+    if labels.is_empty() {
+        exit_now(app);
+        return;
+    }
+    state.background.set_quit_pending(true);
+    for label in &labels {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.show();
+            let _ = w.set_focus();
+            let _ = w.close();
+        }
+    }
+}
+
+/// Waits for the round of sending under way, then quits.
+fn exit_now(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(state) = app.try_state::<Arc<AppState>>() {
+            state.background.wait_sending(QUIT_WAIT).await;
+        }
+        app.exit(0);
+    });
+}
+
+/// A message window says whether it holds letters being written, so a quit can ask it.
+pub fn unsaved_changed(app: &AppHandle, label: &str, unsaved: bool) {
+    if let Some(state) = app.try_state::<Arc<AppState>>() {
+        state.background.set_unsaved(label, unsaved);
+    }
+}
+
+/// A message window is gone: it no longer holds letters being written, and a quit
+/// waiting for it goes on once the last one is closed.
+pub fn window_gone(app: &AppHandle, label: &str) {
+    let Some(state) = app.try_state::<Arc<AppState>>() else {
+        return;
+    };
+    state.background.forget_unsaved(label);
+    if state.background.quit_pending() && state.background.unsaved_windows().is_empty() {
+        state.background.set_quit_pending(false);
+        exit_now(app);
+    }
+}
+
+/// The user keeps a letter being written: the quit stops.
+pub fn quit_cancelled(app: &AppHandle) {
+    if let Some(state) = app.try_state::<Arc<AppState>>() {
+        state.background.set_quit_pending(false);
+    }
 }
 
 /// The login entry follows the setting: written when start at login is on (again at
@@ -362,6 +504,7 @@ mod tests {
             next_attempt,
             last_error: None,
             failed,
+            sending_started: 0,
             created: 0,
             followup_secs: 0,
             followup: FollowupPlan::default(),
@@ -387,11 +530,75 @@ mod tests {
     #[test]
     fn a_letter_late_by_minutes_is_missed() {
         let now = 1_000_000;
-        assert!(!missed(&item(1, now, 0, false), now));
-        assert!(!missed(&item(1, now - MISSED_AFTER, 0, false), now));
-        assert!(missed(&item(1, now - MISSED_AFTER - 1, 0, false), now));
+        // The app just started: a letter due before that and long overdue was missed.
+        assert!(!missed(&item(1, now, 0, false), now, now));
+        assert!(!missed(&item(1, now - MISSED_AFTER, 0, false), now, now));
+        assert!(missed(&item(1, now - MISSED_AFTER - 1, 0, false), now, now));
         // A retry after a network error keeps its turn; a refused one waits already.
-        assert!(!missed(&item(1, now - 3600, 2, false), now));
-        assert!(!missed(&item(1, now - 3600, 0, true), now));
+        assert!(!missed(&item(1, now - 3600, 2, false), now, now));
+        assert!(!missed(&item(1, now - 3600, 0, true), now, now));
+    }
+
+    #[test]
+    fn a_letter_held_back_while_the_app_ran_is_not_missed() {
+        let now = 1_000_000;
+        // The app has been running for two hours; a letter due an hour ago is overdue
+        // because the queue or the network held it, not because the app was away: it
+        // goes its usual way rather than waiting for the user.
+        let awake = now - 7200;
+        assert!(!missed(&item(1, now - 3600, 0, false), now, awake));
+        // One due before the app started (while it was closed) is missed.
+        assert!(missed(&item(1, now - 8000, 0, false), now, awake));
+        // A letter whose send was already started is never a miss: the restart asks the
+        // user to check «Sent» instead.
+        let mut sending = item(1, now - 8000, 0, false);
+        sending.sending_started = now - 9000;
+        assert!(!missed(&sending, now, awake));
+    }
+
+    #[test]
+    fn unsaved_windows_are_remembered_until_they_are_gone() {
+        let bg = Background::default();
+        assert!(!bg.quit_pending());
+        bg.set_unsaved("message-1", true);
+        bg.set_unsaved("message-2", true);
+        assert_eq!(bg.unsaved_windows().len(), 2);
+        bg.set_unsaved("message-1", false);
+        assert_eq!(bg.unsaved_windows(), vec!["message-2".to_owned()]);
+        bg.set_quit_pending(true);
+        assert!(bg.quit_pending());
+        bg.forget_unsaved("message-2");
+        assert!(bg.unsaved_windows().is_empty());
+        bg.set_quit_pending(false);
+        assert!(!bg.quit_pending());
+    }
+
+    #[tokio::test]
+    async fn a_quit_waits_for_the_round_of_sending() {
+        let bg = Arc::new(Background::default());
+        // Nothing under way: the wait returns at once.
+        bg.wait_sending(Duration::from_secs(30)).await;
+        bg.outbox_begin();
+        let ending = bg.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            ending.outbox_end();
+        });
+        let started = Instant::now();
+        bg.wait_sending(Duration::from_secs(30)).await;
+        assert!(started.elapsed() >= Duration::from_millis(15), "waited for the round");
+    }
+
+    #[tokio::test]
+    async fn a_quit_does_not_wait_forever() {
+        let bg = Background::default();
+        bg.outbox_begin();
+        let started = Instant::now();
+        bg.wait_sending(Duration::from_millis(30)).await;
+        assert!(
+            started.elapsed() >= Duration::from_millis(25),
+            "gave up after the limit"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

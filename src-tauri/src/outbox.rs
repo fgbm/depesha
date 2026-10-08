@@ -15,32 +15,86 @@ use crate::state::AppState;
 use crate::worker::Work;
 use depesha_core::tr;
 
+/// A gap between rounds this long means the app was not running (the machine slept):
+/// the wall clock runs on, the monotonic one does not.
+const SLEEP_GAP: Duration = Duration::from_secs(20);
+
 pub async fn run(state: Arc<AppState>) {
+    // A send cut short by a quit may or may not have left: it waits for the user.
+    recover_interrupted(&state);
+    // When the app last ran without a break: a letter due before that was missed.
+    let mut awake_since = chrono::Utc::now().timestamp();
+    let mut last_wall = std::time::SystemTime::now();
+    let mut last_mono = std::time::Instant::now();
     loop {
         // Wake exactly when the next message is due: the undo window and scheduled
         // sending are measured in seconds.
-        let now = chrono::Utc::now().timestamp();
-        let next = state
-            .store
-            .outbox()
-            .ok()
-            .and_then(|items| items.iter().filter(|i| !i.failed).map(|i| i.next_attempt).min())
-            .map(|t| (t - now).clamp(0, 15) as u64)
-            .unwrap_or(15);
+        let next = {
+            let now = chrono::Utc::now().timestamp();
+            state
+                .store
+                .outbox()
+                .ok()
+                .and_then(|items| items.iter().filter(|i| !i.failed).map(|i| i.next_attempt).min())
+                .map(|t| (t - now).clamp(0, 15) as u64)
+                .unwrap_or(15)
+        };
         tokio::select! {
             _ = state.outbox_notify.notified() => {}
             _ = tokio::time::sleep(Duration::from_secs(next)) => {}
         }
-        if let Err(e) = round(&state).await {
+        let now = chrono::Utc::now().timestamp();
+        // The machine slept: the app was not running since it went under, so letters due
+        // in the gap may have missed their time. A busy queue or a dead network is not
+        // this: the process kept running then, and those letters go their usual way.
+        let wall = std::time::SystemTime::now();
+        let mono = std::time::Instant::now();
+        if wall.duration_since(last_wall).unwrap_or_default() > mono.duration_since(last_mono) + SLEEP_GAP {
+            awake_since = now;
+        }
+        last_wall = wall;
+        last_mono = mono;
+        if let Err(e) = round(&state, awake_since).await {
             tracing::error!("outbox: {}", e.message);
         }
     }
 }
 
-async fn round(state: &Arc<AppState>) -> Result<(), CmdError> {
+/// A letter whose send was cut short (the app quit mid-SMTP): whether the server took it
+/// cannot be known, so it is not tried again by itself; the user checks «Sent».
+fn recover_interrupted(state: &AppState) {
+    let Ok(items) = state.store.outbox() else {
+        return;
+    };
+    let interrupted: Vec<i64> = items.iter().filter(|i| i.sending_started > 0).map(|i| i.id).collect();
+    if interrupted.is_empty() {
+        return;
+    }
+    let now = chrono::Utc::now().timestamp();
+    let why = tr!(
+        "possibly sent: check “Sent”",
+        "возможно, ушло — проверьте «Отправленные»"
+    );
+    for id in interrupted {
+        if let Err(e) = state.store.outbox_retry_later(id, now, &why, true) {
+            tracing::warn!("outbox: {e}");
+        }
+    }
+    state.emit("outbox-changed", json!({}));
+}
+
+/// One round of sending, with the background noting it is under way so a quit can wait.
+async fn round(state: &Arc<AppState>, awake_since: i64) -> Result<(), CmdError> {
+    state.background.outbox_begin();
+    let done = round_inner(state, awake_since).await;
+    state.background.outbox_end();
+    done
+}
+
+async fn round_inner(state: &Arc<AppState>, awake_since: i64) -> Result<(), CmdError> {
     let now = chrono::Utc::now().timestamp();
     // Hours late (the app was closed, the computer asleep), a letter waits for the user.
-    crate::background::hold_missed(state, now)?;
+    crate::background::hold_missed(state, now, awake_since)?;
     // By mailbox: one that is slow or offline must not hold the others' letters up.
     let mut by_account: BTreeMap<String, Vec<OutboxItem>> = BTreeMap::new();
     for item in state.store.outbox()? {
@@ -94,6 +148,9 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
             0,
             0,
         );
+        // Marked before the letter leaves: a quit between here and the removal leaves the
+        // mark, and the next start asks the user to check «Sent» instead of sending again.
+        state.store.outbox_sending(item.id, now)?;
         let result = async {
             let msg = smtp::build(&item.draft)?;
             let account = &account;

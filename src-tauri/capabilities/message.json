@@ -67,6 +67,8 @@
     "allow-inline-image",
     "allow-pick-files",
     "allow-pick-folder",
-    "allow-pick-save-file"
+    "allow-pick-save-file",
+    "allow-compose-unsaved",
+    "allow-quit-cancel"
   ]
 }

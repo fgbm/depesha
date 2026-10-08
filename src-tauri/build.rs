@@ -108,6 +108,8 @@ const COMMANDS: &[&str] = &[
     "window_hide",
     "app_quit",
     "outbox_missed",
+    "compose_unsaved",
+    "quit_cancel",
 ];
 
 fn main() {

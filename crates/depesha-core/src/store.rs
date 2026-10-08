@@ -57,6 +57,7 @@ const MIGRATIONS: &[Step] = &[
     people::v14_hint_counts,
     labels::v15_folder_props_label_check,
     v16_folder_counters,
+    v17_outbox_sending,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -411,6 +412,14 @@ fn v7_size_index(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 17: a letter whose sending has started is marked (`sending_started`). A quit in the
+/// middle of a send leaves the mark: after a restart the letter is not taken for one that
+/// never left, but waits for the user to check «Sent» (a second copy is never sent).
+fn v17_outbox_sending(conn: &Connection) -> Result<()> {
+    add_column(conn, "outbox", "sending_started", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
 /// Counts again the rows of `threads` that match `which`, `{0}` standing for the table.
 fn count_threads(which: &str) -> String {
     let rows = which.replace("{0}", "");
@@ -501,6 +510,9 @@ pub struct OutboxItem {
     pub last_error: Option<String>,
     /// Permanent failure: waits for the user, not retried automatically.
     pub failed: bool,
+    /// When the send of this letter started (0: it has not); a restart that finds it set
+    /// cannot know whether the server took the letter.
+    pub sending_started: i64,
     pub created: i64,
     /// Remind about a missing answer this long after sending; 0 for no reminder.
     pub followup_secs: i64,
@@ -2114,7 +2126,7 @@ impl Store {
     pub fn outbox(&self) -> Result<Vec<OutboxItem>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, created, followup_secs,
+            "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, sending_started, created, followup_secs,
                 followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
                 followup_due_at, followup_deadline_at, followup_park
              FROM outbox ORDER BY next_attempt, id",
@@ -2128,25 +2140,36 @@ impl Store {
                 next_attempt: r.get(4)?,
                 last_error: r.get(5)?,
                 failed: r.get(6)?,
-                created: r.get(7)?,
-                followup_secs: r.get(8)?,
+                sending_started: r.get(7)?,
+                created: r.get(8)?,
+                followup_secs: r.get(9)?,
                 followup: FollowupPlan {
-                    deadline_secs: r.get(9)?,
-                    repeat_secs: r.get(10)?,
-                    expect: r.get(11)?,
-                    kind: r.get(12)?,
-                    due_at: r.get(13)?,
-                    deadline_at: r.get(14)?,
-                    park: r.get(15)?,
+                    deadline_secs: r.get(10)?,
+                    repeat_secs: r.get(11)?,
+                    expect: r.get(12)?,
+                    kind: r.get(13)?,
+                    due_at: r.get(14)?,
+                    deadline_at: r.get(15)?,
+                    park: r.get(16)?,
                 },
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Marks that the send of `id` has started (`started > 0`) or ended (0): a send cut
+    /// short by a quit leaves the mark, and the restart offers no automatic repeat.
+    pub fn outbox_sending(&self, id: i64, started: i64) -> Result<()> {
+        self.conn().execute(
+            "UPDATE outbox SET sending_started = ?2 WHERE id = ?1",
+            params![id, started],
+        )?;
+        Ok(())
+    }
+
     pub fn outbox_retry_later(&self, id: i64, next_attempt: i64, error: &str, permanent: bool) -> Result<()> {
         self.conn().execute(
-            "UPDATE outbox SET attempts = attempts + 1, next_attempt = ?2, last_error = ?3, failed = ?4 WHERE id = ?1",
+            "UPDATE outbox SET attempts = attempts + 1, next_attempt = ?2, last_error = ?3, failed = ?4, sending_started = 0 WHERE id = ?1",
             params![id, next_attempt, error, permanent],
         )?;
         Ok(())
@@ -2154,7 +2177,7 @@ impl Store {
 
     pub fn outbox_requeue(&self, id: i64, now: i64) -> Result<()> {
         self.conn().execute(
-            "UPDATE outbox SET failed = 0, next_attempt = ?2 WHERE id = ?1",
+            "UPDATE outbox SET failed = 0, next_attempt = ?2, sending_started = 0 WHERE id = ?1",
             params![id, now],
         )?;
         Ok(())
@@ -3127,6 +3150,46 @@ mod tests {
             )
             .unwrap();
         store
+    }
+
+    #[test]
+    fn a_send_started_is_remembered_until_it_ends() {
+        let store = mailbox();
+        let id = store
+            .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
+            .unwrap();
+        // Marked as sending: a restart reading the cache can see the send was cut short.
+        store.outbox_sending(id, 150).unwrap();
+        assert_eq!(store.outbox().unwrap()[0].sending_started, 150);
+        // A retry later ends the send and clears the mark.
+        store.outbox_retry_later(id, 200, "network", false).unwrap();
+        assert_eq!(store.outbox().unwrap()[0].sending_started, 0);
+        // Sending now clears it too.
+        store.outbox_sending(id, 300).unwrap();
+        store.outbox_requeue(id, 400).unwrap();
+        assert_eq!(store.outbox().unwrap()[0].sending_started, 0);
+    }
+
+    #[test]
+    fn a_letter_is_found_in_the_folder_named() {
+        let store = mailbox();
+        // The same letter copied to oneself: Inbox and Sent share one Message-ID.
+        let inbox = put(&store, "INBOX", 1, &with_ids("Смета", 100, "q@x", None), true);
+        let sent = put(&store, "Sent", 1, &with_ids("Смета", 100, "q@x", None), true);
+        // The folder the notification named wins; another folder falls back to any copy.
+        assert_eq!(
+            store.find_by_message_id_any("a", "q@x", Some("Sent")).unwrap(),
+            Some((sent, "Sent".to_owned()))
+        );
+        assert_eq!(
+            store.find_by_message_id_any("a", "q@x", Some("INBOX")).unwrap(),
+            Some((inbox, "INBOX".to_owned()))
+        );
+        assert_eq!(
+            store.find_by_message_id_any("a", "q@x", Some("Trash")).unwrap(),
+            Some((inbox, "INBOX".to_owned()))
+        );
+        assert!(store.find_by_message_id_any("a", "nope@x", None).unwrap().is_none());
     }
 
     #[test]

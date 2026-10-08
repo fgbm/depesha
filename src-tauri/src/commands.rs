@@ -2568,10 +2568,29 @@ pub fn app_quit(app: tauri::AppHandle, force: bool) {
     crate::background::quit(&app, force);
 }
 
-/// Letters held back since the last call because they missed their time.
+/// Letters held back since the last call because they missed their time. With the window
+/// hidden nothing is taken: a toast would not be seen, so the letters wait for the window.
 #[tauri::command]
 pub fn outbox_missed(state: St<'_>) -> Vec<i64> {
+    if crate::background::main_hidden(&state.app) {
+        return Vec::new();
+    }
     crate::background::take_missed(&state)
+}
+
+/// A message window says whether it holds letters being written: a quit asks it first.
+#[tauri::command]
+pub fn compose_unsaved(window: tauri::Window, unsaved: bool) {
+    let label = window.label();
+    if label.starts_with("message-") {
+        crate::background::unsaved_changed(window.app_handle(), label, unsaved);
+    }
+}
+
+/// The user keeps a letter being written: a quit waiting for the window stops.
+#[tauri::command]
+pub fn quit_cancel(app: tauri::AppHandle) {
+    crate::background::quit_cancelled(&app);
 }
 
 #[cfg(test)]

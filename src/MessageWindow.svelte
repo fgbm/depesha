@@ -4,6 +4,7 @@
   // undo is offered in the main window, where the list is.
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { api } from "./lib/api";
   import { app } from "./lib/store.svelte";
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
@@ -22,14 +23,22 @@
 
   onMount(() => {
     app.initWindow(id).catch((e) => app.fail(e, t("startup")));
-    // An answer being written is not dropped by closing the window unasked.
+    // An answer being written is not dropped by closing the window unasked. Quitting
+    // from the tray or Ctrl+Q closes this window the same way, so the same question is asked.
     const off = win.onCloseRequested(async (e) => {
       if (!app.composes.length) return;
       e.preventDefault();
       const ok = await app.confirm({ text: t("window.closeWithAnswer"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
       if (ok) await win.destroy();
+      // Kept: a quit waiting for this window stops.
+      else api.quitCancel().catch(() => {});
     });
     return () => void off.then((f) => f());
+  });
+
+  // A quit asks this window first when a letter is being written here.
+  $effect(() => {
+    api.composeUnsaved(app.composes.length > 0).catch(() => {});
   });
 
   // Plugins add their buttons and banners to the reader here as in the main window.
