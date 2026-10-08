@@ -40,6 +40,8 @@ struct Mailbox {
     busy: Vec<Option<u64>>,
     /// TCP connections accepted.
     connections: usize,
+    /// FindItem requests answered, to check a lookup batches them.
+    find_items: usize,
 }
 
 fn busy_fault(back_off: Option<u64>) -> String {
@@ -170,6 +172,7 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
             )
         }
         "FindItem" => {
+            mb.find_items += 1;
             let folder = find(&doc, "ParentFolderIds")
                 .and_then(|p| p.descendants().find(|n| local(*n) == "FolderId"))
                 .and_then(|n| n.attribute("Id"))
@@ -189,7 +192,14 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
                 list.retain(|i| i.received < before);
             }
             if find(&doc, "IsEqualTo").is_some() {
-                list.retain(|i| Some(&i.message_id) == constant.as_ref());
+                // An Or over Message-IDs carries several Constants; match any of them.
+                let wanted: Vec<String> = doc
+                    .descendants()
+                    .filter(|n| n.is_element() && local(*n) == "Constant")
+                    .filter_map(|n| n.attribute("Value"))
+                    .map(str::to_owned)
+                    .collect();
+                list.retain(|i| wanted.contains(&i.message_id));
             }
             if let Some(q) = find(&doc, "QueryString").and_then(|q| q.text()) {
                 let word = q.trim_matches('"').to_lowercase();
@@ -468,6 +478,7 @@ async fn ews_mailbox_round_trip() {
         windows_only: false,
         busy: Vec::new(),
         connections: 0,
+        find_items: 0,
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -600,6 +611,28 @@ async fn ews_mailbox_round_trip() {
     assert_eq!(moved.folder, "A");
     assert!(!moved.read);
 
+    // A lookup by Message-IDs the cache does not know: one FindItem for the batch, not
+    // one request per letter.
+    {
+        let mut mb = mailbox.lock().unwrap();
+        mb.items.push(item("x1", "I", t0 + 200, "Первое"));
+        mb.items.push(item("x2", "I", t0 + 210, "Второе"));
+        mb.find_items = 0;
+    }
+    let n = ews::move_by_message_id(
+        &mut s,
+        &store,
+        ACCOUNT,
+        "INBOX",
+        &["x1@corp.ru".into(), "x2@corp.ru".into()],
+        "Архив",
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(n, 2);
+    assert_eq!(mailbox.lock().unwrap().find_items, 1);
+
     // Server search caches what it finds.
     let ids = ews::search_server(&mut s, &store, ACCOUNT, "Архив", "свежее")
         .await
@@ -665,6 +698,7 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
         windows_only: false,
         busy: Vec::new(),
         connections: 0,
+        find_items: 0,
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
