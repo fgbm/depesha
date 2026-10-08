@@ -1,11 +1,12 @@
 //! Sends queued messages one by one. Transient failures (network, SMTP 4xx,
 //! the Exchange rate limit) are retried later; permanent ones wait for the user.
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use depesha_core::imap::FolderRole;
+use depesha_core::store::OutboxItem;
 use depesha_core::{mail, message, smtp};
 use serde_json::json;
 
@@ -36,13 +37,38 @@ pub async fn run(state: Arc<AppState>) {
     }
 }
 
-async fn round(state: &AppState) -> Result<(), CmdError> {
+async fn round(state: &Arc<AppState>) -> Result<(), CmdError> {
     let now = chrono::Utc::now().timestamp();
     // Hours late (the app was closed, the computer asleep), a letter waits for the user.
     crate::background::hold_missed(state, now)?;
-    let mut blocked = HashSet::new();
+    // By mailbox: one that is slow or offline must not hold the others' letters up.
+    let mut by_account: BTreeMap<String, Vec<OutboxItem>> = BTreeMap::new();
     for item in state.store.outbox()? {
-        if item.failed || item.next_attempt > now || blocked.contains(&item.account_id) {
+        if item.failed || item.next_attempt > now {
+            continue;
+        }
+        by_account.entry(item.account_id.clone()).or_default().push(item);
+    }
+    let sent = crate::scheduler::run_bounded(
+        crate::scheduler::ACCOUNTS_AT_ONCE,
+        by_account.into_values().collect(),
+        |items| {
+            let state = state.clone();
+            async move { send_account(&state, items).await }
+        },
+    )
+    .await;
+    sent.into_iter().collect()
+}
+
+/// Sends one mailbox's due letters, one after another. Once one is refused (the server
+/// said no, the address is bad), the rest of that mailbox waits for the user; the other
+/// mailboxes go on.
+async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), CmdError> {
+    let now = chrono::Utc::now().timestamp();
+    let mut blocked = false;
+    for item in items {
+        if item.failed || item.next_attempt > now || blocked {
             continue;
         }
         let Ok(account) = state.account(&item.account_id) else {
@@ -170,7 +196,7 @@ async fn round(state: &AppState) -> Result<(), CmdError> {
                 state
                     .store
                     .outbox_retry_later(item.id, now + delay, &e.to_string(), !transient)?;
-                blocked.insert(item.account_id.clone());
+                blocked = true;
                 // A retry later is the outbox's business; a refusal waits for the user.
                 if transient {
                     state.task_done(&key);

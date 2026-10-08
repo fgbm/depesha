@@ -3,8 +3,8 @@
 //! its conversation to the folder "Waiting for reply" until the reply brings it back. The
 //! decisions are the core's (`depesha_core::store::waiting`); here are the moves.
 
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use std::collections::{BTreeMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use depesha_core::account::Account;
 use depesha_core::imap::FolderRole;
@@ -151,8 +151,9 @@ async fn mark_on_server(state: &AppState, account_id: &str, folder: &str, messag
 }
 
 /// The moves waits owe: letters into the folder after an answer, back when the reply came
-/// or the user stopped waiting. Run by the scheduler.
-pub async fn round(state: &AppState) {
+/// or the user stopped waiting. Run by the scheduler. By mailbox, in parallel: one that
+/// hangs or is offline must not hold the others' letters up.
+pub async fn round(state: Arc<AppState>) {
     let jobs = match state.store.park_jobs() {
         Ok(jobs) => jobs,
         Err(e) => {
@@ -160,6 +161,22 @@ pub async fn round(state: &AppState) {
             return;
         }
     };
+    let mut by_account: BTreeMap<String, Vec<ParkJob>> = BTreeMap::new();
+    for job in jobs {
+        by_account.entry(job.account_id.clone()).or_default().push(job);
+    }
+    crate::scheduler::run_bounded(
+        crate::scheduler::ACCOUNTS_AT_ONCE,
+        by_account.into_values().collect(),
+        |jobs| {
+            let state = state.clone();
+            async move { jobs_of_account(&state, jobs).await }
+        },
+    )
+    .await;
+}
+
+async fn jobs_of_account(state: &AppState, jobs: Vec<ParkJob>) {
     for job in jobs {
         let done = match job.kind {
             ParkKind::In => take_in(state, &job).await,

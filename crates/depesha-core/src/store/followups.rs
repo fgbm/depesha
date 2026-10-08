@@ -387,7 +387,9 @@ impl Store {
                     park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END
                  WHERE rowid = ?1",
             )?;
-            let mut machine = tx.prepare("UPDATE followups SET auto_reply = ?2 WHERE rowid = ?1")?;
+            let mut machine = tx.prepare(
+                "UPDATE followups SET auto_reply = ?2 WHERE rowid = ?1 AND (auto_reply IS NULL OR auto_reply != ?2)",
+            )?;
             for (rowid, account_id, message_id, expect, since, sent, anchor) in waiting {
                 type Answer = (i64, Option<String>, Option<String>, bool);
                 let found: Vec<Answer> = answer

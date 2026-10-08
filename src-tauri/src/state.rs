@@ -262,6 +262,11 @@ impl AppState {
         ) {
             crate::tray::refresh_soon(self);
         }
+        // A folder sync that brought mail is a reason to re-read the waits for answers
+        // at once, instead of on the scheduler's slow fallback timer.
+        if event == "mail-changed" {
+            self.scheduler_notify.notify_one();
+        }
         let _ = self.app.emit(event, payload);
     }
 
