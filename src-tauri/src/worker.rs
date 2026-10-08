@@ -234,6 +234,125 @@ fn drain_moves(
     merged
 }
 
+/// The same for a flag: the `SetFlag` of one folder with the same change waiting behind the
+/// first become one `STORE` for all the UIDs. A held "read" or "flag" key is a couple of
+/// requests, not one per letter. Returns how many were merged.
+fn drain_flags(
+    urgent: &mut mpsc::Receiver<(Work, Reply)>,
+    deferred: &mut VecDeque<(Work, Reply)>,
+    folder: &str,
+    validity: u32,
+    change: FlagChange,
+    uids: &mut Vec<u32>,
+    replies: &mut Vec<Reply>,
+) -> usize {
+    let mut merged = 0usize;
+    let mut taken = 0usize;
+    while replies.len() < MAX_COALESCED_MOVES && taken < MAX_GATHERED {
+        match urgent.try_recv() {
+            Ok((
+                Work::SetFlag {
+                    folder: f,
+                    validity: v,
+                    uids: u,
+                    change: c,
+                },
+                reply,
+            )) if f == folder && v == validity && c == change => {
+                uids.extend(u);
+                replies.push(reply);
+                merged += 1;
+                taken += 1;
+            }
+            Ok(item) => {
+                deferred.push_back(item);
+                taken += 1;
+            }
+            Err(_) => break,
+        }
+    }
+    merged
+}
+
+/// The same for labels: the `SetLabels` of one folder with the same labels waiting behind the
+/// first become one request for all the UIDs.
+fn drain_labels(
+    urgent: &mut mpsc::Receiver<(Work, Reply)>,
+    deferred: &mut VecDeque<(Work, Reply)>,
+    folder: &str,
+    validity: u32,
+    add: &[depesha_core::acl::Label],
+    remove: &[depesha_core::acl::Label],
+    uids: &mut Vec<u32>,
+    replies: &mut Vec<Reply>,
+) -> usize {
+    let mut merged = 0usize;
+    let mut taken = 0usize;
+    while replies.len() < MAX_COALESCED_MOVES && taken < MAX_GATHERED {
+        match urgent.try_recv() {
+            Ok((
+                Work::SetLabels {
+                    folder: f,
+                    validity: v,
+                    uids: u,
+                    add: a,
+                    remove: r,
+                },
+                reply,
+            )) if f == folder && v == validity && a == add && r == remove => {
+                uids.extend(u);
+                replies.push(reply);
+                merged += 1;
+                taken += 1;
+            }
+            Ok(item) => {
+                deferred.push_back(item);
+                taken += 1;
+            }
+            Err(_) => break,
+        }
+    }
+    merged
+}
+
+/// A series of the same work is under way (more than one caller): let it gather a moment, so
+/// a held key is a couple of requests, not one per letter. A lone one runs at once. `drain`
+/// takes whatever has queued meanwhile into `replies`.
+async fn settle_series(
+    urgent: &mut mpsc::Receiver<(Work, Reply)>,
+    deferred: &mut VecDeque<(Work, Reply)>,
+    replies: &mut Vec<Reply>,
+    mut drain: impl FnMut(&mut mpsc::Receiver<(Work, Reply)>, &mut VecDeque<(Work, Reply)>, &mut Vec<Reply>),
+) {
+    if replies.len() <= 1 {
+        return;
+    }
+    let deadline = tokio::time::Instant::now() + MOVE_SETTLE_MAX;
+    let mut settled = 0u32;
+    while replies.len() < MAX_COALESCED_MOVES && settled < MOVE_SETTLE_QUIET && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(MOVE_SETTLE_STEP).await;
+        let before = replies.len();
+        drain(urgent, deferred, replies);
+        settled = if replies.len() == before { settled + 1 } else { 0 };
+    }
+}
+
+/// Every caller of a merged batch gets its own answer; the work itself answers `None`.
+fn answer_all(replies: Vec<Reply>, result: Result<Output>) {
+    match result {
+        Ok(_) => {
+            for reply in replies {
+                let _ = reply.send(Ok(Output::None));
+            }
+        }
+        Err(e) => {
+            for reply in replies {
+                let _ = reply.send(Err(clone_error(&e)));
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Worker {
     /// Reading a letter's body: it goes ahead of the moves waiting in `urgent`, so
@@ -505,29 +624,10 @@ impl Ops {
                                 &mut uids,
                                 &mut replies,
                             );
-                            // More than one: a series is under way. Let it gather a moment,
-                            // so the whole held key is a couple of requests. A lone move runs now.
-                            if replies.len() > 1 {
-                                let deadline = tokio::time::Instant::now() + MOVE_SETTLE_MAX;
-                                let mut settled = 0u32;
-                                while replies.len() < MAX_COALESCED_MOVES
-                                    && settled < MOVE_SETTLE_QUIET
-                                    && tokio::time::Instant::now() < deadline
-                                {
-                                    tokio::time::sleep(MOVE_SETTLE_STEP).await;
-                                    let before = replies.len();
-                                    drain_moves(
-                                        &mut urgent,
-                                        &mut self.deferred,
-                                        &from,
-                                        validity,
-                                        &to,
-                                        &mut uids,
-                                        &mut replies,
-                                    );
-                                    settled = if replies.len() == before { settled + 1 } else { 0 };
-                                }
-                            }
+                            settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
+                                drain_moves(u, d, &from, validity, &to, &mut uids, r);
+                            })
+                            .await;
                             let merged = Work::Move {
                                 from,
                                 validity,
@@ -536,18 +636,72 @@ impl Ops {
                             };
                             let result = self.user(&merged).await;
                             self.report(&merged, &result, true);
-                            match result {
-                                Ok(_) => {
-                                    for reply in replies {
-                                        let _ = reply.send(Ok(Output::None));
-                                    }
-                                }
-                                Err(e) => {
-                                    for reply in replies {
-                                        let _ = reply.send(Err(clone_error(&e)));
-                                    }
-                                }
-                            }
+                            answer_all(replies, result);
+                        }
+                        // A held "read" or "flag" key: one `STORE` for the whole series.
+                        Work::SetFlag {
+                            folder,
+                            validity,
+                            mut uids,
+                            change,
+                        } => {
+                            let mut replies = vec![reply];
+                            drain_flags(
+                                &mut urgent,
+                                &mut self.deferred,
+                                &folder,
+                                validity,
+                                change,
+                                &mut uids,
+                                &mut replies,
+                            );
+                            settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
+                                drain_flags(u, d, &folder, validity, change, &mut uids, r);
+                            })
+                            .await;
+                            let merged = Work::SetFlag {
+                                folder,
+                                validity,
+                                uids,
+                                change,
+                            };
+                            let result = self.user(&merged).await;
+                            self.report(&merged, &result, true);
+                            answer_all(replies, result);
+                        }
+                        // A held label key: one request for the whole series.
+                        Work::SetLabels {
+                            folder,
+                            validity,
+                            mut uids,
+                            add,
+                            remove,
+                        } => {
+                            let mut replies = vec![reply];
+                            drain_labels(
+                                &mut urgent,
+                                &mut self.deferred,
+                                &folder,
+                                validity,
+                                &add,
+                                &remove,
+                                &mut uids,
+                                &mut replies,
+                            );
+                            settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
+                                drain_labels(u, d, &folder, validity, &add, &remove, &mut uids, r);
+                            })
+                            .await;
+                            let merged = Work::SetLabels {
+                                folder,
+                                validity,
+                                uids,
+                                add,
+                                remove,
+                            };
+                            let result = self.user(&merged).await;
+                            self.report(&merged, &result, true);
+                            answer_all(replies, result);
                         }
                         other => {
                             let result = self.user(&other).await;
@@ -1503,6 +1657,113 @@ mod tests {
         assert_eq!(uids, [1, 3]);
         assert_eq!(deferred.len(), 1, "the move to another folder waits its turn");
         assert!(matches!(deferred[0].0, Work::Move { ref to, .. } if to == "Trash"));
+    }
+
+    fn flag(folder: &str, uid: u32, change: FlagChange) -> (Work, Reply) {
+        (
+            Work::SetFlag {
+                folder: folder.into(),
+                validity: 1,
+                uids: vec![uid],
+                change,
+            },
+            oneshot::channel().0,
+        )
+    }
+
+    #[tokio::test]
+    async fn flags_of_one_folder_and_change_are_one_store() {
+        // A held "read" key: 50 stores of one folder, one request.
+        let (urgent_tx, mut urgent) = mpsc::channel(64);
+        for uid in 10..60 {
+            urgent_tx
+                .send(flag("INBOX", uid, FlagChange::Seen(true)))
+                .await
+                .unwrap();
+        }
+        // A different flag behind them is not merged in.
+        urgent_tx
+            .send(flag("INBOX", 99, FlagChange::Flagged(true)))
+            .await
+            .unwrap();
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::SetFlag {
+            folder,
+            validity,
+            mut uids,
+            change,
+        } = first.0
+        else {
+            panic!("not a flag");
+        };
+        let mut replies = vec![first.1];
+        let merged = drain_flags(
+            &mut urgent,
+            &mut deferred,
+            &folder,
+            validity,
+            change,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(merged, 49);
+        assert_eq!(uids.len(), 50);
+        assert_eq!(replies.len(), 50);
+        assert_eq!(change, FlagChange::Seen(true));
+        assert_eq!(deferred.len(), 1, "the other flag waits its turn");
+    }
+
+    #[tokio::test]
+    async fn labels_of_one_folder_and_set_are_one_request() {
+        let label = depesha_core::acl::Label {
+            name: "Работа".into(),
+            keyword: "depesha-rabota".into(),
+            color: String::new(),
+        };
+        let (urgent_tx, mut urgent) = mpsc::channel(64);
+        for uid in 10..40 {
+            urgent_tx
+                .send((
+                    Work::SetLabels {
+                        folder: "INBOX".into(),
+                        validity: 1,
+                        uids: vec![uid],
+                        add: vec![label.clone()],
+                        remove: Vec::new(),
+                    },
+                    oneshot::channel().0,
+                ))
+                .await
+                .unwrap();
+        }
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::SetLabels {
+            folder,
+            validity,
+            mut uids,
+            add,
+            remove,
+        } = first.0
+        else {
+            panic!("not labels");
+        };
+        let mut replies = vec![first.1];
+        let merged = drain_labels(
+            &mut urgent,
+            &mut deferred,
+            &folder,
+            validity,
+            &add,
+            &remove,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(merged, 29);
+        assert_eq!(uids.len(), 30);
+        assert_eq!(replies.len(), 30);
+        assert!(deferred.is_empty());
     }
 
     #[tokio::test]
