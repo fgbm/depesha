@@ -138,4 +138,40 @@ mod tests {
         assert!(!verify(b"x", "not base64!!"));
         assert!(!verify(b"x", &"A".repeat(43)));
     }
+
+    /// The draft mark is trusted only with this installation's signature. An old draft that
+    /// carries the mark and Depesha's own Message-ID domain, but no signature, names nothing.
+    #[test]
+    fn an_acts_on_mark_is_trusted_only_when_this_install_signed_it() {
+        use depesha_core::message::{self, ACTS_ON_HEADER, DRAFT_DOMAIN};
+        use depesha_core::smtp::{Act, ActsOn};
+
+        init_with(SECRET);
+        let acts = ActsOn {
+            account_id: "a".into(),
+            message_id: "m1@example.org".into(),
+            folder: "Входящие".into(),
+            act: Act::Reply,
+            waiting: true,
+        };
+        let value = message::encode_acts_on(&acts).unwrap();
+        let signed = message::signed_acts_on(&value, &sign(value.as_bytes())).unwrap();
+        let raw = |header: &str, domain: &str| {
+            format!(
+                "{header}Message-ID: <1.abcd@{domain}>\r\nFrom: me@example.com\r\n\
+                 To: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
+            )
+        };
+        let signed_raw = raw(&format!("{ACTS_ON_HEADER}: {signed}\r\n"), "example.com");
+        assert_eq!(
+            message::trusted_acts_on(signed_raw.as_bytes(), verify),
+            Some(acts.clone())
+        );
+        // The same bytes with another tag are not this installation's.
+        let other = raw(&format!("{ACTS_ON_HEADER}: {value}.not-ours\r\n"), DRAFT_DOMAIN);
+        assert_eq!(message::trusted_acts_on(other.as_bytes(), verify), None);
+        // An old draft: the mark, our domain, no signature.
+        let old = raw(&format!("{ACTS_ON_HEADER}: {value}\r\n"), DRAFT_DOMAIN);
+        assert_eq!(message::trusted_acts_on(old.as_bytes(), verify), None);
+    }
 }

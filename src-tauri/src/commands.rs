@@ -206,11 +206,17 @@ pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
     state.store.forget_account(&id)?;
     state.remove_account(&id)?;
     // The removed mailbox cannot be the default any more: a stale id would leave the
-    // settings with nothing to show and would live on through every save.
-    let mut settings = state.settings();
-    if settings.default_account_id.as_deref() == Some(id.as_str()) {
-        settings.default_account_id = None;
-        state.save_settings(settings)?;
+    // settings with nothing to show and would live on through every save. Under the lock,
+    // so a patch written at the same time is not rolled back by a stale copy of the rest.
+    let mut cleared = false;
+    state.update_settings(|settings| {
+        if settings.default_account_id.as_deref() == Some(id.as_str()) {
+            settings.default_account_id = None;
+            cleared = true;
+        }
+        Ok(())
+    })?;
+    if cleared {
         state.emit("settings-changed", serde_json::json!({}));
     }
     state.forget_token(&id);
@@ -527,6 +533,7 @@ pub async fn message_open(
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
     let trusted_sender = listed && auth.verified();
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
+    view.acts_on = message::trusted_acts_on(&raw, crate::install_secret::verify);
     view.authenticated = auth.dmarc;
     // Back from waiting with the reply: read now, the list no longer says so.
     if let Some(mid) = &row.message_id
@@ -1905,7 +1912,9 @@ pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err(CmdError::new("bad-request", "expected the letter's bytes"));
     };
-    Ok(message::parse_view(bytes, false)?)
+    let mut view = message::parse_view(bytes, false)?;
+    view.acts_on = message::trusted_acts_on(bytes, crate::install_secret::verify);
+    Ok(view)
 }
 
 /// An attached HTML or Markdown file, cleaned like a letter for the viewer. A big file
@@ -2379,8 +2388,8 @@ pub async fn draft_save(
         }));
     }
     let mut raw = smtp::build(&draft)?.formatted();
-    // The draft is Depesha's own: its Message-ID says so, and only then is the mark below
-    // trusted when the draft is opened again. Another client's draft keeps its own domain.
+    // The draft's Message-ID says Depesha wrote it. The mark below is trusted only when its
+    // signature checks, not because of this domain. Another client's draft keeps its own.
     if let Some(mid) = message::parse_summary(&raw).message_id
         && let Some(own) = own_message_id(&mid)
         && own != mid
@@ -2398,11 +2407,12 @@ pub async fn draft_save(
     }
     if let Some(acts_on) = &draft.acts_on
         && let Some(value) = message::encode_acts_on(acts_on)
+        && let Some(signed) = message::signed_acts_on(&value, &crate::install_secret::sign(value.as_bytes()))
     {
-        // The draft says what it answers or forwards: opening it marks the letter and
-        // takes it to «Waiting for reply» as the first writing did. Base64url, so a folder
-        // name in another script and a long mark stay within one header line (#71).
-        let header = format!("{}: {value}\r\n", message::ACTS_ON_HEADER);
+        // The draft says what it answers or forwards, and signs that with the install
+        // secret: opening it marks the letter only when the signature still checks. An
+        // unsigned mark (an old draft, or no secret) is not written and not followed (#71).
+        let header = format!("{}: {signed}\r\n", message::ACTS_ON_HEADER);
         raw.splice(0..0, header.into_bytes());
     }
     let message_id = message::parse_summary(&raw).message_id;

@@ -122,13 +122,6 @@ impl AppState {
         }
     }
 
-    pub fn save_settings(&self, settings: Settings) -> CmdResult<()> {
-        let mut config = lock(&self.config);
-        config.settings = settings;
-        config::save(&self.config_path, &config)?;
-        Ok(())
-    }
-
     /// Changes only the keys a patch names, over the settings in memory and on disk, so a
     /// save from one window's memory does not roll back what another writer changed meanwhile.
     /// Returns the settings as they are after the merge.
@@ -401,6 +394,41 @@ mod tests {
         let saved = config::load(&path);
         assert_eq!(saved.settings.undo_send_secs, settings.undo_send_secs);
         assert_eq!(saved.settings.dnd_until, settings.dnd_until);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Removing a mailbox clears it as the default under the same lock a patch uses, so the
+    /// clear does not write back a stale copy and lose a key another window just set.
+    #[test]
+    fn clearing_the_default_account_does_not_roll_back_a_patch() {
+        let dir = std::env::temp_dir().join(format!("depesha-default-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("accounts.json");
+        let config = Mutex::new(Config::default());
+        update_locked(&config, &path, |settings| {
+            settings.default_account_id = Some("gone".into());
+            settings.undo_send_secs = 9;
+            Ok(())
+        })
+        .unwrap();
+        patch_locked(&config, &path, serde_json::json!({ "dnd_until": 42 })).unwrap();
+        let mut cleared = false;
+        update_locked(&config, &path, |settings| {
+            if settings.default_account_id.as_deref() == Some("gone") {
+                settings.default_account_id = None;
+                cleared = true;
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert!(cleared);
+        let settings = lock(&config).settings.clone();
+        assert_eq!(settings.default_account_id, None);
+        assert_eq!(
+            settings.undo_send_secs, 9,
+            "the clear rolled back a key it did not name"
+        );
+        assert_eq!(settings.dnd_until, 42, "a patch written before the clear was lost");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

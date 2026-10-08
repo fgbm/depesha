@@ -211,39 +211,72 @@ pub const SEND_AT_HEADER: &str = "X-Depesha-Send-At";
 pub const FORMAT_HEADER: &str = "X-Depesha-Format";
 
 /// The letter a saved draft answers or forwards (`ActsOn`), for it to be marked
-/// and to go to «Waiting for reply» the same way; drafts only.
+/// and to go to «Waiting for reply» the same way; drafts only. The value is the encoded
+/// mark and the signature of this installation; a mark without a signature is not followed.
 pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
 
-/// The domain of a Message-ID Depesha puts on its own drafts: only a draft carrying it is
-/// trusted to name the letter it answers. A draft from another client is its own, and a
-/// header it happens to carry is not followed (#71).
+/// The domain of a Message-ID Depesha puts on its own drafts, so a saved draft shows which
+/// client wrote it. It is not what makes the mark trusted: that is the signature (#71).
 pub const DRAFT_DOMAIN: &str = "depesha.local";
 
-/// The longest encoded `X-Depesha-Acts-On` value: a header line any server takes.
+/// The longest `X-Depesha-Acts-On` value, signature included: a header line any server takes.
 const ACTS_ON_MAX: usize = 900;
 
-/// A draft's mark as its header value: base64url of the JSON, so a folder name in another
-/// script and a long mark cannot break or overrun the line. None when it would be too long
-/// for a server: the draft is then saved without a mark rather than unreachable.
+/// Room for `.{signature}` after the encoded mark: a dot and the base64url of an HMAC-SHA256
+/// tag, which is 43 characters without padding.
+const ACTS_ON_SIG: usize = 1 + 43;
+
+/// A draft's mark as its header value, before the signature: base64url of the JSON, so a
+/// folder name in another script and a long mark cannot break or overrun the line. None when
+/// the signed line would be too long for a server: the draft is then saved without a mark
+/// rather than unreachable.
 pub fn encode_acts_on(acts_on: &crate::smtp::ActsOn) -> Option<String> {
     let json = serde_json::to_vec(acts_on).ok()?;
     let value = format!("1.{}", B64URL.encode(json));
-    (value.len() <= ACTS_ON_MAX).then_some(value)
+    (value.len() + ACTS_ON_SIG <= ACTS_ON_MAX).then_some(value)
+}
+
+/// The header value as it is written: the encoded mark and the signature of those bytes.
+/// None when the signature is missing or the line would be too long.
+pub fn signed_acts_on(value: &str, sig: &str) -> Option<String> {
+    if value.is_empty() || sig.is_empty() {
+        return None;
+    }
+    let signed = format!("{value}.{sig}");
+    (signed.len() <= ACTS_ON_MAX).then_some(signed)
 }
 
 /// The mark of a header written by `encode_acts_on`; None when it is not Depesha's form.
 fn decode_acts_on(value: &str) -> Option<crate::smtp::ActsOn> {
     let b64 = value.trim().strip_prefix("1.")?;
+    if b64.contains('.') {
+        return None;
+    }
     serde_json::from_slice(&B64URL.decode(b64).ok()?).ok()
 }
 
-/// Whether the letter is a draft Depesha wrote itself: its Message-ID is under Depesha's
-/// own domain. The mark of any other client's draft is not trusted.
-fn own_draft(summary: &Summary) -> bool {
-    summary
-        .message_id
-        .as_deref()
-        .is_some_and(|id| id.ends_with(&format!("@{DRAFT_DOMAIN}")))
+/// The encoded mark and the signature after it. An old mark (`1.{json}` with no signature)
+/// does not split: it is not trusted.
+fn split_signed(value: &str) -> Option<(&str, &str)> {
+    let value = value.trim();
+    let (payload, sig) = value.rsplit_once('.')?;
+    if !payload.starts_with("1.") || payload.len() <= 2 || sig.is_empty() {
+        return None;
+    }
+    Some((payload, sig))
+}
+
+/// The letter a draft says it answers, once `verify` accepts the signature of the encoded
+/// mark. A mark without a signature, or one this installation did not sign, is not followed:
+/// an old draft and a letter from anywhere else name nothing.
+pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Option<crate::smtp::ActsOn> {
+    let msg = MessageParser::default().parse_headers(raw)?;
+    let value = raw_header(&msg, ACTS_ON_HEADER)?;
+    let (payload, sig) = split_signed(&value)?;
+    if !verify(payload.as_bytes(), sig) {
+        return None;
+    }
+    decode_acts_on(payload)
 }
 
 /// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
@@ -298,10 +331,10 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     let summary = summary_of(&msg);
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
     let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| crate::smtp::BodyFormat::from_name(&v));
-    let acts_on = own_draft(&summary)
-        .then(|| raw_header(&msg, ACTS_ON_HEADER))
-        .flatten()
-        .and_then(|v| decode_acts_on(&v));
+    // The mark is not taken here: only a signature of this installation makes it the letter
+    // the draft answers, and the core does not hold that secret. The caller that can verify
+    // fills `acts_on` (`trusted_acts_on`).
+    let acts_on = None;
     Ok(MessageView {
         summary,
         text,
@@ -1033,44 +1066,52 @@ JVBERi0xLjQK\r\n\
         assert_eq!(format(mail("")), None);
     }
 
-    #[test]
-    fn a_draft_keeps_what_it_answers() {
+    fn acts() -> crate::smtp::ActsOn {
         use crate::smtp::{Act, ActsOn};
-        let mail = |extra: &str| {
-            format!(
-                "{extra}Message-ID: <1.abcd@{DRAFT_DOMAIN}>\r\nFrom: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
-            )
-        };
-        let acts = ActsOn {
-            account_id: "a".into(),
-            message_id: "m1@example.org".into(),
-            folder: "INBOX".into(),
-            act: Act::Reply,
-            waiting: true,
-        };
-        let header = format!("{ACTS_ON_HEADER}: {}\r\n", encode_acts_on(&acts).unwrap());
-        assert_eq!(parse_view(mail(&header).as_bytes(), false).unwrap().acts_on, Some(acts));
-        assert_eq!(parse_view(mail("").as_bytes(), false).unwrap().acts_on, None);
-    }
-
-    #[test]
-    fn the_mark_of_another_clients_draft_is_not_trusted() {
-        use crate::smtp::{Act, ActsOn};
-        let acts = ActsOn {
+        ActsOn {
             account_id: "a".into(),
             message_id: "m1@example.org".into(),
             folder: "Входящие".into(),
             act: Act::Reply,
             waiting: true,
-        };
-        let header = format!("{ACTS_ON_HEADER}: {}\r\n", encode_acts_on(&acts).unwrap());
-        let foreign = format!(
-            "{header}Message-ID: <1.abcd@example.com>\r\nFrom: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
-        );
-        // A look-alike domain is no proof either: only Depesha's own domain is trusted.
-        let lookalike = foreign.replace("example.com>\r\nFrom", "notdepesha.local>\r\nFrom");
-        assert_eq!(parse_view(foreign.as_bytes(), false).unwrap().acts_on, None);
-        assert_eq!(parse_view(lookalike.as_bytes(), false).unwrap().acts_on, None);
+        }
+    }
+
+    fn draft_with(header: &str, domain: &str) -> String {
+        format!(
+            "{header}Message-ID: <1.abcd@{domain}>\r\nFrom: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
+        )
+    }
+
+    #[test]
+    fn a_draft_keeps_what_it_answers_only_when_the_mark_is_signed() {
+        let acts = acts();
+        let value = encode_acts_on(&acts).unwrap();
+        let signed = signed_acts_on(&value, "sig").unwrap();
+        let raw = draft_with(&format!("{ACTS_ON_HEADER}: {signed}\r\n"), "example.com");
+        // The core does not trust the header by itself: the caller verifies the signature.
+        assert_eq!(parse_view(raw.as_bytes(), false).unwrap().acts_on, None);
+        let ok = |bytes: &[u8], sig: &str| sig == "sig" && bytes == value.as_bytes();
+        assert_eq!(trusted_acts_on(raw.as_bytes(), ok), Some(acts));
+        assert_eq!(trusted_acts_on(draft_with("", DRAFT_DOMAIN).as_bytes(), ok), None);
+    }
+
+    #[test]
+    fn a_mark_without_a_signature_is_not_trusted() {
+        let acts = acts();
+        let value = encode_acts_on(&acts).unwrap();
+        // An old draft: the mark, our own domain, and no signature. It names nothing.
+        let old = draft_with(&format!("{ACTS_ON_HEADER}: {value}\r\n"), DRAFT_DOMAIN);
+        let accept_anything = |_: &[u8], _: &str| true;
+        assert_eq!(trusted_acts_on(old.as_bytes(), accept_anything), None);
+        // A signature this installation did not make is not followed either.
+        let forged = draft_with(&format!("{ACTS_ON_HEADER}: {value}.not-ours\r\n"), DRAFT_DOMAIN);
+        let reject = |_: &[u8], _: &str| false;
+        assert_eq!(trusted_acts_on(forged.as_bytes(), reject), None);
+        // A look-alike domain is no proof, and neither is a copied signature of other bytes.
+        let lookalike = draft_with(&format!("{ACTS_ON_HEADER}: {value}.sig\r\n"), "notdepesha.local");
+        let wrong_bytes = |bytes: &[u8], sig: &str| sig == "sig" && bytes == b"other";
+        assert_eq!(trusted_acts_on(lookalike.as_bytes(), wrong_bytes), None);
     }
 
     #[test]
