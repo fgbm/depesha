@@ -171,6 +171,35 @@ export function labelNames(keywords: string[], labels: Label[]): string[] {
   return [...new Set(found)].sort();
 }
 
+/** Ящик строк, когда все они из одного: метки принадлежат ящику (#42, кадр 10).
+ *  `null` — строки из разных ящиков, выбор меток невозможен. */
+export function pickAccount(rows: { account_id: string }[]): string | null {
+  const accounts = new Set(rows.map((m) => m.account_id));
+  return accounts.size === 1 ? [...accounts][0]! : null;
+}
+
+/** Состояние метки у строк выбора: на всех, на части, ни на одной (#42, кадр 10).
+ *  «На части» — галочка в промежуточном виде. */
+export function labelState(rows: { keywords?: string[] }[], keyword: string): "all" | "some" | "none" {
+  const on = rows.filter((m) => (m.keywords ?? []).includes(keyword)).length;
+  return on === 0 ? "none" : on === rows.length ? "all" : "some";
+}
+
+/** Где хранятся метки строк (#42, кадр 9): итог проверки папки, иначе PERMANENTFLAGS,
+ *  иначе «не подтверждено». «На сервере» — только когда так говорят все папки выбора. */
+export function labelStorage(
+  props: ({ label_check?: LabelCheck | null; labels_on_server?: boolean | null } | undefined)[],
+): "server" | "local" | "unconfirmed" {
+  const kinds = props.map((p) => {
+    if (p?.label_check) return storageOf(p.label_check);
+    if (p?.labels_on_server == null) return "unconfirmed" as const;
+    return storageOf(p.labels_on_server ? "saves" : "not-saves");
+  });
+  if (kinds.length && kinds.every((k) => k === "server")) return "server";
+  if (kinds.length && kinds.every((k) => k === "local")) return "local";
+  return "unconfirmed";
+}
+
 /** Что случилось с действием, которое оптимистично убрало письмо, а сервер отказал (#42, кадр 8). */
 export type Refusal = "no-rights" | "error" | "no-answer";
 

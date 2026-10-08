@@ -345,6 +345,8 @@ export const en = {
   "label.check.failed": "The label check failed: {reason}",
   "label.check.testSubject": "Depesha: label check",
   "label.pick": "Labels",
+  "label.empty": "No labels yet",
+  "label.noRightHint": "Labels cannot be set in this folder: no right to change flags.",
   "label.new": "New label…",
   "label.color": "Label colour",
   "label.create": "Create",

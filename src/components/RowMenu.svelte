@@ -15,7 +15,6 @@
   import AppWindow from "@lucide/svelte/icons/app-window";
   import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
-  import { storageOf } from "../lib/labels";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowAction } from "../plugin-api";
   import { untrack } from "svelte";
@@ -29,10 +28,8 @@
   // come from, so the rows are taken once, when it opens.
   const ids = untrack(() => [...given]);
 
-  /** A second step in place of the menu: a folder to move to, a labels picker, or a plugin's own menu. */
-  let sub = $state<{ kind: "move" } | { kind: "labels" } | { kind: "plugin"; action: RowAction } | null>(null);
-  let newLabel = $state("");
-  let newColor = $state("#3f7fd0");
+  /** A second step in place of the menu: a folder to move to, or a plugin's own menu. */
+  let sub = $state<{ kind: "move" } | { kind: "plugin"; action: RowAction } | null>(null);
 
   const rows = $derived(app.messages.filter((m) => ids.includes(m.id)));
   const single = $derived(rows.length === 1 ? rows[0] : null);
@@ -68,41 +65,6 @@
     const accounts = new Set(rows.map((m) => m.account_id));
     return accounts.size === 1 ? [...accounts][0] : null;
   });
-  const knownLabels = $derived(labelAccount ? app.labels.of(labelAccount) : []);
-  /** Which labels the rows carry: on all of them, on some, or none. */
-  function labelState(l: { keyword: string }): "all" | "some" | "none" {
-    const on = rows.filter((m) => (m.keywords ?? []).includes(l.keyword)).length;
-    return on === 0 ? "none" : on === rows.length ? "all" : "some";
-  }
-  /** Where the labels of the rows are stored (#42, frame 9): the check outcome of the
-   *  folder, or the PERMANENTFLAGS the check read; "unconfirmed" when neither is known. */
-  const storage = $derived.by((): "server" | "local" | "unconfirmed" => {
-    if (!labelAccount) return "unconfirmed";
-    const folders = new Set(rows.map((m) => m.folder));
-    const kinds = [...folders].map((f) => {
-      const p = app.labels.prop(labelAccount, f);
-      if (p?.label_check) return storageOf(p.label_check);
-      if (p?.labels_on_server == null) return "unconfirmed" as const;
-      return storageOf(p.labels_on_server ? "saves" : "not-saves");
-    });
-    // The whole selection is "on the server" only when every folder says so.
-    if (kinds.every((k) => k === "server")) return "server";
-    if (kinds.every((k) => k === "local")) return "local";
-    return "unconfirmed";
-  });
-
-  async function toggleLabel(keyword: string, on: boolean) {
-    const l = knownLabels.find((x) => x.keyword === keyword);
-    if (l) await app.setLabel(ids, l.name, on);
-  }
-
-  async function addLabel() {
-    const name = newLabel.trim();
-    if (!labelAccount || !name) return;
-    const label = await app.labels.save(labelAccount, name, newColor);
-    newLabel = "";
-    if (label) await app.setLabel(ids, label.name, true);
-  }
 
   /** The rights of the folders the rows lie in, when they all agree; unknown otherwise. */
   const rights = $derived.by(() => {
@@ -148,8 +110,8 @@
   <button class="mi" disabled={!canWrite} title={!canWrite ? t("folder.noRightHint") : undefined} onclick={() => run(() => app.flag("flagged", !allFlagged, ids))}>
     <Flag size={15} /> {allFlagged ? t("act.unflag") : t("act.setFlag")}<span class="hint"><Keys of="core.flag" /></span>
   </button>
-  {#if labelAccount && knownLabels.length}
-    <button class="mi" disabled={!canWrite} title={!canWrite ? t("folder.noRightHint") : undefined} onclick={() => (sub = { kind: "labels" })}><Tag size={15} /> {t("act.labels")}<span class="hint"><ChevronRight size={13} /></span></button>
+  {#if labelAccount}
+    <button class="mi" disabled={!canWrite} title={!canWrite ? t("label.noRightHint") : undefined} onclick={() => run(() => app.labels.openPick(ids, at))}><Tag size={15} /> {t("act.labels")}<span class="hint"><ChevronRight size={13} /></span></button>
   {/if}
   {#each pluginActions as a (a.id)}
     <button class="mi" onclick={() => (a.menu ? (sub = { kind: "plugin", action: a }) : run(() => a.run?.(ids)))}>
@@ -177,29 +139,6 @@
         <button class="mi" onclick={() => run(() => app.moveTo(f.name, ids))}><Folder size={15} /> {f.display_name}</button>
       {/each}
     </div>
-  {:else if sub?.kind === "labels"}
-    <div class="mt">{t("label.pick")}</div>
-    <div class="folder-list">
-      {#each knownLabels as l (l.keyword)}
-        {@const state = labelState(l)}
-        <button class="mi" onclick={() => toggleLabel(l.keyword, state !== "all")}>
-          <input type="checkbox" checked={state === "all"} indeterminate={state === "some"} tabindex="-1" />
-          <span class="lsw" style:--c={l.color}></span>{l.name}
-        </button>
-      {/each}
-    </div>
-    <hr />
-    <form class="new" onsubmit={(e) => { e.preventDefault(); addLabel(); }}>
-      <span class="lsw" style:--c={newColor}></span>
-      <input class="input" bind:value={newLabel} placeholder={t("label.new")} aria-label={t("label.new")} />
-      <input class="color" type="color" bind:value={newColor} aria-label={t("label.color")} />
-      <button class="btn primary" type="submit" disabled={!newLabel.trim()}>{t("label.create")}</button>
-    </form>
-    <div class="stat">
-      {#if storage === "unconfirmed"}{t("label.whereUnknown")}
-      {:else if storage === "local"}{t("label.whereLocal")}
-      {:else}{t("label.whereServer")}{/if}
-    </div>
   {:else if sub?.kind === "plugin" && sub.action.menu}
     {@const m = sub.action.menu}
     <m.component {...m.props ?? {}} {ids} done={onclose} />
@@ -212,48 +151,5 @@
     flex-direction: column;
     overflow-y: auto;
     max-height: 50vh;
-  }
-
-  .mi input[type="checkbox"] {
-    flex: none;
-  }
-
-  .lsw {
-    display: inline-block;
-    width: 11px;
-    height: 11px;
-    border-radius: 3px;
-    background: var(--c, var(--muted));
-  }
-
-  .new {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 6px 6px;
-  }
-
-  .new .input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .new .color {
-    flex: none;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    background: none;
-  }
-
-  .stat {
-    display: flex;
-    gap: 6px;
-    padding: 6px 10px 8px;
-    color: var(--muted);
-    font-size: 11.5px;
-    line-height: 1.4;
   }
 </style>

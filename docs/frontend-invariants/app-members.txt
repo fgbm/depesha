@@ -62,6 +62,7 @@ searchTotals
 select
 selectAll
 selected
+selectedIds
 selectedSize
 send
 serverRows

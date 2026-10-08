@@ -43,6 +43,11 @@ export function coreCommands(): Command[] {
       list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.moveTo(f.name) });
     }
   }
+  // Labels (#42, frame 10): on the selected rows, or on the open letter.
+  if (target.length || msg) {
+    const ids = target.length ? target : [msg!.row.id];
+    list.push({ id: "core.labels", title: () => t("act.labels"), run: () => app.labels.openPick(ids) });
+  }
   for (const c of extensions.commands()) {
     if (c.message && !msg) continue;
     const message = c.message && msg ? fromRow(msg.row, app.account(msg.row.account_id)?.email ?? "", msg.view.text) : null;

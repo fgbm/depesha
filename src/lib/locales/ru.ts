@@ -337,6 +337,8 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "label.check.failed": "Проверка меток не удалась: {reason}",
   "label.check.testSubject": "Депеша: проверка меток",
   "label.pick": "Метки",
+  "label.empty": "Меток пока нет",
+  "label.noRightHint": "Метки в этой папке не поставить: нет права менять флаги.",
   "label.new": "Новая метка…",
   "label.color": "Цвет метки",
   "label.create": "Создать",

@@ -10,10 +10,12 @@
   import MailOpen from "@lucide/svelte/icons/mail-open";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import Folder from "@lucide/svelte/icons/folder";
+  import Tag from "@lucide/svelte/icons/tag";
   import AppWindow from "@lucide/svelte/icons/app-window";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Popover from "../Popover.svelte";
+  import Keys from "../Keys.svelte";
   import { layout } from "../../lib/layout.svelte";
   import { app } from "../../lib/store.svelte";
   import { fromDraft } from "../../lib/compose";
@@ -53,6 +55,8 @@
   const pluginActions = $derived(
     registry.items("messageActions").filter((a) => { try { return !a.when || a.when(msg); } catch { return false; } }),
   );
+  /** Метки в папке письма: известный запрет гасит пункт с подсказкой (#42, кадр 7). */
+  const canLabel = $derived(app.labels.writable([msg.row]));
 
   function editDraft() {
     if (!account) return;
@@ -80,6 +84,9 @@
       </button>
       <button class="mi" onclick={() => { moreOpen = false; app.flag("seen", !msg.row.flags.seen); }}>
         {#if msg.row.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}<span class="hint">u</span>
+      </button>
+      <button class="mi" disabled={!canLabel} title={!canLabel ? t("label.noRightHint") : undefined} onclick={() => { moreOpen = false; app.labels.openPick([msg.row.id]); }}>
+        <Tag size={15} /> {t("act.labels")}<span class="hint"><Keys of="core.labels" /></span>
       </button>
       {#if folders.length}
         <button class="mi" onclick={() => { moreOpen = false; moveOpen = true; }}><Folder size={15} /> {t("act.moveTo")}</button>

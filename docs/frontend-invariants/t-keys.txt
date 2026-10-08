@@ -390,8 +390,10 @@ label.check.step3
 label.check.title
 label.color
 label.create
+label.empty
 label.localHint
 label.new
+label.noRightHint
 label.pick
 label.whereLocal
 label.whereServer

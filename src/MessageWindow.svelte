@@ -9,6 +9,8 @@
   import { shortcuts } from "./lib/shortcuts.svelte";
   import Reader from "./components/Reader.svelte";
   import Dock from "./components/Dock.svelte";
+  import Popover from "./components/Popover.svelte";
+  import LabelPicker from "./components/LabelPicker.svelte";
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
   import { host } from "./plugin-host/host.svelte";
@@ -58,6 +60,7 @@
       "core.spam": () => app.spam(),
       "core.unread": () => opened && app.flag("seen", !opened.row.flags.seen),
       "core.flag": () => opened && app.flag("flagged", !opened.row.flags.flagged),
+      "core.labels": () => opened && app.labels.openPick([opened.row.id]),
     };
     // Nothing being written: Esc closes the window, as a viewer of one letter.
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
@@ -77,6 +80,14 @@
 </div>
 
 <Dock />
+{#if app.labels.pick}
+  <Popover
+    bind:open={() => app.labels.pick !== null, (v) => !v && app.labels.closePick()}
+    at={app.labels.pick.at ?? { x: Math.round(window.innerWidth / 2 - 120), y: 90 }}
+  >
+    <LabelPicker rows={app.labels.pickRows()} />
+  </Popover>
+{/if}
 <!-- Dialogs plugins open from their banners, e.g. a new date for a reminder. -->
 {#each registry.lists.overlays as o (o)}
   <o.item.component {...o.item.props ?? {}} />

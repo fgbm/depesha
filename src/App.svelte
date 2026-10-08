@@ -20,6 +20,8 @@
   import Tasks from "./components/Tasks.svelte";
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
+  import Popover from "./components/Popover.svelte";
+  import LabelPicker from "./components/LabelPicker.svelte";
   import { allCommands, host } from "./plugin-host/host.svelte";
   import FolderPropsCard from "./components/prefs/FolderProps.svelte";
   import { registry } from "./plugin-host/registry.svelte";
@@ -123,7 +125,21 @@
     "core.spam": () => app.spam(),
     "core.unread": () => app.opened && app.flag("seen", !app.opened.row.flags.seen),
     "core.flag": () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
+    "core.labels": () => app.labels.openPick(labelTarget()),
   };
+
+  /** The rows the labels command acts on: the selection, or the open letter (#42, frame 10). */
+  function labelTarget(): number[] {
+    const ids = app.selectedIds();
+    return ids.length ? ids : app.opened ? [app.opened.row.id] : [];
+  }
+
+  /** Where the labels picker opens without a pointer: at the selected row, or the middle. */
+  function labelsAnchor(): { x: number; y: number } {
+    const row = listPane?.querySelector<HTMLElement>(".row.selected, .row.opened");
+    const r = row?.getBoundingClientRect();
+    return r ? { x: Math.round(r.left + 24), y: Math.round(r.top + 16) } : { x: Math.round(window.innerWidth / 2 - 120), y: 120 };
+  }
 
   /** What a command does now: the core's, a plugin's key, or any command of the palette given a key. */
   function action(id: string | undefined): (() => void) | undefined {
@@ -255,6 +271,15 @@
   {#if acc && fol}
     <FolderPropsCard at={{ x: Math.round(window.innerWidth / 2 - 160), y: 120 }} account={acc} folder={fol} onclose={() => app.labels.closeCard()} />
   {/if}
+{/if}
+
+{#if app.labels.pick}
+  <Popover
+    bind:open={() => app.labels.pick !== null, (v) => !v && app.labels.closePick()}
+    at={app.labels.pick.at ?? labelsAnchor()}
+  >
+    <LabelPicker rows={app.labels.pickRows()} />
+  </Popover>
 {/if}
 
 <WindowControls />

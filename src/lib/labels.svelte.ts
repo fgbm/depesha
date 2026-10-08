@@ -4,8 +4,9 @@
 
 import { api } from "./api";
 import { t } from "./i18n.svelte";
+import { pickAccount } from "./labels";
 import type { AppStore } from "./store.svelte";
-import type { FolderProps, Label, LabelCheck } from "./types";
+import type { FolderProps, Label, LabelCheck, MessageRow } from "./types";
 
 class Labels {
   /** Метки каждого ящика, по id. */
@@ -16,6 +17,8 @@ class Labels {
   checking = $state<Record<string, boolean>>({});
   /** Открытая карточка свойств папки (#42, кадр 4А): ящик и имя папки. */
   card = $state<{ accountId: string; folder: string } | null>(null);
+  /** Открытый выбор меток (#42, кадр 10): письма и точка, где он открылся; null — закрыт. */
+  pick = $state<{ ids: number[]; at: { x: number; y: number } | null } | null>(null);
 
   private app: AppStore | null = null;
 
@@ -84,6 +87,41 @@ class Labels {
 
   closeCard() {
     this.card = null;
+  }
+
+  /** Открывает выбор меток (#42, кадр 10): из меню строки, панели письма и команды
+   *  «Метки…». `at` — точка открытия; из разных ящиков или с известным запретом не открывается. */
+  openPick(ids: number[], at: { x: number; y: number } | null = null) {
+    const rows = this.rowsFor(ids);
+    if (!rows.length || !pickAccount(rows) || !this.writable(rows)) return;
+    this.pick = { ids: [...ids], at };
+  }
+
+  closePick() {
+    this.pick = null;
+  }
+
+  /** Строки открытого выбора: из списка, а открытое письмо — если его в списке нет. */
+  pickRows(): MessageRow[] {
+    return this.rowsFor(this.pick?.ids ?? []);
+  }
+
+  /** Могут ли эти строки менять метки: известный запрет — нет (#42, кадр 7). */
+  writable(rows: { account_id: string; folder: string }[]): boolean {
+    return rows.every((m) => {
+      const rights = this.prop(m.account_id, m.folder)?.rights;
+      return !rights || rights.write;
+    });
+  }
+
+  /** Строки этих писем: те, что есть в списке, плюс открытое письмо отдельного окна. */
+  private rowsFor(ids: number[]): MessageRow[] {
+    const app = this.app;
+    if (!app || !ids.length) return [];
+    const out = ids.map((id) => app.messages.find((m) => m.id === id)).filter((m): m is MessageRow => !!m);
+    const opened = app.opened?.row;
+    if (opened && ids.includes(opened.id) && !out.some((m) => m.id === opened.id)) out.push(opened);
+    return out;
   }
 
   async loadProps(accountId: string, folder: string) {
