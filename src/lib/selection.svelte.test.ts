@@ -37,4 +37,23 @@ describe("moving through the list", () => {
     expect(api.open.mock.calls.length).toBeLessThanOrEqual(2);
     expect(api.open).toHaveBeenLastCalledWith(30, false, expect.any(Number));
   });
+
+  it("syncs only the folder the clicks stopped on", async () => {
+    api.messages.mockResolvedValue([]);
+    api.folders.mockResolvedValue([
+      { account_id: "a", name: "INBOX", role: "inbox" },
+      { account_id: "a", name: "Archive", role: "archive" },
+    ] as never);
+    const s = new AppStore();
+    vi.useFakeTimers();
+    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    expect(api.syncNow).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+    await flush();
+    expect(api.syncNow).toHaveBeenCalledTimes(1);
+    expect(api.syncNow).toHaveBeenCalledWith("a", "Archive");
+  });
 });
