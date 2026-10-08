@@ -13,8 +13,7 @@ use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{
-    FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, Snooze,
-    SortKey,
+    FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, SortKey,
 };
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -1018,27 +1017,14 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
             ));
         }
         let snoozed = role_folder(&state, account_id, FolderRole::Snoozed, pick("Snoozed", "Отложенные")).await?;
-        // Snoozing again from the Snoozed folder keeps the original destination.
-        for r in &rows {
-            let mid = r.message_id.clone().unwrap_or_default();
-            let return_to = state
-                .store
-                .snooze_remove(account_id, &mid)?
-                .map(|s| s.return_to)
-                .unwrap_or_else(|| folder.clone());
-            state.store.snooze_add(&Snooze {
-                account_id: account_id.clone(),
-                message_id: mid,
-                folder: snoozed.clone(),
-                return_to: if return_to == snoozed {
-                    folder.clone()
-                } else {
-                    return_to
-                },
-                until,
-                subject: r.subject.clone(),
-            })?;
-        }
+        // Snoozing a series is one commit, not one per letter.
+        let batch: Vec<(String, String)> = rows
+            .iter()
+            .filter_map(|r| r.message_id.clone().map(|mid| (mid, r.subject.clone())))
+            .collect();
+        state
+            .store
+            .snooze_add_batch(account_id, &snoozed, folder, until, &batch)?;
         if *folder != snoozed {
             done.push(move_group(&state, &key, &rows, &snoozed).await?);
         }

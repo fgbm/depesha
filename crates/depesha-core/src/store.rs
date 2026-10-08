@@ -1781,6 +1781,38 @@ impl Store {
         Ok(())
     }
 
+    /// Snoozes a series of letters in one commit: "Snooze" on a hundred letters wrote a
+    /// hundred transactions. `rows` are `(message_id, subject)`; `folder` is where they are
+    /// now, `snoozed` where they wait. A letter snoozed again keeps where it first came from,
+    /// and a letter already waiting in `snoozed` goes back where it was.
+    pub fn snooze_add_batch(
+        &self,
+        account_id: &str,
+        snoozed: &str,
+        folder: &str,
+        until: i64,
+        rows: &[(String, String)],
+    ) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        {
+            let mut previous = tx.prepare("SELECT return_to FROM snoozed WHERE account_id = ?1 AND message_id = ?2")?;
+            let mut put = tx.prepare(
+                "INSERT OR REPLACE INTO snoozed (account_id, message_id, folder, return_to, until, subject)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for (message_id, subject) in rows {
+                let was: Option<String> = previous
+                    .query_row(params![account_id, message_id], |r| r.get(0))
+                    .optional()?;
+                let return_to = was.filter(|r| r != snoozed).unwrap_or_else(|| folder.to_owned());
+                put.execute(params![account_id, message_id, snoozed, return_to, until, subject])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn snooze_remove(&self, account_id: &str, message_id: &str) -> Result<Option<Snooze>> {
         Ok(self
             .conn()
@@ -2774,6 +2806,40 @@ mod tests {
         assert_eq!(store.list(&ListQuery::default()).unwrap().len(), 1);
         assert_eq!(store.folders(Some("a")).unwrap()[0].total, 1);
         assert_eq!(store.search("привет", None, 0, &[]).unwrap().len(), 1);
+    }
+
+    /// "Snooze" on a series is one commit; a letter snoozed again keeps where it first came
+    /// from, and one already waiting in Snoozed goes back where it was.
+    #[test]
+    fn snoozing_a_series_is_one_commit_and_keeps_the_first_destination() {
+        let store = Store::open_in_memory().unwrap();
+        let return_to = |store: &Store, now: i64, mid: &str| {
+            store
+                .snoozes_due(now)
+                .unwrap()
+                .into_iter()
+                .find(|s| s.message_id == mid)
+                .unwrap()
+                .return_to
+        };
+        store
+            .snooze_add_batch("a", "Snoozed", "INBOX", 100, &[("m1".into(), "Письмо".into())])
+            .unwrap();
+        assert_eq!(return_to(&store, 100, "m1"), "INBOX");
+        // Snoozed again while it waits in Snoozed: the first destination stays.
+        store
+            .snooze_add_batch("a", "Snoozed", "Snoozed", 200, &[("m1".into(), "Письмо".into())])
+            .unwrap();
+        assert_eq!(return_to(&store, 200, "m1"), "INBOX", "the first destination stays");
+        // From Sent it goes back to Sent.
+        store
+            .snooze_add_batch("a", "Snoozed", "Sent", 300, &[("m2".into(), "Ответ".into())])
+            .unwrap();
+        assert_eq!(return_to(&store, 300, "m2"), "Sent");
+        // A whole series lands in one call.
+        let batch: Vec<(String, String)> = (0..50).map(|i| (format!("b{i}"), format!("S{i}"))).collect();
+        store.snooze_add_batch("a", "Snoozed", "INBOX", 400, &batch).unwrap();
+        assert_eq!(store.snoozes_due(1000).unwrap().len(), 52, "m1, m2 and the fifty");
     }
 
     /// The GUI sends only the fields it sets; a folder query without `unread_only` once failed.
