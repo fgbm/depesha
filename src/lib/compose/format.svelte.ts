@@ -48,6 +48,17 @@ const PICTURES_MS = 300;
 /** Depesha's own blocks in the letter: the signature and the quote the words belong above. */
 const DEPESHA_BLOCKS = `.${SIGNATURE_CLASS}, .${QUOTE_CLASS}`;
 
+/**
+ * What «return» does after the recipient rule took the letter over (#44). The snapshot of
+ * the letter before the switch is put back whole only while the letter is still exactly as
+ * the rule left it: a snapshot restore replaces the text, the HTML and the files, so doing
+ * it after the user typed or attached something would throw that work away. Otherwise the
+ * return is an ordinary format change (`setFormat`), with its own rules about what is lost.
+ */
+export function ruleReturnPlan(before: ComposeDraft | null, after: string | null, now: string): "restore" | "switch" {
+  return before !== null && after !== null && after === now ? "restore" : "switch";
+}
+
 export class ComposeFormat {
   /** A plain letter: the field has what is typed, the signature stands under it, a reply's
    * quote or the forwarded letter stays folded below. The draft keeps the whole text. */
@@ -87,6 +98,8 @@ export class ComposeFormat {
   private placed = false;
   /** The letter as it was before the recipient rule took it over, to put it back whole (#44). */
   private ruleBefore: ComposeDraft | null = null;
+  /** The letter as the rule's switch left it: still matching means nothing changed since (#44). */
+  private ruleAfter: string | null = null;
 
   constructor(host: ComposeFormatHost) {
     this.host = host;
@@ -378,14 +391,25 @@ export class ComposeFormat {
     const win = this.host.win;
     const before = { ...($state.snapshot(win.draft) as ComposeDraft), attachments: [...win.draft.attachments] };
     await this.setFormat(next);
-    this.ruleBefore = this.format === next ? before : null;
+    if (this.format === next) {
+      this.ruleBefore = before;
+      // What the rule's switch left behind, compared against on «return»: only an
+      // untouched letter may have the snapshot put back over it (#44).
+      this.ruleAfter = JSON.stringify($state.snapshot(win.draft));
+    } else {
+      this.ruleBefore = null;
+      this.ruleAfter = null;
+    }
   }
 
   /** Back to the format the mailbox writes in, as the letter was before the rule took it over. */
   ruleReturn(mailbox: BodyFormat) {
     const before = this.ruleBefore;
+    const after = this.ruleAfter;
     this.ruleBefore = null;
-    if (before) this.restore(before);
+    this.ruleAfter = null;
+    const now = JSON.stringify($state.snapshot(this.host.win.draft));
+    if (ruleReturnPlan(before, after, now) === "restore" && before) this.restore(before);
     else void this.setFormat(mailbox);
   }
 
