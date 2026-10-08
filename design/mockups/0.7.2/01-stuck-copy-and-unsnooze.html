@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#88 и #93 · Застрявшая копия в «Отправленные» и «Вернуть сейчас» (0.7.2)</title>
+<style>
+/* ============================================================================
+   Макет к 0.7.2. Код приложения не тронут. Файл самодостаточный: без сети.
+   Переменные темы — из src/app.css (paper), строка списка — из MessageList.svelte,
+   панель задач — из Tasks.svelte, тост — из Dock.svelte, шапка письма — из
+   reader/ReaderHeader.svelte, контекстное меню — из RowMenu.svelte.
+   Данные вымышленные.
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --side: #1f2a37; --side-2: #263444; --side-ink: #d5dde6; --side-muted: #8c99a8; --side-warn: #e3a63c;
+  --ok: #2e7d4f; --warn: #b26a00; --radius: 8px; --sheet: #ffffff;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+.doc { width: 1180px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.q { font-size: 16px; margin: 30px 0 4px; }
+h3.q .n { display: inline-block; background: #1f2a37; color: #fff; border-radius: 5px; padding: 0 8px; margin-right: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+.lead, .ctx { max-width: 900px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.vars { display: flex; gap: 16px; align-items: flex-start; margin-top: 10px; }
+.var { flex: 1 1 0; min-width: 0; }
+.var .tag { font-weight: 700; font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.var .tag i { font-style: normal; background: #fff; border: 1px solid #b5ae9f; border-radius: 5px; padding: 0 8px; }
+.var .tag em { font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+.rec .tag i { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+.rec .tag::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.pc { margin: 8px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; }
+.pc li { margin: 2px 0; }
+.plus { color: #2e7d4f; font-weight: 700; }
+.minus { color: #b3261e; font-weight: 700; }
+.cap { font-size: 12px; color: #5a626c; margin: 4px 0 0; line-height: 1.4; }
+
+/* --- мини-окно приложения --- */
+.app { display: flex; background: var(--paper); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 14px rgb(0 0 0 / 16%); position: relative; font-size: 13px; min-height: 250px; }
+.app.tall { min-height: 330px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--paper); color: var(--muted); }
+.side { width: 150px; flex: none; background: var(--side); color: var(--side-ink); font-size: 12.5px; padding-top: 10px; }
+.side .it { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 26px; position: relative; white-space: nowrap; }
+.side .it .n { margin-left: auto; font-size: 11px; background: var(--side-2); border-radius: 9px; padding: 0 6px; line-height: 16px; }
+.side .it.on { background: var(--side-2); }
+.side .it.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+.side .acct { margin: 8px 0 2px; padding: 8px 10px 3px; border-top: 1px solid rgb(213 221 230 / 12%); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--side-muted); display: flex; align-items: center; gap: 6px; }
+.side .acct::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #3fae6c; }
+.side .acct.warn::before { background: var(--side-warn); }
+.warnmark { color: var(--side-warn); margin-left: auto; font-size: 13px; line-height: 1; }
+.warnmark.ring { border: 1px solid var(--side-warn); border-radius: 9px; font-size: 10px; padding: 1px 6px; }
+.listcol { width: 400px; flex: none; border-right: 1px solid var(--line); background: var(--paper); display: flex; flex-direction: column; }
+.list-title { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+.list-title b { font-size: 15px; } .list-title .cnt { margin-left: auto; font-size: 12px; color: var(--muted); }
+.row { padding: 8px 14px 8px 16px; border-bottom: 1px solid var(--line); position: relative; }
+.row .l1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.row .l1 b { font-weight: 600; } .row .when { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.row .l2 { color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row.sel { background: var(--selected); }
+.row.hov { background: var(--hover); }
+.row .hoverbar { position: absolute; right: 8px; top: 6px; display: flex; gap: 2px; background: var(--hover); padding-left: 6px; }
+.chip { font-size: 11px; border-radius: 4px; padding: 0 5px; line-height: 16px; background: var(--paper-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, var(--paper)); }
+.pane { flex: 1; min-width: 0; padding: 14px 18px; position: relative; }
+.pane h4 { margin: 0 0 4px; font-size: 16px; }
+.pane .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.pane p { margin: 6px 0; line-height: 1.5; }
+.rhead { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.rhead .sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 3px 9px; white-space: nowrap; }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.icon { padding: 3px 6px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { font-size: 12px; padding: 2px 8px; }
+.btn.hl { box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 45%, transparent); }
+.banner { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--warn) 10%, var(--paper)); font-size: 12.5px; line-height: 1.4; }
+.banner .txt { flex: 1; min-width: 0; }
+.banner .btns { display: flex; gap: 6px; flex: none; }
+.banner .ico, .tskico { color: var(--warn); font-size: 15px; }
+
+/* --- панель задач (Tasks.svelte) --- */
+.tasks { position: absolute; right: 12px; top: 12px; width: 410px; background: var(--sheet); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / 22%); padding: 12px 14px; z-index: 3; font-size: 12.5px; }
+.tasks h3 { margin: 0 0 6px; font-size: 14px; }
+.tasks h4 { margin: 8px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.task { border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; margin-bottom: 6px; background: var(--paper); }
+.task.failed { border-left: 3px solid var(--accent); }
+.task.stuck { border-left: 3px solid var(--warn); }
+.task .line { display: flex; align-items: center; gap: 6px; }
+.task .label { font-weight: 600; } .task .spacer { flex: 1; }
+.task .small { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 3px; }
+.task .small.err { color: var(--accent); font-family: var(--mono); font-size: 11px; }
+.task .acts { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.acc { font-size: 12px; color: var(--muted); }
+
+/* --- тост (Dock.svelte) --- */
+.toast { display: inline-flex; align-items: center; gap: 8px; background: var(--side); color: var(--side-ink); border-radius: var(--radius); padding: 9px 8px 9px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 25%); line-height: 1.35; font-size: 13px; max-width: 420px; }
+.toast.warn { border-left: 4px solid var(--side-warn); }
+.toast .act { color: inherit; text-decoration: underline; text-underline-offset: 3px; font-weight: 600; padding: 0 6px; white-space: nowrap; }
+.toast .close { color: var(--side-muted); padding: 0 6px; font-size: 16px; }
+.toasts { position: absolute; right: 14px; bottom: 14px; z-index: 4; }
+
+/* --- контекстное меню (RowMenu.svelte) --- */
+.menu { position: absolute; background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 22%); padding: 4px; min-width: 230px; z-index: 5; font-size: 13px; }
+.menu .mi { display: flex; align-items: center; gap: 9px; padding: 5px 9px; border-radius: 5px; white-space: nowrap; }
+.menu .mi .ic { width: 16px; color: var(--muted); text-align: center; }
+.menu .mi kbd { margin-left: auto; }
+.menu .mi.hl { background: var(--selected); font-weight: 600; }
+.menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+.sheet { background: var(--sheet); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5; }
+.sheet h5 { margin: 0 0 4px; font-size: 14px; }
+.sheet .acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.sheet .field { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--paper); display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; }
+
+/* --- блок вопросов --- */
+.qs { margin-top: 48px; background: #fff; border: 2px solid #1f2a37; border-radius: 10px; padding: 18px 24px 20px; }
+.qs h2 { margin: 0 0 8px; font-size: 21px; }
+.qs table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.qs th, .qs td { border-top: 1px solid #e4ddcf; padding: 7px 8px; text-align: left; vertical-align: top; line-height: 1.45; }
+.qs th { font-size: 12px; color: #5a626c; border-top: none; }
+.qs td.n { font-family: ui-monospace, Consolas, monospace; font-weight: 700; white-space: nowrap; }
+.qs td.r { white-space: nowrap; font-weight: 700; color: #2e7d4f; }
+.qs .reply { margin-top: 14px; padding: 10px 14px; background: #ece8e1; border-radius: 8px; font-family: ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+<div class="doc">
+
+<h1>Депеша 0.7.2 — застрявшая копия и «Вернуть сейчас»</h1>
+<p class="lead">Макеты к двум заявкам: <b>#88</b> (копия в «Отправленные» не проходит) и <b>#93</b> (вернуть отложенное письмо раньше срока). У каждого вопроса номер, у каждого варианта буква. В конце — блок «Вопросы», по нему можно ответить коротко: «1.1 Б, 1.2 А…». Отдельные варианты не исключают друг друга там, где это сказано. Данные вымышленные.</p>
+
+<!-- ======================================================================= -->
+<h2 class="screen">Экран 1. #88 — копия в «Отправленные» не проходит</h2>
+<div class="ctx"><b>Что происходит сейчас.</b> Депеша отправила письмо, но сохранить его копию в «Отправленные» на сервере не может: ящик переполнен, лимит на размер письма, папку удалили или переименовали. Копия повторяется раз в 30 минут без конца; письмо в 25 МБ каждый раз уходит на сервер заново (около 1,2 ГБ в сутки), каждый раз появляется красная задача.<br><b>Что хотим.</b> Отступ между попытками растёт (30 мин → 2 ч → 6 ч), после нескольких постоянных отказов Депеша <b>останавливается и ждёт пользователя</b>, письмо заново не загружает. Письмо самому адресату уже ушло — под угрозой только копия.</div>
+
+<h3 class="q"><span class="n">1.1</span>Где пользователь видит остановившуюся копию</h3>
+<div class="vars">
+
+<div class="var rec">
+<p class="tag"><i>А</i> Задача в панели задач <em>(как сейчас, но не красная)</em></p>
+<div class="app tall theme" style="min-height:360px">
+  <div class="side">
+    <div class="it">Входящие<span class="n">12</span></div><div class="it">Отложенные</div><div class="it">Ждут ответа</div>
+    <div class="it on">Отправленные</div><div class="it">Архив</div>
+    <div class="acct">work@example.ru</div>
+  </div>
+  <div class="listcol" style="flex:1;width:auto">
+    <div class="list-title"><b>Отправленные</b><span class="cnt">48</span></div>
+    <div class="row"><div class="l1"><b>Иванов П.</b><span class="when">10:41</span></div><div class="l2">Договор, правки — 25 МБ вложений</div></div>
+    <div class="row"><div class="l1"><b>Смирнова А.</b><span class="when">вчера</span></div><div class="l2">Re: Счёт за сентябрь</div></div>
+  </div>
+  <div class="tasks">
+    <h3>Фоновые задачи</h3>
+    <h4>Ждут вас</h4>
+    <div class="task stuck">
+      <div class="line"><span class="tskico">⏸</span><span class="label">Копия не сохранена: «Договор, правки»</span><span class="spacer"></span><span class="btn ghost icon">×</span></div>
+      <div class="small">Сервер не принимает копию в «Отправленные»: ящик переполнен. Письмо адресату ушло. Депеша перестала пробовать после 3 попыток.</div>
+      <div class="small err">NO [OVERQUOTA] Mailbox is full</div>
+      <div class="acts"><span class="btn small">Повторить</span><span class="btn small">Сохранить .eml</span></div>
+    </div>
+    <h4>Ящики</h4>
+    <div class="acc">● work@example.ru · проверено 10:55</div>
+  </div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Уже есть место для таких задач, ничего нового в окне.</li><li><span class="plus">+</span> Не мешает читать почту.</li><li><span class="minus">−</span> Панель закрыта — пользователь не узнает, пока не откроет её.</li><li><span class="minus">−</span> Без значка у ящика легко пропустить.</li></ul>
+</div>
+
+<div class="var">
+<p class="tag"><i>Б</i> Баннер над списком «Отправленные»</p>
+<div class="app tall theme" style="min-height:360px">
+  <div class="side">
+    <div class="it">Входящие<span class="n">12</span></div><div class="it">Отложенные</div><div class="it">Ждут ответа</div>
+    <div class="it on">Отправленные</div><div class="it">Архив</div>
+    <div class="acct">work@example.ru</div>
+  </div>
+  <div class="listcol" style="flex:1;width:auto">
+    <div class="list-title"><b>Отправленные</b><span class="cnt">48</span></div>
+    <div class="banner"><span class="ico">⚠</span><span class="txt"><b>1 копия не сохранилась на сервере.</b> В «Отправленные» ящика она не попала: ящик переполнен.</span><span class="btns"><span class="btn small">Повторить</span><span class="btn small">Сохранить .eml</span></span></div>
+    <div class="row"><div class="l1"><b>Иванов П.</b><span class="when">10:41</span></div><div class="l2"><span class="chip warn">нет копии</span> Договор, правки — 25 МБ</div></div>
+    <div class="row"><div class="l1"><b>Смирнова А.</b><span class="when">вчера</span></div><div class="l2">Re: Счёт за сентябрь</div></div>
+  </div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Видно ровно там, где человек ищет своё письмо.</li><li><span class="plus">+</span> Письмо в списке помечено «нет копии».</li><li><span class="minus">−</span> Новый элемент в списке, нужно сделать и поддерживать.</li><li><span class="minus">−</span> Не виден, пока не зашёл в «Отправленные».</li></ul>
+</div>
+
+<div class="var">
+<p class="tag"><i>В</i> Значок у ящика + задача</p>
+<div class="app tall theme" style="min-height:360px">
+  <div class="side">
+    <div class="it">Входящие<span class="n">12</span></div><div class="it">Отложенные</div><div class="it">Ждут ответа</div>
+    <div class="it">Отправленные</div><div class="it">Архив</div>
+    <div class="acct warn">work@example.ru<span class="warnmark" title="Копия не сохранена">⚠</span></div>
+    <div class="it" style="font-size:11.5px;color:var(--side-warn)">Копия не сохранена</div>
+  </div>
+  <div class="listcol" style="flex:1;width:auto">
+    <div class="list-title"><b>Входящие</b><span class="cnt">12</span></div>
+    <div class="row sel"><div class="l1"><b>Петров С.</b><span class="when">11:02</span></div><div class="l2">Согласование сроков</div></div>
+    <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">10:30</span></div><div class="l2">Акт сверки</div></div>
+  </div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Видно из любой папки, даже когда читаешь «Входящие».</li><li><span class="plus">+</span> Не требует открывать «Отправленные».</li><li><span class="minus">−</span> Значок без объяснения — нужен щелчок, чтобы узнать причину (откроется та же задача).</li><li><span class="minus">−</span> Сайдбар ящика получает ещё одно состояние.</li></ul>
+</div>
+
+</div>
+<p class="cap">Варианты можно складывать: «А+В» — задача в панели и значок у ящика, одно ведёт к другому.</p>
+
+<!-- 1.2 -->
+<h3 class="q"><span class="n">1.2</span>Текст сообщения и какие действия предложить</h3>
+<p class="lead">Причина берётся из ответа сервера (моноширинным шрифтом под текстом), а выше — простыми словами. Письмо адресату уже ушло — это написано первой строкой, чтобы не пугать.</p>
+<div class="vars">
+
+<div class="var rec">
+<p class="tag"><i>А</i> Два действия <em>(по заявке)</em></p>
+<div class="sheet theme">
+  <h5>Копия не сохранена в «Отправленные»</h5>
+  Письмо «Договор, правки» ушло адресату. Но сохранить его копию на сервере не получается: <b>ящик переполнен</b>. Депеша остановила попытки, чтобы не гонять 25 МБ впустую.
+  <div class="task" style="margin-top:6px"><div class="small err" style="margin:0">NO [OVERQUOTA] Mailbox is full</div></div>
+  <div class="acts"><span class="btn primary small">Повторить</span><span class="btn small">Сохранить .eml</span></div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Просто: две кнопки, понятно что делать.</li><li><span class="plus">+</span> «Сохранить .eml» — копия остаётся у человека.</li><li><span class="minus">−</span> Если папку удалили, «Повторить» не поможет, пока человек сам не восстановит её.</li></ul>
+</div>
+
+<div class="var">
+<p class="tag"><i>Б</i> + «Выбрать другую папку»</p>
+<div class="sheet theme">
+  <h5>Копия не сохранена в «Отправленные»</h5>
+  Письмо «Договор, правки» ушло адресату. Папки «Отправленные» на сервере нет: <b>сервер не находит её</b>.
+  <div class="task" style="margin-top:6px"><div class="small err" style="margin:0">NO [TRYCREATE] Mailbox doesn't exist: Sent</div></div>
+  <div class="acts"><span class="btn primary small">Повторить</span><span class="btn small">Выбрать другую папку…</span><span class="btn small">Сохранить .eml</span></div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Закрывает случай «папку удалили или переименовали».</li><li><span class="plus">+</span> Копия остаётся на сервере.</li><li><span class="minus">−</span> Три кнопки; нужен выбор папки и запоминание выбора для ящика (больше кода и тестов).</li><li><span class="minus">−</span> При переполненном ящике бесполезна.</li></ul>
+</div>
+
+<div class="var">
+<p class="tag"><i>В</i> + «Не сохранять копию»</p>
+<div class="sheet theme">
+  <h5>Копия не сохранена в «Отправленные»</h5>
+  Письмо «Договор, правки» ушло адресату. Копию сервер не принимает: <b>ящик переполнен</b>.
+  <div class="task" style="margin-top:6px"><div class="small err" style="margin:0">NO [OVERQUOTA] Mailbox is full</div></div>
+  <div class="acts"><span class="btn primary small">Повторить</span><span class="btn small">Сохранить .eml</span><span class="btn ghost small">Не сохранять копию</span></div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Человек может закрыть вопрос и убрать задачу навсегда.</li><li><span class="plus">+</span> Нет «вечной» задачи, если копия не нужна.</li><li><span class="minus">−</span> Можно нажать по ошибке и потерять копию (поэтому лучше спрашивать подтверждение, или предлагать только вместе с «Сохранить .eml»).</li></ul>
+</div>
+
+</div>
+<p class="cap">Действия можно сочетать, например «А + Не сохранять» из В. Вопрос 1.2 — это набор кнопок, не только одна.</p>
+
+<!-- 1.3 -->
+<h3 class="q"><span class="n">1.3</span>Как часто напоминать, пока не решено</h3>
+<div class="vars">
+
+<div class="var">
+<p class="tag"><i>А</i> Один раз</p>
+<div class="app theme" style="min-height:130px"><div class="pane"><p class="cap" style="margin:0">В момент остановки:</p></div>
+<div class="toasts"><div class="toast warn"><span>Копию письма «Договор, правки» сохранить не удалось</span><span class="act">Подробнее</span><span class="close">×</span></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> Не раздражает.</li><li><span class="minus">−</span> Пропустил тост — узнает только из панели задач; копии так и нет.</li></ul>
+</div>
+
+<div class="var rec">
+<p class="tag"><i>Б</i> Тост при запуске, пока задача висит</p>
+<div class="app theme" style="min-height:130px"><div class="pane"><p class="cap" style="margin:0">При каждом запуске Депеши, один раз за запуск:</p></div>
+<div class="toasts"><div class="toast warn"><span>Есть копии писем, которые не сохранены (1)</span><span class="act">Открыть</span><span class="close">×</span></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> Не навязчиво (раз за запуск) и не теряется.</li><li><span class="plus">+</span> Остаётся значок у ящика / задача между напоминаниями.</li><li><span class="minus">−</span> Тихий сервер, который «не решен», будет напоминать вечно — поэтому нужна кнопка «Не сохранять копию» из 1.2 В.</li></ul>
+</div>
+
+<div class="var">
+<p class="tag"><i>В</i> Раз в сутки, пока не решено</p>
+<div class="app theme" style="min-height:130px"><div class="pane"><p class="cap" style="margin:0">Раз в 24 часа:</p></div>
+<div class="toasts"><div class="toast warn"><span>Копии писем так и не сохранены (1 · третий день)</span><span class="act">Открыть</span><span class="close">×</span></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> Надёжно не забудешь.</li><li><span class="minus">−</span> Назойливо; для случая «хватит» нужен «Не сохранять».</li></ul>
+</div>
+
+</div>
+
+<!-- 1.4 -->
+<h3 class="q"><span class="n">1.4</span>Сколько постоянных отказов до остановки</h3>
+<div class="vars">
+<div class="var rec"><p class="tag"><i>А</i> 3 отказа <em>(30 мин → 2 ч → 6 ч → стоп)</em></p><ul class="pc"><li><span class="plus">+</span> Остановка в пределах суток, трафик не растёт.</li><li><span class="minus">−</span> Если сервер был недоступен несколько часов, пауза может наступить зря (различаем постоянные ошибки и временные).</li></ul></div>
+<div class="var"><p class="tag"><i>Б</i> 5 отказов <em>(30 мин → 1 ч → 2 ч → 4 ч → 8 ч → стоп)</em></p><ul class="pc"><li><span class="plus">+</span> Больше шансов, что временное исчезнет само.</li><li><span class="minus">−</span> Для письма в 25 МБ — пять лишних загрузок, около 125 МБ.</li></ul></div>
+<div class="var"></div>
+</div>
+
+<!-- ======================================================================= -->
+<h2 class="screen">Экран 2. #93 — «Вернуть сейчас» у отложенного письма</h2>
+<div class="ctx"><b>Что происходит сейчас.</b> У письма в «Ждут ответа» есть действие «Не ждать» — оно снимает ожидание и возвращает письмо. У письма в «Отложенных» такого нет: пока не придёт срок, письмо вернуть нельзя.<br><b>Что хотим.</b> Действие, которое возвращает письмо в исходную папку, снимает срок, переносит письмо обратно на сервере; отменяется через «Отменить» в тосте. Заодно: ручной перенос отложенного письма в другую папку снимает срок (не возвращает письмо обратно в назначенное время) — это проверка без выбора, в макете не показана.</div>
+
+<h3 class="q"><span class="n">2.1</span>Где расположено действие <em style="font-weight:400;font-size:13px">(можно выбрать несколько мест)</em></h3>
+<div class="vars">
+
+<div class="var rec">
+<p class="tag"><i>А</i> Кнопка в шапке открытого письма</p>
+<div class="app tall theme">
+  <div class="side"><div class="it">Входящие<span class="n">12</span></div><div class="it on">Отложенные<span class="n">3</span></div><div class="it">Ждут ответа</div><div class="it">Отправленные</div></div>
+  <div class="pane">
+    <div class="rhead"><span class="btn ghost icon">↩</span><span class="btn ghost icon">↪</span><span class="btn ghost icon">▣</span><span class="sp"></span><span class="btn hl">⏰ Вернуть сейчас <kbd>w</kbd></span></div>
+    <h4>Отчёт за квартал</h4><div class="meta">Петров С. · <span class="chip warn">вернётся завтра в 09:00</span></div>
+    <p>Коллеги, прикладываю отчёт, посмотрите до пятницы…</p>
+  </div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Рядом со срезом письма, видно, когда оно открыто.</li><li><span class="plus">+</span> Кнопка в шапке работает как «Готово» и другие.</li><li><span class="minus">−</span> Только при открытом письме.</li></ul>
+</div>
+
+<div class="var rec">
+<p class="tag"><i>Б</i> Пункт контекстного меню</p>
+<div class="app tall theme">
+  <div class="side"><div class="it">Входящие<span class="n">12</span></div><div class="it on">Отложенные<span class="n">3</span></div><div class="it">Ждут ответа</div><div class="it">Отправленные</div></div>
+  <div class="listcol" style="flex:1;width:auto">
+    <div class="list-title"><b>Отложенные</b><span class="cnt">3</span></div>
+    <div class="row sel"><div class="l1"><b>Петров С.</b><span class="when">завтра 09:00</span></div><div class="l2">Отчёт за квартал</div></div>
+    <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">пт 10:00</span></div><div class="l2">Акт сверки</div></div>
+  </div>
+  <div class="menu" style="left:250px;top:62px">
+    <div class="mi"><span class="ic">↩</span>Ответить<kbd>r</kbd></div>
+    <div class="mi"><span class="ic">↪</span>Переслать<kbd>f</kbd></div><hr>
+    <div class="mi hl"><span class="ic">⏰</span>Вернуть сейчас<kbd>w</kbd></div>
+    <div class="mi"><span class="ic">▣</span>Готово<kbd>e</kbd></div>
+    <div class="mi"><span class="ic">🗁</span>Переместить в папку…</div>
+  </div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Работает по выделенному и сразу для нескольких писем.</li><li><span class="plus">+</span> В меню уже живут «Готово» и «Метки».</li><li><span class="minus">−</span> Не очевидно, если не знаешь про правый щелчок.</li></ul>
+</div>
+
+<div class="var">
+<p class="tag"><i>В</i> Кнопка при наведении в списке «Отложенных»</p>
+<div class="app tall theme">
+  <div class="side"><div class="it">Входящие<span class="n">12</span></div><div class="it on">Отложенные<span class="n">3</span></div><div class="it">Ждут ответа</div><div class="it">Отправленные</div></div>
+  <div class="listcol" style="flex:1;width:auto">
+    <div class="list-title"><b>Отложенные</b><span class="cnt">3</span></div>
+    <div class="row hov"><div class="l1"><b>Петров С.</b><span class="when">завтра 09:00</span></div><div class="l2">Отчёт за квартал</div><div class="hoverbar"><span class="btn small hl">⏰ Вернуть</span><span class="btn ghost icon">▣</span></div></div>
+    <div class="row"><div class="l1"><b>Бухгалтерия</b><span class="when">пт 10:00</span></div><div class="l2">Акт сверки</div></div>
+    <div class="row"><div class="l1"><b>Смирнова А.</b><span class="when">сб 08:00</span></div><div class="l2">Приглашение</div></div>
+  </div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> Быстро, не открывая письма: наведи и нажми.</li><li><span class="plus">+</span> Удобно разбирать всю папку «Отложенные».</li><li><span class="minus">−</span> На сенсорных экранах нет наведения.</li><li><span class="minus">−</span> В список добавляется ещё одна панель кнопок (место, тесты).</li></ul>
+</div>
+
+</div>
+
+<h3 class="q"><span class="n">2.2</span>Как назвать действие</h3>
+<div class="vars">
+<div class="var rec"><p class="tag"><i>А</i> «Вернуть сейчас»</p><ul class="pc"><li><span class="plus">+</span> Название из заявки; понятно по смыслу «раньше срока».</li><li><span class="plus">+</span> Подходит для любой исходной папки.</li><li><span class="minus">−</span> Не говорит, куда вернётся письмо.</li></ul></div>
+<div class="var"><p class="tag"><i>Б</i> «Не откладывать»</p><ul class="pc"><li><span class="plus">+</span> Рифмуется с «Не ждать» — единый строй.</li><li><span class="plus">+</span> Коротко.</li><li><span class="minus">−</span> Звучит как отказ откладывать вперёд, а не как «верни сейчас».</li></ul></div>
+<div class="var"><p class="tag"><i>В</i> «Вернуть во „Входящие“»</p><ul class="pc"><li><span class="plus">+</span> Сразу видно, куда пойдёт письмо.</li><li><span class="minus">−</span> Письмо возвращается в <b>исходную</b> папку: оно не всегда из «Входящих», название бывает неверным.</li><li><span class="minus">−</span> Длинное для кнопки.</li></ul></div>
+</div>
+
+<h3 class="q"><span class="n">2.3</span>Клавиша</h3>
+<div class="ctx">Заняты в основном окне (<code>src/lib/keyCommands.ts</code>): <kbd>c</kbd> <kbd>/</kbd> <kbd>z</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>r</kbd> <kbd>a</kbd> <kbd>f</kbd> <kbd>e</kbd> <kbd>Delete</kbd> <kbd>#</kbd> <kbd>!</kbd> <kbd>u</kbd> <kbd>s</kbd> <kbd>l</kbd> <kbd>Mod+a</kbd> <kbd>Mod+,</kbd> <kbd>Mod+q</kbd>. У «Не ждать» своей клавиши пока нет. Клавишу всегда можно сменить в настройках сочетаний.</div>
+<div class="vars">
+<div class="var rec"><p class="tag"><i>А</i> <kbd>w</kbd> — одна клавиша на «Не ждать» и «Вернуть сейчас»</p><ul class="pc"><li><span class="plus">+</span> Одна клавиша на «вернуть, что ждало»: в «Ждут ответа» — «Не ждать», в «Отложенных» — «Вернуть сейчас».</li><li><span class="plus">+</span> <kbd>w</kbd> свободна; в русской раскладке это <kbd>ц</kbd>, тоже не занята.</li><li><span class="minus">−</span> Одна команда в настройках сочетаний, а действий два.</li></ul></div>
+<div class="var"><p class="tag"><i>Б</i> <kbd>b</kbd> — только «Вернуть сейчас»</p><ul class="pc"><li><span class="plus">+</span> Отдельная команда со своей строкой в настройках.</li><li><span class="minus">−</span> У «Не ждать» окажется другая клавиша или никакой — рассинхрон.</li></ul></div>
+<div class="var"><p class="tag"><i>В</i> Без клавиши по умолчанию</p><ul class="pc"><li><span class="plus">+</span> Ни с чем не конфликтует.</li><li><span class="minus">−</span> Заявка просит клавишу «по аналогии»; не все заглянут в настройки.</li></ul></div>
+</div>
+
+<h3 class="q"><span class="n">2.4</span>Текст тоста после действия</h3>
+<div class="vars">
+<div class="var"><p class="tag"><i>А</i> Короткий</p>
+<div class="app theme" style="min-height:90px"><div class="toasts" style="left:14px;right:auto;bottom:24px"><div class="toast"><span>Письмо возвращено</span><span class="act">Отменить</span><span class="close">×</span></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> Без лишнего.</li><li><span class="minus">−</span> Не сказано, какое письмо и куда.</li></ul></div>
+<div class="var rec"><p class="tag"><i>Б</i> С темой письма и папкой</p>
+<div class="app theme" style="min-height:90px"><div class="toasts" style="left:14px;right:auto;bottom:24px"><div class="toast"><span>Возвращено во «Входящие»: Отчёт за квартал</span><span class="act">Отменить</span><span class="close">×</span></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> Тот же строй, что у существующего «В „Ждут ответа“: Тема».</li><li><span class="plus">+</span> Видно, что вернулось и куда; <kbd>z</kbd> тоже отменяет.</li><li><span class="minus">−</span> Длиннее; для нескольких писем — «Возвращено писем: 3».</li></ul></div>
+<div class="var"></div>
+</div>
+
+<!-- ======================================================================= -->
+<div class="qs">
+<h2>Вопросы</h2>
+<p class="lead" style="margin-top:0">Ответить можно так: «1.1 А+В, 1.2 А, 1.3 Б, 1.4 А, 2.1 А+Б, 2.2 А, 2.3 А, 2.4 Б». Зелёное — мой выбор.</p>
+<table>
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую</th><th>Почему</th></tr>
+<tr><td class="n">1.1</td><td>Где видна остановившаяся копия</td><td>А задача в панели · Б баннер над «Отправленными» · В значок у ящика</td><td class="r">А + В</td><td>Задача и так есть, значок решает «не открыл панель». Баннер (Б) — новый элемент списка, пока лишний.</td></tr>
+<tr><td class="n">1.2</td><td>Текст и действия</td><td>А «Повторить» + «Сохранить .eml» · Б + «Выбрать другую папку» · В + «Не сохранять копию»</td><td class="r">А + «Не сохранять» из В</td><td>«Другая папка» — отдельная возня (выбор, запоминание). «Не сохранять» нужен, чтобы закрыть вопрос навсегда, иначе напоминание вечное.</td></tr>
+<tr><td class="n">1.3</td><td>Как часто напоминать</td><td>А один раз · Б при запуске, пока не решено · В раз в сутки</td><td class="r">Б</td><td>Не пропадает и не назойливо; между запусками тихо держит значок.</td></tr>
+<tr><td class="n">1.4</td><td>Отказов до остановки</td><td>А 3 (30 мин → 2 ч → 6 ч) · Б 5</td><td class="r">А</td><td>Трафик ограничен уже в первые сутки; 25 МБ × 5 — лишнее.</td></tr>
+<tr><td class="n">2.1</td><td>Где действие (можно несколько)</td><td>А шапка письма · Б контекстное меню · В кнопка при наведении</td><td class="r">А + Б</td><td>Те же места, где живут «Готово» и «Метки»; наведение (В) — лишняя панель в списке.</td></tr>
+<tr><td class="n">2.2</td><td>Название</td><td>А «Вернуть сейчас» · Б «Не откладывать» · В «Вернуть во „Входящие“»</td><td class="r">А</td><td>Как в заявке; письмо возвращается в исходную папку, не всегда во «Входящие».</td></tr>
+<tr><td class="n">2.3</td><td>Клавиша</td><td>А <kbd>w</kbd> (общая с «Не ждать») · Б <kbd>b</kbd> · В без клавиши</td><td class="r">А</td><td>Одна клавиша на «вернуть, что ждало»; <kbd>w</kbd>/<kbd>ц</kbd> свободны.</td></tr>
+<tr><td class="n">2.4</td><td>Тост</td><td>А «Письмо возвращено · Отменить» · Б «Возвращено во „Входящие“: Тема · Отменить»</td><td class="r">Б</td><td>Совпадает с уже существующими тостами про «Ждут ответа».</td></tr>
+</table>
+<div class="reply">Ответ одной строкой: 1.1 _, 1.2 _, 1.3 _, 1.4 _, 2.1 _, 2.2 _, 2.3 _, 2.4 _</div>
+</div>
+
+</div>
+</body>
+</html>
