@@ -317,13 +317,17 @@ mod tests {
 
     #[test]
     fn a_patch_changes_only_the_keys_it_names() {
-        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        let mut base = Settings::default();
+        base.keybindings.custom.insert("core.reply".into(), vec!["q".into()]);
+        let mut value = serde_json::to_value(&base).unwrap();
         merge(
             &mut value,
             serde_json::json!({ "dnd_until": 123, "keybindings": { "custom": {}, "dismissed": ["snooze.open:h"] } }),
         );
         let merged: Settings = serde_json::from_value(value).unwrap();
         assert_eq!(merged.dnd_until, 123);
+        // An empty object is a value like any other: it clears the key it names («Reset»).
+        assert!(merged.keybindings.custom.is_empty());
         assert_eq!(merged.keybindings.dismissed, vec!["snooze.open:h".to_string()]);
         // The keys the patch does not name keep what they had.
         assert_eq!(merged.undo_send_secs, Settings::default().undo_send_secs);
