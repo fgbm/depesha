@@ -1031,6 +1031,7 @@ dependencies = [
  "depesha-core",
  "keyring",
  "notify-rust",
+ "ring",
  "serde",
  "serde_json",
  "sys-locale",

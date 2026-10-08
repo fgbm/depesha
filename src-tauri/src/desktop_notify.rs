@@ -104,22 +104,23 @@ pub struct Open {
     pub gone: Option<Gone>,
 }
 
-/// Whether two Message-IDs name the same letter; the cache may keep the angle brackets
-/// or not, and a letter without one matches anything.
+/// Whether two Message-IDs name the same letter; the cache may keep the angle brackets or
+/// not. A Message-ID missing on either side is not a match: a letter that has none cannot be
+/// told from another.
 fn same_message(a: Option<&str>, b: Option<&str>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a.trim_matches(['<', '>']) == b.trim_matches(['<', '>']),
-        _ => true,
+        _ => false,
     }
 }
 
 /// The target as the cache has it now: the letter where it is, found again by its
-/// Message-ID after a move, or gone. `in_place` answers a cached letter's folder and
-/// Message-ID; `find` a letter by account and Message-ID anywhere; `find_in` the copy in
-/// one folder.
+/// Message-ID after a move, or gone. `in_place` answers a cached letter's mailbox, folder and
+/// Message-ID; `find` a letter by account and Message-ID anywhere; `find_in` the copy in one
+/// folder.
 pub fn resolve(
     target: &Target,
-    in_place: impl Fn(i64) -> Option<(String, Option<String>)>,
+    in_place: impl Fn(i64) -> Option<(String, String, Option<String>)>,
     find: impl Fn(&str, &str) -> Option<(i64, String)>,
     find_in: impl Fn(&str, &str, &str) -> Option<(i64, String)>,
 ) -> Open {
@@ -132,11 +133,21 @@ pub fn resolve(
         gone: None,
     };
     let Some(id) = target.id else {
+        // A summary: keep only letters of the mailbox the notification named (of any when it
+        // named none). A number that is not there, or belongs to another mailbox, does not
+        // tint a row.
+        open.ids.retain(|&id| match (&target.account_id, in_place(id)) {
+            (Some(account), Some((row_account, _, _))) => row_account == *account,
+            (None, Some(_)) => true,
+            _ => false,
+        });
         return open;
     };
-    // The id is the letter the notification was about only when the Message-ID matches:
-    // an id freed by a deletion and taken by a new letter must not open that letter.
-    if let Some((folder, message_id)) = in_place(id)
+    // The id is the letter the notification was about only when it is still in the same
+    // mailbox and the Message-ID matches: an id freed by a deletion and taken by a new
+    // letter must not open that letter.
+    if let Some((account, folder, message_id)) = in_place(id)
+        && target.account_id.as_deref() == Some(account.as_str())
         && same_message(message_id.as_deref(), target.message_id.as_deref())
     {
         open.folder = Some(folder);
@@ -524,7 +535,7 @@ fn resolve_target(state: &AppState, target: &Target) -> Open {
     let store = &state.store;
     resolve(
         target,
-        |id| store.get(id).ok().flatten().map(|r| (r.folder, r.message_id)),
+        |id| store.get(id).ok().flatten().map(|r| (r.account_id, r.folder, r.message_id)),
         |account, mid| {
             let id = store.find_any_by_message_id(account, mid).ok().flatten()?;
             Some((id, store.get(id).ok().flatten()?.folder))
@@ -534,10 +545,11 @@ fn resolve_target(state: &AppState, target: &Target) -> Open {
 }
 
 /// A `depesha://` URL at runtime (a toast click from a second process): the window comes
-/// forward and the main window turns to what the URL names. An unknown URL is ignored:
-/// this is an entry from outside, anyone can open a `depesha://` link.
+/// forward and the main window turns to what the URL names. Only a link the app itself
+/// signed does that: this is an entry from outside, anyone can open a `depesha://` link, and
+/// any other one only brings the window forward.
 pub fn open_url(app: &AppHandle, url: &str) {
-    match parse_url(url) {
+    match parse_signed_url(url) {
         None => {}
         Some(Route::Window) => crate::background::show_main(app),
         Some(Route::Target(target)) => clicked(app, Some(target)),
@@ -548,10 +560,67 @@ pub fn open_url(app: &AppHandle, url: &str) {
 /// resolved against the cache; `None` when it only brings the window or is unknown. The
 /// main window asks for it once it listens, so the event is not lost to the page loading.
 pub fn open_from_url(state: &AppState, url: &str) -> Option<Open> {
-    match parse_url(url)? {
+    match parse_signed_url(url)? {
         Route::Window => None,
         Route::Target(target) => Some(resolve_target(state, &target)),
     }
+}
+
+/// The route a `depesha://` URL asks for once its signature is checked. An unknown URL is
+/// `None`; a known one without a signature of the app, or with a bad one, reads as
+/// [`Route::Window`]: it only brings the window forward, never names mail.
+fn parse_signed_url(url: &str) -> Option<Route> {
+    let route = parse_url(url)?;
+    let signed = url::Url::parse(url)
+        .ok()
+        .and_then(|u| query(&u, "sig"))
+        .is_some_and(|sig| crate::install_secret::verify(signed_text(&route).as_bytes(), &sig));
+    Some(if signed { route } else { Route::Window })
+}
+
+/// The bytes a link's signature covers: the path and parameters of its route in a canonical
+/// form, computed the same way by the link the app makes and by the check of one that
+/// arrives, so the two cannot drift over an encoding. The mailbox is the decoded one and the
+/// letters are their numbers.
+fn signed_text(route: &Route) -> String {
+    match route {
+        Route::Window => "open".to_owned(),
+        Route::Target(t) if t.outbox => "outbox".to_owned(),
+        Route::Target(t) => match (&t.account_id, t.id) {
+            (Some(account), Some(id)) => {
+                let mut text = format!("message\n{account}\n{id}");
+                if let Some(mid) = &t.message_id {
+                    text.push('\n');
+                    text.push_str(mid);
+                }
+                text
+            }
+            _ => {
+                let mut text = match &t.account_id {
+                    Some(account) => format!("inbox\n{account}"),
+                    None => "inbox".to_owned(),
+                };
+                if !t.ids.is_empty() {
+                    let ids: Vec<String> = t.ids.iter().map(|id| id.to_string()).collect();
+                    text.push('\n');
+                    text.push_str(&ids.join(","));
+                }
+                text
+            }
+        },
+    }
+}
+
+/// The `depesha://` URL of a link body, with the signature of its route. Without a secret the
+/// signature is empty and the URL goes out unsigned (it will only bring the window forward).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn signed_url(core: &str, route: &Route) -> String {
+    let sig = crate::install_secret::sign(signed_text(route).as_bytes());
+    if sig.is_empty() {
+        return format!("depesha://{core}");
+    }
+    let sep = if core.contains('?') { '&' } else { '?' };
+    format!("depesha://{core}{sep}sig={sig}")
 }
 
 /// How long a `depesha://` URL may be. Windows caps a toast's `launch` at 512, but a link
@@ -578,7 +647,8 @@ pub enum Route {
 /// own parameter with a length limit. Anything else — a foreign scheme, an unknown path, a
 /// malformed value, too long a URL — is `None`.
 ///
-/// * `depesha://message/<account>/<id>?mid=<message-id>` — one letter;
+/// * `depesha://message/<account>/<id>?mid=<message-id>` — one letter; the `mid` is required,
+///   and one that does not decode refuses the URL (the id alone names a reused row);
 /// * `depesha://inbox/<account>?ids=<id,id,…>` — one mailbox's summary;
 /// * `depesha://inbox?ids=<id,id,…>` — all inboxes;
 /// * `depesha://outbox` — the Outbox;
@@ -605,16 +675,18 @@ pub fn parse_url(url: &str) -> Option<Route> {
             if id <= 0 || parts.next().is_some() {
                 return None;
             }
-            let message_id = match query(&u, "mid") {
-                Some(mid) if mid.len() > MESSAGE_ID_MAX => return None,
-                mid => mid,
-            };
+            // The Message-ID tells the letter apart from a row that took its id since; it is
+            // not optional, and one that does not decode refuses the whole URL.
+            let message_id = query(&u, "mid")?;
+            if message_id.is_empty() || message_id.len() > MESSAGE_ID_MAX {
+                return None;
+            }
             Some(Route::Target(Target {
                 account_id: Some(account_id),
                 folder: Some("INBOX".into()),
                 id: Some(id),
                 ids: vec![id],
-                message_id,
+                message_id: Some(message_id),
                 subject: String::new(),
                 from_email: String::new(),
                 outbox: false,
@@ -880,6 +952,10 @@ mod windows_toast {
     /// Windows refuses a toast whose `launch` is over 512 characters, so a summary's
     /// letters go in only while they fit.
     const LAUNCH_MAX: usize = 500;
+    /// What a signed URL adds around its body: `depesha://`, `&sig=`, and the 43 characters
+    /// of the URL-safe base64 of a 32-byte HMAC tag (reserved so the id list cannot push the
+    /// signature over the limit).
+    const SIGNED_OVERHEAD: usize = "depesha://".len() + "&sig=".len() + 43;
 
     /// The AppUserModelID of the installed app is its identifier (the installer's shortcut
     /// carries it); a build run from `target/` has none, and borrows PowerShell's.
@@ -897,26 +973,27 @@ mod windows_toast {
 
     /// The `depesha://` URL a click opens: a letter by its id and Message-ID, a summary by
     /// its mailbox (or all inboxes) and the new letters, the Outbox by name, anything else
-    /// just brings the window. Windows opens it as a new process; single-instance hands it
-    /// to the running app, and with the app closed it starts Depesha.
+    /// just brings the window. The URL carries the signature of the route, so only a link the
+    /// app made opens mail. Windows opens it as a new process; single-instance hands it to the
+    /// running app, and with the app closed it starts Depesha.
     pub(super) fn launch_url(target: Option<&Target>) -> String {
         let Some(t) = target else {
-            return "depesha://open".to_owned();
+            return super::signed_url("open", &super::Route::Window);
         };
         if t.outbox {
-            return "depesha://outbox".to_owned();
+            return super::signed_url("outbox", &super::Route::Target(t.clone()));
         }
         if let (Some(account), Some(id)) = (&t.account_id, t.id) {
-            let mut url = format!("depesha://message/{}/{}", enc(account), id);
+            let mut body = format!("message/{}/{}", enc(account), id);
             if let Some(mid) = t.message_id.as_deref() {
-                url.push_str("?mid=");
-                url.push_str(&enc(mid));
+                body.push_str("?mid=");
+                body.push_str(&enc(mid));
             }
-            return url;
+            return super::signed_url(&body, &super::Route::Target(t.clone()));
         }
-        let mut url = match &t.account_id {
-            Some(account) => format!("depesha://inbox/{}", enc(account)),
-            None => "depesha://inbox".to_owned(),
+        let mut body = match &t.account_id {
+            Some(account) => format!("inbox/{}", enc(account)),
+            None => "inbox".to_owned(),
         };
         let mut listed = String::new();
         for id in t.ids.iter().take(IDS_MAX) {
@@ -925,16 +1002,16 @@ mod windows_toast {
             } else {
                 format!("{listed},{id}")
             };
-            if url.len() + "?ids=".len() + next.len() > LAUNCH_MAX {
+            if SIGNED_OVERHEAD + body.len() + "?ids=".len() + next.len() > LAUNCH_MAX {
                 break;
             }
             listed = next;
         }
         if !listed.is_empty() {
-            url.push_str("?ids=");
-            url.push_str(&listed);
+            body.push_str("?ids=");
+            body.push_str(&listed);
         }
-        url
+        super::signed_url(&body, &super::Route::Target(t.clone()))
     }
 
     /// The toast XML, built through the DOM so the sender and the subject go in as text
@@ -1188,7 +1265,7 @@ mod tests {
         // In place, the Message-ID matching.
         let open = resolve(
             &target(Some(7)),
-            |id| (id == 7).then(|| ("INBOX".into(), Some("<7@example.com>".into()))),
+            |id| (id == 7).then(|| ("a".into(), "INBOX".into(), Some("<7@example.com>".into()))),
             |_, _| None,
             |_, _, _| None,
         );
@@ -1227,7 +1304,7 @@ mod tests {
         // taken): the Message-ID says so, and the letter is found by it instead.
         let open = resolve(
             &target(Some(7)),
-            |_| Some(("INBOX".into(), Some("<other@example.com>".into()))),
+            |_| Some(("a".into(), "INBOX".into(), Some("<other@example.com>".into()))),
             |acc, mid| (acc == "a" && mid == "<7@example.com>").then(|| (99, "Archive".into())),
             |_, _, _| None,
         );
@@ -1235,7 +1312,21 @@ mod tests {
         // Found nowhere: the letter is told as gone, not opened as the id's new owner.
         let open = resolve(
             &target(Some(7)),
-            |_| Some(("INBOX".into(), Some("<other@example.com>".into()))),
+            |_| Some(("a".into(), "INBOX".into(), Some("<other@example.com>".into()))),
+            |_, _| None,
+            |_, _, _| None,
+        );
+        assert_eq!(open.id, None);
+        assert!(open.gone.is_some());
+    }
+
+    #[test]
+    fn an_id_in_another_mailbox_does_not_open_a_letter() {
+        // The row with this id now belongs to another mailbox (the rowids are per cache, not
+        // per mailbox): the mailbox says it is not the letter the notification was about.
+        let open = resolve(
+            &target(Some(7)),
+            |_| Some(("b".into(), "INBOX".into(), Some("<7@example.com>".into()))),
             |_, _| None,
             |_, _, _| None,
         );
@@ -1268,7 +1359,7 @@ mod tests {
         };
         let open = resolve(
             &summary,
-            |_| panic!("no letter to look up"),
+            |id| (1..=3).contains(&id).then(|| ("a".into(), "INBOX".into(), None)),
             |_, _| panic!("no letter to look up"),
             |_, _, _| panic!("no letter to look up"),
         );
@@ -1283,6 +1374,27 @@ mod tests {
                 gone: None
             }
         );
+    }
+
+    #[test]
+    fn a_summary_tints_only_letters_of_its_mailbox() {
+        // A number that is gone, or belongs to another mailbox, is dropped: the list tints
+        // only the letters the summary was really about.
+        let summary = Target {
+            ids: vec![1, 2, 3],
+            ..target(None)
+        };
+        let open = resolve(
+            &summary,
+            |id| match id {
+                1 => Some(("a".into(), "INBOX".into(), None)),
+                2 => Some(("b".into(), "INBOX".into(), None)),
+                _ => None,
+            },
+            |_, _| panic!("no letter to look up"),
+            |_, _, _| panic!("no letter to look up"),
+        );
+        assert_eq!(open.ids, vec![1]);
     }
 
     #[test]
@@ -1365,17 +1477,9 @@ mod tests {
                 ..Target::default()
             }))
         );
-        // A letter without a Message-ID still names its id.
-        assert_eq!(
-            parse_url("depesha://message/a/7"),
-            Some(Route::Target(Target {
-                account_id: Some("a".into()),
-                folder: Some("INBOX".into()),
-                id: Some(7),
-                ids: vec![7],
-                ..Target::default()
-            }))
-        );
+        // A letter without a Message-ID is refused: the id alone names a row that a new
+        // letter may have taken since.
+        assert_eq!(parse_url("depesha://message/a/7"), None);
     }
 
     #[test]
@@ -1393,6 +1497,9 @@ mod tests {
             "depesha://message/a/0",
             "depesha://message/a/-1",
             "depesha://message/a/7/extra",
+            "depesha://message/a/7",
+            "depesha://message/a/7?mid=",
+            "depesha://message/a/7?mid=%zz",
             "depesha://inbox/a/extra",
             "depesha://inbox?ids=1,x",
             "depesha://open/extra",
@@ -1407,12 +1514,13 @@ mod tests {
     fn an_outside_url_cannot_walk_the_cache() {
         // A traversal stays data: the mailbox is only ever looked up by its exact value.
         assert_eq!(
-            parse_url("depesha://message/..%2F..%2Fetc/7"),
+            parse_url("depesha://message/..%2F..%2Fetc/7?mid=%3C7%40x%3E"),
             Some(Route::Target(Target {
                 account_id: Some("../../etc".into()),
                 folder: Some("INBOX".into()),
                 id: Some(7),
                 ids: vec![7],
+                message_id: Some("<7@x>".into()),
                 ..Target::default()
             }))
         );
@@ -1428,17 +1536,8 @@ mod tests {
                 ..Target::default()
             }))
         );
-        // A broken escape is refused, not guessed at.
-        assert_eq!(
-            parse_url("depesha://message/a/7?mid=%zz"),
-            Some(Route::Target(Target {
-                account_id: Some("a".into()),
-                folder: Some("INBOX".into()),
-                id: Some(7),
-                ids: vec![7],
-                ..Target::default()
-            }))
-        );
+        // A broken escape in the Message-ID refuses the whole URL, not reads as none.
+        assert_eq!(parse_url("depesha://message/a/7?mid=%zz"), None);
         assert_eq!(parse_url("depesha://inbox/a%zz"), None);
     }
 
@@ -1466,41 +1565,87 @@ mod tests {
         );
     }
 
+    /// Only a link the app itself signed names mail: a `depesha://` link from anywhere else
+    /// — no signature, a forged one — only brings the window forward.
+    #[test]
+    fn only_a_link_the_app_signed_names_mail() {
+        crate::install_secret::init_with([9u8; 32]);
+        let one = Target {
+            account_id: Some("a".into()),
+            folder: Some("INBOX".into()),
+            id: Some(7),
+            ids: vec![7],
+            message_id: Some("<7@x>".into()),
+            ..Target::default()
+        };
+        let url = signed_url("message/a/7?mid=%3C7%40x%3E", &Route::Target(one.clone()));
+        assert!(url.contains("sig="), "{url}");
+        assert_eq!(parse_signed_url(&url), Some(Route::Target(one.clone())));
+        // Without a signature, and with a wrong one, only the window comes forward.
+        assert_eq!(
+            parse_signed_url("depesha://message/a/7?mid=%3C7%40x%3E"),
+            Some(Route::Window)
+        );
+        assert_eq!(
+            parse_signed_url("depesha://message/a/7?mid=%3C7%40x%3E&sig=AAAA"),
+            Some(Route::Window)
+        );
+        // The signature covers the route: another id does not pass under it.
+        assert_eq!(
+            parse_signed_url(&url.replace("a/7", "a/8")),
+            Some(Route::Window)
+        );
+        assert_eq!(
+            parse_signed_url("depesha://message/a/8?mid=%3C7%40x%3E&sig=AAAA"),
+            Some(Route::Window)
+        );
+        // An unknown URL is not even a window.
+        assert_eq!(parse_signed_url("depesha://other"), None);
+    }
+
     /// The `depesha://` URLs a toast opens; only Windows shows the toasts, so the test is
-    /// there too.
+    /// there too. Every URL carries the signature of its route, and reads back to it.
     #[cfg(windows)]
     #[test]
     fn a_toast_opens_its_letter_or_its_summary() {
-        assert_eq!(super::windows_toast::launch_url(None), "depesha://open");
+        crate::install_secret::init_with([1u8; 32]);
+        let url = super::windows_toast::launch_url(None);
+        assert!(url.starts_with("depesha://open"), "{url}");
+        assert_eq!(parse_signed_url(&url), Some(Route::Window));
         let outbox = Target {
             outbox: true,
             ..Target::default()
         };
-        assert_eq!(super::windows_toast::launch_url(Some(&outbox)), "depesha://outbox");
+        let url = super::windows_toast::launch_url(Some(&outbox));
+        assert!(url.starts_with("depesha://outbox"), "{url}");
+        assert_eq!(parse_signed_url(&url), Some(Route::Target(outbox.clone())));
         let one = Target {
             account_id: Some("a@x-1".into()),
+            folder: Some("INBOX".into()),
             id: Some(7),
+            ids: vec![7],
             message_id: Some("<7@x>".into()),
             ..Target::default()
         };
-        assert_eq!(
-            super::windows_toast::launch_url(Some(&one)),
-            "depesha://message/a%40x-1/7?mid=%3C7%40x%3E"
-        );
+        let url = super::windows_toast::launch_url(Some(&one));
+        assert!(url.starts_with("depesha://message/a%40x-1/7?mid=%3C7%40x%3E"), "{url}");
+        assert_eq!(parse_signed_url(&url), Some(Route::Target(one.clone())));
         let summary = Target {
             account_id: Some("a".into()),
+            folder: Some("INBOX".into()),
             ids: vec![3, 5],
             ..Target::default()
         };
-        assert_eq!(
-            super::windows_toast::launch_url(Some(&summary)),
-            "depesha://inbox/a?ids=3,5"
-        );
+        let url = super::windows_toast::launch_url(Some(&summary));
+        assert!(url.starts_with("depesha://inbox/a?ids=3,5"), "{url}");
+        assert_eq!(parse_signed_url(&url), Some(Route::Target(summary.clone())));
         let all = Target {
             ids: vec![3, 5],
             ..Target::default()
         };
-        assert_eq!(super::windows_toast::launch_url(Some(&all)), "depesha://inbox?ids=3,5");
+        let url = super::windows_toast::launch_url(Some(&all));
+        assert!(url.starts_with("depesha://inbox?ids=3,5"), "{url}");
+        assert_eq!(parse_signed_url(&url), Some(Route::Target(all.clone())));
     }
 
     /// The toast XML carries the launch and holds a subject as text, never as markup.

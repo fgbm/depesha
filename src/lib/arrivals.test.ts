@@ -140,7 +140,7 @@ describe("a click on a notification about letters that missed their time", () =>
 });
 
 describe("a click on a notification over the settings or a question", () => {
-  it("closes the settings, the tasks and a question on the way, without saving", async () => {
+  it("leaves the settings, the tasks and a question alone, and says the letter opened behind them", async () => {
     api.messages.mockResolvedValue([row(7)]);
     const s = await started();
     s.openSettings("general");
@@ -148,12 +148,17 @@ describe("a click on a notification over the settings or a question", () => {
     const answer = s.confirm({ text: "Discard the draft?", okLabel: "Discard" });
     emit("notification-open", letter(7));
     await flush();
-    expect(s.settingsOpen).toBe(false);
-    expect(s.tasksOpen).toBe(false);
-    expect(s.confirmation).toBeNull();
-    await expect(answer).resolves.toBe(false);
+    // Nothing is closed and nothing is saved: the overlays stay as they were.
+    expect(s.settingsOpen).toBe(true);
+    expect(s.tasksOpen).toBe(true);
+    expect(s.confirmation).not.toBeNull();
     expect(api.settingsPatch).not.toHaveBeenCalled();
+    // The letter opens behind them, and a word says so.
     expect([...s.selected]).toEqual([7]);
+    expect(s.toasts.some((x) => x.text === "The letter opened in the background.")).toBe(true);
+    // The question still waits for its answer.
+    s.confirmation?.resolve(null);
+    await expect(answer).resolves.toBe(false);
   });
 });
 

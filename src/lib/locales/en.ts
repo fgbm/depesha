@@ -1087,6 +1087,7 @@ export const en = {
   },
   "bg.sendNow": "Send now",
   "arrivals.gone": "«{subject}» is no longer in the Inbox: it was moved or deleted.",
+  "arrivals.background": "The letter opened in the background.",
   "arrivals.find": "Find",
   "arrivals.fresh": { one: "{n} new letter at the top of the list", other: "{n} new letters at the top of the list" },
   "arrivals.openFirst": "open the first",

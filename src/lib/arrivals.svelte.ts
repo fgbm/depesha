@@ -66,7 +66,11 @@ export class Arrivals {
   }
 
   async open(host: ArrivalsHost, p: NotificationOpen) {
-    closeOverlays(host);
+    // Settings open (maybe with edits not saved yet) or a question waiting: they stay, and
+    // the letter opens behind them with a word, instead of being dropped in silence.
+    if (host.confirmation !== null || host.settingsOpen || host.tasksOpen) {
+      host.toast(t("arrivals.background"));
+    }
     // A letter that missed its time waits in the Outbox: the notification opens it.
     if (p.outbox) {
       await host.setView({ kind: "outbox" });
@@ -110,13 +114,6 @@ export class Arrivals {
     // The first new row takes the keyboard, unopened: Enter opens it.
     this.focus = host.messages.find((m) => this.fresh.has(m.id))?.id ?? null;
   }
-}
-
-/** Settings, the tasks and a question on the way close without saving (decisions, #63). */
-function closeOverlays(host: ArrivalsHost) {
-  host.confirmation?.resolve(null);
-  host.settingsOpen = false;
-  host.tasksOpen = false;
 }
 
 /** A search for a letter gone from the inbox: by its sender and subject, in every folder. */

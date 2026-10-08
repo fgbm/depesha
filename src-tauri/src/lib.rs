@@ -5,6 +5,7 @@ mod desktop_notify;
 mod error;
 mod extensions;
 mod followups;
+mod install_secret;
 mod label_strip;
 mod outbox;
 mod paths;
@@ -100,6 +101,9 @@ pub fn run() {
             let log_dir = app.path().app_log_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             std::fs::create_dir_all(&log_dir)?;
+            // The links the app makes carry its signature; a `depesha://` link that has none
+            // of ours only brings the window forward.
+            install_secret::init(&data_dir.join("install-secret"));
             if let Some(guard) = init_logging(&log_dir) {
                 // Lives as long as the app: flushing the log on exit.
                 app.manage(guard);

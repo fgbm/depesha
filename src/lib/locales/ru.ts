@@ -1082,6 +1082,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   },
   "bg.sendNow": "Отправить сейчас",
   "arrivals.gone": "Письма «{subject}» уже нет во «Входящих» — его перенесли или удалили.",
+  "arrivals.background": "Письмо открыто в фоне.",
   "arrivals.find": "Найти",
   "arrivals.fresh": { one: "{n} новое письмо вверху списка", few: "{n} новых письма вверху списка", many: "{n} новых писем вверху списка", other: "{n} новых письма вверху списка" },
   "arrivals.openFirst": "открыть первое",
