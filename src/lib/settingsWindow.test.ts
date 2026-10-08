@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   COLUMN_MAX,
   MENU_WIDTH,
+  PAGE_KEYS,
   PAGE_TRAITS,
   WIN_GAP,
   WIN_MAX,
@@ -87,4 +88,33 @@ describe("leaving a page with unsaved changes", () => {
     expect(resolveLeave(false)).toBe("discard");
     expect(resolveLeave(null)).toBe("stay");
   });
+});
+
+describe("the fields a page saves", () => {
+  // Every field a page's panel edits must be one of that page's own keys, or «Save» leaves
+  // it behind: the Hints switch on «General» and the picture width on «Mail» were such a gap.
+  const panels: { file: string; pages: string[] }[] = [
+    { file: "GeneralPanel.svelte", pages: ["general", "updates"] },
+    { file: "HintsSection.svelte", pages: ["general"] },
+    { file: "MailPanel.svelte", pages: ["mail", "notifications"] },
+    { file: "BackgroundPanel.svelte", pages: ["background"] },
+    { file: "OfflinePanel.svelte", pages: ["offline"] },
+  ];
+
+  /** The `draft.<field>` bindings of a panel, and the fields its radio groups name. */
+  function fieldsOf(src: string): Set<string> {
+    const keys = new Set<string>();
+    for (const m of src.matchAll(/\bdraft\.([a-z_][a-z0-9_]*)/g)) keys.add(m[1]);
+    // A radio group writes `draft[group]`: the `option("<field>", …)` calls name the field.
+    if (/\bdraft\[/.test(src)) for (const m of src.matchAll(/option\("([a-z_]+)"/g)) keys.add(m[1]);
+    return keys;
+  }
+
+  for (const { file, pages } of panels) {
+    it(`${file} edits only fields its page saves`, () => {
+      const src = readFileSync(fileURLToPath(new URL(`../components/prefs/${file}`, import.meta.url)), "utf-8");
+      const owned = new Set(pages.flatMap((p) => PAGE_KEYS[p] ?? []));
+      for (const key of fieldsOf(src)) expect(owned, `${file}: ${key}`).toContain(key);
+    });
+  }
 });
