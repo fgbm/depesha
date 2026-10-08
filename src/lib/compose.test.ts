@@ -8,6 +8,7 @@ import {
   fromDraft,
   isDirty,
   forwardSubject,
+  leavingHtml,
   losesFormatting,
   reply,
   replySubject,
@@ -144,6 +145,24 @@ describe("forward", () => {
     const view = { ...m.view, html: '<p>да</p><img src="data:image/png;base64,AA">', attachments: [...m.view.attachments, big, tiff] };
     const d = forward({ ...m, view }, me, "html");
     expect(d.attachments.map((a) => a.name)).toEqual(["счёт.pdf", "big.png", "scan.tiff"]);
+  });
+
+  it("the pictures a forward carries inside come out for a format without HTML", () => {
+    const m = msg();
+    const view = { ...m.view, html: '<p>да</p><img src="data:image/png;base64,AAAA">' };
+    const d = forward({ ...m, view }, me, "html");
+    // They live inside the letter's HTML (`forwardedInside`); leaving HTML they go as files.
+    const { draft, pictures } = leavingHtml(d, "plain");
+    expect(pictures).toEqual([{ mime: "image/png", base64: "AAAA" }]);
+    expect(draft.html).not.toContain("data:image/png");
+    // The signature's picture stays with its block: only the letter's own are taken.
+    const logo = { ...sig("Влад"), html: '<div><img src="data:image/png;base64,LOGO"></div>', text: "" };
+    const signed = withSignature(d, logo);
+    const out = leavingHtml(signed, "markdown");
+    expect(out.pictures).toEqual([{ mime: "image/png", base64: "AAAA" }]);
+    expect(out.draft.html).toContain("LOGO");
+    // Staying in HTML, nothing is taken.
+    expect(leavingHtml(d, "html").pictures).toEqual([]);
   });
 
   it("carries the letter below its header", () => {

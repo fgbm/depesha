@@ -55,6 +55,15 @@ describe("the format of what is written to several recipients", () => {
     expect(autoFormat("plain", "plain")).toBeNull();
   });
 
+  it("leaves a letter that already carries a quote alone: the line only offers the switch", () => {
+    // A reply or a forward has no words of its own either, but its quote is not the rule's
+    // to rewrite silently: the format would lose the quoted letter's formatting and pictures.
+    expect(autoFormat("html", "plain", true)).toBeNull();
+    expect(autoFormat("markdown", "plain", true)).toBeNull();
+    // A new letter without a quote is still switched silently.
+    expect(autoFormat("html", "plain", false)).toBe("plain");
+  });
+
   it("reads a format mark for an address", () => {
     const formats: BodyFormat[] = ["markdown", "html", "plain"];
     expect(formats.map(formatMark)).toEqual(["MD", "HTML", "T"]);
