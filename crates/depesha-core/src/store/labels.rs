@@ -542,6 +542,24 @@ mod tests {
         assert_eq!(left, 0);
     }
 
+    /// A new UIDVALIDITY renumbers the folder: the UIDs the local read marks were kept
+    /// under name other messages now, so the marks must go with the messages.
+    #[test]
+    fn clearing_a_folder_forgets_its_local_read_marks() {
+        use super::super::tests::{put, with_ids};
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &with_ids("Письмо", 100, "q@x", None), false);
+        store.set_local_seen("a", "INBOX", &[1], 500).unwrap();
+
+        store.clear_folder("a", "INBOX").unwrap();
+        assert!(store.get(id).unwrap().is_none());
+        let left: i64 = store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM local_seen", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
     #[test]
     fn keeps_namespaces_and_forgets_them_with_the_account() {
         let store = mailbox();
