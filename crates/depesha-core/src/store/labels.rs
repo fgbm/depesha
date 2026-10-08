@@ -6,7 +6,7 @@
 
 use rusqlite::{Connection, params};
 
-use super::Store;
+use super::{Store, add_column};
 use crate::Result;
 use crate::acl::{FolderProps, Label, LabelCheck, Namespace, Owner};
 
@@ -62,6 +62,14 @@ pub(super) fn v12_labels_and_rights(conn: &Connection) -> Result<()> {
              PRIMARY KEY (account_id, folder, uid)
          ) WITHOUT ROWID;",
     )?;
+    Ok(())
+}
+
+/// 15: the first v12 created `folder_props` without `label_check`; a cache an intermediate
+/// build or CI numbered 12 lacks the column. Added here only when it is not there, so a
+/// fresh cache (whose v12 already has it) changes nothing.
+pub(super) fn v15_folder_props_label_check(conn: &Connection) -> Result<()> {
+    add_column(conn, "folder_props", "label_check", "TEXT")?;
     Ok(())
 }
 

@@ -55,6 +55,7 @@ const MIGRATIONS: &[Step] = &[
     labels::v12_labels_and_rights,
     people::v13_people_and_hints,
     people::v14_hint_counts,
+    labels::v15_folder_props_label_check,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
