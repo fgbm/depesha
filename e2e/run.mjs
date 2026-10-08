@@ -1343,6 +1343,9 @@ try {
 
   await step("5.12", "сервер отвергает копию в «Отправленные»: после 3 отказов пауза, задача с тремя кнопками и значок у ящика; «Повторить» кладёт копию (#88)", async () => {
     const subj = `Копия отвергнута ${stamp}`;
+    // The copy of the letter sent by the step before is filed in the next round (up to 15 s): it
+    // must be in «Sent» before the folder goes, or it would be held with ours.
+    await d.until("earlier copy filed", async () => helper("count", "Sent", `Дважды ${stamp}`) === "1", 60000, 1000);
     // Without «Sent» on the server the APPEND is refused for good; the letter itself goes.
     helper("rename-folder", "Sent", "SentAway");
     try {
@@ -1350,7 +1353,7 @@ try {
       await d.button("Отправить");
       await composeClosed();
       await d.until("letter delivered", async () => helper("count", "INBOX", subj) !== "0", 60000, 1000);
-      await d.until("copy on hold", async () => (await invoke("stuck_copies")).length === 1, 150000, 1000);
+      await d.until("copy on hold", async () => (await invoke("stuck_copies")).some((c) => c.subject === subj), 150000, 1000);
       await d.until("badge at the mailbox", async () => (await d.findAll("button.stuck-badge")).length > 0, 10000);
       await d.click(await d.find("button[aria-label='Фоновые задачи']"));
       await d.until("task", async () => (await textOf(".modal.tasks")).includes(`Копия не сохранена: «${subj}»`), 10000);
@@ -1361,8 +1364,9 @@ try {
       await screenshot("stuck-copy-task");
       // On hold nothing is tried again by itself: the copy stays, still refused 3 times, and nothing is uploaded.
       await new Promise((r) => setTimeout(r, 20000));
-      const [held] = await invoke("stuck_copies");
-      if (!held || held.refusals !== 3) throw new Error(`копия на паузе: ${JSON.stringify(held)}`);
+      const stuck = await invoke("stuck_copies");
+      const held = stuck.find((c) => c.subject === subj);
+      if (stuck.length !== 1 || !held || held.refusals !== 3) throw new Error(`копия на паузе: ${JSON.stringify(held)}`);
       if (helper("count", "SentAway", subj) !== "0") throw new Error("копия загружена, хотя папки «Отправленные» нет");
       // «Save .eml»: the file is the letter, and the copy stays until the user lets it go. (The button
       // opens the system dialog, which WebDriver cannot answer; the command is the same.)
