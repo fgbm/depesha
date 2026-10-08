@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { canonicalLang, highlightDocument, highlightHtml, highlightTokens, LANGS } from "./syntax";
 
@@ -83,5 +84,17 @@ describe("code as HTML for the frame", () => {
     const out = highlightDocument(html);
     expect(out).toContain('<span class="hl-kw">fn</span>');
     expect(out).not.toContain("script");
+  });
+
+  it("reads the block as the browser reads it, not by its own pattern", () => {
+    // A `>` inside another attribute is no end of the tag: the block is still there to colour.
+    const html = '<pre title="a>b"><code class="language-js">const x = 1</code></pre>';
+    expect(highlightDocument(html)).toContain('<span class="hl-kw">const</span>');
+  });
+
+  it("does not mistake markup inside an attribute for a code block", () => {
+    // The `<code …>` is the value of `title`, not an element: nothing changes.
+    const html = `<pre title="<code class='language-js'>">`;
+    expect(highlightDocument(html)).toBe(html);
   });
 });
