@@ -227,6 +227,12 @@ function foundSignature(draft: ComposeDraft): Signature | null {
     // As the plain part has it: a letter before #25 wrote "-- " into the block itself.
     return { id: "", name: "", html: b.inner, text: htmlToText(b.block).replace(/^-- \n/, "").trim() };
   }
+  // A Markdown letter keeps its signature's HTML apart (decision on #67): an image-only
+  // one has no words to find under "-- ", so the block itself says which it is.
+  if (draft.format === "markdown" && draft.signature) {
+    const b = htmlBlock(draft.signature);
+    if (b) return { id: "", name: "", html: b.inner, text: htmlToText(b.block).replace(/^-- \n/, "").trim() };
+  }
   const text = splitPlain(draft.text).signature;
   return text === null ? null : { id: "", name: "", html: textToHtml(text.trim()), text: text.trim() };
 }
