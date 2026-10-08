@@ -239,6 +239,12 @@ impl Error {
         matches!(self, Self::Ews { code, .. } if code == "ErrorServerBusy")
     }
 
+    /// Exchange refused an update because the item changed since it was read
+    /// (`ErrorIrresolvableConflict`): the caller re-reads it and tries once more.
+    pub fn is_conflict(&self) -> bool {
+        matches!(self, Self::Ews { code, .. } if code == "ErrorIrresolvableConflict")
+    }
+
     /// The pause the server asked for before the next request, if it named one.
     pub fn back_off(&self) -> Option<Duration> {
         match self {

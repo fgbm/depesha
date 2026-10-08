@@ -204,6 +204,29 @@ fn item_id(item: Node<'_, '_>) -> Option<String> {
     child(item, "ItemId")?.attribute("Id").map(str::to_owned)
 }
 
+/// The ChangeKey of an item, as a GetItem answer carries it on its `ItemId`.
+pub fn change_key_of(item: Node<'_, '_>) -> Option<String> {
+    child(item, "ItemId")?.attribute("ChangeKey").map(str::to_owned)
+}
+
+/// An `<t:ItemId>` for an update: with the ChangeKey the read gave, so Exchange refuses
+/// the update instead of overwriting a change another client made meanwhile.
+pub fn item_ref(id: &str, change_key: Option<&str>) -> String {
+    match change_key {
+        Some(key) => format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, escape(id), escape(key)),
+        None => format!(r#"<t:ItemId Id="{}"/>"#, escape(id)),
+    }
+}
+
+/// The `UpdateItem` body of a set of `<t:ItemChange>`s. `conflict` is the
+/// `ConflictResolution` ([MS-OXWSCORE]): `AutoResolve` lets the server merge a change
+/// made meanwhile, `AlwaysOverwrite` writes over it.
+pub fn update_item(changes: &str, conflict: &str) -> String {
+    format!(
+        r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="{conflict}" SuppressReadReceipts="true"><m:ItemChanges>{changes}</m:ItemChanges></m:UpdateItem>"#
+    )
+}
+
 // Folders
 
 #[derive(Debug)]
@@ -971,34 +994,40 @@ pub async fn set_labels(
     if !remove.is_empty() {
         let drop: HashSet<&str> = remove.iter().map(|l| l.name.as_str()).collect();
         for chunk in ids.chunks(50) {
-            // Removing a category means rewriting the whole list without it.
-            let current = read_categories(s, chunk).await?;
-            let changes: String = current
-                .iter()
-                .map(|(id, cats)| {
-                    let left: Vec<String> = cats.iter().filter(|c| !drop.contains(c.as_str())).cloned().collect();
-                    let update = categories_set(&left);
-                    format!(
-                        r#"<t:ItemChange><t:ItemId Id="{}"/><t:Updates>{update}</t:Updates></t:ItemChange>"#,
-                        escape(id)
-                    )
-                })
-                .collect();
-            if changes.is_empty() {
-                continue;
+            // Removing a category means rewriting the whole list without it. The item is
+            // updated by the ChangeKey of the read, and a conflict is retried once on a
+            // fresh read rather than overwriting a category another client added meanwhile.
+            for attempt in 0..2 {
+                let current = read_categories(s, chunk).await?;
+                let changes: String = current
+                    .iter()
+                    .map(|(id, key, cats)| {
+                        let left: Vec<String> = cats.iter().filter(|c| !drop.contains(c.as_str())).cloned().collect();
+                        let update = categories_set(&left);
+                        format!(
+                            "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
+                            item_ref(id, key.as_deref())
+                        )
+                    })
+                    .collect();
+                if changes.is_empty() {
+                    break;
+                }
+                let body = update_item(&changes, "AutoResolve");
+                let text_ = s.call(&body).await?;
+                match check_all(&text_) {
+                    Ok(()) => break,
+                    Err(e) if attempt == 0 && e.is_conflict() => continue,
+                    Err(e) => return Err(e),
+                }
             }
-            let body = format!(
-                r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AlwaysOverwrite" SuppressReadReceipts="true"><m:ItemChanges>{changes}</m:ItemChanges></m:UpdateItem>"#
-            );
-            let text_ = s.call(&body).await?;
-            check_all(&text_)?;
         }
     }
     Ok(())
 }
 
-/// The categories of items, by their ids, in one GetItem.
-async fn read_categories(s: &mut Session, ids: &[String]) -> Result<Vec<(String, Vec<String>)>> {
+/// The categories of items, by their ids, in one GetItem, each with its ChangeKey.
+async fn read_categories(s: &mut Session, ids: &[String]) -> Result<Vec<(String, Option<String>, Vec<String>)>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -1014,7 +1043,7 @@ async fn read_categories(s: &mut Session, ids: &[String]) -> Result<Vec<(String,
         let Ok(resp) = r else { continue };
         for it in items(resp) {
             if let Some(id) = item_id(it) {
-                out.push((id, categories_of(it)));
+                out.push((id, change_key_of(it), categories_of(it)));
             }
         }
     }
