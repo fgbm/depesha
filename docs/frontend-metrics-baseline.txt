@@ -463,6 +463,7 @@ function	src/lib/compose.ts::leavingHtml	5
 function	src/lib/compose.ts::partsOf	8
 function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
+function	src/lib/compose/autosave.svelte.ts::serverDue	3
 function	src/lib/compose/format.svelte.ts::weigh	4
 function	src/lib/compose/lockedBlock.test.ts::box	1
 function	src/lib/compose/lockedBlock.test.ts::onScreen	6
@@ -495,9 +496,10 @@ function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/events.ts::common	20
+function	src/lib/events.ts::applySettingsChanged	8
 function	src/lib/events.ts::listenMain	55
 function	src/lib/events.ts::parked	12
-function	src/lib/events.ts::listenWindow	10
+function	src/lib/events.ts::listenWindow	9
 function	src/lib/extensions.svelte.ts::fromRow	16
 function	src/lib/extensions.svelte.ts::textOf	4
 function	src/lib/extensions.svelte.ts::res#1	1
@@ -597,6 +599,7 @@ function	src/lib/keymap.ts::canSwap	5
 function	src/lib/keymap.ts::swap	6
 function	src/lib/keymap.ts::removeKey	5
 function	src/lib/keymap.ts::matches	9
+function	src/lib/labels.svelte.test.ts::props	3
 function	src/lib/labels.test.ts::rights	18
 function	src/lib/labels.test.ts::folder	13
 function	src/lib/labels.test.ts::row	1
@@ -642,7 +645,7 @@ function	src/lib/letterView.ts::hasView	6
 function	src/lib/letterView.ts::senderView	4
 function	src/lib/letterView.ts::preferredView	4
 function	src/lib/letterView.ts::switchViews	5
-function	src/lib/list.svelte.ts::stale	42
+function	src/lib/list.svelte.ts::stale	59
 function	src/lib/list.svelte.ts::goingToWait	3
 function	src/lib/list.svelte.ts::withTail	6
 function	src/lib/list.test.ts::serve	3
@@ -913,6 +916,7 @@ function	src/plugin-api/boundary.test.ts::files	7
 function	src/plugin-api/boundary.test.ts::imports	5
 function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
+function	src/plugin-host/host.svelte.ts::sharedCounters	21
 function	src/plugin-host/host.svelte.ts::allCommands	3
 function	src/plugin-host/host.svelte.ts::context	68
 function	src/plugin-host/host.svelte.ts::rest#1	2
