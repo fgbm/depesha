@@ -518,7 +518,7 @@ function	src/lib/consent.ts::consentItems	7
 function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
-function	src/lib/events.ts::common	20
+function	src/lib/events.ts::common	24
 function	src/lib/events.ts::applySettingsChanged	8
 function	src/lib/events.ts::listenMain	57
 function	src/lib/events.ts::saveDraftsForQuit	4
