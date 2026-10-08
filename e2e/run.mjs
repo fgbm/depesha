@@ -2232,11 +2232,26 @@ try {
     }, 60000);
     await d.until("a row to select", async () => (await d.exec("return document.querySelectorAll('.list .row').length")) > 0, 15000);
     await d.click(await d.find(".list .row"));
+    const inboxQuery = { account_id: carol.id, folder: "INBOX", limit: 200 };
+    const beforeIds = (await invoke("messages", { query: inboxQuery })).map((m) => m.id);
+    // Held e, as the keyboard repeats it: do not wait for the next letter to open.
+    // Waiting for each open made 50 presses take ~46 s.
     const burst = Date.now();
     for (let i = 0; i < 50; i++) {
       await press("e");
       await new Promise((r) => setTimeout(r, 35));
     }
+    const burstMs = Date.now() - burst;
+    console.log(`    серия e: ${burstMs} мс на 50 нажатий`);
+    if (burstMs > 8000) throw new Error(`серия e заняла ${burstMs} мс, интерфейс ждал открытия`);
+    // Ids, not the length of a capped page: archiving the top still returns 200 rows.
+    let archived = 0;
+    await d.until("50 letters archived", async () => {
+      const now = new Set((await invoke("messages", { query: inboxQuery })).map((m) => m.id));
+      archived = beforeIds.filter((id) => !now.has(id)).length;
+      return archived >= 50;
+    }, 20000);
+    console.log(`    заархивировано ${archived}`);
     // The interface did not freeze: the list still answers after the burst.
     await d.until("the list answers after the burst", async () =>
       (await d.exec("return document.querySelectorAll('.list .row').length")) > 0, 5000);
