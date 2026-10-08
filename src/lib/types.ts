@@ -692,6 +692,8 @@ export interface Moved {
   from: string;
   to: string;
   message_ids: string[];
+  /** Письма, которые действие пометило прочитанными: отмена снова делает их непрочитанными. */
+  unseen?: string[];
 }
 
 export interface Counters {
