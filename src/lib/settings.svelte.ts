@@ -79,21 +79,6 @@ export class SettingsController {
     }
   }
 
-  async saveSettings(next: Settings) {
-    const threadsChanged = next.threads !== this.settings.threads;
-    this.settings = next;
-    applyTheme(next.theme);
-    try {
-      await api.saveSettings($state.snapshot(next));
-    } catch (e) {
-      this.host.fail(e, t("err.settings"));
-      // Refused (a folder not picked in the dialog): the window shows what is saved.
-      await this.loadSettings();
-    }
-    await this.loadLanguage();
-    if (threadsChanged) this.host.reload();
-  }
-
   /**
    * The user's keys alone, saved at once (#46): a change on the «Keys» page takes effect
    * without the window's «Save», and the unsaved edits of other pages are left alone.

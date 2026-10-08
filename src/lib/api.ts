@@ -122,7 +122,6 @@ export const api = {
   extensionStorageGet: (id: string, key: string) => call<unknown>("extension_storage_get", { id, key }),
   extensionStorageSet: (id: string, key: string, value: unknown) => call<void>("extension_storage_set", { id, key, value }),
   messagesById: (ids: number[]) => call<MessageRow[]>("messages_by_id", { ids }),
-  saveSettings: (settings: Settings) => call<void>("settings_set", { settings }),
   settingsPatch: (patch: Record<string, unknown>) => call<void>("settings_patch", { patch }),
   updateStatus: () => call<UpdateStatus>("update_status"),
   updateCheck: () => call<UpdateStatus>("update_check"),

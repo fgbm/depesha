@@ -312,23 +312,20 @@ describe("saving one setting", () => {
     const keys = { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] };
     await s.saveKeybindings(keys);
     expect(api.settingsPatch).toHaveBeenCalledWith({ keybindings: keys });
-    expect(api.saveSettings).not.toHaveBeenCalled();
     expect(s.settings.keybindings).toEqual(keys);
   });
 
-  // Every place that changes a setting patches its own keys: only the primitive that the
-  // backend's `settings_set` wraps may write the whole object (and the e2e harness uses it).
+  // Every place that changes a setting patches its own keys: no part of the app writes the
+  // whole object any more (the backend's `settings_set` stays for the e2e harness).
   it("leaves no place that writes the whole settings object", () => {
     const src = fileURLToPath(new URL("..", import.meta.url));
-    const allowed = new Set(["lib/api.ts", "lib/store.svelte.ts", "lib/settings.svelte.ts"]);
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const name of readdirSync(dir)) {
         const path = join(dir, name);
         if (statSync(path).isDirectory()) walk(path);
-        else if (/\.(ts|svelte)$/.test(name) && !name.endsWith(".test.ts")) {
-          const rel = relative(src, path);
-          if (!allowed.has(rel) && /\.saveSettings\s*\(/.test(readFileSync(path, "utf-8"))) offenders.push(rel);
+        else if (/\.(ts|svelte)$/.test(name) && !name.endsWith(".test.ts") && /\.saveSettings\s*\(/.test(readFileSync(path, "utf-8"))) {
+          offenders.push(relative(src, path));
         }
       }
     };

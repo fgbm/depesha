@@ -14,7 +14,7 @@ import { peopleBook } from "./peopleBook.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
-import type { AccountView, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, Settings, SortKey } from "./types";
+import type { AccountView, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey } from "./types";
 
 export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
@@ -108,7 +108,6 @@ export class AppStore {
   // Settings, mailboxes, overlays and the selection.
   loadLanguage() { return this.settingsCtl.loadLanguage(); }
   loadSettings() { return this.settingsCtl.loadSettings(); }
-  saveSettings(next: Settings) { return this.settingsCtl.saveSettings(next); }
   patchSettings(patch: Record<string, unknown>) { return this.settingsCtl.patchSettings(patch); }
   saveKeybindings(next: KeySettings) { return this.settingsCtl.saveKeybindings(next); }
   savePluginSettings(plugin: string, values: Record<string, unknown>) { return this.settingsCtl.savePluginSettings(plugin, values); }
