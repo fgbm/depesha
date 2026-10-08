@@ -16,7 +16,7 @@ tauri-build = { version = "2.7.1", features = [] }
 [dependencies]
 base64 = "0.23.1"
 chrono = "0.4.45"
-depesha-core = { version = "0.7.1", path = "../crates/depesha-core" }
+depesha-core = { version = "0.7.2", path = "../crates/depesha-core" }
 keyring = "4.2.0"
 # HMAC-SHA256 for the links the app signs (`install_secret`); already in the tree with
 # depesha-core's TLS, so no new crate is pulled in.
