@@ -92,9 +92,14 @@ async function rowBySubject(subject, timeoutMs = 15000) {
   return d.until(`row "${subject}"`, async () => {
     const row = await d.xpath(xpath).catch(() => null);
     if (row) return row;
-    // The list draws only the rows in view: scroll on, as a person would, and from the top again at the end.
+    // The list draws only the rows in view: scroll on, as a person would, and from the top
+    // again at the end. The scroll event is dispatched by hand — setting `scrollTop` alone
+    // does not always make WebKitWebDriver redraw the virtual list or load the next page.
     await d.exec(`const v = document.querySelector('.list .viewport');
-      if (v) v.scrollTop = v.scrollTop + v.clientHeight >= v.scrollHeight - 1 ? 0 : v.scrollTop + v.clientHeight;`);
+      if (v) {
+        v.scrollTop = v.scrollTop + v.clientHeight >= v.scrollHeight - 1 ? 0 : v.scrollTop + v.clientHeight;
+        v.dispatchEvent(new Event('scroll'));
+      }`);
     return null;
   }, timeoutMs);
 }
