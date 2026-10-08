@@ -2,7 +2,7 @@ component	src/App.svelte	334	218	70	46
 component	src/MessageWindow.svelte	116	82	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
-component	src/components/Compose.svelte	996	279	264	453
+component	src/components/Compose.svelte	997	280	264	453
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -691,6 +691,7 @@ function	src/lib/markdown/mdedits.ts::pictureRemoveEdit	9
 function	src/lib/markdown/preview.test.ts::stateOf	5
 function	src/lib/markdown/preview.test.ts::shown	15
 function	src/lib/markdown/preview.test.ts::lines	1
+function	src/lib/markdown/preview.ts::isOwnPicture	3
 function	src/lib/markdown/preview.ts::previewPieces	14
 function	src/lib/markdown/preview.ts::block	24
 function	src/lib/markdown/preview.ts::mark	17
@@ -798,9 +799,12 @@ function	src/lib/room.svelte.ts::readWarned	7
 function	src/lib/room.svelte.ts::writeWarned	7
 function	src/lib/rules.ts::applyRules	19
 function	src/lib/rules.ts::applyMailAction	24
-function	src/lib/sanitize.ts::instance	17
+function	src/lib/sanitize.ts::unconfuse	9
+function	src/lib/sanitize.ts::remoteStyle	4
+function	src/lib/sanitize.ts::instance	21
 function	src/lib/sanitize.ts::cleanEditorHtml	8
 function	src/lib/sanitize.ts::cleanPastedHtml	8
+function	src/lib/sanitize.ts::cleanRemoteHtml	10
 function	src/lib/searchSuggest.test.ts::folder	1
 function	src/lib/searchSuggest.test.ts::ctx	6
 function	src/lib/searchSuggest.ts::lastToken	10
