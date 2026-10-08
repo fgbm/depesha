@@ -2702,7 +2702,17 @@ try {
     // Clicked through the DOM: the popover closes on its own pointer handling.
     await d.exec(`const b = [...document.querySelectorAll('.pop .mi')].find((x) => x.innerText.includes('Удалить метку')); if (b) b.click();`);
     await d.click(await d.until("delete confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
-    await d.until("label left the list", async () => !(await rowLink(renamed)));
+    // The keyword is taken off folder by folder in the background; the row stays until
+    // that debt is paid. Wait for the cache, not for a redraw of the open page.
+    await d.until(
+      "label left the list",
+      async () => {
+        const rows = await invoke("labels", { accountId: acc.id }).catch(() => null);
+        if (!rows || rows.some((l) => l.name === renamed)) return null;
+        return !(await rowLink(renamed));
+      },
+      60000,
+    );
     await closeSettings();
   });
 
