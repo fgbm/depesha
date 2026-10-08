@@ -153,7 +153,6 @@ describe("list reloads", () => {
 describe("a search while one is already in flight", () => {
   it("waits its turn, and the latest text wins", async () => {
     api.search.mockResolvedValue([row(2)]);
-    api.searchTotals.mockResolvedValue(null);
     const first = deferred<MessageRow[]>();
     api.search.mockReturnValueOnce(first.promise);
     const s = new AppStore();

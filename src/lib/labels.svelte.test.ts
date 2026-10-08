@@ -11,7 +11,7 @@ import type { FolderProps } from "./types";
 const stored = new Map<string, string>();
 
 function props(checked = Math.floor(Date.now() / 1000)): FolderProps {
-  return { folder: "INBOX", display_name: "INBOX", owner: "mine", rights: null, labels_on_server: true, permanent: [], label_check: null, refused: null, checked } as FolderProps;
+  return { folder: "INBOX", display_name: "INBOX", owner: { kind: "mine" }, rights: null, labels_on_server: true, permanent: [], label_check: null, refused: null, checked };
 }
 
 beforeEach(() => {
