@@ -1,5 +1,5 @@
-component	src/App.svelte	309	202	61	46
-component	src/MessageWindow.svelte	105	79	21	5
+component	src/App.svelte	334	218	70	46
+component	src/MessageWindow.svelte	116	82	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
 component	src/components/Compose.svelte	996	279	264	453
@@ -11,6 +11,7 @@ component	src/components/FolderPicker.svelte	40	18	11	11
 component	src/components/FormatBar.svelte	433	267	80	86
 component	src/components/HintLine.svelte	134	43	29	62
 component	src/components/Keys.svelte	70	16	9	45
+component	src/components/LabelPicker.svelte	115	31	28	56
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	161	119	8	34
@@ -27,7 +28,7 @@ component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	152	84	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
-component	src/components/RowMenu.svelte	259	134	75	50
+component	src/components/RowMenu.svelte	155	96	52	7
 component	src/components/SearchBox.svelte	337	127	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
@@ -56,7 +57,7 @@ component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
-component	src/components/prefs/FolderProps.svelte	413	19	177	217
+component	src/components/prefs/FolderProps.svelte	415	19	179	217
 component	src/components/prefs/GeneralPanel.svelte	257	27	73	157
 component	src/components/prefs/HintsSection.svelte	115	35	29	51
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
@@ -70,7 +71,7 @@ component	src/components/reader/QuickReply.svelte	218	57	31	130
 component	src/components/reader/ReaderBody.svelte	181	102	43	36
 component	src/components/reader/ReaderHeader.svelte	330	79	60	191
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
-component	src/components/reader/ReaderToolbar.svelte	162	64	48	50
+component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
 component	src/components/sidebar/FavouriteRow.svelte	56	34	22	0
@@ -176,9 +177,11 @@ function	plugins/templates/TemplatesSettings.svelte::changed	3
 function	src/App.svelte::drag	18
 function	src/App.svelte::refocusList	6
 function	src/App.svelte::zoneAt	5
+function	src/App.svelte::labelTarget	4
+function	src/App.svelte::labelsAnchor	5
 function	src/App.svelte::action	4
 function	src/App.svelte::onKey	55
-function	src/MessageWindow.svelte::onKey	26
+function	src/MessageWindow.svelte::onKey	27
 function	src/components/Accounts.svelte::arrange	14
 function	src/components/Accounts.svelte::look	8
 function	src/components/Accounts.svelte::saveName	6
@@ -222,6 +225,9 @@ function	src/components/FormatBar.svelte::onLinkKey	12
 function	src/components/FormatBar.svelte::title	3
 function	src/components/HintLine.svelte::accept	4
 function	src/components/HintLine.svelte::undo	4
+function	src/components/LabelPicker.svelte::toggle	4
+function	src/components/LabelPicker.svelte::add	7
+function	src/components/LabelPicker.test.ts::row	1
 function	src/components/LetterViewSwitch.svelte::pick	4
 function	src/components/MailFrame.svelte::themeCss	9
 function	src/components/MailFrame.svelte::markdownCss	9
@@ -295,9 +301,6 @@ function	src/components/RichEditor.svelte::onpointermove	8
 function	src/components/RichEditor.svelte::place	11
 function	src/components/RichEditor.svelte::setSize	14
 function	src/components/RichEditor.svelte::removePicked	5
-function	src/components/RowMenu.svelte::labelState	4
-function	src/components/RowMenu.svelte::toggleLabel	4
-function	src/components/RowMenu.svelte::addLabel	7
 function	src/components/RowMenu.svelte::run	4
 function	src/components/RowMenu.svelte::withOpened	7
 function	src/components/RowMenu.svelte::fromSender	4
@@ -429,7 +432,7 @@ function	src/lib/background.svelte.ts::tellMissed	15
 function	src/lib/background.test.ts::started	6
 function	src/lib/banner.test.ts::run	1
 function	src/lib/banner.ts::foldBanner	13
-function	src/lib/commands.ts::coreCommands	109
+function	src/lib/commands.ts::coreCommands	114
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
 function	src/lib/compose.test.ts::html	4
@@ -491,7 +494,7 @@ function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/events.ts::common	20
-function	src/lib/events.ts::listenMain	51
+function	src/lib/events.ts::listenMain	55
 function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::listenWindow	10
 function	src/lib/extensions.svelte.ts::fromRow	16
@@ -595,9 +598,12 @@ function	src/lib/keymap.ts::removeKey	5
 function	src/lib/keymap.ts::matches	9
 function	src/lib/labels.test.ts::rights	18
 function	src/lib/labels.test.ts::folder	13
-function	src/lib/labels.ts::keywordForName	17
+function	src/lib/labels.test.ts::row	1
+function	src/lib/labels.ts::shortHash	9
+function	src/lib/labels.ts::keywordForName	14
 function	src/lib/labels.ts::actionsOf	3
 function	src/lib/labels.ts::readOnly	15
+function	src/lib/labels.ts::canCheckLabels	4
 function	src/lib/labels.ts::under	3
 function	src/lib/labels.ts::rootOf	5
 function	src/lib/labels.ts::namespaceRoot	9
@@ -605,6 +611,9 @@ function	src/lib/labels.ts::ownerOf	10
 function	src/lib/labels.ts::groupFolders	19
 function	src/lib/labels.ts::labelChips	11
 function	src/lib/labels.ts::labelNames	4
+function	src/lib/labels.ts::pickAccount	4
+function	src/lib/labels.ts::labelState	4
+function	src/lib/labels.ts::labelStorage	2
 function	src/lib/labels.ts::refusalOf	7
 function	src/lib/labels.ts::storageOf	5
 function	src/lib/largeMail.ts::folderOperator	4
