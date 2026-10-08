@@ -1103,6 +1103,18 @@ Content-Type: text/markdown; charset=utf-8; variant=GFM\r\n\
     }
 
     #[test]
+    fn a_task_marker_entity_cannot_break_an_attribute() {
+        // The marker characters stand for task boxes; an entity that ammonia expands inside
+        // an attribute must not be turned into an element there.
+        let (clean, _) = markdown_letter("[x](https://a \"x&#xE0D1;y\")", &HashMap::new(), false);
+        assert!(clean.contains("<a href=\"https://a\""), "{clean}");
+        assert!(!clean.contains("<input"), "{clean}");
+        // A real task still becomes a box.
+        let (tasks, _) = markdown_letter("- [x] done\n- [ ] open\n", &HashMap::new(), false);
+        assert_eq!(tasks.matches("<input").count(), 2, "{tasks}");
+    }
+
+    #[test]
     fn a_letter_all_in_markdown_is_its_markdown() {
         let raw = b"From: a@example.org\r\nSubject: s\r\nContent-Type: text/markdown; charset=utf-8\r\n\r\n**hi**\r\n";
         let view = parse_view(raw, false).unwrap();
