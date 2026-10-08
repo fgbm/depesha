@@ -82,6 +82,31 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Applies a patch over the settings of `config` and writes them, all under `config`'s lock:
+/// two patches never lose each other's keys. Returns the settings as they are after it.
+pub fn patch_locked(config: &Mutex<Config>, path: &std::path::Path, patch: serde_json::Value) -> CmdResult<Settings> {
+    update_locked(config, path, |settings| {
+        let mut value = serde_json::to_value(&*settings).map_err(|e| CmdError::new("other", e.to_string()))?;
+        config::merge(&mut value, patch);
+        *settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+        Ok(())
+    })
+}
+
+/// Runs `change` on the settings of `config` and writes them, all under `config`'s lock, so a
+/// read-modify-write from one window never rolls back what another wrote meanwhile. Returns
+/// the settings as they are after the change.
+pub fn update_locked(
+    config: &Mutex<Config>,
+    path: &std::path::Path,
+    change: impl FnOnce(&mut Settings) -> CmdResult<()>,
+) -> CmdResult<Settings> {
+    let mut config = lock(config);
+    change(&mut config.settings)?;
+    config::save(path, &config)?;
+    Ok(config.settings.clone())
+}
+
 impl AppState {
     pub fn settings(&self) -> Settings {
         lock(&self.config).settings.clone()
@@ -106,13 +131,16 @@ impl AppState {
 
     /// Changes only the keys a patch names, over the settings in memory and on disk, so a
     /// save from one window's memory does not roll back what another writer changed meanwhile.
-    pub fn patch_settings(&self, patch: serde_json::Value) -> CmdResult<()> {
-        let mut config = lock(&self.config);
-        let mut value = serde_json::to_value(&config.settings).map_err(|e| CmdError::new("other", e.to_string()))?;
-        config::merge(&mut value, patch);
-        config.settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
-        config::save(&self.config_path, &config)?;
-        Ok(())
+    /// Returns the settings as they are after the merge.
+    pub fn patch_settings(&self, patch: serde_json::Value) -> CmdResult<Settings> {
+        patch_locked(&self.config, &self.config_path, patch)
+    }
+
+    /// Changes the settings under the config lock: `change` runs on the settings that are
+    /// there now and the result is written once, so two writers never lose each other's edit.
+    /// Returns the settings as they are after the change.
+    pub fn update_settings(&self, change: impl FnOnce(&mut Settings) -> CmdResult<()>) -> CmdResult<Settings> {
+        update_locked(&self.config, &self.config_path, change)
     }
 
     /// Shows a desktop notification unless the settings, a test run or the window in front
@@ -336,5 +364,43 @@ mod tests {
         assert!(open_is_current(&seqs, "main", 4));
         // Another window's opens are its own.
         assert!(open_is_current(&seqs, "message-7", 1));
+    }
+
+    /// The settings a command patches are merged and written under one lock: two windows
+    /// patching at once never roll back each other's key.
+    #[test]
+    fn two_patches_do_not_lose_each_others_keys() {
+        use std::sync::Arc;
+        let dir = std::env::temp_dir().join(format!("depesha-patch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("accounts.json");
+        let config = Arc::new(Mutex::new(Config::default()));
+        let threads: Vec<_> = (0..8u32)
+            .map(|i| {
+                let config = Arc::clone(&config);
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    // Half set one field, half another: a read-modify-write without the lock
+                    // would roll the other half's key back to its default.
+                    let patch = if i % 2 == 0 {
+                        serde_json::json!({ "undo_send_secs": i + 1 })
+                    } else {
+                        serde_json::json!({ "dnd_until": i + 1 })
+                    };
+                    patch_locked(&config, &path, patch).unwrap();
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        let settings = lock(&config).settings.clone();
+        assert_ne!(settings.undo_send_secs, 0, "an even thread's key was lost");
+        assert_ne!(settings.dnd_until, 0, "an odd thread's key was lost");
+        // The file on disk agrees with memory.
+        let saved = config::load(&path);
+        assert_eq!(saved.settings.undo_send_secs, settings.undo_send_secs);
+        assert_eq!(saved.settings.dnd_until, settings.dnd_until);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

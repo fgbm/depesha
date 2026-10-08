@@ -1429,27 +1429,38 @@ pub fn settings_get(state: St<'_>) -> Settings {
 #[tauri::command(async)]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     let before = state.settings();
-    apply_settings(state.inner(), before, settings)
+    check_save_folder(state.inner(), &before.attachments_dir, &settings.attachments_dir)?;
+    let after = state.update_settings(|s| {
+        *s = settings;
+        Ok(())
+    })?;
+    apply_side_effects(state.inner(), before, after);
+    Ok(())
 }
 
 /// A patch over the current settings: only the keys it names change, so a save from one
-/// window's memory does not roll back what another window or the tray wrote meanwhile.
+/// window's memory does not roll back what another window or the tray wrote meanwhile. The
+/// merge and the write happen under the config lock, so two patches cannot lose each other.
 #[tauri::command]
 pub fn settings_patch(state: St<'_>, patch: serde_json::Value) -> CmdResult<()> {
     let before = state.settings();
-    let mut value = serde_json::to_value(&before).map_err(|e| CmdError::new("other", e.to_string()))?;
-    crate::config::merge(&mut value, patch);
-    let settings: Settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
-    apply_settings(state.inner(), before, settings)
+    let after = state.update_settings(|settings| {
+        let mut value = serde_json::to_value(&*settings).map_err(|e| CmdError::new("other", e.to_string()))?;
+        crate::config::merge(&mut value, patch);
+        let merged: Settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+        check_save_folder(state.inner(), &settings.attachments_dir, &merged.attachments_dir)?;
+        *settings = merged;
+        Ok(())
+    })?;
+    apply_side_effects(state.inner(), before, after);
+    Ok(())
 }
 
-/// Saves the settings and does what follows a change: the folder check, the language, the
-/// autostart, the event and the offline window. Shared by a whole save and a patch.
-fn apply_settings(state: &AppState, before: Settings, settings: Settings) -> CmdResult<()> {
-    check_save_folder(state, &before.attachments_dir, &settings.attachments_dir)?;
+/// Does what follows a change of the settings: the language, the autostart, the event and the
+/// offline window. The settings themselves are already saved (under the lock).
+fn apply_side_effects(state: &AppState, before: Settings, settings: Settings) {
     let offline_changed =
         before.offline != settings.offline || before.offline_attachments != settings.offline_attachments;
-    state.save_settings(settings.clone())?;
     state.apply_language();
     crate::background::sync_autostart(&state.app, Some(&before), &settings);
     state.emit("settings-changed", serde_json::json!({}));
@@ -1461,7 +1472,6 @@ fn apply_settings(state: &AppState, before: Settings, settings: Settings) -> Cmd
             }
         }
     }
-    Ok(())
 }
 
 /// A folder attachments go to without asking is one the user picked, not one typed in
@@ -1477,9 +1487,10 @@ fn check_save_folder(state: &AppState, before: &str, after: &str) -> CmdResult<(
 /// The settings of one built-in plugin; the rest of the settings stay as they are.
 #[tauri::command(async)]
 pub fn plugin_settings_set(state: St<'_>, plugin: String, values: serde_json::Value) -> CmdResult<()> {
-    let mut settings = state.settings();
-    settings.plugin_settings.insert(plugin, values);
-    state.save_settings(settings)?;
+    state.update_settings(|settings| {
+        settings.plugin_settings.insert(plugin, values);
+        Ok(())
+    })?;
     state.emit("settings-changed", serde_json::json!({}));
     Ok(())
 }
@@ -2668,9 +2679,10 @@ pub fn extension_approve(
 #[tauri::command(async)]
 pub fn extension_remove(app: tauri::AppHandle, state: St<'_>, id: String) -> CmdResult<()> {
     crate::extensions::remove(&app, &id)?;
-    let mut settings = state.settings();
-    settings.disabled_extensions.retain(|d| d != &id);
-    state.save_settings(settings)?;
+    state.update_settings(|settings| {
+        settings.disabled_extensions.retain(|d| d != &id);
+        Ok(())
+    })?;
     state.emit("extensions-changed", serde_json::json!({ "id": id }));
     Ok(())
 }
