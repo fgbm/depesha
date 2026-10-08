@@ -212,6 +212,8 @@ export interface Label {
   name: string;
   keyword: string;
   color: string;
+  /** Being taken off every letter of the mailbox (#42, frame 4Б): shown as «удаляется…». */
+  stripping?: boolean;
 }
 
 /** How many cached letters carry a label, by its keyword (#42, frame 2). */

@@ -822,6 +822,7 @@ pub fn label_save(
             }
         },
         color,
+        stripping: false,
     };
     state.store.save_label(&account_id, &label)?;
     Ok(label)
@@ -833,21 +834,18 @@ pub fn label_remove(state: St<'_>, account_id: String, name: String) -> CmdResul
     Ok(())
 }
 
-/// Deletes a label for good (#42, frame 4Б): the label leaves the list at once, and its
-/// keyword is taken off every letter of the mailbox on the server, in the background —
-/// the queue of that mailbox, shown in the tasks window. Nothing is left behind.
+/// Deletes a label for good (#42, frame 4Б): the label stays in the list, marked as being
+/// removed, while its keyword is taken off every letter of the mailbox on the server, one
+/// folder per work in that mailbox's quiet queue — shown in the tasks window. When every
+/// folder is done the label leaves the list; a restart or a pause resumes the work.
 #[tauri::command]
 pub async fn label_strip(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
     let Some(keyword) = state.store.label_keyword(&account_id, &name)? else {
         return Ok(());
     };
-    let worker = state.worker(&account_id)?;
-    state.store.remove_label(&account_id, &name)?;
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = worker.run_background(Work::StripLabel { keyword }).await {
-            tracing::warn!(account = %account_id, "stripping a label failed: {e}");
-        }
-    });
+    state.store.set_label_stripping(&account_id, &name, true)?;
+    state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
+    crate::label_strip::start(state.inner(), &account_id, &name, &keyword);
     Ok(())
 }
 
@@ -873,19 +871,49 @@ pub async fn label_rename(
         return Err(CmdError::new("input", tr!("no such label", "такой метки нет")));
     };
     if state.account(&account_id)?.ews.is_some() {
+        // A rename onto a name another category already carries would silently merge the
+        // two on the server: refuse before anything is touched, in words the user knows.
+        if state
+            .store
+            .labels(&account_id)?
+            .iter()
+            .any(|l| l.name != from && l.name.to_lowercase() == to.to_lowercase())
+        {
+            return Err(CmdError::new(
+                "input",
+                tr!(
+                    "a label with this name already exists; Exchange would merge the two categories",
+                    "метка с таким названием уже есть; Exchange объединит две категории"
+                ),
+            ));
+        }
         state.store.remove_label(&account_id, &from)?;
         let label = depesha_core::acl::Label {
             name: to.to_owned(),
             keyword: to.to_owned(),
-            color: old.color,
+            color: old.color.clone(),
+            stripping: false,
         };
         state.store.save_label(&account_id, &label)?;
         state.store.rename_keyword(&account_id, &from, to)?;
         let worker = state.worker(&account_id)?;
         let (f, t) = (from.clone(), to.to_owned());
+        // The server rewrite runs in the background; if it fails the local name goes back
+        // and the failure shows in the tasks window, so a failed rename does not stick.
+        let state = state.inner().clone();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = worker.run_background(Work::RenameCategory { from: f, to: t }).await {
+            if let Err(e) = worker
+                .run_background(Work::RenameCategory {
+                    from: f.clone(),
+                    to: t.clone(),
+                })
+                .await
+            {
                 tracing::warn!(account = %account_id, "renaming a category failed: {e}");
+                if state.store.rename_label(&account_id, &t, &f).is_ok() {
+                    let _ = state.store.rename_keyword(&account_id, &t, &f);
+                    state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
+                }
             }
         });
         Ok(label)
@@ -895,6 +923,7 @@ pub async fn label_rename(
             name: to.to_owned(),
             keyword: old.keyword,
             color: old.color,
+            stripping: false,
         })
     }
 }
@@ -910,6 +939,7 @@ pub async fn set_label(state: St<'_>, ids: Vec<i64>, name: String, value: bool) 
             name: name.clone(),
             keyword,
             color: String::new(),
+            stripping: false,
         };
         let (add, remove) = if value {
             (vec![label], Vec::new())

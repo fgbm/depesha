@@ -50,7 +50,7 @@ component	src/components/account/ConnectionFields.svelte	189	10	60	119
 component	src/components/account/FoldersTable.svelte	186	53	34	99
 component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	42	14	12	16
-component	src/components/account/LabelsSection.svelte	298	98	85	115
+component	src/components/account/LabelsSection.svelte	308	99	94	115
 component	src/components/account/LetterViewField.svelte	25	12	13	0
 component	src/components/account/LettersSection.svelte	16	10	6	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
@@ -348,7 +348,7 @@ function	src/components/account/FoldersTable.svelte::access	8
 function	src/components/account/FoldersTable.svelte::labelsOf	10
 function	src/components/account/FoldersTable.svelte::ownerText	6
 function	src/components/account/FoldersTable.svelte::open	3
-function	src/components/account/LabelsSection.svelte::startRename	4
+function	src/components/account/LabelsSection.svelte::startRename	5
 function	src/components/account/LabelsSection.svelte::commit	6
 function	src/components/account/LabelsSection.svelte::openMenu	3
 function	src/components/account/LabelsSection.svelte::openColors	3

@@ -314,7 +314,9 @@ async fn search_operators_and_snoozed_folder() {
 }
 
 /// `SEARCH HEADER Message-ID` matches a substring (RFC 3501): the search must be
-/// narrowed to an exact Message-ID, and an id that cannot be one must find nothing.
+/// narrowed to an exact Message-ID. An empty id finds nothing; an id without `@` is
+/// unusual but must still be found — returning nothing would leave such a letter in
+/// "Snoozed"/"Waiting for reply" for good.
 #[tokio::test]
 async fn a_message_id_search_is_exact() {
     if !enabled() {
@@ -334,6 +336,8 @@ async fn a_message_id_search_is_exact() {
     imap::append(&mut conn, "INBOX", &raw("1abc@example.org"), "")
         .await
         .unwrap();
+    // A Message-ID with no `@`: still a whole id, still to be found.
+    imap::append(&mut conn, "INBOX", &raw("local1"), "").await.unwrap();
 
     let found = imap::find_by_message_id(&mut conn, "INBOX", "abc@example.org")
         .await
@@ -343,13 +347,14 @@ async fn a_message_id_search_is_exact() {
         1,
         "the substring match is narrowed to an exact Message-ID: {found:?}"
     );
-    // An empty id matches every letter; one without @ cannot be a Message-ID.
+    // An empty id matches every letter.
     assert!(
         imap::find_by_message_id(&mut conn, "INBOX", "")
             .await
             .unwrap()
             .is_empty()
     );
+    // No letter carries exactly this id (`abc@example.org` is a different one).
     assert!(
         imap::find_by_message_id(&mut conn, "INBOX", "abc")
             .await
@@ -358,6 +363,14 @@ async fn a_message_id_search_is_exact() {
     );
     assert_eq!(
         imap::find_by_message_id(&mut conn, "INBOX", "<1abc@example.org>")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    // The id without `@` is found, not dropped.
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "INBOX", "local1")
             .await
             .unwrap()
             .len(),
@@ -923,6 +936,7 @@ async fn labels_reach_the_cache_from_the_sync_and_at_once() {
         name: "Депеша".into(),
         keyword: depesha_core::acl::keyword_of("Депеша"),
         color: String::new(),
+        stripping: false,
     };
     let mut conn = mail::Conn::Imap(conn);
     mail::set_labels(
@@ -960,8 +974,9 @@ async fn labels_reach_the_cache_from_the_sync_and_at_once() {
 }
 
 /// Deleting a label takes its keyword off every letter of the mailbox on the server
-/// (#42, frame 4Б): each folder is searched by the keyword and the keyword cleared.
-/// Other labels stay.
+/// (#42, frame 4Б), one folder per work as the app drives it: each folder is searched by
+/// the keyword and the keyword cleared, a folder without rights is skipped, and other
+/// labels stay.
 #[tokio::test]
 async fn stripping_a_label_clears_it_in_every_folder() {
     if !enabled() {
@@ -990,8 +1005,24 @@ async fn stripping_a_label_clears_it_in_every_folder() {
         .unwrap();
 
     let mut conn = mail::Conn::Imap(conn);
-    let n = mail::strip_label(&mut conn, &store, "d", &keyword).await.unwrap();
+    // One folder per work, as the app drives it: the keyword is cleared folder by folder.
+    let mut n = 0;
+    for folder in ["INBOX", "Work"] {
+        n += mail::strip_label(&mut conn, &store, "d", folder, &keyword)
+            .await
+            .unwrap();
+    }
+    store.drop_keyword("d", &keyword).unwrap();
     assert_eq!(n, 2, "the keyword was on two letters");
+
+    // A folder the user may only read: the change is refused (the server might quietly
+    // ignore it, so `strip_label` refuses it itself), the driver skips it, and the rest
+    // of the mailbox is cleaned.
+    let err = mail::strip_label(&mut conn, &store, "d", "shared/ReadOnly", &keyword)
+        .await
+        .expect_err("a read-only folder refuses the change");
+    assert!(err.no_rights(), "{err:?}");
+
     let mail::Conn::Imap(mut conn) = conn else {
         unreachable!("the stand is IMAP")
     };
@@ -1000,6 +1031,9 @@ async fn stripping_a_label_clears_it_in_every_folder() {
         let kw = imap::fetch_keywords(&mut conn, folder, 1).await.unwrap();
         assert!(!kw.contains(&keyword), "{folder}: {kw:?}");
     }
+    // The read-only folder is untouched: nothing was taken off there.
+    let kw = imap::fetch_keywords(&mut conn, "shared/ReadOnly", 1).await.unwrap();
+    assert!(!kw.contains(&keyword), "the read-only folder is untouched: {kw:?}");
     // Another label on the same letter is untouched.
     let kw = imap::fetch_keywords(&mut conn, "INBOX", 1).await.unwrap();
     assert!(kw.contains(&other), "{kw:?}");

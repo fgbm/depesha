@@ -5,6 +5,7 @@ mod desktop_notify;
 mod error;
 mod extensions;
 mod followups;
+mod label_strip;
 mod outbox;
 mod paths;
 mod scheduler;
@@ -179,6 +180,8 @@ pub fn run() {
                     let w = worker::spawn(state.clone(), account.clone());
                     state.set_worker(&account.id, Some(w));
                 }
+                // A label left half-taken-off by a restart is resumed.
+                label_strip::resume_all(&state);
                 tauri::async_runtime::spawn(scheduler::run(state.clone()));
                 tauri::async_runtime::spawn(updater::run(state.clone()));
                 outbox::run(state).await;

@@ -172,29 +172,32 @@ pub async fn set_labels(
     Ok(())
 }
 
-/// Takes a label's keyword off every message of the account (#42, frame 4Б): IMAP walks
-/// the folders, searches the keyword and clears it; Exchange drops the category of the
-/// same name. The cache follows, so the label disappears from the rows at once. Returns
-/// how many messages changed.
-pub async fn strip_label(conn: &mut Conn, store: &Store, account_id: &str, keyword: &str) -> Result<usize> {
-    let folders: Vec<String> = store
-        .folders(Some(account_id))?
-        .into_iter()
-        .filter(|f| f.folder.selectable)
-        .map(|f| f.folder.name)
-        .collect();
-    let n = match conn {
+/// Takes a label's keyword off the messages of one folder (#42, frame 4Б): IMAP searches
+/// the folder and clears the keyword; Exchange drops the category of the same name there.
+/// Returns how many messages changed. The account-wide cache follows in `drop_keyword`,
+/// run by the caller once every folder is done.
+pub async fn strip_label(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    keyword: &str,
+) -> Result<usize> {
+    match conn {
         Conn::Imap(c) => {
-            let mut n = 0;
-            for folder in &folders {
-                n += imap::strip_keyword(c, folder, keyword).await?;
+            // A folder the user may only read cannot lose the keyword, and the server may
+            // quietly ignore the change instead of refusing it: refuse it here, so the
+            // caller skips the folder rather than thinking it is done.
+            let (rights, _) = imap::folder_props(c, folder).await?;
+            if rights.is_some_and(|r| r.read_only()) {
+                return Err(crate::error::Error::Imap(async_imap::error::Error::No(
+                    "code: Some(NOPERM), info: Some(\"the folder is read-only\")".into(),
+                )));
             }
-            n
+            imap::strip_keyword(c, folder, keyword).await
         }
-        Conn::Ews(s) => ews::strip_category(s, store, account_id, keyword).await?,
-    };
-    store.drop_keyword(account_id, keyword)?;
-    Ok(n)
+        Conn::Ews(s) => ews::strip_category_in(s, store, account_id, folder, keyword).await,
+    }
 }
 
 /// Renames a label's category on every message of the account (#42, frame 7): on Exchange

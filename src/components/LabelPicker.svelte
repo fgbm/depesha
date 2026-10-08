@@ -14,7 +14,7 @@
   let { rows }: { rows: MessageRow[] } = $props();
 
   const account = $derived(pickAccount(rows));
-  const known = $derived(account ? app.labels.of(account) : []);
+  const known = $derived((account ? app.labels.of(account) : []).filter((l) => !l.stripping));
   const ids = $derived(rows.map((m) => m.id));
   const storage = $derived(labelStorage(rows.map((m) => app.labels.prop(m.account_id, m.folder))));
 

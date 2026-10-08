@@ -367,6 +367,7 @@ export const en = {
   "label.deleteTitle": "Delete label “{name}”?",
   "label.deleteText": "The keyword will be taken off about {n} letters in every folder of the mailbox, on the server. It runs in the background; it cannot be undone.",
   "label.deleted": "The label was deleted",
+  "label.stripping": "being removed…",
   "label.find": "Find letters",
   "label.findPlaceholder": "Find a label",
   "label.count": "Letters",

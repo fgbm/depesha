@@ -414,6 +414,7 @@ label.storage
 label.storage.local
 label.storage.server
 label.storage.unknown
+label.stripping
 label.whereLocal
 label.whereServer
 label.whereUnknown

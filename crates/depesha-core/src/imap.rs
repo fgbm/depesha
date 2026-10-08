@@ -1161,7 +1161,11 @@ fn append_flags(flags: &str) -> Option<String> {
 /// or a dropped connection is an error, not "nothing found" (`uid_search`).
 pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Vec<u32>> {
     let id = message_id.trim_matches(['<', '>']).trim();
-    if id.is_empty() || id.contains(['<', '>']) || !id.contains('@') {
+    // Only an empty id (or one with angle brackets still in it) finds nothing: a
+    // Message-ID without `@` is unusual but valid, and returning nothing would leave the
+    // letter in "Snoozed"/"Waiting for reply" for good. The exact header read below keeps
+    // a substring search from matching a longer id.
+    if id.is_empty() || id.contains(['<', '>']) {
         return Ok(Vec::new());
     }
     conn.session.examine(folder).await?;

@@ -432,6 +432,10 @@ pub struct Label {
     pub keyword: String,
     /// `#rrggbb`, chosen in Depesha; not synced.
     pub color: String,
+    /// Being taken off every letter of the mailbox (#42, frame 4Б): the label stays in the
+    /// list, marked as such, until the server work is done; a restart or a pause resumes it.
+    #[serde(default)]
+    pub stripping: bool,
 }
 
 /// The keyword that carries a label on IMAP. An ASCII name whose spelling is already
@@ -519,6 +523,7 @@ mod tests {
             name: name.into(),
             keyword: keyword_of(name),
             color: "#000000".into(),
+            stripping: false,
         }
     }
 
@@ -641,6 +646,7 @@ mod tests {
             name: "Client North".into(),
             keyword: "depesha-client-north".into(),
             color: String::new(),
+            stripping: false,
         };
         assert_eq!(label_names(&["depesha-client-north".into()], &[old]), ["Client North"]);
     }

@@ -50,6 +50,8 @@ pub async fn run(state: Arc<AppState>) {
 
 async fn round(state: Arc<AppState>, resolve: bool) -> depesha_core::Result<()> {
     let now = chrono::Utc::now().timestamp();
+    // A label whose strip was held back by a pause or an offline mailbox is resumed here.
+    crate::label_strip::resume_all(&state);
     // By mailbox: one that hangs or is offline must not hold the others' snoozes up.
     let mut snoozes: BTreeMap<String, Vec<depesha_core::store::Snooze>> = BTreeMap::new();
     for s in state.store.snoozes_due(now)? {

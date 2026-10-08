@@ -155,9 +155,11 @@ pub enum Work {
         message_id: String,
         subject: String,
     },
-    /// Takes a label's keyword off every message of the account (#42, frame 4Б): IMAP
-    /// searches each folder, Exchange drops the category of the same name.
+    /// Takes a label's keyword off the messages of one folder (#42, frame 4Б): IMAP
+    /// searches the folder, Exchange drops the category of the same name there. One folder
+    /// per work, so the mailbox's queue is not held for the whole account.
     StripLabel {
+        folder: String,
         keyword: String,
     },
     /// Renames an Exchange category on every item of the account (#42, frame 7): the name
@@ -1436,17 +1438,25 @@ async fn perform(
             let check = mail::check_labels(conn, folder, keyword, message_id, subject).await?;
             Ok(Output::LabelCheck(check))
         }
-        Work::StripLabel { keyword } => {
+        Work::StripLabel { folder, keyword } => {
+            let n = mail::strip_label(conn, store, id, folder, keyword).await?;
+            state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
+            Ok(Output::Count(n))
+        }
+        Work::RenameCategory { from, to } => {
             let key = format!("labels:{id}");
             state.task(
                 &key,
                 "labels",
                 Some(id),
-                tr!("Taking the label off all letters", "Снятие метки со всех писем"),
+                tr!(
+                    "Renaming the category on all letters",
+                    "Переименование категории во всех письмах"
+                ),
                 0,
                 0,
             );
-            match mail::strip_label(conn, store, id, keyword).await {
+            match mail::rename_category(conn, store, id, from, to).await {
                 Ok(n) => {
                     state.task_done(&key);
                     state.emit("mail-changed", json!({ "account_id": id }));
@@ -1457,11 +1467,6 @@ async fn perform(
                     Err(e)
                 }
             }
-        }
-        Work::RenameCategory { from, to } => {
-            let n = mail::rename_category(conn, store, id, from, to).await?;
-            state.emit("mail-changed", json!({ "account_id": id }));
-            Ok(Output::Count(n))
         }
         Work::Move {
             from,
@@ -2273,6 +2278,7 @@ mod tests {
             name: "Работа".into(),
             keyword: "depesha-rabota".into(),
             color: String::new(),
+            stripping: false,
         };
         let (urgent_tx, mut urgent) = mpsc::channel(64);
         for uid in 10..40 {

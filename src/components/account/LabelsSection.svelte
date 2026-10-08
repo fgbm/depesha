@@ -45,6 +45,7 @@
   let draft = $state("");
 
   function startRename(l: Label) {
+    if (l.stripping) return;
     editing = l.name;
     draft = l.name;
   }
@@ -139,7 +140,11 @@
                   />
                 {:else}
                   <button class="link" onclick={() => startRename(l)} title={t("label.renameHint")}>{l.name}</button>
-                  <Pencil size={12} color="var(--muted)" />
+                  {#if l.stripping}
+                    <span class="strip small muted">{t("label.stripping")}</span>
+                  {:else}
+                    <Pencil size={12} color="var(--muted)" />
+                  {/if}
                 {/if}
               </span>
             </td>
@@ -152,7 +157,12 @@
             {/if}
             <td class="num" title={t("label.countHint")}>≈{app.labels.count(account.id, l.keyword)}</td>
             <td>
-              <button class="btn icon sm" aria-label={t("label.actions")} onclick={(e) => openMenu(e, l)}><Ellipsis size={15} /></button>
+              <button
+                class="btn icon sm"
+                aria-label={t("label.actions")}
+                disabled={l.stripping}
+                onclick={(e) => openMenu(e, l)}
+              ><Ellipsis size={15} /></button>
             </td>
           </tr>
         {/each}

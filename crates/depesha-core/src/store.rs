@@ -58,6 +58,7 @@ const MIGRATIONS: &[Step] = &[
     labels::v15_folder_props_label_check,
     v16_folder_counters,
     v17_outbox_sending,
+    labels::v18_label_stripping,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -833,8 +834,9 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
         None => cond.push_str(" AND COALESCE(f.role, '') NOT IN ('trash', 'junk')"),
     }
     // A label by its name: the keyword that carries it is the mailbox's own (`labels`),
-    // and the message's keywords are kept as JSON. Keywords are ASCII atoms, so a quoted
-    // keyword is looked for as it stands; the quotes keep `a` from matching `ab`.
+    // and the message's keywords are kept as JSON. The keyword is found as a JSON value
+    // (`json_each`), so one holding `"` or `\` is matched as it stands and not by a quoted
+    // substring of the encoded array.
     for name in &q.label {
         args.push(name.clone().into());
         let n = args.len();
@@ -843,7 +845,7 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
             &format!(
                 " AND EXISTS (SELECT 1 FROM labels l WHERE l.account_id = m.account_id
                     AND l.name = ?{n} COLLATE NOCASE
-                    AND instr(m.keywords, '\"' || l.keyword || '\"') > 0)"
+                    AND EXISTS (SELECT 1 FROM json_each(m.keywords) WHERE json_each.value = l.keyword))"
             ),
         );
     }
@@ -3503,6 +3505,7 @@ mod tests {
             name: name.into(),
             keyword: keyword_of(name),
             color: String::new(),
+            stripping: false,
         };
         store.save_label("a", &label("Срочно")).unwrap();
         store.save_label("a", &label("Important")).unwrap();
@@ -4307,6 +4310,7 @@ mod tests {
                         name: "Смета".into(),
                         keyword: crate::acl::keyword_of("Смета"),
                         color: "#000000".into(),
+                        stripping: false,
                     },
                 )
                 .unwrap();

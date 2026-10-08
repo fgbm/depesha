@@ -359,6 +359,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "label.deleteTitle": "Удалить метку «{name}»?",
   "label.deleteText": "Ключ будет снят примерно с {n} писем во всех папках ящика, на сервере. Это фоновая задача, отменить её нельзя.",
   "label.deleted": "Метка удалена",
+  "label.stripping": "удаляется…",
   "label.find": "Найти письма",
   "label.findPlaceholder": "Найти метку",
   "label.count": "Писем",

@@ -1020,7 +1020,11 @@ async fn remove_categories(s: &mut Session, ids: &[String], drop: &HashSet<&str>
             let changes: String = current
                 .iter()
                 .filter_map(|(id, key, cats)| {
-                    let left: Vec<String> = cats.iter().filter(|c| !drop.contains(c.as_str())).cloned().collect();
+                    let left: Vec<String> = cats
+                        .iter()
+                        .filter(|c| !drop.iter().any(|d| same_category(d, c)))
+                        .cloned()
+                        .collect();
                     if left.len() == cats.len() {
                         return None;
                     }
@@ -1056,6 +1060,37 @@ fn contains_category(name: &str) -> String {
     )
 }
 
+/// Exchange compares category names without case: `Счета` and `счета` are one category.
+fn same_category(a: &str, b: &str) -> bool {
+    a.to_lowercase() == b.to_lowercase()
+}
+
+/// The ids of the items in `fid` that carry a category, over all pages, read before
+/// anything is removed or rewritten (paging after a change would shift the pages).
+/// Bounded by `FOLDER_PAGES_MAX`, and it stops when a page brings no id not seen already:
+/// a server that ignores `Offset` and keeps saying "more" must not spin forever.
+async fn category_ids(s: &mut Session, fid: &str, restriction: &str) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut offset = 0;
+    for _ in 0..FOLDER_PAGES_MAX {
+        let page = find_page(s, fid, offset, 300, Some(restriction), None).await?;
+        let fresh: Vec<String> = page
+            .items
+            .iter()
+            .map(|i| i.id.clone())
+            .filter(|id| seen.insert(id.clone()))
+            .collect();
+        let none_new = fresh.is_empty();
+        ids.extend(fresh);
+        if page.last || none_new {
+            break;
+        }
+        offset += page.items.len();
+    }
+    Ok(ids)
+}
+
 /// Drops a category from every item of the account that carries it (#42, frame 4Б): each
 /// folder is searched by the category and the found items get it removed. Returns how many
 /// items were changed.
@@ -1066,31 +1101,33 @@ pub async fn strip_category(s: &mut Session, store: &Store, account_id: &str, na
         .filter(|f| f.folder.selectable)
         .map(|f| f.folder.name)
         .collect();
-    let restriction = contains_category(name);
     let mut total = 0;
     for folder in &folders {
-        let Some(fid) = store.ews_folder_id(account_id, folder)? else {
-            continue;
-        };
-        // All matching ids first, before anything is removed: removing while paging would
-        // shift the pages.
-        let mut ids = Vec::new();
-        let mut offset = 0;
-        loop {
-            let page = find_page(s, &fid, offset, 300, Some(&restriction), None).await?;
-            ids.extend(page.items.iter().map(|i| i.id.clone()));
-            if page.last || page.items.is_empty() {
-                break;
-            }
-            offset += page.items.len();
-        }
-        if ids.is_empty() {
-            continue;
-        }
-        remove_categories(s, &ids, &HashSet::from([name])).await?;
-        total += ids.len();
+        total += strip_category_in(s, store, account_id, folder, name).await?;
     }
     Ok(total)
+}
+
+/// Drops a category in one folder (#42, frame 4Б): the folder is searched by the category
+/// and the found items get it removed. Returns how many items were changed. The folder
+/// loop is the caller's, so a long walk is not one queue item.
+pub async fn strip_category_in(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    name: &str,
+) -> Result<usize> {
+    let Some(fid) = store.ews_folder_id(account_id, folder)? else {
+        return Ok(0);
+    };
+    let restriction = contains_category(name);
+    let ids = category_ids(s, &fid, &restriction).await?;
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    remove_categories(s, &ids, &HashSet::from([name])).await?;
+    Ok(ids.len())
 }
 
 /// Renames a category on every item of the account that carries it (#42, frame 7): each
@@ -1110,47 +1147,47 @@ pub async fn rename_category(s: &mut Session, store: &Store, account_id: &str, f
         let Some(fid) = store.ews_folder_id(account_id, folder)? else {
             continue;
         };
-        let mut ids = Vec::new();
-        let mut offset = 0;
-        loop {
-            let page = find_page(s, &fid, offset, 300, Some(&restriction), None).await?;
-            ids.extend(page.items.iter().map(|i| i.id.clone()));
-            if page.last || page.items.is_empty() {
-                break;
-            }
-            offset += page.items.len();
-        }
+        let ids = category_ids(s, &fid, &restriction).await?;
         if ids.is_empty() {
             continue;
         }
         for chunk in ids.chunks(50) {
-            let current = read_categories(s, chunk).await?;
-            let changes: String = current
-                .iter()
-                .filter_map(|(id, key, cats)| {
-                    if !cats.iter().any(|c| c == from) {
-                        return None;
-                    }
-                    let mut next: Vec<String> = Vec::new();
-                    for c in cats {
-                        let name = if c == from { to } else { c.as_str() };
-                        if !next.iter().any(|n| n == name) {
-                            next.push(name.to_owned());
+            // A conflict (the item changed since it was read) is retried once on a fresh
+            // read, as `remove_categories` does, rather than overwriting what another
+            // client wrote meanwhile.
+            for attempt in 0..2 {
+                let current = read_categories(s, chunk).await?;
+                let changes: String = current
+                    .iter()
+                    .filter_map(|(id, key, cats)| {
+                        if !cats.iter().any(|c| same_category(c, from)) {
+                            return None;
                         }
-                    }
-                    let update = categories_set(&next);
-                    Some(format!(
-                        "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
-                        item_ref(id, key.as_deref())
-                    ))
-                })
-                .collect();
-            if changes.is_empty() {
-                continue;
+                        let mut next: Vec<String> = Vec::new();
+                        for c in cats {
+                            let name = if same_category(c, from) { to } else { c.as_str() };
+                            if !next.iter().any(|n| n == name) {
+                                next.push(name.to_owned());
+                            }
+                        }
+                        let update = categories_set(&next);
+                        Some(format!(
+                            "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
+                            item_ref(id, key.as_deref())
+                        ))
+                    })
+                    .collect();
+                if changes.is_empty() {
+                    break;
+                }
+                let body = update_item(&changes, "AutoResolve");
+                let text_ = s.call(&body).await?;
+                match check_all(&text_) {
+                    Ok(()) => break,
+                    Err(e) if attempt == 0 && e.is_conflict() => continue,
+                    Err(e) => return Err(e),
+                }
             }
-            let body = update_item(&changes, "AutoResolve");
-            let text_ = s.call(&body).await?;
-            check_all(&text_)?;
         }
         total += ids.len();
     }

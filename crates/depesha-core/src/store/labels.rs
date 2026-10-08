@@ -73,19 +73,47 @@ pub(super) fn v15_folder_props_label_check(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 18: a label being taken off every letter of the mailbox (#42, frame 4Б). The row stays
+/// while the server work runs, so the debt survives a restart and a pause and the UI can
+/// show "being removed"; the row goes when every folder has been handled.
+pub(super) fn v18_label_stripping(conn: &Connection) -> Result<()> {
+    add_column(conn, "labels", "stripping", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
 impl Store {
     /// The account's labels, in the user's order (by name).
     pub fn labels(&self, account_id: &str) -> Result<Vec<Label>> {
         let conn = self.conn();
-        let mut stmt =
-            conn.prepare("SELECT name, keyword, color FROM labels WHERE account_id = ?1 ORDER BY name COLLATE NOCASE")?;
+        let mut stmt = conn.prepare(
+            "SELECT name, keyword, color, stripping FROM labels WHERE account_id = ?1 ORDER BY name COLLATE NOCASE",
+        )?;
         let rows = stmt.query_map([account_id], |r| {
             Ok(Label {
                 name: r.get(0)?,
                 keyword: r.get(1)?,
                 color: r.get(2)?,
+                stripping: r.get::<_, i64>(3)? != 0,
             })
         })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Marks a label as being taken off every letter (or clears the mark). The row stays in
+    /// the list meanwhile, so the debt is resumed after a restart or a pause.
+    pub fn set_label_stripping(&self, account_id: &str, name: &str, stripping: bool) -> Result<()> {
+        self.conn().execute(
+            "UPDATE labels SET stripping = ?3 WHERE account_id = ?1 AND name = ?2",
+            params![account_id, name, i64::from(stripping)],
+        )?;
+        Ok(())
+    }
+
+    /// The labels whose keyword is still to be taken off the mailbox: name and keyword.
+    pub fn stripping_labels(&self, account_id: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT name, keyword FROM labels WHERE account_id = ?1 AND stripping != 0")?;
+        let rows = stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
@@ -151,7 +179,7 @@ impl Store {
                  SELECT json_group_array(CASE WHEN value = ?2 THEN ?3 ELSE value END)
                  FROM json_each(messages.keywords)
              )
-             WHERE account_id = ?1 AND instr(keywords, '\"' || ?2 || '\"') > 0",
+             WHERE account_id = ?1 AND EXISTS (SELECT 1 FROM json_each(messages.keywords) WHERE value = ?2)",
             params![account_id, from, to],
         )?)
     }
@@ -368,7 +396,7 @@ impl Store {
             "SELECT l.keyword, COUNT(m.id)
              FROM labels l
              LEFT JOIN messages m ON m.account_id = l.account_id
-                 AND instr(m.keywords, '\"' || l.keyword || '\"') > 0
+                 AND EXISTS (SELECT 1 FROM json_each(m.keywords) WHERE json_each.value = l.keyword)
              WHERE l.account_id = ?1
              GROUP BY l.keyword",
         )?;
@@ -383,7 +411,7 @@ impl Store {
             "UPDATE messages SET keywords = (
                  SELECT json_group_array(value) FROM json_each(messages.keywords) WHERE value != ?2
              )
-             WHERE account_id = ?1 AND instr(keywords, '\"' || ?2 || '\"') > 0",
+             WHERE account_id = ?1 AND EXISTS (SELECT 1 FROM json_each(messages.keywords) WHERE value = ?2)",
             params![account_id, keyword],
         )?)
     }
@@ -474,6 +502,7 @@ mod tests {
             name: name.into(),
             keyword: keyword_of(name),
             color: color.into(),
+            stripping: false,
         }
     }
 
