@@ -184,9 +184,12 @@ impl Store {
             })?
             .collect::<rusqlite::Result<_>>()?;
         // Names accumulated before the quotes were stripped are cleaned on the way out, so the
-        // list shows people, not their mail programs' punctuation.
+        // list shows people, not their mail programs' punctuation. A name the user typed
+        // themselves (`manual`) is shown as it is, quotes and all.
         for p in &mut people {
-            p.name = clean_name(&p.name);
+            if !p.manual {
+                p.name = clean_name(&p.name);
+            }
         }
         let q = query.trim().to_lowercase();
         if !q.is_empty() {
@@ -427,6 +430,26 @@ mod tests {
         // The second spelling replaced the first rather than standing beside it.
         assert_eq!(store.people("").unwrap().len(), 1);
         assert_eq!(store.person("ivan@EXAMPLE.org").unwrap().unwrap().send_format, "plain");
+    }
+
+    /// A name the user typed in the book is shown as it is, quotes and all; a name gathered
+    /// from the correspondence is cleaned of the quotes its mail program wrapped it in.
+    #[test]
+    fn a_name_typed_by_hand_keeps_its_quotes() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("ivan@example.org", "\"Иван\""), true);
+        store
+            .save_person(&person("olga@example.org", |p| {
+                p.manual = true;
+                p.name = "\"A\" \"B\"".into();
+            }))
+            .unwrap();
+        let book = store.people("").unwrap();
+        let by = |email: &str| book.iter().find(|p| p.email.eq_ignore_ascii_case(email)).unwrap();
+        // Gathered from the mail: the wrapping quotes come off.
+        assert_eq!(by("ivan@example.org").name, "Иван");
+        // Typed by hand: kept as it is.
+        assert_eq!(by("olga@example.org").name, "\"A\" \"B\"");
     }
 
     #[test]

@@ -716,15 +716,19 @@ fn summary_of(msg: &Message<'_>) -> Summary {
 
 /// A display name as it should be shown: the paired quotes some mail programs wrap the whole
 /// name in taken off (`"…"`, `'…'`, `«…»`, again while they come off), the backslash escapes
-/// `\"`/`\'` inside undone, and the ends trimmed. Quotes inside a name (`Иван "Ваня" Петров`)
-/// stay: only a pair around the whole of it goes.
+/// `\"`/`\'` inside undone, and the ends trimmed. A pair around the whole of it goes only
+/// when the same quote does not stand inside too, so `"A" "B"` keeps its quotes while
+/// `"Иван"` loses them.
 pub fn clean_name(name: &str) -> String {
     let mut s = name.replace("\\\"", "\"").replace("\\'", "'");
     loop {
         let trimmed = s.trim();
-        let inner = [('"', '"'), ('\'', '\''), ('«', '»')]
-            .iter()
-            .find_map(|(open, close)| trimmed.strip_prefix(*open)?.strip_suffix(*close));
+        let inner = [('"', '"'), ('\'', '\''), ('«', '»')].iter().find_map(|(open, close)| {
+            let inner = trimmed.strip_prefix(*open)?.strip_suffix(*close)?;
+            // A quote of the same kind inside means the outer ones do not wrap the whole
+            // name (`"A" "B"`): only a genuine pair comes off.
+            (!inner.contains(*open) && !inner.contains(*close)).then_some(inner)
+        });
         match inner {
             Some(inner) => s = inner.to_string(),
             None => break,
@@ -1335,6 +1339,8 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
         assert_eq!(clean_name("\\\"Иван\\\""), "Иван");
         // Quotes inside a name are legitimate and stay.
         assert_eq!(clean_name("Иван \"Ваня\" Петров"), "Иван \"Ваня\" Петров");
+        // Outer quotes around only part of the name are not a pair around the whole: they stay.
+        assert_eq!(clean_name("\"A\" \"B\""), "\"A\" \"B\"");
         // A lone sign is not a name.
         assert_eq!(clean_name("\""), "\"");
         assert_eq!(clean_name("''"), "");
