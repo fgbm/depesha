@@ -929,6 +929,7 @@ mod tests {
             &target(Some(7)),
             |_| None,
             |acc, mid| (acc == "a" && mid == "<7@example.com>").then(|| (42, "Archive".into())),
+            |_, _, _| None,
         );
         assert_eq!(
             (open.id, open.folder.as_deref(), open.gone.clone()),
@@ -936,7 +937,7 @@ mod tests {
         );
         assert_eq!(open.ids, vec![42]);
         // Gone: the inbox opens and says so.
-        let open = resolve(&target(Some(7)), |_| None, |_, _| None);
+        let open = resolve(&target(Some(7)), |_| None, |_, _| None, |_, _, _| None);
         assert_eq!((open.id, open.folder.as_deref()), (None, Some("INBOX")));
         assert_eq!(
             open.gone,
@@ -949,6 +950,45 @@ mod tests {
     }
 
     #[test]
+    fn a_reused_id_does_not_open_another_letter() {
+        // The id now belongs to a different letter (the old one was deleted, its rowid
+        // taken): the Message-ID says so, and the letter is found by it instead.
+        let open = resolve(
+            &target(Some(7)),
+            |_| Some(("INBOX".into(), Some("<other@example.com>".into()))),
+            |acc, mid| (acc == "a" && mid == "<7@example.com>").then(|| (99, "Archive".into())),
+            |_, _, _| None,
+        );
+        assert_eq!((open.id, open.folder.as_deref()), (Some(99), Some("Archive")));
+        // Found nowhere: the letter is told as gone, not opened as the id's new owner.
+        let open = resolve(
+            &target(Some(7)),
+            |_| Some(("INBOX".into(), Some("<other@example.com>".into()))),
+            |_, _| None,
+            |_, _, _| None,
+        );
+        assert_eq!(open.id, None);
+        assert!(open.gone.is_some());
+    }
+
+    #[test]
+    fn a_click_prefers_the_copy_in_the_named_folder() {
+        // The letter was in Sent when the notification was made; a copy sits in Inbox too.
+        let mut t = target(Some(7));
+        t.folder = Some("Sent".into());
+        let open = resolve(
+            &t,
+            |_| None,
+            |_, _| Some((1, "INBOX".into())),
+            |_, folder, _| (folder == "Sent").then(|| (2, "Sent".into())),
+        );
+        assert_eq!((open.id, open.folder.as_deref()), (Some(2), Some("Sent")));
+        // The named folder has no copy: any one will do.
+        let open = resolve(&t, |_| None, |_, _| Some((1, "INBOX".into())), |_, _, _| None);
+        assert_eq!((open.id, open.folder.as_deref()), (Some(1), Some("INBOX")));
+    }
+
+    #[test]
     fn a_summary_opens_its_folder_as_is() {
         let summary = Target {
             ids: vec![1, 2, 3],
@@ -958,6 +998,7 @@ mod tests {
             &summary,
             |_| panic!("no letter to look up"),
             |_, _| panic!("no letter to look up"),
+            |_, _, _| panic!("no letter to look up"),
         );
         assert_eq!(
             open,

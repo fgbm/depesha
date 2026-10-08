@@ -1609,6 +1609,40 @@ impl Store {
             .optional()?)
     }
 
+    /// A cached letter with this Message-ID and the folder it is in. A letter kept in
+    /// several folders (a copy to oneself) has one copy in each: `folder` names the one
+    /// to prefer, so a notification opens the copy it was about rather than any other.
+    pub fn find_by_message_id_any(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        folder: Option<&str>,
+    ) -> Result<Option<(i64, String)>> {
+        let mid = message_id.trim_matches(['<', '>']);
+        let row = |r: &Row<'_>| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?));
+        if let Some(folder) = folder {
+            let in_folder = self
+                .conn()
+                .query_row(
+                    "SELECT id, folder FROM messages WHERE account_id = ?1 AND message_id = ?2 AND folder = ?3 LIMIT 1",
+                    params![account_id, mid, folder],
+                    row,
+                )
+                .optional()?;
+            if in_folder.is_some() {
+                return Ok(in_folder);
+            }
+        }
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT id, folder FROM messages WHERE account_id = ?1 AND message_id = ?2 LIMIT 1",
+                params![account_id, mid],
+                row,
+            )
+            .optional()?)
+    }
+
     pub fn get(&self, id: i64) -> Result<Option<MessageRow>> {
         Ok(self
             .read()
