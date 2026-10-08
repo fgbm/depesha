@@ -191,7 +191,7 @@ export const api = {
     call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, at, followupSecs, followup }),
   draftSave: (accountId: string, draft: ComposeDraft, replace: number | null) =>
     call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
-  draftDiscard: (id: number) => call<void>("draft_discard", { id }),
+  draftDiscard: (accountId: string, id: number) => call<void>("draft_discard", { accountId, id }),
   /** The local copy of a draft, kept on every typing pause as a fallback for a crash (#71). */
   draftCachePut: (key: string, accountId: string, draft: ComposeDraft, draftId: number | null = null) =>
     call<void>("draft_cache_put", { key, accountId, draft, draftId }),

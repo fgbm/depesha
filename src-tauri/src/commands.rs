@@ -2381,13 +2381,30 @@ pub async fn send(
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {
-        let _ = discard(&state, d).await;
+        let _ = discard(&state, &account.id, d).await;
     }
     Ok(Queued { id, at: at.max(now) })
 }
 
-async fn discard(state: &AppState, id: i64) -> CmdResult<()> {
+/// Whether the cached letter is a draft Depesha wrote in this mailbox: a number kept from an
+/// earlier run may name any letter by now, because `messages.id` is handed out again.
+fn is_own_draft(store: &depesha_core::store::Store, account_id: &str, r: &MessageRow) -> CmdResult<bool> {
+    let in_drafts = store.folder_by_role(account_id, FolderRole::Drafts)?.as_deref() == Some(r.folder.as_str());
+    let own_id = r.message_id.as_deref().is_some_and(|mid| {
+        let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
+        bare.rsplit_once('@')
+            .is_some_and(|(_, domain)| domain.eq_ignore_ascii_case(message::DRAFT_DOMAIN))
+    });
+    Ok(r.account_id == account_id && in_drafts && own_id)
+}
+
+/// Deletes the draft `id` for good, and nothing else: a number that no longer names one of
+/// Depesha's drafts in this mailbox is left alone.
+async fn discard(state: &AppState, account_id: &str, id: i64) -> CmdResult<()> {
     let (r, validity) = state.store.get_at(id)?.ok_or_else(gone)?;
+    if !is_own_draft(&state.store, account_id, &r)? {
+        return Ok(());
+    }
     state
         .worker(&r.account_id)?
         .run(Work::Delete {
@@ -2401,8 +2418,8 @@ async fn discard(state: &AppState, id: i64) -> CmdResult<()> {
 
 /// Deletes a saved draft for good: the user threw the composition away.
 #[tauri::command]
-pub async fn draft_discard(state: St<'_>, id: i64) -> CmdResult<()> {
-    discard(&state, id).await
+pub async fn draft_discard(state: St<'_>, account_id: String, id: i64) -> CmdResult<()> {
+    discard(&state, &account_id, id).await
 }
 
 /// The Message-ID a Depesha draft carries: the local part the builder gave it, under
@@ -2487,7 +2504,7 @@ pub async fn draft_save(
         })
         .await?;
     if let Some(old) = replace {
-        let _ = discard(&state, old).await;
+        let _ = discard(&state, &account.id, old).await;
     }
     // The append synced the folder: the copy is in the cache unless the server hides it.
     let saved = match message_id {
@@ -2886,6 +2903,50 @@ pub fn quit_cancel(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_depesha_draft_of_the_mailbox_may_be_discarded() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Store};
+        let store = Store::open_in_memory().unwrap();
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        let inbox_f = plain("INBOX", Some(FolderRole::Inbox));
+        let drafts_f = plain("Drafts", Some(FolderRole::Drafts));
+        store.replace_folders("a", &[inbox_f, drafts_f.clone()]).unwrap();
+        store.replace_folders("b", &[drafts_f]).unwrap();
+        let add = |account: &str, name: &str, uid: u32, mid: &str| {
+            let s = Summary {
+                message_id: Some(mid.into()),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            let id = store.insert_message(account, name, &msg).unwrap();
+            store.get_at(id).unwrap().unwrap().0
+        };
+        let own = add("a", "Drafts", 1, "<x@depesha.local>");
+        let inbox = add("a", "INBOX", 2, "<y@depesha.local>");
+        let foreign = add("a", "Drafts", 3, "<z@example.org>");
+        let other = add("b", "Drafts", 4, "<w@depesha.local>");
+        assert!(super::is_own_draft(&store, "a", &own).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &inbox).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &foreign).unwrap());
+        assert!(!super::is_own_draft(&store, "a", &other).unwrap());
+    }
+
     #[test]
     fn a_move_reads_only_the_letters_of_the_action() {
         use std::collections::HashSet;

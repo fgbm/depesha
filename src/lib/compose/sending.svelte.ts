@@ -154,7 +154,7 @@ export class ComposeSending {
     this.host.autosave.cancel();
     await this.host.autosave.settled();
     await this.host.autosave.forgetLocal();
-    if (win.draft_id !== null) api.draftDiscard(win.draft_id).catch((e) => this.host.fail(e));
+    if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id).catch((e) => this.host.fail(e));
     this.host.closeCompose(win.id);
   }
 
