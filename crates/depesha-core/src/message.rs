@@ -406,6 +406,17 @@ fn strip_tags(html: &str) -> String {
         .replace("&amp;", "&")
 }
 
+/// A value as a browser's URL parser will read it: ASCII whitespace and control characters
+/// are thrown away and `\` is taken for `/`. Used before looking for a scheme, so a tracker
+/// cannot hide behind what the parser silently drops.
+fn unconfuse(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace() && !c.is_ascii_control())
+        .map(|c| if c == '\\' { '/' } else { c })
+        .collect()
+}
+
 pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote: bool) -> (String, bool) {
     let remote = Arc::new(AtomicBool::new(false));
     let inline = Arc::new(inline.clone());
@@ -457,10 +468,28 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, String>, allow_remote:
             let ok = element == "img" && attribute == "src" && lower.starts_with("data:image/");
             return ok.then_some(Cow::Borrowed(value));
         }
-        let loads_resource = (element == "img" && attribute == "src")
-            || attribute == "background"
-            || (attribute == "style" && lower.contains("url("));
-        if loads_resource && (lower.contains("http:") || lower.contains("https:") || lower.contains("//")) {
+        // The browser drops tabs and line breaks from a URL and reads `\` as `/`: look for a
+        // scheme only after the value is read the same way, or a tracker hides behind that.
+        let plain = unconfuse(value).to_ascii_lowercase();
+        let remote = plain.contains("http:") || plain.contains("https:") || plain.contains("//");
+        // A style that reaches out for a resource in any spelling is dropped whole: `url(`,
+        // `image-set(`, `image(`, `src(` and CSS escaping (`\`) all load something.
+        if attribute == "style"
+            && !allow_remote
+            && (plain.contains("url")
+                || plain.contains("image-set")
+                || plain.contains("image(")
+                || plain.contains("src(")
+                || value.contains('\\'))
+        {
+            if remote {
+                flag.store(true, Ordering::Relaxed);
+            }
+            return None;
+        }
+        let loads_resource =
+            (element == "img" && attribute == "src") || attribute == "background" || attribute == "style";
+        if loads_resource && remote {
             flag.store(true, Ordering::Relaxed);
             if !allow_remote {
                 return None;
@@ -1003,11 +1032,7 @@ JVBERi0xLjQK\r\n\
         );
         assert!(clean.contains("style=\"color:red"), "{clean}");
         // Allowed for this letter, the same picture goes through.
-        let (clean, remote) = sanitize_html(
-            "<img src=\"ht&#9;tps:\\evil.example/p.gif\">",
-            &HashMap::new(),
-            true,
-        );
+        let (clean, remote) = sanitize_html("<img src=\"ht&#9;tps:\\evil.example/p.gif\">", &HashMap::new(), true);
         assert!(clean.contains("evil.example"), "{clean}");
         assert!(remote);
     }
