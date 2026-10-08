@@ -322,6 +322,68 @@ async fn a_message_id_search_is_exact() {
     conn.session.logout().await.unwrap();
 }
 
+/// Without MOVE and UIDPLUS a move leaves the original marked `\Deleted`: finding it by
+/// Message-ID again would copy the deleted original a second time.
+#[tokio::test]
+async fn a_deleted_original_is_not_moved_again() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("dup").await;
+    conn.session.create("Box").await.unwrap();
+    let raw = "From: Тест <test@example.org>\r\nTo: me@example.org\r\nSubject: Дубль\r\n\
+               Message-ID: <dup@example.org>\r\nDate: Fri, 2 Oct 2026 10:00:00 +0300\r\n\
+               Content-Type: text/plain; charset=utf-8\r\n\r\nтело\r\n"
+        .replace("               ", "");
+    imap::append(&mut conn, "INBOX", raw.as_bytes(), "").await.unwrap();
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    let ids = vec!["dup@example.org".to_owned()];
+
+    conn.caps.move_ = false;
+    conn.caps.uidplus = false;
+    let mut conn = mail::Conn::Imap(conn);
+    let n = mail::move_by_message_id(&mut conn, &store, "d", "INBOX", &ids, "Box", false)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    let mail::Conn::Imap(mut imap_conn) = conn else {
+        unreachable!()
+    };
+    sync::sync_folder(&mut imap_conn, &store, "d", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    sync::sync_folder(&mut imap_conn, &store, "d", "Box", SyncOptions::default())
+        .await
+        .unwrap();
+
+    // The original stays on the server, marked \Deleted: moving it again must find nothing.
+    let mut conn = mail::Conn::Imap(imap_conn);
+    let n = mail::move_by_message_id(&mut conn, &store, "d", "INBOX", &ids, "Box", false)
+        .await
+        .unwrap();
+    assert_eq!(n, 0, "the \\Deleted original is not moved again");
+    let mail::Conn::Imap(mut imap_conn) = conn else {
+        unreachable!()
+    };
+    sync::sync_folder(&mut imap_conn, &store, "d", "Box", SyncOptions::default())
+        .await
+        .unwrap();
+    let box_ = store
+        .list(&ListQuery {
+            account_id: Some("d".into()),
+            folder: Some("Box".into()),
+            limit: 100,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(box_.len(), 1, "one copy in the destination: {box_:?}");
+    imap_conn.session.logout().await.unwrap();
+}
+
 #[tokio::test]
 async fn idle_wakes_up_on_append_from_another_session() {
     if !enabled() {
