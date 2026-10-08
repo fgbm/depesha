@@ -68,6 +68,10 @@ export class ListController {
   private reloadSoon = debounce(() => void this.reload(true), 250, 1000);
   /** Numbers reloads: only the answer to the latest one is shown, whatever order answers come in. */
   private reloadSeq = 0;
+  /** One search in flight; the next waits and the latest wins (#71). */
+  private searchBusy = false;
+  private searchWaiting: View | null = null;
+  private searchWaiters: (() => void)[] = [];
 
   constructor(private host: ListHost) {}
 
@@ -181,12 +185,29 @@ export class ListController {
     const stale = () => seq !== this.reloadSeq || this.view !== v;
     try {
       if (v.kind === "search") {
-        const text = v.text.trim();
-        const [local, totals] = text ? await Promise.all([api.search(v.text, this.sort()), this.countFound(v.text)]) : [[], null];
-        if (stale()) return;
-        this.messages = this.visible(this.merge(local, this.serverRows ?? []));
-        this.totals = totals;
-        this.exhausted = true;
+        // One search at a time: a newer one waits, and only the latest is run (#71).
+        if (this.searchBusy) {
+          this.searchWaiting = v;
+          await new Promise<void>((resolve) => this.searchWaiters.push(resolve));
+          return;
+        }
+        this.searchBusy = true;
+        try {
+          const text = v.text.trim();
+          const [local, totals] = text ? await Promise.all([api.search(v.text, this.sort()), this.countFound(v.text)]) : [[], null];
+          if (stale()) return;
+          this.messages = this.visible(this.merge(local, this.serverRows ?? []));
+          this.totals = totals;
+          this.exhausted = true;
+        } finally {
+          this.searchBusy = false;
+          const waiting = this.searchWaiting;
+          const waiters = this.searchWaiters;
+          this.searchWaiting = null;
+          this.searchWaiters = [];
+          if (waiting && this.view === waiting) await this.reload();
+          for (const done of waiters) done();
+        }
       } else if (v.kind === "outbox") {
         this.messages = [];
         this.exhausted = true;

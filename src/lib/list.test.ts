@@ -40,18 +40,21 @@ describe("list reloads", () => {
     expect(s.messages.map((m) => m.id)).toEqual([10, 11]);
   });
 
-  it("show the latest search when an earlier one answers last", async () => {
+  it("hold a search asked again while one is in flight, and show the latest", async () => {
     const s = new AppStore();
-    await s.setView({ kind: "search", text: "invoice" });
     const first = deferred<MessageRow[]>();
-    const second = deferred<MessageRow[]>();
-    api.search.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-    const a = s.reload();
-    const b = s.reload();
-    second.resolve([row(7)]);
-    await b;
+    api.search.mockResolvedValue([row(7)]);
+    api.search.mockReturnValueOnce(first.promise);
+    const a = s.setView({ kind: "search", text: "invoice" });
+    await flush();
+    expect(api.search).toHaveBeenCalledTimes(1);
+    const b = s.setView({ kind: "search", text: "invoice" });
+    await flush();
+    // The second waits: no request while the first is in flight.
+    expect(api.search).toHaveBeenCalledTimes(1);
     first.resolve([row(1), row(2)]);
-    await a;
+    await Promise.all([a, b]);
+    await flush();
     expect(s.messages.map((m) => m.id)).toEqual([7]);
   });
 
