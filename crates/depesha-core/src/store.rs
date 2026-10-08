@@ -1599,7 +1599,7 @@ impl Store {
 
     pub fn get(&self, id: i64) -> Result<Option<MessageRow>> {
         Ok(self
-            .conn()
+            .read()
             .query_row(
                 &format!("SELECT {COLUMNS} FROM messages m WHERE m.id = ?1"),
                 [id],
@@ -1612,7 +1612,7 @@ impl Store {
     /// folder cannot come between them. For actions on the server by UID.
     pub fn get_at(&self, id: i64) -> Result<Option<(MessageRow, u32)>> {
         Ok(self
-            .conn()
+            .read()
             .query_row(
                 &format!(
                     "SELECT {COLUMNS}, f.uidvalidity FROM messages m
@@ -1627,7 +1627,7 @@ impl Store {
 
     /// `get_at` of many messages in one query, in the order of `ids`; unknown ids are skipped.
     pub fn get_many_at(&self, ids: &[i64]) -> Result<Vec<(MessageRow, u32)>> {
-        let conn = self.conn();
+        let conn = self.read();
         let mut stmt = conn.prepare_cached(&format!(
             "SELECT {COLUMNS}, f.uidvalidity FROM json_each(?1) j
              CROSS JOIN messages m ON m.id = j.value
@@ -1651,7 +1651,7 @@ impl Store {
 
     pub fn body(&self, id: i64) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .conn()
+            .read()
             .query_row("SELECT raw FROM bodies WHERE message_id = ?1", [id], |r| r.get(0))
             .optional()?)
     }
