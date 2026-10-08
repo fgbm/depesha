@@ -131,6 +131,7 @@ pub fn run() {
                 workers: Mutex::new(HashMap::new()),
                 statuses: Mutex::new(HashMap::new()),
                 outbox_notify: Notify::new(),
+                copying: Default::default(),
                 scheduler_notify: Notify::new(),
                 updates: updater::Updates::new(app.package_info().version.to_string()),
                 tokens: Default::default(),

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -31,6 +31,8 @@ pub struct AppState {
     pub workers: Mutex<HashMap<String, Worker>>,
     pub statuses: Mutex<HashMap<String, AccountStatus>>,
     pub outbox_notify: Notify,
+    /// Copies in «Sent» being filed right now (ids in `sent_copies`): one try at a time.
+    pub copying: Mutex<HashSet<i64>>,
     /// Wakes the scheduler (snoozed mail, follow-up reminders) early.
     pub scheduler_notify: Notify,
     pub updates: crate::updater::Updates,
@@ -108,6 +110,15 @@ pub fn update_locked(
 }
 
 impl AppState {
+    /// Takes the filing of copy `id` for one try; false when a try is already under way.
+    pub fn copy_claim(&self, id: i64) -> bool {
+        lock(&self.copying).insert(id)
+    }
+
+    pub fn copy_release(&self, id: i64) {
+        lock(&self.copying).remove(&id);
+    }
+
     pub fn settings(&self) -> Settings {
         lock(&self.config).settings.clone()
     }

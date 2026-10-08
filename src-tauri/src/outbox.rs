@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use depesha_core::imap::FolderRole;
-use depesha_core::store::OutboxItem;
+use depesha_core::store::{NewSentCopy, OutboxItem, SentCopy};
 use depesha_core::{mail, message, smtp};
 use serde_json::json;
 
@@ -22,6 +22,8 @@ const SLEEP_GAP: Duration = Duration::from_secs(20);
 pub async fn run(state: Arc<AppState>) {
     // A send cut short by a quit may or may not have left: it waits for the user.
     recover_interrupted(&state);
+    // Copies in «Sent» a quit cut short are filed again.
+    deliver_copies(&state);
     // When the app last ran without a break: a letter due before that was missed.
     let mut awake_since = chrono::Utc::now().timestamp();
     let mut last_wall = std::time::SystemTime::now();
@@ -92,6 +94,7 @@ async fn round(state: &Arc<AppState>, awake_since: i64) -> Result<(), CmdError> 
 }
 
 async fn round_inner(state: &Arc<AppState>, awake_since: i64) -> Result<(), CmdError> {
+    deliver_copies(state);
     let now = chrono::Utc::now().timestamp();
     // Hours late (the app was closed, the computer asleep), a letter waits for the user.
     crate::background::hold_missed(state, now, awake_since)?;
@@ -175,54 +178,59 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
         match result {
             Ok(raw) => {
                 state.task_done(&key);
-                state.store.outbox_remove(item.id)?;
+                let message_id = message::parse_summary(&raw).message_id;
+                let sent = state.store.folder_by_role(&account.id, FolderRole::Sent)?;
+                // The client-side copy is work of its own: the send round does not wait for it
+                // (a slow Sent folder would hold the whole round up). The bytes are kept in
+                // the cache in the very step that removes the outbox row, so a quit, a dead
+                // network or a paused mailbox cannot lose them; `deliver_copies` files them.
+                let client_copy = account.save_sent_copy && !account.is_ews();
+                // A wait for a reply needs its letter in the cache: with a copy to come it
+                // starts when the copy has landed.
+                let mut defer_wait = false;
+                let mut letter_cached = true;
+                match sent.as_deref() {
+                    Some(folder) if client_copy => {
+                        defer_wait = item.followup_secs > 0;
+                        state.store.outbox_sent_with_copy(
+                            item.id,
+                            &NewSentCopy {
+                                account_id: &account.id,
+                                folder,
+                                raw: &raw,
+                                flags: "(\\Seen)",
+                                message_id: message_id.as_deref(),
+                                pending: defer_wait.then_some(&item),
+                            },
+                        )?;
+                    }
+                    _ => {
+                        state.store.outbox_remove(item.id)?;
+                        // No Sent folder yet: the copy cannot be made, so a wait could neither
+                        // be shown nor cancelled. Say so and leave it out.
+                        if client_copy {
+                            letter_cached = false;
+                            state.emit("app-error", json!({ "message": tr!("sent, but the Sent folder is unknown: the copy was not saved", "письмо отправлено, но папка «Отправленные» неизвестна: копия не сохранена") }));
+                        }
+                    }
+                }
                 // A letter going to wait says so once it has moved ("parked"), in one toast.
                 let parking = crate::waiting::will_park(&item);
                 state.emit(
                     "sent",
                     json!({ "id": item.id, "subject": item.draft.subject, "parking": parking }),
                 );
-                let message_id = message::parse_summary(&raw).message_id;
-                let sent = state.store.folder_by_role(&account.id, FolderRole::Sent)?;
-                let worker = state.worker(&account.id).ok();
-                // Whether a waiting-for-a-reply may be added: the wait is countable and
-                // cancellable only while its letter is in the cache. The client-side copy
-                // is work of its own: the send round does not wait for it (a slow Sent
-                // folder would hold the whole round up), and a failure is a task, not a
-                // stalled send. The copy lands shortly after, so the wait is added as if
-                // it were there.
-                let mut letter_cached = true;
-                if account.save_sent_copy && !account.is_ews() {
-                    match (sent.as_ref(), worker.as_ref()) {
-                        (Some(sent), Some(worker)) => {
-                            worker.kick(Work::CopyToSent {
-                                folder: sent.clone(),
-                                // The wait below still parses the letter: the copy takes a copy.
-                                raw: raw.clone(),
-                                flags: "(\\Seen)".into(),
-                                message_id: message_id.clone(),
-                            });
-                        }
-                        // No Sent folder yet (or no worker): the copy cannot be made, so a wait
-                        // could neither be shown nor cancelled. Say so and leave it out.
-                        _ => {
-                            letter_cached = false;
-                            state.emit("app-error", json!({ "message": tr!("sent, but the Sent folder is unknown: the copy was not saved", "письмо отправлено, но папка «Отправленные» неизвестна: копия не сохранена") }));
-                        }
-                    }
-                }
-                // The letter answered or forwarded is marked, the wait for a reply starts.
-                let parks = crate::waiting::after_sent(state, &account, &item, message_id, letter_cached).await?;
-                if parking && !parks {
-                    // Nothing to move after all (the letter left the inbox meanwhile): plain "sent".
-                    state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
+                if defer_wait {
+                    state.outbox_notify.notify_one();
+                } else {
+                    finish_sent(state, &account, &item, message_id, letter_cached).await?;
                 }
                 // The server keeps the copy itself (Exchange, Gmail): Sent is synced now, so the
                 // answer joins its conversation at once, and again a moment later for servers
                 // that file it with a delay.
-                if (!account.save_sent_copy || account.is_ews())
+                if !client_copy
                     && let Some(sent) = sent
-                    && let Some(worker) = worker
+                    && let Ok(worker) = state.worker(&account.id)
                 {
                     worker.kick(Work::SyncFolder(sent.clone()));
                     tokio::spawn(async move {
@@ -257,4 +265,161 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
         state.emit("outbox-changed", json!({}));
     }
     Ok(())
+}
+
+/// The letter answered or forwarded is marked, the wait for a reply starts; a plain "sent"
+/// toast follows when the letter was to wait but had nothing to move after all.
+async fn finish_sent(
+    state: &AppState,
+    account: &depesha_core::account::Account,
+    item: &OutboxItem,
+    message_id: Option<String>,
+    letter_cached: bool,
+) -> Result<(), CmdError> {
+    let parks = crate::waiting::after_sent(state, account, item, message_id, letter_cached).await?;
+    if crate::waiting::will_park(item) && !parks {
+        // Nothing to move after all (the letter left the inbox meanwhile): plain "sent".
+        state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
+    }
+    Ok(())
+}
+
+/// Tries at the copies of sent letters not yet in «Sent», each on its own: a slow or dead
+/// mailbox holds nobody up. Called by every round and at the start, so a copy that was cut
+/// short by a quit or a dead network is filed once the mailbox answers again.
+pub fn deliver_copies(state: &Arc<AppState>) {
+    let now = chrono::Utc::now().timestamp();
+    let Ok(due) = state.store.sent_copies_due(now) else {
+        return;
+    };
+    for copy in due {
+        if !state.copy_claim(copy.id) {
+            continue;
+        }
+        let state = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = deliver_copy(&state, &copy).await {
+                tracing::warn!("sent copy: {}", e.message);
+            }
+            state.copy_release(copy.id);
+        });
+    }
+}
+
+/// How many tries a wait for a reply stays held for its copy before it starts without one.
+const COPY_WAIT_TRIES: u32 = 3;
+
+async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Result<(), CmdError> {
+    let Ok(account) = state.account(&copy.account_id) else {
+        // The mailbox was removed: there is nowhere to file the copy.
+        state.store.sent_copy_done(copy.id)?;
+        return Ok(());
+    };
+    let outcome = match state.worker(&copy.account_id) {
+        Ok(worker) => worker
+            .run_background(Work::CopyToSent {
+                folder: copy.folder.clone(),
+                raw: copy.raw.clone(),
+                flags: copy.flags.clone(),
+                message_id: copy.message_id.clone(),
+            })
+            .await
+            .map(|_| ()),
+        Err(e) => Err(depesha_core::Error::Io(std::io::Error::other(e.message))),
+    };
+    // The wait for a reply starts before the copy is forgotten, so a quit between the two
+    // repeats it and never loses it. It starts with the copy cached, or without it once
+    // the copy keeps failing: the answered mark must not wait for a mailbox that is down.
+    let ready = match (&outcome, copy.pending.as_ref()) {
+        (Ok(()), Some(item)) => Some((item, true)),
+        (Err(e), Some(item)) if !e.is_transient() || copy.attempts + 1 >= COPY_WAIT_TRIES => Some((item, false)),
+        _ => None,
+    };
+    if let Some((item, cached)) = ready {
+        if !cached {
+            state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent yet: it will be filed later", "письмо отправлено, но копия в «Отправленные» пока не сохранена: её положат позже") }));
+        }
+        finish_sent(state, &account, item, copy.message_id.clone(), cached).await?;
+    }
+    settle_copy(&state.store, copy, &outcome, chrono::Utc::now().timestamp())?;
+    if matches!(ready, Some((_, false))) {
+        state.store.sent_copy_forget_wait(copy.id)?;
+    }
+    Ok(())
+}
+
+/// What the try at a copy leaves in the cache: nothing when the server has it, otherwise
+/// the copy waits for its next try. Returns whether it was filed.
+fn settle_copy(
+    store: &depesha_core::store::Store,
+    copy: &SentCopy,
+    outcome: &Result<(), depesha_core::Error>,
+    now: i64,
+) -> Result<bool, CmdError> {
+    match outcome {
+        Ok(()) => {
+            store.sent_copy_done(copy.id)?;
+            Ok(true)
+        }
+        Err(e) => {
+            let delay = (30_i64 << copy.attempts.min(6)).min(1800);
+            let delay = delay.max(e.back_off().map_or(0, |d| d.as_secs().min(1800) as i64 + 1));
+            store.sent_copy_retry_later(copy.id, now + delay, &e.to_string())?;
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use depesha_core::store::Store;
+
+    /// A letter sent, its copy kept; the outbox row is gone.
+    fn sent(store: &Store) -> SentCopy {
+        let id = store
+            .outbox_add("a", &Default::default(), 1, 1, 0, &Default::default())
+            .unwrap();
+        store
+            .outbox_sent_with_copy(
+                id,
+                &NewSentCopy {
+                    account_id: "a",
+                    folder: "Sent",
+                    raw: b"raw",
+                    flags: "(\\Seen)",
+                    message_id: Some("m@x"),
+                    pending: None,
+                },
+            )
+            .unwrap();
+        store.sent_copies().unwrap().remove(0)
+    }
+
+    /// A paused mailbox or a dead network does not lose the copy: it waits and goes once the
+    /// mailbox answers, and the letter is not sent again meanwhile.
+    #[test]
+    fn a_copy_that_could_not_go_waits_and_goes_later() {
+        let store = Store::open_in_memory().unwrap();
+        let copy = sent(&store);
+        let now = 1_000;
+        for failure in [
+            depesha_core::Error::Paused,
+            depesha_core::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NetworkUnreachable,
+                "no network",
+            )),
+        ] {
+            let copy = store.sent_copies().unwrap().remove(0);
+            assert!(!settle_copy(&store, &copy, &Err(failure), now).unwrap());
+            assert!(store.sent_copies_due(now).unwrap().is_empty(), "not hammered at once");
+            assert_eq!(store.sent_copies().unwrap().len(), 1, "the copy is kept");
+            assert!(store.outbox().unwrap().is_empty(), "the letter is not sent twice");
+        }
+        let due = store.sent_copies_due(now + 3_600).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!((due[0].id, due[0].raw.as_slice()), (copy.id, &b"raw"[..]));
+        assert!(settle_copy(&store, &due[0], &Ok(()), now + 3_600).unwrap());
+        assert!(store.sent_copies().unwrap().is_empty());
+    }
 }

@@ -24,6 +24,8 @@ mod marks;
 pub use marks::{Done, Mark, Outgoing, marks_of};
 mod people;
 pub use people::{HintCount, HintState, Person};
+mod sent_copies;
+pub use sent_copies::{NewSentCopy, SentCopy};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 mod waiting;
@@ -66,6 +68,7 @@ const MIGRATIONS: &[Step] = &[
     v16_folder_counters,
     v17_outbox_sending,
     labels::v18_label_stripping,
+    sent_copies::v19_sent_copies,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -1930,6 +1933,7 @@ impl Store {
         // Messages, bodies and search go with their folders.
         tx.execute("DELETE FROM folders WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM outbox WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM sent_copies WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM snoozed WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM followups WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM marks WHERE account_id = ?1", [account_id])?;
@@ -4335,6 +4339,22 @@ mod tests {
                 .unwrap();
             store
                 .outbox_add(account, &Draft::default(), 1, 1, 0, &FollowupPlan::default())
+                .unwrap();
+            let sent = store
+                .outbox_add(account, &Draft::default(), 1, 1, 0, &FollowupPlan::default())
+                .unwrap();
+            store
+                .outbox_sent_with_copy(
+                    sent,
+                    &NewSentCopy {
+                        account_id: account,
+                        folder: "Sent",
+                        raw: b"raw",
+                        flags: "(\\Seen)",
+                        message_id: None,
+                        pending: None,
+                    },
+                )
                 .unwrap();
             store
                 .mark_done(account, "q@x", crate::smtp::Act::Reply, 1, None)
