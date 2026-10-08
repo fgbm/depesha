@@ -156,6 +156,21 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 .toast .act kbd { background: transparent; border-color: var(--side-muted); color: var(--side-muted); margin-left: 4px; text-decoration: none; display: inline-block; }
 .toast .close { color: var(--side-muted); padding: 0 6px; font-size: 16px; cursor: pointer; }
 
+
+/* --- фрагмент настроек (prefs/GeneralPanel.svelte) --- */
+.prefs { background: var(--paper); border-radius: 8px; padding: 14px 20px 12px; max-width: 760px; box-shadow: 0 2px 14px rgb(0 0 0 / 12%); font-size: 14px; }
+.prefs h4 { margin: 0 0 8px; font-size: 14px; }
+.prefs .inline { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
+.prefs .lbl { width: 120px; flex: none; }
+.prefs .input { width: 78px; font: inherit; font-size: 13.5px; text-align: center; color: var(--ink); background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; outline: none; }
+.prefs .input:focus { border-color: var(--link); }
+.prefs .input.bad { border-color: var(--accent); }
+.prefs .note { color: var(--muted); font-size: 12px; }
+.prefs .days { display: flex; gap: 6px; }
+.prefs .days label { display: flex; align-items: center; gap: 3px; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; background: var(--paper-2); cursor: pointer; }
+.prefs .days input { margin: 0; }
+.prefs .hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+
 /* --- блок вопросов --- */
 .qs { margin-top: 48px; background: #fff; border: 2px solid #1f2a37; border-radius: 10px; padding: 18px 24px 20px; color: #1d232b; }
 .qs h2 { margin: 0 0 8px; font-size: 21px; }
@@ -172,12 +187,10 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 <div class="doc">
 
 <h1>Депеша 0.7.2 — меню «Отложить» с клавиатуры и днями недели</h1>
-<p class="lead">Меню ниже <b>живое</b>: откройте файл локально и пробуйте. Три варианта А, Б, В. У каждого вопроса номер (3.1…), у каждого варианта буква. В конце — блок «Вопросы», по нему можно ответить коротко: «3.1 А, 3.2 Б…». Данные вымышленные, часы макета остановлены на <b>чт, 8 окт 2026, 14:30</b>.</p>
+<p class="lead">Меню ниже <b>живое</b>: откройте файл локально и пробуйте. Состав меню <b>уже решён</b> (раздел «Решено»); три варианта А, Б, В отличаются только схемой управления с клавиатуры. У каждого вопроса номер (3.1…), у каждого варианта буква. В конце — блок «Вопросы», по нему можно ответить коротко: «3.1 А, 3.2 Б…». Данные вымышленные, часы макета остановлены на <b>чт, 8 окт 2026, 14:30</b>.</p>
 
 <div class="ctl theme" id="ctl">
   <span class="grp">Тема: <button data-theme="paper" class="on">Бумага</button><button data-theme="night">Ночь</button></span>
-  <span class="grp">Письмо: <button data-sn="none" class="on">не отложено</button><button data-sn="set">отложено до пн, 13 окт, 9:00</button></span>
-  <span class="grp">Время по умолчанию (настройка): <select id="defH"></select></span>
   <span class="clock">Как пробовать: мышь над макетом (или клик по нему) → клавиша <b>h</b></span>
 </div>
 
@@ -206,42 +219,66 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       <li><b>Нет быстрых клавиш на пунктах</b> и нет ввода текстом. Справа в пункте — только дата, не клавиша.</li>
       <li><b>Набор пунктов «плавает» с часами.</b> После 17:00 пропадает «Сегодня вечером», пункты с одинаковым временем схлопываются (<code>uniq</code>). Положение пункта не запомнить.</li>
       <li><b>Время жёстко зашито:</b> утро 09:00, вечер 18:00. Сменить нельзя; в поле даты по умолчанию «сейчас + 3 часа».</li>
-      <li><b>Отложенное письмо не сдвинуть:</b> нет «+1 день / +1 неделя» и «Очистить дату» (вернуть сейчас — отдельная заявка #93, макет 01).</li>
+      <li><b>Отложенное письмо не сдвинуть</b> и нельзя вернуть раньше срока (это отдельная заявка #93, макет 01; в этом меню не нужно).</li>
       <li><b><kbd>h</kbd> привязана к открытому письму</b> (<code>when: opened() !== null</code>); для строки списка — только контекстное меню.</li>
     </ol>
   </div>
 </div>
 
 <!-- ======================================================================= -->
-<h2 class="screen">Экран 3. Новое меню</h2>
-<div class="ctx"><b>Общие правила всех вариантов.</b> <kbd>↑</kbd><kbd>↓</kbd> — по пунктам, <kbd>Enter</kbd> — выбрать, <kbd>Esc</kbd> — один шаг назад (из подменю в меню, из календаря в меню, из меню — закрыть). <kbd>→</kbd> открывает подменю, <kbd>←</kbd> закрывает его. <kbd>Tab</kbd> меню <b>не закрывает</b>. Время по умолчанию (9:00) видно внизу меню и в каждой дате справа; <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> меняет его на час для этого открытия меню. Буквы на пунктах — русские, срабатывают и в латинской раскладке (по положению клавиши). «Выбрать дату и время…» везде одно и то же.</div>
+<h2 class="screen">Решено оператором</h2>
+<div class="ctx" style="background:#e3eee6">
+<ol style="margin:0;padding-left:20px;line-height:1.6">
+<li><b>Пункты меню, ровно в таком порядке:</b> Вечером · Завтра · Эти выходные · Следующая неделя · Следующий месяц · Рабочие дни › · Выбрать дату и время… Справа у каждого — конкретная дата («сб, 10 окт», «пн, 2 нояб»).</li>
+<li><b>Вечером</b> — сегодня в «Начало вечера». Когда вечер уже наступил, пункт <b>остаётся на месте, но неактивен</b> (серый, справа «уже наступил»), а не пропадает: положение пунктов и буквы не «плавают» в течение дня. Попробуйте: поставьте «Начало вечера» на 14:00.</li>
+<li><b>Завтра</b> — завтра в «Начало дня». <b>Эти выходные</b> — суббота в «Начало дня». <b>Следующая неделя</b> — первый рабочий день следующей недели. <b>Следующий месяц</b> — первый рабочий день следующего месяца.</li>
+<li><b>Рабочие дни ›</b> — подменю с днями из настройки «Рабочие дни» (по умолчанию Пн–Пт); выключенный день в подменю не показывается.</li>
+<li><b>Убрано из меню:</b> ±день, ±неделя, «Очистить дату», «Сегодня», «Через час», <kbd>⇧</kbd>+стрелки и разовая смена времени <kbd>Alt</kbd>+<kbd>↑↓</kbd>. «Через час» остаётся в вводе текстом (там, где он есть). Вернуть письмо раньше срока — отдельное действие «Вернуть сейчас» (#93). Своё время — только через «Выбрать дату и время…».</li>
+<li><b>Время задаётся в настройках</b> (страница «Общие»): «Начало дня» (9:00), «Начало вечера» (18:00), «Рабочие дни» (Пн–Пт).</li>
+<li><b>Цифры 1–7 в варианте В</b> — это <b>дни недели по ISO: 1 Пн, 2 Вт … 6 Сб, 7 Вс</b>, а не номера пунктов меню. Они не зависят от настройки: если день выключен в «Рабочих днях», его цифра ничего не делает, а в подменю его нет. Работают в главном меню (<kbd>h</kbd> <kbd>5</kbd> — пятница) и в подменю; в А — только в подменю.</li>
+</ol>
+</div>
 
-<h3 class="q"><span class="n">3.1</span>Меню целиком: подменю или дни прямо в меню, строка ввода, буквы, ±день/неделя</h3>
+<h2 class="screen">Экран 3а. Настройки: время и рабочие дни</h2>
+<div class="ctx">Кусок страницы «Общие» (<code>src/components/prefs/GeneralPanel.svelte</code>), между «Поиск» и «Подсказки», тот же вид, что у соседних секций. <b>Меняйте значения — открытые меню пересчитываются сразу</b>, закрытые — при следующем открытии. Например, выключите «Пт» (пятницы не будет в подменю, а «5» перестанет что-то делать), поставьте начало дня 8:00 или начало вечера 14:00 (пункт «Вечером» станет неактивным).</div>
+<div class="prefs theme" style="margin-top:10px">
+  <h4>Время для отложенных писем</h4>
+  <div class="inline"><span class="lbl">Начало дня</span><input id="setDay" class="input" value="9:00" aria-label="Начало дня"><span class="note">«Завтра», «Эти выходные», рабочие дни, «Следующая неделя» и «Следующий месяц»</span></div>
+  <div class="inline"><span class="lbl">Начало вечера</span><input id="setEve" class="input" value="18:00" aria-label="Начало вечера"><span class="note">«Вечером» (сегодня)</span></div>
+  <div class="inline"><span class="lbl">Рабочие дни</span>
+    <span class="days"><label><input type="checkbox" data-wd="1" checked>Пн</label><label><input type="checkbox" data-wd="2" checked>Вт</label><label><input type="checkbox" data-wd="3" checked>Ср</label><label><input type="checkbox" data-wd="4" checked>Чт</label><label><input type="checkbox" data-wd="5" checked>Пт</label><label><input type="checkbox" data-wd="6">Сб</label><label><input type="checkbox" data-wd="0">Вс</label></span></div>
+  <p class="hint">Для меню «Отложить». «Следующая неделя» и «Следующий месяц» ведут на первый из рабочих дней. Время формата 9:00 или 18:30.</p>
+  <p class="hint" id="setNoWork" hidden style="color:var(--accent)">Рабочих дней нет: «Рабочие дни», «Следующая неделя» и «Следующий месяц» в меню неактивны.</p>
+</div>
 
-<h3 class="v"><span class="n">А</span>Как в образце: подменю, буквы, без ввода текстом <em>(± показаны всегда)</em></h3>
+<!-- ======================================================================= -->
+<h2 class="screen">Экран 3. Новое меню — три схемы управления</h2>
+<div class="ctx"><b>Общие правила всех вариантов.</b> <kbd>↑</kbd><kbd>↓</kbd> — по пунктам, <kbd>Enter</kbd> — выбрать, <kbd>Esc</kbd> — один шаг назад (из подменю в меню, из календаря в меню, из меню — закрыть). <kbd>→</kbd> открывает подменю «Рабочие дни», <kbd>←</kbd> закрывает его и возвращает фокус в родителя. <kbd>Tab</kbd> меню <b>не закрывает</b>. Время берётся из настроек (экран 3а), видно внизу меню и в дате каждого пункта; своё время — только «Выбрать дату и время…». Буквы на пунктах — русские, срабатывают и в латинской раскладке (по положению клавиши). Календарь везде одинаковый.</div>
+
+<h3 class="q"><span class="n">3.1</span>Схема управления: буквы на пунктах, ввод текстом, цифры дней</h3>
+
+<h3 class="v"><span class="n">А</span>Буквы на пунктах, без ввода текстом <em>(цифры дней — только в подменю)</em></h3>
 <div class="stage theme" id="stA"></div>
 <ul class="pc">
-<li><span class="plus">+</span> Знакомая структура из образца. Дни недели — подменю <b>рядом</b>, родитель остаётся виден и подсвечен.</li>
-<li><span class="plus">+</span> Положение пунктов неизменно, буквы запоминаются.</li>
+<li><span class="plus">+</span> Семь пунктов — семь букв, положение неизменно. Подменю рядом, родитель виден и подсвечен.</li>
 <li><span class="minus">−</span> Нет ввода текстом: «через 3 дня» и «18:00» только через календарь.</li>
-<li><span class="minus">−</span> У неотложенного письма ± показаны, но «−1 день» серый, а «+1 день» дублирует «Завтра».</li>
+<li><span class="minus">−</span> «Пятница» — два шага (<kbd>h</kbd> <kbd>Д</kbd> <kbd>5</kbd>).</li>
 </ul>
 
-<h3 class="v"><span class="n">Б</span>Строка ввода сверху и дни прямо в меню <em>(без подменю и букв)</em></h3>
+<h3 class="v"><span class="n">Б</span>Строка ввода всегда в фокусе <em>(без букв; подменю — стрелкой →)</em></h3>
 <div class="stage theme" id="stB"></div>
 <ul class="pc">
-<li><span class="plus">+</span> Курсор сразу в строке: <kbd>h</kbd>, «пт 9» (или «завтра 18», «через 3 дня»), Enter. Ни одной клавиши-буквы учить не нужно.</li>
-<li><span class="plus">+</span> Все семь дней видны сразу, подменю нет — нечему «закрывать/открывать».</li>
-<li><span class="minus">−</span> Меню длинное (17 строк). Букв нет: пункт — только стрелками или набором его названия.</li>
-<li><span class="minus">−</span> Цифры уходят в строку, поэтому «1–7 для дня недели» здесь не работают.</li>
+<li><span class="plus">+</span> Курсор сразу в строке: <kbd>h</kbd>, «пт 9» (или «завтра 18», «через час»), Enter. Букв учить не нужно.</li>
+<li><span class="plus">+</span> Печатание фильтрует пункты по названию.</li>
+<li><span class="minus">−</span> Букв и цифр-как-команд нет: пункт выбирается стрелками или набором. Цифры уходят в строку («18»); цифры дней работают только после <kbd>→</kbd> в подменю.</li>
 </ul>
 
-<h3 class="v rec"><span class="n">В</span>Буквы + подменю + ввод по «/» или Tab <em>(± только у отложенного)</em></h3>
+<h3 class="v rec"><span class="n">В</span>Буквы + цифры дней + ввод по «/» или Tab</h3>
 <div class="stage theme" id="stC"></div>
 <ul class="pc">
-<li><span class="plus">+</span> Быстрый путь: <kbd>h</kbd> <kbd>З</kbd> (завтра), <kbd>h</kbd> <kbd>5</kbd> (пятница, цифра прямо в главном меню), <kbd>h</kbd> <kbd>Д</kbd> <kbd>→</kbd>… либо <kbd>h</kbd> <kbd>/</kbd> «пт 9».</li>
-<li><span class="plus">+</span> Меню короткое: для нового письма ±-группы нет, «Очистить» нет — только то, что действует.</li>
-<li><span class="minus">−</span> Ввод текстом на шаг дальше (<kbd>/</kbd>), потому что в режиме списка буквы заняты под пункты.</li>
+<li><span class="plus">+</span> Быстрый путь: <kbd>h</kbd> <kbd>З</kbd> (завтра), <kbd>h</kbd> <kbd>5</kbd> (пятница, цифра прямо в главном меню), <kbd>h</kbd> <kbd>/</kbd> «пт 9».</li>
+<li><span class="plus">+</span> Цифры постоянны: 5 — всегда пятница, как бы ни менялись настройки.</li>
+<li><span class="minus">−</span> Ввод текстом на шаг дальше (<kbd>/</kbd>), потому что в режиме списка буквы и цифры заняты под пункты.</li>
 </ul>
 
 <!-- ======================================================================= -->
@@ -261,18 +298,13 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 <h2>Вопросы</h2>
 <table>
 <tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
-<tr><td class="n">3.1</td><td>Общий вид: подменю или дни прямо в меню; ввод текстом</td><td><b>А</b> подменю «День недели ›», без ввода · <b>Б</b> дни в меню + строка ввода всегда в фокусе · <b>В</b> подменю + цифры 1–7 прямо в меню + ввод по <kbd>/</kbd></td><td class="r">В. Самая короткая цепочка для частых случаев (<kbd>h</kbd><kbd>5</kbd>) и всё доступно клавиатурой.</td></tr>
-<tr><td class="n">3.2</td><td>Состав пунктов</td><td><b>А</b> все из образца: ±день/неделя, Сегодня, Завтра, Эти выходные, Следующая неделя, Следующий месяц, День недели ›, Выбрать дату и время…, Очистить дату · <b>Б</b> то же, но без «Следующий месяц» · <b>В</b> то же, плюс «Через час» (есть в приложении сейчас)</td><td class="r">А. «Через час» уходит в ввод текстом («через 1 час»), «Следующий месяц» дёшев и иногда нужен.</td></tr>
-<tr><td class="n">3.3</td><td>±день / ±неделя и «Очистить дату» для письма, которое ещё <b>не</b> отложено</td><td><b>А</b> показывать всегда (отсчёт от сегодня, «−» серые) · <b>Б</b> только у уже отложенного · <b>В</b> нигде, сдвиг — через календарь</td><td class="r">Б. У нового письма «+1 день» дублирует «Завтра», а «Очистить» нечего очищать; у отложенного это самые частые действия (сдвинул на день/неделю).</td></tr>
-<tr><td class="n">3.4</td><td>Название подменю</td><td><b>А</b> «Рабочие дни ›» как в образце, но внутри Пн–Вс · <b>Б</b> «День недели ›» · <b>В</b> «Рабочие дни ›» и внутри только Пн–Пт, выходные — «Эти выходные»</td><td class="r">Б. Внутри все семь дней, «рабочие» было бы неточно. Если нужны только Пн–Пт — В.</td></tr>
-<tr><td class="n">3.5</td><td>Время по умолчанию для «Завтра», дней недели, «Следующая неделя» и т. п.</td><td><b>А</b> всегда 9:00 · <b>Б</b> настройка «Отложить» (час по умолчанию), в меню только показывается · <b>В</b> настройка + разовая смена в самом меню <kbd>Alt</kbd>+<kbd>↑/↓</kbd> (как в макете)</td><td class="r">В. Настройка снимает «9:00 не подходит», разовая смена — когда сегодня нужно «завтра в 14».</td></tr>
-<tr><td class="n">3.6</td><td>Что делает «Сегодня»</td><td><b>А</b> сегодня в 18:00, после 17:00 пункт серый · <b>Б</b> «через 3 часа» (всегда доступно, время «плавает») · <b>В</b> убрать, оставить ввод («сегодня 20»)</td><td class="r">А. Предсказуемо; позднее время — вводом текста.</td></tr>
-<tr><td class="n">3.7</td><td>Буквы на пунктах (русские, срабатывают и в латинской раскладке; показаны в варианте А и В)</td><td><b>А</b> есть: С Сегодня, З Завтра, В выходные, Н неделя, М месяц, Д день недели, К календарь, О очистить; ±день/неделя — <kbd>⇧</kbd>+стрелки · <b>Б</b> только стрелки и ввод · <b>В</b> буквы только на частых: Завтра, Д, К</td><td class="r">А. Восемь букв запоминаются за пару дней; без букв «быстро» остаётся только ввод.</td></tr>
-<tr><td class="n">3.8</td><td>Ввод текстом</td><td><b>А</b> нет · <b>Б</b> строка всегда в фокусе (буквы не возможны) · <b>В</b> строка по <kbd>/</kbd> или <kbd>Tab</kbd>; формы: «пт 9:00», «завтра 18», «через 3 дня», «15 окт», «через час»</td><td class="r">В. Совмещается с буквами, не теряя ни того ни другого.</td></tr>
+<tr><td class="n">3.1</td><td>Схема управления с клавиатуры (экран 3)</td><td><b>А</b> буквы на пунктах, без ввода текстом · <b>Б</b> строка ввода всегда в фокусе, без букв · <b>В</b> буквы + цифры дней (1 Пн … 7 Вс, прямо в главном меню) + ввод по <kbd>/</kbd> или Tab</td><td class="r">В. Семь пунктов, поэтому буквы не тесные; <kbd>h</kbd> <kbd>5</kbd> — пятница за два нажатия, цифры не зависят от настроек; ввод — когда нужна нестандартная дата («пт 9», «через час»).</td></tr>
+<tr><td class="n">3.7</td><td>Буквы на пунктах (русские, срабатывают и в латинской раскладке; показаны в А и В)</td><td><b>А</b> все семь: В Вечером, З Завтра, Э Эти выходные, Н Следующая неделя, М Следующий месяц, Д Рабочие дни, К Выбрать дату · <b>Б</b> без букв · <b>В</b> только на частых: В, З, Д, К (остальное стрелками или вводом)</td><td class="r">А. Семь букв запоминаются быстро, и после отказа от ±-пунктов конфликтов клавиш нет. «Э» неудобная, но «Эти выходные» нужны редко; если мешает — заменить на «Ы» или оставить стрелки.</td></tr>
+<tr><td class="n">3.8</td><td>Ввод текстом (замена убранным «Через час» и ±день)</td><td><b>А</b> нет · <b>Б</b> строка всегда в фокусе · <b>В</b> строка по <kbd>/</kbd> или Tab; формы: «пт 9:00», «завтра 18», «через 3 дня», «15 окт», «через час», «вечером»</td><td class="r">В. Раз убрали «Через час» и сдвиги, ввод — единственный быстрый путь к нестандартному времени, и он не отнимает буквы у пунктов.</td></tr>
 <tr><td class="n">3.9</td><td>Где работает <kbd>h</kbd></td><td><b>А</b> как сейчас: только при открытом письме · <b>Б</b> ещё и на выбранной строке списка (и на нескольких выбранных)</td><td class="r">Б. Откладывать из списка, не открывая письмо, — основной сценарий разбора почты.</td></tr>
 <tr><td class="n">3.10</td><td>Где открывается меню, вызванное клавишей (экран 3б)</td><td><b>А</b> у выделенного письма (под строкой, при нехватке места над ней) для всех таких меню · <b>Б</b> только «Отложить» у письма, остальное как есть · <b>В</b> как сейчас: «Отложить» у кнопки шапки, «Метки» поверх строки.<br>Коснётся меню: <b>«Отложить»</b> (<kbd>h</kbd>), <b>«Метки»</b> (<kbd>l</kbd>, сейчас уже у строки, но поверх неё), <b>«Перенести в папку»</b> (клавиши нет; если добавим — сразу у строки), подменю дней недели (сбоку, как раньше). Не коснётся: контекстное меню строки (у курсора мыши), «⋯» и кнопки шапки при клике мышью, «Ждут ответа» в окне письма, палитра команд.</td><td class="r">А. Одно правило для всех клавиатурных меню: появилось там, где выделено. Иначе «Отложить» и «Метки» ведут себя по-разному, а у кнопки в шапке взгляд оторван от строки.</td></tr>
 </table>
-<div class="reply">Ответ можно коротко: «3.1 В, 3.2 А, 3.3 Б, 3.4 Б, 3.5 В, 3.6 А, 3.7 А, 3.8 В, 3.9 Б, 3.10 А».</div>
+<div class="reply">Ответ можно коротко: «3.1 В, 3.7 А, 3.8 В, 3.9 Б, 3.10 А». Закрыто (раздел «Решено»): 3.2, 3.3, 3.4, 3.5, 3.6.</div>
 </div>
 
 </div>
@@ -280,15 +312,17 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 <script>
 (function () {
   "use strict";
-  var MON = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  var MON = ["янв", "февр", "мар", "апр", "мая", "июн", "июл", "авг", "сент", "окт", "нояб", "дек"];
   var MONF = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
   var WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
   var WDF = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
   var DOWS = [1, 2, 3, 4, 5, 6, 0];
+  /* Настройки «Отложить» (страница «Общие»): начало дня и вечера, рабочие дни (индекс — getDay(): 0 вс … 6 сб). */
+  var CFG = { day: { h: 9, m: 0 }, eve: { h: 18, m: 0 }, work: [false, true, true, true, true, true, false] };
+  function dayAt(d) { return at(d, CFG.day.h, CFG.day.m); }
+  function eveAt(d) { return at(d, CFG.eve.h, CFG.eve.m); }
+  function firstWork(d) { for (var i = 0; i < 14; i++) { var x = addDays(d, i); if (CFG.work[x.getDay()]) return x; } return null; }
   var NOW = new Date(2026, 9, 8, 14, 30, 0);
-  var SNOOZED_SAMPLE = new Date(2026, 9, 13, 9, 0, 0);
-  var settingsHour = 9;
-  var snoozedAll = null;
 
   function clone(d) { return new Date(d.getTime()); }
   function addDays(d, n) { var x = clone(d); x.setDate(x.getDate() + n); return x; }
@@ -307,7 +341,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   }
 
   /* ---------- разбор ввода текстом ---------- */
-  function parse(q, H) {
+  function parse(q) {
     var s = " " + q.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim() + " ";
     var m, day = null, hh = null, mm = 0, wdTok = false, todayTok = false, found = false;
     if ((m = s.match(/\sчерез\s?(\d+)?\s?(мин\S*|час\S*|ч|мес\S*|дн\S*|день|д|нед\S*|н)\s/))) {
@@ -339,7 +373,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       var w = m[1], dow = /^(пн|пон)/.test(w) ? 1 : /^(вт)/.test(w) ? 2 : /^(ср)/.test(w) ? 3 : /^(чт|чет)/.test(w) ? 4 : /^(пт|пят)/.test(w) ? 5 : /^(сб|суб)/.test(w) ? 6 : 0;
       day = nextWd(dow); wdTok = true; s = s.replace(m[0], " "); found = true;
     }
-    if ((m = s.match(/\s(утром|вечером|днем)\s/))) { hh = m[1] === "утром" ? 9 : m[1] === "днем" ? 13 : 18; s = s.replace(m[0], " "); found = true; }
+    if ((m = s.match(/\s(утром|вечером|днем)\s/))) { hh = m[1] === "утром" ? CFG.day.h : m[1] === "днем" ? 13 : CFG.eve.h; mm = m[1] === "утром" ? CFG.day.m : m[1] === "днем" ? 0 : CFG.eve.m; s = s.replace(m[0], " "); found = true; }
     else if ((m = s.match(/\s(?:в\s)?(\d{1,2})[:.](\d{2})\s/))) { hh = +m[1]; mm = +m[2]; s = s.replace(m[0], " "); found = true; }
     else if ((m = s.match(/\s(?:в\s)?(\d{1,2})(?:\s?(?:ч|час\S*))?\s/))) { hh = +m[1]; s = s.replace(m[0], " "); found = true; }
     if (!found) return null;
@@ -350,9 +384,11 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
       d = at(NOW, hh, mm);
       if (d <= NOW) d = addDays(d, 1);
     } else if (hh == null && todayTok) {
-      d = at(day, 18);
+      d = eveAt(day);
+    } else if (hh == null) {
+      d = dayAt(day);
     } else {
-      d = at(day, hh == null ? H : hh, hh == null ? 0 : mm);
+      d = at(day, hh, mm);
     }
     if (d <= NOW) return { error: "Это время уже прошло" };
     return { at: d, wd: wdTok };
@@ -365,58 +401,40 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   }
 
   /* ---------- состав пунктов ---------- */
-  function stepItem(S, id, label, n, keys, shown) {
-    var d = S.snoozed ? addDays(S.snoozed, n) : (n > 0 ? at(addDays(NOW, n), S.hour) : null);
-    return { kind: "item", id: id, label: label, at: d, hint: d ? fmt(d) : "нет даты", disabled: !d || d <= NOW, keys: keys, kbd: shown };
-  }
-  function dayRows(S, withKeys) {
-    return DOWS.map(function (dow, i) {
-      var d = at(nextWd(dow), S.hour);
-      return { kind: "item", id: "wd" + dow, label: WDF[dow], at: d, hint: fmtDay(d), kbd: withKeys ? String(i + 1) : "", keys: withKeys ? [{ c: "Digit" + (i + 1) }, { c: "Numpad" + (i + 1) }] : [] };
+  /** Рабочие дни из настройки; цифра — день недели по ISO (1 Пн … 7 Вс), а не номер строки. */
+  function dayRows() {
+    var out = [];
+    DOWS.forEach(function (dow) {
+      if (!CFG.work[dow]) return;
+      var d = dayAt(nextWd(dow)), n = dow === 0 ? 7 : dow;
+      out.push({ kind: "item", id: "wd" + dow, label: WDF[dow], at: d, hint: fmtDay(d), kbd: String(n), keys: [{ c: "Digit" + n }, { c: "Numpad" + n }], digit: n });
     });
+    return out;
   }
   function allRows(S) {
     var c = S.cfg, rows = [], K = c.letters;
     function key(code, shown) { return K ? { keys: [{ c: code }], kbd: shown } : { keys: [], kbd: "" }; }
-    var showSteps = c.steps === "always" || (c.steps === "snoozed" && S.snoozed);
-    if (showSteps) {
-      var sh = c.stepKeys;
-      rows.push(stepItem(S, "p1d", "+1 день", 1, sh ? [{ c: "ArrowRight", s: true }] : [], sh ? "⇧→" : ""));
-      rows.push(stepItem(S, "m1d", "−1 день", -1, sh ? [{ c: "ArrowLeft", s: true }] : [], sh ? "⇧←" : ""));
-      rows.push(stepItem(S, "p1w", "+1 неделя", 7, sh ? [{ c: "ArrowUp", s: true }] : [], sh ? "⇧↑" : ""));
-      rows.push(stepItem(S, "m1w", "−1 неделя", -7, sh ? [{ c: "ArrowDown", s: true }] : [], sh ? "⇧↓" : ""));
-      rows.push({ kind: "sep" });
-    }
-    var today = at(NOW, 18), tomorrow = at(addDays(NOW, 1), S.hour);
-    var sat = at(nextWd(6), S.hour), mon = at(nextWd(1), S.hour), nm = at(addMonths(NOW, 1), S.hour);
+    var eve = eveAt(NOW), tomorrow = dayAt(addDays(NOW, 1)), sat = dayAt(nextWd(6));
+    var nwDay = firstWork(nextWd(1)), nw = nwDay && dayAt(nwDay);
+    var nmDay = firstWork(new Date(NOW.getFullYear(), NOW.getMonth() + 1, 1)), nm = nmDay && dayAt(nmDay);
     var r;
-    r = key("KeyC", "С"); rows.push({ kind: "item", id: "today", label: "Сегодня", at: today, hint: fmt(today), disabled: NOW.getHours() >= 17, keys: r.keys, kbd: r.kbd });
-    r = key("KeyP", "З"); rows.push({ kind: "item", id: "tom", label: "Завтра", at: tomorrow, hint: fmt(tomorrow), keys: r.keys, kbd: r.kbd });
-    r = key("KeyD", "В"); rows.push({ kind: "item", id: "wknd", label: "Эти выходные", at: sat, hint: fmt(sat), keys: r.keys, kbd: r.kbd });
-    r = key("KeyY", "Н"); rows.push({ kind: "item", id: "nw", label: "Следующая неделя", at: mon, hint: fmt(mon), keys: r.keys, kbd: r.kbd });
-    r = key("KeyV", "М"); rows.push({ kind: "item", id: "nm", label: "Следующий месяц", at: nm, hint: fmt(nm), keys: r.keys, kbd: r.kbd });
-    rows.push({ kind: "sep" });
-    if (c.days === "sub") {
-      r = key("KeyL", "Д");
-      var dk = r.keys.slice();
-      if (c.digitsMain) for (var i = 1; i <= 7; i++) dk.push({ c: "Digit" + i, digit: i });
-      rows.push({ kind: "sub", id: "days", label: c.daysLabel, hint: c.digitsMain ? "1–7" : "", keys: dk, kbd: r.kbd });
-    } else {
-      rows.push({ kind: "title", text: "День недели" });
-      dayRows(S, false).forEach(function (x) { rows.push(x); });
-    }
+    r = key("KeyD", "В"); rows.push({ kind: "item", id: "eve", label: "Вечером", at: eve, hint: eve > NOW ? fmtDay(eve) : "уже наступил", disabled: eve <= NOW, keys: r.keys, kbd: r.kbd });
+    r = key("KeyP", "З"); rows.push({ kind: "item", id: "tom", label: "Завтра", at: tomorrow, hint: fmtDay(tomorrow), keys: r.keys, kbd: r.kbd });
+    r = key("Quote", "Э"); rows.push({ kind: "item", id: "wknd", label: "Эти выходные", at: sat, hint: fmtDay(sat), keys: r.keys, kbd: r.kbd });
+    r = key("KeyY", "Н"); rows.push({ kind: "item", id: "nw", label: "Следующая неделя", at: nw, hint: nw ? fmtDay(nw) : "нет рабочих дней", disabled: !nw, keys: r.keys, kbd: r.kbd });
+    r = key("KeyV", "М"); rows.push({ kind: "item", id: "nm", label: "Следующий месяц", at: nm, hint: nm ? fmtDay(nm) : "нет рабочих дней", disabled: !nm, keys: r.keys, kbd: r.kbd });
+    r = key("KeyL", "Д");
+    var dk = r.keys.slice(), anyWork = CFG.work.some(Boolean);
+    if (c.digitsMain) for (var i = 1; i <= 7; i++) dk.push({ c: "Digit" + i, digit: i });
+    rows.push({ kind: "sub", id: "days", label: "Рабочие дни", hint: anyWork ? (c.digitsMain ? "1–7" : "") : "не выбраны", disabled: !anyWork, keys: dk, kbd: r.kbd });
     r = key("KeyR", "К"); rows.push({ kind: "custom", id: "custom", label: "Выбрать дату и время…", keys: r.keys, kbd: r.kbd });
-    if (S.snoozed || c.clearAlways) {
-      rows.push({ kind: "sep" });
-      r = key("KeyJ", "О"); rows.push({ kind: "clear", id: "clear", label: "Очистить дату", disabled: !S.snoozed, keys: r.keys, kbd: r.kbd });
-    }
     return rows;
   }
-  function selectable(r) { return (r.kind === "item" || r.kind === "sub" || r.kind === "custom" || r.kind === "clear") && !r.disabled; }
+  function selectable(r) { return (r.kind === "item" || r.kind === "sub" || r.kind === "custom") && !r.disabled; }
   function visibleRows(S) {
     var base = allRows(S), q = S.q.trim();
     if (!q) return base;
-    var out = [], r = parse(q, S.hour);
+    var out = [], r = parse(q);
     if (r && r.at) out.push({ kind: "item", id: "parsed", label: fmt(r.at), hint: "по вашему вводу", at: r.at, kbd: "↵", keys: [] });
     else if (r && r.error) out.push({ kind: "msg", err: true, text: r.error });
     var low = q.toLowerCase();
@@ -430,7 +448,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   /* ---------- одна сцена ---------- */
   var stages = [], hot = null;
   function makeStage(root, cfg) {
-    var S = { root: root, cfg: cfg, open: false, view: "main", focus: "list", cur: 0, subCur: 0, subOpen: false, q: "", hour: settingsHour, snoozed: null, prev: null, rows: [], P: null, toastTimer: 0 };
+    var S = { root: root, cfg: cfg, open: false, view: "main", focus: "list", cur: 0, subCur: 0, subOpen: false, q: "", snoozed: null, prev: null, rows: [], P: null, toastTimer: 0 };
     root.tabIndex = 0;
     var readerHtml = '<div class="reader"><div class="rhead">' +
       '<span class="btn ghost">← Назад</span><span class="btn ghost">Ответить</span><span class="btn ghost">Архив</span>' +
@@ -483,11 +501,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     });
     S.$sub.addEventListener("click", function (e) {
       var el = e.target.closest("[data-s]"); if (!el) return;
-      var rows = dayRows(S, true); pick(S, rows[+el.dataset.s].at);
-    });
-    S.$foot.addEventListener("click", function (e) {
-      var el = e.target.closest("[data-h]"); if (!el) return;
-      S.hour = Math.max(0, Math.min(23, S.hour + +el.dataset.h)); paint(S);
+      var rows = dayRows(); pick(S, rows[+el.dataset.s].at);
     });
     if (S.$in) S.$in.addEventListener("input", function () { S.q = S.$in.value; closeSub(S); var f = firstSel(visibleRows(S)); S.cur = f < 0 ? 0 : f; paint(S); });
     stages.push(S);
@@ -565,12 +579,12 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     how = how || "btn"; S.how = how;
     stages.forEach(function (x) { if (x !== S && x.open) close(x, true); if (x.labOpen) closeLabels(x); });
     setHot(S);
-    S.open = true; S.view = "main"; S.q = ""; S.hour = settingsHour; S.subOpen = false;
+    S.open = true; S.view = "main"; S.q = ""; S.subOpen = false;
     if (S.$in) S.$in.value = "";
     S.$main.hidden = false; S.$pick.hidden = true; S.$sub.hidden = true;
     S.focus = S.cfg.input === "always" ? "input" : "list";
     var rows = visibleRows(S), tom = rows.findIndex(function (r) { return r.id === "tom"; });
-    S.cur = S.snoozed || tom < 0 ? Math.max(0, firstSel(rows)) : tom;
+    S.cur = tom < 0 ? Math.max(0, firstSel(rows)) : tom;
     paint(S);
     place(S, S.$main, how);
     if (S.focus === "input") S.$in.focus({ preventScroll: true }); else S.$main.focus({ preventScroll: true });
@@ -601,15 +615,13 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     if (S.cur >= S.rows.length || !selectable(S.rows[S.cur] || {})) { var f = firstSel(S.rows); S.cur = f < 0 ? 0 : f; }
     S.$list.innerHTML = S.rows.map(function (r, i) { return rowHtml(S, r, i); }).join("");
     var c = S.cfg;
-    S.$foot.innerHTML = '<span>Время</span><span class="step" data-h="-1">‹</span><b>' + S.hour + ':00</b><span class="step" data-h="1">›</span>' +
-      (S.hour !== settingsHour ? '<span>(в настройках ' + settingsHour + ":00)</span>" : "") +
-      '<span class="fk"><kbd>Alt</kbd> <kbd>↑</kbd><kbd>↓</kbd></span>';
+    S.$foot.innerHTML = '<span>Утро <b>' + CFG.day.h + ':' + p2(CFG.day.m) + '</b> · вечер <b>' + CFG.eve.h + ':' + p2(CFG.eve.m) + '</b></span><span class="fk">меняется в настройках</span>';
     if (S.$in) S.$main.querySelector(".qrow").classList.toggle("on", S.focus === "input");
     if (S.subOpen) paintSub(S); else S.$sub.hidden = true;
   }
   function paintSub(S) {
-    var rows = dayRows(S, true);
-    S.$sub.innerHTML = '<div class="mt">' + S.cfg.daysLabel + "</div>" + rows.map(function (r, i) {
+    var rows = dayRows();
+    S.$sub.innerHTML = '<div class="mt">Рабочие дни</div>' + rows.map(function (r, i) {
       return '<div class="mi' + (S.focus === "sub" && i === S.subCur ? " cur" : "") + '" data-s="' + i + '"><span class="lab">' + r.label + '</span><span class="hint">' + r.hint + "</span><kbd>" + r.kbd + "</kbd></div>";
     }).join("");
     S.$sub.hidden = false;
@@ -649,10 +661,6 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     if (r.kind === "item") return pick(S, r.at);
     if (r.kind === "sub") return openSub(S);
     if (r.kind === "custom") return openPicker(S);
-    if (r.kind === "clear") {
-      var undo = setSnooze(S, null); close(S);
-      toast(S, "Возвращено во «Входящие»", undo);
-    }
   }
   function openSub(S) {
     S.subOpen = true; S.focus = "sub"; S.subCur = 0; paint(S);
@@ -661,7 +669,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
 
   /* ---------- календарь ---------- */
   function openPicker(S) {
-    var start = S.snoozed ? S.snoozed : at(addDays(NOW, 1), S.hour);
+    var start = S.snoozed ? S.snoozed : dayAt(addDays(NOW, 1));
     S.P = { d: at(start, 0), focus: "cal" };
     S.view = "picker"; S.subOpen = false;
     S.$main.hidden = true; S.$sub.hidden = true; S.$pick.hidden = false;
@@ -729,7 +737,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     if (P.focus === "time") {
       if (k === "ArrowUp" || k === "ArrowDown") {
         e.preventDefault();
-        var t = parseTime(P.$in.value) || { h: settingsHour, m: 0 };
+        var t = parseTime(P.$in.value) || { h: CFG.day.h, m: CFG.day.m };
         var delta = (k === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 60 : 15);
         var tot = (((t.h * 60 + t.m + delta) % 1440) + 1440) % 1440;
         P.$in.value = p2(Math.floor(tot / 60)) + ":" + p2(tot % 60);
@@ -761,9 +769,6 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     var S = stages.filter(function (x) { return x.open || x.labOpen; })[0];
     if (!S) return;
     if (S.labOpen) return labKey(S, e);
-    if (e.altKey && (e.code === "ArrowUp" || e.code === "ArrowDown") && S.view === "main") {
-      e.preventDefault(); S.hour = Math.max(0, Math.min(23, S.hour + (e.code === "ArrowUp" ? 1 : -1))); return paint(S);
-    }
     if (S.view === "picker") return pickerKey(S, e);
     if (e.key === "Escape") {
       e.preventDefault();
@@ -778,7 +783,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     return listKey(S, e);
   }
   function subKey(S, e) {
-    var k = e.code, rows = dayRows(S, true);
+    var k = e.code, rows = dayRows();
     if (k === "ArrowDown") { e.preventDefault(); S.subCur = (S.subCur + 1) % rows.length; return paint(S); }
     if (k === "ArrowUp") { e.preventDefault(); S.subCur = (S.subCur + rows.length - 1) % rows.length; return paint(S); }
     if (k === "Home") { e.preventDefault(); S.subCur = 0; return paint(S); }
@@ -786,7 +791,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
     if (k === "ArrowLeft") { e.preventDefault(); closeSub(S); S.focus = "list"; return paint(S); }
     if (e.key === "Enter") { e.preventDefault(); return pick(S, rows[S.subCur].at); }
     var m = k.match(/^(?:Digit|Numpad)([1-7])$/);
-    if (m && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return pick(S, rows[+m[1] - 1].at); }
+    if (m && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); var dr = rows.filter(function (x) { return x.digit === +m[1]; })[0]; if (dr) pick(S, dr.at); return; }
   }
   function inputKey(S, e) {
     var k = e.code;
@@ -810,7 +815,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
         var kd = r.keys[j];
         if (!matchKey(kd, e) && !(kd.digit && (e.code === "Numpad" + kd.digit))) continue;
         e.preventDefault(); S.cur = i;
-        if (kd.digit) { var dr = dayRows(S, true)[kd.digit - 1]; return pick(S, dr.at); }
+        if (kd.digit) { var dr = dayRows().filter(function (x) { return x.digit === kd.digit; })[0]; if (dr) { return pick(S, dr.at); } return; }
         return activate(S, r);
       }
     }
@@ -842,22 +847,22 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   }, true);
 
   /* ---------- конфиги вариантов ---------- */
-  var base = { daysLabel: "День недели", clearAlways: false };
+  var base = {};
   var A = makeStage(document.getElementById("stA"), Object.assign({}, base, {
-    input: "none", days: "sub", steps: "always", letters: true, stepKeys: true, digitsMain: false, clearAlways: true,
-    tip: "<b>Попробуйте:</b> <kbd>h</kbd> → <kbd>Д</kbd> (или <kbd>↓</kbd> до «День недели» и <kbd>→</kbd>) → <kbd>5</kbd>; <kbd>←</kbd> — назад в меню; <kbd>К</kbd> — календарь; <kbd>Alt</kbd>+<kbd>↑</kbd> — час позже. Переключите «письмо отложено» вверху — ± получат даты."
+    input: "none", letters: true, digitsMain: false,
+    tip: "<b>Попробуйте:</b> <kbd>h</kbd> → <kbd>Д</kbd> (или <kbd>↓</kbd> до «Рабочие дни» и <kbd>→</kbd>) → <kbd>5</kbd>; <kbd>←</kbd> — назад в меню; <kbd>К</kbd> — календарь; <kbd>З</kbd> — завтра."
   }));
   var B = makeStage(document.getElementById("stB"), Object.assign({}, base, {
-    input: "always", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", days: "inline", steps: "snoozed", letters: false, stepKeys: false, digitsMain: false,
+    input: "always", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", letters: false, digitsMain: false,
     tip: "<b>Попробуйте:</b> <kbd>h</kbd> и сразу печатайте «пт 9:00», «завтра 18», «через 3 дня», «через час»; <kbd>Enter</kbd>. Или «выбрать» — отфильтрует пункты. <kbd>↓</kbd> по списку."
   }));
   var C = makeStage(document.getElementById("stC"), Object.assign({}, base, {
-    input: "slash", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", days: "sub", steps: "snoozed", letters: true, stepKeys: true, digitsMain: true,
+    input: "slash", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", letters: true, digitsMain: true,
     tip: "<b>Попробуйте:</b> <kbd>h</kbd> <kbd>5</kbd> — пятница сразу; <kbd>h</kbd> <kbd>З</kbd> — завтра; <kbd>h</kbd> <kbd>Д</kbd> — подменю; <kbd>h</kbd> <kbd>/</kbd> «пт 9» <kbd>Enter</kbd>; <kbd>К</kbd> — календарь (<kbd>PgDn</kbd>, <kbd>Tab</kbd> к времени)."
   }));
 
   var L = makeStage(document.getElementById("stL"), Object.assign({}, base, {
-    list: true, input: "slash", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", days: "sub", steps: "snoozed", letters: true, stepKeys: true, digitsMain: true,
+    list: true, input: "slash", ph: "Когда? пт 9:00 · завтра 18 · через 3 дня · 15 окт", letters: true, digitsMain: true,
     tip: "<b>Попробуйте:</b> <kbd>j</kbd>/<kbd>k</kbd> — строка, <kbd>h</kbd> — «Отложить», <kbd>l</kbd> — «Метки». Верхняя строка → меню под ней, нижняя → над ней. Кнопка «Отложить» мышью — меню у кнопки."
   }));
   var NOTES = { A: "«Отложить» и «Метки» по клавише — у строки.", B: "«Отложить» у строки; «Метки» как сейчас — поверх строки.", C: "«Отложить» у кнопки шапки; «Метки» поверх строки." };
@@ -870,20 +875,27 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); 
   document.getElementById("modeNote").textContent = NOTES.A;
 
   /* ---------- панель управления ---------- */
-  var sel = document.getElementById("defH");
-  for (var h = 6; h <= 12; h++) { var o = document.createElement("option"); o.value = h; o.textContent = h + ":00"; if (h === 9) o.selected = true; sel.appendChild(o); }
-  sel.addEventListener("change", function () { settingsHour = +sel.value; stages.forEach(function (S) { S.hour = settingsHour; if (S.open) paint(S); }); });
   document.querySelectorAll("[data-theme]").forEach(function (b) {
     b.addEventListener("click", function () {
       document.body.classList.toggle("night", b.dataset.theme === "night");
       document.querySelectorAll("[data-theme]").forEach(function (x) { x.classList.toggle("on", x === b); });
     });
   });
-  document.querySelectorAll("[data-sn]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      snoozedAll = b.dataset.sn === "set" ? SNOOZED_SAMPLE : null;
-      stages.forEach(function (S) { S.snoozed = snoozedAll; renderChips(S); S.$toasts.innerHTML = ""; S.undo = null; if (S.open) { close(S, true); } });
-      document.querySelectorAll("[data-sn]").forEach(function (x) { x.classList.toggle("on", x === b); });
+  /* ---------- фрагмент настроек: значения сразу пересчитывают меню ---------- */
+  function refreshAll() { stages.forEach(function (S) { if (S.open && S.view === "main") paint(S); }); }
+  function bindTime(id, key) {
+    var el = document.getElementById(id);
+    el.addEventListener("input", function () {
+      var t = parseTime(el.value);
+      el.classList.toggle("bad", !t);
+      if (t) { CFG[key] = t; refreshAll(); }
+    });
+  }
+  bindTime("setDay", "day"); bindTime("setEve", "eve");
+  document.querySelectorAll("[data-wd]").forEach(function (b) {
+    b.addEventListener("change", function () {
+      CFG.work[+b.dataset.wd] = b.checked; refreshAll();
+      document.getElementById("setNoWork").hidden = CFG.work.some(Boolean);
     });
   });
   window.__snoozeMock = { stages: stages };
