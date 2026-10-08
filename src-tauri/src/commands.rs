@@ -1703,9 +1703,11 @@ pub fn stuck_copies(state: St<'_>) -> CmdResult<Vec<depesha_core::store::StuckCo
 }
 
 /// «Try again»: the hold and the count of refusals are dropped and the copy is tried now.
-/// Fails with the server's answer when it is refused again.
+/// Fails with the server's answer when it is refused again. Answers `false` without trying
+/// when the background round already has the copy in hand: the user is told so, not that it
+/// was saved.
 #[tauri::command]
-pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<()> {
+pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<bool> {
     let state = state.inner().clone();
     if !state.store.sent_copy_resume(id)? {
         return Err(CmdError::new(
@@ -1715,17 +1717,17 @@ pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<()> {
     }
     state.task_done(&crate::outbox::stuck_key(id));
     let Some(copy) = state.store.sent_copy(id)? else {
-        return Ok(());
+        return Ok(true);
     };
     if !state.copy_claim(id) {
-        return Ok(());
+        return Ok(false);
     }
     let done = crate::outbox::deliver_copy(&state, &copy).await;
     state.copy_release(id);
     done?;
     match state.store.sent_copy(id)? {
         Some(left) => Err(CmdError::new("other", left.last_error.unwrap_or_default())),
-        None => Ok(()),
+        None => Ok(true),
     }
 }
 

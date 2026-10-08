@@ -719,6 +719,7 @@ storage.warn
 storage.warnings
 stuck.badge
 stuck.drop
+stuck.inProgress
 stuck.retried
 stuck.save
 stuck.saveTitle

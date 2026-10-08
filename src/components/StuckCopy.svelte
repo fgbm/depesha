@@ -20,8 +20,9 @@
     if (id === null) return;
     busy = true;
     try {
-      await api.sentCopyRetry(id);
-      app.toast(t("stuck.retried"));
+      const attempted = await api.sentCopyRetry(id);
+      // `false`: the background round already has the copy, nothing was tried here.
+      app.toast(attempted ? t("stuck.retried") : t("stuck.inProgress"));
     } catch (e) {
       const reason = (e as { message?: string })?.message ?? "";
       app.toast(t("stuck.stillRefused", { reason }), true);

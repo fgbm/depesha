@@ -681,6 +681,7 @@ export const en = {
   "stuck.saveTitle": "Save a copy of the letter",
   "stuck.savedFile": "The copy was saved to a file",
   "stuck.retried": "The copy was saved to Sent",
+  "stuck.inProgress": "The copy is already being sent",
   "stuck.stillRefused": "The server refused the copy again: {reason}",
   "stuck.badge": "The copy of a sent letter is not saved: open the background tasks",
   "stuck.toast": { one: "A copy of a letter is not saved on the server", other: "{n} copies of letters are not saved on the server" },
