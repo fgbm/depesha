@@ -333,6 +333,15 @@ def main():
         c.logout()
         print("ok")
         return
+    if cmd == "many":
+        # A series to triage with a held key: `many FOLDER COUNT`.
+        folder, n = sys.argv[2], int(sys.argv[3])
+        c = conn()
+        for i in range(n):
+            append(c, folder, msg(f"Разбор {i:03d}", f"Тело письма {i}"), "")
+        c.logout()
+        print(n)
+        return
     folder, subject = sys.argv[2], sys.argv[3]
     c = conn()
     c._encoding = "utf-8"

@@ -2168,6 +2168,58 @@ try {
     await screenshot("unified-two-accounts");
   });
 
+  await step("7.21", "зажатый e: серия архивирований не морозит другой ящик", async () => {
+    // Both mailboxes are up here (bob goes away only at 8.2). A series to triage in Carol's
+    // inbox, then a held "e": a press every ~35 ms, as the keyboard's auto-repeat does.
+    const carol = (await invoke("accounts")).find((a) => a.email === "carol@local.test");
+    helper("many", "INBOX", "60");
+    await invoke("sync_now", { accountId: carol.id });
+    // The mailbox's own inbox, by the account's name (not the first "Входящие" in the tree).
+    const openInbox = async (email) => {
+      await d.exec(
+        `const name = [...document.querySelectorAll('nav.side .account-name')].find((n) => n.title === arguments[0]);
+         const group = name.closest('.group');
+         if (group.classList.contains('collapsed')) name.click();
+         const row = [...group.querySelectorAll('.item')].find((x) => (x.querySelector('.name') ?? x).innerText.trim() === 'Входящие');
+         row.click();`,
+        email,
+      );
+    };
+    await openInbox("carol@local.test");
+    // The list draws only the rows in view; the cache is what says how many arrived.
+    await d.until("carol inbox filled", async () => {
+      const rows = await invoke("messages", { query: { account_id: carol.id, folder: "INBOX", limit: 200 } });
+      return rows.length >= 50;
+    }, 60000);
+    await d.until("a row to select", async () => (await d.exec("return document.querySelectorAll('.list .row').length")) > 0, 15000);
+    await d.click(await d.find(".list .row"));
+    const burst = Date.now();
+    for (let i = 0; i < 50; i++) {
+      await press("e");
+      await new Promise((r) => setTimeout(r, 35));
+    }
+    // The interface did not freeze: the list still answers after the burst.
+    await d.until("the list answers after the burst", async () =>
+      (await d.exec("return document.querySelectorAll('.list .row').length")) > 0, 5000);
+    await screenshot("move-burst");
+    // And the letters really went to the archive, not only out of sight.
+    await d.until("letters in the archive", () => helper("count", "Архив", "Разбор") !== "0", 30000);
+    // The time the user feels: opening a letter in the other mailbox right after.
+    await openInbox("bob@local.test");
+    const row = await rowBySubject(`Для Боба ${stamp}`, 60000);
+    const t = Date.now();
+    await d.click(row);
+    await d.until("body of the other mailbox", async () => (await textOf(".reader .body")).trim().length > 0, 10000);
+    const open = Date.now() - t;
+    console.log(`    серия e: ${Date.now() - burst} мс; открытие письма в другом ящике: ${open} мс`);
+    // The seeded series is not part of the scenario: take it out again, and back to the
+    // unified inbox, so the steps after see the state they expect.
+    helper("delete", "INBOX", "Разбор");
+    helper("delete", "Архив", "Разбор");
+    await d.button("Все входящие");
+    if (open > 2000) throw new Error(`открытие письма в другом ящике заняло ${open} мс`);
+  });
+
   await step("4.1", "«Все черновики»: черновики обоих ящиков, каждый открывается от своего отправителя", async () => {
     const subj = `Черновик Боба ${stamp}`;
     const accounts = await invoke("accounts");
