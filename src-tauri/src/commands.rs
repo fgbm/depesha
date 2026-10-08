@@ -547,6 +547,9 @@ pub struct Moved {
     from: String,
     to: String,
     message_ids: Vec<String>,
+    /// The waits the move touched: their Message-IDs, so an undo parks them again.
+    #[serde(default)]
+    waits: Vec<String>,
 }
 
 async fn move_group(
@@ -565,12 +568,12 @@ async fn move_group(
         })
         .await?;
     let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
-    // "Done" or a move out of "Waiting for reply": the wait is over, the reply brings nothing back.
-    if state
+    // "Done" or a move out of "Waiting for reply": the wait is over, or its rest comes
+    // back; the waits touched are kept so an undo can park them again.
+    let waits = state
         .store
-        .followups_left(account_id, from, &message_ids, chrono::Utc::now().timestamp())?
-        > 0
-    {
+        .followups_left(account_id, from, &message_ids, chrono::Utc::now().timestamp())?;
+    if !waits.is_empty() {
         state.emit("counters-changed", serde_json::json!({}));
     }
     Ok(Moved {
@@ -578,6 +581,7 @@ async fn move_group(
         from: from.to_owned(),
         to: to.to_owned(),
         message_ids,
+        waits,
     })
 }
 
@@ -1044,14 +1048,24 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
         let out = state
             .worker(&m.account_id)?
             .run(Work::MoveByMessageId {
-                from: m.to,
-                message_ids: m.message_ids,
-                to: m.from,
+                from: m.to.clone(),
+                message_ids: m.message_ids.clone(),
+                to: m.from.clone(),
                 unseen: false,
             })
             .await?;
-        if let Output::Count(n) = out {
-            back += n;
+        let n = match out {
+            Output::Count(n) => n,
+            _ => 0,
+        };
+        back += n;
+        // Letters back where a wait parks them: the wait is parked again.
+        if n > 0 {
+            for key in &m.waits {
+                state
+                    .store
+                    .followup_reparked(&m.account_id, key, &m.from, &m.message_ids)?;
+            }
         }
     }
     state.emit("counters-changed", serde_json::json!({}));

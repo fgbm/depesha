@@ -643,6 +643,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "tasks.syncing": "Синхронизация…",
   "tasks.title": "Фоновые задачи",
   "toast.alreadySent": "Письмо уже отправлено",
+  "toast.bringFailed": "Письма не удалось вернуть из «{folder}»: {error}. Верните их вручную",
   "toast.chooseFolder": "Выбрать папку",
   "toast.keepInInbox": "Оставить во входящих",
   "toast.parkFailed": "Письмо не перенесено в «Ждут ответа»: {error}. Оно осталось во входящих",

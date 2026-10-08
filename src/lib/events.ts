@@ -68,6 +68,10 @@ export function listenMain(app: AppStore) {
         });
       else app.toast(t("toast.parkFailed", { error: p.error ?? "" }), true);
     }),
+    // The folder a wait parks in is gone: the letters cannot come back on their own.
+    listen<BringFailed>("bring-failed", (e) =>
+      app.toast(t("toast.bringFailed", { folder: e.payload.folder, error: e.payload.error ?? "" }), true),
+    ),
     listen<Task[]>("tasks-changed", (e) => (app.tasks = e.payload)),
     listen<{ message: string }>("app-error", (e) => app.toast(e.payload.message, true)),
     listen<{ id: string }>("extensions-changed", (e) => {
@@ -107,6 +111,13 @@ interface ParkFailed {
   folder: string;
   /** The server refused to make the folder; otherwise `error` says what went wrong. */
   refused: boolean;
+  error?: string;
+}
+
+interface BringFailed {
+  account_id: string;
+  subject: string;
+  folder: string;
   error?: string;
 }
 

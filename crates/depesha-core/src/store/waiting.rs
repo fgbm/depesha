@@ -296,10 +296,12 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The letters of the wait `key` are in `folder` now.
+    /// The letters of the wait `key` are in `folder` now. A wait the user closed while the
+    /// move was still running (`done`) has its letters brought back, not left there.
     pub fn followup_parked(&self, account_id: &str, key: &str, folder: &str) -> Result<()> {
         self.conn().execute(
-            "UPDATE followups SET park = 'parked', park_folder = ?3 WHERE account_id = ?1 AND message_id = ?2 AND park = 'pending'",
+            "UPDATE followups SET park = CASE WHEN park = 'done' THEN 'back' ELSE 'parked' END, park_folder = ?3
+             WHERE account_id = ?1 AND message_id = ?2 AND park IN ('pending', 'done')",
             params![account_id, bare(key), folder],
         )?;
         Ok(())
@@ -374,18 +376,91 @@ impl Store {
         Ok(())
     }
 
-    /// Letters moved by the user out of `folder` ("Done", Delete, another folder): a wait
-    /// whose letters they were is closed and brings nothing back. Returns how many.
-    pub fn followups_left(&self, account_id: &str, folder: &str, message_ids: &[String], now: i64) -> Result<usize> {
-        let ids: Vec<&str> = message_ids.iter().map(|m| bare(m)).collect();
-        Ok(self.conn().execute(
-            "UPDATE followups SET park = 'done',
-                ended = CASE WHEN status = 'waiting' THEN ?3 ELSE ended END,
-                status = CASE WHEN status = 'waiting' THEN 'closed' ELSE status END
-             WHERE account_id = ?1 AND park = 'parked' AND park_folder = ?2
-               AND EXISTS (SELECT 1 FROM json_each(parked) p WHERE p.value IN (SELECT value FROM json_each(?4)))",
-            params![account_id, folder, now, json_list(&ids)],
-        )?)
+    /// Letters moved by the user out of `folder` ("Done", Delete, another folder): the
+    /// waits whose letters they were. A wait is over only when none of its letters is left
+    /// in the folder; the rest are set to come back rather than staying there for good.
+    /// Returns the Message-ID of every wait touched, so an undo can park it again.
+    pub fn followups_left(&self, account_id: &str, folder: &str, message_ids: &[String], now: i64) -> Result<Vec<String>> {
+        let moved: HashSet<&str> = message_ids.iter().map(|m| bare(m)).collect();
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let parked: Vec<(String, Vec<String>)> = {
+            let mut stmt = tx.prepare(
+                "SELECT message_id, parked FROM followups
+                 WHERE account_id = ?1 AND park = 'parked' AND park_folder = ?2",
+            )?;
+            let rows = stmt.query_map(params![account_id, folder], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    serde_json::from_str::<Vec<String>>(&r.get::<_, String>(1)?).unwrap_or_default(),
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut touched = Vec::new();
+        for (key, letters) in parked {
+            if !letters.iter().any(|id| moved.contains(id.as_str())) {
+                continue;
+            }
+            let left: Vec<String> = letters
+                .iter()
+                .filter(|id| !moved.contains(id.as_str()))
+                .cloned()
+                .collect();
+            // Nothing left in the folder: the wait is over. Something left: it comes back.
+            let park = if left.is_empty() { "done" } else { "back" };
+            tx.execute(
+                "UPDATE followups SET parked = ?3, park = ?4,
+                    ended = CASE WHEN status = 'waiting' THEN ?5 ELSE ended END,
+                    status = CASE WHEN status = 'waiting' THEN 'closed' ELSE status END
+                 WHERE account_id = ?1 AND message_id = ?2",
+                params![account_id, key, json_list(&left), park, now],
+            )?;
+            touched.push(key);
+        }
+        tx.commit()?;
+        Ok(touched)
+    }
+
+    /// A move was undone: the letters are back in `folder`, where the wait parks them, and
+    /// the wait is parked again.
+    pub fn followup_reparked(&self, account_id: &str, key: &str, folder: &str, message_ids: &[String]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let parked: Option<String> = tx
+            .query_row(
+                "SELECT parked FROM followups WHERE account_id = ?1 AND message_id = ?2",
+                params![account_id, bare(key)],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(parked) = parked else {
+            return Ok(());
+        };
+        let mut letters: Vec<String> = serde_json::from_str(&parked).unwrap_or_default();
+        for id in message_ids {
+            let id = bare(id);
+            if !letters.iter().any(|p| p == id) {
+                letters.push(id.to_owned());
+            }
+        }
+        tx.execute(
+            "UPDATE followups SET parked = ?3, park = 'parked', park_folder = ?4, status = 'waiting', ended = NULL
+             WHERE account_id = ?1 AND message_id = ?2",
+            params![account_id, bare(key), json_list(&letters), folder],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The letters could not be brought back (the folder they wait in is gone): the wait
+    /// stops trying, and the user is told to return them by hand.
+    pub fn followup_return_failed(&self, account_id: &str, key: &str) -> Result<()> {
+        self.conn().execute(
+            "UPDATE followups SET park = 'done' WHERE account_id = ?1 AND message_id = ?2 AND park IN ('back', 'undo')",
+            params![account_id, bare(key)],
+        )?;
+        Ok(())
     }
 
     /// A letter was opened: back with the reply, it no longer says so. Whether one did.
@@ -866,19 +941,24 @@ mod tests {
         let store = mailbox();
         waiting(&store, 0);
         // Moved elsewhere by hand ("Done", Delete, a folder): what is not waiting is untouched.
-        assert_eq!(
-            store.followups_left("a", "INBOX", &["q2@x".into()], SENT + 10).unwrap(),
-            0
+        assert!(
+            store
+                .followups_left("a", "INBOX", &["q2@x".into()], SENT + 10)
+                .unwrap()
+                .is_empty()
         );
-        assert_eq!(
-            store.followups_left("a", WAIT, &["other@x".into()], SENT + 10).unwrap(),
-            0
+        assert!(
+            store
+                .followups_left("a", WAIT, &["other@x".into()], SENT + 10)
+                .unwrap()
+                .is_empty()
         );
         // "Done" on the whole chain: the wait is over, nothing left in the folder.
         assert_eq!(
             store
                 .followups_left("a", WAIT, &["<q1@x>".into(), "q2@x".into()], SENT + 10)
-                .unwrap(),
+                .unwrap()
+                .len(),
             1
         );
         let f = the_wait(&store, FollowupFilter::Closed);
@@ -903,7 +983,10 @@ mod tests {
         let store = mailbox();
         let (_, second) = waiting(&store, 0);
         // "Done" on one letter of the chain: the rest must not stay in the folder.
-        assert_eq!(store.followups_left("a", WAIT, &["q1@x".into()], SENT + 10).unwrap(), 1);
+        assert_eq!(
+            store.followups_left("a", WAIT, &["q1@x".into()], SENT + 10).unwrap().len(),
+            1
+        );
         let jobs = store.park_jobs().unwrap();
         assert_eq!(jobs.len(), 1, "{jobs:#?}");
         let job = &jobs[0];
@@ -926,6 +1009,33 @@ mod tests {
         );
         let f = the_wait(&store, FollowupFilter::Closed);
         assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Closed, "done"));
+    }
+
+    #[test]
+    fn undo_of_a_done_letter_restores_the_wait() {
+        let store = mailbox();
+        waiting(&store, 0);
+        // "Done" on the whole chain, then "z": the letters come back and the wait with them.
+        assert_eq!(
+            store
+                .followups_left("a", WAIT, &["q1@x".into(), "q2@x".into()], SENT + 10)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store.followups_count().unwrap(),
+            FollowupCounts { active: 0, closed: 1 }
+        );
+        store
+            .followup_reparked("a", "r@x", WAIT, &["q1@x".into(), "q2@x".into()])
+            .unwrap();
+        let f = the_wait(&store, FollowupFilter::Active);
+        assert_eq!(
+            (f.status, f.park.as_str(), f.park_folder.as_str()),
+            (FollowupStatus::Waiting, "parked", WAIT)
+        );
+        assert!(store.park_jobs().unwrap().is_empty());
     }
 
     #[test]
@@ -971,7 +1081,10 @@ mod tests {
             "letters in the folder keep the wait"
         );
         // The wait is still there: the rest can still be brought back.
-        assert_eq!(store.followups_left("a", WAIT, &["q1@x".into()], later).unwrap(), 1);
+        assert_eq!(
+            store.followups_left("a", WAIT, &["q1@x".into()], later).unwrap().len(),
+            1
+        );
     }
 
     #[test]

@@ -481,8 +481,13 @@ impl Store {
                    AND m.message_id = CASE WHEN followups.anchor != '' THEN followups.anchor ELSE followups.message_id END)",
             [now],
         )?;
+        // A wait whose letter answered is gone but whose other letters are still in the
+        // folder is kept: it can still be brought back, and forgetting it would strand them.
         let gone = tx.execute(
-            "DELETE FROM followups WHERE status = 'waiting' AND missing < ?1",
+            "DELETE FROM followups WHERE status = 'waiting' AND missing < ?1
+               AND NOT EXISTS (SELECT 1 FROM json_each(followups.parked) p
+                   JOIN messages m ON m.account_id = followups.account_id AND m.folder = followups.park_folder
+                                  AND m.message_id = p.value)",
             [now - GONE_SECS],
         )?;
         let ended = tx.execute(

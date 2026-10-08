@@ -651,6 +651,7 @@ export const en = {
   "tasks.syncing": "Syncing…",
   "tasks.title": "Background tasks",
   "toast.alreadySent": "The message has already been sent",
+  "toast.bringFailed": "The letters could not be returned from “{folder}”: {error}. Return them by hand",
   "toast.chooseFolder": "Choose a folder",
   "toast.keepInInbox": "Keep in the inbox",
   "toast.parkFailed": "The letter was not moved to “Waiting for reply”: {error}. It stayed in the inbox",

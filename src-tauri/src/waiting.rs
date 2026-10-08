@@ -268,7 +268,23 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
             state.emit("counters-changed", json!({}));
         }
         // Offline or paused: the next round tries again.
-        Err(e) => tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}"),
+        Err(e) if e.is_transient() => {
+            tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
+        }
+        // The folder is gone: the letters cannot be brought back; the user is told to do it.
+        Err(e) => {
+            state.store.followup_return_failed(&job.account_id, &job.key)?;
+            state.emit(
+                "bring-failed",
+                json!({
+                    "account_id": job.account_id,
+                    "subject": job.subject,
+                    "folder": job.from,
+                    "error": CmdError::from(e).message,
+                }),
+            );
+            state.emit("counters-changed", json!({}));
+        }
     }
     Ok(())
 }
