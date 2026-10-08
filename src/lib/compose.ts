@@ -191,6 +191,8 @@ export function fromDraft(msg: OpenedMessage, me: Addr): ComposeDraft {
     in_reply_to: s.in_reply_to,
     references: s.references,
     attachments,
+    // The letter it answers or forwards, as it was saved: the mark and the wait stay.
+    acts_on: msg.view.acts_on ?? null,
     // A time already past is no schedule: the letter waited as a draft.
     send_at: msg.view.send_at && msg.view.send_at * 1000 > Date.now() ? msg.view.send_at : null,
   };

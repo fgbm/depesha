@@ -191,6 +191,7 @@ export class ComposeManager {
           subject: d.subject,
           text: d.text,
           html: d.html ?? null,
+          signature: d.signature ?? null,
           format: d.format ?? "plain",
           in_reply_to: d.in_reply_to,
           references: d.references,

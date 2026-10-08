@@ -183,6 +183,9 @@ pub struct MessageView {
     /// How a draft was being written (`FORMAT_HEADER`); absent for other letters.
     #[serde(default)]
     pub format: Option<crate::smtp::BodyFormat>,
+    /// The letter a saved draft answers or forwards (`ACTS_ON_HEADER`); absent otherwise.
+    #[serde(default)]
+    pub acts_on: Option<crate::smtp::ActsOn>,
     /// The letter's Markdown (`text/markdown`, RFC 7763) drawn as HTML and cleaned like `html`.
     #[serde(default)]
     pub markdown: Option<String>,
@@ -205,6 +208,10 @@ pub const SEND_AT_HEADER: &str = "X-Depesha-Send-At";
 
 /// How a draft was being written (`BodyFormat`), for it to open the same way; drafts only.
 pub const FORMAT_HEADER: &str = "X-Depesha-Format";
+
+/// The letter a saved draft answers or forwards (`ActsOn`, as JSON), for it to be marked
+/// and to go to «Waiting for reply» the same way; drafts only.
+pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
 
 /// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
 /// replace it, and the quote, to fold it. Cleaning keeps these classes and no others.
@@ -258,6 +265,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     let summary = summary_of(&msg);
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
     let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| crate::smtp::BodyFormat::from_name(&v));
+    let acts_on = raw_header(&msg, ACTS_ON_HEADER).and_then(|v| serde_json::from_str(&v).ok());
     Ok(MessageView {
         summary,
         text,
@@ -267,6 +275,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
         attachments,
         send_at,
         format,
+        acts_on,
         markdown,
         views,
     })
@@ -903,6 +912,23 @@ JVBERi0xLjQK\r\n\
         );
         assert_eq!(format(mail(&format!("{FORMAT_HEADER}: rtf\r\n"))), None);
         assert_eq!(format(mail("")), None);
+    }
+
+    #[test]
+    fn a_draft_keeps_what_it_answers() {
+        use crate::smtp::{Act, ActsOn};
+        let mail =
+            |extra: &str| format!("{extra}From: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n");
+        let acts = ActsOn {
+            account_id: "a".into(),
+            message_id: "m1@example.org".into(),
+            folder: "INBOX".into(),
+            act: Act::Reply,
+            waiting: true,
+        };
+        let header = format!("{ACTS_ON_HEADER}: {}\r\n", serde_json::to_string(&acts).unwrap());
+        assert_eq!(parse_view(mail(&header).as_bytes(), false).unwrap().acts_on, Some(acts));
+        assert_eq!(parse_view(mail("").as_bytes(), false).unwrap().acts_on, None);
     }
 
     #[test]

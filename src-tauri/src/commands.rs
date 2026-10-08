@@ -2201,6 +2201,13 @@ pub async fn draft_save(
         let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
         raw.splice(0..0, header.into_bytes());
     }
+    if let Some(acts_on) = &draft.acts_on {
+        // The draft says what it answers or forwards: opening it marks the letter and
+        // takes it to «Waiting for reply» as the first writing did.
+        let json = serde_json::to_string(acts_on).unwrap_or_default();
+        let header = format!("{}: {json}\r\n", message::ACTS_ON_HEADER);
+        raw.splice(0..0, header.into_bytes());
+    }
     let message_id = message::parse_summary(&raw).message_id;
     let worker = state.worker(&account.id)?;
     worker
