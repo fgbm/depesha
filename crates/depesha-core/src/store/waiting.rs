@@ -117,6 +117,9 @@ fn bare(id: &str) -> &str {
     id.trim_matches(['<', '>'])
 }
 
+/// A letter joined to the one answered: row id, Message-ID, In-Reply-To, date, read, sender.
+type Neighbour = (i64, String, Option<String>, i64, bool, Option<String>);
+
 impl Store {
     /// Message-IDs of the conversation of `anchor` in the folder `inbox`, the letter
     /// itself included; empty when it is not there. Only letters joined to it by an
@@ -164,7 +167,7 @@ impl Store {
                     OR x.in_reply_to = ?5)",
         )?;
         while let Some((row, message_id, reply_to)) = frontier.pop() {
-            let found: Vec<(i64, String, Option<String>, i64, bool, Option<String>)> = neighbours
+            let found: Vec<Neighbour> = neighbours
                 .query_map(params![account_id, inbox, row, reply_to, message_id], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
                 })?
