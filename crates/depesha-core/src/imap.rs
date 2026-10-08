@@ -941,12 +941,39 @@ fn append_flags(flags: &str) -> Option<String> {
     }
 }
 
-/// UIDs of messages with this Message-ID in the folder.
+/// UIDs of messages with this Message-ID in the folder. `SEARCH HEADER Message-ID`
+/// matches a substring (RFC 3501), so the letters found are read back and only an exact
+/// Message-ID is kept; an id that is empty, or not a Message-ID, finds nothing. A refusal
+/// or a dropped connection is an error, not "nothing found" (`uid_search`).
 pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Vec<u32>> {
+    let id = message_id.trim_matches(['<', '>']).trim();
+    if id.is_empty() || id.contains(['<', '>']) || !id.contains('@') {
+        return Ok(Vec::new());
+    }
     conn.session.examine(folder).await?;
-    let id = message_id.trim_matches(['<', '>']).replace(['"', '\\'], "");
-    let uids = conn.session.uid_search(format!("HEADER Message-ID \"{id}\"")).await?;
-    Ok(uids.into_iter().collect())
+    let needle = id.replace(['"', '\\'], "");
+    let uids = uid_search(conn, &format!("HEADER Message-ID \"{needle}\"")).await?;
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fetches: Vec<_> = conn
+        .session
+        .uid_fetch(uid_set(&uids), "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+        .await?
+        .try_collect()
+        .await?;
+    Ok(fetches
+        .iter()
+        .filter(|f| f.uid.is_some_and(|u| uids.contains(&u)))
+        .filter(|f| f.header().and_then(message_id_of).as_deref() == Some(id))
+        .filter_map(|f| f.uid)
+        .collect())
+}
+
+/// The Message-ID of a `HEADER.FIELDS (Message-ID)` block, bare.
+fn message_id_of(header: &[u8]) -> Option<String> {
+    let msg = mail_parser::MessageParser::default().parse_headers(header)?;
+    msg.message_id().map(|m| m.trim_matches(['<', '>']).to_owned())
 }
 
 /// Selects a folder to sync it. With CONDSTORE the answer carries HIGHESTMODSEQ, or
