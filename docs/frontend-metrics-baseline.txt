@@ -56,7 +56,7 @@ component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
 component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
-component	src/components/prefs/FolderProps.svelte	413	19	177	217
+component	src/components/prefs/FolderProps.svelte	415	19	179	217
 component	src/components/prefs/GeneralPanel.svelte	257	27	73	157
 component	src/components/prefs/HintsSection.svelte	115	35	29	51
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
@@ -595,9 +595,11 @@ function	src/lib/keymap.ts::removeKey	5
 function	src/lib/keymap.ts::matches	9
 function	src/lib/labels.test.ts::rights	18
 function	src/lib/labels.test.ts::folder	13
-function	src/lib/labels.ts::keywordForName	17
+function	src/lib/labels.ts::shortHash	9
+function	src/lib/labels.ts::keywordForName	14
 function	src/lib/labels.ts::actionsOf	3
 function	src/lib/labels.ts::readOnly	15
+function	src/lib/labels.ts::canCheckLabels	4
 function	src/lib/labels.ts::under	3
 function	src/lib/labels.ts::rootOf	5
 function	src/lib/labels.ts::namespaceRoot	9
