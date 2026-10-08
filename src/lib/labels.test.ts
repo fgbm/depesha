@@ -2,7 +2,17 @@
 // ключи и ярлыки меток. Слой без сети и DOM; покрывает src/lib/labels.ts.
 
 import { describe, expect, it } from "vitest";
-import { actionsOf, groupFolders, keywordForName, labelChips, labelNames, readOnly, refusalOf, storageOf } from "./labels";
+import {
+  actionsOf,
+  canCheckLabels,
+  groupFolders,
+  keywordForName,
+  labelChips,
+  labelNames,
+  readOnly,
+  refusalOf,
+  storageOf,
+} from "./labels";
 import type { FolderInfo, Label, NamespaceInfo, Rights } from "./types";
 
 function rights(letters: string): Rights {
@@ -53,6 +63,19 @@ describe("права в действия", () => {
       "administer",
     ]);
     expect(readOnly(rights("lrswipkxtea"))).toBe(false);
+  });
+
+  it("проверка меток нужна права класть и удалять письма, а не только читать", () => {
+    // `r` alone: reading is not enough — the check writes and deletes a test letter.
+    expect(canCheckLabels(rights("lr"))).toBe(false);
+    // `i` without `t`/`e`: the test letter could be added but not removed.
+    expect(canCheckLabels(rights("lri"))).toBe(false);
+    expect(canCheckLabels(rights("lrit"))).toBe(false);
+    // Full rights.
+    expect(canCheckLabels(rights("lrswipkxtea"))).toBe(true);
+    // Rights unknown: do not refuse — the server answers for itself.
+    expect(canCheckLabels(null)).toBe(true);
+    expect(canCheckLabels(undefined)).toBe(true);
   });
 
   it("общая папка только для чтения: чтение и отметка прочитанного", () => {

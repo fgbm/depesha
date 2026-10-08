@@ -988,6 +988,37 @@ async fn shared_folder_rights_and_refusals_over_starttls() {
     );
 }
 
+/// A label check interrupted after APPEND leaves its test letter behind; the next check
+/// removes it before adding a new one, so nothing of Depesha's stays in the folder.
+#[tokio::test]
+async fn a_leftover_test_message_is_cleaned_before_the_next_check() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("cleanup").await;
+    let leftover = "depesha-test-leftover@depesha.local";
+    let raw = format!(
+        "From: Depesha <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: Депеша: проверка меток\r\n\
+         Message-ID: <{leftover}>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nпроверка\r\n"
+    );
+    imap::append(&mut conn, "INBOX", raw.as_bytes(), "\\Seen").await.unwrap();
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "INBOX", leftover).await.unwrap().len(),
+        1,
+        "the leftover is there"
+    );
+
+    let removed = imap::cleanup_test_messages(&mut conn, "INBOX").await.unwrap();
+    assert_eq!(removed, 1);
+    assert!(
+        imap::find_by_message_id(&mut conn, "INBOX", leftover)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the leftover is gone"
+    );
+}
+
 /// The label check on a test message (#9, frame 9): a test letter is put into the folder,
 /// a label stored on it, read back, and both taken away again. A real Dovecot keeps own
 /// keywords in INBOX, so the result is "saves"; the test letter never stays behind.
