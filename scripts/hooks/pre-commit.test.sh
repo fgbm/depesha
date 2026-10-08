@@ -89,4 +89,61 @@ grep -q 'f.txt' out || fail "хук не назвал файл со словом
 git rm -q --cached f.txt
 rm f.txt
 
+# 8. Строка содержимого, начинающаяся с «++ b/», не путается с заголовком хунка.
+printf '# комментарий\nneedle\n' > "$patterns"
+printf '++ b/needle\n' > g.txt
+git add g.txt
+if DEPESHA_PRIVATE_PATTERNS="$patterns" "$hook" >out 2>&1; then
+  fail "хук принял «++ b/…» за заголовок и пропустил содержимое"
+fi
+grep -q 'g.txt' out || fail "хук не назвал файл со строкой «++ b/…»"
+git rm -q --cached g.txt
+rm g.txt
+
+# 9. Без локали UTF-8 хук отказывает с объяснением, а не проверяет вслепую.
+mkdir -p "$tmp/bin"
+printf '#!/usr/bin/env bash\necho ANSI_X3.4-1968\n' > "$tmp/bin/locale"
+chmod +x "$tmp/bin/locale"
+printf '# комментарий\nneedle\n' > "$patterns"
+printf 'чисто\n' > h.txt
+git add h.txt
+if PATH="$tmp/bin:$PATH" LC_ALL= LC_CTYPE= LANG= DEPESHA_PRIVATE_PATTERNS="$patterns" "$hook" >out 2>&1; then
+  fail "хук не отказал без локали UTF-8"
+fi
+grep -q 'UTF-8' out || fail "хук не объяснил отказ из-за локали"
+git rm -q --cached h.txt
+rm h.txt
+
+# 10. textconv-фильтр не прячет содержимое: хук читает сами байты.
+printf '# комментарий\nneedle\n' > "$patterns"
+printf 'тут needle\n' > i.txt
+printf 'i.txt diff=hide\n' > .gitattributes
+printf '#!/usr/bin/env bash\necho redacted\n' > "$tmp/hide.sh"
+chmod +x "$tmp/hide.sh"
+git config diff.hide.textconv "$tmp/hide.sh"
+git add .gitattributes i.txt
+if DEPESHA_PRIVATE_PATTERNS="$patterns" "$hook" >out 2>&1; then
+  fail "хук прочитал textconv вместо самих байтов"
+fi
+grep -q 'i.txt' out || fail "хук не нашёл слово под textconv"
+git rm -q --cached .gitattributes i.txt
+rm .gitattributes i.txt
+git config --unset diff.hide.textconv
+
+# 11. Внешний diff-драйвер тоже не подменяет содержимое.
+printf '# комментарий\nneedle\n' > "$patterns"
+printf 'тут needle\n' > j.txt
+printf 'j.txt diff=ext\n' > .gitattributes
+printf '#!/usr/bin/env bash\necho redacted\n' > "$tmp/ext.sh"
+chmod +x "$tmp/ext.sh"
+git config diff.ext.command "$tmp/ext.sh"
+git add .gitattributes j.txt
+if DEPESHA_PRIVATE_PATTERNS="$patterns" "$hook" >out 2>&1; then
+  fail "хук прочитал внешний diff вместо самих байтов"
+fi
+grep -q 'j.txt' out || fail "хук не нашёл слово под внешним diff"
+git rm -q --cached .gitattributes j.txt
+rm .gitattributes j.txt
+git config --unset diff.ext.command
+
 echo "pre-commit hook: ok"
