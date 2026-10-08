@@ -46,7 +46,7 @@ export class ActionRunner {
   constructor(private host: ActionHost) {}
 
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. */
-  async perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
+  async perform(text: string, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
     if (!ids.length) return;
     const p = this.host.track(this.act(text, ids, run, failText));
     this.pending = p;
@@ -54,7 +54,7 @@ export class ActionRunner {
     if (this.pending === p) this.pending = null;
   }
 
-  private async act(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
+  private async act(text: string, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
     const { list } = this.host;
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
@@ -63,7 +63,7 @@ export class ActionRunner {
     const rows = ids.map((id) => before.find((m) => m.id === id) ?? (this.host.opened?.row.id === id ? this.host.opened.row : undefined));
     const hidden = new Set(ids);
     // A letter being dealt with is read now, not after the wait (#71). Locally only:
-    // the move sets `\Seen` for the whole series, and a flag between moves would split it.
+    // the move sets `\Seen` for these letters only, and a flag between moves would split the series.
     this.host.markSeen(ids, false);
     for (const id of ids) list.leaving.add(id);
     // Out of sight at once; the server is asked afterwards.
@@ -75,7 +75,7 @@ export class ActionRunner {
         hidden.add(id);
         list.leaving.add(id);
       }
-      const moved = (await run(all)).filter((m) => m.message_ids.length);
+      const moved = (await run(all, ids)).filter((m) => m.message_ids.length);
       if (this.host.windowOf !== null) {
         // The letter is done with: its window closes, the main window offers the undo.
         if (moved.length) await emitTo("main", "window-moved", { moved, text });

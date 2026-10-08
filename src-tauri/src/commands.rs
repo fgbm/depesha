@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -575,6 +575,41 @@ pub struct Moved {
     /// The waits the move touched: their Message-IDs, so an undo parks them again.
     #[serde(default)]
     waits: Vec<String>,
+    /// The letters that were unread when the action marked them read: an undo makes them
+    /// unread again.
+    #[serde(default)]
+    unseen: Vec<String>,
+}
+
+/// The letters an action is about, among the rows it moves (the rest of their
+/// conversations moves along but is not marked read). `None`: the action reads nothing.
+type Acted<'a> = Option<&'a HashSet<i64>>;
+
+/// Of the rows `(id, uid, read, Message-ID)` a move takes, what the action reads: the UIDs
+/// it marks `\Seen`, and the Message-IDs of those that were unread (an undo restores them).
+fn split_acted<'a>(
+    rows: impl Iterator<Item = (i64, u32, bool, Option<&'a str>)>,
+    acted: Acted<'_>,
+) -> (Vec<u32>, Vec<String>) {
+    let mut seen = Vec::new();
+    let mut unseen = Vec::new();
+    for (id, uid, read, message_id) in rows {
+        if !acted.is_some_and(|a| a.contains(&id)) {
+            continue;
+        }
+        seen.push(uid);
+        if let (false, Some(mid)) = (read, message_id) {
+            unseen.push(mid.to_owned());
+        }
+    }
+    (seen, unseen)
+}
+
+/// What an undo moves back, in two runs: the letters the action marked read go back
+/// unread, the others as they are.
+fn undo_runs(m: &Moved) -> [(Vec<String>, bool); 2] {
+    let (unread, read) = m.message_ids.iter().cloned().partition(|id| m.unseen.contains(id));
+    [(read, false), (unread, true)]
 }
 
 async fn move_group(
@@ -582,7 +617,13 @@ async fn move_group(
     (account_id, from, validity): &(String, String, u32),
     rows: &[MessageRow],
     to: &str,
+    acted: Acted<'_>,
 ) -> CmdResult<Moved> {
+    let (seen, unseen) = split_acted(
+        rows.iter()
+            .map(|r| (r.id, r.uid, r.flags.seen, r.message_id.as_deref())),
+        acted,
+    );
     state
         .worker(account_id)?
         .run(Work::Move {
@@ -590,6 +631,7 @@ async fn move_group(
             validity: *validity,
             uids: rows.iter().map(|r| r.uid).collect(),
             to: to.to_owned(),
+            seen,
         })
         .await?;
     let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
@@ -607,6 +649,7 @@ async fn move_group(
         to: to.to_owned(),
         message_ids,
         waits,
+        unseen,
     })
 }
 
@@ -1078,12 +1121,18 @@ async fn reflag(
     Ok(())
 }
 
+/// The letters an archive, delete or spam is about: `own` when the caller names them (the
+/// rest of the ids is their conversations), otherwise all of `ids`.
+fn acted_ids(ids: &[i64], own: Option<Vec<i64>>) -> HashSet<i64> {
+    own.unwrap_or_else(|| ids.to_vec()).into_iter().collect()
+}
+
 #[tauri::command]
 pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
     for (key, rows) in group_rows(&state, &ids)? {
         if key.1 != to {
-            done.push(move_group(&state, &key, &rows, &to).await?);
+            done.push(move_group(&state, &key, &rows, &to, None).await?);
         }
     }
     Ok(done)
@@ -1091,12 +1140,13 @@ pub async fn move_messages(state: St<'_>, ids: Vec<i64>, to: String) -> CmdResul
 
 /// "Done": out of the inbox into the archive, which is created if missing.
 #[tauri::command]
-pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+pub async fn archive(state: St<'_>, ids: Vec<i64>, own: Option<Vec<i64>>) -> CmdResult<Vec<Moved>> {
+    let acted = acted_ids(&ids, own);
     let mut done = Vec::new();
     for (key, rows) in group_rows(&state, &ids)? {
         let archive = role_folder(&state, &key.0, FolderRole::Archive, pick("Archive", "Архив")).await?;
         if key.1 != archive {
-            done.push(move_group(&state, &key, &rows, &archive).await?);
+            done.push(move_group(&state, &key, &rows, &archive, Some(&acted)).await?);
         }
     }
     Ok(done)
@@ -1104,12 +1154,13 @@ pub async fn archive(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
 
 /// Spam: into the junk folder; the server's filters learn from it on most systems.
 #[tauri::command]
-pub async fn mark_spam(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+pub async fn mark_spam(state: St<'_>, ids: Vec<i64>, own: Option<Vec<i64>>) -> CmdResult<Vec<Moved>> {
+    let acted = acted_ids(&ids, own);
     let mut done = Vec::new();
     for (key, rows) in group_rows(&state, &ids)? {
         let junk = role_folder(&state, &key.0, FolderRole::Junk, pick("Junk", "Спам")).await?;
         if key.1 != junk {
-            done.push(move_group(&state, &key, &rows, &junk).await?);
+            done.push(move_group(&state, &key, &rows, &junk, Some(&acted)).await?);
         }
     }
     Ok(done)
@@ -1117,12 +1168,13 @@ pub async fn mark_spam(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
 
 /// To the trash; from the trash (or without one) for good, which cannot be undone.
 #[tauri::command]
-pub async fn delete_messages(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+pub async fn delete_messages(state: St<'_>, ids: Vec<i64>, own: Option<Vec<i64>>) -> CmdResult<Vec<Moved>> {
+    let acted = acted_ids(&ids, own);
     let mut done = Vec::new();
     for (key, rows) in group_rows(&state, &ids)? {
         let (account_id, folder, validity) = &key;
         match state.store.folder_by_role(account_id, FolderRole::Trash)? {
-            Some(trash) if trash != *folder => done.push(move_group(&state, &key, &rows, &trash).await?),
+            Some(trash) if trash != *folder => done.push(move_group(&state, &key, &rows, &trash, Some(&acted)).await?),
             _ => {
                 let uids = rows.iter().map(|r| r.uid).collect();
                 state
@@ -1166,7 +1218,7 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
             .store
             .snooze_add_batch(account_id, &snoozed, folder, until, &batch)?;
         if *folder != snoozed {
-            done.push(move_group(&state, &key, &rows, &snoozed).await?);
+            done.push(move_group(&state, &key, &rows, &snoozed, None).await?);
         }
     }
     state.scheduler_notify.notify_one();
@@ -1182,19 +1234,25 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
         for mid in &m.message_ids {
             state.store.snooze_remove(&m.account_id, mid)?;
         }
-        let out = state
-            .worker(&m.account_id)?
-            .run(Work::MoveByMessageId {
-                from: m.to.clone(),
-                message_ids: m.message_ids.clone(),
-                to: m.from.clone(),
-                unseen: false,
-            })
-            .await?;
-        let n = match out {
-            Output::Count(n) => n,
-            _ => 0,
-        };
+        // The letters the action marked read come back unread, the rest as they are.
+        let mut n = 0;
+        for (message_ids, unseen) in undo_runs(&m) {
+            if message_ids.is_empty() {
+                continue;
+            }
+            let out = state
+                .worker(&m.account_id)?
+                .run(Work::MoveByMessageId {
+                    from: m.to.clone(),
+                    message_ids,
+                    to: m.from.clone(),
+                    unseen,
+                })
+                .await?;
+            if let Output::Count(c) = out {
+                n += c;
+            }
+        }
         back += n;
         // Letters back where a wait parks them: the wait is parked again.
         if n > 0 {
@@ -2825,6 +2883,40 @@ pub fn quit_cancel(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_move_reads_only_the_letters_of_the_action() {
+        use std::collections::HashSet;
+        // The conversation of letter 1: its unread answer (2) moves along but stays unread.
+        let rows = [
+            (1, 10, false, Some("a")),
+            (2, 11, false, Some("reply")),
+            (3, 12, true, Some("old")),
+        ];
+        let acted: HashSet<i64> = [1].into();
+        let (seen, unseen) = super::split_acted(rows.into_iter(), Some(&acted));
+        assert_eq!(seen, [10]);
+        assert_eq!(unseen, ["a"]);
+        // Dragging, «Not spam», a return from the trash: nothing is read.
+        let (seen, unseen) = super::split_acted(rows.into_iter(), None);
+        assert!(seen.is_empty() && unseen.is_empty());
+    }
+
+    #[test]
+    fn an_undo_makes_the_letter_the_action_read_unread_again() {
+        let moved = super::Moved {
+            account_id: "a".into(),
+            from: "INBOX".into(),
+            to: "Archive".into(),
+            message_ids: vec!["a".into(), "old".into()],
+            waits: Vec::new(),
+            unseen: vec!["a".into()],
+        };
+        assert_eq!(
+            super::undo_runs(&moved),
+            [(vec!["old".to_owned()], false), (vec!["a".to_owned()], true)]
+        );
+    }
+
     use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};
     use depesha_core::acl::{FolderProps, Owner, Rights};
     use depesha_core::imap::{Folder, FolderRole};

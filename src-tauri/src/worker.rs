@@ -93,6 +93,10 @@ pub enum Work {
         validity: u32,
         uids: Vec<u32>,
         to: String,
+        /// Of `uids`, the letters the action itself is about: only they are marked read
+        /// before the move. The rest of a conversation, a letter coming back from the
+        /// trash or dragged to a folder keeps its flags.
+        seen: Vec<u32>,
     },
     Delete {
         folder: String,
@@ -236,13 +240,14 @@ fn offer(tx: &mpsc::Sender<Work>, queued: &Queued, work: Work) {
     }
 }
 
-/// Takes the moves of one source and target waiting in `urgent` into `uids` and `replies`:
+/// Takes the moves of one source and target waiting in `urgent` into `uids`, `seen` and `replies`:
 /// a held "archive" key becomes a single `UID MOVE` for all the letters, and both folders
 /// are synced once, not once per letter. Every caller keeps its own answer. Only a
 /// **continuous** series is merged: the first action of another kind stops the gather and
 /// waits in `deferred` in its place, so the order the user asked for is kept (a move, then
 /// a flag on a letter, then a move of it must not run as one move and a stale store).
 /// Returns how many moves were merged.
+#[allow(clippy::too_many_arguments)]
 fn drain_moves(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
@@ -250,6 +255,7 @@ fn drain_moves(
     validity: u32,
     to: &str,
     uids: &mut Vec<u32>,
+    seen: &mut Vec<u32>,
     replies: &mut Vec<Reply>,
 ) -> usize {
     let mut merged = 0usize;
@@ -262,10 +268,12 @@ fn drain_moves(
                     validity: v,
                     uids: u,
                     to: t,
+                    seen: s,
                 },
                 reply,
             )) if f == from && v == validity && t == to => {
                 uids.extend(u);
+                seen.extend(s);
                 replies.push(reply);
                 merged += 1;
                 taken += 1;
@@ -321,18 +329,22 @@ fn drain_flags(
     merged
 }
 
-/// A flag series by change: each UID once, carrying the last change said of it, grouped by
-/// change so each group is one `STORE`. Groups come in the order their change first took
-/// effect, which is only cosmetic (a UID is in one group).
+/// A flag series by change: each UID once per kind of flag, carrying the last change said
+/// of that flag, grouped by change so each group is one `STORE`. Groups come in the order
+/// their change first took effect, which is only cosmetic. A UID can be in two groups: Seen
+/// and Flagged are different flags, and the last word on one does not cancel the other.
 fn compact_flags(series: &[(u32, FlagChange)]) -> Vec<(FlagChange, Vec<u32>)> {
-    let mut last: std::collections::HashMap<u32, FlagChange> = std::collections::HashMap::new();
+    type Slot = (u32, std::mem::Discriminant<FlagChange>);
+    let slot = |uid: &u32, change: &FlagChange| -> Slot { (*uid, std::mem::discriminant(change)) };
+    let mut last: std::collections::HashMap<Slot, FlagChange> = std::collections::HashMap::new();
     for (uid, change) in series {
-        last.insert(*uid, *change);
+        last.insert(slot(uid, change), *change);
     }
-    let mut placed: HashSet<u32> = HashSet::new();
+    let mut placed: HashSet<Slot> = HashSet::new();
     let mut groups: Vec<(FlagChange, Vec<u32>)> = Vec::new();
     for (uid, change) in series {
-        if !placed.insert(*uid) || last.get(uid) != Some(change) {
+        let key = slot(uid, change);
+        if !placed.insert(key) || last.get(&key) != Some(change) {
             continue;
         }
         match groups.iter_mut().find(|(g, _)| g == change) {
@@ -556,6 +568,12 @@ fn may_retry_now(last_try: Option<SystemTime>, now: SystemTime) -> bool {
     last_try.is_none_or(|t| now.duration_since(t).unwrap_or_default() >= USER_RETRY_GAP)
 }
 
+/// Whether the network pause is let go before the work: only for the user, who is waiting.
+/// Background work with a caller (a Sent copy, a photo) sits the pause out like the rest.
+fn lifts_net_pause(user_waits: bool, last_try: Option<SystemTime>, now: SystemTime) -> bool {
+    user_waits && may_retry_now(last_try, now)
+}
+
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (reads, reads_rx) = mpsc::channel(64);
     let (urgent, urgent_rx) = mpsc::channel(64);
@@ -771,6 +789,7 @@ impl Ops {
                             validity,
                             mut uids,
                             to,
+                            mut seen,
                         } => {
                             let mut replies = vec![reply];
                             let queued = self.deferred.len();
@@ -781,12 +800,13 @@ impl Ops {
                                 validity,
                                 &to,
                                 &mut uids,
+                                &mut seen,
                                 &mut replies,
                             );
                             // A foreign action was set aside: the series is over, settle not.
                             if self.deferred.len() == queued {
                                 settle_series(&mut urgent, &mut self.deferred, &mut replies, |u, d, r| {
-                                    drain_moves(u, d, &from, validity, &to, &mut uids, r);
+                                    drain_moves(u, d, &from, validity, &to, &mut uids, &mut seen, r);
                                 })
                                 .await;
                             }
@@ -795,6 +815,7 @@ impl Ops {
                                 validity,
                                 uids,
                                 to,
+                                seen,
                             };
                             let result = self.user(&merged).await;
                             self.report(&merged, &result, true);
@@ -890,7 +911,7 @@ impl Ops {
                 // Background work with a caller: the same handling as a user action, only
                 // queued below the user's own and behind the bodies being read.
                 Next::Quiet(work, reply) => {
-                    let result = self.user(&work).await;
+                    let result = self.serve(&work, false).await;
                     self.report(&work, &result, true);
                     let _ = reply.send(result);
                 }
@@ -1040,9 +1061,14 @@ impl Ops {
     /// A user action. A busy server's short pause is waited out; with a longer one
     /// the user hears at once how long it is, instead of a silent wait.
     async fn user(&mut self, work: &Work) -> Result<Output> {
+        self.serve(work, true).await
+    }
+
+    /// Runs the work of a caller. `user_waits`: a person asked for it just now.
+    async fn serve(&mut self, work: &Work, user_waits: bool) -> Result<Output> {
         // The user is waiting: a network pause is not sat out in full for them. If the
         // last connect attempt was long enough ago, try again right away.
-        if may_retry_now(self.last_net_try, SystemTime::now()) {
+        if lifts_net_pause(user_waits, self.last_net_try, SystemTime::now()) {
             self.no_network_until = None;
         }
         if let Some(left) = self.busy_left() {
@@ -1473,6 +1499,7 @@ async fn perform(
             validity,
             uids,
             to,
+            seen,
         } => {
             // A move cut short without MOVE would copy the letters a second time on the
             // retry: finish it by looking at what already reached the target. With MOVE
@@ -1481,8 +1508,8 @@ async fn perform(
             // Dealt with, so read: one store for the whole series, then one move. A flag
             // queued between the moves would split the series into one request per letter.
             // A folder that cannot store flags still moves.
-            if !uids.is_empty()
-                && let Err(e) = mail::set_flag(conn, store, id, from, *validity, uids, FlagChange::Seen(true)).await
+            if !seen.is_empty()
+                && let Err(e) = mail::set_flag(conn, store, id, from, *validity, seen, FlagChange::Seen(true)).await
             {
                 tracing::debug!(account = %id, folder = %from, "seen before move: {e}");
             }
@@ -1871,6 +1898,7 @@ mod tests {
                 validity: 1,
                 uids: vec![uid],
                 to: to.into(),
+                seen: Vec::new(),
             },
             oneshot::channel().0,
         )
@@ -2029,6 +2057,7 @@ mod tests {
             validity,
             mut uids,
             to,
+            ..
         } = first.0
         else {
             panic!("not a move");
@@ -2041,6 +2070,7 @@ mod tests {
             validity,
             &to,
             &mut uids,
+            &mut Vec::new(),
             &mut replies,
         );
         assert_eq!(merged, 49, "the rest of the series is merged in");
@@ -2052,6 +2082,39 @@ mod tests {
         assert_eq!(uids[0], 10);
         assert_eq!(uids[49], 59);
         assert!(deferred.is_empty());
+    }
+
+    /// Merged moves keep what each said to read: the letters of the action, not the rest.
+    #[tokio::test]
+    async fn merged_moves_read_only_what_they_asked_for() {
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let both = |uids: Vec<u32>, seen: Vec<u32>| {
+            (
+                Work::Move {
+                    from: "INBOX".into(),
+                    validity: 1,
+                    uids,
+                    to: "Archive".into(),
+                    seen,
+                },
+                oneshot::channel().0,
+            )
+        };
+        urgent_tx.send(both(vec![2, 3], vec![3])).await.unwrap();
+        let (mut uids, mut seen, mut replies) = (vec![1, 4], vec![1], vec![oneshot::channel().0]);
+        let mut deferred = VecDeque::new();
+        drain_moves(
+            &mut urgent,
+            &mut deferred,
+            "INBOX",
+            1,
+            "Archive",
+            &mut uids,
+            &mut seen,
+            &mut replies,
+        );
+        assert_eq!(uids, [1, 4, 2, 3]);
+        assert_eq!(seen, [1, 3], "the unread answer of the conversation is not read");
     }
 
     #[tokio::test]
@@ -2067,6 +2130,7 @@ mod tests {
             validity,
             mut uids,
             to,
+            ..
         } = first.0
         else {
             panic!("not a move");
@@ -2079,6 +2143,7 @@ mod tests {
             validity,
             &to,
             &mut uids,
+            &mut Vec::new(),
             &mut replies,
         );
         // Only a continuous series is merged: the other target stops the gather, waits its
@@ -2105,6 +2170,7 @@ mod tests {
             validity,
             mut uids,
             to,
+            ..
         } = first.0
         else {
             panic!("not a move");
@@ -2117,6 +2183,7 @@ mod tests {
             validity,
             &to,
             &mut uids,
+            &mut Vec::new(),
             &mut replies,
         );
         assert_eq!(uids, [1], "the flag stops the move series");
@@ -2141,6 +2208,7 @@ mod tests {
             validity,
             mut uids,
             to,
+            ..
         } = first.0
         else {
             panic!("not a move");
@@ -2154,6 +2222,7 @@ mod tests {
             validity,
             &to,
             &mut uids,
+            &mut Vec::new(),
             &mut replies,
         );
         assert_eq!(uids, [1, 2]);
@@ -2176,6 +2245,7 @@ mod tests {
             validity,
             mut uids,
             to,
+            ..
         } = first.0
         else {
             panic!("not a move");
@@ -2188,13 +2258,14 @@ mod tests {
             validity,
             &to,
             &mut uids,
+            &mut Vec::new(),
             &mut replies,
         );
         assert_eq!(uids, [1, 2]);
         urgent_tx.send(flag("INBOX", 3, FlagChange::Seen(true))).await.unwrap();
         urgent_tx.send(mv("INBOX", "Archive", 4)).await.unwrap();
         settle_series(&mut urgent, &mut deferred, &mut replies, |u, d, r| {
-            drain_moves(u, d, &from, validity, &to, &mut uids, r);
+            drain_moves(u, d, &from, validity, &to, &mut uids, &mut Vec::new(), r);
         })
         .await;
         assert_eq!(uids, [1, 2], "the foreign action ends the series");
@@ -2278,6 +2349,25 @@ mod tests {
         drain_flags(&mut urgent, &mut deferred, &folder, validity, &mut series, &mut replies);
         assert_eq!(replies.len(), 3, "every caller keeps its answer");
         assert_eq!(compact_flags(&series), [(FlagChange::Seen(true), vec![1])]);
+    }
+
+    #[test]
+    fn quiet_work_does_not_lift_the_network_pause() {
+        let now = SystemTime::now();
+        let long_ago = Some(now - USER_RETRY_GAP * 2);
+        assert!(lifts_net_pause(true, long_ago, now));
+        assert!(!lifts_net_pause(false, long_ago, now));
+        assert!(!lifts_net_pause(false, None, now));
+    }
+
+    /// Seen and Flagged on one UID are two flags: the last word on one does not cancel the other.
+    #[test]
+    fn two_flags_of_a_uid_are_both_kept() {
+        let series = [(1, FlagChange::Seen(true)), (1, FlagChange::Flagged(true))];
+        assert_eq!(
+            compact_flags(&series),
+            [(FlagChange::Seen(true), vec![1]), (FlagChange::Flagged(true), vec![1])]
+        );
     }
 
     #[tokio::test]

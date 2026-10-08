@@ -47,7 +47,7 @@ describe("an action", () => {
     const s = await inbox();
     api.thread.mockImplementation(async (id: number) => [row(id), row(id + 100), row(id + 200, { folder: "Sent" })]);
     await s.archive([1]);
-    expect(api.archive).toHaveBeenCalledWith(expect.arrayContaining([1, 101]));
+    expect(api.archive).toHaveBeenCalledWith(expect.arrayContaining([1, 101]), [1]);
     expect(api.archive.mock.calls[0][0]).not.toContain(201);
   });
 

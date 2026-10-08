@@ -109,9 +109,10 @@ export const api = {
   /** Checks own labels on a test message in the folder (#42, frame 9). */
   labelCheck: (accountId: string, folder: string) => call<LabelCheck>("label_check", { accountId, folder }),
   move: (ids: number[], to: string) => call<Moved[]>("move_messages", { ids, to }),
-  remove: (ids: number[]) => call<Moved[]>("delete_messages", { ids }),
-  archive: (ids: number[]) => call<Moved[]>("archive", { ids }),
-  spam: (ids: number[]) => call<Moved[]>("mark_spam", { ids }),
+  /** `own`: the letters the action is about, of `ids` (the rest is their conversations): only they are marked read. All of `ids` when omitted. */
+  remove: (ids: number[], own?: number[]) => call<Moved[]>("delete_messages", { ids, own }),
+  archive: (ids: number[], own?: number[]) => call<Moved[]>("archive", { ids, own }),
+  spam: (ids: number[], own?: number[]) => call<Moved[]>("mark_spam", { ids, own }),
   snooze: (ids: number[], until: number) => call<Moved[]>("snooze", { ids, until }),
   undo: (moved: Moved[]) => call<void>("undo", { moved }),
   thread: (id: number) => call<MessageRow[]>("thread", { id }),
