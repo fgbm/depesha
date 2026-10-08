@@ -381,8 +381,10 @@ pub(crate) enum Settled {
 const REFUSALS_BEFORE_HOLD: u32 = 3;
 
 /// A refusal waited out the longer, the more of them came: 30 min, 2 h, 6 h. The e2e run
-/// shortens it (`DEPESHA_E2E_COPY_BACKOFF`, seconds) to see a copy held within a minute.
+/// shortens it (`DEPESHA_E2E_COPY_BACKOFF`, seconds) to see a copy held within a minute; only
+/// the `e2e` build reads it, as with `DEPESHA_E2E_ROOT`.
 fn refusal_delay(refusals: u32) -> i64 {
+    #[cfg(feature = "e2e")]
     if let Some(secs) = std::env::var("DEPESHA_E2E_COPY_BACKOFF")
         .ok()
         .and_then(|v| v.trim().parse::<i64>().ok())
@@ -487,6 +489,16 @@ fn settle_failed_finish(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[cfg(not(feature = "e2e"))]
+    fn a_regular_build_ignores_the_e2e_backoff() {
+        // SAFETY: the only test that touches this variable.
+        unsafe { std::env::set_var("DEPESHA_E2E_COPY_BACKOFF", "3") };
+        assert_eq!(super::refusal_delay(1), 30 * 60);
+        assert_eq!(super::refusal_delay(3), 6 * 3_600);
+        unsafe { std::env::remove_var("DEPESHA_E2E_COPY_BACKOFF") };
+    }
+
     use super::*;
     use depesha_core::store::Store;
 
