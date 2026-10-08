@@ -874,8 +874,11 @@ mod tests {
             store.followups_left("a", WAIT, &["other@x".into()], SENT + 10).unwrap(),
             0
         );
+        // "Done" on the whole chain: the wait is over, nothing left in the folder.
         assert_eq!(
-            store.followups_left("a", WAIT, &["<q1@x>".into()], SENT + 10).unwrap(),
+            store
+                .followups_left("a", WAIT, &["<q1@x>".into(), "q2@x".into()], SENT + 10)
+                .unwrap(),
             1
         );
         let f = the_wait(&store, FollowupFilter::Closed);
@@ -893,6 +896,82 @@ mod tests {
             false,
         );
         assert_eq!(store.followups_resolve().unwrap(), 0);
+    }
+
+    #[test]
+    fn moving_one_letter_out_returns_the_rest_of_the_chain() {
+        let store = mailbox();
+        let (_, second) = waiting(&store, 0);
+        // "Done" on one letter of the chain: the rest must not stay in the folder.
+        assert_eq!(store.followups_left("a", WAIT, &["q1@x".into()], SENT + 10).unwrap(), 1);
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(jobs.len(), 1, "{jobs:#?}");
+        let job = &jobs[0];
+        assert_eq!(
+            (
+                job.kind,
+                job.from.as_str(),
+                job.to.as_str(),
+                sorted(job.message_ids.clone())
+            ),
+            (ParkKind::Back, WAIT, "INBOX", vec!["q2@x".to_owned()])
+        );
+        // The rest comes back; the wait is over.
+        moved(&store, WAIT, &[2], "INBOX", &[(12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        assert!(store.park_jobs().unwrap().is_empty());
+        assert!(
+            store.find_by_message_id("a", "INBOX", "q2@x").unwrap().is_some(),
+            "the rest is back in the inbox"
+        );
+        let f = the_wait(&store, FollowupFilter::Closed);
+        assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Closed, "done"));
+    }
+
+    #[test]
+    fn stopping_the_wait_while_the_move_runs_brings_the_letters_back() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &letter("Счёт", 90_000, "q1@x", None, "maria@example.org"),
+            true,
+        );
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: vec!["q1@x".into()],
+        };
+        store
+            .followup_start(&answer("r@x", SENT, SENT + 500), Some("q1@x"), Some(&park))
+            .unwrap();
+        // The move is still pending; "Не ждать" closes the wait meanwhile.
+        store.followup_stop("a", "r@x", SENT + 10, None).unwrap();
+        // The move lands: the letter must come back, not stay in the folder.
+        store.followup_parked("a", "r@x", WAIT).unwrap();
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(jobs.len(), 1, "{jobs:#?}");
+        assert_eq!(
+            (jobs[0].kind, jobs[0].from.as_str(), jobs[0].to.as_str()),
+            (ParkKind::Back, WAIT, "INBOX")
+        );
+    }
+
+    #[test]
+    fn pruning_keeps_a_wait_whose_letters_are_still_in_the_folder() {
+        let store = mailbox();
+        waiting(&store, 0);
+        // The anchor vanishes from the cache; the rest of the chain is still in the folder.
+        store.remove_uids("a", WAIT, &[2]).unwrap();
+        store.followups_prune(SENT, 30).unwrap();
+        let later = SENT + 8 * 86_400;
+        assert_eq!(
+            store.followups_prune(later, 30).unwrap(),
+            0,
+            "letters in the folder keep the wait"
+        );
+        // The wait is still there: the rest can still be brought back.
+        assert_eq!(store.followups_left("a", WAIT, &["q1@x".into()], later).unwrap(), 1);
     }
 
     #[test]
