@@ -119,11 +119,11 @@ export function coreCommands(): Command[] {
   const dnd = app.settings.dnd_until > Date.now() / 1000;
   list.push(
     dnd
-      ? { id: "core.dnd", title: () => t("cmd.dndOff"), run: () => app.saveSettings({ ...app.settings, dnd_until: 0 }) }
+      ? { id: "core.dnd", title: () => t("cmd.dndOff"), run: () => void app.patchSettings({ dnd_until: 0 }) }
       : {
           id: "core.dnd",
           title: () => t("cmd.dndHour"),
-          run: () => app.saveSettings({ ...app.settings, dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
+          run: () => void app.patchSettings({ dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
         },
     { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.fail(e)) },
     { id: "core.settings", title: () => t("settings.title"), run: () => app.openSettings() },
