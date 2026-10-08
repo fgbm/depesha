@@ -13,7 +13,8 @@ use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{
-    FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, SortKey,
+    FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, Snooze,
+    SortKey,
 };
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -579,6 +580,10 @@ pub struct Moved {
     /// unread again.
     #[serde(default)]
     unseen: Vec<String>,
+    /// The snoozes the move dropped (a snoozed letter brought back or moved by hand): an
+    /// undo sets them again, for the same time.
+    #[serde(default)]
+    snoozed: Vec<Snooze>,
 }
 
 /// The letters an action is about, among the rows it moves (the rest of their
@@ -640,7 +645,9 @@ async fn move_group(
     let waits = state
         .store
         .followups_left(account_id, from, &message_ids, chrono::Utc::now().timestamp())?;
-    if !waits.is_empty() {
+    // A snoozed letter moved by hand stays where it was put: its time is gone.
+    let snoozed = state.store.snooze_drop_in_folder(account_id, from, &message_ids)?;
+    if !waits.is_empty() || !snoozed.is_empty() {
         state.emit("counters-changed", serde_json::json!({}));
     }
     Ok(Moved {
@@ -650,6 +657,7 @@ async fn move_group(
         message_ids,
         waits,
         unseen,
+        snoozed,
     })
 }
 
@@ -1229,6 +1237,60 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
     Ok(done)
 }
 
+/// Brings snoozed mail back before its time: into the folder it was snoozed from, unread
+/// as when the time comes, and the time is dropped. The undo snoozes it again for the same time.
+#[tauri::command]
+pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
+    let mut done = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
+        let (account_id, folder, _) = &key;
+        let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
+        // By the folder they came from: a series of letters may have come from several.
+        let mut back: BTreeMap<String, Vec<Snooze>> = BTreeMap::new();
+        for s in state.store.snooze_drop_in_folder(account_id, folder, &message_ids)? {
+            back.entry(s.return_to.clone()).or_default().push(s);
+        }
+        for (to, snoozed) in back {
+            let moved = Moved {
+                account_id: account_id.clone(),
+                from: folder.clone(),
+                to: to.clone(),
+                message_ids: snoozed.iter().map(|s| s.message_id.clone()).collect(),
+                waits: Vec::new(),
+                unseen: Vec::new(),
+                snoozed: snoozed.clone(),
+            };
+            let out = state
+                .worker(account_id)?
+                .run(Work::MoveByMessageId {
+                    from: folder.clone(),
+                    message_ids: moved.message_ids.clone(),
+                    to,
+                    unseen: true,
+                })
+                .await;
+            // Not moved: the times come back, the letters are still snoozed.
+            if !matches!(out, Ok(Output::Count(n)) if n > 0) {
+                for s in &snoozed {
+                    state.store.snooze_add(s)?;
+                }
+                out?;
+                continue;
+            }
+            done.push(moved);
+        }
+    }
+    state.scheduler_notify.notify_one();
+    state.emit("counters-changed", serde_json::json!({}));
+    if done.is_empty() {
+        return Err(CmdError::new(
+            "not-found",
+            tr!("the message is not snoozed", "письмо не отложено"),
+        ));
+    }
+    Ok(done)
+}
+
 /// Puts moved messages back where they were and forgets their snooze times.
 #[tauri::command]
 pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
@@ -1257,8 +1319,13 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
             }
         }
         back += n;
-        // Letters back where a wait parks them: the wait is parked again.
+        // Letters back where a wait parks them: the wait is parked again; snoozed ones wait
+        // for their time again.
         if n > 0 {
+            for s in &m.snoozed {
+                state.store.snooze_add(s)?;
+            }
+            state.scheduler_notify.notify_one();
             for key in &m.waits {
                 state
                     .store
@@ -2974,11 +3041,39 @@ mod tests {
             message_ids: vec!["a".into(), "old".into()],
             waits: Vec::new(),
             unseen: vec!["a".into()],
+            snoozed: Vec::new(),
         };
         assert_eq!(
             super::undo_runs(&moved),
             [(vec!["old".to_owned()], false), (vec!["a".to_owned()], true)]
         );
+    }
+
+    #[test]
+    fn an_undo_keeps_the_snooze_time_of_a_letter_brought_back() {
+        let snooze = depesha_core::store::Snooze {
+            account_id: "a".into(),
+            message_id: "s@x".into(),
+            folder: "Snoozed".into(),
+            return_to: "INBOX".into(),
+            until: 1000,
+            subject: "Позже".into(),
+        };
+        let moved = super::Moved {
+            account_id: "a".into(),
+            from: "Snoozed".into(),
+            to: "INBOX".into(),
+            message_ids: vec!["s@x".into()],
+            waits: Vec::new(),
+            unseen: Vec::new(),
+            snoozed: vec![snooze.clone()],
+        };
+        // The frontend hands the move back as it got it.
+        let back: super::Moved = serde_json::from_value(serde_json::to_value(&moved).unwrap()).unwrap();
+        assert_eq!(back.snoozed, vec![snooze]);
+        // A move from an older build has no times.
+        let old = serde_json::json!({"account_id": "a", "from": "INBOX", "to": "Archive", "message_ids": []});
+        assert!(serde_json::from_value::<super::Moved>(old).unwrap().snoozed.is_empty());
     }
 
     use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};

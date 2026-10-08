@@ -273,6 +273,7 @@ pub fn run() {
             commands::archive,
             commands::mark_spam,
             commands::snooze,
+            commands::unsnooze,
             commands::undo,
             commands::thread,
             commands::counters,

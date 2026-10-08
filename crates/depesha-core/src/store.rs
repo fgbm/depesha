@@ -1905,6 +1905,31 @@ impl Store {
             .optional()?)
     }
 
+    /// Forgets the snoozes of letters that waited in `folder` and were moved out of it by
+    /// hand: they do not come back on their own at the set time. Returns what was dropped,
+    /// so an undo can set it again.
+    pub fn snooze_drop_in_folder(&self, account_id: &str, folder: &str, message_ids: &[String]) -> Result<Vec<Snooze>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut dropped = Vec::new();
+        {
+            let mut stmt = tx.prepare(
+                "DELETE FROM snoozed WHERE account_id = ?1 AND message_id = ?2 AND folder = ?3
+                 RETURNING account_id, message_id, folder, return_to, until, subject",
+            )?;
+            for message_id in message_ids {
+                if let Some(s) = stmt
+                    .query_row(params![account_id, message_id, folder], snooze_row)
+                    .optional()?
+                {
+                    dropped.push(s);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(dropped)
+    }
+
     pub fn snoozes_due(&self, now: i64) -> Result<Vec<Snooze>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
@@ -3684,6 +3709,32 @@ mod tests {
         assert_eq!(store.snoozes_due(1000).unwrap().len(), 1);
         assert!(store.snooze_remove("a", "s@x").unwrap().is_some());
         assert_eq!(store.snoozed_count(false).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_snoozed_letter_moved_by_hand_loses_its_time() {
+        let store = mailbox();
+        let snooze = |message_id: &str, folder: &str| Snooze {
+            account_id: "a".into(),
+            message_id: message_id.into(),
+            folder: folder.into(),
+            return_to: "INBOX".into(),
+            until: 1000,
+            subject: "Позже".into(),
+        };
+        store.snooze_add(&snooze("s@x", "Snoozed")).unwrap();
+        store.snooze_add(&snooze("t@x", "Snoozed")).unwrap();
+        // Another folder or another letter: nothing to forget.
+        assert!(
+            store
+                .snooze_drop_in_folder("a", "INBOX", &["s@x".into()])
+                .unwrap()
+                .is_empty()
+        );
+        let dropped = store.snooze_drop_in_folder("a", "Snoozed", &["s@x".into()]).unwrap();
+        assert_eq!(dropped, vec![snooze("s@x", "Snoozed")]);
+        assert_eq!(store.snoozed_count(false).unwrap(), 1);
+        assert!(store.snoozes_due(2000).unwrap().iter().all(|s| s.message_id == "t@x"));
     }
 
     #[test]
