@@ -16,7 +16,7 @@ component	src/components/LabelMenu.svelte	41	25	12	4
 component	src/components/LabelPicker.svelte	229	73	64	92
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
-component	src/components/MailFrame.svelte	161	119	8	34
+component	src/components/MailFrame.svelte	162	120	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
 component	src/components/MessageList.svelte	676	187	111	378
@@ -434,7 +434,6 @@ function	src/lib/api.ts::asError	4
 function	src/lib/api.ts::call	7
 function	src/lib/api.ts::wireDraft	8
 function	src/lib/arrivals.svelte.ts::stays	2
-function	src/lib/arrivals.svelte.ts::closeOverlays	5
 function	src/lib/arrivals.svelte.ts::findQuery	6
 function	src/lib/arrivals.test.ts::acc	2
 function	src/lib/arrivals.test.ts::folder	2
