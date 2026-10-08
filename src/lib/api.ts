@@ -6,6 +6,7 @@ import type {
   Addr,
   CmdError,
   ComposeDraft,
+  CachedDraft,
   Counters,
   Extension,
   ExtGrant,
@@ -190,12 +191,21 @@ export const api = {
   draftSave: (accountId: string, draft: ComposeDraft, replace: number | null) =>
     call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
   draftDiscard: (id: number) => call<void>("draft_discard", { id }),
+  /** The local copy of a draft, kept on every typing pause as a fallback for a crash (#71). */
+  draftCachePut: (key: string, accountId: string, draft: ComposeDraft) =>
+    call<void>("draft_cache_put", { key, accountId, draft }),
+  /** Drafts kept locally, to offer restoring when the app starts. */
+  draftCacheList: () => call<CachedDraft[]>("draft_cache_list"),
+  /** The draft reached the server (or was thrown away): its local copy goes. */
+  draftCacheDrop: (key: string) => call<void>("draft_cache_drop", { key }),
   outbox: () => call<OutboxItem[]>("outbox"),
   outboxRetry: (id: number) => call<void>("outbox_retry", { id }),
   /** Letters held back since the last call: they missed their time. */
   outboxMissed: () => call<number[]>("outbox_missed"),
   /** A letter's window says whether it holds a letter being written: a quit asks it first. */
   composeUnsaved: (unsaved: boolean) => call<void>("compose_unsaved", { unsaved }),
+  /** The main window saved its drafts for a quit: the quit waiting for it goes on. */
+  composeSaved: () => call<void>("compose_unsaved", { unsaved: false }),
   /** The user keeps the letter being written: a quit waiting for the window stops. */
   quitCancel: () => call<void>("quit_cancel"),
   /** Whether the system shows tray icons. */

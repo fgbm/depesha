@@ -29,7 +29,11 @@
       if (!app.composes.length) return;
       e.preventDefault();
       const ok = await app.confirm({ text: t("window.closeWithAnswer"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
-      if (ok) await win.destroy();
+      if (ok) {
+        // The drafts are kept before the window goes; a slow server does not hold it up (#71).
+        await app.compose.saveAll(4000);
+        await win.destroy();
+      }
       // Kept: a quit waiting for this window stops.
       else api.quitCancel().catch(() => {});
     });

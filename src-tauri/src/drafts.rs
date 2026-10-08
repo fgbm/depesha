@@ -1,0 +1,155 @@
+//! The local copy of a draft (#71): while the user types, the letter is written here on
+//! every pause, so a crash of the app or the computer loses nothing. The server copy still
+//! follows at most once a minute and on closing; this file is the fallback in between, and
+//! the window offers to restore it when the app starts again.
+//!
+//! One small JSON file per draft, under `drafts/` in the app data directory: writing one
+//! draft does not rewrite the others, and two windows never race over one file. The file
+//! goes as soon as the draft reaches the server (or is thrown away).
+
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
+
+use crate::error::{CmdError, CmdResult};
+
+/// A draft kept locally: the key is the window's own (a fresh one per composition), and
+/// `draft` is the letter exactly as the window holds it, stored verbatim.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedDraft {
+    pub key: String,
+    pub account_id: String,
+    pub draft: serde_json::Value,
+    /// When it was last written, seconds since the epoch.
+    pub updated: i64,
+}
+
+/// The folder the local copies live in.
+fn dir(app: &AppHandle) -> CmdResult<PathBuf> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| CmdError::new("io", e.to_string()))?
+        .join("drafts"))
+}
+
+/// The key as a file name: the window makes a UUID, and nothing else passes.
+fn safe_key(key: &str) -> String {
+    let cleaned: String = key
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .take(80)
+        .collect();
+    if cleaned.is_empty() {
+        "draft".to_owned()
+    } else {
+        cleaned
+    }
+}
+
+/// Writes the draft to the local copy; the previous one under the same key is replaced.
+#[tauri::command]
+pub async fn draft_cache_put(
+    app: AppHandle,
+    key: String,
+    account_id: String,
+    draft: serde_json::Value,
+) -> CmdResult<()> {
+    let entry = CachedDraft {
+        key,
+        account_id,
+        draft,
+        updated: chrono::Utc::now().timestamp(),
+    };
+    write(&dir(&app)?, &entry).await
+}
+
+/// Every draft kept locally, for the window to offer restoring when the app starts.
+#[tauri::command]
+pub async fn draft_cache_list(app: AppHandle) -> CmdResult<Vec<CachedDraft>> {
+    read_all(&dir(&app)?).await
+}
+
+/// The draft reached the server (or was thrown away): the local copy goes.
+#[tauri::command]
+pub async fn draft_cache_drop(app: AppHandle, key: String) -> CmdResult<()> {
+    let _ = tokio::fs::remove_file(dir(&app)?.join(safe_key(&key))).await;
+    Ok(())
+}
+
+/// Writes one draft under `dir`, in a file named after its key.
+async fn write(dir: &std::path::Path, entry: &CachedDraft) -> CmdResult<()> {
+    tokio::fs::create_dir_all(dir).await?;
+    let bytes = serde_json::to_vec(entry).map_err(|e| CmdError::new("io", e.to_string()))?;
+    tokio::fs::write(dir.join(safe_key(&entry.key)), bytes).await?;
+    Ok(())
+}
+
+/// Every draft under `dir`, oldest first; a file that does not parse is skipped.
+async fn read_all(dir: &std::path::Path) -> CmdResult<Vec<CachedDraft>> {
+    let mut out = Vec::new();
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return Ok(out);
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if entry.path().extension().is_some_and(|e| e != "json") {
+            continue;
+        }
+        if let Ok(bytes) = tokio::fs::read(entry.path()).await
+            && let Ok(draft) = serde_json::from_slice::<CachedDraft>(&bytes)
+        {
+            out.push(draft);
+        }
+    }
+    out.sort_by_key(|d| d.updated);
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CachedDraft, read_all, safe_key, write};
+    use serde_json::json;
+
+    fn entry(key: &str, updated: i64) -> CachedDraft {
+        CachedDraft {
+            key: key.into(),
+            account_id: "a".into(),
+            draft: json!({ "subject": "Привет", "text": "тело" }),
+            updated,
+        }
+    }
+
+    #[test]
+    fn a_key_cannot_name_a_path_of_its_own() {
+        assert_eq!(safe_key("1a2b-3c4d"), "1a2b-3c4d");
+        // No separators and no climbing out of the drafts folder.
+        assert_eq!(safe_key("../../etc/passwd"), "....etcpasswd");
+        assert_eq!(safe_key("/home/me/x"), "homemex");
+        assert_eq!(safe_key(""), "draft");
+    }
+
+    #[tokio::test]
+    async fn a_draft_is_written_and_found_again_after_a_crash() {
+        let dir = std::env::temp_dir().join(format!("depesha-drafts-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        // A draft written on a pause, then another: both survive a restart.
+        write(&dir, &entry("one", 10)).await.unwrap();
+        write(&dir, &entry("two", 20)).await.unwrap();
+        let found = read_all(&dir).await.unwrap();
+        assert_eq!(found.len(), 2);
+        // Oldest first, and the draft itself came back whole.
+        assert_eq!(found[0].key, "one");
+        assert_eq!(found[0].draft["subject"], "Привет");
+        // Writing the same key again replaces the copy, it does not add one.
+        write(&dir, &entry("one", 30)).await.unwrap();
+        let found = read_all(&dir).await.unwrap();
+        assert_eq!(found.len(), 2);
+        assert_eq!(found.iter().find(|d| d.key == "one").unwrap().updated, 30);
+        // The draft reached the server: its file goes, the other stays.
+        let _ = tokio::fs::remove_file(dir.join(safe_key("one"))).await;
+        let found = read_all(&dir).await.unwrap();
+        assert_eq!(found.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(), vec!["two"]);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+}

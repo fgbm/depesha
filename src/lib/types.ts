@@ -495,6 +495,14 @@ export interface ComposeDraft {
   acts_on?: ActsOn | null;
 }
 
+/** A draft kept locally as a fallback if the app crashes before the server copy (#71). */
+export interface CachedDraft {
+  key: string;
+  account_id: string;
+  draft: ComposeDraft;
+  updated: number;
+}
+
 export interface OutboxItem {
   id: number;
   account_id: string;

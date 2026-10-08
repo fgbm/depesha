@@ -17,7 +17,7 @@ const control = (slot: ComposeControl["slot"]): ComposeControl => ({
 
 /** A window writing from `account_id`, with nothing else the context reads. */
 function win(accountId: string): ComposeWindow {
-  return { id: 1, mode: "open", savedAt: null, account_id: accountId, draft: emptyDraft({ name: "Me", email: "me@example.com" }), draft_id: null };
+  return { id: 1, mode: "open", savedAt: null, local_id: "test", account_id: accountId, draft: emptyDraft({ name: "Me", email: "me@example.com" }), draft_id: null };
 }
 
 /** Only the parts the context reads; the rest would be the window's own. */

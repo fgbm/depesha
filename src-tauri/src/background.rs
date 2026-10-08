@@ -301,8 +301,9 @@ pub fn quit(app: &AppHandle, force: bool) {
     quit_windows(app);
 }
 
-/// Asks the message windows with letters being written to close, as their own close
-/// button does, before quitting. With none, the quit goes on at once.
+/// Asks the windows with letters being written to save and close before quitting: a letter's
+/// window as its own close button does, the main window by an event (it saves its drafts and
+/// reports back). With none, the quit goes on at once.
 fn quit_windows(app: &AppHandle) {
     let Some(state) = app.try_state::<Arc<AppState>>() else {
         exit_now(app);
@@ -315,6 +316,12 @@ fn quit_windows(app: &AppHandle) {
     }
     state.background.set_quit_pending(true);
     for label in &labels {
+        // The main window is not closed: it saves its own drafts and says so, and only
+        // then does the quit go on (`window_gone`).
+        if label == "main" {
+            state.emit_main("save-drafts", json!({}));
+            continue;
+        }
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.show();
             let _ = w.set_focus();
@@ -334,15 +341,15 @@ fn exit_now(app: &AppHandle) {
     });
 }
 
-/// A message window says whether it holds letters being written, so a quit can ask it.
+/// A window says whether it holds letters being written, so a quit can ask it.
 pub fn unsaved_changed(app: &AppHandle, label: &str, unsaved: bool) {
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         state.background.set_unsaved(label, unsaved);
     }
 }
 
-/// A message window is gone: it no longer holds letters being written, and a quit
-/// waiting for it goes on once the last one is closed.
+/// A window no longer holds letters being written (it is gone, or the main window saved its
+/// drafts): a quit waiting for it goes on once the last one is through.
 pub fn window_gone(app: &AppHandle, label: &str) {
     let Some(state) = app.try_state::<Arc<AppState>>() else {
         return;

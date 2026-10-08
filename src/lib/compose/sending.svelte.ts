@@ -43,6 +43,9 @@ export interface ComposeSendHost {
   confirmDiscard(): Promise<boolean>;
 }
 
+/** A save that would hold a close is waited for this long, then let go (#71). */
+const CLOSE_SAVE_MS = 4000;
+
 export class ComposeSending {
   busy = $state(false);
   /** Warnings the user has to look at before the message goes; null when not checked yet. */
@@ -120,6 +123,8 @@ export class ComposeSending {
       this.host.autosave.cancel();
       await this.host.autosave.settled();
       await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withPark(this.options.followup, this.park));
+      // The letter left: its local copy is done with.
+      await this.host.autosave.forgetLocal();
       this.host.closeCompose(win.id);
     } catch (e) {
       this.host.setError((e as { message: string }).message);
@@ -132,7 +137,8 @@ export class ComposeSending {
     const { win } = this.host;
     if (this.busy) return;
     this.host.commitAll();
-    if (this.host.autosave.changed() && !(await this.host.autosave.save())) {
+    // The draft is kept before the window goes; a slow server is not waited for past the limit.
+    if (this.host.autosave.changed() && !(await within(this.host.autosave.save(true), CLOSE_SAVE_MS))) {
       if (!(await this.host.confirmClose())) return;
     }
     if (win.draft_id !== null) this.host.toast(this.host.draftSaved());
@@ -147,6 +153,7 @@ export class ComposeSending {
     }
     this.host.autosave.cancel();
     await this.host.autosave.settled();
+    await this.host.autosave.forgetLocal();
     if (win.draft_id !== null) api.draftDiscard(win.draft_id).catch((e) => this.host.fail(e));
     this.host.closeCompose(win.id);
   }
@@ -154,7 +161,8 @@ export class ComposeSending {
   minimize() {
     this.host.commitAll();
     this.host.win.mode = "min";
-    void this.host.autosave.save();
+    // Folding keeps the letter: it is written to the server and to the local copy at once.
+    void within(this.host.autosave.save(true), CLOSE_SAVE_MS);
   }
 
   /** Saves the draft now, without waiting for the autosave: «⋯» → «Сохранить черновик», Ctrl+S. */
@@ -242,6 +250,11 @@ function makeOptions(host: ComposeSendHost, me: ComposeSending): ComposeContext[
 function withPark(plan: FollowupPlan | null, park: boolean | null): FollowupPlan | null {
   if (park === null) return plan;
   return { ...(plan ?? { deadline_secs: 0, repeat_secs: 0, expect: "", kind: "" }), park };
+}
+
+/** `p`, or `undefined` once `ms` passed: a save that would hold a close is let go (#71). */
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([p, new Promise<undefined>((r) => setTimeout(r, ms))]);
 }
 
 /** What plugins see of the window: the draft, the account, the options and `send`. */

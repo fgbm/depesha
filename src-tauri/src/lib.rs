@@ -2,6 +2,7 @@ mod background;
 mod commands;
 mod config;
 mod desktop_notify;
+mod drafts;
 mod error;
 mod extensions;
 mod followups;
@@ -335,6 +336,9 @@ pub fn run() {
             commands::outbox_missed,
             commands::compose_unsaved,
             commands::quit_cancel,
+            drafts::draft_cache_put,
+            drafts::draft_cache_list,
+            drafts::draft_cache_drop,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Depesha")
@@ -392,7 +396,11 @@ mod tests {
             .and_then(|s| s.split("])").next())
             .unwrap()
             .lines()
-            .filter_map(|l| l.trim().strip_prefix("commands::")?.strip_suffix(','))
+            .filter_map(|l| {
+                let l = l.trim().strip_suffix(',')?;
+                let (_, name) = l.split_once("::")?;
+                Some(name)
+            })
             .collect();
         let commands: BTreeSet<String> = handler.iter().map(|c| c.to_string()).collect();
         assert_eq!(commands.len(), handler.len(), "a command registered twice");

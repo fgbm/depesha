@@ -7,7 +7,7 @@ import { when } from "./later";
 import { emptyDraft, formatFor, forward, isForward, reply } from "./compose";
 import { defaultSignature, replySignature, withSignature } from "./signatures";
 import { dropPlan, offersZones, type DropZone } from "./images";
-import type { Account, AccountView, AttachmentSource, ComposeDraft, FollowupPlan, OpenedMessage, OutboxItem, Settings } from "./types";
+import type { Account, AccountView, AttachmentSource, CachedDraft, ComposeDraft, FollowupPlan, OpenedMessage, OutboxItem, Settings } from "./types";
 
 export interface ComposeState {
   account_id: string;
@@ -24,6 +24,8 @@ export interface ComposeWindow extends ComposeState {
   mode: "open" | "min" | "max";
   /** When the draft was last saved on the server, ms. */
   savedAt: number | null;
+  /** Unique across windows and restarts: names this draft's local copy (#71). */
+  local_id: string;
 }
 
 /** What compositions need from the app store. */
@@ -62,8 +64,30 @@ export class ComposeManager {
     }
     const id = ++this.seq;
     for (const w of this.windows) if (w.mode !== "min") w.mode = "min";
-    this.windows.push({ ...c, id, mode, savedAt: null });
+    this.windows.push({ ...c, id, mode, savedAt: null, local_id: newKey() });
     return id;
+  }
+
+  /** Saves of each open window, registered by its component: a quit keeps them all (#71). */
+  private savers = new Map<number, () => Promise<boolean>>();
+
+  onSaver(id: number, save: (() => Promise<boolean>) | null) {
+    if (save) this.savers.set(id, save);
+    else this.savers.delete(id);
+  }
+
+  /** Keeps every composition, waiting for each at most `ms`; a slow server does not hold a close. */
+  async saveAll(ms: number): Promise<void> {
+    const saves = [...this.savers.values()].map((s) => within(s().catch(() => false), ms));
+    await Promise.all(saves);
+  }
+
+  /** Opens the drafts kept locally when the app last stopped, and drops their copies. */
+  async restoreLocal(drafts: CachedDraft[]) {
+    for (const d of drafts) {
+      this.open({ account_id: d.account_id, draft: d.draft, draft_id: null, unsaved: true });
+      await api.draftCacheDrop(d.key).catch(() => {});
+    }
   }
 
   newMessage() {
@@ -215,6 +239,16 @@ export class ComposeManager {
 
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** A fresh key for a draft's local copy: unique across windows and restarts. */
+function newKey(): string {
+  return crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** `p`, or `undefined` once `ms` passed: a save that would hold a close is let go. */
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([p, new Promise<undefined>((r) => setTimeout(r, ms))]);
 }
 
 /** A link's escapes read; a stray "%" leaves the link as written. */

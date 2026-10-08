@@ -2791,12 +2791,19 @@ pub fn outbox_missed(state: St<'_>) -> Vec<i64> {
     crate::background::take_missed(&state)
 }
 
-/// A message window says whether it holds letters being written: a quit asks it first.
+/// A window says whether it holds letters being written: a quit asks it first. With the
+/// main window too, so a quit saves the drafts of every window, not only a letter's own.
+/// A window that reports none (its last draft saved or gone) lets a waiting quit go on.
 #[tauri::command]
 pub fn compose_unsaved(window: tauri::Window, unsaved: bool) {
     let label = window.label();
-    if label.starts_with("message-") {
-        crate::background::unsaved_changed(window.app_handle(), label, unsaved);
+    if label != "main" && !label.starts_with("message-") {
+        return;
+    }
+    if unsaved {
+        crate::background::unsaved_changed(window.app_handle(), label, true);
+    } else {
+        crate::background::window_gone(window.app_handle(), label);
     }
 }
 

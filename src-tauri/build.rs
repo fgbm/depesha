@@ -115,6 +115,9 @@ const COMMANDS: &[&str] = &[
     "outbox_missed",
     "compose_unsaved",
     "quit_cancel",
+    "draft_cache_put",
+    "draft_cache_list",
+    "draft_cache_drop",
 ];
 
 fn main() {

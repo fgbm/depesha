@@ -213,6 +213,11 @@
     host.sync();
   });
 
+  // A quit asks this window to keep its drafts: it says whether it holds any (#71).
+  $effect(() => {
+    api.composeUnsaved(app.composes.length > 0).catch(() => {});
+  });
+
   $effect(() => {
     app.focusSearch = () => searchInput?.focus();
   });

@@ -7,6 +7,7 @@ import { onDestroy, untrack } from "svelte";
 import { api } from "../api";
 import { isDirty } from "../compose";
 import type { ComposeWindow } from "../composes.svelte";
+import type { ComposeDraft } from "../types";
 
 /** What keeping the draft needs from the window. */
 export interface ComposeAutosaveHost {
@@ -37,6 +38,8 @@ export class ComposeAutosave {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** When the draft last went to the server, ms; 0 is never. */
   private lastServerAt = 0;
+  /** A copy of the draft stands in the local cache, a fallback for a crash (#71). */
+  private localStored = false;
 
   constructor(private host: ComposeAutosaveHost) {
     const { win } = host;
@@ -71,6 +74,7 @@ export class ComposeAutosave {
   /**
    * Saves the draft on the server unless nothing changed; one save at a time. The autosave
    * holds it back to at most once a minute; closing the window and saving by hand force it.
+   * Every pause also writes a local copy, so a crash loses nothing (#71).
    */
   async save(force = true): Promise<boolean> {
     this.cancel();
@@ -78,8 +82,18 @@ export class ComposeAutosave {
     const { win } = this.host;
     const draft = $state.snapshot(win.draft);
     const text = JSON.stringify(draft);
-    if (text === this.lastSaved) return true;
-    if (!isDirty(draft) && win.draft_id === null) return true;
+    if (text === this.lastSaved) {
+      // Nothing new since the server copy: the local fallback has nothing to add.
+      await this.forgetLocal();
+      return true;
+    }
+    // An untouched letter (only its signature) is worth neither the server nor a local copy.
+    if (!isDirty(draft) && win.draft_id === null) {
+      await this.forgetLocal();
+      return true;
+    }
+    // The local copy keeps the letter across a crash, whatever the server's minute is.
+    await this.storeLocal(draft);
     if (!serverDue(this.lastServerAt, Date.now(), force)) {
       // Held back: the server copy follows when the minute is up.
       this.scheduleServer(SERVER_SAVE_MS - (Date.now() - this.lastServerAt));
@@ -94,6 +108,8 @@ export class ComposeAutosave {
         win.unsaved = false;
         win.savedAt = Date.now();
         this.host.clearError();
+        // The letter is on the server now: the local copy is no longer the last word.
+        await this.forgetLocal();
         return true;
       } catch (e) {
         this.host.setError(this.host.draftNotSaved((e as { message: string }).message));
@@ -104,6 +120,23 @@ export class ComposeAutosave {
       }
     })();
     return this.saving;
+  }
+
+  /** Writes the draft to the local cache; a failure is not worth telling — the server copy stays. */
+  private async storeLocal(draft: ComposeDraft) {
+    try {
+      await api.draftCachePut(this.host.win.local_id, this.host.win.account_id, draft);
+      this.localStored = true;
+    } catch {
+      // Best effort: the next pause, or the server copy, tries again.
+    }
+  }
+
+  /** Drops the local copy: the draft is on the server now, or was thrown away. */
+  async forgetLocal() {
+    if (!this.localStored) return;
+    this.localStored = false;
+    await api.draftCacheDrop(this.host.win.local_id).catch(() => {});
   }
 
   /** The held-back save: runs once the minute since the last server save is up. */

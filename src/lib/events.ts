@@ -110,7 +110,15 @@ export function listenMain(app: AppStore) {
     }),
     // The closed window, quitting, the tray menu, a click on a notification (#4, #63).
     ...listenBackground(app),
+    // A quit asks this window to keep the drafts it holds before it goes (#71).
+    listen("save-drafts", () => void saveDraftsForQuit(app)),
   ]);
+}
+
+/** A quit waits for the main window: it saves every composition, then says it is through. */
+async function saveDraftsForQuit(app: AppStore) {
+  await app.saveComposes(4000);
+  await api.composeSaved().catch(() => {});
 }
 
 interface Parked {

@@ -102,6 +102,13 @@
     draftNotSaved: (err) => t("compose.draftNotSaved", { error: err }),
   });
 
+  // A quit or a closing window saves this draft through the manager, before it goes (#71).
+  $effect(() => {
+    const save = () => auto.save(true);
+    app.compose.onSaver(c.id, save);
+    return () => app.compose.onSaver(c.id, null);
+  });
+
   const sending = new ComposeSending({
     get win() {
       return c;

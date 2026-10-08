@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { t, tn } from "./i18n.svelte";
 import { extensions } from "./extensions.svelte";
 import { listenMain, listenWindow } from "./events";
 import { takePendingOpen, tellMissed } from "./background.svelte";
@@ -14,7 +15,7 @@ import { peopleBook } from "./peopleBook.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
-import type { AccountView, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey } from "./types";
+import type { AccountView, CachedDraft, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey } from "./types";
 
 export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
@@ -197,6 +198,8 @@ export class AppStore {
     void Promise.all(this.accounts.map((a) => labels.load(a.id)));
     await this.reload();
     void tellMissed(this);
+    // Drafts kept locally when the app last stopped: offered for restore (#71).
+    void this.offerLocalDrafts();
     // A toast click while the app was closed: the backend kept the URL for this window.
     void takePendingOpen(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
@@ -268,6 +271,21 @@ export class AppStore {
   /** Unfolds a window and folds the rest. */
   showCompose(id: number, mode: "open" | "max" = "open") { this.compose.show(id, mode); }
   closeCompose(id: number) { this.compose.close(id); }
+
+  /** Keeps every composition of this window, each at most `ms`: a quit saves before it goes (#71). */
+  saveComposes(ms: number) { return this.compose.saveAll(ms); }
+
+  /** Drafts kept locally when the app last stopped: offered for restore (#71). */
+  async offerLocalDrafts() {
+    const drafts = (await api.draftCacheList().catch(() => [] as CachedDraft[])) ?? [];
+    if (!drafts.length) return;
+    this.toast(
+      tn("compose.localDraft", drafts.length, { n: drafts.length }),
+      false,
+      { label: t("compose.localDraftRestore"), run: () => void this.compose.restoreLocal(drafts) },
+      30_000,
+    );
+  }
 
   /** The window that takes dropped files: the unfolded one, else the newest. */
   activeCompose(): ComposeWindow | undefined { return this.compose.active(); }

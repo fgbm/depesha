@@ -1,8 +1,8 @@
-component	src/App.svelte	334	218	70	46
-component	src/MessageWindow.svelte	116	82	29	5
+component	src/App.svelte	339	223	70	46
+component	src/MessageWindow.svelte	120	86	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
-component	src/components/Compose.svelte	997	280	264	453
+component	src/components/Compose.svelte	1004	287	264	453
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -482,6 +482,7 @@ function	src/lib/compose.ts::partsOf	8
 function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
 function	src/lib/compose/autosave.svelte.ts::serverDue	3
+function	src/lib/compose/format.svelte.ts::ruleReturnPlan	3
 function	src/lib/compose/format.svelte.ts::weigh	4
 function	src/lib/compose/lockedBlock.test.ts::box	1
 function	src/lib/compose/lockedBlock.test.ts::onScreen	6
@@ -490,6 +491,7 @@ function	src/lib/compose/lockedBlock.ts::inSight	6
 function	src/lib/compose/lockedBlock.ts::placeLockedBlock	13
 function	src/lib/compose/sending.svelte.ts::makeOptions	34
 function	src/lib/compose/sending.svelte.ts::withPark	4
+function	src/lib/compose/sending.svelte.ts::within	3
 function	src/lib/compose/sending.svelte.ts::makeContext	13
 function	src/lib/compose/sending.test.ts::control	5
 function	src/lib/compose/sending.test.ts::win	3
@@ -497,7 +499,10 @@ function	src/lib/compose/sending.test.ts::host	7
 function	src/lib/composeKeys.test.ts::press	8
 function	src/lib/composeKeys.ts::composeAction	4
 function	src/lib/composeKeys.ts::keyLabel	4
+function	src/lib/composes.svelte.test.ts::manager	3
 function	src/lib/composes.svelte.ts::baseName	3
+function	src/lib/composes.svelte.ts::newKey	3
+function	src/lib/composes.svelte.ts::within	3
 function	src/lib/composes.svelte.ts::decoded	7
 function	src/lib/connection.test.ts::edit	1
 function	src/lib/connection.test.ts::title	1
@@ -515,7 +520,8 @@ function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/events.ts::common	20
 function	src/lib/events.ts::applySettingsChanged	8
-function	src/lib/events.ts::listenMain	55
+function	src/lib/events.ts::listenMain	57
+function	src/lib/events.ts::saveDraftsForQuit	4
 function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::listenWindow	9
 function	src/lib/extensions.svelte.ts::fromRow	16
@@ -822,10 +828,11 @@ function	src/lib/rules.ts::applyRules	19
 function	src/lib/rules.ts::applyMailAction	24
 function	src/lib/sanitize.ts::unconfuse	9
 function	src/lib/sanitize.ts::remoteStyle	4
+function	src/lib/sanitize.ts::remoteUri	6
 function	src/lib/sanitize.ts::instance	21
 function	src/lib/sanitize.ts::cleanEditorHtml	8
 function	src/lib/sanitize.ts::cleanPastedHtml	8
-function	src/lib/sanitize.ts::cleanRemoteHtml	10
+function	src/lib/sanitize.ts::cleanRemoteHtml	11
 function	src/lib/searchSuggest.test.ts::folder	1
 function	src/lib/searchSuggest.test.ts::ctx	7
 function	src/lib/searchSuggest.ts::lastToken	10
@@ -833,6 +840,7 @@ function	src/lib/searchSuggest.ts::applyCompletion	4
 function	src/lib/searchSuggest.ts::completions	45
 function	src/lib/searchSuggest.ts::folderCompletions	16
 function	src/lib/searchSuggest.ts::yearRange	4
+function	src/lib/selection.svelte.ts::seen	6
 function	src/lib/sendChecks.ts::sendWarnings	12
 function	src/lib/serverFeatures.test.ts::row	3
 function	src/lib/serverFeatures.ts::matches	4
