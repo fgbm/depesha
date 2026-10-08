@@ -292,7 +292,7 @@ pub fn deliver_copies(state: &Arc<AppState>) {
     let Ok(due) = state.store.sent_copies_due(now) else {
         return;
     };
-    for copy in due {
+    for copy in with_known_mailbox(due, |id| state.account(id).is_ok()) {
         if !state.copy_claim(copy.id) {
             continue;
         }
@@ -306,13 +306,19 @@ pub fn deliver_copies(state: &Arc<AppState>) {
     }
 }
 
+/// The copies whose mailbox is configured. The others stay in the cache: a broken accounts
+/// file reads as no mailboxes at all, and a copy is not dropped for that. Removing a mailbox
+/// clears its copies (`forget_account`).
+fn with_known_mailbox(due: Vec<SentCopy>, known: impl Fn(&str) -> bool) -> Vec<SentCopy> {
+    due.into_iter().filter(|c| known(&c.account_id)).collect()
+}
+
 /// How many tries a wait for a reply stays held for its copy before it starts without one.
 const COPY_WAIT_TRIES: u32 = 3;
 
 async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Result<(), CmdError> {
     let Ok(account) = state.account(&copy.account_id) else {
-        // The mailbox was removed: there is nowhere to file the copy.
-        state.store.sent_copy_done(copy.id)?;
+        // See `with_known_mailbox`: the copy waits.
         return Ok(());
     };
     let outcome = match state.worker(&copy.account_id) {
@@ -394,6 +400,17 @@ mod tests {
             )
             .unwrap();
         store.sent_copies().unwrap().remove(0)
+    }
+
+    /// An accounts file that cannot be read lists no mailboxes: the copies wait, none is dropped.
+    #[test]
+    fn a_copy_of_an_unlisted_mailbox_stays() {
+        let store = Store::open_in_memory().unwrap();
+        let copy = sent(&store);
+        let due = store.sent_copies_due(i64::MAX).unwrap();
+        assert!(with_known_mailbox(due.clone(), |_| false).is_empty());
+        assert_eq!(store.sent_copies().unwrap().len(), 1);
+        assert_eq!(with_known_mailbox(due, |id| id == copy.account_id).len(), 1);
     }
 
     /// A paused mailbox or a dead network does not lose the copy: it waits and goes once the
