@@ -383,17 +383,24 @@ try {
     await rowBySubject("Счёт за октябрь", 30000);
     await d.button("Входящие");
     await d.until("folder view", async () => (await textOf(".list h2")).trim() === "Входящие");
+    const carol = (await invoke("accounts")).find((a) => a.email === "carol@local.test");
+    const query = { account_id: carol.id, folder: "INBOX", threads: true, limit: 2000 };
     const count = async () => d.exec("return document.querySelector('.list').dataset.count");
-    for (let i = 0; i < 40; i++) {
-      await d.exec("const v = document.querySelector('.viewport'); v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll'));");
-      await new Promise((r) => setTimeout(r, 300));
-      if ((await count()).startsWith("625")) break;
-    }
-    // 620 + 3 single letters + a conversation of three (one row) + a newsletter.
-    const final = await count();
-    if (!final.startsWith("625")) throw new Error(`после прокрутки: ${final}`);
+    const scrollEnd = () => d.exec("const v = document.querySelector('.viewport'); v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll'));");
+    // The label is the cache's length ("625" or "625 писем"); a trailing "+" means the list
+    // has not caught up. A hardcoded 625 races the search of the step before (it caches one
+    // old letter) and a conversation that has not collapsed yet (626).
+    await d.until("inbox caught up with the cache", async () => {
+      await scrollEnd();
+      const rows = await invoke("messages", { query });
+      const shown = String(await count());
+      const budget = rows.filter((m) => (m.subject || "").includes("Бюджет на ноябрь")).length;
+      const oldest = rows.some((m) => m.subject === "Массовое письмо 000");
+      if (!oldest || budget !== 1 || shown.includes("+") || !shown.startsWith(String(rows.length))) return null;
+      return true;
+    }, 15000);
     // The list is virtual: only rows near the viewport exist, so scroll to the end again.
-    await d.exec("const v = document.querySelector('.viewport'); v.scrollTop = v.scrollHeight; v.dispatchEvent(new Event('scroll'));");
+    await scrollEnd();
     await rowBySubject("Массовое письмо 000", 5000);
   });
 
@@ -1512,17 +1519,37 @@ try {
       const label = await textOf(".list .view .trigger");
       if (!label.includes("По отправителю")) throw new Error(`кнопка «Вид»: ${label}`);
 
-      // An order of its own: other lists keep the common one.
-      await d.click(await d.find(".list .view .trigger"));
-      await d.click(await d.find(".pop .scope input"));
+      // An order of its own: other lists keep the common one. The scope tick is one click that
+      // a redraw swallows; until it is checked, "По теме" would become the common order and
+      // the trash would never say "По отправителю".
+      await d.until("own order ticked", async () => {
+        if (!(await d.exec("return !!document.querySelector('.pop')"))) {
+          await d.click(await d.find(".list .view .trigger")).catch(() => {});
+        }
+        if (!(await d.exec("return !!document.querySelector('.pop .scope input:checked')"))) {
+          const box = await d.find(".pop .scope input").catch(() => null);
+          if (box) await d.click(box).catch(() => {});
+          return null;
+        }
+        return true;
+      });
       await viewOption("По теме");
-      // A click on a folder can miss while the tree redraws: make sure the list really is the
-      // trash before asking for its order.
+      await d.until("inbox keeps subject, the common order stays sender", async () => {
+        const s = await invoke("settings_get");
+        const own = Object.values(s.view_sorts ?? {}).some((x) => x[0]?.by === "subject");
+        return s.list_sort?.[0]?.by === "sender" && own ? true : null;
+      });
+      // A click on a folder can miss while the tree redraws: repeat it until the list
+      // really is the trash, then wait until its order matches the common one.
       await d.until(
         "trash by sender",
         async () => {
-          if (!(await textOf(".list .title h2")).includes("Корзина")) await openFolder("Корзина").catch(() => {});
-          return (await textOf(".list .view .trigger")).includes("По отправителю");
+          const title = (await textOf(".list .title h2")).trim();
+          if (!title.startsWith("Корзина")) {
+            await openFolder("Корзина").catch(() => {});
+            return null;
+          }
+          return (await textOf(".list .view .trigger")).includes("По отправителю") ? true : null;
         },
         20000,
       );
