@@ -39,7 +39,28 @@ describe("favourite folders", () => {
     expect(again.of("a").map((f) => f.name)).toEqual(["INBOX"]);
     expect(again.has("b", "Archive")).toBe(true);
     expect(readFavourites("not json")).toEqual({});
-    expect(readFavourites('{"a":[{"name":"X"},{"name":"X"},{"x":1}]}')).toEqual({ a: [{ name: "X", display: "X", delimiter: null }] });
+    expect(readFavourites('{"a":[{"name":"X"},{"name":"X"},{"x":1}]}')).toEqual({ a: [{ name: "X", display: "X", delimiter: null, kind: "folder" }] });
+  });
+
+  it("keeps a folder and a label of the same name apart (#42)", () => {
+    const { favs } = make();
+    favs.add("a", folder("Срочно"));
+    favs.add("a", { name: "Срочно", display: "Срочно", delimiter: null, kind: "label" });
+    expect(favs.of("a")).toHaveLength(2);
+    expect(favs.has("a", "Срочно")).toBe(true);
+    expect(favs.has("a", "Срочно", "label")).toBe(true);
+    // Unstarring the label leaves the folder starred.
+    favs.remove("a", "Срочно", "label");
+    expect(favs.has("a", "Срочно")).toBe(true);
+    expect(favs.isLeaving("a", "Срочно", "label")).toBe(true);
+    vi.advanceTimersByTime(FADE_MS);
+    expect(favs.of("a").map((f) => f.kind ?? "folder")).toEqual(["folder"]);
+    // A label favourite is read back with its kind.
+    const saved = JSON.stringify(favs.of("a"));
+    expect(readFavourites(`{"a":${JSON.stringify([...JSON.parse(saved), { name: "Метки", display: "Метки", kind: "label" }])}}`).a[1]).toMatchObject({
+      name: "Метки",
+      kind: "label",
+    });
   });
 
 });

@@ -923,6 +923,52 @@ async fn labels_reach_the_cache_from_the_sync_and_at_once() {
     assert!(!keywords().contains(&label.keyword), "{:?}", keywords());
 }
 
+/// Deleting a label takes its keyword off every letter of the mailbox on the server
+/// (#42, frame 4Б): each folder is searched by the keyword and the keyword cleared.
+/// Other labels stay.
+#[tokio::test]
+async fn stripping_a_label_clears_it_in_every_folder() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("strip").await;
+    conn.session.create(utf7::encode("Work")).await.unwrap();
+    imap::append(&mut conn, "INBOX", &mail("Метка", 0), "").await.unwrap();
+    imap::append(&mut conn, "Work", &mail("Метка", 1), "").await.unwrap();
+    imap::append(&mut conn, "INBOX", &mail("Без метки", 2), "")
+        .await
+        .unwrap();
+
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+
+    let keyword = depesha_core::acl::keyword_of("Счета");
+    let other = depesha_core::acl::keyword_of("Другая");
+    for folder in ["INBOX", "Work"] {
+        imap::set_keywords(&mut conn, folder, None, &[1], std::slice::from_ref(&keyword), &[])
+            .await
+            .unwrap();
+    }
+    imap::set_keywords(&mut conn, "INBOX", None, &[1], std::slice::from_ref(&other), &[])
+        .await
+        .unwrap();
+
+    let mut conn = mail::Conn::Imap(conn);
+    let n = mail::strip_label(&mut conn, &store, "d", &keyword).await.unwrap();
+    assert_eq!(n, 2, "the keyword was on two letters");
+    let mail::Conn::Imap(mut conn) = conn else {
+        unreachable!("the stand is IMAP")
+    };
+
+    for folder in ["INBOX", "Work"] {
+        let kw = imap::fetch_keywords(&mut conn, folder, 1).await.unwrap();
+        assert!(!kw.contains(&keyword), "{folder}: {kw:?}");
+    }
+    // Another label on the same letter is untouched.
+    let kw = imap::fetch_keywords(&mut conn, "INBOX", 1).await.unwrap();
+    assert!(kw.contains(&other), "{kw:?}");
+}
+
 /// The ACL plugin and the public read-only namespace the stand adds (#42). MYRIGHTS
 /// answers "only read" for the shared folder, a move out of it is refused with [NOPERM],
 /// and the folder is grouped under its owner from NAMESPACE. Both the ACL plugin and the

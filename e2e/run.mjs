@@ -2541,8 +2541,9 @@ try {
   });
 
   await step("12.6", "метки: «Метки…» из меню строки на письме без меток — пустое состояние, создать, ярлык в строке, снять (#42, кадр 10)", async () => {
-    // Step 3.6/3.8/5.4 recreated GreenMail and left it empty: deliver the letter to label.
-    helper("deliver", "Счёт за октябрь");
+    // Step 3.6/3.8/5.4 recreated GreenMail and left it empty: put the acceptance seed back,
+    // so the letters this step and the one after it work on are there.
+    helper("seed");
     await d.button("Входящие");
     const subj = "Счёт за октябрь";
     await rowBySubject(subj, 30000);
@@ -2574,6 +2575,81 @@ try {
     await screenshot("labels-removed");
     await press("Escape");
     await d.until("picker closed", async () => (await d.findAll(".pop")).length === 0);
+  });
+
+  await step("12.7", "метки: раздел «Метки» — переименовать в строке, найти через «метка:», удалить со всех писем (#42, кадры 1А–4Б)", async () => {
+    const accounts = await invoke("accounts");
+    const rows = await invoke("messages", { query: { role: "inbox", limit: 2000 } });
+    const letter = rows.find((m) => m.subject.includes("Счёт за октябрь")) ?? rows[0];
+    const subj = letter?.subject ?? "";
+    const acc = accounts.find((a) => a.id === letter?.account_id) ?? accounts[0];
+    // No spaces and no colons in the name: the operator's value is one token then.
+    const tag = stamp.replace(/:/g, "");
+    const labelName = `Раздел${tag}`;
+    const renamed = `Правка${tag}`;
+
+    // The mailbox's page at «Labels»: the sidebar's account menu opens it.
+    const openLabels = async () => {
+      await d.exec(
+        `const email = arguments[0];
+         const groups = [...document.querySelectorAll('nav.side .group')];
+         const g = groups.find((x) => x.querySelector('.account-name')?.getAttribute('title') === email) ?? groups[1] ?? groups[0];
+         g.querySelector('.menu-btn').click();`,
+        acc.email,
+      );
+      await d.click(await d.until("account menu", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Настройки…')]").catch(() => null)));
+      await d.until("account page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+      await d.click(await d.xpath("//div[contains(@class,'account-page')]//nav//a[normalize-space(.)='Метки']"));
+    };
+
+    // A label with one letter on it.
+    await invoke("label_save", { accountId: acc.id, name: labelName, color: "#3f9fd0" });
+    if (letter) await invoke("set_label", { ids: [letter.id], name: labelName, value: true });
+    await openLabels();
+    const rowLink = (name) =>
+      d.xpath(`//section[@data-section='labels']//button[contains(@class,'link') and normalize-space(.)=${JSON.stringify(name)}]`).catch(() => null);
+    await d.until("label row", () => rowLink(labelName));
+    await screenshot("labels-manage");
+
+    // Quiet rename: the name is edited in the row, the keyword on the server is untouched.
+    // Set through the DOM: a WebDriver element handle would go stale as the row redraws.
+    await d.click(await rowLink(labelName));
+    await d.until("rename input", async () => (await d.findAll("section[data-section='labels'] input[aria-label='Переименовать']")).length === 1);
+    await d.exec(
+      `const i = document.querySelector("section[data-section='labels'] input[aria-label='Переименовать']");
+       i.focus(); i.value = arguments[0]; i.dispatchEvent(new Event('input', { bubbles: true }));
+       i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));`,
+      renamed,
+    );
+    await d.until("renamed in the row", () => rowLink(renamed));
+    await screenshot("labels-renamed");
+    await closeSettings();
+
+    // The letter still carries the label: the keyword did not change with the name.
+    if (letter) {
+      const box = await d.find(".list .search input");
+      await d.clear(box);
+      await d.type(box, `метка:${renamed}\uE007`);
+      await rowBySubject(subj, 20000);
+      await screenshot("labels-search");
+      await d.clear(box);
+      await press("Escape");
+    }
+
+    // Deleting: a confirmation with the letter count, then the keyword is stripped in the background.
+    await openLabels();
+    await d.until("label row again", () => rowLink(renamed));
+    await d.click(
+      await d.xpath(
+        `//section[@data-section='labels']//tr[.//button[normalize-space(.)=${JSON.stringify(renamed)}]]//button[@aria-label='Действия']`,
+      ),
+    );
+    await d.until("label menu", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Удалить метку')]").catch(() => null));
+    // Clicked through the DOM: the popover closes on its own pointer handling.
+    await d.exec(`const b = [...document.querySelectorAll('.pop .mi')].find((x) => x.innerText.includes('Удалить метку')); if (b) b.click();`);
+    await d.click(await d.until("delete confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
+    await d.until("label left the list", async () => !(await rowLink(renamed)));
+    await closeSettings();
   });
 
   await screenshot("final");

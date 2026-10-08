@@ -13,6 +13,7 @@ const ctx = (lang: "en" | "ru"): SuggestContext => ({
   now: new Date(2026, 9, 5),
   folders: [folder("INBOX"), folder("Работа"), folder("Работа/Проекты"), folder("Работа/Счета"), folder("Архив")],
   accounts: [{ email: "carol@example.com" }, { email: "ivan@example.org" }],
+  labels: ["Срочно", "Клиент Север", "Счета"],
 });
 
 describe("search suggestions", () => {
@@ -55,6 +56,14 @@ describe("search suggestions", () => {
   it("offer thresholds and mailboxes", () => {
     expect(completions("larger:2", ctx("en")).map((c) => c.token)).toEqual(["larger:25M"]);
     expect(completions("account:iv", ctx("en")).map((c) => c.token)).toEqual(["account:ivan@example.org"]);
+  });
+
+  it("offer label names for «метка:», quoting the ones with spaces (#42)", () => {
+    i18n.lang = "ru";
+    expect(completions("метка:сро", ctx("ru")).map((c) => c.token)).toEqual(["метка:Срочно"]);
+    expect(completions("метка:кли", ctx("ru")).map((c) => c.token)).toEqual(['метка:"Клиент Север"']);
+    i18n.lang = "en";
+    expect(completions("label:сч", ctx("en")).map((c) => c.token)).toEqual(["label:Счета"]);
   });
 });
 
