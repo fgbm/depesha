@@ -2366,6 +2366,11 @@ fn clear_folder(tx: &Connection, account_id: &str, folder: &str) -> Result<()> {
         "DELETE FROM messages WHERE account_id = ?1 AND folder = ?2",
         params![account_id, folder],
     )?;
+    // The read marks are kept by UID: a new UIDVALIDITY makes them name other messages.
+    tx.execute(
+        "DELETE FROM local_seen WHERE account_id = ?1 AND folder = ?2",
+        params![account_id, folder],
+    )?;
     tx.execute(
         "UPDATE folders SET oldest_uid = 0, highest_modseq = 0 WHERE account_id = ?1 AND name = ?2",
         params![account_id, folder],

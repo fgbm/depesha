@@ -692,16 +692,20 @@ pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdRe
     Ok(())
 }
 
-/// Whether a read mark must be kept only here: the folder is known to be read-only
-/// without the `s` right, or the server refused an action in it (#42, frame 7, note 2).
+/// Whether a read mark must be kept only here: the folder's rights say so — it can be
+/// read but not marked read for the user (`r` without `s`, #42, frame 7, note 2). A
+/// remembered refusal is not enough: a flag or a label refused in a folder that does have
+/// `s` must not turn every letter's read mark local for good.
 fn local_seen_folder(state: &AppState, account_id: &str, folder: &str) -> bool {
     let Ok(Some(props)) = state.store.folder_prop(account_id, folder) else {
         return false;
     };
-    if props.refused.is_some() {
-        return true;
-    }
-    props.rights.is_some_and(|r| r.read && !r.seen)
+    local_seen_by_rights(Some(&props))
+}
+
+/// The decision itself, apart from the store: the folder's rights forbid the `s` mark.
+fn local_seen_by_rights(props: Option<&depesha_core::acl::FolderProps>) -> bool {
+    props.is_some_and(|p| p.rights.is_some_and(|r| r.read && !r.seen))
 }
 
 /// Checks own labels on a test message in `folder` (#42, frame 9). The test letter is
@@ -2586,7 +2590,8 @@ pub fn outbox_missed(state: St<'_>) -> Vec<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DANGEROUS, free_path, safe_name, search_folders};
+    use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};
+    use depesha_core::acl::{FolderProps, Owner, Rights};
     use depesha_core::imap::{Folder, FolderRole};
     use depesha_core::query::SearchQuery;
     use depesha_core::store::FolderInfo;
@@ -2605,6 +2610,31 @@ mod tests {
             total: 0,
             unread: 0,
         }
+    }
+
+    #[test]
+    fn a_read_mark_is_kept_local_by_rights_not_by_a_refusal() {
+        let props = |letters: &str, refused: Option<&str>| FolderProps {
+            folder: "shared/Отдел".into(),
+            display_name: String::new(),
+            owner: Owner::Mine,
+            rights: Some(Rights::from_letters(letters)),
+            labels_on_server: None,
+            permanent: Vec::new(),
+            label_check: None,
+            refused: refused.map(str::to_owned),
+            checked: 0,
+        };
+        // `r` without `s`: the server cannot keep the mark, it lives here alone.
+        assert!(local_seen_by_rights(Some(&props("lr", None))));
+        // A refusal in a folder that does keep `\Seen` must not make it local for good.
+        assert!(!local_seen_by_rights(Some(&props("lrs", Some("no-rights")))));
+        // Nothing known, or no rights read: the server's value holds.
+        assert!(!local_seen_by_rights(None));
+        assert!(!local_seen_by_rights(Some(&FolderProps {
+            rights: None,
+            ..props("lrs", None)
+        })));
     }
 
     #[test]
