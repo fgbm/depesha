@@ -19,6 +19,37 @@ function pick(text: Text): string {
   return i18n.lang === "ru" ? text.ru : text.en;
 }
 
+/**
+ * The counters every plugin reads (#71): one request per burst of `counters-changed`,
+ * held a moment, its answer shared by all of them.
+ */
+let countersPromise: Promise<unknown> | null = null;
+let countersTimer: ReturnType<typeof setTimeout> | null = null;
+let countersResolve: ((v: unknown) => void)[] = [];
+let countersReject: ((e: unknown) => void)[] = [];
+
+function sharedCounters<T>(): Promise<T> {
+  countersPromise ??= new Promise<unknown>((resolve, reject) => {
+    countersResolve.push(resolve);
+    countersReject.push(reject);
+  });
+  if (!countersTimer) {
+    countersTimer = setTimeout(() => {
+      countersTimer = null;
+      countersPromise = null;
+      const resolve = countersResolve;
+      const reject = countersReject;
+      countersResolve = [];
+      countersReject = [];
+      call<unknown>("counters").then(
+        (c) => resolve.forEach((f) => f(c)),
+        (e) => reject.forEach((f) => f(e)),
+      );
+    }, 300);
+  }
+  return countersPromise as Promise<T>;
+}
+
 /** Commands of the core and of every active plugin, as offered right now. */
 export function allCommands(): Command[] {
   return [...coreCommands(), ...registry.items("commands")].filter((c) => !c.when || c.when());
@@ -58,7 +89,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       },
       main: () => app.windowOf === null,
     },
-    backend: <T>(command: string, args?: Record<string, unknown>) => call<T>(command, args),
+    backend: <T>(command: string, args?: Record<string, unknown>) => (command === "counters" ? sharedCounters<T>() : call<T>(command, args)),
     onBackend: (event, run) => {
       const off = listen(event, (e) => run(e.payload));
       disposers.push(() => void off.then((f) => f()));

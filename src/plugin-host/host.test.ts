@@ -117,7 +117,7 @@ describe("the counters of the plugins", () => {
     vi.advanceTimersByTime(300);
     const [a, b] = await Promise.all([first, second]);
     expect(callMock).toHaveBeenCalledTimes(1);
-    expect(callMock).toHaveBeenCalledWith("counters", undefined);
+    expect(callMock).toHaveBeenCalledWith("counters");
     expect(a).toBe(b);
     vi.useRealTimers();
   });
