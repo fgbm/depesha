@@ -62,6 +62,7 @@ async function applySettingsChanged(app: AppStore) {
 
 /** The main window: the list, the outbox, tasks, mail rules and updates. */
 export function listenMain(app: AppStore) {
+  const quit = quitDrafts(app);
   return Promise.all([
     ...common(app),
     listen<MailChanged>("mail-changed", (e) => {
@@ -115,16 +116,30 @@ export function listenMain(app: AppStore) {
     // The closed window, quitting, the tray menu, a click on a notification (#4, #63).
     ...listenBackground(app),
     // A quit asks this window to keep the drafts it holds before it goes (#71).
-    listen("save-drafts", () => void saveDraftsForQuit(app)),
+    listen("save-drafts", () => void quit.save()),
     // The quit was called off: the next one must ask this window again.
-    listen("quit-cancelled", () => void api.composeUnsaved(app.composes.length > 0).catch(() => {})),
+    listen("quit-cancelled", () => quit.cancel()),
   ]);
 }
 
-/** A quit waits for the main window: it saves every composition, then says it is through. */
-async function saveDraftsForQuit(app: AppStore) {
-  await app.saveComposes(4000);
-  await api.composeSaved().catch(() => {});
+/**
+ * A quit waits for the main window: it saves every composition, then says it is through.
+ * A cancel makes a save under way stale: "through" after it would take the window off the
+ * backend's list again (#91).
+ */
+function quitDrafts(app: AppStore) {
+  let quit = 0;
+  return {
+    async save() {
+      const mine = ++quit;
+      await app.saveComposes(4000);
+      if (quit === mine) await api.composeSaved().catch(() => {});
+    },
+    cancel() {
+      quit++;
+      void api.composeUnsaved(app.composes.length > 0).catch(() => {});
+    },
+  };
 }
 
 interface Parked {

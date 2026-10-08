@@ -70,9 +70,16 @@ export class SettingsController {
     }
   }
 
+  /** Bumped by every local change of `settings`: an answer asked before it is stale (#91). */
+  private generation = 0;
+
   async loadSettings() {
+    const generation = this.generation;
     try {
-      this.settings = await api.settings();
+      const fresh = await api.settings();
+      // A save made here while the answer was on its way: the answer is older than the memory.
+      if (generation !== this.generation) return;
+      this.settings = fresh;
       applyTheme(this.settings.theme);
     } catch (e) {
       this.host.fail(e);
@@ -94,6 +101,7 @@ export class SettingsController {
   async patchSettings(patch: Record<string, unknown>) {
     const next = { ...$state.snapshot(this.settings), ...patch } as Settings;
     const threadsChanged = next.threads !== this.settings.threads;
+    this.generation++;
     this.settings = next;
     applyTheme(next.theme);
     try {
@@ -109,6 +117,7 @@ export class SettingsController {
 
   /** A built-in plugin's own settings; a letter's window may save them, not the rest. */
   async savePluginSettings(plugin: string, values: Record<string, unknown>) {
+    this.generation++;
     this.settings = { ...this.settings, plugin_settings: { ...(this.settings.plugin_settings ?? {}), [plugin]: values } };
     try {
       await api.pluginSettingsSet(plugin, $state.snapshot(values));

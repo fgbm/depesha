@@ -6,8 +6,10 @@ vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventMo
 vi.mock("@tauri-apps/api/window", () => import("./testing").then((m) => m.windowModule));
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 
+vi.mock("./theme", () => ({ applyTheme: () => {} }));
+
 import { listenMain } from "./events";
-import { api, emit, flush } from "./testing";
+import { api, emit, flush, resetFakes, settings } from "./testing";
 import type { AppStore } from "./store.svelte";
 
 describe("quit, cancel, quit", () => {
@@ -25,5 +27,43 @@ describe("quit, cancel, quit", () => {
     emit("save-drafts");
     await flush();
     expect(saveComposes).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a quit called off while the drafts are being saved (#91)", () => {
+  it("does not report the window as through after the cancel", async () => {
+    let finish = () => {};
+    const saveComposes = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    const app = { composes: [{}], saveComposes, settings: {}, accounts: [] } as unknown as AppStore;
+    api.composeSaved.mockReset();
+    api.composeUnsaved.mockReset();
+    await listenMain(app);
+
+    emit("save-drafts");
+    await flush();
+    emit("quit-cancelled");
+    await flush();
+    finish();
+    await flush();
+    expect(api.composeUnsaved).toHaveBeenCalledWith(true);
+    expect(api.composeSaved).not.toHaveBeenCalled();
+  });
+});
+
+describe("settings read again after a save made here (#91)", () => {
+  it("does not roll the memory back with an answer asked before the save", async () => {
+    resetFakes();
+    const { SettingsController } = await import("./settings.svelte");
+    const store = new SettingsController({ fail: () => {}, reload: () => {}, toast: () => {} } as never);
+    const old = settings();
+    let answer: (s: typeof old) => void = () => {};
+    api.settings.mockReturnValueOnce(new Promise((r) => (answer = r)));
+    api.settingsPatch.mockResolvedValue(undefined);
+    api.language.mockResolvedValue("en");
+    const reading = store.loadSettings();
+    await store.patchSettings({ threads: !old.threads });
+    answer(old);
+    await reading;
+    expect(store.settings.threads).toBe(!old.threads);
   });
 });

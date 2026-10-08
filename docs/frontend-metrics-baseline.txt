@@ -521,8 +521,8 @@ function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/events.ts::common	24
 function	src/lib/events.ts::applySettingsChanged	8
-function	src/lib/events.ts::listenMain	59
-function	src/lib/events.ts::saveDraftsForQuit	4
+function	src/lib/events.ts::listenMain	60
+function	src/lib/events.ts::quitDrafts	14
 function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::listenWindow	9
 function	src/lib/extensions.svelte.ts::fromRow	16

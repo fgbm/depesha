@@ -713,8 +713,9 @@ try {
       await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
       // Tooltips and the keys follow at once.
       await openBySubject("Счёт за октябрь");
-      const tip = await d.exec("return [...document.querySelectorAll('.reader button')].map((b) => b.title).find((t) => t.startsWith('Переслать')) ?? ''");
-      if (tip !== "Переслать (e/у)") throw new Error(`подсказка: ${tip}`);
+      // The settings come back from the backend a moment after the save: wait for the tip.
+      const tipOf = () => d.exec("return [...document.querySelectorAll('.reader button')].map((b) => b.title).find((t) => t.startsWith('Переслать')) ?? ''");
+      await d.until("подсказка «Переслать (e/у)»", async () => (await tipOf()) === "Переслать (e/у)");
       await press("a");
       await new Promise((r) => setTimeout(r, 400));
       if ((await d.findAll(".compose")).length) throw new Error("старая клавиша a ещё отвечает всем");
