@@ -125,6 +125,17 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
         if item.failed || item.next_attempt > now || blocked {
             continue;
         }
+        // A send that started but whose row was not removed (the removal failed after a
+        // good SMTP) may have left: do not send it again, the user checks «Sent».
+        if item.sending_started > 0 {
+            let why = tr!(
+                "possibly sent: check “Sent”",
+                "возможно, ушло — проверьте «Отправленные»"
+            );
+            state.store.outbox_retry_later(item.id, now, &why, true)?;
+            state.emit("outbox-changed", json!({}));
+            continue;
+        }
         let Ok(account) = state.account(&item.account_id) else {
             state.store.outbox_retry_later(
                 item.id,
