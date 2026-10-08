@@ -157,7 +157,6 @@ export function listenWindow(app: AppStore) {
     listen<MailChanged>("mail-changed", (e) => {
       const row = app.opened?.row;
       if (row && row.account_id === e.payload.account_id && row.folder === e.payload.folder) app.reader.checkStillThere();
-      app.scheduleFolders();
     }),
   ]);
 }
