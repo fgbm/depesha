@@ -111,6 +111,7 @@ export const en = {
   "cmd.dndOff": "Turn off Do Not Disturb",
   "cmd.done": "Done: move to the archive",
   "cmd.flag": "Flag or unflag",
+  "cmd.release": "Stop waiting or bring snoozed mail back",
   "cmd.find": "Find: {what}",
   "cmd.go": "Go to: {where}",
   "cmd.moveTo": "Move to “{folder}”",

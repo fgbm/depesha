@@ -102,7 +102,7 @@ export interface RowAction {
   hint?: string;
   /** The command whose key the item shows, as the user set it (instead of `hint`). */
   command?: string;
-  when?: (ids: number[]) => boolean;
+  when?: (ids: number[], rows: MessageRow[]) => boolean;
   run?: (ids: number[]) => void;
   menu?: Rendered;
 }
@@ -231,7 +231,7 @@ export interface PluginContext {
     accounts(): { id: string; email: string; display_name: string; label?: string; waiting?: Waiting }[];
     folders(): FolderInfo[];
     /** Takes messages out of the list, runs `run`, offers undo of the moves it returns. */
-    perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string): Promise<void>;
+    perform(text: string | ((moved: Moved[]) => string), ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string): Promise<void>;
     reload(): void;
     /** Like `reload`, but for backend events in bursts: waits out the burst, then reloads once. */
     scheduleReload(): void;

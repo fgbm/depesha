@@ -694,6 +694,8 @@ export interface Moved {
   message_ids: string[];
   /** Письма, которые действие пометило прочитанными: отмена снова делает их непрочитанными. */
   unseen?: string[];
+  /** Отложенные письма, которые действие сняло с таймера: отмена откладывает их снова на тот же срок. */
+  snoozed?: { subject: string }[];
 }
 
 export interface Counters {

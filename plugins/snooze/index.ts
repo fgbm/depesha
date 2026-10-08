@@ -1,6 +1,7 @@
 import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+import AlarmClockOff from "@lucide/svelte/icons/alarm-clock-off";
 import { snoozePresets, when, type Plugin } from "@depesha/plugin-api";
-import { snoozeMail } from "./actions";
+import { snoozeMail, unsnoozeMail } from "./actions";
 import SnoozeButton from "./SnoozeButton.svelte";
 import SnoozeRowMenu from "./SnoozeRowMenu.svelte";
 import { snooze } from "./state.svelte";
@@ -38,6 +39,17 @@ export default {
       menu: { component: SnoozeRowMenu, props: { ctx } },
     });
     ctx.ui.keybinding({ id: "snooze.open", title: () => ctx.t(S.action), key: "h", run: () => (snooze.open = true), when: () => ctx.mail.opened() !== null });
+    // "w" is shared with "Stop waiting" (the core's `core.release`): the letter's state tells which one runs.
+    const snoozed = () => ctx.mail.opened()?.row.snoozed_until != null;
+    ctx.ui.keybinding({ id: "core.release", title: () => ctx.t(S.release), run: () => void unsnoozeMail(ctx, [ctx.mail.opened()!.row.id]), when: snoozed });
+    ctx.ui.rowAction({
+      id: "snooze.release",
+      title: () => ctx.t(S.release),
+      icon: AlarmClockOff,
+      command: "core.release",
+      when: (_ids, rows) => rows.length > 0 && rows.every((r) => r.snoozed_until != null),
+      run: (ids) => void unsnoozeMail(ctx, ids),
+    });
     for (const [i, p] of snoozePresets().entries()) {
       ctx.ui.command({
         id: `snooze.preset.${i}`,
@@ -49,7 +61,16 @@ export default {
       });
     }
     ctx.ui.rowTag((row) => (row.snoozed_until ? { icon: AlarmClock, text: when(row.snoozed_until), title: ctx.t(S.tag) } : null));
-    ctx.ui.banner((msg) => (msg.row.snoozed_until ? { icon: AlarmClock, text: ctx.t(S.banner, { when: when(msg.row.snoozed_until) }) } : null));
+    // "Bring back now" sits in the line over the letter like "Stop waiting" does for a wait.
+    ctx.ui.banner((msg) =>
+      msg.row.snoozed_until
+        ? {
+            icon: AlarmClock,
+            text: ctx.t(S.banner, { when: when(msg.row.snoozed_until) }),
+            actions: [{ title: ctx.t(S.release), run: () => void unsnoozeMail(ctx, [msg.row.id]) }],
+          }
+        : null,
+    );
     return () => (snooze.open = false);
   },
 } satisfies Plugin;

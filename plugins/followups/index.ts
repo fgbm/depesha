@@ -12,6 +12,7 @@ import Repick from "./Repick.svelte";
 import WaitLine from "./WaitLine.svelte";
 import { rowTag } from "./rows";
 import { followups } from "./state.svelte";
+import { registerStop, stopWaiting } from "./stop";
 import { S } from "./strings";
 import { registerView } from "./view";
 
@@ -28,6 +29,8 @@ export default {
     ctx.ui.settingsSection({ title: () => ctx.t(S.settings), component: RemindSettings, props: { ctx } });
     ctx.ui.rowTag((row) => rowTag(row, now(), ctx, ctx.mail.viewing("followups")));
     ctx.ui.overlay({ component: Repick, props: { ctx } });
+
+    registerStop(ctx);
 
     ctx.ui.banner((msg) => {
       const row = msg.row;
@@ -56,13 +59,11 @@ export default {
             })
             .catch((e) => ctx.fail(e)),
         stop: () =>
-          ctx
-            .backend("followup_cancel", { id: row.id })
-            .then(() => {
-              if (f) row.followup = { ...f, status: "closed", ended: now() };
-              row.followup_due = null;
-            })
-            .catch((e) => ctx.fail(e)),
+          stopWaiting(ctx, row.id).then((ok) => {
+            if (!ok) return;
+            if (f) row.followup = { ...f, status: "closed", ended: now() };
+            row.followup_due = null;
+          }),
         openAnswer: ctx.mail.main() ? (id) => void ctx.mail.open(id) : undefined,
       });
     });

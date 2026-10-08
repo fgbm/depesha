@@ -10,6 +10,9 @@ import { refusalOf } from "./labels";
 import type { ListController } from "./list.svelte";
 import type { FolderInfo, MessageRow, Moved, OpenedMessage, Settings } from "./types";
 
+/** The toast's words: given, or made from the moves done (when they say where the letters went). */
+export type Text = string | ((moved: Moved[]) => string);
+
 export interface Undoable {
   moved: Moved[];
   text: string;
@@ -46,7 +49,7 @@ export class ActionRunner {
   constructor(private host: ActionHost) {}
 
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. */
-  async perform(text: string, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
+  async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
     if (!ids.length) return;
     const p = this.host.track(this.act(text, ids, run, failText));
     this.pending = p;
@@ -54,7 +57,7 @@ export class ActionRunner {
     if (this.pending === p) this.pending = null;
   }
 
-  private async act(text: string, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
+  private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
     const { list } = this.host;
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
@@ -76,15 +79,16 @@ export class ActionRunner {
         list.leaving.add(id);
       }
       const moved = (await run(all, ids)).filter((m) => m.message_ids.length);
+      const said = typeof text === "function" ? text(moved) : text;
       if (this.host.windowOf !== null) {
         // The letter is done with: its window closes, the main window offers the undo.
-        if (moved.length) await emitTo("main", "window-moved", { moved, text });
+        if (moved.length) await emitTo("main", "window-moved", { moved, text: said });
         await getCurrentWindow().close();
         return;
       }
       if (moved.length) {
-        this.lastUndo = { moved, text };
-        this.host.toast(text, false, { label: t("undo"), run: () => void this.undo() });
+        this.lastUndo = { moved, text: said };
+        this.host.toast(said, false, { label: t("undo"), run: () => void this.undo() });
       }
     } catch (e) {
       failed = true;

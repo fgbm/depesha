@@ -4,7 +4,7 @@ import { extensions } from "./extensions.svelte";
 import { listenMain, listenWindow } from "./events";
 import { takePendingOpen, tellMissed } from "./background.svelte";
 import { ListController, type View } from "./list.svelte";
-import { ActionRunner } from "./actions.svelte";
+import { ActionRunner, type Text } from "./actions.svelte";
 import { Reader } from "./reader.svelte";
 import { ComposeManager, type ComposeState, type ComposeWindow } from "./composes.svelte";
 import { rooms } from "./room.svelte";
@@ -237,7 +237,7 @@ export class AppStore {
   /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
   folderProperties(accountId: string, folder: string) { labels.openCard(accountId, folder); }
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. Never rejects. */
-  perform(text: string, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
+  perform(text: Text, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
     return this.actions.perform(text, ids, run, failText);
   }
 

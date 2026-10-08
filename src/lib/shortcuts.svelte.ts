@@ -48,6 +48,8 @@ class Shortcuts {
   commands(others: OtherCommand[] = [], custom: Custom = this.saved().custom): TitledCommand[] {
     const list: TitledCommand[] = CORE_KEYS.map((c) => ({ ...c, owner: "core", title: () => t(c.title) }));
     for (const { owner, item } of registry.lists.keybindings) {
+      // A plugin carrying out a core key (`core.release`) adds no command of its own.
+      if (list.some((c) => c.id === item.id)) continue;
       // Ctrl+K is the palette's, in the composition window too, and is not reassigned.
       const palette = item.key === PALETTE_KEY;
       list.push({

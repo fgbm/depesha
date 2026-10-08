@@ -104,6 +104,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "cmd.dndOff": "Выключить «Не беспокоить»",
   "cmd.done": "Готово: убрать в архив",
   "cmd.flag": "Поставить или снять флаг",
+  "cmd.release": "Не ждать ответа или вернуть отложенное",
   "cmd.find": "Найти: {what}",
   "cmd.go": "Перейти: {where}",
   "cmd.moveTo": "Переместить в «{folder}»",

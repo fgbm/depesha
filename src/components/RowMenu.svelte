@@ -53,7 +53,7 @@
   const pluginActions = $derived(
     registry.items("rowActions").filter((a) => {
       try {
-        return !a.when || a.when(ids);
+        return !a.when || a.when(ids, rows);
       } catch {
         return false;
       }

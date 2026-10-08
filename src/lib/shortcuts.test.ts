@@ -65,6 +65,15 @@ describe("plugins' keys", () => {
     expect(shortcuts.find(press("р", "KeyH"), "main")).toBe("snooze.open");
   });
 
+  it("carry out a core key without a command of their own (#93)", () => {
+    registry.add("keybindings", "snooze", { id: "core.release", title: () => "Вернуть сейчас", run: () => {} });
+    registry.add("keybindings", "followups", { id: "core.release", title: () => "Не ждать", run: () => {} });
+    expect(shortcuts.commands().filter((c) => c.id === "core.release")).toHaveLength(1);
+    expect(shortcuts.find(press("ц", "KeyW"), "main")).toBe("core.release");
+    expect(shortcuts.lost()).toEqual([]);
+    registry.removeOwner("followups");
+  });
+
   it("give way to a key taken first, and say so once", () => {
     saved = { custom: { "core.sync": ["h"] }, dismissed: [] };
     snooze();

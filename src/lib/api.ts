@@ -114,6 +114,7 @@ export const api = {
   archive: (ids: number[], own?: number[]) => call<Moved[]>("archive", { ids, own }),
   spam: (ids: number[], own?: number[]) => call<Moved[]>("mark_spam", { ids, own }),
   snooze: (ids: number[], until: number) => call<Moved[]>("snooze", { ids, until }),
+  unsnooze: (ids: number[]) => call<Moved[]>("unsnooze", { ids }),
   undo: (moved: Moved[]) => call<void>("undo", { moved }),
   thread: (id: number) => call<MessageRow[]>("thread", { id }),
   counters: () => call<Counters>("counters"),

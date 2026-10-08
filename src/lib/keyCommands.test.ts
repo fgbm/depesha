@@ -29,6 +29,7 @@ describe("the core's commands and their keys", () => {
       "core.unread": ["u"],
       "core.flag": ["s"],
       "core.labels": ["l"],
+      "core.release": ["w"],
       "core.search": ["/"],
       "core.settings": ["Mod+,"],
       "core.quit": ["Mod+q"],

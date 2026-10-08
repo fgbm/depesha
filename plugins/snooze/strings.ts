@@ -15,6 +15,12 @@ export const S = {
   done: { en: "Snoozed: back {when}", ru: "Отложено: вернётся {when}" },
   failed: { en: "Could not snooze", ru: "Не удалось отложить" },
   command: { en: "Snooze: {when}", ru: "Отложить: {when}" },
+  release: { en: "Bring back now", ru: "Вернуть сейчас" },
+  releaseHint: { en: "Bring back now: to the folder it was snoozed from", ru: "Вернуть сейчас: в папку, откуда отложено" },
+  released: { en: "Brought back to “{folder}”: {what}", ru: "Возвращено во «{folder}»: {what}" },
+  releasedMany: { en: { one: "{n} message", other: "{n} messages" }, ru: { one: "{n} письмо", few: "{n} письма", other: "{n} писем" } },
+  noSubject: { en: "(no subject)", ru: "(без темы)" },
+  releaseFailed: { en: "Could not bring back", ru: "Не удалось вернуть" },
   tag: { en: "Returns to the inbox", ru: "Вернётся во входящие" },
   banner: { en: "Snoozed: back in the inbox {when}.", ru: "Отложено: вернётся во входящие {when}." },
 };

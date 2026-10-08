@@ -42,6 +42,8 @@ export const CORE_KEYS: CoreKey[] = [
   row("core.flag", "cmd.flag", ["s"], "list"),
   // Labels (#42, frame 10): l is free; the Russian д sits on the same key.
   row("core.labels", "act.labels", ["l"], "list"),
+  // One key for "Stop waiting" and "Bring back now": the plugins that own the letter's state run it.
+  row("core.release", "cmd.release", ["w"], "list"),
   // The composition window: single keys type there, so only with Ctrl or Alt, and Esc.
   row("compose.send", "compose.send", ["Mod+Enter"], "compose"),
   row("compose.fold", "keys.cmd.fold", ["Escape"], "compose"),

@@ -120,6 +120,18 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     expect(s.lastUndo).toBeNull();
   });
 
+  it("of a letter brought back from the snoozed mail snoozes it again for the same time (#93)", async () => {
+    const s = await inbox();
+    const snoozed = { account_id: "a", message_id: "<4@example.com>", folder: "Snoozed", return_to: "INBOX", until: 5000, subject: "Счёт" };
+    const moved = { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<4@example.com>"], snoozed: [snoozed] };
+    const text = vi.fn((m: { to: string }[]) => `Возвращено во «${m[0].to}»: Счёт`);
+    await s.perform(text, [4], async () => [moved], "fail");
+    expect(s.toasts.some((x) => x.text === "Возвращено во «INBOX»: Счёт")).toBe(true);
+    await s.undo();
+    // The backend sets the time again from what the move carried.
+    expect(api.undo).toHaveBeenCalledWith([moved]);
+  });
+
   it("pressed while the action is on its way waits for it", async () => {
     const s = await inbox();
     const answer = deferred<{ account_id: string; from: string; to: string; message_ids: string[] }[]>();
