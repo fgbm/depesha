@@ -1906,6 +1906,26 @@ impl Store {
             .optional()?)
     }
 
+    /// The snoozes of letters waiting in `folder`, left in place: the caller drops them
+    /// (`snooze_drop_in_folder`) once the letters have really moved.
+    pub fn snoozes_in_folder(&self, account_id: &str, folder: &str, message_ids: &[String]) -> Result<Vec<Snooze>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT account_id, message_id, folder, return_to, until, subject FROM snoozed
+             WHERE account_id = ?1 AND message_id = ?2 AND folder = ?3",
+        )?;
+        let mut found = Vec::new();
+        for message_id in message_ids {
+            if let Some(s) = stmt
+                .query_row(params![account_id, message_id, folder], snooze_row)
+                .optional()?
+            {
+                found.push(s);
+            }
+        }
+        Ok(found)
+    }
+
     /// Forgets the snoozes of letters that waited in `folder` and were moved out of it by
     /// hand: they do not come back on their own at the set time. Returns what was dropped,
     /// so an undo can set it again.

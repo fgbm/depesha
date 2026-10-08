@@ -1240,6 +1240,24 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
     Ok(done)
 }
 
+/// Drops the times of letters `unsnooze` has moved. `moved` is what the server reports
+/// for the whole series: it does not say which letters, so a short count (some were not
+/// found, or went elsewhere) drops nothing. A time that stays is harmless: the scheduler
+/// finds the letter gone from "Snoozed" and removes the time, and one that did not move
+/// still comes back at its time.
+fn drop_unsnoozed(
+    store: &depesha_core::store::Store,
+    account_id: &str,
+    folder: &str,
+    message_ids: &[String],
+    moved: usize,
+) -> depesha_core::Result<()> {
+    if moved >= message_ids.len() {
+        store.snooze_drop_in_folder(account_id, folder, message_ids)?;
+    }
+    Ok(())
+}
+
 /// Brings snoozed mail back before its time: into the folder it was snoozed from, unread
 /// as when the time comes, and the time is dropped. The undo snoozes it again for the same time.
 #[tauri::command]
@@ -1249,8 +1267,10 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
         let (account_id, folder, _) = &key;
         let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
         // By the folder they came from: a series of letters may have come from several.
+        // The times stay in the store until the server has moved the letters: a crash in
+        // between must not leave a letter in "Snoozed" with no time to come back at.
         let mut back: BTreeMap<String, Vec<Snooze>> = BTreeMap::new();
-        for s in state.store.snooze_drop_in_folder(account_id, folder, &message_ids)? {
+        for s in state.store.snoozes_in_folder(account_id, folder, &message_ids)? {
             back.entry(s.return_to.clone()).or_default().push(s);
         }
         for (to, snoozed) in back {
@@ -1272,14 +1292,15 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                     unseen: true,
                 })
                 .await;
-            // Not moved: the times come back, the letters are still snoozed.
-            if !matches!(out, Ok(Output::Count(n)) if n > 0) {
-                for s in &snoozed {
-                    state.store.snooze_add(s)?;
+            // Not moved: the times were never dropped, the letters are still snoozed.
+            let n = match out {
+                Ok(Output::Count(n)) if n > 0 => n,
+                other => {
+                    other?;
+                    continue;
                 }
-                out?;
-                continue;
-            }
+            };
+            drop_unsnoozed(&state.store, account_id, folder, &moved.message_ids, n)?;
             done.push(moved);
         }
     }
@@ -3412,6 +3433,36 @@ mod tests {
         let long = format!("{}.pdf", "я".repeat(300));
         let short = safe_name(&long);
         assert!(short.len() <= 200 && short.ends_with(".pdf"), "{short}");
+    }
+
+    #[test]
+    fn unsnooze_drops_a_time_only_for_a_series_that_moved_whole() {
+        use depesha_core::store::{Snooze, Store};
+        let store = Store::open_in_memory().unwrap();
+        let ids: Vec<String> = vec!["<a@x>".into(), "<b@x>".into()];
+        let fresh = || {
+            for id in &ids {
+                store
+                    .snooze_add(&Snooze {
+                        account_id: "a".into(),
+                        message_id: id.clone(),
+                        folder: "Snoozed".into(),
+                        return_to: "INBOX".into(),
+                        until: 100,
+                        subject: String::new(),
+                    })
+                    .unwrap();
+            }
+        };
+        fresh();
+        // Reading the times drops nothing: a crash before the move leaves them.
+        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 2);
+        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 2);
+        // One letter of two was found: both keep their times.
+        super::drop_unsnoozed(&store, "a", "Snoozed", &ids, 1).unwrap();
+        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 2);
+        super::drop_unsnoozed(&store, "a", "Snoozed", &ids, 2).unwrap();
+        assert!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().is_empty());
     }
 
     #[test]
