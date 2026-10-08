@@ -240,6 +240,54 @@ impl Error {
         }
     }
 
+    /// Worth trying again later rather than giving up on: the errors a return of waiting
+    /// letters meets that say "not now" — the mailbox is paused until its settings are
+    /// fixed, the login was refused, Exchange is busy, the folder is busy or locked
+    /// (`[INUSE]`/`[UNAVAILABLE]`), or a limit was hit. Everything `is_transient` is here.
+    pub fn retry_later(&self) -> bool {
+        if self.is_transient() {
+            return true;
+        }
+        match self {
+            Self::Paused | Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) | Self::Busy { .. } => true,
+            Self::Imap(e) => {
+                let raw = match e {
+                    async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m) => m,
+                    _ => return false,
+                };
+                let upper = raw.to_ascii_uppercase();
+                ["INUSE", "UNAVAILABLE", "OVERQUOTA", "TRYAGAIN", "LIMIT"]
+                    .iter()
+                    .any(|code| upper.contains(code))
+            }
+            Self::Ews { code, .. } => matches!(
+                code.as_str(),
+                "ErrorQuotaExceeded"
+                    | "ErrorExceededConnectionCount"
+                    | "ErrorExceededSubscriptionCount"
+                    | "ErrorExceededFindCountLimit"
+                    | "ErrorMailboxStoreUnavailable"
+            ),
+            _ => false,
+        }
+    }
+
+    /// The server says the folder the letters wait in is gone: no retry can bring them
+    /// back, so the user is told to return them by hand — Exchange's `ErrorFolderNotFound`,
+    /// or an IMAP refusal that names a missing mailbox.
+    pub fn folder_gone(&self) -> bool {
+        match self {
+            Self::Ews { code, .. } => code == "ErrorFolderNotFound",
+            Self::Imap(async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m)) => {
+                let upper = m.to_ascii_uppercase();
+                upper.contains("NONEXISTENT")
+                    || upper.contains("MAILBOX DOES NOT EXIST")
+                    || upper.contains("DOES NOT EXIST")
+            }
+            _ => false,
+        }
+    }
+
     /// Exchange throttles the client (`ErrorServerBusy`): the connection is fine,
     /// the next request must wait (`back_off`).
     pub fn is_busy(&self) -> bool {
@@ -525,5 +573,51 @@ mod tests {
         );
         assert_eq!(Error::Timeout("answer").kind(), "network");
         assert_eq!(Error::Closed.kind(), "network");
+    }
+
+    #[test]
+    fn a_return_of_waiting_letters_waits_out_a_pause_or_a_refusal() {
+        // "Not now" errors: the return is tried again, not given up on.
+        assert!(Error::Paused.retry_later());
+        assert!(Error::Auth("wrong password".into()).retry_later());
+        assert!(
+            Error::Busy {
+                wait: Duration::from_secs(5),
+                retrying: false
+            }
+            .retry_later()
+        );
+        assert!(Error::Timeout("move").retry_later());
+        // RFC 5530 response codes for a folder in use or temporarily unavailable, and limits.
+        assert!(Error::Imap(E::No("code: Some(INUSE), info: Some(\"mailbox in use\")".into())).retry_later());
+        assert!(Error::Imap(E::No("code: Some(UNAVAILABLE), info: Some(\"try later\")".into())).retry_later());
+        assert!(Error::Imap(E::No("code: Some(OVERQUOTA), info: Some(\"over quota\")".into())).retry_later());
+        assert!(
+            Error::Ews {
+                code: "ErrorQuotaExceeded".into(),
+                message: String::new(),
+                back_off: None
+            }
+            .retry_later()
+        );
+        // A refusal that is not one of these is not "try later", and neither is a protocol error.
+        assert!(!Error::Protocol("unexpected".into()).retry_later());
+    }
+
+    #[test]
+    fn a_missing_folder_is_told_from_a_mere_refusal() {
+        assert!(
+            Error::Ews {
+                code: "ErrorFolderNotFound".into(),
+                message: String::new(),
+                back_off: None
+            }
+            .folder_gone()
+        );
+        assert!(Error::Imap(E::No("NO [NONEXISTENT] Mailbox does not exist".into())).folder_gone());
+        // A refusal that does not say the folder is gone is not "gone": it is retried.
+        assert!(!Error::Imap(E::No("code: Some(INUSE), info: Some(\"in use\")".into())).folder_gone());
+        assert!(!Error::Paused.folder_gone());
+        assert!(!Error::Protocol("unexpected".into()).folder_gone());
     }
 }

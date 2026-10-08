@@ -296,7 +296,8 @@ impl Store {
     /// move was still running (`done`) has its letters brought back, not left there.
     pub fn followup_parked(&self, account_id: &str, key: &str, folder: &str) -> Result<()> {
         self.conn().execute(
-            "UPDATE followups SET park = CASE WHEN park = 'done' THEN 'back' ELSE 'parked' END, park_folder = ?3
+            "UPDATE followups SET park = CASE WHEN park = 'done' THEN 'back' ELSE 'parked' END, park_folder = ?3,
+                park_since = CASE WHEN park = 'done' THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
              WHERE account_id = ?1 AND message_id = ?2 AND park IN ('pending', 'done')",
             params![account_id, bare(key), folder],
         )?;
@@ -344,7 +345,8 @@ impl Store {
         self.conn().execute(
             "UPDATE followups SET status = 'closed', ended = ?3,
                 return_to = CASE WHEN park = 'parked' AND ?4 IS NOT NULL THEN ?4 ELSE return_to END,
-                park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END
+                park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END,
+                park_since = CASE WHEN park = 'parked' THEN ?3 ELSE park_since END
              WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting'",
             params![account_id, bare(message_id), now, to],
         )?;
@@ -363,7 +365,8 @@ impl Store {
         )?;
         tx.execute(
             &format!(
-                "UPDATE followups SET park = CASE park WHEN 'parked' THEN 'undo' ELSE 'done' END
+                "UPDATE followups SET park = CASE park WHEN 'parked' THEN 'undo' ELSE 'done' END,
+                    park_since = CASE WHEN park = 'parked' THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
                  WHERE {which} AND park IN ('pending', 'parked')"
             ),
             params![account_id, bare(message_id)],
@@ -414,7 +417,8 @@ impl Store {
             tx.execute(
                 "UPDATE followups SET parked = ?3, park = ?4,
                     ended = CASE WHEN status = 'waiting' THEN ?5 ELSE ended END,
-                    status = CASE WHEN status = 'waiting' THEN 'closed' ELSE status END
+                    status = CASE WHEN status = 'waiting' THEN 'closed' ELSE status END,
+                    park_since = CASE WHEN ?4 = 'back' THEN ?5 ELSE park_since END
                  WHERE account_id = ?1 AND message_id = ?2",
                 params![account_id, key, json_list(&left), park, now],
             )?;

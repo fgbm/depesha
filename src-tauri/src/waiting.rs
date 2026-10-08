@@ -272,6 +272,7 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
         // The mailbox is gone: nothing to bring back.
         Err(_) => return Ok(state.store.followup_moved_back(&job.account_id, &job.key)?),
     };
+    let now = chrono::Utc::now().timestamp();
     let work = Work::MoveByMessageId {
         from: job.from.clone(),
         message_ids: job.message_ids.clone(),
@@ -284,11 +285,21 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
             state.store.followup_moved_back(&job.account_id, &job.key)?;
             state.emit("counters-changed", json!({}));
         }
-        // Offline or paused: the next round tries again.
-        Err(e) if e.is_transient() => {
+        // Offline, paused, refused login, busy server, folder locked, a limit: the next
+        // round tries again — a pause or a wrong password must not lose the letters.
+        Err(e) if e.retry_later() => {
             tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
         }
-        // The folder is gone: the letters cannot be brought back; the user is told to do it.
+        // Any other refusal that does not say the folder is gone is still worth another try.
+        Err(e) if !e.folder_gone() => {
+            tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
+        }
+        // The folder is gone: the letters cannot be brought back. The user is told to do
+        // it by hand, but only once the return has been failing for `GIVE_UP_SECS` — a
+        // momentary bad answer must not turn into a permanent give-up.
+        Err(e) if now - job.since < GIVE_UP_SECS => {
+            tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
+        }
         Err(e) => {
             state.store.followup_return_failed(&job.account_id, &job.key)?;
             state.emit(
