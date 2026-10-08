@@ -229,4 +229,18 @@ describe("the signature in a letter", () => {
     expect(signatureIn(withSignature(emptyDraft(me, "html"), second), list)?.id).toBe(second.id);
     expect(signatureIn(withSignature(emptyDraft(me, "html"), first), list)?.id).toBe(first.id);
   });
+
+  it("finds an image-only signature of a Markdown draft by its HTML part", () => {
+    // A Markdown letter keeps its signature's HTML apart (decision on #67): a picture-only
+    // one has no "-- " in the text, so the block itself is what says which it is.
+    const logo: Signature = { id: "l", name: "Логотип", html: `<div><img src="${LOGO}"></div>`, text: "" };
+    const d = withSignature(emptyDraft(me, "markdown"), logo);
+    expect(d.text).not.toContain("-- ");
+    expect(d.signature).toBe(`<div class="depesha-signature">${logo.html}</div>`);
+    expect(signatureIn(d, [logo])?.id).toBe("l");
+    // A draft opened from the server carries the same block; a changed one is kept as it is.
+    const opened = { ...emptyDraft(me, "markdown"), signature: `<div class="depesha-signature">${logo.html}</div>` };
+    expect(signatureIn(opened, [logo])?.id).toBe("l");
+    expect(signatureIn(opened, [work])?.html).toBe(logo.html);
+  });
 });
