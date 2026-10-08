@@ -22,10 +22,10 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	627	250	93	284
+component	src/components/Preferences.svelte	629	252	93	284
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	331	131	97	103
-component	src/components/RecipientRule.svelte	152	84	18	50
+component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
 component	src/components/RowMenu.svelte	155	96	52	7
@@ -258,7 +258,7 @@ function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
 function	src/components/Preferences.svelte::start	5
 function	src/components/Preferences.svelte::openHit	12
-function	src/components/Preferences.svelte::savePage	11
+function	src/components/Preferences.svelte::savePage	13
 function	src/components/Preferences.svelte::revertPage	14
 function	src/components/Preferences.svelte::save	4
 function	src/components/Preferences.svelte::cancel	5
@@ -456,9 +456,10 @@ function	src/lib/compose.ts::reply	22
 function	src/lib/compose.ts::forwardHeader	11
 function	src/lib/compose.ts::forwardedInside	4
 function	src/lib/compose.ts::forward	13
-function	src/lib/compose.ts::fromDraft	28
+function	src/lib/compose.ts::fromDraft	30
 function	src/lib/compose.ts::isDirty	10
 function	src/lib/compose.ts::takeBodyPictures	6
+function	src/lib/compose.ts::leavingHtml	5
 function	src/lib/compose.ts::partsOf	8
 function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
@@ -743,7 +744,7 @@ function	src/lib/people.ts::findPerson	4
 function	src/lib/people.ts::strictestFormat	3
 function	src/lib/people.ts::sendFormatFor	3
 function	src/lib/people.ts::recipientParts	7
-function	src/lib/people.ts::autoFormat	3
+function	src/lib/people.ts::autoFormat	4
 function	src/lib/people.ts::letterViewFor	4
 function	src/lib/people.ts::hasOwnRule	3
 function	src/lib/people.ts::formatMark	3
@@ -829,6 +830,7 @@ function	src/lib/settingsSearch.ts::words	6
 function	src/lib/settingsSearch.ts::matchesText	5
 function	src/lib/settingsSearch.ts::searchSettings	20
 function	src/lib/settingsWindow.test.ts::num	1
+function	src/lib/settingsWindow.test.ts::fieldsOf	7
 function	src/lib/settingsWindow.ts::traits	3
 function	src/lib/settingsWindow.ts::ownFooter	3
 function	src/lib/settingsWindow.ts::widePage	3
@@ -862,7 +864,7 @@ function	src/lib/signatures.ts::aboveQuote	4
 function	src/lib/signatures.ts::putSignatureHtml	7
 function	src/lib/signatures.ts::putSignatureText	4
 function	src/lib/signatures.ts::withSignature	16
-function	src/lib/signatures.ts::foundSignature	10
+function	src/lib/signatures.ts::foundSignature	16
 function	src/lib/signatures.ts::signatureIn	7
 function	src/lib/sort.test.ts::row	29
 function	src/lib/sort.ts::naturalDesc	3

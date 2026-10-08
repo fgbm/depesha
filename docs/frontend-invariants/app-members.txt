@@ -52,6 +52,7 @@ opening
 openingRow
 outbox
 ownSort
+patchSettings
 remove
 reopenOutbox
 replyTo
