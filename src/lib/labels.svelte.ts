@@ -8,6 +8,11 @@ import { pickAccount } from "./labels";
 import type { AppStore } from "./store.svelte";
 import type { FolderProps, Label, LabelCheck, MessageRow } from "./types";
 
+/** The saved folder properties, kept across windows and restarts (#71). */
+const PROPS_KEY = "depesha.folderProps";
+/** How long a saved copy is trusted before the server is asked again, seconds. */
+const PROPS_TTL = 10 * 60;
+
 class Labels {
   /** Метки каждого ящика, по id. */
   all = $state<Record<string, Label[]>>({});
@@ -127,10 +132,36 @@ class Labels {
   async loadProps(accountId: string, folder: string) {
     const key = this.key(accountId, folder);
     if (key in this.props) return;
+    // The saved cache shows at once; the server is asked only when that cache grew old (#71).
+    const saved = this.savedProps()[key];
+    if (saved) this.props[key] = saved;
+    if (saved && Date.now() / 1000 - saved.checked < PROPS_TTL) return;
     try {
-      this.props[key] = await api.folderProps(accountId, folder);
+      const props = await api.folderProps(accountId, folder);
+      this.props[key] = props;
+      this.rememberProps(key, props);
     } catch (e) {
       this.app?.fail(e, t("folder.propsFailed"));
+    }
+  }
+
+  /** The folder properties saved in the window's storage. */
+  private savedProps(): Record<string, FolderProps> {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const raw = JSON.parse(localStorage.getItem(PROPS_KEY) ?? "{}");
+      return raw && typeof raw === "object" ? (raw as Record<string, FolderProps>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private rememberProps(key: string, props: FolderProps) {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(PROPS_KEY, JSON.stringify({ ...this.savedProps(), [key]: props }));
+    } catch {
+      // A full storage only means the next open reads the server again.
     }
   }
 

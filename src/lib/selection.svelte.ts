@@ -36,6 +36,8 @@ export class SelectionController {
     this.pendingOpen = null;
     if (id !== null) void this.host.reader.open(id);
   }, 120, 400);
+  /** The folder to sync once the clicks stop: the last folder wins (#71). */
+  private syncTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private host: SelectionHost) {}
 
@@ -112,11 +114,26 @@ export class SelectionController {
     this.host.reader.openError = null;
     this.selected = new Set();
     // The list shows the cache at once; fresh mail from the server follows, with the progress line.
-    if (v.kind === "folder") this.host.track(api.syncNow(v.account_id, v.folder)).catch(() => {});
+    if (v.kind === "folder") this.scheduleSync(v.account_id, v.folder);
+    else this.cancelSync();
     await this.host.reload();
     // The folder's rights and labels are read on its opening (#42): quietly from the cache,
     // and from the server when the folder was never checked. No "check all folders" button.
     if (v.kind === "folder") this.host.folderOpened?.(v.account_id, v.folder);
+  }
+
+  /** Syncs a folder only once the user stopped on it: clicking through folders asks for one. */
+  private scheduleSync(accountId: string, folder: string) {
+    this.cancelSync();
+    this.syncTimer = setTimeout(() => {
+      this.syncTimer = null;
+      void this.host.track(api.syncNow(accountId, folder)).catch(() => {});
+    }, 300);
+  }
+
+  private cancelSync() {
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    this.syncTimer = null;
   }
 
   async select(id: number, mode: "single" | "toggle" | "range" = "single", defer = false) {
