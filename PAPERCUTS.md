@@ -302,3 +302,63 @@ e2e-проверка подсветки подписи на прокрученн
 ## 2026-10-08 02:04 — deepseek-v4.1-flash
 
 Снимал кадры к релизу 0.7.0 (`scripts/release-shots.sh`) с русскими именами файлов (`01-фон-и-запуск.png`) → при загрузке картинок к релизу на GitHub кириллица из имён вырезается, остаются точки: `01-.-.-.png`, и ссылки в описании приходится переписывать на уже загруженные имена. Fix: имена кадров к релизу — только латиница (`01-background.png`), тогда GitHub сохраняет их как есть.
+
+## 2026-10-08 07:30 — deepseek-v4.1-flash
+
+Писал в санитайзере нормализацию URL `value.replace(/[\u0000-\u0020\\]/g, …)` → eslint `no-control-regex` роняет `check.sh --fast`. Fix: заменить регэксп на цикл по символам (`codePointAt`), тогда управляющие символы фильтруются без литералов в паттерне.
+
+## 2026-10-08 08:15 — deepseek-v4.1-flash
+
+Копировал `target` из основного чекаута в новый worktree (`cp -a --reflink=auto target ./target`) → reflink между каталогами одного ZFS-датасета (`rpool/USERDATA/home_0gjn2n`) не сработал: `df` до/после показал рост «Использовано» на ~49 ГБ, то есть скопировалось целиком, вопреки записи от 2026-10-05. Fix: перед копированием сверять `df`; при нескольких параллельных worktree (48 ГБ × N) не копировать `target` целиком, а делить `CARGO_TARGET_DIR` основного дерева.
+
+## 2026-10-08 07:38 — deepseek-v4.1-flash
+
+Разбивал правки по находкам ревью на пару коммитов `test:` → `fix:` → тесты ссылаются на новые сигнатуры и поля (`missed(…, awake_since)`, `resolve(…, find_in)`, `OutboxItem.sending_started`), поэтому `test:`-коммит не собирается, и «сначала падает» превращается в красную сборку; а когда находки переплетены в одних файлах (background.rs, outbox.rs, desktop_notify.rs, store.rs), по файлам их не разделить. Fix: тест и правку, меняющую API, коммитить вместе (или заводить тест на существующем API), а `test:`/`fix:` делить только там, где тест собирается до правки.
+
+## 2026-10-08 08:12 — deepseek-v4.1-flash
+
+Запустил e2e из worktree fix-c на общем стенде → на середине прогона шаги 3.5/5.1/5.3 упали с `ConnectionRefused` на GreenMail (3143), прогон остановился на 35/39; `docker ps` показал `depesha-greenmail-1 Up 2 minutes` — параллельная сессия сделала `docker compose --force-recreate` прямо во время прогона. Fix: полный e2e на общем стенде запускать, только убедившись, что рядом нет живой параллельной сессии (или поднимать свой project name/порты), а падение e2e по `ConnectionRefused` к контейнеру не приписывать своим правкам.
+
+## 2026-10-08 08:12 — deepseek-v4.1-flash
+
+Ждал освобождения e2e-портов чужим фоновым циклом → `pgrep -af "e2e/run.mjs|WebKitWebDriver|tauri-driver"` показывает сам процесс-ожидатель (его командная строка содержит шаблон), а его условие `pgrep -f "e2e/run.mjs"` матчит себя же и висит вечно при свободных портах. Fix: в шаблонах ожидания исключать себя (`pgrep -f … | grep -v $$`) или проверять занятость через `ss -ltn`.
+
+## 2026-10-08 09:15 — deepseek-v4.1-flash
+
+Собирал `cargo test -p depesha --lib` из своего worktree с общим `CARGO_TARGET_DIR=/home/vch/Projects/depesha/target` (ветка с правками `depesha-core`) → cargo подхватил артефакт `depesha-core`, собранный параллельным агентом из другой ветки (без новых методов), и сборка упала с «no method named followup_reparked» и help-ссылкой на строки чужого файла, хотя `cargo check` в тот же момент проходил. Fix: перед сборкой `touch crates/depesha-core/src/lib.rs`, чтобы форсировать пересборку ядра из своего дерева; при расхождении ядра между параллельными worktree общий target опасен.
+
+## 2026-10-08 08:48 — deepseek-v4.1-flash
+
+Прогон `scripts/check.sh --fast` из worktree с общим `CARGO_TARGET_DIR` → clippy падал на `commands.rs` «expected Vec<String>, found integer»: `depesha-core` из общего target пересобирался параллельной веткой с другой сигнатурой, и `touch` ядра помогало лишь до следующей чужой сборки. Fix: не только `touch`, но и `CARGO_INCREMENTAL=0` (общий `target/debug/incremental` тоже делится между worktree) и `cargo clean -p depesha-core -p depesha` перед проверкой.
+
+## 2026-10-08 09:20 — deepseek-v4.1-flash
+
+Параллелил фоновую работу по ящикам в `src-tauri` через `futures::stream::buffer_unordered` → `futures` не в зависимостях `src-tauri` (есть только в `depesha-core`), `cargo check` упал на «unresolved module futures». Fix: без новой зависимости — `tokio::task::JoinSet` со `spawn` (нужен `Arc<AppState>` и `'static`-фьючеры) и общий помощник `run_bounded`, ограничивающий число задач сразу.
+
+## 2026-10-08 09:08 — deepseek-v4.1-flash
+
+Проверял страницу настроек «Люди» в браузере на vite dev-сервере без Tauri → приложение падает в `getCurrentWindow` и в `t()`: `@tauri-apps/api` v2 ждёт `window.__TAURI_INTERNALS__` с `metadata.currentWindow.label` и `transformCallback`, а язык читается командой `language` — без неё `dicts[i18n.lang]` undefined и весь UI в ошибках. Fix: мок `__TAURI_INTERNALS__` (metadata + invoke для settings_get/language/people/accounts) через `page.addInitScript`; иначе вкладка настроек не открывается из-за мастера при пустом списке ящиков.
+
+## 2026-10-08 09:08 — deepseek-v4.1-flash
+
+Поле поиска в меню настроек обрезало подсказку «Найти настройку» → `input[type=search]` в Chromium резервирует ~13 px под кнопку очистки, поэтому `scrollWidth` больше ширины текста, и `appearance: none` на самом поле это не убирает. Fix: ещё `::-webkit-search-cancel-button, ::-webkit-search-decoration { appearance: none }`.
+
+## 2026-10-08 09:08 — deepseek-v4.1-flash
+
+Гонял e2e из worktree дважды подряд → второй прогон без `docker compose --force-recreate` и `imap_helper.py seed` упал на 3.1–3.3/6.5/3.4 «timeout waiting for folders/row» (остатки пользователей и ящиков GreenMail). Fix: перед каждым прогоном пересоздавать стенд и сеять заново, как в `check.sh`. Заодно: в двух прогонах на чистом стенде падал ровно один РАЗНЫЙ шаг с «timeout waiting for row» (9.2, затем 3.6/3.8/5.4) — это флак отрисовки списка, не правка.
+
+## 2026-10-08 09:54 — deepseek-v4.1-flash
+
+Фронтендовая правка (метки #42) без единой строки Rust → `scripts/check.sh --fast` падает на «метрики фронтенда» (РОСТ компонентов/функций) и «инварианты фронтенда» (новые t-ключи, компонент, член `app.*`). Fix: после правки прогнать `scripts/frontend-metrics.sh --save docs/frontend-metrics-baseline.txt` и `scripts/frontend-invariants.sh --save`, иначе рост и дрейф считаются регрессией. Оба бейзлайна — общие для веток, при параллельных агентах их правки конфликтуют при слиянии.
+
+## 2026-10-08 09:54 — deepseek-v4.1-flash
+
+Нужен был e2e-прогон из своего worktree, но общий стенд (docker-порты 3143/31143 + WebKitWebDriver 4445) был занят по кругу параллельными агентами: ждал освобождения суммарно ~55 мин (`pgrep -f e2e/run.mjs`), но F и I запускали прогоны один за другим, каждый держит стенд 20–40 мин (`timeout 2400`). Fix: при нескольких параллельных агентах, гоняющих e2e, шанса на свободный стенд практически нет — либо поднимать свой project name/порты и править порты в `run.mjs`, либо оставить e2e невыполненным и опираться на `check.sh --fast` (он полностью зелёный). Ожидание в цикле не помогает: окно между прогонами меньше секунд.
+
+## 2026-10-08 11:40 — deepseek-v4.1-flash
+
+Писал e2e-шаг: сеял 60 писем и ждал `document.querySelectorAll('.list .row').length >= 40` → список виртуализирован, в DOM только видимые строки (~20), условие не выполнялось никогда, шаг падал по таймауту. Fix: считать письма через `invoke("messages", { query })`, а по DOM проверять лишь наличие строк.
+
+## 2026-10-08 11:55 — deepseek-v4.1-flash
+
+Мерил «до/после» на уровне приложения: `git checkout <base> -- crates src-tauri`, сборка, прогон e2e, затем `git checkout HEAD -- crates src-tauri` → файл, добавленный моими коммитами, но отсутствующий в base (`tests/move_burst.rs`), checkout не удаляет (он обновляет только существующие пути), поэтому «до»-сборка его сохраняла. Для теста это безвредно, но при откате к base нужно помнить, что новые файлы остаются.
