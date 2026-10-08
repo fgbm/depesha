@@ -1686,6 +1686,29 @@ try {
     });
   });
 
+  await step("2.4", "«Вернуть сейчас»: «w» возвращает отложенное письмо в «Входящие», «z» откладывает обратно", async () => {
+    const subj = `Вернуть ${stamp}`;
+    helper("deliver", subj);
+    await d.button("Входящие");
+    await rowBySubject(subj, 30000);
+    await invoke("snooze", { ids: [await idOf(subj)], until: Math.floor(Date.now() / 1000) + 86400 });
+    await d.until("in Snoozed on server", async () => helper("count", "Отложенные", subj) === "1", 20000);
+    await d.button("Отложенные");
+    await openBySubject(subj);
+    await d.until("banner button", async () => (await textOf(".reader")).includes("Вернуть сейчас"));
+    await press("w");
+    await d.until("back in inbox on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
+    await d.until("toast", async () => (await textOf(".toasts")).includes(`Возвращено во «Входящие»: ${subj}`));
+    // The undo snoozes it again, for the same time.
+    await press("z");
+    await d.until("snoozed again", async () => helper("count", "Отложенные", subj) === "1" && helper("count", "INBOX", subj) === "0", 20000);
+    // Put things in order: back to the inbox for the steps that follow.
+    await d.button("Отложенные");
+    await openBySubject(subj);
+    await press("w");
+    await d.until("inbox again", async () => helper("count", "INBOX", subj) === "1", 20000);
+  });
+
   await step("4.12", "письмо с Markdown-частью: переключатель «HTML · Markdown · Текст», задачи галочками, настройка «Показывать письма»", async () => {
     const subj = `Заметки ${stamp}`;
     helper("deliver-markdown", subj);
