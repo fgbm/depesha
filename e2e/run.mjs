@@ -1845,15 +1845,16 @@ try {
     await closeSettings();
   });
 
-  await step("7.12", "окно настроек: поиск находит настройку и открывает страницу на поле", async () => {
+  await step("7.21", "окно настроек: поиск находит настройку и открывает страницу на поле", async () => {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    // The window is as big as the expanded letter: up to 1040 px wide, centered, by 32 px
-    // from the top and bottom of the window.
+    // The settings window (#68) is wider than the letter since 0.7.1: up to 1280 px, but the
+    // test window (1280 px wide) is narrower than that plus the gaps, so it fills the width.
     const box = await d.exec(
-      "const r = document.querySelector('.prefs').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), sym: Math.abs(r.left - (window.innerWidth - r.right)) < 1 };",
+      "const r = document.querySelector('.prefs').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), inner: window.innerWidth, sym: Math.abs(r.left - (window.innerWidth - r.right)) < 1 };",
     );
-    if (box.w !== 1040) throw new Error(`ширина окна настроек: ${box.w}, а не 1040`);
+    const want = Math.min(1280, box.inner - 64);
+    if (box.w !== want) throw new Error(`ширина окна настроек: ${box.w}, а не ${want}`);
     if (box.top !== 32) throw new Error(`отступ сверху: ${box.top}, а не 32`);
     if (box.h !== (await d.exec("return window.innerHeight")) - 64) throw new Error(`высота окна настроек: ${box.h}`);
     if (!box.sym) throw new Error("окно настроек не по центру по ширине");
@@ -2168,7 +2169,7 @@ try {
     await screenshot("unified-two-accounts");
   });
 
-  await step("7.21", "зажатый e: серия архивирований не морозит другой ящик", async () => {
+  await step("7.22", "зажатый e: серия архивирований не морозит другой ящик", async () => {
     // Both mailboxes are up here (bob goes away only at 8.2). A series to triage in Carol's
     // inbox, then a held "e": a press every ~35 ms, as the keyboard's auto-repeat does.
     const carol = (await invoke("accounts")).find((a) => a.email === "carol@local.test");
