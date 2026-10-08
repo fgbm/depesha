@@ -13,9 +13,11 @@ export { default as Select } from "../components/Select.svelte";
 /** A key as menus and the palette show it, `e у`: `key="Mod+k"`, or `of` a command's key. */
 export { default as Keys } from "../components/Keys.svelte";
 export { fromLocalInput, sendLaterPresets, snoozePresets, toLocalInput, when, type Preset } from "../lib/later";
+export { DEFAULT_WORK_TIME, formatClock, parseClock, type Clock, type WorkTime } from "../lib/workTime";
 export { addrName, listDate, matches, roleLabel, size } from "../lib/format";
 export type { FileViewer, ViewedFile } from "../lib/viewer";
 import type { FileViewer } from "../lib/viewer";
+import type { WorkTime } from "../lib/workTime";
 
 export type Lang = "en" | "ru";
 
@@ -255,6 +257,9 @@ export interface PluginContext {
   openLink(url: string): void;
   toast(text: string, opts?: { error?: boolean; action?: { label: string; run: () => void }; ms?: number }): void;
   fail(e: unknown, prefix?: string): void;
+
+  /** The user's day from Settings → General: when the day and the evening begin, the working days. Reactive. */
+  workTime(): WorkTime;
 
   /** Per-plugin settings, kept with the app settings. Reactive. */
   settings: {

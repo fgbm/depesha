@@ -8,6 +8,7 @@ import { call } from "../lib/api";
 import { i18n } from "../lib/i18n.svelte";
 import { app } from "../lib/store.svelte";
 import { coreCommands } from "../lib/commands";
+import { workTimeFrom } from "../lib/workTime";
 import { shortcuts } from "../lib/shortcuts.svelte";
 import { registry } from "./registry.svelte";
 
@@ -97,6 +98,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     openLink: (url) => app.openLink(url),
     toast: (text, o) => app.toast(text, o?.error ?? false, o?.action, o?.ms),
     fail: (e, prefix) => app.fail(e, prefix),
+    workTime: () => workTimeFrom(app.settings),
     settings: {
       get: <T>(key: string, fallback: T) => (key in own() ? (own()[key] as T) : fallback),
       set: (key, value) => app.savePluginSettings(id, { ...own(), [key]: value }),
