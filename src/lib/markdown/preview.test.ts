@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { markdownSupport } from "./dialect";
-import { previewPieces, type Piece, type PreviewOptions } from "./preview";
+import { isOwnPicture, previewPieces, type Piece, type PreviewOptions } from "./preview";
 
 /** A letter with the caret where `‸` stands (two of them: a selection). */
 function stateOf(marked: string): EditorState {
@@ -122,5 +122,17 @@ describe("Live Preview: the blocks of a letter", () => {
     const pieces = previewPieces(stateOf("# А **б**\n- [ ] *в*\n> `г`\n‸"), { focused: true, markup: false });
     const starts = pieces.map((p) => ("at" in p ? p.at : p.from));
     expect(starts).toEqual([...starts].sort((a, b) => a - b));
+  });
+});
+
+describe("what the editor draws in place of a picture", () => {
+  it("draws a picture of the letter's own, not a remote one", () => {
+    expect(isOwnPicture("data:image/png;base64,AA")).toBe(true);
+    expect(isOwnPicture("cid:part1@example")).toBe(true);
+    expect(isOwnPicture("blob:http://localhost/abc")).toBe(true);
+    expect(isOwnPicture("https://tracker.example/p.gif")).toBe(false);
+    expect(isOwnPicture("http://tracker.example/p.gif")).toBe(false);
+    expect(isOwnPicture("//tracker.example/p.gif")).toBe(false);
+    expect(isOwnPicture("p.gif")).toBe(false);
   });
 });
