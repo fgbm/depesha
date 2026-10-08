@@ -50,9 +50,9 @@ export function widePage(page: string): boolean {
 
 /** The settings a core page owns; a page not listed (a mailbox, a plugin) saves itself. */
 export const PAGE_KEYS: Record<string, string[]> = {
-  general: ["language", "theme"],
+  general: ["language", "theme", "hints"],
   updates: ["updates"],
-  mail: ["threads", "sender_logos", "compose_format", "default_account_id", "letter_view", "attachments_dir", "undo_send_secs"],
+  mail: ["threads", "sender_logos", "compose_format", "image_max_px", "default_account_id", "letter_view", "attachments_dir", "undo_send_secs"],
   notifications: ["notify", "quota_warn", "quota_levels", "quota_repeat"],
   background: ["close_action", "background_without_tray", "autostart", "tray_count", "tray_always"],
   offline: ["offline", "offline_attachments"],
