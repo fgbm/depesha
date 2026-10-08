@@ -590,14 +590,30 @@ mod tests {
     fn makes_a_label_keyword_from_its_name() {
         assert_eq!(keyword_of("Счета"), keyword_of("Счета"));
         assert!(keyword_of("Счета").starts_with("depesha-"));
-        assert_eq!(keyword_of("Client North"), "depesha-client-north");
-        assert_eq!(keyword_of("client_north"), "depesha-client-north");
+        // A name already in its canonical spelling keeps the plain slug.
+        assert_eq!(keyword_of("client-north"), "depesha-client-north");
         assert_ne!(keyword_of("Счета"), keyword_of("Счёты"));
         // A keyword is an atom: no spaces, quotes or backslashes.
         for name in ["Счета", "Client North", "Клиент Север"] {
             let k = keyword_of(name);
             assert!(k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'), "{k}");
         }
+    }
+
+    /// Two names that only differ in case or separators slug the same. The keyword must
+    /// not: one keyword on a letter is one label, so removing one would remove the other.
+    #[test]
+    fn names_that_only_differ_in_separators_get_their_own_keywords() {
+        for (a, b) in [("Work", "work"), ("a b", "a-b"), ("Client North", "client_north")] {
+            assert_ne!(keyword_of(a), keyword_of(b), "{a} / {b}");
+        }
+        // Old keys of 0.7.0 still read: the name is found by the keyword kept with the label.
+        let old = Label {
+            name: "Client North".into(),
+            keyword: "depesha-client-north".into(),
+            color: String::new(),
+        };
+        assert_eq!(label_names(&["depesha-client-north".into()], &[old]), ["Client North"]);
     }
 
     #[test]

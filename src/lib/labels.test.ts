@@ -126,11 +126,21 @@ describe("группировка общих папок по владельцу",
 });
 
 describe("метки: ключи и ярлыки", () => {
-  it("ключ метки из имени: латиница — слаг, кириллица — устойчивый хеш", () => {
-    expect(keywordForName("Client North")).toBe("depesha-client-north");
+  it("ключ метки из имени: канонический слаг, иначе слаг с хешем, кириллица — хеш", () => {
+    expect(keywordForName("client-north")).toBe("depesha-client-north");
     expect(keywordForName("Счета")).toBe(keywordForName("Счета"));
     expect(keywordForName("Счета")).toMatch(/^depesha-[0-9a-f]{8}$/);
     expect(keywordForName("Счета")).not.toBe(keywordForName("Счёты"));
+  });
+
+  it("имена, различающиеся лишь регистром или разделителями, получают разные ключи", () => {
+    for (const [a, b] of [
+      ["Work", "work"],
+      ["a b", "a-b"],
+      ["Client North", "client_north"],
+    ]) {
+      expect(keywordForName(a)).not.toBe(keywordForName(b));
+    }
   });
 
   it("ключ — атом, без пробелов и кавычек", () => {
