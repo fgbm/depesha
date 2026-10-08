@@ -15,12 +15,13 @@ import {
   widePage,
 } from "./settingsWindow";
 
-// The settings window of 0.7 (#68): the size it shares with the expanded letter, the column a
-// page keeps to, what a page says about itself and how leaving a page with unsaved changes is
-// settled. The numbers agree with the CSS variables in src/app.css, which this checks.
+// The settings window of 0.7 (#68): its own size (wider than the expanded letter since 0.7.1),
+// the column a page keeps to, what a page says about itself and how leaving a page with
+// unsaved changes is settled. The numbers agree with the CSS variables in src/app.css, which
+// this checks.
 
 describe("the size of the window", () => {
-  it("is as big as the expanded letter: up to 1040 wide, the height minus the gap", () => {
+  it("is 1280 wide since 0.7.1, the letter staying at 1040, the height minus the gap", () => {
     expect(WIN_MAX).toBe(1040);
     expect(WIN_GAP).toBe(32);
     expect(MENU_WIDTH).toBe(220);
@@ -30,6 +31,8 @@ describe("the size of the window", () => {
   it("agrees with the CSS variables the window is drawn with", () => {
     const css = readFileSync(fileURLToPath(new URL("../app.css", import.meta.url)), "utf-8");
     const num = (name: string) => Number(new RegExp(`--${name}:\\s*(\\d+)px`).exec(css)?.[1]);
+    // The settings window has its own, wider limit since 0.7.1; the letter keeps 1040.
+    expect(num("prefs-max")).toBe(1280);
     expect(num("win-max")).toBe(WIN_MAX);
     expect(num("win-gap")).toBe(WIN_GAP);
     expect(num("menu-width")).toBe(MENU_WIDTH);
