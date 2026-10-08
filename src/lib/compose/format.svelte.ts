@@ -7,9 +7,9 @@
 
 import { onMount, untrack } from "svelte";
 import { api } from "../api";
-import { convertDraft, losesFormatting } from "../compose";
+import { convertDraft, leavingHtml, losesFormatting } from "../compose";
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlHasOwnText, htmlToText, letterText, splitHtmlQuote } from "../richtext";
-import { picturesSize, type Picture } from "../images";
+import { pictureName, picturesSize, type Picture } from "../images";
 import {
   defaultSignature,
   hasHtmlSignature,
@@ -85,6 +85,8 @@ export class ComposeFormat {
   switching = $state(false);
   /** Entering the body of a fresh message puts the caret above the signature, once. */
   private placed = false;
+  /** The letter as it was before the recipient rule took it over, to put it back whole (#44). */
+  private ruleBefore: ComposeDraft | null = null;
 
   constructor(host: ComposeFormatHost) {
     this.host = host;
@@ -249,6 +251,15 @@ export class ComposeFormat {
     return this.format === "html" ? htmlHasOwnText(this.htmlBody) : this.head.trim().length > 0;
   }
 
+  /**
+   * Whether the letter already carries an HTML quote (a reply or a forward). The format
+   * rule of #44 never takes such a letter over silently: rewriting the quote would lose
+   * its formatting and pictures (frame 12А); the quiet line only offers the switch.
+   */
+  get hasHtmlQuote(): boolean {
+    return this.format === "html" && splitHtmlQuote(this.htmlBody).quote.trim().length > 0;
+  }
+
   /** The mailbox's signatures in the settings; a letter's own window has no settings. */
   get signatureSettings(): (() => void) | undefined {
     return this.host.windowOf === null ? () => this.host.openSettings(`account:${this.host.win.account_id}`, "letters") : undefined;
@@ -329,9 +340,13 @@ export class ComposeFormat {
       const current = $state.snapshot(win.draft) as ComposeDraft;
       const from = this.format;
       const before = { ...current, attachments: [...current.attachments] };
+      // Leaving HTML, the pictures inside the letter go as files, or they would be lost
+      // (a forward carries the forwarded letter's pictures inside it).
+      const { draft: source, pictures } = leavingHtml(current, next);
       this.markup = false;
-      const d = await convertDraft(current, next, $state.snapshot(this.signature) as Signature | null, (text) => api.markdownHtml(text));
+      const d = await convertDraft(source, next, $state.snapshot(this.signature) as Signature | null, (text) => api.markdownHtml(text));
       // Attached once the letter is rewritten: a failure leaves the pictures in its text alone.
+      if (pictures.length) await this.attachPictures(pictures);
       if (d.format === "html") {
         this.htmlBody = d.html ?? "";
         this.plainOfHtml = d.text;
@@ -351,6 +366,40 @@ export class ComposeFormat {
       this.host.fail(e);
     } finally {
       this.switching = false;
+    }
+  }
+
+  /**
+   * The format the rule of the recipients asks for (#44): the letter before the switch is
+   * kept, so «return» puts the source back whole instead of converting back from text.
+   */
+  async ruleFormat(next: BodyFormat) {
+    if (next === this.format) return;
+    const win = this.host.win;
+    const before = { ...($state.snapshot(win.draft) as ComposeDraft), attachments: [...win.draft.attachments] };
+    await this.setFormat(next);
+    this.ruleBefore = this.format === next ? before : null;
+  }
+
+  /** Back to the format the mailbox writes in, as the letter was before the rule took it over. */
+  ruleReturn(mailbox: BodyFormat) {
+    const before = this.ruleBefore;
+    this.ruleBefore = null;
+    if (before) this.restore(before);
+    else void this.setFormat(mailbox);
+  }
+
+  /** The letter's own pictures taken out of its HTML: they go as files, none is lost. */
+  private async attachPictures(pictures: Picture[]) {
+    let n = 0;
+    for (const p of pictures) {
+      const name = pictureName(p.mime, ++n);
+      try {
+        const path = await api.tempAttachment(name, p.base64);
+        this.host.win.draft.attachments.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
+      } catch (e) {
+        this.host.fail(e);
+      }
     }
   }
 

@@ -20,7 +20,9 @@
     bcc,
     format,
     empty,
+    quote,
     onFormat,
+    onBack,
   }: {
     accountId: string;
     to: Addr[];
@@ -29,7 +31,11 @@
     format: BodyFormat;
     /** The letter has no words of its own yet: signature and quote aside (#44, frame 12А). */
     empty: boolean;
+    /** The letter already carries an HTML quote (a reply or a forward): the rule never takes it over silently. */
+    quote: boolean;
     onFormat: (f: BodyFormat) => void;
+    /** Back to the mailbox's own format, the letter restored as it was before the rule took it. */
+    onBack: (mailbox: BodyFormat) => void;
   } = $props();
 
   /** The format the rule made the window take; null when nothing was switched by a rule. */
@@ -62,9 +68,10 @@
 
   // The silent switch of frame 12А: only while the letter has no words of its own, only
   // from the mailbox's own format (so a change made by hand is left alone), and only once.
+  // A letter that already carries a quote is never taken over: `autoFormat` leaves it alone.
   $effect(() => {
     if (optedOut || byRule !== null || !empty || format !== mailbox) return;
-    const next = autoFormat(format, rule.parts);
+    const next = autoFormat(format, rule.parts, quote);
     if (next) {
       byRule = next;
       onFormat(next);
@@ -80,7 +87,7 @@
     optedOut = true;
     closed = true;
     byRule = null;
-    onFormat(mailbox);
+    onBack(mailbox);
   }
 </script>
 

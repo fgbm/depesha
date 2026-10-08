@@ -448,7 +448,7 @@
       />
     {/if}
 
-    <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} empty={!fmt.hasOwnText} onFormat={(f) => void m.setFormat(f)} />
+    <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} empty={!fmt.hasOwnText} quote={fmt.hasHtmlQuote} onFormat={(f) => void fmt.ruleFormat(f)} onBack={(f) => fmt.ruleReturn(f)} />
 
     {#if m.format !== "html" && m.quote}
       <div class="quote" class:open={m.quoteOpen}>

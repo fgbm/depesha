@@ -83,9 +83,13 @@ export function recipientParts(people: Person[], addresses: string[], mailbox: B
 /**
  * The format the window switches to on its own for these recipients, or null to keep the
  * one it is already in. Only the strictest rule, plain text, takes the formatting away
- * silently: it is the one that would be lost unseen (#44, frame 13).
+ * silently: it is the one that would be lost unseen (#44, frame 13). A letter that already
+ * carries a quote — a reply or a forward — is left alone whatever it has typed: rewriting
+ * the quoted letter would lose its formatting and pictures, so the line only offers the
+ * switch instead.
  */
-export function autoFormat(current: BodyFormat, parts: BodyFormat): BodyFormat | null {
+export function autoFormat(current: BodyFormat, parts: BodyFormat, hasQuote = false): BodyFormat | null {
+  if (hasQuote) return null;
   return parts === "plain" && current !== "plain" ? "plain" : null;
 }
 

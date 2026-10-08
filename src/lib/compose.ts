@@ -223,6 +223,18 @@ export function takeBodyPictures(html: string): { html: string; pictures: Pictur
   return { html: above.html + sigBlock + below.html, pictures: [...above.pictures, ...below.pictures] };
 }
 
+/**
+ * The letter as it goes into another format when it leaves HTML, and the pictures its HTML
+ * carried, which become files of the letter rather than being lost. A forward carries the
+ * forwarded letter's pictures inside it (`forwardedInside`); the signature's own pictures
+ * stay with its block. Staying in HTML, nothing is taken.
+ */
+export function leavingHtml(d: ComposeDraft, to: BodyFormat): { draft: ComposeDraft; pictures: Picture[] } {
+  if ((d.format ?? "plain") !== "html" || to === "html") return { draft: d, pictures: [] };
+  const { html, pictures } = takeBodyPictures(d.html ?? "");
+  return { draft: { ...d, html }, pictures };
+}
+
 /** A letter split into what is typed and the quote; the signature between them is left out. */
 function partsOf(d: ComposeDraft): { body: string; quote: string } {
   if (d.format === "html") {
