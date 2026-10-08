@@ -292,13 +292,21 @@ async fn a_message_id_search_is_exact() {
         )
         .into_bytes()
     };
-    imap::append(&mut conn, "INBOX", &raw("abc@example.org"), "").await.unwrap();
-    imap::append(&mut conn, "INBOX", &raw("1abc@example.org"), "").await.unwrap();
+    imap::append(&mut conn, "INBOX", &raw("abc@example.org"), "")
+        .await
+        .unwrap();
+    imap::append(&mut conn, "INBOX", &raw("1abc@example.org"), "")
+        .await
+        .unwrap();
 
     let found = imap::find_by_message_id(&mut conn, "INBOX", "abc@example.org")
         .await
         .unwrap();
-    assert_eq!(found.len(), 1, "the substring match is narrowed to an exact Message-ID: {found:?}");
+    assert_eq!(
+        found.len(),
+        1,
+        "the substring match is narrowed to an exact Message-ID: {found:?}"
+    );
     // An empty id matches every letter; one without @ cannot be a Message-ID.
     assert!(
         imap::find_by_message_id(&mut conn, "INBOX", "")

@@ -166,14 +166,7 @@ impl Store {
         while let Some((row, message_id, reply_to)) = frontier.pop() {
             let found: Vec<(i64, String, Option<String>, i64, bool, Option<String>)> = neighbours
                 .query_map(params![account_id, inbox, row, reply_to, message_id], |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                        r.get(5)?,
-                    ))
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
                 })?
                 .collect::<rusqlite::Result<_>>()?;
             for (nid, nmid, nreply, ndate, seen, nfrom) in found {
@@ -380,7 +373,13 @@ impl Store {
     /// waits whose letters they were. A wait is over only when none of its letters is left
     /// in the folder; the rest are set to come back rather than staying there for good.
     /// Returns the Message-ID of every wait touched, so an undo can park it again.
-    pub fn followups_left(&self, account_id: &str, folder: &str, message_ids: &[String], now: i64) -> Result<Vec<String>> {
+    pub fn followups_left(
+        &self,
+        account_id: &str,
+        folder: &str,
+        message_ids: &[String],
+        now: i64,
+    ) -> Result<Vec<String>> {
         let moved: HashSet<&str> = message_ids.iter().map(|m| bare(m)).collect();
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -984,7 +983,10 @@ mod tests {
         let (_, second) = waiting(&store, 0);
         // "Done" on one letter of the chain: the rest must not stay in the folder.
         assert_eq!(
-            store.followups_left("a", WAIT, &["q1@x".into()], SENT + 10).unwrap().len(),
+            store
+                .followups_left("a", WAIT, &["q1@x".into()], SENT + 10)
+                .unwrap()
+                .len(),
             1
         );
         let jobs = store.park_jobs().unwrap();
