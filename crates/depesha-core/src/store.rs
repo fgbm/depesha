@@ -56,6 +56,7 @@ const MIGRATIONS: &[Step] = &[
     people::v13_people_and_hints,
     people::v14_hint_counts,
     labels::v15_folder_props_label_check,
+    v16_folder_counters,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -423,6 +424,39 @@ fn count_threads(which: &str) -> String {
              FROM messages x JOIN folders f ON f.account_id = x.account_id AND f.name = x.folder
              WHERE {which} GROUP BY x.account_id, x.thread;"
     )
+}
+
+/// 16: the counts a folder shows (`total`, `unread`) are kept beside it and updated by
+/// triggers, not counted over every message at each ask. `folders` is asked on every
+/// change and by the tray, and the scan held the cache while it ran; on a large mailbox
+/// that stalled the other mailboxes. The counters are recomputed once here.
+fn v16_folder_counters(conn: &Connection) -> Result<()> {
+    add_column(conn, "folders", "total", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "folders", "unread", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch(
+        "UPDATE folders SET
+             total = (SELECT COUNT(*) FROM messages m
+                      WHERE m.account_id = folders.account_id AND m.folder = folders.name),
+             unread = (SELECT COALESCE(SUM(m.seen = 0), 0) FROM messages m
+                       WHERE m.account_id = folders.account_id AND m.folder = folders.name);
+
+         -- A message cached, gone, or read elsewhere moves the folder's counters with it.
+         -- `insert_message` upserts, so a new row fires the insert trigger and a changed
+         -- one the `seen` trigger; deletes (expunges, moves, a cleared folder) fire theirs.
+         CREATE TRIGGER IF NOT EXISTS messages_count_insert AFTER INSERT ON messages BEGIN
+             UPDATE folders SET total = total + 1, unread = unread + (new.seen = 0)
+             WHERE account_id = new.account_id AND name = new.folder;
+         END;
+         CREATE TRIGGER IF NOT EXISTS messages_count_delete AFTER DELETE ON messages BEGIN
+             UPDATE folders SET total = total - 1, unread = unread - (old.seen = 0)
+             WHERE account_id = old.account_id AND name = old.folder;
+         END;
+         CREATE TRIGGER IF NOT EXISTS messages_count_seen AFTER UPDATE OF seen ON messages BEGIN
+             UPDATE folders SET unread = unread + (new.seen = 0) - (old.seen = 0)
+             WHERE account_id = new.account_id AND name = new.folder;
+         END;",
+    )?;
+    Ok(())
 }
 
 fn user_version(conn: &Connection) -> Result<i64> {
@@ -869,6 +903,11 @@ pub struct NewMessage<'a> {
 
 pub struct Store {
     conn: Mutex<Connection>,
+    /// A second connection the heavy reads use (list, search, folders). In WAL mode it
+    /// reads the cache while a sync writes it, so a long read never holds the writer's
+    /// lock and the other mailboxes keep answering. None for an in-memory cache, which
+    /// has no file to open again: its reads share the writer's connection.
+    read: Option<Mutex<Connection>>,
     /// Flags changed here and not yet stored on the server: a sync in between
     /// must not bring the old value back.
     pending: Mutex<HashMap<(String, String, u32), PendingFlags>>,
@@ -905,6 +944,24 @@ impl Drop for ConnGuard<'_> {
     }
 }
 
+/// SQLite's lower() and LIKE fold only ASCII: "иван" would not find "Иван". Every
+/// connection that runs a search needs it, the read one included.
+fn register_fold(conn: &Connection) -> Result<()> {
+    conn.create_scalar_function(
+        "fold",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|s| s.to_lowercase())),
+    )?;
+    Ok(())
+}
+
+/// The read connection: the same settings and the `fold` function, and nothing that writes.
+fn prepare_read(conn: &Connection) -> Result<()> {
+    conn.execute_batch(PRAGMAS)?;
+    register_fold(conn)
+}
+
 /// Values the user set on one message, and how many changes still wait for the server.
 #[derive(Debug, Default)]
 struct PendingFlags {
@@ -934,7 +991,16 @@ impl PendingFlags {
 
 impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::init(Connection::open(path)?)
+        let path = path.as_ref();
+        let mut store = Self::init(Connection::open(path)?)?;
+        // A second connection for the heavy reads. Opened after the migrations, so it
+        // reads the current shape. A failure is not fatal: reads then share the writer's.
+        if let Ok(read) = Connection::open(path)
+            && prepare_read(&read).is_ok()
+        {
+            store.read = Some(Mutex::new(read));
+        }
+        Ok(store)
     }
 
     pub fn open_in_memory() -> Result<Self> {
@@ -951,19 +1017,14 @@ impl Store {
             });
         }
         conn.execute_batch(PRAGMAS)?;
-        // SQLite's lower() and LIKE fold only ASCII: "иван" would not find "Иван".
-        conn.create_scalar_function(
-            "fold",
-            1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-            |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|s| s.to_lowercase())),
-        )?;
+        register_fold(&conn)?;
         migrate(&mut conn, MIGRATIONS)?;
         // The first pass over a folder after start is full: a mod-sequence the server or
         // this client got wrong is not carried from one run to the next.
         conn.execute("UPDATE folders SET highest_modseq = 0 WHERE highest_modseq != 0", [])?;
         Ok(Self {
             conn: Mutex::new(conn),
+            read: None,
             pending: Mutex::new(HashMap::new()),
             longest_lock: AtomicU64::new(0),
         })
@@ -971,6 +1032,16 @@ impl Store {
 
     fn pending(&self) -> MutexGuard<'_, HashMap<(String, String, u32), PendingFlags>> {
         self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The connection the heavy reads use: a second one when the cache is a file (WAL
+    /// lets it read while a sync writes), the writer's otherwise. Writes and the reads
+    /// that must not race one stay on `conn()`.
+    fn read(&self) -> MutexGuard<'_, Connection> {
+        match &self.read {
+            Some(read) => read.lock().unwrap_or_else(|e| e.into_inner()),
+            None => self.conn.lock().unwrap_or_else(|e| e.into_inner()),
+        }
     }
 
     fn conn(&self) -> ConnGuard<'_> {
@@ -1028,13 +1099,15 @@ impl Store {
     }
 
     pub fn folders(&self, account_id: Option<&str>) -> Result<Vec<FolderInfo>> {
-        let conn = self.conn();
+        // The counts are kept in `folders` (v16): asking is a scan of the folder rows
+        // alone, never of every message. Read on the read connection, so a sync writing
+        // the cache does not hold it up.
+        let conn = self.read();
         let mut stmt = conn.prepare(
             "SELECT f.account_id, f.name, f.display_name, f.delimiter, f.role, f.selectable, f.hidden,
-                    COUNT(m.id), COALESCE(SUM(m.seen = 0), 0)
-             FROM folders f LEFT JOIN messages m ON m.account_id = f.account_id AND m.folder = f.name
+                    f.total, f.unread
+             FROM folders f
              WHERE ?1 IS NULL OR f.account_id = ?1
-             GROUP BY f.account_id, f.name
              ORDER BY f.account_id,
                 CASE f.role WHEN 'inbox' THEN 0 WHEN 'snoozed' THEN 1 WHEN 'drafts' THEN 2 WHEN 'sent' THEN 3
                             WHEN 'archive' THEN 4 WHEN 'junk' THEN 5 WHEN 'trash' THEN 6 ELSE 7 END,
@@ -1311,7 +1384,8 @@ impl Store {
         let from = "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
         let unread = pinned(&q.pins, |p| p.unread, "(m.seen = 0)");
         let flagged = pinned(&q.pins, |p| p.flagged, "m.flagged");
-        let conn = self.conn();
+        // The list is the heaviest read: on the read connection, off the writer's lock.
+        let conn = self.read();
         if !q.threads {
             let order = order_by(
                 &q.sort,
@@ -1677,7 +1751,7 @@ impl Store {
             "m.id",
         );
         let sql = format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY {order} LIMIT ?{limit_arg}");
-        let conn = self.conn();
+        let conn = self.read();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), message_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -1690,7 +1764,7 @@ impl Store {
             return Ok(SearchTotals::default());
         };
         let sql = format!("SELECT COUNT(*), COALESCE(SUM(m.size), 0) FROM {from} WHERE {cond}");
-        Ok(self.conn().query_row(&sql, params_from_iter(args), |r| {
+        Ok(self.read().query_row(&sql, params_from_iter(args), |r| {
             Ok(SearchTotals {
                 count: unsigned(r.get(0)?),
                 size: unsigned(r.get(1)?),
@@ -2625,6 +2699,81 @@ mod tests {
             assert_eq!(found[0].email, "ivan@example.org");
         }
         assert!(store.known_addresses("сидор", 8).unwrap().is_empty());
+    }
+
+    /// The folder's counts are kept by triggers (v16), not counted at each ask.
+    #[test]
+    fn folder_counters_follow_inserts_reads_and_deletes() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        let counts = |store: &Store| {
+            let f = store.folders(Some("a")).unwrap();
+            let f = f.iter().find(|f| f.folder.name == "INBOX").unwrap();
+            (f.total, f.unread)
+        };
+        let mail = summary("Привет", 100);
+        let msg = |uid: u32, seen: bool| NewMessage {
+            uid,
+            summary: &mail,
+            fallback_date: 0,
+            size: 10,
+            flags: Flags {
+                seen,
+                ..Default::default()
+            },
+            keywords: Vec::new(),
+        };
+        assert_eq!(counts(&store), (0, 0));
+
+        store.insert_message("a", "INBOX", &msg(1, false)).unwrap();
+        store.insert_message("a", "INBOX", &msg(2, true)).unwrap();
+        assert_eq!(counts(&store), (2, 1));
+
+        let seen = |seen: bool| Flags {
+            seen,
+            ..Default::default()
+        };
+        store.update_flags("a", "INBOX", &[(1, seen(true))]).unwrap();
+        assert_eq!(counts(&store), (2, 0), "read: unread drops, total stays");
+        store.update_flags("a", "INBOX", &[(1, seen(false))]).unwrap();
+        assert_eq!(counts(&store), (2, 1), "unread again");
+
+        store.remove_uids("a", "INBOX", &[1]).unwrap();
+        assert_eq!(counts(&store), (1, 0), "gone: both drop");
+
+        // A UID cached again is an upsert, not a second message.
+        store.insert_message("a", "INBOX", &msg(2, false)).unwrap();
+        assert_eq!(counts(&store), (1, 1));
+
+        store.clear_folder("a", "INBOX").unwrap();
+        assert_eq!(counts(&store), (0, 0), "a cleared folder");
+    }
+
+    /// A file cache has a second connection for the heavy reads; a write on the writer is
+    /// visible to it (WAL), so the list, search and folder counts stay right.
+    #[test]
+    fn a_file_cache_reads_through_its_own_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("mail.sqlite")).unwrap();
+        assert!(store.read.is_some(), "a file cache opens a read connection");
+        store
+            .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+            .unwrap();
+        let mail = summary("Привет", 100);
+        let msg = NewMessage {
+            uid: 1,
+            summary: &mail,
+            fallback_date: 0,
+            size: 10,
+            flags: Flags::default(),
+            keywords: Vec::new(),
+        };
+        store.insert_message("a", "INBOX", &msg).unwrap();
+        assert_eq!(store.list(&ListQuery::default()).unwrap().len(), 1);
+        assert_eq!(store.folders(Some("a")).unwrap()[0].total, 1);
+        assert_eq!(store.search("привет", None, 0, &[]).unwrap().len(), 1);
     }
 
     /// The GUI sends only the fields it sets; a folder query without `unread_only` once failed.
@@ -3617,6 +3766,10 @@ mod tests {
             let store = Store::open(old_cache(&dir, tables, version)).unwrap();
             // What step 5 keeps beside the messages is filled from the mail already there.
             assert_eq!(store.known_addresses("ёлк", 8).unwrap()[0].email, "e@x", "{name}");
+            // The folder counters are recomputed from the mail already cached.
+            let counts = store.folders(Some("a")).unwrap();
+            let inbox = counts.iter().find(|f| f.folder.name == "INBOX").unwrap();
+            assert_eq!((inbox.total, inbox.unread), (2, 1), "{name}");
             lookups_hold(&store);
             let conn = store.conn();
             assert!(count(&conn, "SELECT COUNT(*) FROM threads") > 0, "{name}");
