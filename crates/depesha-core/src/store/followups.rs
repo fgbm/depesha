@@ -277,13 +277,24 @@ const CLOCK_SKEW_SECS: i64 = 15 * 60;
 pub const DEFAULT_KEEP_DAYS: u32 = 90;
 
 impl Store {
-    /// Starts waiting for an answer to a sent letter.
+    /// Starts waiting for an answer to a sent letter, replacing a wait of the same letter.
     pub fn followup_add(&self, f: &Followup) -> Result<()> {
+        self.insert_followup(f, "OR REPLACE")
+    }
+
+    /// `followup_add` for a sent letter: a wait of the same Message-ID stays as it is, so the
+    /// finish of a sent letter that is repeated does not renew a reminder already announced
+    /// nor reopen a wait that ended.
+    pub fn followup_add_once(&self, f: &Followup) -> Result<()> {
+        self.insert_followup(f, "OR IGNORE")
+    }
+
+    fn insert_followup(&self, f: &Followup, on_conflict: &str) -> Result<()> {
         let deadline = if f.deadline > 0 { f.deadline } else { f.due };
         self.conn().execute(
-            "INSERT OR REPLACE INTO followups
+            &format!("INSERT {on_conflict} INTO followups
                 (account_id, message_id, subject, recipients, sent, due, deadline, repeat_secs, expect, kind, own_deadline)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?7 != ?6)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?7 != ?6)"),
             params![
                 f.account_id,
                 f.message_id,
@@ -542,6 +553,27 @@ mod tests {
         };
         change(&mut f);
         store.followup_add(&f).unwrap();
+    }
+
+    /// The same wait added again (a repeated finish of a sent letter) leaves the first as it is:
+    /// a reminder already announced is not announced a second time.
+    #[test]
+    fn adding_a_wait_twice_keeps_the_first() {
+        let store = mailbox();
+        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
+        wait_for(&store, "q@x", 500, |_| {});
+        assert_eq!(store.followups_due(600).unwrap().len(), 1);
+        let again = Followup {
+            account_id: "a".into(),
+            message_id: "q@x".into(),
+            subject: "Вопрос".into(),
+            sent: 100,
+            due: 900,
+            ..Default::default()
+        };
+        store.followup_add_once(&again).unwrap();
+        assert!(store.followups_due(1_000).unwrap().is_empty(), "announced once");
+        assert_eq!(listed(&store, FollowupFilter::Active).len(), 1);
     }
 
     #[test]

@@ -264,7 +264,7 @@ impl Store {
             }
             drop(tx);
             drop(conn);
-            self.followup_add(f)?;
+            self.followup_add_once(f)?;
             return Ok(true);
         };
         tx.execute(

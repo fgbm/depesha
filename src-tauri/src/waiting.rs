@@ -74,7 +74,7 @@ pub async fn after_sent(
     let Some(acts) = acts else {
         // A new letter: a reminder, as before.
         if reminder.is_some() {
-            state.store.followup_add(&wait(item.followup_secs))?;
+            state.store.followup_add_once(&wait(item.followup_secs))?;
             state.emit("counters-changed", json!({}));
         }
         return Ok(false);
