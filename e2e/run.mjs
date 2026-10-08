@@ -1516,8 +1516,16 @@ try {
       await d.click(await d.find(".list .view .trigger"));
       await d.click(await d.find(".pop .scope input"));
       await viewOption("По теме");
-      await openFolder("Корзина");
-      await d.until("trash by sender", async () => (await textOf(".list .view .trigger")).includes("По отправителю"));
+      // A click on a folder can miss while the tree redraws: make sure the list really is the
+      // trash before asking for its order.
+      await d.until(
+        "trash by sender",
+        async () => {
+          if (!(await textOf(".list .title h2")).includes("Корзина")) await openFolder("Корзина").catch(() => {});
+          return (await textOf(".list .view .trigger")).includes("По отправителю");
+        },
+        20000,
+      );
       await d.button("Входящие");
       await d.until("inbox by subject", async () => (await textOf(".list .view .trigger")).includes("По теме"));
       const settings = await invoke("settings_get");
