@@ -24,6 +24,8 @@ const UID_BASE: u32 = 1 << 31;
 const PAGE: usize = 500;
 /// Items per GetItem with headers.
 const FETCH_BATCH: usize = 50;
+/// Message-IDs per FindItem when looking items up by Message-ID.
+const FIND_BATCH: usize = 20;
 /// Items written to the cache in one commit, as IMAP's fetches are.
 const WRITE_BATCH: usize = 200;
 /// Folder pages one deep `FindFolder` walk may take. A server that keeps answering
@@ -1129,24 +1131,71 @@ pub async fn delete_permanently(
     Ok(())
 }
 
-/// Ids of items with this Message-ID in the folder.
-async fn find_by_message_id(s: &mut Session, folder_id: &str, message_id: &str) -> Result<Vec<String>> {
-    let bare = message_id.trim().trim_matches(['<', '>']);
-    let mut found = Vec::new();
-    // Exchange keeps the angle brackets; match both spellings to be safe.
-    for value in [format!("<{bare}>"), bare.to_owned()] {
-        let restriction = format!(
-            r#"<t:IsEqualTo>{}<t:FieldURIOrConstant><t:Constant Value="{}"/></t:FieldURIOrConstant></t:IsEqualTo>"#,
-            field("message:InternetMessageId"),
-            escape(&value)
-        );
-        let page = find_page(s, folder_id, 0, 50, Some(&restriction), None).await?;
-        found.extend(page.items.into_iter().map(|i| i.id));
-        if !found.is_empty() {
-            break;
+/// Ids of items with these Message-IDs in the folder: the cached ones come from the local
+/// cache, the rest are found on the server. The server is asked once per batch of
+/// Message-IDs with an `Or` restriction, not once per message.
+async fn find_by_message_ids(
+    s: &mut Session,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    folder_id: &str,
+    message_ids: &[String],
+) -> Result<Vec<String>> {
+    if message_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let bare: Vec<String> = message_ids
+        .iter()
+        .map(|m| m.trim().trim_matches(['<', '>']).to_owned())
+        .collect();
+    // The cache knows the item id of mail already synced: ask the server only for the rest.
+    let cached = store.ews_item_ids_by_message_id(account_id, folder, &bare)?;
+    let known: HashSet<String> = cached.iter().map(|(mid, _)| mid.clone()).collect();
+    let mut ids: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for (_, id) in cached {
+        if seen.insert(id.clone()) {
+            ids.push(id);
         }
     }
-    Ok(found)
+    let missing: Vec<&String> = bare.iter().filter(|m| !known.contains(*m)).collect();
+    for chunk in missing.chunks(FIND_BATCH) {
+        // Exchange keeps the angle brackets; match both spellings in one request.
+        let mut values: Vec<String> = Vec::with_capacity(chunk.len() * 2);
+        for m in chunk {
+            values.push(format!("<{m}>"));
+            values.push((*m).clone());
+        }
+        let Some(restriction) = or_restriction(&values) else {
+            continue;
+        };
+        let page = find_page(s, folder_id, 0, 50, Some(&restriction), None).await?;
+        for it in page.items {
+            if seen.insert(it.id.clone()) {
+                ids.push(it.id);
+            }
+        }
+    }
+    Ok(ids)
+}
+
+/// `Or` over `message:InternetMessageId` equalities, one per value.
+fn or_restriction(values: &[String]) -> Option<String> {
+    let mut iter = values.iter();
+    let mut acc = eq_message_id(iter.next()?);
+    for v in iter {
+        acc = format!("<t:Or>{}{acc}</t:Or>", eq_message_id(v));
+    }
+    Some(acc)
+}
+
+fn eq_message_id(value: &str) -> String {
+    format!(
+        r#"<t:IsEqualTo>{}<t:FieldURIOrConstant><t:Constant Value="{}"/></t:FieldURIOrConstant></t:IsEqualTo>"#,
+        field("message:InternetMessageId"),
+        escape(value)
+    )
 }
 
 /// Puts a message into a folder unless one with the same Message-ID is there.
@@ -1161,7 +1210,9 @@ pub async fn append_unless_exists(
 ) -> Result<()> {
     let fid = folder_id(store, account_id, folder)?;
     if let Some(mid) = message_id
-        && !find_by_message_id(s, &fid, mid).await?.is_empty()
+        && !find_by_message_ids(s, store, account_id, folder, &fid, &[mid.to_owned()])
+            .await?
+            .is_empty()
     {
         return Ok(());
     }
@@ -1191,10 +1242,8 @@ pub async fn move_by_message_id(
 ) -> Result<usize> {
     let from_id = folder_id(store, account_id, from)?;
     let to_id = folder_id(store, account_id, to)?;
-    let mut ids = Vec::new();
-    for mid in message_ids {
-        ids.extend(find_by_message_id(s, &from_id, mid).await?);
-    }
+    // One FindItem per batch of Message-IDs, and the cache first: not a request per letter.
+    let ids = find_by_message_ids(s, store, account_id, from, &from_id, message_ids).await?;
     let moved = move_ids(s, &ids, &to_id).await?;
     if unseen && !moved.is_empty() {
         update_flag(s, &moved, FlagChange::Seen(false)).await?;

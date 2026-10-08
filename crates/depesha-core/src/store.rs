@@ -2030,6 +2030,30 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Item ids of cached messages by their Message-IDs, `(message id, item id)`; the ids
+    /// are compared without their angle brackets, as the cache stores them. Lets an
+    /// action find the items it knows without a server round-trip per message.
+    pub fn ews_item_ids_by_message_id(
+        &self,
+        account_id: &str,
+        folder: &str,
+        message_ids: &[String],
+    ) -> Result<Vec<(String, String)>> {
+        if message_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT m.message_id, e.item_id FROM json_each(?3) j
+             CROSS JOIN messages m ON m.account_id = ?1 AND m.folder = ?2 AND m.message_id = j.value
+             CROSS JOIN ews_items e ON e.account_id = ?1 AND e.folder = ?2 AND e.uid = m.uid",
+        )?;
+        let rows = stmt.query_map(params![account_id, folder, json_list(message_ids)], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn ews_uid_of(&self, account_id: &str, folder: &str, item_id: &str) -> Result<Option<u32>> {
         Ok(self
             .conn()
