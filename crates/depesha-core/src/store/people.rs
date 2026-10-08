@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Store;
 use crate::Result;
+use crate::message::clean_name;
 
 /// A person of the address book, as the page lists them. The record's own fields stand over
 /// what the correspondence says; `uses` comes from the letters, not from the record.
@@ -182,6 +183,11 @@ impl Store {
                 Ok(p)
             })?
             .collect::<rusqlite::Result<_>>()?;
+        // Names accumulated before the quotes were stripped are cleaned on the way out, so the
+        // list shows people, not their mail programs' punctuation.
+        for p in &mut people {
+            p.name = clean_name(&p.name);
+        }
         let q = query.trim().to_lowercase();
         if !q.is_empty() {
             people.retain(|p| {
@@ -442,6 +448,51 @@ mod tests {
             .unwrap();
         assert!(store.forget_person("new@example.org").unwrap());
         assert!(store.person("new@example.org").unwrap().is_none());
+    }
+
+    #[test]
+    fn names_wrapped_in_quotes_are_cleaned_when_read() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &wrote("avalon@booking.com", "\"Avalon через Booking.com\""),
+            true,
+        );
+        put(&store, "INBOX", 2, &wrote("fadin@example.org", "'FADIN Alexey'"), true);
+        put(
+            &store,
+            "INBOX",
+            3,
+            &wrote("ryzhkov@example.org", "\"Рыжков, Дмитрий Евгеньевич\""),
+            true,
+        );
+        let book = store.people("").unwrap();
+        let name = |email: &str| book.iter().find(|p| p.email == email).unwrap().name.clone();
+        assert_eq!(name("avalon@booking.com"), "Avalon через Booking.com");
+        assert_eq!(name("fadin@example.org"), "FADIN Alexey");
+        assert_eq!(name("ryzhkov@example.org"), "Рыжков, Дмитрий Евгеньевич");
+        // The list sorts by the name without its quotes, so the quote-free «A» leads.
+        assert_eq!(book[0].email, "avalon@booking.com");
+        // A quote inside a name is legitimate and stays.
+        put(
+            &store,
+            "INBOX",
+            4,
+            &wrote("vanya@example.org", "Иван \"Ваня\" Петров"),
+            true,
+        );
+        assert_eq!(
+            store
+                .people("")
+                .unwrap()
+                .iter()
+                .find(|p| p.email == "vanya@example.org")
+                .unwrap()
+                .name,
+            "Иван \"Ваня\" Петров"
+        );
     }
 
     #[test]

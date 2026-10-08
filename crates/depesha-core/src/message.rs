@@ -714,12 +714,31 @@ fn summary_of(msg: &Message<'_>) -> Summary {
     }
 }
 
+/// A display name as it should be shown: the paired quotes some mail programs wrap the whole
+/// name in taken off (`"…"`, `'…'`, `«…»`, again while they come off), the backslash escapes
+/// `\"`/`\'` inside undone, and the ends trimmed. Quotes inside a name (`Иван "Ваня" Петров`)
+/// stay: only a pair around the whole of it goes.
+pub fn clean_name(name: &str) -> String {
+    let mut s = name.replace("\\\"", "\"").replace("\\'", "'");
+    loop {
+        let trimmed = s.trim();
+        let inner = [('"', '"'), ('\'', '\''), ('«', '»')]
+            .iter()
+            .find_map(|(open, close)| trimmed.strip_prefix(*open)?.strip_suffix(*close));
+        match inner {
+            Some(inner) => s = inner.to_string(),
+            None => break,
+        }
+    }
+    s.trim().to_string()
+}
+
 fn addrs(address: &Address<'_>) -> Vec<Addr> {
     address
         .iter()
         .filter_map(|a| {
             Some(Addr {
-                name: a.name().map(str::to_owned).filter(|n| !n.is_empty()),
+                name: a.name().map(clean_name).filter(|n| !n.is_empty()),
                 email: a.address()?.to_owned(),
             })
         })
@@ -1297,6 +1316,28 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nHi\r\n";
         assert_eq!(named(None, "ivan@example.org"), "ivan@example.org");
         assert_eq!(sender_sort_key(None), "");
         assert!(named(Some("анна"), "a") == named(Some("Анна"), "b"));
+    }
+
+    #[test]
+    fn clean_name_takes_the_wrapping_quotes_off() {
+        // The quotes some programs wrap a whole name in go, whatever the pair.
+        assert_eq!(clean_name("\"Avalon через Booking.com\""), "Avalon через Booking.com");
+        assert_eq!(clean_name("'FADIN Alexey'"), "FADIN Alexey");
+        assert_eq!(
+            clean_name("\"Рыжков, Дмитрий Евгеньевич\""),
+            "Рыжков, Дмитрий Евгеньевич"
+        );
+        assert_eq!(clean_name("«ООО Ромашка»"), "ООО Ромашка");
+        // Again while they come off, and the ends trimmed.
+        assert_eq!(clean_name("  ' \"Иван\" '  "), "Иван");
+        assert_eq!(clean_name("  Ольга  "), "Ольга");
+        // The escapes some programs leave inside are undone.
+        assert_eq!(clean_name("\\\"Иван\\\""), "Иван");
+        // Quotes inside a name are legitimate and stay.
+        assert_eq!(clean_name("Иван \"Ваня\" Петров"), "Иван \"Ваня\" Петров");
+        // A lone sign is not a name.
+        assert_eq!(clean_name("\""), "\"");
+        assert_eq!(clean_name("''"), "");
     }
 
     #[test]

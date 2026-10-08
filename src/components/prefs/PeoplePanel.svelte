@@ -164,17 +164,20 @@
           {#if person.email === NEW}
             <div class="addr">
               <span class="radio on" aria-hidden="true"></span>
-              <input class="input" placeholder={t("people.addressPlaceholder")} onchange={(e) => setAddress(e.currentTarget.value)} />
-              <span class="m">{t("people.primary")}</span>
+              <div class="afield">
+                <input class="input" placeholder={t("people.addressPlaceholder")} onchange={(e) => setAddress(e.currentTarget.value)} />
+                <span class="m">{t("people.primary")}</span>
+              </div>
             </div>
           {:else}
             <div class="addr">
               <span class="radio on" aria-hidden="true"></span>
-              <input class="input" value={person.email} readonly />
-              <span class="m">{t("people.primary")}</span>
+              <div class="afield">
+                <input class="input" value={person.email} readonly />
+                <span class="m">{t("people.primary")}</span>
+              </div>
             </div>
           {/if}
-          <p class="hint">{t("people.addressesNote")}</p>
         </div>
       </div>
 
@@ -371,6 +374,8 @@
     flex: 1;
     min-width: 0;
     overflow-y: auto;
+    /* The card is a container: its labels move above their fields when it is narrow. */
+    container: personcard / inline-size;
   }
 
   .pd-head {
@@ -406,6 +411,22 @@
     color: var(--muted);
   }
 
+  /* A narrow card: the label goes above its field, so the field (an address) takes the
+     whole width of the card instead of what the label leaves. */
+  @container personcard (max-width: 520px) {
+    .field {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
+      padding: 8px 0 6px;
+    }
+
+    .field .fl {
+      padding-top: 0;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  }
+
   .stackcol {
     display: flex;
     flex-direction: column;
@@ -414,19 +435,35 @@
 
   .addr {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
   }
 
-  .addr .input {
+  .afield {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .addr .input {
+    width: 100%;
+    min-width: 0;
     height: 30px;
+  }
+
+  /* «primary» under the address, small: it never crowds the field. */
+  .addr .m {
+    font-size: 11px;
+    color: var(--muted);
   }
 
   .radio {
     flex: none;
     width: 15px;
     height: 15px;
+    margin-top: 8px;
     border-radius: 50%;
     border: 1.5px solid var(--line);
   }

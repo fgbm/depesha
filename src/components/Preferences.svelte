@@ -375,10 +375,10 @@
   .psearch {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     height: 30px;
     margin: 0 0 10px;
-    padding: 0 8px;
+    padding: 0 7px;
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--paper);
@@ -405,11 +405,20 @@
     font: inherit;
     font-size: 13px;
     outline: none;
+    /* The search field's own decorations would reserve room the placeholder needs. */
+    appearance: none;
   }
 
+  .psearch .q::-webkit-search-cancel-button,
+  .psearch .q::-webkit-search-decoration {
+    appearance: none;
+  }
+
+  /* A small cap: the «Ctrl+F» and the placeholder «Find a setting» both fit the menu's width. */
   .psearch kbd {
     flex: none;
-    font-size: 10px;
+    font-size: 9.5px;
+    padding: 0 2px;
   }
 
   [role="tablist"] {

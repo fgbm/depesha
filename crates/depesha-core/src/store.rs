@@ -2279,7 +2279,8 @@ impl Store {
         let rows = stmt.query_map(params![escaped, limit], |r| {
             Ok(Addr {
                 email: r.get(0)?,
-                name: r.get(1)?,
+                // Names accumulated before the quotes were stripped are cleaned on the way out.
+                name: r.get::<_, Option<String>>(1)?.map(|n| crate::message::clean_name(&n)),
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)

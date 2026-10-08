@@ -143,14 +143,16 @@ export function avatarColor(email: string): string {
   return `hsl(${h % 360} 42% 40%)`;
 }
 
-/** Initials: two letters of the name, or the first of the address. */
+/** Initials: two letters of the name, or the first of the address. A sign of punctuation
+ *  (a quote around the whole name) is not a letter, so the first letter or digit is taken. */
 export function initials(a: Addr | null | undefined): string {
+  const first = (s: string) => s.match(/[\p{L}\p{N}]/u)?.[0] ?? "";
   const name = a?.name?.trim();
   if (name) {
-    const parts = name.split(/\s+/).filter((p) => /\p{L}/u.test(p));
-    return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+    const parts = name.split(/\s+/).map(first).filter(Boolean);
+    if (parts.length) return (parts[0] + (parts.length > 1 ? parts[parts.length - 1] : "")).toUpperCase();
   }
-  return (a?.email?.[0] ?? "?").toUpperCase();
+  return (first(a?.email ?? "") || "?").toUpperCase();
 }
 
 /** Every word of the query starts a word of the label (palette search). */

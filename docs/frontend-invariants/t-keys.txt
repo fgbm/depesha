@@ -445,7 +445,6 @@ outbox.sending
 people.add
 people.addressPlaceholder
 people.addresses
-people.addressesNote
 people.asUsual
 people.delete
 people.deleteText
