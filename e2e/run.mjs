@@ -1697,8 +1697,9 @@ try {
     await openBySubject(subj);
     await d.until("banner button", async () => (await textOf(".reader")).includes("Вернуть сейчас"));
     await press("w");
+    // The toast first: it does not wait for the server and goes away in a few seconds.
+    await d.until("toast", async () => (await textOf(".toasts")).includes(`Возвращено во «Входящие»: ${subj}`), 5000, 200);
     await d.until("back in inbox on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
-    await d.until("toast", async () => (await textOf(".toasts")).includes(`Возвращено во «Входящие»: ${subj}`));
     // The undo snoozes it again, for the same time.
     await press("z");
     await d.until("snoozed again", async () => helper("count", "Отложенные", subj) === "1" && helper("count", "INBOX", subj) === "0", 20000);
