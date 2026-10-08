@@ -16,7 +16,13 @@ const URI_ATTRS = new Set(["src", "href", "background", "poster", "srcset", "cit
  * (`ht&#9;tps:\\evil`), so the value is read this way before it is looked at.
  */
 function unconfuse(value: string): string {
-  return value.replace(/[\u0000-\u0020\\]/g, (c) => (c === "\\" ? "/" : ""));
+  let out = "";
+  for (const c of value) {
+    const code = c.codePointAt(0) ?? 0;
+    if (code <= 0x20 || code === 0x7f) continue;
+    out += c === "\\" ? "/" : c;
+  }
+  return out;
 }
 
 /** A style that reaches out for a resource: `url(`, `image-set(`, `image(`, `src(` and CSS
