@@ -68,6 +68,9 @@ pub enum Error {
     /// The server renumbered the folder (a new UIDVALIDITY, or an Exchange folder
     /// cached anew) after the UIDs of an action were read: they name other messages.
     FolderChanged,
+    /// The label is being taken off every letter: a new one by the same name would have its
+    /// keyword stripped with the rest.
+    LabelStripping,
     /// The label check cannot run here: without UIDPLUS its test letter could not be
     /// expunged by UID, so it would stay behind. Depesha does not run it.
     LabelCheckUnsupported,
@@ -142,6 +145,10 @@ impl std::fmt::Display for Error {
             Self::FolderChanged => tr!(
                 "the folder changed on the server before the action ran; nothing was done, try again",
                 "папка изменилась на сервере, пока действие ждало очереди; ничего не сделано, повторите действие"
+            ),
+            Self::LabelStripping => tr!(
+                "The label is still being removed, try again in a minute",
+                "Метка ещё удаляется, попробуйте через минуту"
             ),
             Self::LabelCheckUnsupported => tr!(
                 "this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run",

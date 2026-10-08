@@ -119,13 +119,26 @@ impl Store {
 
     /// Adds or renames a label. The keyword goes with the name on the server; a label
     /// whose keyword would change keeps the old one, so old letters stay tagged.
+    /// A label being taken off every letter is refused (`LabelStripping`): the strip would
+    /// take the keyword off what the new one tags.
     pub fn save_label(&self, account_id: &str, label: &Label) -> Result<()> {
-        self.conn().execute(
+        let changed = self.conn().execute(
             "INSERT INTO labels (account_id, name, keyword, color) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (account_id, name) DO UPDATE SET keyword = excluded.keyword, color = excluded.color",
+             ON CONFLICT (account_id, name) DO UPDATE SET keyword = excluded.keyword, color = excluded.color
+             WHERE stripping = 0",
             params![account_id, label.name, label.keyword, label.color],
         )?;
+        if changed == 0 {
+            return Err(crate::Error::LabelStripping);
+        }
         Ok(())
+    }
+
+    /// Whether the label is being taken off every letter just now.
+    pub fn label_is_stripping(&self, account_id: &str, name: &str) -> Result<bool> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT 1 FROM labels WHERE account_id = ?1 AND name = ?2 AND stripping != 0")?;
+        Ok(stmt.exists(params![account_id, name])?)
     }
 
     pub fn remove_label(&self, account_id: &str, name: &str) -> Result<()> {
@@ -564,6 +577,13 @@ mod tests {
             store.stripping_labels("a").unwrap(),
             [("Счета".to_owned(), keyword_of("Счета"))]
         );
+        // Made anew meanwhile: refused, so the strip does not take the new label's keyword off.
+        assert!(store.label_is_stripping("a", "Счета").unwrap());
+        assert!(matches!(
+            store.save_label("a", &label("Счета", "#000000")),
+            Err(crate::Error::LabelStripping)
+        ));
+        assert_eq!(store.labels("a").unwrap()[0].color, "#d0573f", "the row is untouched");
         // The work done, the label is gone for good.
         store.remove_label("a", "Счета").unwrap();
         assert!(store.stripping_labels("a").unwrap().is_empty());

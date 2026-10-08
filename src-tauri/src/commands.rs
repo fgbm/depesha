@@ -982,6 +982,9 @@ pub async fn label_rename(
 #[tauri::command]
 pub async fn set_label(state: St<'_>, ids: Vec<i64>, name: String, value: bool) -> CmdResult<()> {
     for ((account_id, folder, validity), rows) in group_rows(&state, &ids)? {
+        if state.store.label_is_stripping(&account_id, &name)? {
+            return Err(depesha_core::Error::LabelStripping.into());
+        }
         let Some(keyword) = state.store.label_keyword(&account_id, &name)? else {
             continue;
         };
