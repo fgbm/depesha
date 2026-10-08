@@ -27,8 +27,6 @@
     "allow-labels",
     "allow-label-save",
     "allow-label-remove",
-    "allow-label-rename",
-    "allow-label-strip",
     "allow-move-messages",
     "allow-delete-messages",
     "allow-archive",

@@ -438,6 +438,8 @@ mod tests {
             "window_hide",
             "app_quit",
             "outbox_missed",
+            "label_rename",
+            "label_strip",
         ] {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");
