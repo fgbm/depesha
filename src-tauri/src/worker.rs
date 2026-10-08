@@ -1465,8 +1465,8 @@ async fn perform(
             Ok(Output::LabelCheck(check))
         }
         Work::StripLabel { folder, keyword } => {
+            // No event per folder: `label_strip::run` sends one when the whole walk is done.
             let n = mail::strip_label(conn, store, id, folder, keyword).await?;
-            state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
             Ok(Output::Count(n))
         }
         Work::RenameCategory { from, to } => {
