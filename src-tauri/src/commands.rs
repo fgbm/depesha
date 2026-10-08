@@ -767,13 +767,20 @@ pub fn label_save(
         name: name.to_owned(),
         // An IMAP label stores a keyword made from the name; an Exchange category is the
         // name itself. Renaming keeps the old keyword, so letters already tagged stay tagged.
-        keyword: state.store.label_keyword(&account_id, name)?.unwrap_or_else(|| {
-            if is_ews {
-                name.to_owned()
-            } else {
-                depesha_core::acl::keyword_of(name)
+        keyword: match state.store.label_keyword(&account_id, name)? {
+            Some(old) => old,
+            None if is_ews => name.to_owned(),
+            None => {
+                let candidate = depesha_core::acl::keyword_of(name);
+                // A keyword another label already stores (an old cache, or a name that slugs
+                // the same) would merge the two: take a hashed, unique one instead.
+                if state.store.keyword_owner(&account_id, &candidate, name)?.is_some() {
+                    depesha_core::acl::keyword_of_unique(name)
+                } else {
+                    candidate
+                }
             }
-        }),
+        },
         color,
     };
     state.store.save_label(&account_id, &label)?;

@@ -4,8 +4,21 @@
 
 import type { FolderAction, FolderInfo, Label, NamespaceFolder, NamespaceInfo, Owner, Rights } from "./types";
 
-/** Ключ метки на сервере. Латиница — слаг `depesha-…`; кириллица — устойчивый хеш
- *  (тот же FNV-1a, что в Rust `acl::keyword_of`): серверу нужна лишь стабильность. */
+/** Короткий устойчивый хеш точного имени (FNV-1a, младшие 32 бита), как в Rust
+ *  `acl::short_hash`. */
+function shortHash(name: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const bytes = new TextEncoder().encode(name);
+  for (const b of bytes) {
+    hash ^= BigInt(b);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return (hash & 0xffffffffn).toString(16).padStart(8, "0");
+}
+
+/** Ключ метки на сервере (тот же расчёт, что в Rust `acl::keyword_of`). Имя, уже
+ *  записанное канонически, даёт слаг `depesha-…`; любое другое — слаг с коротким хешем
+ *  точного имени, чтобы имена, схлопывающиеся в один слаг, не делили один ключ. */
 export function keywordForName(name: string): string {
   if (/^[A-Za-z0-9 _-]*$/.test(name)) {
     const out = name
@@ -13,15 +26,12 @@ export function keywordForName(name: string): string {
       .filter(Boolean)
       .map((w) => w.toLowerCase())
       .join("-");
-    if (out && /^[a-z]/.test(out)) return `depesha-${out}`;
+    if (out && /^[a-z]/.test(out)) {
+      if (name === out) return `depesha-${out}`;
+      return `depesha-${out}-${shortHash(name)}`;
+    }
   }
-  let hash = 0xcbf29ce484222325n;
-  const bytes = new TextEncoder().encode(name.normalize());
-  for (const b of bytes) {
-    hash ^= BigInt(b);
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
-  }
-  return `depesha-${hash.toString(16).padStart(8, "0").slice(-8)}`;
+  return `depesha-${shortHash(name)}`;
 }
 
 /** Права в действия: раскладка кнопок и карточки одна и та же, меняются лишь исходы.

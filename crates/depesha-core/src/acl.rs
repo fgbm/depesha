@@ -434,38 +434,67 @@ pub struct Label {
     pub color: String,
 }
 
-/// The keyword that carries a label on IMAP. An ASCII name becomes `depesha-<slug>`,
-/// anything else (Cyrillic) a stable `depesha-<hash>`: the keyword is an atom and the
-/// server cares only that it is stable, while the name stays with the label.
+/// The keyword that carries a label on IMAP. An ASCII name whose spelling is already
+/// canonical (lower-case words, single dashes) becomes `depesha-<slug>`; any other name
+/// (mixed case, spaces, Cyrillic) a stable `depesha-…` with a short hash of the exact
+/// name, so two names that slug the same keep their own keyword: one keyword is one
+/// label, and removing it must not remove another label's letter.
 pub fn keyword_of(name: &str) -> String {
-    let ascii = name
+    let slug = ascii_slug(name);
+    if !slug.is_empty() && name == slug {
+        return format!("depesha-{slug}");
+    }
+    keyword_of_unique(name)
+}
+
+/// A keyword that always carries the short hash of the exact name: the fallback when the
+/// plain keyword is already taken by another label of the account (`Store::keyword_owner`).
+pub fn keyword_of_unique(name: &str) -> String {
+    let slug = ascii_slug(name);
+    if slug.is_empty() {
+        format!("depesha-{}", short_hash(name))
+    } else {
+        format!("depesha-{slug}-{}", short_hash(name))
+    }
+}
+
+/// The lower-case alphanumeric words of an ASCII name joined by single dashes; empty when
+/// the name is not ASCII or has no letter or digit.
+fn ascii_slug(name: &str) -> String {
+    if !name
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ' '));
-    if ascii {
-        let mut out = String::new();
-        let mut dash = false;
-        for c in name.chars() {
-            if c.is_ascii_alphanumeric() {
-                if dash && !out.is_empty() {
-                    out.push('-');
-                }
-                dash = false;
-                out.push(c.to_ascii_lowercase());
-            } else {
-                dash = true;
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ' '))
+    {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut dash = false;
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            if dash && !out.is_empty() {
+                out.push('-');
             }
-        }
-        if !out.is_empty() && out.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
-            return format!("depesha-{out}");
+            dash = false;
+            out.push(c.to_ascii_lowercase());
+        } else {
+            dash = true;
         }
     }
-    // Cyrillic and anything else: a short stable hash of the whole name (FNV-1a).
+    if out.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        out
+    } else {
+        String::new()
+    }
+}
+
+/// A short stable hash of the exact name (FNV-1a, the low 32 bits): eight hex digits.
+fn short_hash(name: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for b in name.as_bytes() {
         hash ^= u64::from(*b);
         hash = hash.wrapping_mul(0x100_0000_01b3);
     }
-    format!("depesha-{hash:08x}")
+    format!("{:08x}", hash as u32)
 }
 
 /// The own labels of a letter: the keywords it carries that are Depesha labels, mapped

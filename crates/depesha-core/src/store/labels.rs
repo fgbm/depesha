@@ -120,6 +120,19 @@ impl Store {
             .ok())
     }
 
+    /// The name of another label of the account that already stores this keyword, if any:
+    /// a new label then takes a hashed keyword instead of merging with it.
+    pub fn keyword_owner(&self, account_id: &str, keyword: &str, except: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT name FROM labels WHERE account_id = ?1 AND keyword = ?2 AND name != ?3",
+                params![account_id, keyword, except],
+                |r| r.get(0),
+            )
+            .ok())
+    }
+
     /// The props of one folder: what the card shows.
     pub fn folder_prop(&self, account_id: &str, folder: &str) -> Result<Option<FolderProps>> {
         Ok(self
