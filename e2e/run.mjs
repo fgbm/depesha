@@ -1372,7 +1372,9 @@ try {
       // opens the system dialog, which WebDriver cannot answer; the command is the same.)
       const file = join(profile, "stuck-copy.eml");
       await invoke("sent_copy_save", { id: held.id, path: file });
-      if (!readFileSync(file, "utf-8").includes(subj)) throw new Error("в .eml нет письма");
+      // The subject is MIME-encoded in the file (Cyrillic), the recipient is not.
+      const eml = readFileSync(file, "utf-8");
+      if (!/^Subject:/m.test(eml) || !eml.includes("carol@local.test")) throw new Error(`в .eml нет письма: ${eml.slice(0, 200)}`);
       if ((await invoke("stuck_copies")).length !== 1) throw new Error("копия пропала после сохранения в файл");
     } finally {
       helper("rename-folder", "SentAway", "Sent");
