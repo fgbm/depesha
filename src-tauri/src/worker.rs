@@ -102,6 +102,14 @@ pub enum Work {
         flags: String,
         message_id: Option<String>,
     },
+    /// The copy of a sent letter in «Sent», as work of its own: the send round does not
+    /// wait for it, and a failure shows in the tasks window, not as a stalled send.
+    CopyToSent {
+        folder: String,
+        raw: Vec<u8>,
+        flags: String,
+        message_id: Option<String>,
+    },
     LoadOlder {
         folder: String,
     },
@@ -627,8 +635,15 @@ async fn next(
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => return Next::Closed,
         }
-        return match urgent.try_recv() {
-            Ok((w, r)) => Next::User(w, r),
+        match urgent.try_recv() {
+            Ok((w, r)) => return Next::User(w, r),
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => return Next::Closed,
+        }
+        // The quiet work runs between the folders too: a Sent copy or a snooze coming
+        // back must not wait for the whole pass (it would hold the send round up).
+        return match quiet.try_recv() {
+            Ok((w, r)) => Next::Quiet(w, r),
             Err(TryRecvError::Empty) => Next::Step,
             Err(TryRecvError::Disconnected) => Next::Closed,
         };
@@ -1424,6 +1439,37 @@ async fn perform(
             }
             Ok(Output::None)
         }
+        // The copy of a sent letter in «Sent», on its own: the send round does not wait for
+        // it, and a failure is a task, not a stalled send.
+        Work::CopyToSent {
+            folder,
+            raw,
+            flags,
+            message_id,
+        } => {
+            let key = format!("sent-copy:{id}");
+            state.task(
+                &key,
+                "send",
+                Some(id),
+                tr!("Saving the copy in «Sent»", "Сохранение копии в «Отправленные»"),
+                0,
+                0,
+            );
+            match mail::append_unless_exists(conn, store, id, folder, raw, flags, message_id.as_deref()).await {
+                Ok(()) => {
+                    if let Err(e) = sync_one(state, account, conn, folder, false).await {
+                        tracing::warn!(account = %id, "sync after the Sent copy failed: {e}");
+                    }
+                    state.task_done(&key);
+                    Ok(Output::None)
+                }
+                Err(e) => {
+                    state.task_failed(&key, CmdError::from(clone_error(&e)));
+                    Err(e)
+                }
+            }
+        }
         Work::Search { folder, text } => Ok(Output::Ids(mail::search_server(conn, store, id, folder, text).await?)),
         Work::UserPhoto(email) => Ok(match mail::user_photo(conn, email).await? {
             Some(bytes) => Output::Body(bytes),
@@ -1764,6 +1810,69 @@ mod tests {
         assert!(matches!(
             pick(&mut urgent, &mut background, &mut tick, false, None).await,
             Next::Background(Work::SyncFolder(f)) if f == "INBOX"
+        ));
+    }
+
+    #[tokio::test]
+    async fn quiet_work_runs_between_the_folders_of_a_full_sync() {
+        let (_reads_tx, mut reads) = mpsc::channel(8);
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let (quiet_tx, mut quiet) = mpsc::channel(8);
+        let (_background_tx, mut background) = mpsc::channel(8);
+        let mut deferred = VecDeque::new();
+        let mut tick = ticker().await;
+
+        // A pass under way serves the quiet work between its folders, so a Sent copy or a
+        // snooze coming back is not held up by the whole sync.
+        quiet_tx.send((Work::Quota, oneshot::channel().0)).await.unwrap();
+        assert!(matches!(
+            next(
+                &mut reads,
+                &mut urgent,
+                &mut quiet,
+                &mut deferred,
+                &mut background,
+                &mut tick,
+                true,
+                None
+            )
+            .await,
+            Next::Quiet(Work::Quota, _)
+        ));
+
+        // The user's action still goes ahead of it.
+        urgent_tx.send(load(4)).await.unwrap();
+        assert_eq!(
+            loaded(
+                next(
+                    &mut reads,
+                    &mut urgent,
+                    &mut quiet,
+                    &mut deferred,
+                    &mut background,
+                    &mut tick,
+                    true,
+                    None
+                )
+                .await
+            ),
+            Some(4)
+        );
+
+        // Neither waiting: the next folder.
+        assert!(matches!(
+            next(
+                &mut reads,
+                &mut urgent,
+                &mut quiet,
+                &mut deferred,
+                &mut background,
+                &mut tick,
+                true,
+                None
+            )
+            .await,
+            Next::Step
         ));
     }
 

@@ -175,43 +175,22 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
                 let sent = state.store.folder_by_role(&account.id, FolderRole::Sent)?;
                 let worker = state.worker(&account.id).ok();
                 // Whether a waiting-for-a-reply may be added: the wait is countable and
-                // cancellable only while its letter is in the cache. A server that keeps its
-                // own copy (Exchange, Gmail) files it, and the Sent sync below brings it; a
-                // client-side copy is appended here, and the append syncs the folder.
+                // cancellable only while its letter is in the cache. The client-side copy
+                // is work of its own: the send round does not wait for it (a slow Sent
+                // folder would hold the whole round up), and a failure is a task, not a
+                // stalled send. The copy lands shortly after, so the wait is added as if
+                // it were there.
                 let mut letter_cached = true;
                 if account.save_sent_copy && !account.is_ews() {
                     match (sent.as_ref(), worker.as_ref()) {
                         (Some(sent), Some(worker)) => {
-                            let work = Work::Append {
+                            worker.kick(Work::CopyToSent {
                                 folder: sent.clone(),
                                 // The wait below still parses the letter: the copy takes a copy.
                                 raw: raw.clone(),
                                 flags: "(\\Seen)".into(),
                                 message_id: message_id.clone(),
-                            };
-                            let copied = worker.run_background(work).await;
-                            if let Err(e) = &copied {
-                                tracing::warn!(account = %account.id, "copy to Sent failed: {e}");
-                            }
-                            // A wait whose letter never arrived would show badge 0 and could not
-                            // be cancelled. The copy may have landed after a failed append, and a
-                            // good one may be missing when the sync after it failed: look, and
-                            // sync Sent once more if it is not there.
-                            letter_cached = match &message_id {
-                                Some(mid) => {
-                                    state.store.find_any_by_message_id(&account.id, mid)?.is_some()
-                                        || (worker.run_background(Work::SyncFolder(sent.clone())).await.is_ok()
-                                            && state.store.find_any_by_message_id(&account.id, mid)?.is_some())
-                                }
-                                None => copied.is_ok(),
-                            };
-                            // Only a failed append is a copy not saved: a good one is on the
-                            // server whether or not the cache has it yet.
-                            if let Err(e) = copied
-                                && !letter_cached
-                            {
-                                state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent: {e}", "письмо отправлено, но копия в «Отправленные» не сохранена: {e}") }));
-                            }
+                            });
                         }
                         // No Sent folder yet (or no worker): the copy cannot be made, so a wait
                         // could neither be shown nor cancelled. Say so and leave it out.
