@@ -434,4 +434,12 @@ describe("what an answer or a forward is for", () => {
     m.row.message_id = null;
     expect(reply(m, me, false).acts_on ?? null).toBeNull();
   });
+
+  it("a saved draft keeps what it answers, so the mark and the wait stay", () => {
+    const acts = { account_id: "a", message_id: "m1@example.org", folder: "INBOX", act: "reply" as const, waiting: true };
+    const view = { ...msg(), view: { ...msg().view, acts_on: acts } };
+    expect(fromDraft(view, me).acts_on).toEqual(acts);
+    // A draft with nothing to answer carries none.
+    expect(fromDraft(msg(), me).acts_on ?? null).toBeNull();
+  });
 });

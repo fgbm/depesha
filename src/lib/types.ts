@@ -401,6 +401,8 @@ export interface MessageView {
   send_at?: number | null;
   /** How a draft of Depesha's was being written; absent for other letters. */
   format?: BodyFormat | null;
+  /** The letter a saved draft answers or forwards; absent for other letters. */
+  acts_on?: ActsOn | null;
   /** The letter's `text/markdown` part drawn as HTML, cleaned like `html`. */
   markdown?: string | null;
   /** The forms the letter came in, in its order: the sender's favourite last. */
