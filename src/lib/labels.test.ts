@@ -9,6 +9,9 @@ import {
   keywordForName,
   labelChips,
   labelNames,
+  labelState,
+  labelStorage,
+  pickAccount,
   readOnly,
   refusalOf,
   storageOf,
@@ -223,5 +226,35 @@ describe("где хранятся метки (кадр 9)", () => {
     expect(storageOf("claimed-but-lost")).toBe("unconfirmed");
     expect(storageOf(null)).toBe("unconfirmed");
     expect(storageOf(undefined)).toBe("unconfirmed");
+  });
+});
+
+describe("выбор меток (кадр 10)", () => {
+  const row = (account: string, folder: string, keywords: string[] = []) => ({ account_id: account, folder, keywords });
+
+  it("ящик строк — один, иначе выбор невозможен; меток для этого не нужно", () => {
+    // The item shows whenever the rows are of one mailbox, even with no labels yet.
+    expect(pickAccount([row("a", "INBOX")])).toBe("a");
+    expect(pickAccount([row("a", "INBOX"), row("a", "Sent")])).toBe("a");
+    expect(pickAccount([row("a", "INBOX"), row("b", "INBOX")])).toBeNull();
+    expect(pickAccount([])).toBeNull();
+  });
+
+  it("метка на всех, на части или ни на одной", () => {
+    expect(labelState([row("a", "INBOX", ["k"])], "k")).toBe("all");
+    expect(labelState([row("a", "INBOX", ["k"]), row("a", "INBOX")], "k")).toBe("some");
+    expect(labelState([row("a", "INBOX")], "k")).toBe("none");
+    expect(labelState([], "k")).toBe("none");
+  });
+
+  it("где хранятся: по проверке папки, иначе по PERMANENTFLAGS, иначе не подтверждено", () => {
+    expect(labelStorage([{ label_check: "saves" }])).toBe("server");
+    expect(labelStorage([{ label_check: "not-saves" }])).toBe("local");
+    expect(labelStorage([{ labels_on_server: true }])).toBe("server");
+    expect(labelStorage([{ labels_on_server: false }])).toBe("local");
+    expect(labelStorage([{}])).toBe("unconfirmed");
+    // «На сервере» — только когда так говорят все папки выбора.
+    expect(labelStorage([{ label_check: "saves" }, { label_check: "not-saves" }])).toBe("unconfirmed");
+    expect(labelStorage([])).toBe("unconfirmed");
   });
 });

@@ -2457,6 +2457,40 @@ try {
     await screenshot("shared-group");
   });
 
+  await step("12.6", "метки: «Метки…» из меню строки на письме без меток — пустое состояние, создать, ярлык в строке, снять (#42, кадр 10)", async () => {
+    await d.button("Входящие");
+    const subj = "Счёт за октябрь";
+    await rowBySubject(subj, 30000);
+    const labelName = `Метка ${stamp}`;
+
+    // Right-click the row and open «Метки» through the menu, not invoke.
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find((r) => r.innerText.includes(arguments[0]));
+       const b = row.getBoundingClientRect();
+       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 40, clientY: b.top + 20 }));`,
+      subj,
+    );
+    await d.until("row menu", async () => (await textOf(".pop")).includes("Метки"), 10000);
+    await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(@class,'mi') and normalize-space(.)='Метки']"));
+    // No labels yet, and the picker still opens: the empty state and the create form.
+    await d.until("labels picker empty", async () => (await textOf(".pop")).includes("Меток пока нет"), 10000);
+    await d.until("create form", async () => (await d.findAll(".pop input[placeholder='Новая метка…']")).length === 1, 10000);
+    await screenshot("labels-empty");
+
+    // Create the first label right here; it goes on the letter at once.
+    await d.type(await d.find(".pop input[placeholder='Новая метка…']"), labelName);
+    await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(@class,'primary') and normalize-space(.)='Создать']"));
+    await d.until("label chip in the row", async () => (await textOf(".list")).includes(labelName), 20000);
+    await screenshot("labels-chip");
+
+    // The same picker now lists it as checked; take it off.
+    await d.click(await d.xpath(`//div[contains(@class,'pop')]//button[contains(@class,'mi') and contains(normalize-space(.), ${JSON.stringify(labelName)})]`));
+    await d.until("label chip gone", async () => !(await textOf(".list")).includes(labelName), 20000);
+    await screenshot("labels-removed");
+    await press("Escape");
+    await d.until("picker closed", async () => (await d.findAll(".pop")).length === 0);
+  });
+
   await screenshot("final");
 } catch (e) {
   if (e instanceof Abort) console.error(`\nПрогон остановлен: ${e.message}.`);

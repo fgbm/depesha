@@ -48,6 +48,11 @@ describe("keys as the app shows them", () => {
     // The main window's keys do not reach the composition window.
     expect(shortcuts.find(press("e", "KeyE"), "compose")).toBeUndefined();
   });
+
+  it("opens the labels picker with l, on any layout (#42)", () => {
+    expect(shortcuts.find(press("l", "KeyL"), "main")).toBe("core.labels");
+    expect(shortcuts.find(press("д", "KeyL"), "main")).toBe("core.labels");
+  });
 });
 
 describe("plugins' keys", () => {
