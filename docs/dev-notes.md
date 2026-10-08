@@ -21,6 +21,7 @@
 
 ## WebKitGTK
 
+- Сбой WebKitWebProcess при закрытии окна (`_gbm_device_destroy` → SEGV, Mesa/GBM, #73): при старте выставляется `WEBKIT_DISABLE_DMABUF_RENDERER=1`, если переменная не задана. Свой вариант (даже `0`) приложение не трогает: `WEBKIT_DISABLE_DMABUF_RENDERER=0 depesha`.
 - Смена атрибута `srcdoc` iframe не перезагружает документ. Оборачивай `MailFrame` в `{#key}`, чтобы iframe пересоздался.
 - Вставка перед `contenteditable=false` уезжает над заблокированным блоком: WebKitGTK переносит `insertHTML` перед ним. Для проверки надёжнее `insertAdjacentHTML('beforeend')` и событие `input`.
 

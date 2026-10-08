@@ -67,6 +67,16 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Mesa's GBM frees a device twice when WebKitWebProcess exits and the process dies with
+    // SEGV (#73); without the DMA-BUF renderer WebKit does not go there. A value the user set,
+    // `0` too, is theirs.
+    let dmabuf_off = cfg!(target_os = "linux") && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none();
+    #[cfg(target_os = "linux")]
+    if dmabuf_off {
+        // SAFETY: first thing in `main`: no thread exists yet to read the environment
+        // while it changes, and GTK and WebKit have not started.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
     tauri::Builder::default()
         // Launched again: the running copy shows its window (hidden in the background too);
         // a login entry starting it twice changes nothing.
@@ -96,7 +106,7 @@ pub fn run() {
                 .unwrap_or_default();
             extensions::serve(app, request.uri().path(), &disabled)
         })
-        .setup(|app| {
+        .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             let config_dir = app.path().app_config_dir()?;
             let log_dir = app.path().app_log_dir()?;
@@ -110,6 +120,9 @@ pub fn run() {
                 app.manage(guard);
             }
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
+            if dmabuf_off {
+                tracing::info!("WEBKIT_DISABLE_DMABUF_RENDERER=1 set: workaround for the WebKit crash on exit (#73)");
+            }
 
             let config_path = config_dir.join("accounts.json");
             let mut config = config::load(&config_path);
