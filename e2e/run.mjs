@@ -97,16 +97,23 @@ async function rowBySubject(subject, timeoutMs = 15000) {
     // does not always make WebKitWebDriver redraw the virtual list or load the next page.
     await d.exec(`const v = document.querySelector('.list .viewport');
       if (v) {
-        v.scrollTop = v.scrollTop + v.clientHeight >= v.scrollHeight - 1 ? 0 : v.scrollTop + v.clientHeight;
-        v.dispatchEvent(new Event('scroll'));
+        const next = v.scrollTop + v.clientHeight >= v.scrollHeight - 1 ? 0 : v.scrollTop + v.clientHeight;
+        if (next !== v.scrollTop) { v.scrollTop = next; v.dispatchEvent(new Event('scroll')); }
       }`);
     return null;
   }, timeoutMs);
 }
 
 async function openBySubject(subject) {
-  await d.click(await rowBySubject(subject));
-  await d.until(`reader shows "${subject}"`, async () => (await textOf(".reader h1")).includes(subject));
+  // A row found and clicked may still miss: the virtual list re-renders under the pointer
+  // and the reader shows another letter. Retry until the reader shows this one.
+  await d.until(`reader shows "${subject}"`, async () => {
+    if ((await textOf(".reader h1")).includes(subject)) return true;
+    const row = await rowBySubject(subject, 3000).catch(() => null);
+    if (!row) return false;
+    await d.click(row).catch(() => {});
+    return (await textOf(".reader h1")).includes(subject);
+  }, 20000);
 }
 
 async function openFolder(name) {
@@ -1464,7 +1471,25 @@ try {
       await openBySubject("Счёт за октябрь");
       await press("u");
       await viewOption("Важное наверху");
-      await d.until("unread on top", async () => (await top())?.[1] === true, 15000);
+      // The order is applied by a reload of the list: wait for the top the cache gives for
+      // it, not for the order the previous sort left (whose top may also be unread).
+      const carol = (await invoke("accounts")).find((a) => a.email === "carol@local.test");
+      const important = [
+        { by: "unread", desc: true },
+        { by: "people", desc: true },
+        { by: "flagged", desc: true },
+        { by: "date", desc: true },
+      ];
+      const cachedTop = async () =>
+        (await invoke("messages", { query: { account_id: carol.id, folder: "INBOX", threads: true, sort: important, limit: 1 } }))[0]?.subject;
+      await d.until(
+        "unread on top",
+        async () => {
+          const t = await top();
+          return t !== null && t[1] === true && t[0] === (await cachedTop());
+        },
+        15000,
+      );
       // Read: the letter keeps its place until the list changes.
       const [first] = await top();
       await openBySubject(first);
@@ -2516,6 +2541,8 @@ try {
   });
 
   await step("12.6", "метки: «Метки…» из меню строки на письме без меток — пустое состояние, создать, ярлык в строке, снять (#42, кадр 10)", async () => {
+    // Step 3.6/3.8/5.4 recreated GreenMail and left it empty: deliver the letter to label.
+    helper("deliver", "Счёт за октябрь");
     await d.button("Входящие");
     const subj = "Счёт за октябрь";
     await rowBySubject(subj, 30000);
