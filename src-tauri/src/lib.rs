@@ -132,6 +132,7 @@ pub fn run() {
                 notifier: Default::default(),
                 tray: Default::default(),
                 background: Default::default(),
+                open_seq: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();

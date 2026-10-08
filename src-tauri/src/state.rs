@@ -52,6 +52,27 @@ pub struct AppState {
     pub tray: crate::tray::TrayCtl,
     /// Work in the background: the closed window, letters that missed their time.
     pub background: crate::background::Background,
+    /// The newest `message_open` sequence per window: an open older than the window's
+    /// newest is dropped before its body is fetched (#71).
+    pub open_seq: OpenSeqs,
+}
+
+/// The newest `message_open` sequence per window (its label), for cancelling a body load
+/// the user has already moved past.
+pub type OpenSeqs = Mutex<HashMap<String, u64>>;
+
+/// Records `seq` as the newest open of `window`.
+pub fn note_open(seqs: &OpenSeqs, window: &str, seq: u64) {
+    lock(seqs).insert(window.to_owned(), seq);
+}
+
+/// Whether an open with `seq` is still the newest for `window`: a newer open has already
+/// made it stale, and its body need not be fetched.
+pub fn open_is_current(seqs: &OpenSeqs, window: &str, seq: u64) -> bool {
+    match lock(seqs).get(window) {
+        Some(newest) => *newest <= seq,
+        None => true,
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -284,5 +305,23 @@ impl AppState {
     /// An event only the main window handles (a letter's window never answers it).
     pub fn emit_main(&self, event: &str, payload: serde_json::Value) {
         let _ = self.app.emit_to("main", event, payload);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_newer_open_makes_an_older_one_stale() {
+        let seqs: OpenSeqs = Mutex::new(HashMap::new());
+        note_open(&seqs, "main", 3);
+        assert!(open_is_current(&seqs, "main", 3));
+        // The window moved to the next letter: the older open is stale now.
+        note_open(&seqs, "main", 4);
+        assert!(!open_is_current(&seqs, "main", 3));
+        assert!(open_is_current(&seqs, "main", 4));
+        // Another window's opens are its own.
+        assert!(open_is_current(&seqs, "message-7", 1));
     }
 }

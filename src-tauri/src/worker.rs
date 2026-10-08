@@ -70,7 +70,12 @@ pub enum Work {
     /// Every visible folder, one at a time: user actions run between them.
     SyncAll,
     SyncFolder(String),
-    LoadBody(i64),
+    LoadBody {
+        id: i64,
+        /// The window and open sequence the load belongs to: a load whose sequence is
+        /// no longer the window's newest is dropped before the server is asked (#71).
+        gate: Option<(String, u64)>,
+    },
     /// `validity`: the folder's UIDVALIDITY when the UIDs were read from the cache; the
     /// server refuses the action when the folder was renumbered since (`FolderChanged`).
     SetFlag {
@@ -418,7 +423,7 @@ impl Worker {
         let (reply, rx) = oneshot::channel();
         // Reading a body jumps ahead of the moves waiting to run; everything else queues
         // behind them.
-        let tx = if matches!(work, Work::LoadBody(_)) {
+        let tx = if matches!(work, Work::LoadBody { .. }) {
             &self.reads
         } else {
             &self.urgent
@@ -1246,7 +1251,16 @@ async fn perform(
         Work::SyncFolder(folder) => Ok(Output::Count(
             sync_one(state, account, conn, folder, *notify_new).await?,
         )),
-        Work::LoadBody(msg_id) => Ok(Output::Body(mail::load_body(conn, store, *msg_id).await?)),
+        Work::LoadBody { id: msg_id, gate } => {
+            // The user has moved to another letter meanwhile: do not ask the server for a
+            // body nobody is waiting on any more (#71).
+            if let Some((window, seq)) = gate
+                && !crate::state::open_is_current(&state.open_seq, window, *seq)
+            {
+                return Ok(Output::None);
+            }
+            Ok(Output::Body(mail::load_body(conn, store, *msg_id).await?))
+        }
         Work::SetFlag {
             folder,
             validity,
@@ -1569,12 +1583,12 @@ mod tests {
     }
 
     fn load(id: i64) -> (Work, Reply) {
-        (Work::LoadBody(id), oneshot::channel().0)
+        (Work::LoadBody { id, gate: None }, oneshot::channel().0)
     }
 
     fn loaded(next: Next) -> Option<i64> {
         match next {
-            Next::User(Work::LoadBody(id), _) => Some(id),
+            Next::User(Work::LoadBody { id, .. }, _) => Some(id),
             _ => None,
         }
     }

@@ -472,13 +472,19 @@ pub struct OpenedMessage {
     sender_unverified: bool,
 }
 
-async fn raw_of(state: &AppState, row: &MessageRow) -> CmdResult<Vec<u8>> {
+async fn raw_of(state: &AppState, row: &MessageRow, gate: Option<(String, u64)>) -> CmdResult<Vec<u8>> {
     // Already downloaded mail opens without the network.
     if let Some(raw) = state.store.body(row.id)? {
         return Ok(raw);
     }
-    match state.worker(&row.account_id)?.run(Work::LoadBody(row.id)).await? {
+    let work = Work::LoadBody { id: row.id, gate };
+    match state.worker(&row.account_id)?.run(work).await? {
         Output::Body(raw) => Ok(raw),
+        // A newer open superseded this one: no body was fetched, and the window ignores it.
+        Output::None => Err(CmdError::new(
+            "cancelled",
+            tr!("the message is no longer open", "письмо уже не открыто"),
+        )),
         _ => Err(CmdError::new(
             "other",
             tr!("the server did not return the message", "сервер не вернул письмо"),
@@ -498,9 +504,22 @@ pub(crate) fn gone() -> CmdError {
 }
 
 #[tauri::command]
-pub async fn message_open(state: St<'_>, id: i64, allow_remote: bool) -> CmdResult<OpenedMessage> {
+pub async fn message_open(
+    state: St<'_>,
+    window: tauri::Window,
+    id: i64,
+    allow_remote: bool,
+    seq: Option<u64>,
+) -> CmdResult<OpenedMessage> {
     let row = row(&state, id)?;
-    let raw = raw_of(&state, &row).await?;
+    // A newer open of this window makes this one stale: its body load is dropped before
+    // the server is asked (#71).
+    let gate = seq.map(|seq| {
+        let label = window.label().to_owned();
+        crate::state::note_open(&state.open_seq, &label, seq);
+        (label, seq)
+    });
+    let raw = raw_of(&state, &row, gate).await?;
     let sender = row.from.as_ref().map(|a| a.email.clone()).unwrap_or_default();
     let listed = !sender.is_empty() && state.store.is_trusted_sender(&sender)?;
     // Anyone can write a trusted address into From: the trust holds only for a sender
@@ -1620,7 +1639,7 @@ pub fn clear_hint_count(state: St<'_>, id: String, subject: String) -> CmdResult
 pub async fn attachment_save(state: St<'_>, id: i64, index: u32, path: String) -> CmdResult<()> {
     let path = state.paths.check(Use::SaveFile, &path)?;
     let row = row(&state, id)?;
-    let raw = raw_of(&state, &row).await?;
+    let raw = raw_of(&state, &row, None).await?;
     let (_, bytes) = message::attachment(&raw, index)?;
     tokio::fs::write(&path, bytes).await?;
     mark_from_internet(&path).await;
@@ -1655,7 +1674,7 @@ fn settings_folder(state: &AppState, row: &MessageRow) -> CmdResult<String> {
 pub async fn attachment_save_in(state: St<'_>, id: i64, index: u32) -> CmdResult<String> {
     let row = row(&state, id)?;
     let dir = settings_folder(&state, &row)?;
-    let raw = raw_of(&state, &row).await?;
+    let raw = raw_of(&state, &row, None).await?;
     let (info, bytes) = message::attachment(&raw, index)?;
     let folder = save_folder(&dir).await?;
     let path = free_path(&folder, &safe_name(&info.name));
@@ -1676,7 +1695,7 @@ pub async fn attachments_save_all(state: St<'_>, id: i64, dir: Option<String>) -
         }
         None => settings_folder(&state, &row)?,
     };
-    let raw = raw_of(&state, &row).await?;
+    let raw = raw_of(&state, &row, None).await?;
     let view = message::parse_view(&raw, false)?;
     let folder = save_folder(&dir).await?;
     let mut saved = 0;
@@ -1746,7 +1765,7 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
 #[tauri::command]
 pub async fn attachment_bytes(state: St<'_>, id: i64, index: u32) -> CmdResult<tauri::ipc::Response> {
     let row = row(&state, id)?;
-    let raw = raw_of(&state, &row).await?;
+    let raw = raw_of(&state, &row, None).await?;
     let (_, bytes) = message::attachment(&raw, index)?;
     Ok(tauri::ipc::Response::new(bytes))
 }
@@ -1861,7 +1880,7 @@ async fn mark_from_internet(path: &std::path::Path) {
 #[tauri::command]
 pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, index: u32) -> CmdResult<()> {
     let row = row(&state, id)?;
-    let raw = raw_of(&state, &row).await?;
+    let raw = raw_of(&state, &row, None).await?;
     let (info, bytes) = message::attachment(&raw, index)?;
     let name = safe_name(&info.name);
     let ext = name
@@ -2043,7 +2062,7 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
             }
             AttachmentSource::Message { id, index } => {
                 let r = row(state, id)?;
-                let raw = raw_of(state, &r).await?;
+                let raw = raw_of(state, &r, None).await?;
                 let (info, data) = message::attachment(&raw, index)?;
                 OutgoingAttachment {
                     name: info.name,
