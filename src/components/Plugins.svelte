@@ -18,7 +18,7 @@
 
   function toggleExtension(ext: Extension, on: boolean) {
     const off = app.settings.disabled_extensions.filter((m) => m !== ext.id);
-    app.saveSettings({ ...app.settings, disabled_extensions: on ? off : [...off, ext.id] });
+    app.patchSettings({ disabled_extensions: on ? off : [...off, ext.id] });
   }
 
   async function install() {

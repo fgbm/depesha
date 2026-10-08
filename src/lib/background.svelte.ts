@@ -16,7 +16,7 @@ import type { Choice, Confirmation } from "./ui.svelte";
 /** What the background needs from the app store. */
 export interface BackgroundHost extends ArrivalsHost {
   readonly settings: Settings;
-  saveSettings(next: Settings): Promise<void>;
+  patchSettings(patch: Record<string, unknown>): Promise<void>;
   choose(q: Omit<Confirmation, "resolve">): Promise<Choice>;
   newMessage(): void;
   openSettings(page?: string, section?: string | null): void;
@@ -72,9 +72,11 @@ async function askClose(host: BackgroundHost, noTray: boolean) {
   // Esc or a click beside the dialog: the window stays as it is.
   if (answer === null) return;
   if (checked) {
-    const next: Settings = { ...host.settings, close_action: answer ? "background" : "quit" };
-    if (answer && noTray) next.background_without_tray = true;
-    await host.saveSettings(next).catch((e) => host.fail(e));
+    // A patch of the two fields, not the whole settings from memory: what the tray or
+    // another window wrote meanwhile is not rolled back.
+    const patch: Record<string, unknown> = { close_action: answer ? "background" : "quit" };
+    if (answer && noTray) patch.background_without_tray = true;
+    await host.patchSettings(patch).catch((e) => host.fail(e));
   }
   if (answer) await api.windowHide().catch((e) => host.fail(e));
   else await api.appQuit(false).catch((e) => host.fail(e));

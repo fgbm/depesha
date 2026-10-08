@@ -146,11 +146,11 @@ class Host {
     // the others list theirs in `disabled_plugins` while off.
     if (this.defaultOff(id)) {
       const rest = (app.settings.enabled_plugins ?? []).filter((x) => x !== id);
-      app.saveSettings({ ...app.settings, enabled_plugins: on ? [...rest, id] : rest });
+      app.patchSettings({ enabled_plugins: on ? [...rest, id] : rest });
       return;
     }
     const rest = (app.settings.disabled_plugins ?? []).filter((x) => x !== id);
-    app.saveSettings({ ...app.settings, disabled_plugins: on ? rest : [...rest, id] });
+    app.patchSettings({ disabled_plugins: on ? rest : [...rest, id] });
   }
 }
 

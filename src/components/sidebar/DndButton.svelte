@@ -13,7 +13,7 @@
 
   function setDnd(until: number) {
     sidebarUi.dndMenu = false;
-    app.saveSettings({ ...app.settings, dnd_until: until });
+    app.patchSettings({ dnd_until: until });
   }
 
   function dndOptions(): { label: string; until: number }[] {

@@ -19,7 +19,7 @@ export interface SelectionHost {
   folder(accountId: string, name: string): FolderInfo | undefined;
   track<T>(p: Promise<T>): Promise<T>;
   fail(e: unknown, prefix?: string): void;
-  saveSettings(next: Settings): Promise<void>;
+  patchSettings(patch: Record<string, unknown>): Promise<void>;
   reload(): Promise<void>;
   /** A folder was opened: read its rights and labels (#42); quietly from the cache, from the server when never checked. */
   folderOpened?(accountId: string, folder: string): void;
@@ -51,7 +51,7 @@ export class SelectionController {
       list_sort = sort;
     }
     this.host.list.unpin();
-    await this.host.saveSettings({ ...this.host.settings, list_sort, view_sorts });
+    await this.host.patchSettings({ list_sort, view_sorts });
     this.host.reload();
   }
 
