@@ -40,6 +40,10 @@ function common(app: AppStore) {
     listen("people-changed", () => peopleBook.changed()),
     // Settings saved elsewhere (another window, a plugin) may change the language too.
     listen("settings-changed", () => settingsChanged()),
+    // A label taken off every letter finishes in the background: the list follows.
+    listen<{ account_id: string }>("labels-changed", (e) => {
+      if (e.payload.account_id) void app.labels.refresh(e.payload.account_id);
+    }),
   ];
 }
 
