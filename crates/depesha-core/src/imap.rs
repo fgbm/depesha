@@ -629,36 +629,51 @@ pub async fn myrights(conn: &mut Conn, folder: &str) -> Result<Option<Rights>> {
 }
 
 /// Reads the server's NAMESPACE answer (RFC 2342). imap-proto does not parse this
-/// response and would kill the connection on the untagged line, so the command is
-/// tagged and its answer read from the raw stream, line by line. A malformed or refused
-/// answer is an empty namespace: the folders simply stay ungrouped. The session is left
-/// usable because the command is written and read through the same stream.
+/// response and would kill the connection on the untagged line, so the command is tagged
+/// and its answer read from the raw stream, line by line. A malformed or refused answer is
+/// an empty namespace: the folders simply stay ungrouped.
 pub async fn namespace(conn: &mut Conn) -> Result<Namespace> {
-    use tokio::io::AsyncReadExt;
     let id = conn.session.run_command("NAMESPACE").await?;
     let tag = id.0.clone();
-    let stream = conn.session.get_mut();
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 1024];
-    let done = |buf: &[u8]| {
-        let text = String::from_utf8_lossy(buf);
-        text.lines().any(|l| l.starts_with(&tag))
-    };
-    loop {
-        if done(&buf) {
-            break;
-        }
-        if buf.len() > 64 * 1024 {
-            return Ok(Namespace::default());
-        }
-        match timeout(ANSWER_TIMEOUT, stream.read(&mut chunk)).await {
-            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return Ok(Namespace::default()),
-            Ok(Ok(n)) => buf.extend_from_slice(&chunk[..n]),
-        }
-    }
-    let text = String::from_utf8_lossy(&buf);
+    let text = read_tagged(conn.session.get_mut(), &tag).await.unwrap_or_default();
     let line = text.lines().find(|l| l.starts_with("* NAMESPACE")).unwrap_or_default();
     Ok(Namespace::parse(line.trim_start_matches("* NAMESPACE").trim()))
+}
+
+/// Reads lines from `stream` until the one carrying `tag`, returning the text read on the
+/// way (the untagged lines), and leaves everything after the tagged line unread. One byte
+/// at a time on purpose: a chunked read could swallow the first bytes of the next answer,
+/// which are then missing from the session's own buffer, and the session would desync.
+async fn read_tagged(stream: &mut (impl AsyncRead + Unpin), tag: &str) -> Result<String> {
+    use tokio::io::AsyncReadExt;
+    let tag = tag.as_bytes();
+    let mut text = String::new();
+    let mut line: Vec<u8> = Vec::new();
+    loop {
+        let mut byte = [0u8; 1];
+        match timeout(ANSWER_TIMEOUT, stream.read(&mut byte)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return Err(Error::Closed),
+            Ok(Ok(_)) => {}
+        }
+        if byte[0] != b'\n' {
+            line.push(byte[0]);
+            if line.len() > 64 * 1024 {
+                return Err(Error::Protocol("the server's answer is too long".into()));
+            }
+            continue;
+        }
+        let done = line.starts_with(tag) && line.get(tag.len()).is_none_or(|&c| c == b' ' || c == b'\r');
+        let end = line.iter().position(|&c| c == b'\r').unwrap_or(line.len());
+        text.push_str(&String::from_utf8_lossy(&line[..end]));
+        text.push('\n');
+        line.clear();
+        if done {
+            return Ok(text);
+        }
+        if text.len() > 64 * 1024 {
+            return Err(Error::Protocol("the server's answer is too long".into()));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
