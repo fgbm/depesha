@@ -1426,6 +1426,9 @@ pub fn settings_get(state: St<'_>) -> Settings {
     state.settings()
 }
 
+/// A whole settings object in one call; only the e2e harness names one, so the command is
+/// registered and allowed only with the `e2e` feature (see `lib.rs`, `build.rs`).
+#[cfg(feature = "e2e")]
 #[tauri::command(async)]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     let before = state.settings();

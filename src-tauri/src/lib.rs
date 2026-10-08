@@ -260,6 +260,8 @@ pub fn run() {
             commands::unsubscribe,
             commands::unsubscribe_plan,
             commands::settings_get,
+            // Only e2e names a whole settings object; a release build does not register it.
+            #[cfg(feature = "e2e")]
             commands::settings_set,
             commands::settings_patch,
             commands::plugin_settings_set,
