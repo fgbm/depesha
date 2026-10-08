@@ -1861,6 +1861,29 @@ try {
     await composeClosed();
   });
 
+  await step("5.8", "обратный отсчёт в «Отправляется…» идёт, а не стоит (#75)", async () => {
+    const subj = `Отсчёт ${stamp}`;
+    await newMessage("carol@local.test", subj, "Просто текст.");
+    await d.click(await d.find(".compose .split-btn .main"));
+    await composeClosed();
+    const toast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Отправляется')]";
+    const left = async () => {
+      const text = await d.exec("return [...document.querySelectorAll('.toasts .toast')].map((t) => t.innerText).find((t) => t.includes('Отправляется')) ?? ''");
+      const n = /ещё (\d+)/.exec(text)?.[1];
+      if (n === undefined) throw new Error(`в тосте нет числа секунд: ${text}`);
+      return Number(n);
+    };
+    await d.until("sending toast", () => d.xpath(toast));
+    const first = await left();
+    await new Promise((r) => setTimeout(r, 2500));
+    const second = await left();
+    if (!(second < first)) throw new Error(`отсчёт стоит: было ${first}, стало ${second}`);
+    await d.click(await d.xpath(`${toast}//button[contains(@class,'act')]`));
+    await d.until("compose is back", async () => (await d.findAll(".compose")).length === 1);
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+  });
+
   await step("5.9", "«Отправить позже»: письмо ждёт в «Исходящих» своего времени", async () => {
     const subj = `Позже ${stamp}`;
     await newMessage("carol@local.test", subj, "Утром.");
