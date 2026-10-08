@@ -1,11 +1,15 @@
-// The settings window of 0.7 (#68): the size it shares with the expanded letter, the menu of
-// pages, the column a page's fields keep to, what a page says about itself and how leaving a
-// page with unsaved changes is settled. Pure values and small helpers; the window
-// (Preferences.svelte) draws from them. The numbers are mirrored in src/app.css as
-// --win-max / --win-gap / --menu-width / --column-max; layout.test.ts checks the two agree.
+// The settings window of 0.7 (#68): its size (its own, wider than the expanded letter since
+// 0.7.1), the menu of pages, the column a page's fields keep to, what a page says about
+// itself and how leaving a page with unsaved changes is settled. Pure values and small
+// helpers; the window (Preferences.svelte) draws from them. The numbers are mirrored in
+// src/app.css as --prefs-max / --win-gap / --menu-width / --column-max; settingsWindow.test.ts
+// checks the two agree.
 
-/** The widest the window and the expanded letter get, and the gap left around them. */
+/** The widest the expanded letter gets, and the gap left around it. */
 export const WIN_MAX = 1040;
+/** The settings window (#68) is wider than the letter: 0.7.1 raised it so the two columns
+ *  of «People» fit. Its own variable, so the letter keeps its size. */
+export const PREFS_MAX = 1280;
 export const WIN_GAP = 32;
 /** The menu of pages on the left. */
 export const MENU_WIDTH = 220;

@@ -343,10 +343,11 @@
 </div>
 
 <style>
-  /* One size for every page, the one the expanded letter has: switching pages never makes
-     the window jump, and the window does not jump between the settings and a letter (#68). */
+  /* One size for every page, its own limit (wider than the letter since 0.7.1): switching
+     pages never makes the window jump, and the window does not jump between the settings
+     and a letter (#68). */
   .prefs {
-    width: min(var(--win-max), calc(100vw - 2 * var(--win-gap)));
+    width: min(var(--prefs-max), calc(100vw - 2 * var(--win-gap)));
     height: calc(100vh - 2 * var(--win-gap));
     display: flex;
     flex-direction: row;

@@ -148,7 +148,7 @@
         {#if person.email !== NEW}<span class="nt">{tn("people.letters", person.uses)}</span>{/if}
         <span class="sp"></span>
         {#if person.manual && person.email !== NEW}
-          <button class="btn ghost small" onclick={forget}><Trash2 size={13} /> {t("people.delete")}</button>
+          <span class="acts"><button class="btn ghost small" onclick={forget}><Trash2 size={13} /> {t("people.delete")}</button></span>
         {/if}
       </div>
 
@@ -380,7 +380,8 @@
 
   .pd-head {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
     align-items: baseline;
     margin-bottom: 10px;
   }
@@ -388,6 +389,10 @@
   .pd-head .nm {
     font-size: 17px;
     font-weight: 700;
+    /* A long name wraps rather than being cut. */
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .pd-head .nt {
@@ -397,6 +402,21 @@
 
   .sp {
     flex: 1;
+  }
+
+  .acts {
+    display: flex;
+  }
+
+  /* A narrow card: the delete button goes under the name instead of crowding it. */
+  @container personcard (max-width: 520px) {
+    .pd-head .sp {
+      display: none;
+    }
+
+    .pd-head .acts {
+      flex-basis: 100%;
+    }
   }
 
   .field {

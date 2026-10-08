@@ -19,10 +19,12 @@
   --ok: #2e7d4f;
   --warn: #b26a00;
   --radius: 8px;
-  /* The settings window (#68) is as big as the expanded letter: up to 1040 px wide by
-     --win-gap from every edge; a page's fields keep to --column-max. Mirrored in
+  /* The expanded letter is up to --win-max wide; the settings window (#68) has its own,
+     wider limit in --prefs-max (0.7.1: 1280 px, the two columns of «People» did not fit).
+     Both keep --win-gap from every edge; a page's fields keep to --column-max. Mirrored in
      src/lib/settingsWindow.ts, checked by settingsWindow.test.ts. */
   --win-max: 1040px;
+  --prefs-max: 1280px;
   --win-gap: 32px;
   --menu-width: 220px;
   --column-max: 680px;

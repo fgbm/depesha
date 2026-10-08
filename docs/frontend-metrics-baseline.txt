@@ -22,7 +22,7 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	227	120	33	74
-component	src/components/Preferences.svelte	638	252	93	293
+component	src/components/Preferences.svelte	639	252	93	294
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
@@ -63,7 +63,7 @@ component	src/components/prefs/HintsSection.svelte	115	35	29	51
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
 component	src/components/prefs/MailPanel.svelte	230	17	128	85
 component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
-component	src/components/prefs/PeoplePanel.svelte	519	107	115	297
+component	src/components/prefs/PeoplePanel.svelte	539	107	115	317
 component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	312	96	59	157
