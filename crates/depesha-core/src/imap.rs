@@ -804,10 +804,7 @@ pub async fn check_labels(
     // \Deleted until the whole folder is cleaned. Depesha does not check there, and says
     // so instead of leaving something behind.
     if !conn.caps.uidplus {
-        return Err(Error::Protocol(tr!(
-            "this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run",
-            "на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется"
-        )));
+        return Err(Error::LabelCheckUnsupported);
     }
     let raw = format!(
         "From: Depesha <noreply@depesha.local>\r\nTo: noreply@depesha.local\r\nSubject: {subject}\r\n\
