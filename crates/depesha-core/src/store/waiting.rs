@@ -119,8 +119,9 @@ fn bare(id: &str) -> &str {
 
 /// How long the return of the rest of a chain waits after one letter was taken out of the
 /// folder: the "Done" toast offers an undo for this long, and the wait's letters must stay
-/// in the folder until it lapses, or an undo would find them already back in the inbox.
-const UNDO_SECS: i64 = 8;
+/// in the folder until it lapses, or an undo would find them already back in the inbox. The
+/// toast lives 8 s (`ui.svelte.ts`): the margin covers the queue and a click at the last moment.
+const UNDO_SECS: i64 = 12;
 
 /// A letter joined to the one answered: row id, Message-ID, In-Reply-To, date, read, sender.
 type Neighbour = (i64, String, Option<String>, i64, bool, Option<String>);
@@ -1081,6 +1082,12 @@ mod tests {
         );
         let f = the_wait(&store, FollowupFilter::Closed);
         assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Closed, "done"));
+    }
+
+    #[test]
+    fn the_hold_outlives_the_undo_toast_with_a_margin() {
+        const TOAST_SECS: i64 = 8;
+        const { assert!(UNDO_SECS >= TOAST_SECS + 3) };
     }
 
     #[test]
