@@ -62,8 +62,9 @@ jobs:
           args: ${{ matrix.args }}
 
   # The draft above collects the files of all four builds; installed copies see the
-  # release (latest.json) only once it is published, so it is published only when every
-  # build succeeded. A failed build leaves the draft for a look by hand.
+  # release (latest.json) only once it is published. This job only writes the notes into
+  # the draft; the draft is checked and published by hand (docs/release-process.md).
+  # A failed build leaves the draft for a look by hand.
   publish:
     needs: release
     runs-on: ubuntu-24.04
@@ -76,7 +77,7 @@ jobs:
           fetch-depth: 0
       - name: Release notes from the commits
         run: scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
-      - name: Publish
+      - name: Write the notes into the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --draft=false --latest
+        run: gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
