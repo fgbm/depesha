@@ -97,10 +97,12 @@ describe("acting on a letter", () => {
     void s.open(1);
     await flush();
     vi.advanceTimersByTime(200);
-    // "Done" a moment after opening: the letter is read all the same.
+    // "Done" a moment after opening: the letter is read all the same, locally. The
+    // server flag rides with the move, so a held series is not split by a flag.
     await s.archive([1]);
     await flush();
-    expect(markedSeen()).toContain(1);
+    expect(s.messages.find((m) => m.id === 1)?.flags.seen ?? true).toBe(true);
+    expect(markedSeen()).toEqual([]);
   });
 });
 

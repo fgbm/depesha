@@ -28,7 +28,7 @@ export interface ActionHost {
   /** Takes rows out of the list and opens the next one. */
   takeOut(ids: number[]): void;
   /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[]): void;
+  markSeen(ids: number[], server?: boolean): void;
   toast(text: string, error?: boolean, action?: { label: string; run: () => void }): void;
   fail(e: unknown, prefix?: string): void;
   /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
@@ -62,8 +62,9 @@ export class ActionRunner {
     const before = list.messages;
     const rows = ids.map((id) => before.find((m) => m.id === id) ?? (this.host.opened?.row.id === id ? this.host.opened.row : undefined));
     const hidden = new Set(ids);
-    // A letter being dealt with is read: its mark lands now, not after the wait (#71).
-    this.host.markSeen(ids);
+    // A letter being dealt with is read now, not after the wait (#71). Locally only:
+    // the move sets `\Seen` for the whole series, and a flag between moves would split it.
+    this.host.markSeen(ids, false);
     for (const id of ids) list.leaving.add(id);
     // Out of sight at once; the server is asked afterwards.
     this.host.takeOut(ids);

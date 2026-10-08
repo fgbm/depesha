@@ -1478,6 +1478,14 @@ async fn perform(
             // retry: finish it by looking at what already reached the target. With MOVE
             // the move is atomic, and a repeated one finds the originals gone.
             let resume = retry && matches!(conn, Conn::Imap(c) if !c.caps.move_);
+            // Dealt with, so read: one store for the whole series, then one move. A flag
+            // queued between the moves would split the series into one request per letter.
+            // A folder that cannot store flags still moves.
+            if !uids.is_empty()
+                && let Err(e) = mail::set_flag(conn, store, id, from, *validity, uids, FlagChange::Seen(true)).await
+            {
+                tracing::debug!(account = %id, folder = %from, "seen before move: {e}");
+            }
             if resume {
                 mail::resume_move(conn, store, id, from, *validity, uids, to).await?;
             } else {

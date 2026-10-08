@@ -1677,8 +1677,12 @@ try {
     await rowBySubject(subj, 10000);
     const rows = await d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes(arguments[0])).length`, subj);
     if (rows !== 1) throw new Error(`строк цепочки в «Отложенных»: ${rows}`);
-    const badge = await d.exec(`return [...document.querySelectorAll('nav.side .item')].find(b => b.innerText.includes('Отложенные'))?.querySelector('.count')?.innerText.trim()`);
-    if (badge !== "1") throw new Error(`счётчик «Отложенных»: ${badge}`);
+    // The folder counter follows scheduleFolders: it is absent until that pass, so wait
+    // for it instead of reading once.
+    await d.until("snoozed counter is 1", async () => {
+      const badge = await d.exec(`return [...document.querySelectorAll('nav.side .item')].find(b => (b.querySelector('.name') ?? b).innerText.trim() === 'Отложенные')?.querySelector('.count')?.innerText.trim() ?? ''`);
+      return badge === "1" ? true : null;
+    });
   });
 
   await step("4.12", "письмо с Markdown-частью: переключатель «HTML · Markdown · Текст», задачи галочками, настройка «Показывать письма»", async () => {

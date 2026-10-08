@@ -92,16 +92,16 @@ describe("archiving through the list", () => {
     await flush();
     expect(api.open.mock.calls.length).toBeLessThanOrEqual(2);
     expect(api.open).toHaveBeenLastCalledWith(21, false, expect.any(Number));
-    // The letters we archived are read: we acted on them. The ones we only passed in
-    // the selection are not — the open of 21 has not landed, and 22 was never current.
+    // Archived letters are marked read by the move, not by a flag between the moves:
+    // that flag would split the series. Letters we only passed are not marked either.
     const acted = api.setFlag.mock.calls.filter(([, change]) => change?.flag === "seen").flatMap(([ids]) => ids);
-    expect(acted).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    expect(acted).toEqual([]);
     pending.resolve(opened(row(21)));
     await flush();
     vi.advanceTimersByTime(1000);
     await flush();
     const marked = api.setFlag.mock.calls.filter(([, change]) => change?.flag === "seen").flatMap(([ids]) => ids);
     // Stopping opens 21 and marks it; nothing past it.
-    expect(marked).toEqual([...acted, 21]);
+    expect(marked).toEqual([21]);
   });
 });

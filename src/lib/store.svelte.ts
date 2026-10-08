@@ -170,7 +170,7 @@ export class AppStore {
   /** `u`: reads or unreads the letters by their own state, not the one open a moment ago (#71). */
   toggleSeen(ids = this.selectedIds()) { return this.selection.toggleSeen(ids); }
   /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[]) { this.reader.saw(ids); }
+  markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
   /** Opens a letter in a window of its own; a draft opens in the composer instead. */
   openWindow(row: MessageRow) { return this.selection.openWindow(row); }
 

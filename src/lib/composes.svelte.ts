@@ -37,7 +37,7 @@ export interface ComposeHost {
   /** The format of new letters comes from here unless the mailbox has its own. */
   readonly settings: Settings;
   /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[]): void;
+  markSeen(ids: number[], server?: boolean): void;
   /** Set to start the first mailbox's setup. */
   wizard: { account: Account | null } | null;
   account(id: string): AccountView | undefined;

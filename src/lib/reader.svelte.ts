@@ -130,8 +130,11 @@ export class Reader {
    * once, as if the second had passed. A letter dealt with is never left unread by the
    * wait (#71), and the state is each letter's own — not the one that was open a moment
    * ago, which a key move may already have left behind.
+   *
+   * `server` is false for a move that follows: a separate flag would stop the move series,
+   * and a held "archive" would be one request per letter. The move itself sets `\Seen`.
    */
-  saw(ids: number[]) {
+  saw(ids: number[], server = true) {
     if (!ids.length) return;
     const { list } = this.host;
     const opened = this.opened;
@@ -141,7 +144,7 @@ export class Reader {
     if (!unread.length) return;
     // Acting on the open letter takes over the mark the wait was about to make.
     if (unread.includes(opened?.row.id ?? -1)) this.cancelSeen();
-    api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
+    if (server) api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
     for (const id of unread) {
       const r = row(id);
       if (r) r.flags.seen = true;
