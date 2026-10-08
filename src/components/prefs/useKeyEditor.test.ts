@@ -10,7 +10,7 @@ vi.mock("../../plugin-host/host.svelte", () => ({ allCommands: () => [] }));
 
 import { app } from "../../lib/store.svelte";
 import { api, flush, resetFakes, settings } from "../../lib/testing";
-import type { Settings } from "../../lib/types";
+import type { KeySettings, Settings } from "../../lib/types";
 import { KeyEditor } from "./useKeyEditor.svelte";
 
 beforeEach(() => {
@@ -20,7 +20,7 @@ beforeEach(() => {
 
 /** The draft a settings window edits: a copy of the saved settings. */
 const draftOf = (saved: Settings): Settings => structuredClone(saved);
-const sent = (): Settings => api.saveSettings.mock.calls.at(-1)?.[0] as Settings;
+const sent = (): Record<string, unknown> => api.settingsPatch.mock.calls.at(-1)?.[0] as Record<string, unknown>;
 
 describe("a key changed on the «Keys» page", () => {
   it("is saved at once, without the shared «Save» button", async () => {
@@ -31,8 +31,8 @@ describe("a key changed on the «Keys» page", () => {
     k.reset("core.reply");
     await flush();
 
-    expect(api.saveSettings).toHaveBeenCalledTimes(1);
-    expect(sent().keybindings.custom).toEqual({});
+    expect(api.settingsPatch).toHaveBeenCalledTimes(1);
+    expect((sent().keybindings as KeySettings).custom).toEqual({});
     // The page's own state follows the save, and the app's saved settings too.
     expect(draft.keybindings.custom).toEqual({});
     expect(app.settings.keybindings.custom).toEqual({});
@@ -49,8 +49,9 @@ describe("a key changed on the «Keys» page", () => {
     k.reset("core.reply");
     await flush();
 
-    expect(sent().language).toBe(app.settings.language);
-    expect(sent().notify).toBe(app.settings.notify);
+    // Only the keys travel: the patch names no other setting at all.
+    expect(sent()).not.toHaveProperty("language");
+    expect(sent()).not.toHaveProperty("notify");
     expect(draft.language).toBe("ru");
   });
 

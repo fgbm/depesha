@@ -152,12 +152,14 @@
     const keys = pageKeys(p);
     if (!keys) return;
     const d = $state.snapshot(draft);
-    const next: Settings = { ...$state.snapshot(app.settings) };
-    for (const k of keys) (next as unknown as Record<string, unknown>)[k] = (d as unknown as Record<string, unknown>)[k];
-    if (p === "mail") next.attachments_dir = (next.attachments_dir ?? "").trim();
-    if (p === "general") next.large_mb = threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb);
-    if (p === "notifications") next.quota_levels = levels(d.quota_levels).sort((a, b) => a - b) as [number, number];
-    await app.saveSettings(next);
+    // A patch, not the whole settings from this window's memory: a save from elsewhere
+    // (the tray, another window) is not rolled back by a page's «Save».
+    const patch: Record<string, unknown> = {};
+    for (const k of keys) patch[k] = (d as unknown as Record<string, unknown>)[k];
+    if (p === "mail") patch.attachments_dir = String(patch.attachments_dir ?? "").trim();
+    if (p === "general") patch.large_mb = threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb);
+    if (p === "notifications") patch.quota_levels = levels(d.quota_levels).sort((a, b) => a - b) as [number, number];
+    await app.patchSettings(patch);
   }
 
   /** Puts the current page's fields back to what is saved, without touching the others. */

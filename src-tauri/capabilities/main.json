@@ -52,6 +52,7 @@
     "allow-unsubscribe-plan",
     "allow-settings-get",
     "allow-settings-set",
+    "allow-settings-patch",
     "allow-plugin-settings-set",
     "allow-language",
     "allow-extensions",

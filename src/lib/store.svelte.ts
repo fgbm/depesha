@@ -109,6 +109,7 @@ export class AppStore {
   loadLanguage() { return this.settingsCtl.loadLanguage(); }
   loadSettings() { return this.settingsCtl.loadSettings(); }
   saveSettings(next: Settings) { return this.settingsCtl.saveSettings(next); }
+  patchSettings(patch: Record<string, unknown>) { return this.settingsCtl.patchSettings(patch); }
   saveKeybindings(next: KeySettings) { return this.settingsCtl.saveKeybindings(next); }
   savePluginSettings(plugin: string, values: Record<string, unknown>) { return this.settingsCtl.savePluginSettings(plugin, values); }
   checkUpdates() { return this.settingsCtl.checkUpdates(); }

@@ -241,6 +241,23 @@ pub fn adopt_old_signatures(config: &mut Config) {
     }
 }
 
+/// Applies a patch over a JSON value: the keys it names are set, the rest is left as it is.
+/// A patch over the settings changes only what one page or one control owns, so what
+/// another window or the tray wrote meanwhile is not rolled back.
+pub fn merge(base: &mut serde_json::Value, patch: serde_json::Value) {
+    let serde_json::Value::Object(patch) = patch else {
+        *base = patch;
+        return;
+    };
+    let Some(obj) = base.as_object_mut() else {
+        *base = serde_json::Value::Object(patch);
+        return;
+    };
+    for (key, value) in patch {
+        merge(obj.entry(key).or_insert(serde_json::Value::Null), value);
+    }
+}
+
 /// Writes through a temporary file so a crash never leaves half a config.
 pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
@@ -296,6 +313,21 @@ mod tests {
         assert_eq!(mine.keybindings.dismissed, vec!["snooze.open:h".to_string()]);
         let again: Settings = serde_json::from_str(&serde_json::to_string(&mine).unwrap()).unwrap();
         assert_eq!(again, mine);
+    }
+
+    #[test]
+    fn a_patch_changes_only_the_keys_it_names() {
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        merge(
+            &mut value,
+            serde_json::json!({ "dnd_until": 123, "keybindings": { "custom": {}, "dismissed": ["snooze.open:h"] } }),
+        );
+        let merged: Settings = serde_json::from_value(value).unwrap();
+        assert_eq!(merged.dnd_until, 123);
+        assert_eq!(merged.keybindings.dismissed, vec!["snooze.open:h".to_string()]);
+        // The keys the patch does not name keep what they had.
+        assert_eq!(merged.undo_send_secs, Settings::default().undo_send_secs);
+        assert_eq!(merged.theme, Settings::default().theme);
     }
 
     #[test]

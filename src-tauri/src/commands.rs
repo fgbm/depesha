@@ -1296,7 +1296,24 @@ pub fn settings_get(state: St<'_>) -> Settings {
 #[tauri::command(async)]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     let before = state.settings();
-    check_save_folder(&state, &before.attachments_dir, &settings.attachments_dir)?;
+    apply_settings(state.inner(), before, settings)
+}
+
+/// A patch over the current settings: only the keys it names change, so a save from one
+/// window's memory does not roll back what another window or the tray wrote meanwhile.
+#[tauri::command]
+pub fn settings_patch(state: St<'_>, patch: serde_json::Value) -> CmdResult<()> {
+    let before = state.settings();
+    let mut value = serde_json::to_value(&before).map_err(|e| CmdError::new("other", e.to_string()))?;
+    crate::config::merge(&mut value, patch);
+    let settings: Settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+    apply_settings(state.inner(), before, settings)
+}
+
+/// Saves the settings and does what follows a change: the folder check, the language, the
+/// autostart, the event and the offline window. Shared by a whole save and a patch.
+fn apply_settings(state: &AppState, before: Settings, settings: Settings) -> CmdResult<()> {
+    check_save_folder(state, &before.attachments_dir, &settings.attachments_dir)?;
     let offline_changed =
         before.offline != settings.offline || before.offline_attachments != settings.offline_attachments;
     state.save_settings(settings.clone())?;

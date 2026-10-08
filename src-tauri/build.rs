@@ -40,6 +40,7 @@ const COMMANDS: &[&str] = &[
     "unsubscribe_plan",
     "settings_get",
     "settings_set",
+    "settings_patch",
     "plugin_settings_set",
     "language",
     "extensions",

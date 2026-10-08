@@ -99,7 +99,27 @@ export class SettingsController {
    * without the window's «Save», and the unsaved edits of other pages are left alone.
    */
   saveKeybindings(next: KeySettings) {
-    return this.saveSettings({ ...$state.snapshot(this.settings), keybindings: $state.snapshot(next) });
+    return this.patchSettings({ keybindings: next });
+  }
+
+  /**
+   * Saves only the keys the patch names, over what is on disk: a save from this window's
+   * memory does not roll back what another window or the tray wrote meanwhile.
+   */
+  async patchSettings(patch: Record<string, unknown>) {
+    const next = { ...$state.snapshot(this.settings), ...patch } as Settings;
+    const threadsChanged = next.threads !== this.settings.threads;
+    this.settings = next;
+    applyTheme(next.theme);
+    try {
+      await api.settingsPatch($state.snapshot(patch) as Record<string, unknown>);
+    } catch (e) {
+      this.host.fail(e, t("err.settings"));
+      // Refused (a folder not picked in the dialog): the window shows what is saved.
+      await this.loadSettings();
+    }
+    await this.loadLanguage();
+    if (threadsChanged) this.host.reload();
   }
 
   /** A built-in plugin's own settings; a letter's window may save them, not the rest. */

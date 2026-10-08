@@ -566,9 +566,8 @@ fn set_dnd(state: &AppState, how: &str) {
         "forever" => 4_102_444_800,
         _ => 0,
     };
-    let mut settings = state.settings();
-    settings.dnd_until = until;
-    if let Err(e) = state.save_settings(settings) {
+    // A patch, not the whole settings from memory: a save from a window meanwhile is not rolled back.
+    if let Err(e) = state.patch_settings(serde_json::json!({ "dnd_until": until })) {
         tracing::warn!("do not disturb: {}", e.message);
         return;
     }

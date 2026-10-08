@@ -80,6 +80,17 @@ impl AppState {
         Ok(())
     }
 
+    /// Changes only the keys a patch names, over the settings in memory and on disk, so a
+    /// save from one window's memory does not roll back what another writer changed meanwhile.
+    pub fn patch_settings(&self, patch: serde_json::Value) -> CmdResult<()> {
+        let mut config = lock(&self.config);
+        let mut value = serde_json::to_value(&config.settings).map_err(|e| CmdError::new("other", e.to_string()))?;
+        config::merge(&mut value, patch);
+        config.settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+        config::save(&self.config_path, &config)?;
+        Ok(())
+    }
+
     /// Shows a desktop notification unless the settings, a test run or the window in front
     /// say otherwise; a click on it brings the window.
     pub fn notify(&self, title: &str, body: &str, bulk: bool) {
