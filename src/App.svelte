@@ -124,7 +124,7 @@
     "core.delete": () => app.remove(),
     "core.spam": () => app.spam(),
     "core.unread": () => app.toggleSeen(),
-    "core.flag": () => app.opened && app.flag("flagged", !app.opened.row.flags.flagged),
+    "core.flag": () => app.toggleFlagged(),
     "core.labels": () => app.labels.openPick(labelTarget()),
   };
 
@@ -267,7 +267,8 @@
 {/each}
 
 {#if app.confirmation}
-  {#key app.confirmation}<Confirm q={app.confirmation} />{/key}
+  {#key app.confirmation}<Confirm q={app.confirmation} />
+{/key}
 {/if}
 
 {#if app.labels.card}

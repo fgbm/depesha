@@ -72,7 +72,7 @@
       "core.archive": () => app.archive(),
       "core.spam": () => app.spam(),
       "core.unread": () => app.toggleSeen(),
-      "core.flag": () => opened && app.flag("flagged", !opened.row.flags.flagged),
+      "core.flag": () => app.toggleFlagged(),
       "core.labels": () => opened && app.labels.openPick([opened.row.id]),
     };
     // Nothing being written: Esc closes the window, as a viewer of one letter.

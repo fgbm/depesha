@@ -169,6 +169,8 @@ export class AppStore {
   flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) { return this.selection.flag(change, value, ids); }
   /** `u`: reads or unreads the letters by their own state, not the one open a moment ago (#71). */
   toggleSeen(ids = this.selectedIds()) { return this.selection.toggleSeen(ids); }
+  /** `s`: flags or unflags the letters by their own state. */
+  toggleFlagged(ids = this.selectedIds()) { return this.selection.toggleFlagged(ids); }
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
   /** Opens a letter in a window of its own; a draft opens in the composer instead. */

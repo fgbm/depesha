@@ -241,6 +241,17 @@ export class SelectionController {
     return this.flag("seen", !ids.every(seen), ids);
   }
 
+  /** `s`: flags or unflags the letters by their own state, as `toggleSeen` does for read. */
+  toggleFlagged(ids = this.selectedIds()) {
+    if (!ids.length) return;
+    const flagged = (id: number) => {
+      if (this.host.reader.opened?.row.id === id) return this.host.reader.opened.row.flags.flagged;
+      const m = this.host.list.messages.find((r) => r.id === id) ?? this.host.reader.conversation.find((r) => r.id === id);
+      return m?.flags.flagged ?? false;
+    };
+    return this.flag("flagged", !ids.every(flagged), ids);
+  }
+
   /** Opens a letter in a window of its own; a draft opens in the composer instead. */
   async openWindow(row: MessageRow) {
     if (this.host.folder(row.account_id, row.folder)?.role === "drafts") {

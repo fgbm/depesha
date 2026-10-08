@@ -500,6 +500,8 @@ export interface CachedDraft {
   key: string;
   account_id: string;
   draft: ComposeDraft;
+  /** The server copy this one continues, if the draft was saved there before. */
+  draft_id?: number | null;
   updated: number;
 }
 

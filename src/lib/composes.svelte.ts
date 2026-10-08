@@ -85,7 +85,7 @@ export class ComposeManager {
   /** Opens the drafts kept locally when the app last stopped, and drops their copies. */
   async restoreLocal(drafts: CachedDraft[]) {
     for (const d of drafts) {
-      this.open({ account_id: d.account_id, draft: d.draft, draft_id: null, unsaved: true });
+      this.open({ account_id: d.account_id, draft: d.draft, draft_id: d.draft_id ?? null, unsaved: true });
       await api.draftCacheDrop(d.key).catch(() => {});
     }
   }

@@ -193,8 +193,8 @@ export const api = {
     call<number | null>("draft_save", { accountId, draft: wireDraft(draft), replace }),
   draftDiscard: (id: number) => call<void>("draft_discard", { id }),
   /** The local copy of a draft, kept on every typing pause as a fallback for a crash (#71). */
-  draftCachePut: (key: string, accountId: string, draft: ComposeDraft) =>
-    call<void>("draft_cache_put", { key, accountId, draft }),
+  draftCachePut: (key: string, accountId: string, draft: ComposeDraft, draftId: number | null = null) =>
+    call<void>("draft_cache_put", { key, accountId, draft, draftId }),
   /** Drafts kept locally, to offer restoring when the app starts. */
   draftCacheList: () => call<CachedDraft[]>("draft_cache_list"),
   /** The draft reached the server (or was thrown away): its local copy goes. */

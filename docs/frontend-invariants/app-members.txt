@@ -84,6 +84,7 @@ tasks
 tasksOpen
 toast
 toasts
+toggleFlagged
 toggleSeen
 track
 undo

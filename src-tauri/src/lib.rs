@@ -449,6 +449,7 @@ mod tests {
             "outbox_missed",
             "label_rename",
             "label_strip",
+            "draft_cache_list",
         ] {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");

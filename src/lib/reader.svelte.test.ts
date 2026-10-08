@@ -124,3 +124,20 @@ describe("`u` by the letter's own state", () => {
     expect(api.setFlag).toHaveBeenCalledWith([2], { flag: "seen", value: true });
   });
 });
+
+describe("`s` by the letter's own state", () => {
+  it("reads the state of the letter it applies to, not the one open a moment ago", async () => {
+    api.messages.mockResolvedValue([row(1, { flags: { ...row(1).flags, flagged: true } }), row(2), row(3)]);
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.open(1);
+    await flush();
+
+    // `j` moved to letter 2 while letter 1 (flagged) is still the open one for a moment.
+    s.selected = new Set([2]);
+    await s.toggleFlagged();
+    expect(api.setFlag).toHaveBeenCalledWith([2], { flag: "flagged", value: true });
+  });
+});

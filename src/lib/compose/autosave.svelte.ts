@@ -35,6 +35,8 @@ export class ComposeAutosave {
   /** The content as it was last saved; the opening content counts as saved unless it is kept nowhere. */
   private lastSaved: string;
   private saving: Promise<boolean> | null = null;
+  /** Counts the calls-off, so a save waiting its turn knows it was one. */
+  private epoch = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** When the draft last went to the server, ms; 0 is never. */
   private lastServerAt = 0;
@@ -57,6 +59,7 @@ export class ComposeAutosave {
   }
 
   cancel() {
+    this.epoch++;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
@@ -78,7 +81,10 @@ export class ComposeAutosave {
    */
   async save(force = true): Promise<boolean> {
     this.cancel();
+    const epoch = this.epoch;
     while (this.saving) await this.saving;
+    // Called off while this one waited its turn (sent, discarded, typed on): the autosave does not start.
+    if (!force && epoch !== this.epoch) return true;
     const { win } = this.host;
     const draft = $state.snapshot(win.draft);
     const text = JSON.stringify(draft);
@@ -92,16 +98,19 @@ export class ComposeAutosave {
       await this.forgetLocal();
       return true;
     }
-    // The local copy keeps the letter across a crash, whatever the server's minute is.
-    await this.storeLocal(draft);
-    if (!serverDue(this.lastServerAt, Date.now(), force)) {
-      // Held back: the server copy follows when the minute is up.
-      this.scheduleServer(SERVER_SAVE_MS - (Date.now() - this.lastServerAt));
-      return true;
-    }
-    this.savingNow = true;
+    // Taken before the first await: a second save, the send and the discard all wait for it.
     this.saving = (async () => {
       try {
+        // The local copy keeps the letter across a crash, whatever the server's minute is.
+        await this.storeLocal(draft);
+        // Called off while the copy was being written (sent, discarded): no server copy now.
+        if (!force && epoch !== this.epoch) return true;
+        if (!serverDue(this.lastServerAt, Date.now(), force)) {
+          // Held back: the server copy follows when the minute is up.
+          this.scheduleServer(SERVER_SAVE_MS - (Date.now() - this.lastServerAt));
+          return true;
+        }
+        this.savingNow = true;
         win.draft_id = await api.draftSave(win.account_id, draft, win.draft_id);
         this.lastSaved = text;
         this.lastServerAt = Date.now();
@@ -124,9 +133,10 @@ export class ComposeAutosave {
 
   /** Writes the draft to the local cache; a failure is not worth telling — the server copy stays. */
   private async storeLocal(draft: ComposeDraft) {
+    // Marked before the write: a drop that comes while it is under way still removes the file.
+    this.localStored = true;
     try {
-      await api.draftCachePut(this.host.win.local_id, this.host.win.account_id, draft);
-      this.localStored = true;
+      await api.draftCachePut(this.host.win.local_id, this.host.win.account_id, draft, this.host.win.draft_id);
     } catch {
       // Best effort: the next pause, or the server copy, tries again.
     }

@@ -51,4 +51,13 @@ describe("keeping the drafts of a window", () => {
     expect(api.draftCacheDrop).toHaveBeenCalledWith("k1");
     expect(api.draftCacheDrop).toHaveBeenCalledWith("k2");
   });
+
+  it("keeps the server copy of a restored draft, so a save replaces it", async () => {
+    const mgr = manager();
+    api.draftCacheDrop.mockResolvedValue(undefined);
+    api.draftSave.mockResolvedValue(42);
+    const draft = emptyDraft({ name: "Me", email: "me@example.com" });
+    await mgr.restoreLocal([{ key: "k1", account_id: "a", draft, draft_id: 42, updated: 1 }]);
+    expect(mgr.windows[0].draft_id).toBe(42);
+  });
 });

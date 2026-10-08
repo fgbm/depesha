@@ -365,6 +365,8 @@ pub fn window_gone(app: &AppHandle, label: &str) {
 pub fn quit_cancelled(app: &AppHandle) {
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         state.background.set_quit_pending(false);
+        // The main window left the quit's list when it saved; it says again if it still holds drafts.
+        state.emit_main("quit-cancelled", json!({}));
     }
 }
 

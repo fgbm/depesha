@@ -116,6 +116,8 @@ export function listenMain(app: AppStore) {
     ...listenBackground(app),
     // A quit asks this window to keep the drafts it holds before it goes (#71).
     listen("save-drafts", () => void saveDraftsForQuit(app)),
+    // The quit was called off: the next one must ask this window again.
+    listen("quit-cancelled", () => void api.composeUnsaved(app.composes.length > 0).catch(() => {})),
   ]);
 }
 

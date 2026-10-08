@@ -21,6 +21,9 @@ pub struct CachedDraft {
     pub key: String,
     pub account_id: String,
     pub draft: serde_json::Value,
+    /// The server copy this one continues, so a restore replaces it instead of adding a twin.
+    #[serde(default)]
+    pub draft_id: Option<i64>,
     /// When it was last written, seconds since the epoch.
     pub updated: i64,
 }
@@ -55,11 +58,13 @@ pub async fn draft_cache_put(
     key: String,
     account_id: String,
     draft: serde_json::Value,
+    draft_id: Option<i64>,
 ) -> CmdResult<()> {
     let entry = CachedDraft {
         key,
         account_id,
         draft,
+        draft_id,
         updated: chrono::Utc::now().timestamp(),
     };
     write(&dir(&app)?, &entry).await
@@ -82,7 +87,21 @@ pub async fn draft_cache_drop(app: AppHandle, key: String) -> CmdResult<()> {
 async fn write(dir: &std::path::Path, entry: &CachedDraft) -> CmdResult<()> {
     tokio::fs::create_dir_all(dir).await?;
     let bytes = serde_json::to_vec(entry).map_err(|e| CmdError::new("io", e.to_string()))?;
-    tokio::fs::write(dir.join(safe_key(&entry.key)), bytes).await?;
+    // Whole or not at all: a crash mid-write leaves the old file, never a cut one.
+    let path = dir.join(safe_key(&entry.key));
+    let tmp = dir.join(format!("{}.tmp", safe_key(&entry.key)));
+    let written = async {
+        let mut file = tokio::fs::File::create(&tmp).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await?;
+        file.sync_all().await?;
+        drop(file);
+        tokio::fs::rename(&tmp, &path).await
+    }
+    .await;
+    if let Err(e) = written {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -116,6 +135,7 @@ mod tests {
             key: key.into(),
             account_id: "a".into(),
             draft: json!({ "subject": "Привет", "text": "тело" }),
+            draft_id: None,
             updated,
         }
     }
@@ -150,6 +170,21 @@ mod tests {
         let _ = tokio::fs::remove_file(dir.join(safe_key("one"))).await;
         let found = read_all(&dir).await.unwrap();
         assert_eq!(found.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(), vec!["two"]);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn a_failed_write_leaves_the_previous_copy_whole() {
+        let dir = std::env::temp_dir().join(format!("depesha-drafts-atomic-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        write(&dir, &entry("one", 10)).await.unwrap();
+        // The temporary file cannot be created (a folder stands in its place): the write fails.
+        tokio::fs::create_dir(dir.join("one.tmp")).await.unwrap();
+        assert!(write(&dir, &entry("one", 20)).await.is_err());
+        // The old copy is whole, not cut.
+        let found = read_all(&dir).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].updated, 10);
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }
