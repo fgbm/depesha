@@ -5,6 +5,7 @@
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import { tick } from "svelte";
+  import { followFocus } from "../lib/listFocus";
   import { app } from "../lib/store.svelte";
   import { arrivals } from "../lib/arrivals.svelte";
   import RowMenu from "./RowMenu.svelte";
@@ -154,6 +155,9 @@
     const top = i * ROW;
     if (top < viewport.scrollTop) viewport.scrollTop = top;
     else if (top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top + ROW - viewport.clientHeight;
+    // The system focus frame goes with the selection, not stays on the row left behind (#94).
+    const list = viewport;
+    tick().then(() => followFocus(list, [...list.querySelectorAll<HTMLElement>(".row")].find((r) => r.style.top === `${top}px`)));
   });
 
   // A row a notification led to takes the keyboard (#63): e, #, j/k and Enter work at once.
@@ -453,6 +457,15 @@
   /* New letters of a summary a notification opened (#63): tinted while the list is open. */
   .row.fresh {
     background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+
+  /* The one frame is the app's own, not the browser's black one (#94). */
+  .row {
+    outline: none;
+  }
+
+  .row:focus-visible {
+    box-shadow: inset 2px 0 0 var(--accent);
   }
 
   .row:hover {

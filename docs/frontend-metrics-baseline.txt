@@ -19,7 +19,7 @@ component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	162	120	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	676	187	111	378
+component	src/components/MessageList.svelte	689	191	111	387
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
@@ -744,6 +744,7 @@ function	src/lib/list.test.ts::serve	3
 function	src/lib/list.test.ts::going	1
 function	src/lib/list.test.ts::folder	1
 function	src/lib/list.test.ts::storeWith	9
+function	src/lib/listFocus.ts::followFocus	5
 function	src/lib/markdown/dialect.test.ts::tagsOf	33
 function	src/lib/markdown/dialect.ts::markdownSupport	3
 function	src/lib/markdown/field.test.ts::stateOf	3
