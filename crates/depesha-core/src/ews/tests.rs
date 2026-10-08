@@ -244,3 +244,34 @@ fn writes_an_exchange_category_on_a_letter() {
     .unwrap();
     assert!(categories_of(none.root_element()).is_empty());
 }
+
+/// Removing a category rewrites the whole list, so the item is updated by the ChangeKey
+/// the read gave and the conflict is resolved by the server: a category Outlook added
+/// between the read and the update must not be lost.
+#[test]
+fn removing_a_category_guards_against_a_concurrent_change() {
+    // The item reference carries the ChangeKey when the read gave one.
+    let with_key = item_ref("AAMk", Some("CQ=="));
+    assert!(with_key.contains(r#"Id="AAMk""#), "{with_key}");
+    assert!(with_key.contains(r#"ChangeKey="CQ==""#), "{with_key}");
+    // Without a ChangeKey the id is written as before.
+    assert_eq!(item_ref("AAMk", None), r#"<t:ItemId Id="AAMk"/>"#);
+
+    // The update is not an unconditional overwrite.
+    let body = update_item("<t:ItemChange/>", "AutoResolve");
+    assert!(body.contains(r#"ConflictResolution="AutoResolve""#), "{body}");
+    assert!(!body.contains("AlwaysOverwrite"), "{body}");
+}
+
+/// The ChangeKey of an item, as a GetItem answer carries it on its `ItemId`.
+#[test]
+fn reads_the_change_key_of_an_item() {
+    let xml = r#"<t:Message xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><t:ItemId Id="AAMk" ChangeKey="CQ=="/><t:Categories><t:String>Счета</t:String></t:Categories></t:Message>"#;
+    let doc = roxmltree::Document::parse(xml).unwrap();
+    assert_eq!(change_key_of(doc.root_element()).as_deref(), Some("CQ=="));
+    let bare = roxmltree::Document::parse(
+        r#"<t:Message xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><t:ItemId Id="AAMk"/></t:Message>"#,
+    )
+    .unwrap();
+    assert_eq!(change_key_of(bare.root_element()), None);
+}
