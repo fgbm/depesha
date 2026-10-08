@@ -34,7 +34,8 @@ pub use waiting::{ParkJob, ParkKind, Parking, WaitFolder, parks, waiting_folder}
 /// corrupt the file, and commits are lost from the end only: folder states are written
 /// after their mail, so they never run ahead of it, and the next sync fetches it again.
 /// `busy_timeout`: a writer waits for a reader rather than failing at once.
-const PRAGMAS: &str = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
+const PRAGMAS: &str =
+    "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
 
 /// The read connection: no `journal_mode` (a read-only connection cannot set it, and WAL is
 /// already the file's), `query_only` so nothing here can write, and the same wait as the
@@ -1033,7 +1034,8 @@ impl Store {
         // A second connection for the heavy reads. Opened after the migrations, so it
         // reads the current shape, and read-only, so a stray write cannot slip through it.
         // A failure is not fatal: reads then share the writer's.
-        if let Ok(read) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        if let Ok(read) =
+            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
             && prepare_read(&read).is_ok()
         {
             store.read = Some(Mutex::new(read));
@@ -2925,7 +2927,10 @@ mod tests {
         assert_eq!(query_only, 1);
         let busy: i64 = read.query_row("PRAGMA busy_timeout", [], |r| r.get(0)).unwrap();
         assert_eq!(busy, 5000);
-        assert!(read.execute("CREATE TABLE probe (x)", []).is_err(), "a write is refused");
+        assert!(
+            read.execute("CREATE TABLE probe (x)", []).is_err(),
+            "a write is refused"
+        );
     }
 
     /// "Snooze" on a series is one commit; a letter snoozed again keeps where it first came

@@ -546,7 +546,13 @@ fn resolve_target(state: &AppState, target: &Target) -> Open {
     let store = &state.store;
     resolve(
         target,
-        |id| store.get(id).ok().flatten().map(|r| (r.account_id, r.folder, r.message_id)),
+        |id| {
+            store
+                .get(id)
+                .ok()
+                .flatten()
+                .map(|r| (r.account_id, r.folder, r.message_id))
+        },
         |account, mid| {
             let id = store.find_any_by_message_id(account, mid).ok().flatten()?;
             Some((id, store.get(id).ok().flatten()?.folder))
@@ -1608,10 +1614,7 @@ mod tests {
             Some(Route::Window)
         );
         // The signature covers the route: another id does not pass under it.
-        assert_eq!(
-            parse_signed_url(&url.replace("a/7", "a/8")),
-            Some(Route::Window)
-        );
+        assert_eq!(parse_signed_url(&url.replace("a/7", "a/8")), Some(Route::Window));
         assert_eq!(
             parse_signed_url("depesha://message/a/8?mid=%3C7%40x%3E&sig=AAAA"),
             Some(Route::Window)

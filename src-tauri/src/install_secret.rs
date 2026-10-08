@@ -26,7 +26,10 @@ pub fn init(path: &Path) {
     let secret = match load_or_create(path) {
         Ok(secret) => secret,
         Err(e) => {
-            tracing::warn!("install secret at {}: {e}; signing with a run-only secret", path.display());
+            tracing::warn!(
+                "install secret at {}: {e}; signing with a run-only secret",
+                path.display()
+            );
             random()
         }
     };
@@ -70,7 +73,10 @@ fn load_or_create(path: &Path) -> std::io::Result<[u8; 32]> {
         if let Ok(secret) = <[u8; 32]>::try_from(bytes) {
             return Ok(secret);
         }
-        tracing::warn!("install secret at {} is not 32 bytes; writing a fresh one", path.display());
+        tracing::warn!(
+            "install secret at {} is not 32 bytes; writing a fresh one",
+            path.display()
+        );
     }
     let secret = random();
     if let Some(dir) = path.parent() {

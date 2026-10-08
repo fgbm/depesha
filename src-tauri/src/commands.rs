@@ -1450,7 +1450,8 @@ pub fn settings_patch(state: St<'_>, patch: serde_json::Value) -> CmdResult<()> 
     let after = state.update_settings(|settings| {
         let mut value = serde_json::to_value(&*settings).map_err(|e| CmdError::new("other", e.to_string()))?;
         crate::config::merge(&mut value, patch);
-        let merged: Settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+        let merged: Settings =
+            serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
         check_save_folder(state.inner(), &settings.attachments_dir, &merged.attachments_dir)?;
         *settings = merged;
         Ok(())
