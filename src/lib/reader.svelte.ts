@@ -51,7 +51,7 @@ export class Reader {
     this.openError = null;
     this.allowRemote = allowRemote;
     try {
-      const msg = await api.open(id, allowRemote);
+      const msg = await api.open(id, allowRemote, seq);
       if (seq !== this.openSeq) return;
       const epoch = this.flagEpoch;
       const wasUnread = !msg.row.flags.seen;

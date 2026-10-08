@@ -4,6 +4,7 @@
 
 import { emitTo } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { debounce } from "./debounce";
 import { t } from "./i18n.svelte";
 import type { ListController, View } from "./list.svelte";
 import type { Reader } from "./reader.svelte";
@@ -28,6 +29,13 @@ export interface SelectionHost {
 export class SelectionController {
   selected = $state<Set<number>>(new Set());
   anchor = $state<number | null>(null);
+  /** The letter a key move waits to open: the last key wins. */
+  private pendingOpen: number | null = null;
+  private openSoon = debounce(() => {
+    const id = this.pendingOpen;
+    this.pendingOpen = null;
+    if (id !== null) void this.host.reader.open(id);
+  }, 120, 400);
 
   constructor(private host: SelectionHost) {}
 
@@ -111,7 +119,7 @@ export class SelectionController {
     if (v.kind === "folder") this.host.folderOpened?.(v.account_id, v.folder);
   }
 
-  async select(id: number, mode: "single" | "toggle" | "range" = "single") {
+  async select(id: number, mode: "single" | "toggle" | "range" = "single", defer = false) {
     if (mode === "toggle") {
       const s = new Set(this.selected);
       if (s.has(id)) s.delete(id);
@@ -134,16 +142,27 @@ export class SelectionController {
     }
     // A letter going to "Waiting for reply" goes once the user leaves it.
     this.host.list.collapse(this.selected);
+    if (defer) {
+      // A key move: the reader opens the letter once the keys stop (#71).
+      this.pendingOpen = id;
+      this.openSoon();
+      return;
+    }
+    // A click or a call from elsewhere opens at once; a pending key move is dropped.
+    this.openSoon.cancel();
+    this.pendingOpen = null;
     await this.host.reader.open(id);
   }
 
   move(step: 1 | -1) {
     const rows = this.host.list.messages;
     if (rows.length === 0) return;
-    const current = this.host.reader.opened?.row.id ?? [...this.selected][0];
+    // The selection follows the keys at once; `opened` is the previous letter until the
+    // open returns, so it must not be what the next move counts from (#71).
+    const current = [...this.selected][0] ?? this.host.reader.openingRow?.id ?? this.host.reader.opened?.row.id;
     const i = rows.findIndex((m) => m.id === current);
     const next = rows[Math.min(rows.length - 1, Math.max(0, i < 0 ? 0 : i + step))];
-    if (next) this.select(next.id);
+    if (next) void this.select(next.id, "single", true);
   }
 
   selectedIds(): number[] {
