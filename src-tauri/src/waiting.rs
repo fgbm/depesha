@@ -273,6 +273,12 @@ async fn take_in(state: &AppState, job: &ParkJob) -> CmdResult<()> {
     Ok(())
 }
 
+/// Whether a return that has been failing since `since` is given up: the letters stay
+/// where they are and the user is told.
+fn gives_up(since: i64, now: i64) -> bool {
+    now - since >= GIVE_UP_SECS
+}
+
 async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
     let worker = match state.worker(&job.account_id) {
         Ok(w) => w,
@@ -292,30 +298,30 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
             state.store.followup_moved_back(&job.account_id, &job.key)?;
             state.emit("counters-changed", json!({}));
         }
-        // Offline, paused, refused login, busy server, folder locked, a limit: the next
-        // round tries again — a pause or a wrong password must not lose the letters.
-        Err(e) if e.retry_later() => {
-            tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
-        }
-        // Any other refusal that does not say the folder is gone is still worth another try.
-        Err(e) if !e.folder_gone() => {
-            tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
-        }
-        // The folder is gone: the letters cannot be brought back. The user is told to do
-        // it by hand, but only once the return has been failing for `GIVE_UP_SECS` — a
-        // momentary bad answer must not turn into a permanent give-up.
-        Err(e) if now - job.since < GIVE_UP_SECS => {
+        // Offline, paused, refused login, busy server, folder locked, a limit, or any
+        // other refusal: the next round tries again, but not for ever — a pause or a wrong
+        // password must not lose the letters at once, nor be retried in silence for days.
+        Err(e) if !gives_up(job.since, now) => {
             tracing::debug!(account = %job.account_id, "bringing letters back failed: {e}")
         }
         Err(e) => {
             state.store.followup_return_failed(&job.account_id, &job.key)?;
+            let error = CmdError::from(e);
+            // A red task stays in the tasks window until it is dismissed.
+            let task = format!("bring:{}:{}", job.account_id, job.key);
+            let label = pick(
+                "Returning letters from the waiting folder",
+                "Возврат писем из папки ожидания",
+            );
+            state.task(&task, "waiting", Some(&job.account_id), label.to_owned(), 0, 0);
+            state.task_failed(&task, error.clone());
             state.emit(
                 "bring-failed",
                 json!({
                     "account_id": job.account_id,
                     "subject": job.subject,
                     "folder": job.from,
-                    "error": CmdError::from(e).message,
+                    "error": error.message,
                 }),
             );
             state.emit("counters-changed", json!({}));
@@ -336,4 +342,15 @@ pub fn stop_to(state: &AppState, account_id: &str) -> Option<String> {
         .folder_by_role(account_id, FolderRole::Archive)
         .ok()
         .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_return_failing_for_an_hour_is_given_up() {
+        assert!(!gives_up(1_000, 1_000 + GIVE_UP_SECS - 1));
+        assert!(gives_up(1_000, 1_000 + GIVE_UP_SECS));
+    }
 }
