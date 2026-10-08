@@ -958,7 +958,7 @@ pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str)
     }
     let fetches: Vec<_> = conn
         .session
-        .uid_fetch(uid_set(&uids), "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+        .uid_fetch(uid_set(&uids), "(UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
         .await?
         .try_collect()
         .await?;
@@ -966,6 +966,9 @@ pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str)
         .iter()
         .filter(|f| f.uid.is_some_and(|u| uids.contains(&u)))
         .filter(|f| f.header().and_then(message_id_of).as_deref() == Some(id))
+        // A server without UIDPLUS keeps a moved original marked \Deleted: it is gone,
+        // and moving it again would copy it a second time.
+        .filter(|f| !f.flags().any(|flag| matches!(flag, Flag::Deleted)))
         .filter_map(|f| f.uid)
         .collect())
 }
