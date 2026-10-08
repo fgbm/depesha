@@ -277,6 +277,51 @@ async fn search_operators_and_snoozed_folder() {
     conn.session.logout().await.unwrap();
 }
 
+/// `SEARCH HEADER Message-ID` matches a substring (RFC 3501): the search must be
+/// narrowed to an exact Message-ID, and an id that cannot be one must find nothing.
+#[tokio::test]
+async fn a_message_id_search_is_exact() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("mid").await;
+    let raw = |id: &str| {
+        format!(
+            "From: Тест <test@example.org>\r\nTo: me@example.org\r\nSubject: Тема\r\nMessage-ID: <{id}>\r\n\
+             Date: Fri, 2 Oct 2026 10:00:00 +0300\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nтело\r\n"
+        )
+        .into_bytes()
+    };
+    imap::append(&mut conn, "INBOX", &raw("abc@example.org"), "").await.unwrap();
+    imap::append(&mut conn, "INBOX", &raw("1abc@example.org"), "").await.unwrap();
+
+    let found = imap::find_by_message_id(&mut conn, "INBOX", "abc@example.org")
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1, "the substring match is narrowed to an exact Message-ID: {found:?}");
+    // An empty id matches every letter; one without @ cannot be a Message-ID.
+    assert!(
+        imap::find_by_message_id(&mut conn, "INBOX", "")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        imap::find_by_message_id(&mut conn, "INBOX", "abc")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "INBOX", "<1abc@example.org>")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    conn.session.logout().await.unwrap();
+}
+
 #[tokio::test]
 async fn idle_wakes_up_on_append_from_another_session() {
     if !enabled() {
