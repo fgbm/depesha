@@ -37,6 +37,19 @@ const BUSY_PAUSE: Duration = Duration::from_secs(5);
 const BUSY_PAUSE_MAX: Duration = Duration::from_secs(5 * 60);
 /// A user action waits out a busy pause this short; a longer one is answered at once.
 const USER_WAITS_BUSY: Duration = Duration::from_secs(5);
+/// The most moves of one source and target merged into a single `UID MOVE`. A held
+/// "archive" key is dozens of them; the cap only keeps one enormous backlog from
+/// becoming a single request the server may refuse.
+const MAX_COALESCED_MOVES: usize = 1000;
+/// The most user actions taken out of the queue in one gather; the rest wait their turn.
+const MAX_GATHERED: usize = 2000;
+/// A move series is not run at once: the loop waits this long for more moves of the same
+/// source and target, so a held key becomes a couple of requests. A lone move never waits.
+const MOVE_SETTLE_STEP: Duration = Duration::from_millis(50);
+/// How long a move series is gathered before it runs, at most.
+const MOVE_SETTLE_MAX: Duration = Duration::from_millis(500);
+/// How many quiet steps (no new move) end the gather early.
+const MOVE_SETTLE_QUIET: u32 = 2;
 
 #[derive(Debug)]
 pub enum Work {
@@ -179,8 +192,53 @@ fn offer(tx: &mpsc::Sender<Work>, queued: &Queued, work: Work) {
     }
 }
 
+/// Takes the moves of one source and target waiting in `urgent` into `uids` and `replies`:
+/// a held "archive" key becomes a single `UID MOVE` for all the letters, and both folders
+/// are synced once, not once per letter. Every caller keeps its own answer. Actions of
+/// another kind taken out on the way wait in `deferred` and run after the batch. Returns
+/// how many moves were merged.
+fn drain_moves(
+    urgent: &mut mpsc::Receiver<(Work, Reply)>,
+    deferred: &mut VecDeque<(Work, Reply)>,
+    from: &str,
+    validity: u32,
+    to: &str,
+    uids: &mut Vec<u32>,
+    replies: &mut Vec<Reply>,
+) -> usize {
+    let mut merged = 0usize;
+    let mut taken = 0usize;
+    while replies.len() < MAX_COALESCED_MOVES && taken < MAX_GATHERED {
+        match urgent.try_recv() {
+            Ok((
+                Work::Move {
+                    from: f,
+                    validity: v,
+                    uids: u,
+                    to: t,
+                },
+                reply,
+            )) if f == from && v == validity && t == to => {
+                uids.extend(u);
+                replies.push(reply);
+                merged += 1;
+                taken += 1;
+            }
+            Ok(item) => {
+                deferred.push_back(item);
+                taken += 1;
+            }
+            Err(_) => break,
+        }
+    }
+    merged
+}
+
 #[derive(Clone)]
 pub struct Worker {
+    /// Reading a letter's body: it goes ahead of the moves waiting in `urgent`, so
+    /// opening mail does not stand in line behind a series of archives.
+    reads: mpsc::Sender<(Work, Reply)>,
     /// User actions and other work somebody waits for; they go ahead of `background`.
     urgent: mpsc::Sender<(Work, Reply)>,
     background: mpsc::Sender<Work>,
@@ -221,7 +279,14 @@ impl Worker {
 
     async fn call(&self, work: Work) -> Result<Output> {
         let (reply, rx) = oneshot::channel();
-        self.urgent.send((work, reply)).await.map_err(|_| Error::Closed)?;
+        // Reading a body jumps ahead of the moves waiting to run; everything else queues
+        // behind them.
+        let tx = if matches!(work, Work::LoadBody(_)) {
+            &self.reads
+        } else {
+            &self.urgent
+        };
+        tx.send((work, reply)).await.map_err(|_| Error::Closed)?;
         rx.await.map_err(|_| Error::Closed)?
     }
 }
@@ -241,6 +306,7 @@ fn busy_pause(back_off: Option<Duration>, streak: u32) -> Duration {
 }
 
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
+    let (reads, reads_rx) = mpsc::channel(64);
     let (urgent, urgent_rx) = mpsc::channel(64);
     let (background, background_rx) = mpsc::channel(64);
     let paused = Arc::new(AtomicBool::new(false));
@@ -256,8 +322,9 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         background: background.clone(),
         paused: paused.clone(),
         queued: queued.clone(),
+        deferred: VecDeque::new(),
     };
-    let ops = tokio::spawn(ops.run(urgent_rx, background_rx));
+    let ops = tokio::spawn(ops.run(reads_rx, urgent_rx, background_rx));
     let idle = tokio::spawn(idle_loop(
         state,
         account,
@@ -266,6 +333,7 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         queued.clone(),
     ));
     let worker = Worker {
+        reads,
         urgent,
         background,
         queued,
@@ -286,26 +354,40 @@ enum Next {
     Closed,
 }
 
-/// User actions first, in the order sent; then the full sync under way (`stepping`),
-/// one folder per call; then other background work. While a busy server asks to
-/// wait (`busy_until`), only user actions are taken: they get their answer at once.
+/// Reads first (a body somebody is opening), then user actions in the order sent, then
+/// the full sync under way (`stepping`), one folder per call; then other background work.
+/// Actions taken out of `urgent` but not run yet wait in `deferred` and go before it.
+/// While a busy server asks to wait (`busy_until`), only user actions are taken: they get
+/// their answer at once.
 async fn next(
+    reads: &mut mpsc::Receiver<(Work, Reply)>,
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
+    deferred: &mut VecDeque<(Work, Reply)>,
     background: &mut mpsc::Receiver<Work>,
     tick: &mut tokio::time::Interval,
     stepping: bool,
     busy_until: Option<tokio::time::Instant>,
 ) -> Next {
+    // What a previous gather took out of the queue and did not run yet.
+    if let Some((work, reply)) = deferred.pop_front() {
+        return Next::User(work, reply);
+    }
     if let Some(until) = busy_until
         && until > tokio::time::Instant::now()
     {
         tokio::select! {
             biased;
+            item = reads.recv() => return item.map_or(Next::Closed, |(w, r)| Next::User(w, r)),
             item = urgent.recv() => return item.map_or(Next::Closed, |(w, r)| Next::User(w, r)),
             _ = tokio::time::sleep_until(until) => {}
         }
     }
     if stepping {
+        match reads.try_recv() {
+            Ok((w, r)) => return Next::User(w, r),
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => return Next::Closed,
+        }
         return match urgent.try_recv() {
             Ok((w, r)) => Next::User(w, r),
             Err(TryRecvError::Empty) => Next::Step,
@@ -314,6 +396,7 @@ async fn next(
     }
     tokio::select! {
         biased;
+        item = reads.recv() => item.map_or(Next::Closed, |(w, r)| Next::User(w, r)),
         item = urgent.recv() => item.map_or(Next::Closed, |(w, r)| Next::User(w, r)),
         item = background.recv() => item.map_or(Next::Closed, Next::Background),
         _ = tick.tick() => Next::Tick,
@@ -353,17 +436,27 @@ struct Ops {
     background: mpsc::Sender<Work>,
     paused: Arc<AtomicBool>,
     queued: Queued,
+    /// User actions taken out of `urgent` while gathering a move batch, in the order they
+    /// were sent: they run before the queue is read again.
+    deferred: VecDeque<(Work, Reply)>,
 }
 
 impl Ops {
-    async fn run(mut self, mut urgent: mpsc::Receiver<(Work, Reply)>, mut background: mpsc::Receiver<Work>) {
+    async fn run(
+        mut self,
+        mut reads: mpsc::Receiver<(Work, Reply)>,
+        mut urgent: mpsc::Receiver<(Work, Reply)>,
+        mut background: mpsc::Receiver<Work>,
+    ) {
         let mut tick = tokio::time::interval(FULL_SYNC_EVERY);
         // Ticks missed during a long pass do not bring several passes in a row.
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         tick.tick().await;
         loop {
             match next(
+                &mut reads,
                 &mut urgent,
+                &mut self.deferred,
                 &mut background,
                 &mut tick,
                 self.pass.is_some(),
@@ -374,9 +467,75 @@ impl Ops {
                 Next::Closed => return,
                 Next::User(Work::SyncAll, reply) => self.user_sync_all(reply).await,
                 Next::User(work, reply) => {
-                    let result = self.user(&work).await;
-                    self.report(&work, &result, true);
-                    let _ = reply.send(result);
+                    // A move gathers the moves of the same source and target waiting
+                    // behind it: a held "archive" key is one `UID MOVE`, not dozens.
+                    match work {
+                        Work::Move {
+                            from,
+                            validity,
+                            mut uids,
+                            to,
+                        } => {
+                            let mut replies = vec![reply];
+                            drain_moves(
+                                &mut urgent,
+                                &mut self.deferred,
+                                &from,
+                                validity,
+                                &to,
+                                &mut uids,
+                                &mut replies,
+                            );
+                            // More than one: a series is under way. Let it gather a moment,
+                            // so the whole held key is a couple of requests. A lone move runs now.
+                            if replies.len() > 1 {
+                                let deadline = tokio::time::Instant::now() + MOVE_SETTLE_MAX;
+                                let mut quiet = 0u32;
+                                while replies.len() < MAX_COALESCED_MOVES
+                                    && quiet < MOVE_SETTLE_QUIET
+                                    && tokio::time::Instant::now() < deadline
+                                {
+                                    tokio::time::sleep(MOVE_SETTLE_STEP).await;
+                                    let before = replies.len();
+                                    drain_moves(
+                                        &mut urgent,
+                                        &mut self.deferred,
+                                        &from,
+                                        validity,
+                                        &to,
+                                        &mut uids,
+                                        &mut replies,
+                                    );
+                                    quiet = if replies.len() == before { quiet + 1 } else { 0 };
+                                }
+                            }
+                            let merged = Work::Move {
+                                from,
+                                validity,
+                                uids,
+                                to,
+                            };
+                            let result = self.user(&merged).await;
+                            self.report(&merged, &result, true);
+                            match result {
+                                Ok(_) => {
+                                    for reply in replies {
+                                        let _ = reply.send(Ok(Output::None));
+                                    }
+                                }
+                                Err(e) => {
+                                    for reply in replies {
+                                        let _ = reply.send(Err(clone_error(&e)));
+                                    }
+                                }
+                            }
+                        }
+                        other => {
+                            let result = self.user(&other).await;
+                            self.report(&other, &result, true);
+                            let _ = reply.send(result);
+                        }
+                    }
                 }
                 Next::Step => self.step().await,
                 Next::Background(work) => {
@@ -1135,6 +1294,41 @@ mod tests {
         tick
     }
 
+    /// `next` with nothing waiting to read and nothing deferred, as most tests need.
+    async fn pick(
+        urgent: &mut mpsc::Receiver<(Work, Reply)>,
+        background: &mut mpsc::Receiver<Work>,
+        tick: &mut tokio::time::Interval,
+        stepping: bool,
+        busy_until: Option<tokio::time::Instant>,
+    ) -> Next {
+        // Kept alive for the call: a dropped sender would read as closed.
+        let (_reads_tx, mut reads) = mpsc::channel(1);
+        let mut deferred = VecDeque::new();
+        next(
+            &mut reads,
+            urgent,
+            &mut deferred,
+            background,
+            tick,
+            stepping,
+            busy_until,
+        )
+        .await
+    }
+
+    fn mv(from: &str, to: &str, uid: u32) -> (Work, Reply) {
+        (
+            Work::Move {
+                from: from.into(),
+                validity: 1,
+                uids: vec![uid],
+                to: to.into(),
+            },
+            oneshot::channel().0,
+        )
+    }
+
     #[tokio::test]
     async fn user_actions_go_between_the_folders_of_a_full_sync() {
         let (urgent_tx, mut urgent) = mpsc::channel(8);
@@ -1144,7 +1338,7 @@ mod tests {
 
         // A pass under way goes on folder by folder; other background work waits for its end.
         assert!(matches!(
-            next(&mut urgent, &mut background, &mut tick, true, None).await,
+            pick(&mut urgent, &mut background, &mut tick, true, None).await,
             Next::Step
         ));
 
@@ -1152,26 +1346,26 @@ mod tests {
         urgent_tx.send(load(1)).await.unwrap();
         urgent_tx.send(load(2)).await.unwrap();
         assert_eq!(
-            loaded(next(&mut urgent, &mut background, &mut tick, true, None).await),
+            loaded(pick(&mut urgent, &mut background, &mut tick, true, None).await),
             Some(1)
         );
         assert_eq!(
-            loaded(next(&mut urgent, &mut background, &mut tick, true, None).await),
+            loaded(pick(&mut urgent, &mut background, &mut tick, true, None).await),
             Some(2)
         );
         assert!(matches!(
-            next(&mut urgent, &mut background, &mut tick, true, None).await,
+            pick(&mut urgent, &mut background, &mut tick, true, None).await,
             Next::Step
         ));
 
         // Without a pass, background work comes after user actions too.
         urgent_tx.send(load(3)).await.unwrap();
         assert_eq!(
-            loaded(next(&mut urgent, &mut background, &mut tick, false, None).await),
+            loaded(pick(&mut urgent, &mut background, &mut tick, false, None).await),
             Some(3)
         );
         assert!(matches!(
-            next(&mut urgent, &mut background, &mut tick, false, None).await,
+            pick(&mut urgent, &mut background, &mut tick, false, None).await,
             Next::Background(Work::SyncFolder(f)) if f == "INBOX"
         ));
     }
@@ -1188,14 +1382,14 @@ mod tests {
         let start = tokio::time::Instant::now();
         let until = Some(start + pause);
         assert!(matches!(
-            next(&mut urgent, &mut background, &mut tick, false, until).await,
+            pick(&mut urgent, &mut background, &mut tick, false, until).await,
             Next::Background(Work::Prefetch)
         ));
         assert!(start.elapsed() >= pause);
         let start = tokio::time::Instant::now();
         let until = Some(start + pause);
         assert!(matches!(
-            next(&mut urgent, &mut background, &mut tick, true, until).await,
+            pick(&mut urgent, &mut background, &mut tick, true, until).await,
             Next::Step
         ));
         assert!(start.elapsed() >= pause);
@@ -1205,10 +1399,153 @@ mod tests {
         let start = tokio::time::Instant::now();
         let until = Some(start + Duration::from_secs(60));
         assert_eq!(
-            loaded(next(&mut urgent, &mut background, &mut tick, true, until).await),
+            loaded(pick(&mut urgent, &mut background, &mut tick, true, until).await),
             Some(7)
         );
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn moves_of_one_source_and_target_are_one_uid_move() {
+        // A held "archive" key: 50 moves of one folder into one folder, one request.
+        let (urgent_tx, mut urgent) = mpsc::channel(64);
+        for uid in 10..60 {
+            urgent_tx.send(mv("INBOX", "Archive", uid)).await.unwrap();
+        }
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::Move {
+            from,
+            validity,
+            mut uids,
+            to,
+        } = first.0
+        else {
+            panic!("not a move");
+        };
+        let mut replies = vec![first.1];
+        let merged = drain_moves(
+            &mut urgent,
+            &mut deferred,
+            &from,
+            validity,
+            &to,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(merged, 49, "the rest of the series is merged in");
+        assert_eq!(replies.len(), 50, "every caller keeps its answer");
+        assert_eq!(from, "INBOX");
+        assert_eq!(to, "Archive");
+        assert_eq!(validity, 1);
+        assert_eq!(uids.len(), 50);
+        assert_eq!(uids[0], 10);
+        assert_eq!(uids[49], 59);
+        assert!(deferred.is_empty());
+    }
+
+    #[tokio::test]
+    async fn another_target_is_deferred_not_merged() {
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Trash", 2)).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 3)).await.unwrap();
+        let mut deferred = VecDeque::new();
+        let first = urgent.recv().await.unwrap();
+        let Work::Move {
+            from,
+            validity,
+            mut uids,
+            to,
+        } = first.0
+        else {
+            panic!("not a move");
+        };
+        let mut replies = vec![first.1];
+        drain_moves(
+            &mut urgent,
+            &mut deferred,
+            &from,
+            validity,
+            &to,
+            &mut uids,
+            &mut replies,
+        );
+        assert_eq!(replies.len(), 2);
+        assert_eq!(uids, [1, 3]);
+        assert_eq!(deferred.len(), 1, "the move to another folder waits its turn");
+        assert!(matches!(deferred[0].0, Work::Move { ref to, .. } if to == "Trash"));
+    }
+
+    #[tokio::test]
+    async fn a_body_read_goes_before_queued_moves() {
+        let (reads_tx, mut reads) = mpsc::channel(8);
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let (_background_tx, mut background) = mpsc::channel(8);
+        let mut deferred = VecDeque::new();
+        let mut tick = ticker().await;
+        for uid in 0..3 {
+            urgent_tx.send(mv("INBOX", "Archive", uid)).await.unwrap();
+        }
+        reads_tx.send(load(42)).await.unwrap();
+        // Opening a letter jumps ahead of the archives waiting to run.
+        assert_eq!(
+            loaded(
+                next(
+                    &mut reads,
+                    &mut urgent,
+                    &mut deferred,
+                    &mut background,
+                    &mut tick,
+                    false,
+                    None
+                )
+                .await
+            ),
+            Some(42)
+        );
+        // Then the moves are taken in the order they were sent.
+        assert!(matches!(
+            next(
+                &mut reads,
+                &mut urgent,
+                &mut deferred,
+                &mut background,
+                &mut tick,
+                false,
+                None
+            )
+            .await,
+            Next::User(Work::Move { .. }, _)
+        ));
+    }
+
+    #[tokio::test]
+    async fn deferred_actions_run_before_the_queue() {
+        let (reads_tx, mut reads) = mpsc::channel(8);
+        let (urgent_tx, mut urgent) = mpsc::channel(8);
+        let (_background_tx, mut background) = mpsc::channel(8);
+        let mut tick = ticker().await;
+        // A body read taken out while gathering a batch runs before anything else.
+        let mut deferred = VecDeque::new();
+        deferred.push_back(load(7));
+        reads_tx.send(load(8)).await.unwrap();
+        urgent_tx.send(mv("INBOX", "Archive", 1)).await.unwrap();
+        assert_eq!(
+            loaded(
+                next(
+                    &mut reads,
+                    &mut urgent,
+                    &mut deferred,
+                    &mut background,
+                    &mut tick,
+                    false,
+                    None
+                )
+                .await
+            ),
+            Some(7)
+        );
     }
 
     #[test]
