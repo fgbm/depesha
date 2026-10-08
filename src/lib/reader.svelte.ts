@@ -42,10 +42,13 @@ export class Reader {
     return [...(this.opened ? [this.opened.row.id] : []), ...this.conversation.map((m) => m.id)];
   }
 
-  /** Nothing is open any more. */
+  /** Nothing is open any more. An open still in flight is dropped: it must not bring the letter back. */
   close() {
     this.cancelSeen();
+    this.openSeq++;
     this.opened = null;
+    this.opening = false;
+    this.openingRow = null;
     this.conversation = [];
   }
 

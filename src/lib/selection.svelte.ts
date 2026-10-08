@@ -194,11 +194,20 @@ export class SelectionController {
     // A message window keeps showing its letter until the action is through.
     if (this.host.windowOf !== null) return;
     const index = this.host.list.remove(ids);
+    // The letter we took out must not come back from an open still in flight, nor be
+    // marked read because that open finished. The next row is current at once.
     this.host.reader.close();
-    this.selected = new Set();
     const rows = this.host.list.messages;
-    const next = rows[Math.min(Math.max(index, 0), rows.length - 1)];
-    if (next && index >= 0) this.select(next.id);
+    const next = index >= 0 ? rows[Math.min(index, rows.length - 1)] : undefined;
+    if (next) {
+      // A held e/#/!/h keeps moving; the letter opens once the keys stop, as j/k do (#71).
+      void this.select(next.id, "single", true);
+      return;
+    }
+    this.openSoon.cancel();
+    this.pendingOpen = null;
+    this.selected = new Set();
+    this.anchor = null;
   }
 
   async flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) {
