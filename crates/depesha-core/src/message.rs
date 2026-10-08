@@ -979,6 +979,40 @@ JVBERi0xLjQK\r\n\
     }
 
     #[test]
+    fn a_remote_resource_is_seen_through_its_obfuscation() {
+        // The browser drops tabs and line breaks from a URL and reads `\` as `/`; a letter
+        // must not hide a tracker behind that (ammonia passes the raw value on).
+        let hidden = [
+            "<img src=\"ht&#9;tps:\\evil.example/p.gif\">",
+            "<img src=\"https&#58;//evil.example/p.gif\">",
+            "<img src=\"ht\ntps://evil.example/p.gif\">",
+            "<div style=\"background-image:image-set('https://evil.example/p' 1x)\">x</div>",
+            "<div style=\"background-image:u\\72l(https://evil.example/p)\">x</div>",
+            "<div style=\"background:url(https://evil.example/p)\">x</div>",
+        ];
+        for html in hidden {
+            let (clean, remote) = sanitize_html(html, &HashMap::new(), false);
+            assert!(!clean.contains("evil.example"), "remote kept: {html} -> {clean}");
+            assert!(remote, "remote not flagged: {html}");
+        }
+        // A style that loads nothing is not thrown away with them.
+        let (clean, _) = sanitize_html(
+            "<div style=\"color:red;border:1px solid #ccc\">x</div>",
+            &HashMap::new(),
+            false,
+        );
+        assert!(clean.contains("style=\"color:red"), "{clean}");
+        // Allowed for this letter, the same picture goes through.
+        let (clean, remote) = sanitize_html(
+            "<img src=\"ht&#9;tps:\\evil.example/p.gif\">",
+            &HashMap::new(),
+            true,
+        );
+        assert!(clean.contains("evil.example"), "{clean}");
+        assert!(remote);
+    }
+
+    #[test]
     fn an_html_letter_keeps_its_own_tables() {
         // A foreign sender's table is laid out by them: no grid of ours is put on it.
         let (clean, _) = sanitize_html(
