@@ -1019,7 +1019,7 @@ pub async fn move_messages(conn: &mut Conn, from: &str, validity: Option<u32>, u
 /// Finishes a move that was cut short before MOVE was available. Without MOVE a move is
 /// `COPY` then `\Deleted`: a connection that dropped after the COPY and before the
 /// removal would copy the letters a second time if the move were run again. Letters whose
-/// Message-ID already reached the target are not copied again, the rest are, and every
+/// Message-ID and size already reached the target are not copied again, the rest are, and every
 /// original is marked deleted.
 pub async fn resume_move(conn: &mut Conn, from: &str, validity: Option<u32>, uids: &[u32], to: &str) -> Result<()> {
     if uids.is_empty() {
@@ -1041,7 +1041,7 @@ async fn not_yet_moved(conn: &mut Conn, from: &str, uids: &[u32], to: &str) -> R
     conn.session.examine(from).await?;
     let fetches: Vec<_> = conn
         .session
-        .uid_fetch(uid_set(uids), "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+        .uid_fetch(uid_set(uids), "(UID RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
         .await?
         .try_collect()
         .await?;
@@ -1052,7 +1052,9 @@ async fn not_yet_moved(conn: &mut Conn, from: &str, uids: &[u32], to: &str) -> R
             // No Message-ID to look the letter up by: it still has to move.
             None => missing.push(uid),
             Some(mid) => {
-                if find_by_message_id(conn, to, &mid).await?.is_empty() {
+                // The size too: another letter of the same Message-ID at the target (a
+                // crosspost) is not this one's copy, and the original would be lost.
+                if find_matching(conn, to, &mid, f.size).await?.is_empty() {
                     missing.push(uid);
                 }
             }
@@ -1160,6 +1162,12 @@ fn append_flags(flags: &str) -> Option<String> {
 /// Message-ID is kept; an id that is empty, or not a Message-ID, finds nothing. A refusal
 /// or a dropped connection is an error, not "nothing found" (`uid_search`).
 pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str) -> Result<Vec<u32>> {
+    find_matching(conn, folder, message_id, None).await
+}
+
+/// `find_by_message_id`, narrowed to letters of exactly `size` bytes when it is given: a
+/// letter of the same Message-ID but another size (a mailing-list crosspost) is another letter.
+async fn find_matching(conn: &mut Conn, folder: &str, message_id: &str, size: Option<u32>) -> Result<Vec<u32>> {
     let id = message_id.trim_matches(['<', '>']).trim();
     // Only an empty id (or one with angle brackets still in it) finds nothing: a
     // Message-ID without `@` is unusual but valid, and returning nothing would leave the
@@ -1176,13 +1184,17 @@ pub async fn find_by_message_id(conn: &mut Conn, folder: &str, message_id: &str)
     }
     let fetches: Vec<_> = conn
         .session
-        .uid_fetch(uid_set(&uids), "(UID FLAGS BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+        .uid_fetch(
+            uid_set(&uids),
+            "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])",
+        )
         .await?
         .try_collect()
         .await?;
     Ok(fetches
         .iter()
         .filter(|f| f.uid.is_some_and(|u| uids.contains(&u)))
+        .filter(|f| size.is_none_or(|n| f.size == Some(n)))
         .filter(|f| f.header().and_then(message_id_of).as_deref() == Some(id))
         // A server without UIDPLUS keeps a moved original marked \Deleted: it is gone,
         // and moving it again would copy it a second time.

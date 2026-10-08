@@ -204,6 +204,41 @@ async fn a_resumed_move_does_not_copy_again() {
     conn.session.logout().await.unwrap();
 }
 
+/// A letter of the same Message-ID but another size at the target (a mailing-list crosspost)
+/// is not the copy of this one: the resumed move copies the original too, then removes it.
+#[tokio::test]
+async fn a_resumed_move_copies_when_the_target_holds_another_letter() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("resume-cross").await;
+    let _ = imap::create_folder(&mut conn, "Trash").await;
+    let raw = mail("Cross", 8);
+    let mid = "8.Cross@example.org";
+    imap::append(&mut conn, "INBOX", &raw, "").await.unwrap();
+    let mut other = raw.clone();
+    other.extend_from_slice("Отличается длиной\r\n".as_bytes());
+    imap::append(&mut conn, "Trash", &other, "").await.unwrap();
+    let uid = imap::find_by_message_id(&mut conn, "INBOX", mid).await.unwrap()[0];
+
+    imap::resume_move(&mut conn, "INBOX", None, &[uid], "Trash")
+        .await
+        .unwrap();
+
+    assert!(
+        imap::find_by_message_id(&mut conn, "INBOX", mid)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "Trash", mid).await.unwrap().len(),
+        2,
+        "the original reached the target beside the other letter"
+    );
+    conn.session.logout().await.unwrap();
+}
+
 #[tokio::test]
 async fn server_search_finds_uncached_mail_in_russian() {
     if !enabled() {

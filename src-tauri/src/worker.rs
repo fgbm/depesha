@@ -511,6 +511,37 @@ impl Worker {
     }
 }
 
+/// More than this many unfinished moves are forgotten, so a mailbox that is down for good
+/// does not make the set grow without end.
+const MAX_UNFINISHED_MOVES: usize = 10_000;
+
+/// Whether `op` is a move some of whose letters were already tried and did not finish.
+fn is_unfinished(unfinished: &HashSet<(String, String, u32)>, op: &Op<'_>) -> bool {
+    let Op::Work(Work::Move { from, uids, to, .. }) = op else {
+        return false;
+    };
+    uids.iter()
+        .any(|u| unfinished.contains(&(from.clone(), to.clone(), *u)))
+}
+
+/// Remembers a move that failed, forgets one that went through.
+fn note_move(unfinished: &mut HashSet<(String, String, u32)>, op: &Op<'_>, done: bool) {
+    let Op::Work(Work::Move { from, uids, to, .. }) = op else {
+        return;
+    };
+    for u in uids {
+        let key = (from.clone(), to.clone(), *u);
+        if done {
+            unfinished.remove(&key);
+        } else {
+            unfinished.insert(key);
+        }
+    }
+    if unfinished.len() > MAX_UNFINISHED_MOVES {
+        unfinished.clear();
+    }
+}
+
 /// Errors that repeat until the user acts; retrying them may also lock an AD account.
 fn needs_user(e: &Error) -> bool {
     matches!(e.kind(), "auth" | "certificate" | "no-tls" | "imap-unavailable")
@@ -601,6 +632,7 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         last_net_try: None,
         net_up: net_up.clone(),
         prefetch_failed: HashSet::new(),
+        unfinished_moves: HashSet::new(),
         last_wall: SystemTime::now(),
         last_mono: Instant::now(),
     };
@@ -748,6 +780,10 @@ struct Ops {
     /// Messages the offline download gave up on (their batch timed out on a slow link):
     /// they are not picked again, they load when opened.
     prefetch_failed: HashSet<i64>,
+    /// `(source, target, UID)` of the moves that failed and were not done since. The same
+    /// move asked again (the toast's «Retry», or after «no answer») is a resumed one: without
+    /// MOVE it may have got as far as the COPY, and a plain repeat would copy the letter twice.
+    unfinished_moves: HashSet<(String, String, u32)>,
     /// When the loop last ran: a wall clock ahead of the monotonic one means sleep.
     last_wall: SystemTime,
     last_mono: Instant,
@@ -1014,7 +1050,7 @@ impl Ops {
                 }
             }
             let c = self.conn.as_mut().expect("connected above");
-            let retry = attempt > 0;
+            let retry = attempt > 0 || is_unfinished(&self.unfinished_moves, &op);
             let outcome = match tokio::time::timeout(
                 WORK_TIMEOUT,
                 perform(
@@ -1034,9 +1070,11 @@ impl Ops {
                 // would hang the same way, so it is dropped and not retried.
                 Err(_) => {
                     self.conn = None;
+                    note_move(&mut self.unfinished_moves, &op, false);
                     return Err(Error::Timeout("operation"));
                 }
             };
+            note_move(&mut self.unfinished_moves, &op, outcome.is_ok());
             match outcome {
                 Ok(out) => {
                     self.busy_streak = 0;
@@ -1822,6 +1860,29 @@ async fn resumed_from_sleep() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_move_asked_again_is_a_resumed_one() {
+        let (work, _) = mv("INBOX", "Archive", 7);
+        let mut unfinished = HashSet::new();
+        assert!(
+            !is_unfinished(&unfinished, &Op::Work(&work)),
+            "the first try is a plain move"
+        );
+        note_move(&mut unfinished, &Op::Work(&work), false);
+        let (again, _) = mv("INBOX", "Archive", 7);
+        assert!(is_unfinished(&unfinished, &Op::Work(&again)));
+        let (other, _) = mv("INBOX", "Trash", 7);
+        assert!(
+            !is_unfinished(&unfinished, &Op::Work(&other)),
+            "another target is another move"
+        );
+        note_move(&mut unfinished, &Op::Work(&again), true);
+        assert!(
+            !is_unfinished(&unfinished, &Op::Work(&again)),
+            "a move that went through is done"
+        );
+    }
 
     #[tokio::test]
     async fn a_waiting_sync_is_not_queued_twice() {
