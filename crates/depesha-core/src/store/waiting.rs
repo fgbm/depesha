@@ -434,6 +434,45 @@ mod tests {
     }
 
     #[test]
+    fn a_new_letter_of_the_conversation_stays_in_the_inbox() {
+        let store = mailbox();
+        let first = letter("Счёт", 90_000, "q1@x", None, "maria@example.org");
+        let second = letter("Re: Счёт", 95_000, "q2@x", Some("q1@x"), "maria@example.org");
+        put(&store, "INBOX", 1, &first, true);
+        put(&store, "INBOX", 2, &second, true);
+        // A colleague writes into the conversation while the answer waits to go: the
+        // letter is newer than the one answered, and it stays where it is.
+        let later = letter("Re: Счёт", 96_000, "c@x", Some("q2@x"), "maria@example.org");
+        put(&store, "INBOX", 3, &later, true);
+        // An older letter nobody read is not swept along either.
+        let unread = letter("Re: Счёт", 94_000, "u@x", Some("q1@x"), "maria@example.org");
+        put(&store, "INBOX", 4, &unread, false);
+        let chain = store.inbox_chain("a", "INBOX", "q2@x").unwrap();
+        assert_eq!(sorted(chain), ["q1@x", "q2@x"]);
+    }
+
+    #[test]
+    fn a_stranger_naming_the_conversation_is_not_taken_to_wait() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &letter("Счёт", 90_000, "imp@x", None, "maria@example.org"),
+            true,
+        );
+        // A stranger answers nothing of it, but names it in References: a different
+        // conversation that must not drag the important letter along.
+        let attack = letter("Привет", 95_000, "atk@x", Some("imp@x"), "evil@example.org");
+        put(&store, "INBOX", 2, &attack, true);
+        let chain = store.inbox_chain("a", "INBOX", "atk@x").unwrap();
+        assert_eq!(sorted(chain), ["atk@x"]);
+        // And the important letter does not take the stranger's.
+        let chain = store.inbox_chain("a", "INBOX", "imp@x").unwrap();
+        assert_eq!(sorted(chain), ["imp@x"]);
+    }
+
+    #[test]
     fn answering_a_letter_of_the_inbox_takes_its_whole_conversation_to_wait() {
         let store = mailbox();
         put(
