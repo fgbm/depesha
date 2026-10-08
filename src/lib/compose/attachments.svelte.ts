@@ -106,11 +106,9 @@ export class ComposeAttachments {
     }
   }
 
-  /** Pasted pictures: into the text of an HTML letter, attached to a Markdown one. */
+  /** Pasted pictures: into the text, as in a Markdown letter too (#80). */
   async pastedPictures(blobs: Blob[]) {
-    const found = await picturesFromBlobs(blobs);
-    if (this.host.format.format === "html") await this.addPictures(found);
-    else await this.attachPictures(found);
+    await this.addPictures(await picturesFromBlobs(blobs));
   }
 
   async pictureFromClipboard() {
