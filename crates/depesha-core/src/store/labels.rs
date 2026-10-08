@@ -551,6 +551,25 @@ mod tests {
     }
 
     #[test]
+    fn a_label_being_taken_off_is_marked_and_remembered() {
+        let store = mailbox();
+        store.save_label("a", &label("Счета", "#d0573f")).unwrap();
+        assert!(store.stripping_labels("a").unwrap().is_empty());
+        // Marked: the row stays in the list, and the debt is listed for resumption.
+        store.set_label_stripping("a", "Счета", true).unwrap();
+        let listed = store.labels("a").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].stripping, "the row is marked as being removed");
+        assert_eq!(
+            store.stripping_labels("a").unwrap(),
+            [("Счета".to_owned(), keyword_of("Счета"))]
+        );
+        // The work done, the label is gone for good.
+        store.remove_label("a", "Счета").unwrap();
+        assert!(store.stripping_labels("a").unwrap().is_empty());
+    }
+
+    #[test]
     fn counts_letters_and_drops_a_keyword_in_the_cache() {
         use super::super::tests::put;
         use crate::store::tests::with_ids;
@@ -567,6 +586,37 @@ mod tests {
         assert_eq!(store.label_counts("a").unwrap(), [(kw.clone(), 0)]);
         assert!(store.get(a).unwrap().unwrap().keywords.is_empty());
         assert!(store.get(b).unwrap().unwrap().keywords.is_empty());
+    }
+
+    #[test]
+    fn a_keyword_with_a_quote_is_matched_as_a_json_value() {
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &with_ids("Раз", 100, "q@x", None), false);
+        // A category name an Exchange user may type: it holds `"` and `\`, which the JSON
+        // array escapes. A quoted-substring search would miss it; `json_each` does not.
+        let kw = "Отдел \"Продаж\"\\Север".to_owned();
+        store
+            .save_label(
+                "a",
+                &Label {
+                    name: "Странная".into(),
+                    keyword: kw.clone(),
+                    color: String::new(),
+                    stripping: false,
+                },
+            )
+            .unwrap();
+        store.set_keywords("a", "INBOX", 1, std::slice::from_ref(&kw)).unwrap();
+        assert_eq!(store.label_counts("a").unwrap(), [(kw.clone(), 1)]);
+        // Renaming it rewrites the value, not a quoted substring.
+        assert_eq!(store.rename_keyword("a", &kw, "Новая").unwrap(), 1);
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, ["Новая"]);
+        // And dropping it clears the value.
+        store.set_keywords("a", "INBOX", 1, std::slice::from_ref(&kw)).unwrap();
+        assert_eq!(store.drop_keyword("a", &kw).unwrap(), 1);
+        assert!(store.get(id).unwrap().unwrap().keywords.is_empty());
     }
 
     #[test]

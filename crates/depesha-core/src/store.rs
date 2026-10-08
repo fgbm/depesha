@@ -3527,6 +3527,21 @@ mod tests {
         assert_eq!(subjects("label:important"), ["Отчёт"]);
         // A label the mailbox does not have matches nothing.
         assert!(subjects("метка:Нет такой").is_empty());
+        // A name holding a quote or a backslash (an Exchange category): the keyword is kept
+        // as JSON, and the search finds it as a value, not by a quoted substring of the array.
+        store
+            .save_label(
+                "a",
+                &Label {
+                    name: "Странная".into(),
+                    keyword: "a\"b\\c".into(),
+                    color: String::new(),
+                    stripping: false,
+                },
+            )
+            .unwrap();
+        store.set_keywords("a", "INBOX", 2, &["a\"b\\c".into()]).unwrap();
+        assert_eq!(subjects("метка:Странная"), ["Отчёт"]);
     }
 
     #[test]
