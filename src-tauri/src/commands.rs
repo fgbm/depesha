@@ -112,13 +112,13 @@ fn prefix(proto: &str, e: depesha_core::Error) -> CmdError {
 }
 
 /// The order of the mailboxes in the sidebar and wherever they are listed.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accounts_arrange(state: St<'_>, ids: Vec<String>) -> CmdResult<()> {
     state.arrange_accounts(&ids)
 }
 
 /// How the mailbox is shown: its name in the app and its colour. Login data stays as is.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn account_look(state: St<'_>, id: String, label: String, color: String) -> CmdResult<()> {
     let mut account = state.account(&id)?;
     account.label = label.trim().to_owned();
@@ -744,14 +744,14 @@ pub async fn label_check(
 }
 
 /// The account's labels, with the keyword each stores on the server.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn labels(state: St<'_>, account_id: String) -> CmdResult<Vec<depesha_core::acl::Label>> {
     Ok(state.store.labels(&account_id)?)
 }
 
 /// A new label; its keyword is made from the name. Renaming keeps the old keyword, so
 /// letters already tagged stay tagged.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn label_save(
     state: St<'_>,
     account_id: String,
@@ -790,7 +790,7 @@ pub fn label_save(
     Ok(label)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn label_remove(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
     state.store.remove_label(&account_id, &name)?;
     Ok(())
@@ -1293,7 +1293,7 @@ pub fn settings_get(state: St<'_>) -> Settings {
     state.settings()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
     let before = state.settings();
     check_save_folder(&state, &before.attachments_dir, &settings.attachments_dir)?;
@@ -1325,7 +1325,7 @@ fn check_save_folder(state: &AppState, before: &str, after: &str) -> CmdResult<(
 }
 
 /// The settings of one built-in plugin; the rest of the settings stay as they are.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_settings_set(state: St<'_>, plugin: String, values: serde_json::Value) -> CmdResult<()> {
     let mut settings = state.settings();
     settings.plugin_settings.insert(plugin, values);
@@ -1735,7 +1735,7 @@ pub async fn attachment_bytes(state: St<'_>, id: i64, index: u32) -> CmdResult<t
 }
 
 /// A letter attached to a letter (.eml), to read without saving it; its bytes come as the raw request body.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err(CmdError::new("bad-request", "expected the letter's bytes"));
@@ -2467,19 +2467,19 @@ pub fn update_restart(state: St<'_>) {
     crate::updater::restart(&state)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extensions(app: tauri::AppHandle, state: St<'_>) -> CmdResult<Vec<crate::extensions::Installed>> {
     crate::extensions::list(&app, &state.settings().disabled_extensions)
 }
 
 /// An extension folder as it would be installed, for the user to agree to; copies nothing.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extension_inspect(app: tauri::AppHandle, state: St<'_>, path: String) -> CmdResult<crate::extensions::Preview> {
     crate::extensions::inspect(&app, &state.paths.check(Use::Plugin, &path)?)
 }
 
 /// Installs an extension whose permissions and hooks are exactly the agreed ones.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extension_install(
     app: tauri::AppHandle,
     state: St<'_>,
@@ -2495,7 +2495,7 @@ pub fn extension_install(
 }
 
 /// Approves the permissions of an installed extension that waits for it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extension_approve(
     app: tauri::AppHandle,
     state: St<'_>,
@@ -2508,7 +2508,7 @@ pub fn extension_approve(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extension_remove(app: tauri::AppHandle, state: St<'_>, id: String) -> CmdResult<()> {
     crate::extensions::remove(&app, &id)?;
     let mut settings = state.settings();
@@ -2518,12 +2518,12 @@ pub fn extension_remove(app: tauri::AppHandle, state: St<'_>, id: String) -> Cmd
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extension_storage_get(app: tauri::AppHandle, id: String, key: String) -> CmdResult<serde_json::Value> {
     crate::extensions::storage_get(&app, &id, &key)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn extension_storage_set(
     app: tauri::AppHandle,
     id: String,
