@@ -45,7 +45,8 @@ for _ in $(seq 30); do
   sleep 1
 done
 step "integration tests"
-DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
+# Full parallelism drops dozens of TLS sessions against one Dovecot at once.
+DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot -- --test-threads=4
 
 step "E2E"
 docker compose -f compose.test.yaml up -d --force-recreate
