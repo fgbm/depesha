@@ -61,10 +61,21 @@ impl Letter {
 }
 
 /// The text of a letter as a notification carries it: line breaks and other control
-/// characters become spaces, so a subject or a sender's name cannot forge a second line
-/// (the line breaks the body itself adds on purpose stay out of this).
+/// characters, the line and paragraph separators, and the bidi controls that could reorder
+/// a line become spaces, so a subject or a sender's name cannot forge a second line or turn
+/// one around (the line breaks the body itself adds on purpose stay out of this).
 fn plain(text: &str) -> String {
-    text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
+    text.chars().map(|c| if hidden(c) { ' ' } else { c }).collect()
+}
+
+/// Whether a character must not reach a notification as it is: a control character, a line
+/// or paragraph separator (`is_control` misses both), or a bidi control (`U+200E`–`U+200F`,
+/// `U+202A`–`U+202E`, `U+2066`–`U+2069`) that could reorder the line it lands in.
+fn hidden(c: char) -> bool {
+    c.is_control()
+        || c == '\u{2028}'
+        || c == '\u{2029}'
+        || matches!(c, '\u{200E}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
 /// Where a click on a notification leads in the main window.
@@ -1427,6 +1438,12 @@ mod tests {
         // A subject or a name with a line break cannot forge another line of the body.
         assert_eq!(plain("Счёт\nBcc: evil@x"), "Счёт Bcc: evil@x");
         assert_eq!(plain("Иван\r\nПётр\tконец"), "Иван  Пётр конец");
+        // The line and paragraph separators and the bidi controls go too: they could forge a
+        // line or turn one around without being control characters.
+        assert_eq!(plain("Счёт\u{2028}Bcc: evil@x"), "Счёт Bcc: evil@x");
+        assert_eq!(plain("Счёт\u{2029}Bcc: evil@x"), "Счёт Bcc: evil@x");
+        assert_eq!(plain("a\u{202E}b"), "a b");
+        assert_eq!(plain("a\u{200F}b\u{2069}c"), "a b c");
     }
 
     #[test]
