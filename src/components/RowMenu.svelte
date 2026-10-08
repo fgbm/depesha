@@ -114,7 +114,7 @@
     <button class="mi" disabled={!canWrite} title={!canWrite ? t("label.noRightHint") : undefined} onclick={() => run(() => app.labels.openPick(ids, at))}><Tag size={15} /> {t("act.labels")}<span class="hint"><ChevronRight size={13} /></span></button>
   {/if}
   {#each pluginActions as a (a.id)}
-    <button class="mi" onclick={() => (a.menu ? (sub = { kind: "plugin", action: a }) : run(() => a.run?.(ids)))}>
+    <button class="mi" onclick={() => (a.menu ? (sub = { kind: "plugin", action: a }) : run(() => a.run?.(ids, at)))}>
       {#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.menu}<span class="hint"><ChevronRight size={13} /></span>{:else if a.command}<span class="hint"><Keys of={a.command} /></span>{:else if a.hint}<span class="hint">{a.hint}</span>{/if}
     </button>
   {/each}

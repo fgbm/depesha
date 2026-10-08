@@ -21,6 +21,7 @@
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
   import Popover from "./components/Popover.svelte";
+  import { keyAnchor } from "./lib/anchor";
   import LabelPicker from "./components/LabelPicker.svelte";
   import { allCommands, host } from "./plugin-host/host.svelte";
   import FolderPropsCard from "./components/prefs/FolderProps.svelte";
@@ -132,13 +133,6 @@
   function labelTarget(): number[] {
     const ids = app.selectedIds();
     return ids.length ? ids : app.opened ? [app.opened.row.id] : [];
-  }
-
-  /** Where the labels picker opens without a pointer: at the selected row, or the middle. */
-  function labelsAnchor(): { x: number; y: number } {
-    const row = listPane?.querySelector<HTMLElement>(".row.selected, .row.opened");
-    const r = row?.getBoundingClientRect();
-    return r ? { x: Math.round(r.left + 24), y: Math.round(r.top + 16) } : { x: Math.round(window.innerWidth / 2 - 120), y: 120 };
   }
 
   /** What a command does now: the core's, a plugin's key, or any command of the palette given a key. */
@@ -282,7 +276,7 @@
 {#if app.labels.pick}
   <Popover
     bind:open={() => app.labels.pick !== null, (v) => !v && app.labels.closePick()}
-    at={app.labels.pick.at ?? labelsAnchor()}
+    at={app.labels.pick.at ?? keyAnchor()}
   >
     <LabelPicker rows={app.labels.pickRows()} />
   </Popover>

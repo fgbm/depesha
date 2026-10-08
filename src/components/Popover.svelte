@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { GAP, MARGIN, placeMenu, type Anchor } from "../lib/anchor";
 
   let {
     open = $bindable(false),
@@ -15,8 +16,8 @@
     align?: "left" | "right";
     matchWidth?: boolean;
     role?: "menu" | "listbox";
-    /** A context menu: opens at this point of the window instead of under its parent. */
-    at?: { x: number; y: number } | null;
+    /** A context menu opens at this point of the window instead of under its parent; a menu opened by a key, under the row it is for (#96). */
+    at?: Anchor | null;
     /** To the right of its parent, level with it (a flyout from the sidebar strip). */
     beside?: boolean;
     /** "side": in the sidebar's colours, as a part of it. */
@@ -28,30 +29,32 @@
   /** Fixed coordinates: a dialog's `overflow: hidden` does not cut the menu off. */
   let pos = $state<{ left: number; top: number; maxHeight: number; minWidth: number } | null>(null);
 
-  const GAP = 4;
-  const MARGIN = 8;
-
   /** Below the trigger when it fits, otherwise on the side with more room. */
   function place() {
     const anchor = box?.parentElement;
     if (!box || !anchor) return;
-    const r = at ? { left: at.x, right: at.x, top: at.y, bottom: at.y, width: 0 } : anchor.getBoundingClientRect();
-    const gap = at ? 0 : GAP;
     const w = box.offsetWidth;
     const h = box.scrollHeight;
+    if (at) {
+      // A context menu opens to the right of the pointer, to its left near the edge; a menu
+      // opened by a key hangs under the selected row, or over it (#96).
+      const p = placeMenu(at, { w, h }, { w: window.innerWidth, h: window.innerHeight });
+      pos = { left: p.left, top: p.top, maxHeight: p.maxHeight, minWidth: 0 };
+      return;
+    }
+    const r = anchor.getBoundingClientRect();
     if (beside) {
       const maxHeight = window.innerHeight - 2 * MARGIN;
       const top = Math.max(MARGIN, Math.min(r.top - GAP, window.innerHeight - MARGIN - Math.min(h, maxHeight)));
       pos = { left: Math.min(r.right + GAP, window.innerWidth - w - MARGIN), top, maxHeight, minWidth: 0 };
       return;
     }
-    const below = window.innerHeight - r.bottom - gap - MARGIN;
-    const above = r.top - gap - MARGIN;
+    const below = window.innerHeight - r.bottom - GAP - MARGIN;
+    const above = r.top - GAP - MARGIN;
     const down = h <= below || below >= above;
     const maxHeight = Math.max(80, down ? below : above);
-    const top = down ? r.bottom + gap : r.top - gap - Math.min(h, maxHeight);
-    // A context menu opens to the right of the pointer, to its left near the edge.
-    const want = at ? (at.x + w + MARGIN > window.innerWidth ? at.x - w : at.x) : align === "left" ? r.left : r.right - w;
+    const top = down ? r.bottom + GAP : r.top - GAP - Math.min(h, maxHeight);
+    const want = align === "left" ? r.left : r.right - w;
     const left = Math.min(Math.max(MARGIN, want), window.innerWidth - w - MARGIN);
     pos = { left, top, maxHeight, minWidth: matchWidth ? r.width : 0 };
   }
