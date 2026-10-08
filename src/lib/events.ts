@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { extensions, listenForMail } from "./extensions.svelte";
 import { listenBackground } from "./background.svelte";
 import { peopleBook } from "./peopleBook.svelte";
+import { debounce } from "./debounce";
 import { t } from "./i18n.svelte";
 import { applyRules } from "./rules";
 import { api } from "./api";
@@ -22,6 +23,8 @@ interface MailChanged {
 }
 
 function common(app: AppStore) {
+  // A series of settings saves from another window is read once (#71).
+  const settingsChanged = debounce(() => void applySettingsChanged(app), 250, 1000);
   return [
     listen("folders-changed", () => app.scheduleFolders()),
     listen<{ account_id: string; status: AccountStatus }>("account-status", (e) => {
@@ -36,12 +39,21 @@ function common(app: AppStore) {
     // The address book changed in another window: the cache follows.
     listen("people-changed", () => peopleBook.changed()),
     // Settings saved elsewhere (another window, a plugin) may change the language too.
-    listen("settings-changed", async () => {
-      await app.loadSettings();
-      await app.loadLanguage();
-      await extensions.load();
-    }),
+    listen("settings-changed", () => settingsChanged()),
   ];
+}
+
+/**
+ * Settings changed in another window: read them again, and follow the language and the
+ * extensions only when their own fields changed (#71).
+ */
+async function applySettingsChanged(app: AppStore) {
+  const before = app.settings;
+  const language = before.language;
+  const disabled = (before.disabled_extensions ?? []).join("\u0000");
+  await app.loadSettings();
+  if (app.settings.language !== language) await app.loadLanguage();
+  if ((app.settings.disabled_extensions ?? []).join("\u0000") !== disabled) await extensions.load();
 }
 
 /** The main window: the list, the outbox, tasks, mail rules and updates. */
