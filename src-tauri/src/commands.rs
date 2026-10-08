@@ -768,6 +768,24 @@ pub fn labels(state: St<'_>, account_id: String) -> CmdResult<Vec<depesha_core::
     Ok(state.store.labels(&account_id)?)
 }
 
+/// A label's cached letter count (#42, frame 2), by its keyword: the list shows «≈N».
+#[derive(serde::Serialize)]
+pub struct LabelCount {
+    pub keyword: String,
+    pub count: u32,
+}
+
+/// How many letters carry each label of the mailbox, counted in the cache.
+#[tauri::command]
+pub fn label_counts(state: St<'_>, account_id: String) -> CmdResult<Vec<LabelCount>> {
+    Ok(state
+        .store
+        .label_counts(&account_id)?
+        .into_iter()
+        .map(|(keyword, count)| LabelCount { keyword, count })
+        .collect())
+}
+
 /// A new label; its keyword is made from the name. Renaming keeps the old keyword, so
 /// letters already tagged stay tagged.
 #[tauri::command(async)]
@@ -813,6 +831,72 @@ pub fn label_save(
 pub fn label_remove(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
     state.store.remove_label(&account_id, &name)?;
     Ok(())
+}
+
+/// Deletes a label for good (#42, frame 4Б): the label leaves the list at once, and its
+/// keyword is taken off every letter of the mailbox on the server, in the background —
+/// the queue of that mailbox, shown in the tasks window. Nothing is left behind.
+#[tauri::command]
+pub async fn label_strip(state: St<'_>, account_id: String, name: String) -> CmdResult<()> {
+    let Some(keyword) = state.store.label_keyword(&account_id, &name)? else {
+        return Ok(());
+    };
+    let worker = state.worker(&account_id)?;
+    state.store.remove_label(&account_id, &name)?;
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = worker.run_background(Work::StripLabel { keyword }).await {
+            tracing::warn!(account = %account_id, "stripping a label failed: {e}");
+        }
+    });
+    Ok(())
+}
+
+/// Renames a label (#42, frame 3). On IMAP it is quiet: only the name shown in Depesha
+/// changes, the keyword on the server stays, so letters keep the label. On Exchange the
+/// name is the category, so the server category is rewritten on every letter, in the
+/// background — that is what a rename means there (frame 7).
+#[tauri::command]
+pub async fn label_rename(
+    state: St<'_>,
+    account_id: String,
+    from: String,
+    to: String,
+) -> CmdResult<depesha_core::acl::Label> {
+    let to = to.trim();
+    if to.is_empty() {
+        return Err(CmdError::new(
+            "input",
+            tr!("a label needs a name", "у метки должно быть название"),
+        ));
+    }
+    let Some(old) = state.store.labels(&account_id)?.into_iter().find(|l| l.name == from) else {
+        return Err(CmdError::new("input", tr!("no such label", "такой метки нет")));
+    };
+    if state.account(&account_id)?.ews.is_some() {
+        state.store.remove_label(&account_id, &from)?;
+        let label = depesha_core::acl::Label {
+            name: to.to_owned(),
+            keyword: to.to_owned(),
+            color: old.color,
+        };
+        state.store.save_label(&account_id, &label)?;
+        state.store.rename_keyword(&account_id, &from, to)?;
+        let worker = state.worker(&account_id)?;
+        let (f, t) = (from.clone(), to.to_owned());
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = worker.run_background(Work::RenameCategory { from: f, to: t }).await {
+                tracing::warn!(account = %account_id, "renaming a category failed: {e}");
+            }
+        });
+        Ok(label)
+    } else {
+        state.store.rename_label(&account_id, &from, to)?;
+        Ok(depesha_core::acl::Label {
+            name: to.to_owned(),
+            keyword: old.keyword,
+            color: old.color,
+        })
+    }
 }
 
 /// Puts a label on rows or takes it off: an IMAP keyword, an Exchange category.

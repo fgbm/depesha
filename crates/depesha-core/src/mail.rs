@@ -172,6 +172,41 @@ pub async fn set_labels(
     Ok(())
 }
 
+/// Takes a label's keyword off every message of the account (#42, frame 4Б): IMAP walks
+/// the folders, searches the keyword and clears it; Exchange drops the category of the
+/// same name. The cache follows, so the label disappears from the rows at once. Returns
+/// how many messages changed.
+pub async fn strip_label(conn: &mut Conn, store: &Store, account_id: &str, keyword: &str) -> Result<usize> {
+    let folders: Vec<String> = store
+        .folders(Some(account_id))?
+        .into_iter()
+        .filter(|f| f.folder.selectable)
+        .map(|f| f.folder.name)
+        .collect();
+    let n = match conn {
+        Conn::Imap(c) => {
+            let mut n = 0;
+            for folder in &folders {
+                n += imap::strip_keyword(c, folder, keyword).await?;
+            }
+            n
+        }
+        Conn::Ews(s) => ews::strip_category(s, store, account_id, keyword).await?,
+    };
+    store.drop_keyword(account_id, keyword)?;
+    Ok(n)
+}
+
+/// Renames a label's category on every message of the account (#42, frame 7): on Exchange
+/// the name is the category, so the server rewrite is the rename. IMAP renames quietly in
+/// the cache alone and never calls this.
+pub async fn rename_category(conn: &mut Conn, store: &Store, account_id: &str, from: &str, to: &str) -> Result<usize> {
+    match conn {
+        Conn::Ews(s) => ews::rename_category(s, store, account_id, from, to).await,
+        Conn::Imap(_) => Ok(0),
+    }
+}
+
 /// Checks a folder without changing it: what the user may do (MYRIGHTS), whether labels
 /// are kept here (PERMANENTFLAGS), the owner from NAMESPACE, and the namespaces themselves
 /// on the first check. Nothing is written to the server: EXAMINE and MYRIGHTS read.

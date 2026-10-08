@@ -214,6 +214,12 @@ export interface Label {
   color: string;
 }
 
+/** How many cached letters carry a label, by its keyword (#42, frame 2). */
+export interface LabelCount {
+  keyword: string;
+  count: number;
+}
+
 /** The outcome of a label check on a test message (#42, frame 9). */
 export type LabelCheck = "saves" | "not-saves" | "claimed-but-lost";
 
@@ -595,7 +601,7 @@ export type BodyView = "text" | "html" | "markdown";
 /** Background work shown in the tasks window. */
 export interface Task {
   key: string;
-  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes";
+  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels";
   account_id?: string;
   label: string;
   done: number;

@@ -16,6 +16,8 @@ const PROPS_TTL = 10 * 60;
 class Labels {
   /** Метки каждого ящика, по id. */
   all = $state<Record<string, Label[]>>({});
+  /** Число писем с меткой по кэшу, по ящику и ключу метки (#42, кадр 2). */
+  counts = $state<Record<string, Record<string, number>>>({});
   /** Свойства папок, по `account\u0000folder`. */
   props = $state<Record<string, FolderProps>>({});
   /** Проверка свойств идёт: по тому же ключу. */
@@ -47,6 +49,27 @@ class Labels {
     }
   }
 
+  /** Перечитывает метки и число писем: после создания, правки или удаления. */
+  async refresh(accountId: string) {
+    await Promise.all([this.load(accountId), this.loadCounts(accountId)]);
+  }
+
+  /** Число писем с меткой по кэшу; список показывает его как «≈N». */
+  async loadCounts(accountId: string) {
+    try {
+      const rows = await api.labelCounts(accountId);
+      const byKeyword: Record<string, number> = {};
+      for (const row of rows) byKeyword[row.keyword] = row.count;
+      this.counts[accountId] = byKeyword;
+    } catch (e) {
+      this.app?.fail(e);
+    }
+  }
+
+  count(accountId: string, keyword: string): number {
+    return this.counts[accountId]?.[keyword] ?? 0;
+  }
+
   async save(accountId: string, name: string, color: string): Promise<Label | null> {
     try {
       const label = await api.labelSave(accountId, name, color);
@@ -58,12 +81,34 @@ class Labels {
     }
   }
 
+  /** Тихая правка имени: ключ на сервере не меняется (#42, кадр 3). */
+  async rename(accountId: string, from: string, to: string): Promise<Label | null> {
+    try {
+      const label = await api.labelRename(accountId, from, to);
+      this.all[accountId] = await api.labels(accountId);
+      return label;
+    } catch (e) {
+      this.app?.fail(e, t("label.renameFailed"));
+      return null;
+    }
+  }
+
   async remove(accountId: string, name: string) {
     try {
       await api.labelRemove(accountId, name);
-      this.all[accountId] = await api.labels(accountId);
+      await this.refresh(accountId);
     } catch (e) {
       this.app?.fail(e);
+    }
+  }
+
+  /** Удаление с сервера: метка уходит из списка сразу, ключ снимается фоном (#42, кадр 4Б). */
+  async strip(accountId: string, name: string) {
+    try {
+      await api.labelStrip(accountId, name);
+      await this.refresh(accountId);
+    } catch (e) {
+      this.app?.fail(e, t("label.removeFailed"));
     }
   }
 

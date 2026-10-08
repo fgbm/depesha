@@ -56,7 +56,7 @@
 {/snippet}
 
 {#snippet star(acc: AccountView, fav: Favourite, block = false)}
-  {@const on = favourites.has(acc.id, fav.name)}
+  {@const on = favourites.has(acc.id, fav.name, fav.kind ?? "folder")}
   <button
     class="star"
     class:on

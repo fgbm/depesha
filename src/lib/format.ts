@@ -72,6 +72,18 @@ export function accountColor(a: Pick<Account, "color"> | undefined, index: numbe
   return a?.color || ACCOUNT_PALETTE[Math.max(0, index) % ACCOUNT_PALETTE.length];
 }
 
+/** Label colours (#42, frame 5Б): the palette of the mockup, calm on paper and at night. */
+export const LABEL_PALETTE = [
+  "#d0573f",
+  "#d9a441",
+  "#3f9a5b",
+  "#3f7fd0",
+  "#8a5ad0",
+  "#c2508e",
+  "#6b7480",
+  "#3f3f46",
+];
+
 export function addrFull(a: Addr): string {
   return a.name?.trim() ? `${a.name} <${a.email}>` : a.email;
 }

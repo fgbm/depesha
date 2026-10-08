@@ -122,6 +122,7 @@ class SidebarUi {
     if (c.kind === "unified" && v.kind === "unified")
       return c.role === v.role && !!c.unread === !!v.unread && !!c.flagged === !!v.flagged;
     if (c.kind === "folder" && v.kind === "folder") return c.account_id === v.account_id && c.folder === v.folder;
+    if (c.kind === "search" && v.kind === "search") return c.text === v.text;
     if (c.kind === "plugin" && v.kind === "plugin") return c.id === v.id;
     return true;
   }

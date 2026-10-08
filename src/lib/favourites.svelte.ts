@@ -4,11 +4,13 @@
 // its exact name only: a folder renamed or deleted on the server shows as unavailable,
 // never as some other folder with a similar name.
 
-/** A favourite as kept: the server name, and how it read when added, for when it is gone. */
+/** A favourite as kept: the server name, and how it read when added, for when it is gone.
+ *  `kind` tells a folder from a label (#42): a label favourite is its saved search. */
 export interface Favourite {
   name: string;
   display: string;
   delimiter: string | null;
+  kind?: "folder" | "label";
 }
 
 /** How long an unstarred row of the favourites stays in place, fading, before it goes. */
@@ -25,8 +27,13 @@ export function readFavourites(raw: string | null): Record<string, Favourite[]> 
       if (!Array.isArray(list)) continue;
       const seen = new Set<string>();
       out[account] = list
-        .filter((f): f is Favourite => !!f && typeof f.name === "string" && !seen.has(f.name) && !!seen.add(f.name))
-        .map((f) => ({ name: f.name, display: typeof f.display === "string" ? f.display : f.name, delimiter: f.delimiter ?? null }));
+        .filter((f): f is Favourite => !!f && typeof f.name === "string" && !seen.has(`${f.kind ?? "folder"}\u0000${f.name}`) && !!seen.add(`${f.kind ?? "folder"}\u0000${f.name}`))
+        .map((f) => ({
+          name: f.name,
+          display: typeof f.display === "string" ? f.display : f.name,
+          delimiter: f.delimiter ?? null,
+          kind: f.kind === "label" ? "label" : "folder",
+        }));
     }
     return out;
   } catch {
@@ -49,7 +56,7 @@ export function neighbour<T>(list: T[], i: number): T | null {
   return list[i + 1] ?? list[i - 1] ?? null;
 }
 
-const key = (account: string, name: string) => `${account}\u0000${name}`;
+const key = (account: string, kind: "folder" | "label", name: string) => `${account}\u0000${kind}\u0000${name}`;
 
 export class Favourites {
   private all = $state<Record<string, Favourite[]>>({});
@@ -69,32 +76,33 @@ export class Favourites {
   }
 
   /** Starred: a row fading out of the block already shows an empty star. */
-  has(account: string, name: string): boolean {
-    return !this.leaving[key(account, name)] && this.of(account).some((f) => f.name === name);
+  has(account: string, name: string, kind: "folder" | "label" = "folder"): boolean {
+    return !this.leaving[key(account, kind, name)] && this.of(account).some((f) => f.name === name && (f.kind ?? "folder") === kind);
   }
 
-  isLeaving(account: string, name: string): boolean {
-    return !!this.leaving[key(account, name)];
+  isLeaving(account: string, name: string, kind: "folder" | "label" = "folder"): boolean {
+    return !!this.leaving[key(account, kind, name)];
   }
 
   add(account: string, folder: Favourite) {
-    const k = key(account, folder.name);
+    const kind = folder.kind ?? "folder";
+    const k = key(account, kind, folder.name);
     if (this.leaving[k]) {
       this.cancel(k);
       this.save();
       return;
     }
-    if (this.of(account).some((f) => f.name === folder.name)) return;
-    this.all[account] = [...this.of(account), { name: folder.name, display: folder.display, delimiter: folder.delimiter }];
+    if (this.of(account).some((f) => f.name === folder.name && (f.kind ?? "folder") === kind)) return;
+    this.all[account] = [...this.of(account), { name: folder.name, display: folder.display, delimiter: folder.delimiter, kind }];
     this.save();
   }
 
   /** Wherever unstarred, the row of the block stays and fades, so neither the rows after it nor
    *  the tree below slide under the pointer; starring it again meanwhile keeps it. The unstar is
    *  saved at once: were the window closed mid-fade, the folder must not be back next launch. */
-  remove(account: string, name: string) {
-    const k = key(account, name);
-    if (!this.of(account).some((f) => f.name === name)) return;
+  remove(account: string, name: string, kind: "folder" | "label" = "folder") {
+    const k = key(account, kind, name);
+    if (!this.of(account).some((f) => f.name === name && (f.kind ?? "folder") === kind)) return;
     if (this.leaving[k]) return;
     this.leaving[k] = true;
     this.save();
@@ -103,14 +111,15 @@ export class Favourites {
       setTimeout(() => {
         this.timers.delete(k);
         delete this.leaving[k];
-        this.drop(account, name);
+        this.drop(account, name, kind);
       }, FADE_MS),
     );
   }
 
   /** The star: adds, removes, and a second press on a fading row keeps it. */
   toggle(account: string, folder: Favourite) {
-    if (this.has(account, folder.name)) this.remove(account, folder.name);
+    const kind = folder.kind ?? "folder";
+    if (this.has(account, folder.name, kind)) this.remove(account, folder.name, kind);
     else this.add(account, folder);
   }
 
@@ -121,9 +130,9 @@ export class Favourites {
     delete this.leaving[k];
   }
 
-  private drop(account: string, name: string) {
+  private drop(account: string, name: string, kind: "folder" | "label" = "folder") {
     this.onleave?.(account, name);
-    const rest = this.of(account).filter((f) => f.name !== name);
+    const rest = this.of(account).filter((f) => !(f.name === name && (f.kind ?? "folder") === kind));
     if (rest.length) this.all[account] = rest;
     else delete this.all[account];
     this.save();
@@ -134,7 +143,7 @@ export class Favourites {
   private save() {
     const kept: Record<string, Favourite[]> = {};
     for (const [account, list] of Object.entries(this.all)) {
-      const rest = list.filter((f) => !this.leaving[key(account, f.name)]);
+      const rest = list.filter((f) => !this.leaving[key(account, f.kind ?? "folder", f.name)]);
       if (rest.length) kept[account] = rest;
     }
     this.storage.set(JSON.stringify(kept));

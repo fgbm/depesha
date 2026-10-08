@@ -37,6 +37,7 @@ import type {
   FolderProps,
   Label,
   LabelCheck,
+  LabelCount,
 } from "./types";
 import type { Person } from "./people";
 import type { HintCount, HintState } from "./hints";
@@ -94,6 +95,12 @@ export const api = {
   labels: (accountId: string) => call<Label[]>("labels", { accountId }),
   labelSave: (accountId: string, name: string, color: string) => call<Label>("label_save", { accountId, name, color }),
   labelRemove: (accountId: string, name: string) => call<void>("label_remove", { accountId, name }),
+  /** Renames a label: quiet on IMAP, a category rewrite on Exchange (#42, frame 3, 7). */
+  labelRename: (accountId: string, from: string, to: string) => call<Label>("label_rename", { accountId, from, to }),
+  /** How many cached letters carry each label, by its keyword (#42, frame 2). */
+  labelCounts: (accountId: string) => call<LabelCount[]>("label_counts", { accountId }),
+  /** Deletes a label: off the list at once, its keyword off every letter in the background (#42, frame 4Б). */
+  labelStrip: (accountId: string, name: string) => call<void>("label_strip", { accountId, name }),
   /** A folder's properties card: rights, permanent flags, owner. */
   folderProps: (accountId: string, folder: string) =>
     call<FolderProps>("folder_props", { accountId, folder }),

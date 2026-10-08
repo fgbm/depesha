@@ -28,6 +28,7 @@
   import TasksButton from "./TasksButton.svelte";
   import SmartSections from "./SmartSections.svelte";
   import Favourites from "./Favourites.svelte";
+  import Labels from "./Labels.svelte";
   import SidebarTree from "./SidebarTree.svelte";
 
   let { onCompose }: { onCompose: () => void } = $props();
@@ -71,6 +72,7 @@
         {#if !sidebarUi.collapsed[acc.id]}
           {#if favourites.of(acc.id).length}<div class="all-label">{t("favourites.allFolders")}</div>{/if}
           <SidebarTree account={acc} />
+          <Labels account={acc} />
         {/if}
         <QuotaLine account={acc} />
       </div>

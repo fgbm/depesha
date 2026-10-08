@@ -332,7 +332,13 @@ pub async fn search_server(
     text: &str,
 ) -> Result<Vec<i64>> {
     let q = SearchQuery::parse(text);
-    let mut uids = imap::search(conn, folder, &query::imap_criteria(&q)).await?;
+    // A label is what the user typed; the server knows it by the mailbox's keyword.
+    let mut uids = imap::search(
+        conn,
+        folder,
+        &query::imap_criteria_with_labels(&q, |name| store.label_keyword(account_id, name).ok().flatten()),
+    )
+    .await?;
     // Old mail first is useless in a result list: keep the newest matches.
     if uids.len() > 300 {
         uids.drain(..uids.len() - 300);

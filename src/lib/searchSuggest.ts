@@ -8,8 +8,8 @@ import { folderOperator, recentYears } from "./largeMail";
 
 /** Operators of the search (query.rs) as the cheat sheet and completion offer them. */
 export const OPERATORS: Record<Lang, string[]> = {
-  en: ["from:", "to:", "subject:", "has:attachment", "after:", "before:", "in:", "larger:", "smaller:", "older:", "newer:", "year:", "account:"],
-  ru: ["от:", "кому:", "тема:", "есть:вложение", "после:", "до:", "в:", "больше:", "меньше:", "старше:", "новее:", "год:", "ящик:"],
+  en: ["from:", "to:", "subject:", "has:attachment", "after:", "before:", "in:", "larger:", "smaller:", "older:", "newer:", "year:", "account:", "label:"],
+  ru: ["от:", "кому:", "тема:", "есть:вложение", "после:", "до:", "в:", "больше:", "меньше:", "старше:", "новее:", "год:", "ящик:", "метка:"],
 };
 
 /** Operators added for large mail: the cheat sheet marks them apart. */
@@ -19,7 +19,7 @@ export const NEW_OPERATORS: Record<Lang, string[]> = {
 };
 
 export interface Completion {
-  kind: "operator" | "year" | "folder" | "size" | "account";
+  kind: "operator" | "year" | "folder" | "size" | "account" | "label";
   /** What replaces the token being typed. */
   token: string;
   detail: string;
@@ -32,6 +32,8 @@ export interface SuggestContext {
   now: Date;
   folders: { name: string; display_name: string; delimiter: string | null }[];
   accounts: { email: string; label?: string }[];
+  /** Label names across the mailboxes, for `метка:` (#42, frame 6): optional. */
+  labels?: string[];
 }
 
 /** The word being typed: from the last space outside quotes to the end. */
@@ -56,6 +58,7 @@ const YEAR = new Set(["год", "year"]);
 const FOLDER = new Set(["в", "in"]);
 const SIZE = new Set(["больше", "larger", "меньше", "smaller"]);
 const ACCOUNT = new Set(["ящик", "account", "аккаунт"]);
+const LABEL = new Set(["метка", "метки", "label"]);
 
 const MAX = 8;
 
@@ -94,6 +97,14 @@ export function completions(text: string, ctx: SuggestContext): Completion[] {
       .map((a) => ({ kind: "account", token: `${key}:${a.email}`, detail: a.label ?? "", done: true }));
   }
   if (FOLDER.has(k)) return folderCompletions(key, value.replace(/\/\*$/, ""), ctx);
+  if (LABEL.has(k)) {
+    const v = value.toLowerCase();
+    return (ctx.labels ?? [])
+      .filter((name) => name.toLowerCase().includes(v) && name !== value)
+      .slice(0, MAX)
+      // A name with spaces goes in quotes: the operator's value is one token.
+      .map((name) => ({ kind: "label" as const, token: `${key}:${name.includes(" ") ? `"${name}"` : name}`, detail: "", done: true }));
+  }
   return [];
 }
 

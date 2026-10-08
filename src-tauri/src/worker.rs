@@ -143,6 +143,17 @@ pub enum Work {
         message_id: String,
         subject: String,
     },
+    /// Takes a label's keyword off every message of the account (#42, frame 4Б): IMAP
+    /// searches each folder, Exchange drops the category of the same name.
+    StripLabel {
+        keyword: String,
+    },
+    /// Renames an Exchange category on every item of the account (#42, frame 7): the name
+    /// is the category, so the server rewrite is the rename. IMAP renames quietly, with none.
+    RenameCategory {
+        from: String,
+        to: String,
+    },
 }
 
 pub enum Output {
@@ -1302,6 +1313,33 @@ async fn perform(
         } => {
             let check = mail::check_labels(conn, folder, keyword, message_id, subject).await?;
             Ok(Output::LabelCheck(check))
+        }
+        Work::StripLabel { keyword } => {
+            let key = format!("labels:{id}");
+            state.task(
+                &key,
+                "labels",
+                Some(id),
+                tr!("Taking the label off all letters", "Снятие метки со всех писем"),
+                0,
+                0,
+            );
+            match mail::strip_label(conn, store, id, keyword).await {
+                Ok(n) => {
+                    state.task_done(&key);
+                    state.emit("mail-changed", json!({ "account_id": id }));
+                    Ok(Output::Count(n))
+                }
+                Err(e) => {
+                    state.task_failed(&key, CmdError::from(clone_error(&e)));
+                    Err(e)
+                }
+            }
+        }
+        Work::RenameCategory { from, to } => {
+            let n = mail::rename_category(conn, store, id, from, to).await?;
+            state.emit("mail-changed", json!({ "account_id": id }));
+            Ok(Output::Count(n))
         }
         Work::Move {
             from,

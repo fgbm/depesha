@@ -133,6 +133,29 @@ impl Store {
             .ok())
     }
 
+    /// A label's displayed name changes, its keyword staying (#42, frame 3): letters keep
+    /// the label. A name another label already uses is a conflict (the caller says so).
+    pub fn rename_label(&self, account_id: &str, from: &str, to: &str) -> Result<()> {
+        self.conn().execute(
+            "UPDATE labels SET name = ?3 WHERE account_id = ?1 AND name = ?2",
+            params![account_id, from, to],
+        )?;
+        Ok(())
+    }
+
+    /// Rewrites a keyword on every cached message of the account, for a label whose keyword
+    /// itself changed — an Exchange category, which is the label's name (#42, frame 7).
+    pub fn rename_keyword(&self, account_id: &str, from: &str, to: &str) -> Result<usize> {
+        Ok(self.conn().execute(
+            "UPDATE messages SET keywords = (
+                 SELECT json_group_array(CASE WHEN value = ?2 THEN ?3 ELSE value END)
+                 FROM json_each(messages.keywords)
+             )
+             WHERE account_id = ?1 AND instr(keywords, '\"' || ?2 || '\"') > 0",
+            params![account_id, from, to],
+        )?)
+    }
+
     /// The props of one folder: what the card shows.
     pub fn folder_prop(&self, account_id: &str, folder: &str) -> Result<Option<FolderProps>> {
         Ok(self
@@ -337,6 +360,34 @@ impl Store {
             ])?)
     }
 
+    /// How many cached messages carry each label's keyword, by keyword. The label list
+    /// shows it as approximate («≈N»): older mail beyond the sync window is not cached.
+    pub fn label_counts(&self, account_id: &str) -> Result<Vec<(String, u32)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT l.keyword, COUNT(m.id)
+             FROM labels l
+             LEFT JOIN messages m ON m.account_id = l.account_id
+                 AND instr(m.keywords, '\"' || l.keyword || '\"') > 0
+             WHERE l.account_id = ?1
+             GROUP BY l.keyword",
+        )?;
+        let rows = stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Takes a keyword off every cached message of the account (#42, frame 4Б), after the
+    /// server dropped it. Returns how many rows changed.
+    pub fn drop_keyword(&self, account_id: &str, keyword: &str) -> Result<usize> {
+        Ok(self.conn().execute(
+            "UPDATE messages SET keywords = (
+                 SELECT json_group_array(value) FROM json_each(messages.keywords) WHERE value != ?2
+             )
+             WHERE account_id = ?1 AND instr(keywords, '\"' || ?2 || '\"') > 0",
+            params![account_id, keyword],
+        )?)
+    }
+
     /// Adds and removes keywords on messages here alone, as a label set by the user just
     /// did on the server: the row shows it at once, without waiting for a sync.
     pub fn adjust_keywords(
@@ -445,6 +496,48 @@ mod tests {
         store.save_label("b", &label("Личное", "#8a5ad0")).unwrap();
         assert_eq!(store.labels("a").unwrap().len(), 1);
         assert_eq!(store.labels("b").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn renaming_keeps_the_keyword_on_the_server() {
+        let store = mailbox();
+        let old = label("Счета", "#d0573f");
+        store.save_label("a", &old).unwrap();
+        // The name changes; the keyword the letters carry stays.
+        store.rename_label("a", "Счета", "Счёты").unwrap();
+        let labels = store.labels("a").unwrap();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].name, "Счёты");
+        assert_eq!(labels[0].keyword, old.keyword);
+        assert_eq!(store.label_keyword("a", "Счёты").unwrap(), Some(old.keyword.clone()));
+        // An Exchange category is the name: the keyword follows it, and the cache too.
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let id = put(&store, "INBOX", 1, &with_ids("Письмо", 100, "q@x", None), false);
+        store
+            .set_keywords("a", "INBOX", 1, std::slice::from_ref(&old.keyword))
+            .unwrap();
+        store.rename_keyword("a", &old.keyword, "Счета-новая").unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().keywords, ["Счета-новая"]);
+    }
+
+    #[test]
+    fn counts_letters_and_drops_a_keyword_in_the_cache() {
+        use super::super::tests::put;
+        use crate::store::tests::with_ids;
+        let store = mailbox();
+        let a = put(&store, "INBOX", 1, &with_ids("Раз", 100, "q@x", None), false);
+        let b = put(&store, "INBOX", 2, &with_ids("Два", 200, "q@x", None), false);
+        let kw = keyword_of("Счета");
+        store.save_label("a", &label("Счета", "#d0573f")).unwrap();
+        store.set_keywords("a", "INBOX", 1, std::slice::from_ref(&kw)).unwrap();
+        store.set_keywords("a", "INBOX", 2, std::slice::from_ref(&kw)).unwrap();
+        assert_eq!(store.label_counts("a").unwrap(), [(kw.clone(), 2)]);
+        // The keyword goes off every cached letter at once (#42, frame 4Б).
+        assert_eq!(store.drop_keyword("a", &kw).unwrap(), 2);
+        assert_eq!(store.label_counts("a").unwrap(), [(kw.clone(), 0)]);
+        assert!(store.get(a).unwrap().unwrap().keywords.is_empty());
+        assert!(store.get(b).unwrap().unwrap().keywords.is_empty());
     }
 
     #[test]

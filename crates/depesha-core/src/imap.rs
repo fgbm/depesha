@@ -778,6 +778,25 @@ pub async fn set_keywords(
     Ok(())
 }
 
+/// Takes a label's keyword off every message of `folder` (#42, frame 4Б): `UID SEARCH
+/// KEYWORD` finds the messages, `UID STORE -FLAGS` clears the keyword. Nothing is expunged.
+/// Returns how many messages carried it.
+pub async fn strip_keyword(conn: &mut Conn, folder: &str, keyword: &str) -> Result<usize> {
+    conn.session.examine(folder).await?;
+    let uids = uid_search(conn, &format!("KEYWORD {keyword}")).await?;
+    if uids.is_empty() {
+        return Ok(0);
+    }
+    conn.session.select(folder).await?;
+    let _: Vec<_> = conn
+        .session
+        .uid_store(uid_set(&uids), format!("-FLAGS.SILENT ({keyword})"))
+        .await?
+        .try_collect()
+        .await?;
+    Ok(uids.len())
+}
+
 /// The own keywords of one message, as `FLAGS` reports them (`acl::keywords_of`).
 pub async fn fetch_keywords(conn: &mut Conn, folder: &str, uid: u32) -> Result<Vec<String>> {
     conn.session.examine(folder).await?;

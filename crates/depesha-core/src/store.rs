@@ -830,6 +830,21 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
         }
         None => cond.push_str(" AND COALESCE(f.role, '') NOT IN ('trash', 'junk')"),
     }
+    // A label by its name: the keyword that carries it is the mailbox's own (`labels`),
+    // and the message's keywords are kept as JSON. Keywords are ASCII atoms, so a quoted
+    // keyword is looked for as it stands; the quotes keep `a` from matching `ab`.
+    for name in &q.label {
+        args.push(name.clone().into());
+        let n = args.len();
+        push(
+            &mut cond,
+            &format!(
+                " AND EXISTS (SELECT 1 FROM labels l WHERE l.account_id = m.account_id
+                    AND l.name = ?{n} COLLATE NOCASE
+                    AND instr(m.keywords, '\"' || l.keyword || '\"') > 0)"
+            ),
+        );
+    }
     if terms.is_empty() && !filtered {
         return None;
     }
@@ -3445,6 +3460,39 @@ mod tests {
         assert_eq!(subjects("счёт"), ["Счёт на оплату"]);
         assert_eq!(subjects("счёт in:корзина"), ["Счёт старый"]);
         assert_eq!(subjects("after:1970-01-01 before:1970-01-02").len(), 2);
+    }
+
+    #[test]
+    fn search_by_label_uses_the_mailbox_keyword() {
+        use crate::acl::{Label, keyword_of};
+        let store = mailbox();
+        put(&store, "INBOX", 1, &with_ids("Счёт на оплату", 100, "a@x", None), false);
+        put(&store, "INBOX", 2, &with_ids("Отчёт", 200, "b@x", None), true);
+        let label = |name: &str| Label {
+            name: name.into(),
+            keyword: keyword_of(name),
+            color: String::new(),
+        };
+        store.save_label("a", &label("Срочно")).unwrap();
+        store.save_label("a", &label("Important")).unwrap();
+        store.set_keywords("a", "INBOX", 1, &[keyword_of("Срочно")]).unwrap();
+        store.set_keywords("a", "INBOX", 2, &[keyword_of("Important")]).unwrap();
+
+        let subjects = |q: &str| -> Vec<String> {
+            store
+                .search(q, None, 0, &[])
+                .unwrap()
+                .into_iter()
+                .map(|m| m.subject)
+                .collect()
+        };
+        // Both spellings of the operator, by the label's name.
+        assert_eq!(subjects("метка:Срочно"), ["Счёт на оплату"]);
+        assert_eq!(subjects("label:Important"), ["Отчёт"]);
+        // An ASCII name is matched without case.
+        assert_eq!(subjects("label:important"), ["Отчёт"]);
+        // A label the mailbox does not have matches nothing.
+        assert!(subjects("метка:Нет такой").is_empty());
     }
 
     #[test]

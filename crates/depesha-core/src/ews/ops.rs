@@ -1005,37 +1005,156 @@ pub async fn set_labels(
     }
     if !remove.is_empty() {
         let drop: HashSet<&str> = remove.iter().map(|l| l.name.as_str()).collect();
-        for chunk in ids.chunks(50) {
-            // Removing a category means rewriting the whole list without it. The item is
-            // updated by the ChangeKey of the read, and a conflict is retried once on a
-            // fresh read rather than overwriting a category another client added meanwhile.
-            for attempt in 0..2 {
-                let current = read_categories(s, chunk).await?;
-                let changes: String = current
-                    .iter()
-                    .map(|(id, key, cats)| {
-                        let left: Vec<String> = cats.iter().filter(|c| !drop.contains(c.as_str())).cloned().collect();
-                        let update = categories_set(&left);
-                        format!(
-                            "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
-                            item_ref(id, key.as_deref())
-                        )
-                    })
-                    .collect();
-                if changes.is_empty() {
-                    break;
-                }
-                let body = update_item(&changes, "AutoResolve");
-                let text_ = s.call(&body).await?;
-                match check_all(&text_) {
-                    Ok(()) => break,
-                    Err(e) if attempt == 0 && e.is_conflict() => continue,
-                    Err(e) => return Err(e),
-                }
+        remove_categories(s, &ids, &drop).await?;
+    }
+    Ok(())
+}
+
+/// Rewrites the categories of `ids` without the ones in `drop`. The item is updated by the
+/// ChangeKey of the read, and a conflict is retried once on a fresh read rather than
+/// overwriting a category another client added meanwhile.
+async fn remove_categories(s: &mut Session, ids: &[String], drop: &HashSet<&str>) -> Result<()> {
+    for chunk in ids.chunks(50) {
+        for attempt in 0..2 {
+            let current = read_categories(s, chunk).await?;
+            let changes: String = current
+                .iter()
+                .filter_map(|(id, key, cats)| {
+                    let left: Vec<String> = cats.iter().filter(|c| !drop.contains(c.as_str())).cloned().collect();
+                    if left.len() == cats.len() {
+                        return None;
+                    }
+                    let update = categories_set(&left);
+                    Some(format!(
+                        "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
+                        item_ref(id, key.as_deref())
+                    ))
+                })
+                .collect();
+            if changes.is_empty() {
+                break;
+            }
+            let body = update_item(&changes, "AutoResolve");
+            let text_ = s.call(&body).await?;
+            match check_all(&text_) {
+                Ok(()) => break,
+                Err(e) if attempt == 0 && e.is_conflict() => continue,
+                Err(e) => return Err(e),
             }
         }
     }
     Ok(())
+}
+
+/// The restriction that finds the items carrying a category, for the strip of a label
+/// (#42, frame 4Б). `Contains` on `item:Categories`, case-insensitive.
+fn contains_category(name: &str) -> String {
+    format!(
+        r#"<t:Contains ContainmentMode="Substring" ContainmentComparison="IgnoreCase">{}<t:Constant Value="{}"/></t:Contains>"#,
+        field("item:Categories"),
+        escape(name)
+    )
+}
+
+/// Drops a category from every item of the account that carries it (#42, frame 4Б): each
+/// folder is searched by the category and the found items get it removed. Returns how many
+/// items were changed.
+pub async fn strip_category(s: &mut Session, store: &Store, account_id: &str, name: &str) -> Result<usize> {
+    let folders: Vec<String> = store
+        .folders(Some(account_id))?
+        .into_iter()
+        .filter(|f| f.folder.selectable)
+        .map(|f| f.folder.name)
+        .collect();
+    let restriction = contains_category(name);
+    let mut total = 0;
+    for folder in &folders {
+        let Some(fid) = store.ews_folder_id(account_id, folder)? else {
+            continue;
+        };
+        // All matching ids first, before anything is removed: removing while paging would
+        // shift the pages.
+        let mut ids = Vec::new();
+        let mut offset = 0;
+        loop {
+            let page = find_page(s, &fid, offset, 300, Some(&restriction), None).await?;
+            ids.extend(page.items.iter().map(|i| i.id.clone()));
+            if page.last || page.items.is_empty() {
+                break;
+            }
+            offset += page.items.len();
+        }
+        if ids.is_empty() {
+            continue;
+        }
+        remove_categories(s, &ids, &HashSet::from([name])).await?;
+        total += ids.len();
+    }
+    Ok(total)
+}
+
+/// Renames a category on every item of the account that carries it (#42, frame 7): each
+/// folder is searched by the old name, and the found items get the new one instead. The
+/// name is the category, so this is what "rename" means on Exchange. Returns how many
+/// items were changed.
+pub async fn rename_category(s: &mut Session, store: &Store, account_id: &str, from: &str, to: &str) -> Result<usize> {
+    let folders: Vec<String> = store
+        .folders(Some(account_id))?
+        .into_iter()
+        .filter(|f| f.folder.selectable)
+        .map(|f| f.folder.name)
+        .collect();
+    let restriction = contains_category(from);
+    let mut total = 0;
+    for folder in &folders {
+        let Some(fid) = store.ews_folder_id(account_id, folder)? else {
+            continue;
+        };
+        let mut ids = Vec::new();
+        let mut offset = 0;
+        loop {
+            let page = find_page(s, &fid, offset, 300, Some(&restriction), None).await?;
+            ids.extend(page.items.iter().map(|i| i.id.clone()));
+            if page.last || page.items.is_empty() {
+                break;
+            }
+            offset += page.items.len();
+        }
+        if ids.is_empty() {
+            continue;
+        }
+        for chunk in ids.chunks(50) {
+            let current = read_categories(s, chunk).await?;
+            let changes: String = current
+                .iter()
+                .filter_map(|(id, key, cats)| {
+                    if !cats.iter().any(|c| c == from) {
+                        return None;
+                    }
+                    let mut next: Vec<String> = Vec::new();
+                    for c in cats {
+                        let name = if c == from { to } else { c.as_str() };
+                        if !next.iter().any(|n| n == name) {
+                            next.push(name.to_owned());
+                        }
+                    }
+                    let update = categories_set(&next);
+                    Some(format!(
+                        "<t:ItemChange>{}<t:Updates>{update}</t:Updates></t:ItemChange>",
+                        item_ref(id, key.as_deref())
+                    ))
+                })
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            let body = update_item(&changes, "AutoResolve");
+            let text_ = s.call(&body).await?;
+            check_all(&text_)?;
+        }
+        total += ids.len();
+    }
+    Ok(total)
 }
 
 /// The categories of items, by their ids, in one GetItem, each with its ChangeKey.
@@ -1341,6 +1460,8 @@ pub fn aqs(q: &SearchQuery) -> String {
     parts.extend(q.from.iter().map(|v| format!("from:{}", quote(v))));
     parts.extend(q.to.iter().map(|v| format!("to:{}", quote(v))));
     parts.extend(q.subject.iter().map(|v| format!("subject:{}", quote(v))));
+    // Exchange stores a label as a category of the same name: search by it as such.
+    parts.extend(q.label.iter().map(|v| format!("category:{}", quote(v))));
     if q.has_attachment {
         parts.push("hasattachment:true".into());
     }

@@ -35,7 +35,13 @@
   const recent = $derived(recentSearches.list.map((s) => ({ kind: "query" as const, title: s, text: s, icon: "recent" as const })));
   const typed = $derived<Item[]>(
     text.trim()
-      ? completions(text, { lang: i18n.lang, now: new Date(), folders: app.folders, accounts: app.accounts }).map((c) => ({ kind: "completion" as const, c }))
+      ? completions(text, {
+          lang: i18n.lang,
+          now: new Date(),
+          folders: app.folders,
+          accounts: app.accounts,
+          labels: [...new Set(app.accounts.flatMap((a) => app.labels.of(a.id).map((l) => l.name)))],
+        }).map((c) => ({ kind: "completion" as const, c }))
       : [],
   );
   const empty = $derived(!text.trim());

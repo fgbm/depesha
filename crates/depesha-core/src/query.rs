@@ -28,6 +28,8 @@ pub struct SearchQuery {
     pub smaller: Option<u64>,
     /// A mailbox by its address or name; the caller knows the mailboxes.
     pub account: Option<String>,
+    /// Label names (`метка:Срочно`): the caller knows each mailbox's keyword for a name.
+    pub label: Vec<String>,
 }
 
 impl SearchQuery {
@@ -112,6 +114,9 @@ impl SearchQuery {
                     }
                 },
                 "account" | "ящик" | "аккаунт" => q.account = Some(value),
+                // A label by its name: the keyword that carries it on the server is the
+                // mailbox's own (acl::keyword_of), resolved where the mailbox is known.
+                "label" | "метка" | "метки" => q.label.push(value),
                 _ => q.words.push(token),
             }
         }
@@ -276,6 +281,20 @@ pub fn imap_criteria(q: &SearchQuery) -> Vec<Criterion> {
     out
 }
 
+/// The query as IMAP SEARCH keys with the labels' keywords resolved by `keyword`: a label
+/// is what the user typed, while the server knows it by the mailbox's own keyword. A label
+/// the mailbox does not have is left out: no letter of it can carry the keyword.
+pub fn imap_criteria_with_labels(q: &SearchQuery, keyword: impl Fn(&str) -> Option<String>) -> Vec<Criterion> {
+    let mut out = imap_criteria(q);
+    out.extend(
+        q.label
+            .iter()
+            .filter_map(|name| keyword(name))
+            .map(|kw| Criterion::new("KEYWORD", kw)),
+    );
+    out
+}
+
 /// `3-Oct-2026`: IMAP dates are atoms, not strings, but quoting them is also valid.
 fn imap_date(t: i64) -> String {
     Local
@@ -299,6 +318,18 @@ mod tests {
         assert!(q.unread && q.has_attachment && !q.flagged);
         assert!(q.before.is_some());
         assert_eq!(q.folder.as_deref(), Some("Входящие"));
+
+        // The label operator: `метка:` and `label:`, both by the label's name.
+        let q = SearchQuery::parse(r#"метка:Срочно from:ivan"#);
+        assert_eq!(q.label, ["Срочно"]);
+        assert_eq!(q.from, ["ivan"]);
+        let q = SearchQuery::parse("label:Important");
+        assert_eq!(q.label, ["Important"]);
+        // A label resolves to the mailbox's keyword, and an unknown one is left out.
+        let q = SearchQuery::parse("метка:Срочно");
+        let criteria = imap_criteria_with_labels(&q, |name| (name == "Срочно").then(|| "depesha-srochno".to_owned()));
+        assert_eq!(criteria, [Criterion::new("KEYWORD", "depesha-srochno")]);
+        assert!(imap_criteria_with_labels(&q, |_| None).is_empty());
 
         let q = SearchQuery::parse("from:a@b.c after:01.09.2026 http://x.example");
         assert_eq!(q.from, ["a@b.c"]);

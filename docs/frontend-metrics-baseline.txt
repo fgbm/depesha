@@ -11,7 +11,9 @@ component	src/components/FolderPicker.svelte	40	18	11	11
 component	src/components/FormatBar.svelte	433	267	80	86
 component	src/components/HintLine.svelte	134	43	29	62
 component	src/components/Keys.svelte	70	16	9	45
-component	src/components/LabelPicker.svelte	115	31	28	56
+component	src/components/LabelColors.svelte	87	29	17	41
+component	src/components/LabelMenu.svelte	41	25	12	4
+component	src/components/LabelPicker.svelte	229	73	64	92
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	161	119	8	34
@@ -29,7 +31,7 @@ component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
 component	src/components/RowMenu.svelte	155	96	52	7
-component	src/components/SearchBox.svelte	337	127	68	142
+component	src/components/SearchBox.svelte	343	133	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
 component	src/components/Sidebar.svelte	31	24	7	0
@@ -48,6 +50,7 @@ component	src/components/account/ConnectionFields.svelte	189	10	60	119
 component	src/components/account/FoldersTable.svelte	186	53	34	99
 component	src/components/account/FormatField.svelte	22	9	13	0
 component	src/components/account/GeneralSection.svelte	42	14	12	16
+component	src/components/account/LabelsSection.svelte	298	98	85	115
 component	src/components/account/LetterViewField.svelte	25	12	13	0
 component	src/components/account/LettersSection.svelte	16	10	6	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
@@ -74,12 +77,13 @@ component	src/components/reader/ReaderStates.svelte	240	35	75	130
 component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
-component	src/components/sidebar/FavouriteRow.svelte	56	34	22	0
+component	src/components/sidebar/FavouriteRow.svelte	72	40	24	8
 component	src/components/sidebar/Favourites.svelte	27	11	11	5
 component	src/components/sidebar/FolderRow.svelte	104	8	96	0
+component	src/components/sidebar/Labels.svelte	60	19	28	13
 component	src/components/sidebar/Problem.svelte	39	14	25	0
 component	src/components/sidebar/SidebarFolded.svelte	115	33	82	0
-component	src/components/sidebar/SidebarFull.svelte	104	33	71	0
+component	src/components/sidebar/SidebarFull.svelte	106	34	72	0
 component	src/components/sidebar/SidebarTree.svelte	44	25	19	0
 component	src/components/sidebar/SmartSections.svelte	75	25	50	0
 component	src/components/sidebar/TasksButton.svelte	18	12	6	0
@@ -225,8 +229,14 @@ function	src/components/FormatBar.svelte::onLinkKey	12
 function	src/components/FormatBar.svelte::title	3
 function	src/components/HintLine.svelte::accept	4
 function	src/components/HintLine.svelte::undo	4
+function	src/components/LabelColors.svelte::pick	5
 function	src/components/LabelPicker.svelte::toggle	4
 function	src/components/LabelPicker.svelte::add	7
+function	src/components/LabelPicker.svelte::startRename	4
+function	src/components/LabelPicker.svelte::commit	6
+function	src/components/LabelPicker.svelte::openMenu	3
+function	src/components/LabelPicker.svelte::find	3
+function	src/components/LabelPicker.svelte::remove	13
 function	src/components/LabelPicker.test.ts::row	1
 function	src/components/LetterViewSwitch.svelte::pick	4
 function	src/components/MailFrame.svelte::themeCss	9
@@ -338,6 +348,12 @@ function	src/components/account/FoldersTable.svelte::access	8
 function	src/components/account/FoldersTable.svelte::labelsOf	10
 function	src/components/account/FoldersTable.svelte::ownerText	6
 function	src/components/account/FoldersTable.svelte::open	3
+function	src/components/account/LabelsSection.svelte::startRename	4
+function	src/components/account/LabelsSection.svelte::commit	6
+function	src/components/account/LabelsSection.svelte::openMenu	3
+function	src/components/account/LabelsSection.svelte::openColors	3
+function	src/components/account/LabelsSection.svelte::find	4
+function	src/components/account/LabelsSection.svelte::remove	12
 function	src/components/account/ServerSection.svelte::copy	5
 function	src/components/account/SignatureEditor.svelte::setHtml	4
 function	src/components/account/SignatureEditor.svelte::addPictures	6
@@ -396,6 +412,8 @@ function	src/components/reader/useQuickReply.svelte.ts::useQuickReply	3
 function	src/components/sidebar/DndButton.svelte::setDnd	4
 function	src/components/sidebar/DndButton.svelte::dndOptions	11
 function	src/components/sidebar/FavouriteRow.svelte::closing	4
+function	src/components/sidebar/Labels.svelte::view	1
+function	src/components/sidebar/Labels.svelte::fav	1
 function	src/components/sidebar/Problem.svelte::statusText	7
 function	src/components/sidebar/sidebar.svelte.ts::readBooleans	7
 function	src/components/sidebar/sidebar.svelte.ts::roleIcon	3
@@ -507,7 +525,7 @@ function	src/lib/extensions.svelte.ts::res#2	1
 function	src/lib/extensions.svelte.ts::res#3	1
 function	src/lib/extensions.svelte.ts::res#4	1
 function	src/lib/extensions.svelte.ts::listenForMail	3
-function	src/lib/favourites.svelte.ts::readFavourites	17
+function	src/lib/favourites.svelte.ts::readFavourites	22
 function	src/lib/favourites.svelte.ts::splitPath	8
 function	src/lib/favourites.svelte.ts::neighbour	3
 function	src/lib/favourites.svelte.ts::key	1
@@ -809,10 +827,10 @@ function	src/lib/sanitize.ts::cleanEditorHtml	8
 function	src/lib/sanitize.ts::cleanPastedHtml	8
 function	src/lib/sanitize.ts::cleanRemoteHtml	10
 function	src/lib/searchSuggest.test.ts::folder	1
-function	src/lib/searchSuggest.test.ts::ctx	6
+function	src/lib/searchSuggest.test.ts::ctx	7
 function	src/lib/searchSuggest.ts::lastToken	10
 function	src/lib/searchSuggest.ts::applyCompletion	4
-function	src/lib/searchSuggest.ts::completions	37
+function	src/lib/searchSuggest.ts::completions	45
 function	src/lib/searchSuggest.ts::folderCompletions	16
 function	src/lib/searchSuggest.ts::yearRange	4
 function	src/lib/sendChecks.ts::sendWarnings	12
