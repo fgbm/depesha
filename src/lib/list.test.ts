@@ -147,6 +147,31 @@ describe("list reloads", () => {
   });
 });
 
+describe("a search while one is already in flight", () => {
+  it("waits its turn, and the latest text wins", async () => {
+    api.search.mockResolvedValue([row(2)]);
+    api.searchTotals.mockResolvedValue(null);
+    const first = deferred<MessageRow[]>();
+    api.search.mockReturnValueOnce(first.promise);
+    const s = new AppStore();
+    const a = s.setView({ kind: "search", text: "one" });
+    await flush();
+    expect(api.search).toHaveBeenCalledTimes(1);
+
+    // Asked again while the first is in flight: held, not sent.
+    const b = s.setView({ kind: "search", text: "two" });
+    await flush();
+    expect(api.search).toHaveBeenCalledTimes(1);
+
+    first.resolve([row(1)]);
+    await Promise.all([a, b]);
+    await flush();
+    expect(api.search).toHaveBeenCalledTimes(2);
+    expect(api.search).toHaveBeenLastCalledWith("two", []);
+    expect(s.messages.map((m) => m.id)).toEqual([2]);
+  });
+});
+
 describe("marks kept by the view", () => {
   it("are let go once the letters left it", async () => {
     const cache = rows(1, 60);
