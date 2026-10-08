@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
 use mail_parser::{Address, Message, MessageParser, MessagePart, MimeHeaders};
 use serde::{Deserialize, Serialize};
 
@@ -209,9 +210,41 @@ pub const SEND_AT_HEADER: &str = "X-Depesha-Send-At";
 /// How a draft was being written (`BodyFormat`), for it to open the same way; drafts only.
 pub const FORMAT_HEADER: &str = "X-Depesha-Format";
 
-/// The letter a saved draft answers or forwards (`ActsOn`, as JSON), for it to be marked
+/// The letter a saved draft answers or forwards (`ActsOn`), for it to be marked
 /// and to go to «Waiting for reply» the same way; drafts only.
 pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
+
+/// The domain of a Message-ID Depesha puts on its own drafts: only a draft carrying it is
+/// trusted to name the letter it answers. A draft from another client is its own, and a
+/// header it happens to carry is not followed (#71).
+pub const DRAFT_DOMAIN: &str = "depesha.local";
+
+/// The longest encoded `X-Depesha-Acts-On` value: a header line any server takes.
+const ACTS_ON_MAX: usize = 900;
+
+/// A draft's mark as its header value: base64url of the JSON, so a folder name in another
+/// script and a long mark cannot break or overrun the line. None when it would be too long
+/// for a server: the draft is then saved without a mark rather than unreachable.
+pub fn encode_acts_on(acts_on: &crate::smtp::ActsOn) -> Option<String> {
+    let json = serde_json::to_vec(acts_on).ok()?;
+    let value = format!("1.{}", B64URL.encode(json));
+    (value.len() <= ACTS_ON_MAX).then_some(value)
+}
+
+/// The mark of a header written by `encode_acts_on`; None when it is not Depesha's form.
+fn decode_acts_on(value: &str) -> Option<crate::smtp::ActsOn> {
+    let b64 = value.trim().strip_prefix("1.")?;
+    serde_json::from_slice(&B64URL.decode(b64).ok()?).ok()
+}
+
+/// Whether the letter is a draft Depesha wrote itself: its Message-ID is under Depesha's
+/// own domain. The mark of any other client's draft is not trusted.
+fn own_draft(summary: &Summary) -> bool {
+    summary
+        .message_id
+        .as_deref()
+        .is_some_and(|id| id.ends_with(&format!("@{DRAFT_DOMAIN}")))
+}
 
 /// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
 /// replace it, and the quote, to fold it. Cleaning keeps these classes and no others.
@@ -265,7 +298,10 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
     let summary = summary_of(&msg);
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
     let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| crate::smtp::BodyFormat::from_name(&v));
-    let acts_on = raw_header(&msg, ACTS_ON_HEADER).and_then(|v| serde_json::from_str(&v).ok());
+    let acts_on = own_draft(&summary)
+        .then(|| raw_header(&msg, ACTS_ON_HEADER))
+        .flatten()
+        .and_then(|v| decode_acts_on(&v));
     Ok(MessageView {
         summary,
         text,
@@ -1000,8 +1036,11 @@ JVBERi0xLjQK\r\n\
     #[test]
     fn a_draft_keeps_what_it_answers() {
         use crate::smtp::{Act, ActsOn};
-        let mail =
-            |extra: &str| format!("{extra}From: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n");
+        let mail = |extra: &str| {
+            format!(
+                "{extra}Message-ID: <1.abcd@{DRAFT_DOMAIN}>\r\nFrom: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
+            )
+        };
         let acts = ActsOn {
             account_id: "a".into(),
             message_id: "m1@example.org".into(),
@@ -1009,9 +1048,48 @@ JVBERi0xLjQK\r\n\
             act: Act::Reply,
             waiting: true,
         };
-        let header = format!("{ACTS_ON_HEADER}: {}\r\n", serde_json::to_string(&acts).unwrap());
+        let header = format!("{ACTS_ON_HEADER}: {}\r\n", encode_acts_on(&acts).unwrap());
         assert_eq!(parse_view(mail(&header).as_bytes(), false).unwrap().acts_on, Some(acts));
         assert_eq!(parse_view(mail("").as_bytes(), false).unwrap().acts_on, None);
+    }
+
+    #[test]
+    fn the_mark_of_another_clients_draft_is_not_trusted() {
+        use crate::smtp::{Act, ActsOn};
+        let acts = ActsOn {
+            account_id: "a".into(),
+            message_id: "m1@example.org".into(),
+            folder: "Входящие".into(),
+            act: Act::Reply,
+            waiting: true,
+        };
+        let header = format!("{ACTS_ON_HEADER}: {}\r\n", encode_acts_on(&acts).unwrap());
+        let foreign = format!(
+            "{header}Message-ID: <1.abcd@example.com>\r\nFrom: me@example.com\r\nTo: you@example.com\r\nSubject: Hi\r\n\r\nText\r\n"
+        );
+        // A look-alike domain is no proof either: only Depesha's own domain is trusted.
+        let lookalike = foreign.replace("example.com>\r\nFrom", "notdepesha.local>\r\nFrom");
+        assert_eq!(parse_view(foreign.as_bytes(), false).unwrap().acts_on, None);
+        assert_eq!(parse_view(lookalike.as_bytes(), false).unwrap().acts_on, None);
+    }
+
+    #[test]
+    fn a_mark_goes_and_comes_back_through_its_encoded_header() {
+        use crate::smtp::{Act, ActsOn};
+        let acts = ActsOn {
+            account_id: "a".into(),
+            message_id: "m1@example.org".into(),
+            folder: "Входящие/Отдел продаж".into(),
+            act: Act::ReplyAll,
+            waiting: true,
+        };
+        let value = encode_acts_on(&acts).unwrap();
+        // A folder name in Cyrillic stays in one ASCII header line of a length servers take.
+        assert!(value.is_ascii(), "{value}");
+        assert!(value.len() <= ACTS_ON_MAX);
+        assert_eq!(decode_acts_on(&value), Some(acts));
+        // Another form of the header is not Depesha's.
+        assert_eq!(decode_acts_on("{\"account_id\":\"a\"}"), None);
     }
 
     #[test]

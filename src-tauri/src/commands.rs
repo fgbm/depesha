@@ -2335,6 +2335,28 @@ pub async fn draft_discard(state: St<'_>, id: i64) -> CmdResult<()> {
     discard(&state, id).await
 }
 
+/// The Message-ID a Depesha draft carries: the local part the builder gave it, under
+/// Depesha's own domain, so opening the draft shows which client wrote it (#71). None for
+/// an id that is all domain (nothing to keep).
+fn own_message_id(mid: &str) -> Option<String> {
+    let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
+    let local = bare.split('@').next().unwrap_or(bare);
+    (!local.is_empty()).then(|| format!("{local}@{}", message::DRAFT_DOMAIN))
+}
+
+/// The first occurrence of `from` in `raw` becomes `to`: enough for the Message-ID, which
+/// the builder made unique.
+fn replace_once(raw: Vec<u8>, from: &[u8], to: &[u8]) -> Vec<u8> {
+    let Some(at) = raw.windows(from.len()).position(|w| w == from) else {
+        return raw;
+    };
+    let mut out = Vec::with_capacity(raw.len() + to.len() - from.len());
+    out.extend_from_slice(&raw[..at]);
+    out.extend_from_slice(to);
+    out.extend_from_slice(&raw[at + from.len()..]);
+    out
+}
+
 /// Saves the draft into the server's Drafts folder, replacing the previous version.
 /// Returns the saved copy, for the next save to replace it.
 #[tauri::command]
@@ -2357,6 +2379,14 @@ pub async fn draft_save(
         }));
     }
     let mut raw = smtp::build(&draft)?.formatted();
+    // The draft is Depesha's own: its Message-ID says so, and only then is the mark below
+    // trusted when the draft is opened again. Another client's draft keeps its own domain.
+    if let Some(mid) = message::parse_summary(&raw).message_id
+        && let Some(own) = own_message_id(&mid)
+        && own != mid
+    {
+        raw = replace_once(raw, mid.as_bytes(), own.as_bytes());
+    }
     if let Some(at) = send_at {
         // A header line on top is as good as any other place for it.
         raw.splice(0..0, format!("{}: {at}\r\n", message::SEND_AT_HEADER).into_bytes());
@@ -2366,11 +2396,13 @@ pub async fn draft_save(
         let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
         raw.splice(0..0, header.into_bytes());
     }
-    if let Some(acts_on) = &draft.acts_on {
+    if let Some(acts_on) = &draft.acts_on
+        && let Some(value) = message::encode_acts_on(acts_on)
+    {
         // The draft says what it answers or forwards: opening it marks the letter and
-        // takes it to «Waiting for reply» as the first writing did.
-        let json = serde_json::to_string(acts_on).unwrap_or_default();
-        let header = format!("{}: {json}\r\n", message::ACTS_ON_HEADER);
+        // takes it to «Waiting for reply» as the first writing did. Base64url, so a folder
+        // name in another script and a long mark stay within one header line (#71).
+        let header = format!("{}: {value}\r\n", message::ACTS_ON_HEADER);
         raw.splice(0..0, header.into_bytes());
     }
     let message_id = message::parse_summary(&raw).message_id;
