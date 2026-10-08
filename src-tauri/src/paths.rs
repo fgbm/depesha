@@ -40,26 +40,67 @@ impl Paths {
     }
 
     pub fn allow(&self, to: Use, path: PathBuf) {
-        self.lock().insert((to, path));
+        self.lock().insert((to, key(&path)));
     }
 
     /// The path, if the user chose it for this use; a save target is used up by the check.
     pub fn check(&self, to: Use, path: &str) -> CmdResult<PathBuf> {
         let path = PathBuf::from(path);
         let granted = if to == Use::SaveFile {
-            self.lock().remove(&(to, path.clone()))
+            self.lock().remove(&(to, key(&path)))
         } else {
-            self.lock().contains(&(to, path.clone()))
+            self.lock().contains(&(to, key(&path)))
         };
         if granted || self.trusted.iter().any(|root| within(root, &path)) {
             return Ok(path);
         }
+        // The file name only: the folders of a path are personal data.
+        tracing::warn!(
+            ?to,
+            file = %path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(),
+            "a path was refused: it was not chosen for this use"
+        );
         Err(not_chosen(to))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashSet<(Use, PathBuf)>> {
         self.granted.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// The form a path is remembered and looked up in: the same file named by the drop event
+/// and by the interface gets one key, whatever the system wrote into the path.
+fn key(path: &Path) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(windows_key(&path.to_string_lossy()))
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// A Windows path without the spelling differences that name one file: the `\\?\` and
+/// `\\?\UNC\` prefixes, `/` for `\`, doubled and trailing separators, letter case
+/// (the drive letter too). `..` stays as it is: `check` never trusts a path that climbs.
+/// Not `fs::canonicalize`: it adds `\\?\` itself and needs the file to exist.
+/// Works on strings, so it is testable on any system.
+fn windows_key(path: &str) -> String {
+    let path = path.replace('/', "\\");
+    let (unc, rest) = if let Some(rest) = path.strip_prefix("\\\\?\\UNC\\") {
+        (true, rest)
+    } else if let Some(rest) = path.strip_prefix("\\\\?\\") {
+        (false, rest)
+    } else if let Some(rest) = path.strip_prefix("\\\\") {
+        (true, rest)
+    } else {
+        (false, path.as_str())
+    };
+    let body = rest
+        .split('\\')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\\");
+    let body = body.to_lowercase();
+    if unc { format!("\\\\{body}") } else { body }
 }
 
 #[cfg(feature = "e2e")]
@@ -132,6 +173,34 @@ mod tests {
         assert!(paths.check(Use::SaveFolder, &doc).is_err());
         assert!(paths.check(Use::Attach, &abs("home/me/.ssh/id_ed25519")).is_err());
         assert!(paths.check(Use::Attach, &abs("home/me/report.pdf/../.bashrc")).is_err());
+    }
+
+    #[test]
+    fn windows_spellings_of_one_path_share_a_key() {
+        let plain = windows_key(r"C:\Users\Me\Desktop\Report.pdf");
+        for same in [
+            r"c:\users\me\desktop\report.pdf",
+            r"\\?\C:\Users\Me\Desktop\Report.pdf",
+            "C:/Users/Me/Desktop/Report.pdf",
+            r"C:\Users\\Me\Desktop\Report.pdf",
+            r"\\?\c:/Users/Me/Desktop/Report.pdf",
+        ] {
+            assert_eq!(windows_key(same), plain, "{same}");
+        }
+        assert_ne!(windows_key(r"C:\Users\Me\Other.pdf"), plain);
+        assert_ne!(windows_key(r"D:\Users\Me\Desktop\Report.pdf"), plain);
+    }
+
+    #[test]
+    fn windows_network_paths_keep_their_two_slashes() {
+        let unc = windows_key(r"\\Server\Share\Файл.pdf");
+        assert_eq!(unc, r"\\server\share\файл.pdf");
+        assert_eq!(windows_key(r"\\?\UNC\Server\Share\Файл.pdf"), unc);
+        assert_eq!(windows_key("//Server/Share/Файл.pdf"), unc);
+        // Not the same file as a local path of the same words.
+        assert_ne!(windows_key(r"C:\Server\Share\Файл.pdf"), unc);
+        // `..` is not resolved here, so it cannot turn one file into another.
+        assert_ne!(windows_key(r"C:\a\b\..\c.pdf"), windows_key(r"C:\a\c.pdf"));
     }
 
     #[test]

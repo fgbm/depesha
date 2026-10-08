@@ -216,8 +216,16 @@ pub fn run() {
             if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event
                 && let Some(state) = webview.try_state::<Arc<AppState>>()
             {
-                for path in paths.iter().filter(|p| p.is_file()) {
-                    state.paths.allow(paths::Use::Attach, path.clone());
+                for path in paths {
+                    if path.is_file() {
+                        state.paths.allow(paths::Use::Attach, path.clone());
+                    } else {
+                        // The file name only: the folders of a path are personal data.
+                        tracing::warn!(
+                            file = %path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(),
+                            "a dropped path is not a file, it was not allowed to attach"
+                        );
+                    }
                 }
             }
         })
