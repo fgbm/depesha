@@ -132,6 +132,8 @@ impl Store {
     /// of the people of the conversation, read, and written not after it. A letter glued
     /// by subject, or pulled in through a stranger's References, stays in the inbox, as
     /// does a newer or unread one: a conversation grows while the answer waits to go.
+    /// Only the anchor's own letter is walked up: a letter below it is walked down alone,
+    /// so a forged From naming the anchor cannot drag its own neighbours in.
     pub fn inbox_chain(&self, account_id: &str, inbox: &str, anchor: &str) -> Result<Vec<String>> {
         let anchor = bare(anchor);
         let conn = self.conn();
@@ -162,22 +164,43 @@ impl Store {
 
         let mut chain = vec![anchor.to_owned()];
         let mut known: HashSet<String> = HashSet::from([anchor.to_owned()]);
-        let mut frontier = vec![(id, anchor.to_owned(), in_reply_to)];
-        let mut neighbours = conn.prepare_cached(
+        // The anchor's own letter is trusted: its In-Reply-To/References name the letters
+        // of its conversation above it, and those are walked up in turn. A letter reached
+        // below the anchor is walked downward alone — a forged From naming the anchor in
+        // its References must not drag its own neighbours into the wait (security).
+        let mut frontier = vec![(id, anchor.to_owned(), in_reply_to, true)];
+        let mut children = conn.prepare_cached(
             "SELECT DISTINCT x.id, x.message_id, x.in_reply_to, x.date, x.seen, x.from_addr FROM messages x
              WHERE x.account_id = ?1 AND x.folder = ?2 AND x.message_id IS NOT NULL
-               AND (x.message_id IN (SELECT r.parent FROM message_refs r WHERE r.message = ?3)
-                    OR x.message_id = ?4
-                    OR x.id IN (SELECT r.message FROM message_refs r WHERE r.parent = ?5)
-                    OR x.in_reply_to = ?5)",
+               AND (x.in_reply_to = ?3
+                    OR x.id IN (SELECT r.message FROM message_refs r WHERE r.parent = ?3))",
         )?;
-        while let Some((row, message_id, reply_to)) = frontier.pop() {
-            let found: Vec<Neighbour> = neighbours
-                .query_map(params![account_id, inbox, row, reply_to, message_id], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-                })?
-                .collect::<rusqlite::Result<_>>()?;
-            for (nid, nmid, nreply, ndate, seen, nfrom) in found {
+        let mut parents = conn.prepare_cached(
+            "SELECT DISTINCT x.id, x.message_id, x.in_reply_to, x.date, x.seen, x.from_addr FROM messages x
+             WHERE x.account_id = ?1 AND x.folder = ?2 AND x.message_id IS NOT NULL
+               AND (x.message_id = ?3
+                    OR x.message_id IN (SELECT r.parent FROM message_refs r WHERE r.message = ?4))",
+        )?;
+        fn neighbour(r: &rusqlite::Row<'_>) -> rusqlite::Result<Neighbour> {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+        }
+        while let Some((row, message_id, reply_to, up)) = frontier.pop() {
+            let mut found: Vec<(Neighbour, bool)> = Vec::new();
+            if up {
+                found.extend(
+                    parents
+                        .query_map(params![account_id, inbox, reply_to, row], neighbour)?
+                        .map(|r| r.map(|n| (n, true)))
+                        .collect::<rusqlite::Result<Vec<_>>>()?,
+                );
+            }
+            found.extend(
+                children
+                    .query_map(params![account_id, inbox, message_id], neighbour)?
+                    .map(|r| r.map(|n| (n, false)))
+                    .collect::<rusqlite::Result<Vec<_>>>()?,
+            );
+            for ((nid, nmid, nreply, ndate, seen, nfrom), nup) in found {
                 if known.contains(&nmid) || !seen || ndate > date {
                     continue;
                 }
@@ -188,7 +211,7 @@ impl Store {
                 }
                 known.insert(nmid.clone());
                 chain.push(nmid.clone());
-                frontier.push((nid, nmid, nreply));
+                frontier.push((nid, nmid, nreply, nup));
             }
         }
         Ok(chain)
@@ -621,6 +644,41 @@ mod tests {
         // And the important letter does not take the stranger's.
         let chain = store.inbox_chain("a", "INBOX", "imp@x").unwrap();
         assert_eq!(sorted(chain), ["imp@x"]);
+    }
+
+    #[test]
+    fn a_letter_naming_the_anchor_does_not_drag_its_own_neighbours() {
+        let store = mailbox();
+        // The letter I answered.
+        put(
+            &store,
+            "INBOX",
+            1,
+            &letter("Счёт", 90_000, "q1@x", None, "maria@example.org"),
+            true,
+        );
+        // An unrelated, older letter of the same people.
+        put(
+            &store,
+            "INBOX",
+            2,
+            &letter("Отпуск", 80_000, "other@x", None, "maria@example.org"),
+            true,
+        );
+        // A forged letter: an old date, a participant's From, and References naming both
+        // the anchor and the unrelated letter. Only the branch from the anchor is walked,
+        // so the unrelated letter is not swept into the wait.
+        let mut fake = with_ids("Re: Счёт", 85_000, "fake@x", Some("q1@x"));
+        fake.references = vec!["q1@x".into(), "other@x".into()];
+        put(
+            &store,
+            "INBOX",
+            3,
+            &from_to(fake, "maria@example.org", "carol@example.org"),
+            true,
+        );
+        let chain = store.inbox_chain("a", "INBOX", "q1@x").unwrap();
+        assert_eq!(sorted(chain), ["fake@x", "q1@x"]);
     }
 
     #[test]
