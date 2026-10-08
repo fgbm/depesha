@@ -598,8 +598,10 @@ pub struct MessageRow {
     pub answer_came: bool,
 }
 
-/// Largest message downloaded for offline reading with attachments, bytes.
-const OFFLINE_MAX_SIZE: u32 = 25 * 1024 * 1024;
+/// Largest message downloaded for offline reading with attachments, bytes. A message
+/// bigger than this (a lone huge attachment) would take a slow link's whole download
+/// window, so it is not prefetched; it is loaded when opened.
+const OFFLINE_MAX_SIZE: u32 = 5 * 1024 * 1024;
 /// Largest message without attachments downloaded for offline reading: bigger ones
 /// carry files the server did not mark as attachments.
 const OFFLINE_MAX_TEXT: u32 = 2 * 1024 * 1024;

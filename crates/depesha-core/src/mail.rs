@@ -304,6 +304,27 @@ pub async fn move_messages(
     }
 }
 
+/// Finishes a move that was cut short without MOVE: letters whose copy already reached the
+/// target are not copied a second time. Used by the retry after a dropped connection.
+pub async fn resume_move(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    from: &str,
+    validity: u32,
+    uids: &[u32],
+    to: &str,
+) -> Result<()> {
+    match conn {
+        Conn::Imap(c) => imap::resume_move(c, from, Some(validity), uids, to).await,
+        // Exchange's move is atomic: a second call is the ordinary one.
+        Conn::Ews(s) => {
+            ews_check(store, account_id, from, validity)?;
+            ews::move_messages(s, store, account_id, from, uids, to).await
+        }
+    }
+}
+
 pub async fn delete_permanently(
     conn: &mut Conn,
     store: &Store,

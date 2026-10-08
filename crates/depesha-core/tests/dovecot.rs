@@ -168,6 +168,42 @@ async fn starttls_sync_move_and_fallbacks() {
     conn.session.logout().await.unwrap();
 }
 
+/// A move cut short without MOVE (COPY went through, \Deleted did not) must not copy the
+/// letter again on the retry: the letter already at the target is only marked deleted.
+#[tokio::test]
+async fn a_resumed_move_does_not_copy_again() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("resume").await;
+    let _ = imap::create_folder(&mut conn, "Trash").await;
+    let raw = mail("Resume", 7);
+    let mid = "7.Resume@example.org";
+    imap::append(&mut conn, "INBOX", &raw, "").await.unwrap();
+    // As if the COPY had already succeeded before the connection dropped: the letter is
+    // in Trash, and the original is still in INBOX.
+    imap::append(&mut conn, "Trash", &raw, "").await.unwrap();
+    let uid = imap::find_by_message_id(&mut conn, "INBOX", mid).await.unwrap()[0];
+
+    imap::resume_move(&mut conn, "INBOX", None, &[uid], "Trash")
+        .await
+        .unwrap();
+
+    assert!(
+        imap::find_by_message_id(&mut conn, "INBOX", mid)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the original is gone from the source"
+    );
+    assert_eq!(
+        imap::find_by_message_id(&mut conn, "Trash", mid).await.unwrap().len(),
+        1,
+        "the letter at the target is not copied a second time"
+    );
+    conn.session.logout().await.unwrap();
+}
+
 #[tokio::test]
 async fn server_search_finds_uncached_mail_in_russian() {
     if !enabled() {

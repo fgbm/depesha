@@ -64,6 +64,10 @@ const NET_BACKOFF: Duration = Duration::from_secs(5);
 const NET_BACKOFF_MAX: Duration = Duration::from_secs(5 * 60);
 /// A wall-clock jump this far ahead of the monotonic clock means the machine slept.
 const SLEEP_GAP: Duration = Duration::from_secs(20);
+/// A user action is a reason to try the connection again once the last attempt is older
+/// than this: the pause after a failed connect is not waited out in full for a user who is
+/// right there, but a very fresh attempt is not repeated (it is still in flight).
+const USER_RETRY_GAP: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub enum Work {
@@ -537,9 +541,17 @@ fn slept_since(last_wall: &mut SystemTime, last_mono: &mut Instant) -> bool {
 }
 
 /// Whether a failed connect still holds the mailbox out of touch: work gets an error at
-/// once then, instead of another 20 s connect.
-fn out_of_touch(until: Option<tokio::time::Instant>, now: tokio::time::Instant) -> bool {
+/// once then, instead of another 20 s connect. Wall clock, not the monotonic one, so the
+/// pause runs on while the machine sleeps rather than freezing until it wakes.
+fn out_of_touch(until: Option<SystemTime>, now: SystemTime) -> bool {
     until.is_some_and(|t| t > now)
+}
+
+/// Whether a user action is a reason to try the connection again: yes once the last
+/// attempt is older than `USER_RETRY_GAP` (or there was none). A very fresh attempt is
+/// not repeated — it is probably still in flight.
+fn may_retry_now(last_try: Option<SystemTime>, now: SystemTime) -> bool {
+    last_try.is_none_or(|t| now.duration_since(t).unwrap_or_default() >= USER_RETRY_GAP)
 }
 
 pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
@@ -549,6 +561,9 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
     let (background, background_rx) = mpsc::channel(64);
     let paused = Arc::new(AtomicBool::new(false));
     let queued: Queued = Arc::default();
+    // Set by the waiting connection on a successful connect: the operations connection
+    // takes it as a reason to connect at once rather than wait its pause out.
+    let net_up = Arc::new(AtomicBool::new(false));
     let ops = Ops {
         state: state.clone(),
         account: account.clone(),
@@ -563,6 +578,9 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         deferred: VecDeque::new(),
         no_network_until: None,
         net_backoff: Duration::ZERO,
+        last_net_try: None,
+        net_up: net_up.clone(),
+        prefetch_failed: HashSet::new(),
         last_wall: SystemTime::now(),
         last_mono: Instant::now(),
     };
@@ -573,6 +591,7 @@ pub fn spawn(state: Arc<AppState>, account: Account) -> Worker {
         background.clone(),
         paused.clone(),
         queued.clone(),
+        net_up,
     ));
     let worker = Worker {
         reads,
@@ -695,10 +714,20 @@ struct Ops {
     /// were sent: they run before the queue is read again.
     deferred: VecDeque<(Work, Reply)>,
     /// A failed connect puts the mailbox out of touch until this: work gets an error at
-    /// once instead of one 20 s connect after another.
-    no_network_until: Option<tokio::time::Instant>,
+    /// once instead of one 20 s connect after another. Wall clock: the pause runs on
+    /// while the machine sleeps.
+    no_network_until: Option<SystemTime>,
     /// The current pause after a failed connect, growing with each failure.
     net_backoff: Duration,
+    /// When the operations connection last tried to connect: a user action past
+    /// `USER_RETRY_GAP` tries again rather than waiting the pause out.
+    last_net_try: Option<SystemTime>,
+    /// Set when the waiting connection (IDLE) connected: proof the network is back, so the
+    /// operations connection does not sit out the rest of its pause.
+    net_up: Arc<AtomicBool>,
+    /// Messages the offline download gave up on (their batch timed out on a slow link):
+    /// they are not picked again, they load when opened.
+    prefetch_failed: HashSet<i64>,
     /// When the loop last ran: a wall clock ahead of the monotonic one means sleep.
     last_wall: SystemTime,
     last_mono: Instant,
@@ -915,16 +944,24 @@ impl Ops {
     /// as is: the caller decides how long to wait.
     async fn attempt(&mut self, op: Op<'_>) -> Result<Output> {
         // The machine slept: TCP connections are probably dead, and the next command
-        // would wait out its whole watchdog before failing. Start fresh.
+        // would wait out its whole watchdog before failing. Start fresh; the network
+        // pause has run on while the machine was under, so it is let go too.
         if slept_since(&mut self.last_wall, &mut self.last_mono) {
             self.conn = None;
+            self.no_network_until = None;
+            self.net_backoff = Duration::ZERO;
         }
         let mut result = Err(Error::Closed);
         for attempt in 0..2 {
             if self.conn.is_none() {
+                // The waiting connection connected successfully: the network is back, so
+                // do not sit out the rest of the pause.
+                if self.net_up.swap(false, Ordering::Relaxed) {
+                    self.no_network_until = None;
+                }
                 // No network a moment ago: fail at once, do not try to connect again
                 // (one 20 s connect per action is what makes an offline mailbox crawl).
-                if out_of_touch(self.no_network_until, tokio::time::Instant::now()) {
+                if out_of_touch(self.no_network_until, SystemTime::now()) {
                     return Err(no_network());
                 }
                 self.state.set_status(
@@ -934,27 +971,38 @@ impl Ops {
                         error: None,
                     },
                 );
+                self.last_net_try = Some(SystemTime::now());
                 match connect(&self.state, &self.account).await {
                     Ok(c) => {
                         self.conn = Some(c);
                         self.net_backoff = Duration::ZERO;
                         self.no_network_until = None;
+                        self.last_net_try = None;
                     }
                     Err(e) => {
                         // A failure the user must fix (a wrong password) is not "no
                         // network"; a network one backs off, growing, with a ceiling.
                         if e.is_transient() && !needs_user(&e) {
                             self.net_backoff = net_backoff(self.net_backoff);
-                            self.no_network_until = Some(tokio::time::Instant::now() + self.net_backoff);
+                            self.no_network_until = Some(SystemTime::now() + self.net_backoff);
                         }
                         return Err(e);
                     }
                 }
             }
             let c = self.conn.as_mut().expect("connected above");
+            let retry = attempt > 0;
             let outcome = match tokio::time::timeout(
                 WORK_TIMEOUT,
-                perform(&self.state, &self.account, c, op, &mut self.notify_new),
+                perform(
+                    &self.state,
+                    &self.account,
+                    c,
+                    op,
+                    &mut self.notify_new,
+                    &mut self.prefetch_failed,
+                    retry,
+                ),
             )
             .await
             {
@@ -990,6 +1038,11 @@ impl Ops {
     /// A user action. A busy server's short pause is waited out; with a longer one
     /// the user hears at once how long it is, instead of a silent wait.
     async fn user(&mut self, work: &Work) -> Result<Output> {
+        // The user is waiting: a network pause is not sat out in full for them. If the
+        // last connect attempt was long enough ago, try again right away.
+        if may_retry_now(self.last_net_try, SystemTime::now()) {
+            self.no_network_until = None;
+        }
         if let Some(left) = self.busy_left() {
             if left > USER_WAITS_BUSY {
                 return Err(Error::Busy {
@@ -1287,6 +1340,8 @@ async fn perform(
     conn: &mut Conn,
     op: Op<'_>,
     notify_new: &mut bool,
+    prefetch_failed: &mut HashSet<i64>,
+    retry: bool,
 ) -> Result<Output> {
     let store = &state.store;
     let id = account.id.as_str();
@@ -1321,7 +1376,7 @@ async fn perform(
                     .collect(),
             ))
         }
-        Work::Prefetch => prefetch(state, conn, id).await,
+        Work::Prefetch => prefetch(state, conn, id, prefetch_failed).await,
         Work::Quota => {
             refresh_quota(state, id, conn).await?;
             Ok(Output::None)
@@ -1414,7 +1469,15 @@ async fn perform(
             uids,
             to,
         } => {
-            mail::move_messages(conn, store, id, from, *validity, uids, to).await?;
+            // A move cut short without MOVE would copy the letters a second time on the
+            // retry: finish it by looking at what already reached the target. With MOVE
+            // the move is atomic, and a repeated one finds the originals gone.
+            let resume = retry && matches!(conn, Conn::Imap(c) if !c.caps.move_);
+            if resume {
+                mail::resume_move(conn, store, id, from, *validity, uids, to).await?;
+            } else {
+                mail::move_messages(conn, store, id, from, *validity, uids, to).await?;
+            }
             sync_one(state, account, conn, from, false).await?;
             sync_one(state, account, conn, to, false).await?;
             Ok(Output::None)
@@ -1504,7 +1567,7 @@ async fn perform(
 
 /// One batch of the offline download. `Count` is what the next batch may still
 /// find: 0 when everything is downloaded, paused or switched off.
-async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result<Output> {
+async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str, failed: &mut HashSet<i64>) -> Result<Output> {
     let key = format!("prefetch:{account_id}");
     let settings = state.settings();
     let since = match settings.offline_since() {
@@ -1521,6 +1584,11 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result
     let mut batch: Vec<(i64, String, u32)> = Vec::new();
     let mut bytes = 0u64;
     for (id, folder, uid, size) in store.bodies_missing(account_id, since, files, PREFETCH_BATCH)? {
+        // A letter whose download already timed out on this slow link is not picked
+        // again: it would fill every round. It loads when opened.
+        if failed.contains(&id) {
+            continue;
+        }
         if !batch.is_empty() && bytes + u64::from(size) > PREFETCH_BYTES {
             break;
         }
@@ -1544,7 +1612,24 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str) -> Result
     }
     let mut saved = 0;
     for (folder, messages) in &by_folder {
-        saved += mail::prefetch_bodies(conn, store, folder, messages).await?;
+        // Marked before the fetch: if the batch times out here, the future is dropped and
+        // the marks stay, so the same letters are not tried again next round. A fetch that
+        // came back (saved or failed on a dropped link) clears them: only a stall sticks.
+        failed.extend(messages.iter().map(|(id, _)| *id));
+        match mail::prefetch_bodies(conn, store, folder, messages).await {
+            Ok(n) => {
+                saved += n;
+                for (id, _) in messages {
+                    failed.remove(id);
+                }
+            }
+            Err(e) => {
+                for (id, _) in messages {
+                    failed.remove(id);
+                }
+                return Err(e);
+            }
+        }
     }
     // Done only when the count was short of the limit and the byte cap did not cut it: a
     // batch stopped at the cap has more behind it.
@@ -1611,6 +1696,7 @@ async fn idle_loop(
     tx: mpsc::Sender<Work>,
     paused: Arc<AtomicBool>,
     queued: Queued,
+    net_up: Arc<AtomicBool>,
 ) {
     let mut backoff = Duration::from_secs(5);
     loop {
@@ -1619,7 +1705,12 @@ async fn idle_loop(
             continue;
         }
         let mut conn = match connect(&state, &account).await {
-            Ok(c) => c,
+            Ok(c) => {
+                // This connection is on the network: the operations connection need not
+                // sit out the rest of its pause after a failed connect.
+                net_up.store(true, Ordering::Relaxed);
+                c
+            }
             Err(e) => {
                 tracing::debug!(account = %account.id, "idle connect failed: {e}");
                 // A wrong password retried every few minutes locks an AD account: wait for the user.
@@ -2396,11 +2487,22 @@ mod tests {
 
     #[test]
     fn work_is_refused_at_once_while_the_network_is_down() {
-        let now = tokio::time::Instant::now();
+        let now = SystemTime::now();
         assert!(out_of_touch(Some(now + Duration::from_secs(5)), now));
         // The pause over, or never set: connecting is tried again.
         assert!(!out_of_touch(Some(now), now));
         assert!(!out_of_touch(None, now));
+    }
+
+    #[test]
+    fn a_user_action_tries_again_after_the_pause() {
+        let now = SystemTime::now();
+        // Never tried, or long ago: a waiting user is a reason to connect.
+        assert!(may_retry_now(None, now));
+        assert!(may_retry_now(Some(now - USER_RETRY_GAP), now));
+        // A very fresh attempt is not repeated: it is probably still in flight.
+        assert!(!may_retry_now(Some(now), now));
+        assert!(!may_retry_now(Some(now - Duration::from_secs(1)), now));
     }
 
     #[test]

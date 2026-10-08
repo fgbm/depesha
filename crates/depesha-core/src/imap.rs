@@ -1010,6 +1010,51 @@ pub async fn move_messages(conn: &mut Conn, from: &str, validity: Option<u32>, u
     remove(conn, &set).await
 }
 
+/// Finishes a move that was cut short before MOVE was available. Without MOVE a move is
+/// `COPY` then `\Deleted`: a connection that dropped after the COPY and before the
+/// removal would copy the letters a second time if the move were run again. Letters whose
+/// Message-ID already reached the target are not copied again, the rest are, and every
+/// original is marked deleted.
+pub async fn resume_move(conn: &mut Conn, from: &str, validity: Option<u32>, uids: &[u32], to: &str) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
+    select_at(conn, from, validity).await?;
+    let missing = not_yet_moved(conn, from, uids, to).await?;
+    // Reading the target moved the selection there: come back to the source for the COPY.
+    select_at(conn, from, validity).await?;
+    if !missing.is_empty() {
+        conn.session.uid_copy(&uid_set(&missing), to).await?;
+    }
+    remove(conn, &uid_set(uids)).await
+}
+
+/// The UIDs of `from` whose Message-ID is not yet in `to`: those a move cut short after
+/// COPY did not reach the target, and copying them again would duplicate the letters.
+async fn not_yet_moved(conn: &mut Conn, from: &str, uids: &[u32], to: &str) -> Result<Vec<u32>> {
+    conn.session.examine(from).await?;
+    let fetches: Vec<_> = conn
+        .session
+        .uid_fetch(uid_set(uids), "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+        .await?
+        .try_collect()
+        .await?;
+    let mut missing = Vec::new();
+    for f in &fetches {
+        let Some(uid) = f.uid else { continue };
+        match f.header().and_then(message_id_of) {
+            // No Message-ID to look the letter up by: it still has to move.
+            None => missing.push(uid),
+            Some(mid) => {
+                if find_by_message_id(conn, to, &mid).await?.is_empty() {
+                    missing.push(uid);
+                }
+            }
+        }
+    }
+    Ok(missing)
+}
+
 /// Removes messages for good. Used for the trash folder itself.
 pub async fn delete_permanently(conn: &mut Conn, folder: &str, validity: Option<u32>, uids: &[u32]) -> Result<()> {
     if uids.is_empty() {
