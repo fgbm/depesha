@@ -2095,9 +2095,9 @@ pub async fn avatar(
     authenticated: bool,
 ) -> CmdResult<Option<String>> {
     let email = email.trim().to_ascii_lowercase();
-    let Some((_, domain)) = email.rsplit_once('@') else {
+    if !email.contains('@') {
         return Ok(None);
-    };
+    }
     let now = chrono::Utc::now().timestamp();
     let fresh = |c: &(Option<String>, i64)| now - c.1 < if c.0.is_some() { AVATAR_TTL } else { AVATAR_MISS_TTL };
 
@@ -2131,11 +2131,16 @@ pub async fn avatar(
     if !authenticated || !state.settings().sender_logos {
         return Ok(None);
     }
+    // By the organizational domain only (#108): a subdomain is free to mint, and asking
+    // about it would tell its owner that the letter was read. The cache is kept the same way.
+    let Some(domain) = avatar::logo_domain(&email) else {
+        return Ok(None);
+    };
     let key = format!("bimi:{domain}");
     if let Some((uri, _)) = state.store.avatar(&key)?.filter(fresh) {
         return Ok(uri);
     }
-    let uri = avatar::bimi_logo(domain).await;
+    let uri = avatar::bimi_logo(&domain).await;
     state.store.set_avatar(&key, uri.as_deref(), now)?;
     Ok(uri)
 }

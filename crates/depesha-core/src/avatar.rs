@@ -15,28 +15,28 @@ use crate::account::Account;
 pub const MAX_LOGO: usize = 32 * 1024;
 const STEP: Duration = Duration::from_secs(5);
 
-/// The logo of a sender's domain as a `data:` URI, or `None` when the domain
-/// publishes none or does not enforce DMARC (a logo then proves nothing).
-/// The message itself must have passed DMARC: see [`dmarc_passed`].
+/// The domain whose logo stands by this address: its organizational domain, never the
+/// subdomain (#108). A subdomain is free to mint (`news@r123.evil.example`): asking about it
+/// would tell its owner that the letter was read, and a logo of a subdomain is the
+/// organization's logo anyway.
+pub fn logo_domain(email: &str) -> Option<String> {
+    let (_, domain) = email.trim().rsplit_once('@')?;
+    let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    (domain.contains('.')).then(|| org_domain(&domain))
+}
+
+/// The logo of an organizational domain as a `data:` URI, or `None` when it publishes none
+/// or does not enforce DMARC (a logo then proves nothing). Only `domain` itself is asked
+/// about (`_dmarc.`, `default._bimi.`): see [`logo_domain`]. The message itself must have
+/// passed DMARC: see [`dmarc_passed`].
 pub async fn bimi_logo(domain: &str) -> Option<String> {
     let resolver = TokioResolver::builder_tokio().ok()?.build().ok()?;
     let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
-    let org = org_domain(&domain);
-
-    let dmarc = match txt(&resolver, &format!("_dmarc.{domain}")).await {
-        Some(t) => Some(t),
-        None if org != domain => txt(&resolver, &format!("_dmarc.{org}")).await,
-        None => None,
-    };
-    if !dmarc.as_deref().is_some_and(|d| dmarc_enforced(d, org != domain)) {
+    let dmarc = txt(&resolver, &format!("_dmarc.{domain}")).await?;
+    if !dmarc_enforced(&dmarc, false) {
         return None;
     }
-
-    let record = match txt(&resolver, &format!("default._bimi.{domain}")).await {
-        Some(t) => Some(t),
-        None if org != domain => txt(&resolver, &format!("default._bimi.{org}")).await,
-        None => None,
-    }?;
+    let record = txt(&resolver, &format!("default._bimi.{domain}")).await?;
     fetch_logo(&bimi_location(&record)?).await.ok().flatten()
 }
 
@@ -284,7 +284,7 @@ fn without_comments(value: &str) -> String {
 /// The receiving server checked DMARC and it passed for the From domain.
 /// `auth_results`: every `Authentication-Results`, topmost first. Only a header
 /// written by the account's own server counts (others are skipped, wherever they
-/// stand); the first of them with a DMARC result decides. The verdict must name the
+/// stand); the topmost of them decides, with or without a DMARC result. The verdict must name the
 /// sender's domain in `header.from`: without it, it may be about another domain.
 pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> bool {
     for (i, header) in auth_results.iter().enumerate() {
@@ -296,9 +296,11 @@ pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Recei
         if !ours {
             continue;
         }
-        if let Some((passed, header_from)) = r.dmarc {
-            return passed && header_from.is_some_and(|d| d.eq_ignore_ascii_case(from_domain));
-        }
+        // The topmost header of ours decides alone: one without a DMARC result is a «no», not
+        // a reason to read on, or a forged `dmarc=pass` under it would be believed (#108).
+        return r.dmarc.is_some_and(|(passed, header_from)| {
+            passed && header_from.is_some_and(|d| d.eq_ignore_ascii_case(from_domain))
+        });
     }
     false
 }
@@ -386,6 +388,30 @@ mod tests {
             &gmail_box
         ));
         assert!(!dmarc_passed(&[], "bank.ru", &gmail_box));
+    }
+
+    #[test]
+    fn the_topmost_header_of_ours_decides_even_without_a_dmarc_result() {
+        let gmail_box = imap("me@gmail.com", "imap.gmail.com");
+        let own_without = "mx.google.com; dkim=none; spf=none".to_owned();
+        let forged_pass = "mx.google.com; dmarc=pass header.from=bank.ru".to_owned();
+        // Ours says nothing of DMARC and stands above a pass the sender wrote under our name.
+        assert!(!dmarc_passed(
+            &[own_without.clone(), forged_pass.clone()],
+            "bank.ru",
+            &gmail_box
+        ));
+        // The same pass on top is the server's own word.
+        assert!(dmarc_passed(&[forged_pass, own_without], "bank.ru", &gmail_box));
+    }
+
+    #[test]
+    fn a_logo_is_asked_about_by_the_organizational_domain_only() {
+        assert_eq!(logo_domain("news@r123.evil.example").as_deref(), Some("evil.example"));
+        assert_eq!(logo_domain("News@Evil.Example").as_deref(), Some("evil.example"));
+        assert_eq!(logo_domain("a@shop.example.co.uk").as_deref(), Some("example.co.uk"));
+        assert_eq!(logo_domain("nobody"), None);
+        assert_eq!(logo_domain("a@localhost"), None);
     }
 
     #[test]
