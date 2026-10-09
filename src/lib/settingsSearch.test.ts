@@ -42,6 +42,14 @@ describe("finding a setting by name", () => {
     expect(hit!.section).toBe("Поиск");
   });
 
+  it("finds the fields of a person's card, which the page of people names itself", () => {
+    const send = searchSettings(index(), "писать ему").find((h) => h.anchor === "people-send");
+    expect(send).toBeDefined();
+    expect(send!.page).toBe("people");
+    const all = index().filter((e) => e.page === "people").map((e) => e.anchor);
+    for (const a of ["people-name", "people-send", "people-view", "people-note", "people-hide", "people-addresses"]) expect(all).toContain(a);
+  });
+
   it("finds the format field by «markdown», though the word is only a synonym", () => {
     const hits = searchSettings(index(), "markdown");
     const hit = hits.find((h) => h.label === "Формат новых писем");

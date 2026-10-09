@@ -81,10 +81,11 @@
   /** Scrolled to, lit a moment and given the focus: found, so the value can be changed from the keyboard (#102, 4.4 А). */
   async function reveal(id: string) {
     await tick();
-    const el = rowEl(id);
+    // A page of its own (the people's) marks its fields with `data-settings` and has no rows.
+    const el = rowEl(id) ?? contentEl?.querySelector<HTMLElement>(`[data-settings="${CSS.escape(id)}"]`) ?? null;
     if (!el) return;
     el.scrollIntoView({ block: "center" });
-    el.focus();
+    (el.matches(".rw") ? el : el.querySelector<HTMLElement>("input, button"))?.focus();
     flash = id;
     setTimeout(() => flash === id && (flash = null), 1500);
   }
