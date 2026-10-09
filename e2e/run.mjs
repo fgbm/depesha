@@ -2288,6 +2288,7 @@ try {
     await d.until("format saved", async () => ((await invoke("accounts"))[0].compose_format ?? "") === pick, 20000);
     await d.until("saved mark", async () => (await textOf(".account-page footer")).includes("Сохранено"));
     await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
+    await screenshot("settings-account-autosave", { toasts: true });
     // The button waits for the connection: it is dim until a server, a port or a login changes.
     if ((await d.findAll(".account-page footer .btn.primary:not([disabled])")).length) throw new Error("кнопка подключения горит без изменений подключения");
     await pressIn(".modal.prefs", "z", { ctrlKey: true });
@@ -2295,6 +2296,34 @@ try {
     // Closing asks nothing: nothing of the connection is waiting.
     await closeSettings();
     if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие страницы ящика о чём-то спросило");
+  });
+
+  await step("7.25", "фон без значка: согласие даётся действием строки, а не выбором", async () => {
+    const before = await invoke("settings_get");
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.click(await d.find(".prefs .tab[data-page='start']"));
+    await d.until("start page", async () => (await textOf(".prefs .pane h2")) === "Запуск и обновления");
+    const tray = await d.until("tray known", async () => {
+      const t = (await invoke("background_status")).tray;
+      return t === "checking" ? null : t;
+    }, 15000);
+    await setSelect(".prefs [data-row='close_action']", "background");
+    await d.until("background chosen", async () => (await invoke("settings_get")).close_action === "background");
+    // Choosing the background agrees to nothing.
+    if ((await invoke("settings_get")).background_without_tray !== before.background_without_tray) throw new Error("выбор «в фоне» молча дал согласие");
+    if (tray === "absent") {
+      await d.until("consent row", async () => (await d.findAll(".prefs [data-row='tray_consent']")).length === 1);
+      await screenshot("settings-tray-consent");
+      await pressIn(".prefs [data-row='tray_consent']", "Enter");
+      await d.until("consent saved", async () => (await invoke("settings_get")).background_without_tray === true);
+      await d.until("consent row gone", async () => (await d.findAll(".prefs [data-row='tray_consent']")).length === 0);
+    } else if ((await d.findAll(".prefs [data-row='tray_consent']")).length) {
+      throw new Error("строка согласия при значке в трее");
+    }
+    // As it was, for the steps after this one.
+    await invoke("settings_patch", { patch: { close_action: before.close_action, background_without_tray: before.background_without_tray } });
+    await closeSettings();
   });
 
   await step("11.1", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
