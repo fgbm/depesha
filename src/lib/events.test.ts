@@ -1,6 +1,6 @@
 // A quit that was called off (#71): the main window says again that it holds drafts, so the
 // next quit asks it to save them once more.
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
 vi.mock("@tauri-apps/api/window", () => import("./testing").then((m) => m.windowModule));
@@ -70,17 +70,17 @@ describe("settings read again after a save made here (#91)", () => {
 
 describe("toasts after an answer that archives its letter (#106)", () => {
   const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["m"] };
-  async function setup() {
+  let app: { actions: { lastUndo: unknown } };
+  let toast: ReturnType<typeof vi.fn>;
+  beforeEach(async () => {
     resetFakes();
     api.undo.mockClear();
-    const toast = vi.fn();
-    const app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null as unknown }, toast, reload: vi.fn(), fail: vi.fn() };
+    toast = vi.fn();
+    app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null }, toast, reload: vi.fn(), fail: vi.fn() } as never;
     await listenMain(app as unknown as AppStore);
-    return { app, toast };
-  }
+  });
 
   it("says «sent» at once, and the move adds a toast of its own with «Undo»", async () => {
-    const { toast } = await setup();
     emit("sent", { id: 1, subject: "Привет", parking: false });
     await flush();
     expect(toast).toHaveBeenCalledTimes(1);
@@ -93,9 +93,36 @@ describe("toasts after an answer that archives its letter (#106)", () => {
   });
 
   it("stays silent on a parking «sent»: the move says it", async () => {
-    const { toast } = await setup();
     emit("sent", { id: 1, subject: "x", parking: true });
     await flush();
     expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("does not undo the move a second time after «z», nor twice from the toast", async () => {
+    emit("archived-after-send", { subject: "x", moved });
+    await flush();
+    const action = toast.mock.calls[0][2];
+    app.actions.lastUndo = null; // «z» has taken the move back
+    action.run();
+    await flush();
+    expect(api.undo).not.toHaveBeenCalled();
+
+    emit("archived-after-send", { subject: "y", moved });
+    await flush();
+    const again = toast.mock.calls[1][2];
+    again.run();
+    again.run();
+    await flush();
+    expect(api.undo).toHaveBeenCalledTimes(1);
+  });
+
+  it("the «parked» toast keeps the letter in the inbox once only", async () => {
+    emit("parked", { account_id: "a", key: "k", subject: "x" });
+    await flush();
+    const action = toast.mock.calls[0][2];
+    app.actions.lastUndo = null;
+    action.run();
+    await flush();
+    expect(api.followupUnpark).not.toHaveBeenCalled();
   });
 });

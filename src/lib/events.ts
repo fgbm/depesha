@@ -167,6 +167,13 @@ interface BringFailed {
   error?: string;
 }
 
+/** A toast takes its own move back once: not after "z" has, nor after another action took the undo over. */
+function takeUndo(app: AppStore, mine: object) {
+  if (app.actions.lastUndo !== mine) return false;
+  app.actions.lastUndo = null;
+  return true;
+}
+
 /** The answer left and took its letter to "Waiting for reply": keeping it in the inbox is "z" too. */
 function parked(app: AppStore, p: Parked) {
   const text = t("toast.sentParked", { subject: p.subject || t("noSubject") });
@@ -177,8 +184,7 @@ function parked(app: AppStore, p: Parked) {
     label: t("toast.keepInInbox"),
     run: () => {
       // The toast stays a while: another action may have taken the undo since.
-      if (app.actions.lastUndo === mine) app.actions.lastUndo = null;
-      keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
+      if (takeUndo(app, mine)) keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
     },
   });
 }
@@ -192,7 +198,7 @@ function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) 
   app.toast(text, false, {
     label: t("undo"),
     run: () => {
-      if (app.actions.lastUndo === mine) app.actions.lastUndo = null;
+      if (!takeUndo(app, mine)) return;
       api.undo([p.moved]).then(() => app.toast(t("done.undone")), (err) => app.fail(err, t("err.undo")));
       void app.reload();
     },
