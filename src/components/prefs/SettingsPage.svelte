@@ -12,7 +12,7 @@
   import type { SettingsAutosave } from "../../lib/settingsAutosave.svelte";
   import { isEnabled, rowKind, type PageSpec, type RowContext, type RowSpec } from "../../lib/settingsCatalog";
   import { RowEditor } from "../../lib/settingsEdit";
-  import { exceptionCount, exceptions, layerSummary } from "../../lib/settingsLayers";
+  import { exceptions, layerText } from "../../lib/settingsLayers";
   import { dependentRuns, moveCursor, rowKeyAction, type RowAction } from "../../lib/settingsRows";
   import type { Owned, SettingsSection } from "../../plugin-host/registry.svelte";
   import Popover from "../Popover.svelte";
@@ -56,10 +56,9 @@
 
   const exc = (layer: "format" | "view") => exceptions(layer, peopleBook.list, app.accounts);
 
-  /** A layer row is drawn only where some mailbox or person differs from the general value; a question only while it is asked. */
+  /** A question is drawn only while it is asked. */
   function shown(spec: RowSpec): boolean {
-    if (spec.visible && !spec.visible(s, ctx)) return false;
-    return spec.kind !== "layer" || exceptionCount(exc(spec.layer)) > 0;
+    return !spec.visible || spec.visible(s, ctx);
   }
 
   const groups = $derived(page.groups.map((g) => ({ ...g, rows: g.rows.filter(shown) })).filter((g) => g.rows.length));
@@ -100,6 +99,8 @@
     }
     if (spec.kind !== "layer") return [];
     const ex = exc(spec.layer);
+    // Nothing differs yet: the way is still there, to the people, where a format is given to one.
+    if (!ex.accounts.length && !ex.people.length) return [{ key: "people", label: t("people.title"), open: () => go("people") }];
     return [
       ...ex.accounts.map((a) => ({ key: `account:${a.id}`, label: accountLabel(a), open: () => go(`account:${a.id}`, { section: "letters" }) })),
       ...ex.people.map((p) => ({ key: `person:${p.email}`, label: p.name || p.email, open: () => go("people", { person: p.email }) })),
@@ -133,7 +134,7 @@
   const isUpdate = (spec: RowSpec) => spec.kind === "action" && spec.run === "update-check";
 
   const labelOf = (spec: RowSpec) =>
-    isUpdate(spec) ? t("settings.installed", { version: app.update?.current ?? "—" }) : spec.kind === "layer" ? layerSummary(exc(spec.layer)) : spec.label();
+    isUpdate(spec) ? t("settings.installed", { version: app.update?.current ?? "—" }) : spec.kind === "layer" ? layerText(exc(spec.layer)) : spec.label();
 
   function hintOf(spec: RowSpec): string | null {
     if (isUpdate(spec)) return updateHint;
@@ -254,7 +255,7 @@
       {:else if spec.kind === "link" || spec.kind === "layer"}
         <div class="menu">
           <button type="button" class="lnk" tabindex="-1" disabled={!isEnabled(spec, s)} onclick={() => follow(spec)}>
-            {spec.kind === "link" ? spec.text() : layerSummary(exc(spec.layer))} ›
+            {spec.kind === "link" ? spec.text() : layerText(exc(spec.layer))} ›
           </button>
           <Popover bind:open={() => menuFor === spec.id, (v) => (menuFor = v ? spec.id : null)} align="left" role="menu">
             {#each items(spec) as item (item.key)}

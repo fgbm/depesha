@@ -33,10 +33,11 @@ function setup(id: string, over: object = {}, accounts: AccountView[] = []) {
   const target = document.createElement("div");
   document.body.append(target);
   const spec = PAGES.find((p) => p.id === id)!;
-  const view = mount(SettingsPage, { target, props: { page: spec, auto, sections: [], go: () => {} } });
+  const went: string[] = [];
+  const view = mount(SettingsPage, { target, props: { page: spec, auto, sections: [], go: (p: string) => void went.push(p) } });
   flushSync();
   const row = (rowId: string) => target.querySelector<HTMLElement>(`.rw[data-row="${rowId}"]`)!;
-  return { target, patches, auto, row, destroy: () => unmount(view) };
+  return { target, patches, auto, row, went, destroy: () => unmount(view) };
 }
 
 const key = (el: Element, k: string, init: KeyboardEventInit = {}) => {
@@ -193,5 +194,28 @@ describe("the background with no tray icon (#102)", () => {
     page = setup("start", { close_action: "background" });
     await tick();
     expect(page.row("tray_consent")).toBeNull();
+  });
+});
+
+describe("the way to the format of individual people (#102)", () => {
+  it("is on the page though nobody has a format of their own yet, and leads to the people", async () => {
+    page = setup("writing");
+    const way = page.row("layer_format");
+    expect(way.textContent).toContain("Задать для отдельных людей");
+    way.querySelector<HTMLElement>(".lnk")!.click();
+    expect(page.went).toEqual(["people"]);
+  });
+});
+
+describe("the notes the page keeps (#102)", () => {
+  it("say how the warnings repeat, where the folder of attachments is, and that updates are signed", () => {
+    page = setup("storage");
+    expect(page.row("quota_repeat").textContent).toContain("Одно предупреждение на порог");
+    page.destroy();
+    page = setup("writing");
+    expect(page.row("attachments_dir").textContent).toContain("Пусто — спрашивать каждый раз");
+    page.destroy();
+    page = setup("start");
+    expect(page.row("updates").textContent).toContain("подписано ключом проекта");
   });
 });

@@ -222,7 +222,13 @@ const R = {
       ...[5, 10, 20, 30].map((n) => ({ value: n, label: () => tn("settings.seconds", n) })),
     ],
   },
-  attachments_dir: { id: "attachments_dir", kind: "folder", key: "attachments_dir", label: () => t("settings.attachmentsDir") },
+  attachments_dir: {
+    id: "attachments_dir",
+    kind: "folder",
+    key: "attachments_dir",
+    label: () => t("settings.attachmentsDir"),
+    hint: () => t("settings.attachmentsDirNote"),
+  },
   day_start: {
     id: "day_start",
     kind: "clock",
@@ -286,6 +292,7 @@ const R = {
       { value: "threshold", label: () => t("settings.quotaRepeatThreshold") },
       { value: "daily", label: () => t("settings.quotaRepeatDaily") },
     ],
+    hint: () => t("settings.quotaNote"),
     dep: true,
     enabled: (s) => s.quota_warn,
   },
@@ -369,6 +376,7 @@ const R = {
       { value: "notify", label: () => t("settings.updatesNotify") },
       { value: "off", label: () => t("settings.updatesOff") },
     ],
+    hint: () => t("settings.signedNote"),
   },
   update_status: {
     id: "update_status",

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { i18n } from "./i18n.svelte";
-import { exceptionCount, exceptions, layerSummary } from "./settingsLayers";
+import { exceptionCount, exceptions, layerSummary, layerText } from "./settingsLayers";
 import { blankPerson } from "./people";
 import type { AccountView } from "./types";
 
@@ -39,7 +39,12 @@ describe("the line on the general setting", () => {
     expect(layerSummary({ people: [person("a"), person("b"), person("c")], accounts: [] })).toBe("Своё у 3 людей");
   });
 
-  it("is empty when nothing differs, so the row is not drawn", () => {
+  it("is empty when nothing differs", () => {
     expect(layerSummary({ people: [], accounts: [] })).toBe("");
+  });
+
+  it("still names the way when nothing differs: to set the value for individual people", () => {
+    expect(layerText({ people: [], accounts: [] })).toBe("Задать для отдельных людей");
+    expect(layerText({ people: [person("a@x")], accounts: [] })).toBe("Своё у 1 человека");
   });
 });

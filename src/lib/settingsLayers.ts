@@ -36,3 +36,8 @@ export function layerSummary(ex: Exceptions): string {
   if (ex.accounts.length) parts.push(tn("settings.layerMailboxes", ex.accounts.length));
   return parts.length ? t("settings.layerOwn", { list: parts.join(", ") }) : "";
 }
+
+/** The text of the way on the general setting: where the layers differ, or the way to make one differ. */
+export function layerText(ex: Exceptions): string {
+  return layerSummary(ex) || t("settings.layerNone");
+}
