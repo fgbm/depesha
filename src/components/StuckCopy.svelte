@@ -15,6 +15,8 @@
   const acc = $derived(task.account_id ? app.account(task.account_id) : undefined);
   // The task's label is «Copy not saved: «subject»»; the file is named after the subject.
   const subject = $derived(/«(.*)»/s.exec(task.label)?.[1] ?? "");
+  // The server has the copy; what failed is the start of the wait for a reply (a local error).
+  const filed = $derived(task.error?.kind === "copy-filed");
 
   async function retry() {
     if (id === null) return;
@@ -59,7 +61,7 @@
     <span class="label">{task.label}</span>
     {#if acc && app.accounts.length > 1}<span class="muted small">{accountLabel(acc)}</span>{/if}
   </div>
-  <p class="small text">{t("stuck.text")}</p>
+  <p class="small text">{t(filed ? "stuck.textFiled" : "stuck.text")}</p>
   {#if task.error?.message}<div class="reason small selectable">{task.error.message}</div>{/if}
   <div class="actions">
     <button class="btn ghost small-btn" disabled={busy} onclick={retry}>{t("retry")}</button>

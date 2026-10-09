@@ -327,21 +327,23 @@ pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Resu
         // See `with_known_mailbox`: the copy waits.
         return Ok(());
     };
-    let outcome = match state.worker(&copy.account_id) {
-        Ok(worker) => worker
-            .run_background(Work::CopyToSent {
-                folder: copy.folder.clone(),
-                raw: copy.raw.clone(),
-                flags: copy.flags.clone(),
-                message_id: copy.message_id.clone(),
-            })
-            .await
-            .map(|_| ()),
-        Err(e) => Err(depesha_core::Error::Io(std::io::Error::other(e.message))),
+    // A copy the server took already is not uploaded again: only its local finish is repeated.
+    let outcome = if copy.filed {
+        Ok(())
+    } else {
+        match state.worker(&copy.account_id) {
+            Ok(worker) => worker
+                .run_background(Work::CopyToSent {
+                    folder: copy.folder.clone(),
+                    raw: copy.raw.clone(),
+                    flags: copy.flags.clone(),
+                    message_id: copy.message_id.clone(),
+                })
+                .await
+                .map(|_| ()),
+            Err(e) => Err(depesha_core::Error::Io(std::io::Error::other(e.message))),
+        }
     };
-    // The wait for a reply starts before the copy is forgotten, so a quit between the two
-    // repeats it and never loses it. It starts with the copy cached, or without it once
-    // the copy keeps failing: the answered mark must not wait for a mailbox that is down.
     let ready = match (&outcome, copy.pending.as_ref()) {
         (Ok(()), Some(item)) => Some((item, true)),
         (Err(e), Some(item)) if !e.is_transient() || copy.attempts + 1 >= COPY_WAIT_TRIES => Some((item, false)),
@@ -353,7 +355,8 @@ pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Resu
         }
         if let Err(e) = finish_sent(state, &account, item, copy.message_id.clone(), cached).await {
             // Counted as a refusal: otherwise the copy and the finish are repeated for ever.
-            let settled = settle_failed_finish(&state.store, copy, &e, chrono::Utc::now().timestamp())?;
+            let filed = outcome.is_ok();
+            let settled = settle_failed_finish(&state.store, copy, &e, filed, chrono::Utc::now().timestamp())?;
             if settled == Settled::Held
                 && let Some(held) = state.store.sent_copies_stuck()?.into_iter().find(|c| c.id == copy.id)
             {
@@ -442,22 +445,39 @@ fn settle_copy(
 
 /// The task of a copy on hold: plain words on top, the server's own on the line below.
 fn stuck_task(state: &AppState, copy: &StuckCopy) {
+    let key = stuck_key(copy.id);
+    let (label, kind) = stuck_label(copy);
+    state.task(&key, "stuck-copy", Some(&copy.account_id), label, 0, 0);
+    let reason = copy.last_error.clone().unwrap_or_default();
+    state.task_failed(&key, CmdError::new(kind, reason));
+}
+
+/// The kind of the error of a copy the server has but whose finish failed; the interface tells
+/// it from a refusal by the server.
+const FILED_KIND: &str = "copy-filed";
+
+/// The title and the error kind of the task of a held copy. One the server has but whose wait
+/// for a reply could not start is a task of its own, and its error is ours, not the server's.
+fn stuck_label(copy: &StuckCopy) -> (String, &'static str) {
     let subject = if copy.subject.is_empty() {
         depesha_core::lang::pick("(no subject)", "(без темы)").to_owned()
     } else {
         copy.subject.clone()
     };
-    let key = stuck_key(copy.id);
-    state.task(
-        &key,
-        "stuck-copy",
-        Some(&copy.account_id),
-        tr!("Copy not saved: «{subject}»", "Копия не сохранена: «{subject}»"),
-        0,
-        0,
-    );
-    let reason = copy.last_error.clone().unwrap_or_default();
-    state.task_failed(&key, CmdError::new("other", reason));
+    if copy.filed {
+        (
+            tr!(
+                "Copy saved, but the wait for a reply did not start: «{subject}»",
+                "Копия сохранена, но не удалось начать ожидание ответа: «{subject}»"
+            ),
+            FILED_KIND,
+        )
+    } else {
+        (
+            tr!("Copy not saved: «{subject}»", "Копия не сохранена: «{subject}»"),
+            "other",
+        )
+    }
 }
 
 /// The key of the task of a held copy; the interface reads the copy's id from it.
@@ -476,16 +496,55 @@ fn restore_stuck_tasks(state: &AppState) {
 
 /// A finish of the sent letter that failed leaves its copy to try again later. It counts like
 /// a refusal (30 min, 2 h, 6 h, then on hold with a task): a finish that fails for good
-/// must not upload and repeat itself forever. The copy itself may have gone through: a
-/// repeat finds it on the server.
+/// must not repeat itself forever. With the copy on the server (`filed`) the failure is the
+/// local one and the copy is marked, so the repeat does the finish only and does not upload
+/// the copy again; otherwise the copy is the one that was not saved.
 fn settle_failed_finish(
     store: &depesha_core::store::Store,
     copy: &SentCopy,
     failure: &CmdError,
+    filed: bool,
     now: i64,
 ) -> Result<Settled, CmdError> {
-    let failed = Err(depesha_core::Error::CopyRefused(failure.message.clone()));
-    settle_copy(store, copy, &failed, now)
+    if !filed {
+        let failed = Err(depesha_core::Error::CopyRefused(failure.message.clone()));
+        return settle_copy(store, copy, &failed, now);
+    }
+    let refusals = copy.refusals + 1;
+    let hold = refusals >= REFUSALS_BEFORE_HOLD;
+    store.sent_copy_unfinished(copy.id, now + refusal_delay(refusals), &failure.message, hold)?;
+    Ok(if hold { Settled::Held } else { Settled::Waiting })
+}
+
+/// The wait for a reply that «Don't keep» must start before the copy goes: one still held for
+/// the copy.
+fn wait_before_drop(copy: &SentCopy) -> Option<&OutboxItem> {
+    copy.pending.as_ref()
+}
+
+/// «Don't keep the copy»: a wait for a reply still held for the copy starts first, without
+/// it, so that dropping the copy never cancels the wait in silence. When the wait cannot
+/// start, the copy stays and the failure is shown.
+pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdError> {
+    let Some(copy) = state.store.sent_copy(id)? else {
+        return Ok(());
+    };
+    if let Some(item) = wait_before_drop(&copy)
+        && let Ok(account) = state.account(&copy.account_id)
+    {
+        if !state.copy_claim(id) {
+            return Err(CmdError::new(
+                "other",
+                tr!("the copy is being filed just now", "копия сейчас отправляется"),
+            ));
+        }
+        let done = finish_sent(state, &account, item, copy.message_id.clone(), copy.filed).await;
+        state.copy_release(id);
+        done?;
+    }
+    state.store.sent_copy_done(id)?;
+    state.task_done(&stuck_key(id));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -544,7 +603,10 @@ mod tests {
         {
             let copy = store.sent_copies().unwrap().remove(0);
             assert_eq!(copy.refusals, n as u32);
-            assert_eq!(settle_failed_finish(&store, &copy, &failure, now).unwrap(), expect);
+            assert_eq!(
+                settle_failed_finish(&store, &copy, &failure, false, now).unwrap(),
+                expect
+            );
             assert_eq!(
                 store.sent_copies().unwrap()[0].next_attempt,
                 now + wait,
@@ -720,5 +782,61 @@ mod tests {
         store.sent_copy_done(copy.id).unwrap();
         assert!(store.sent_copies().unwrap().is_empty());
         assert!(!store.sent_copy_resume(copy.id).unwrap());
+    }
+
+    /// A copy the server took whose finish failed is marked as filed: its repeat does the
+    /// finish only, and the task says the copy is saved, not that it is not.
+    #[test]
+    fn a_copy_on_the_server_with_a_failed_finish_is_not_a_copy_not_saved() {
+        let store = Store::open_in_memory().unwrap();
+        sent(&store);
+        let failure = CmdError::new("other", "no database");
+        for n in 0..3 {
+            let copy = store.sent_copies().unwrap().remove(0);
+            assert_eq!(copy.filed, n > 0, "the copy is marked after the first failure");
+            settle_failed_finish(&store, &copy, &failure, true, 1_000).unwrap();
+        }
+        let held = store.sent_copies_stuck().unwrap().remove(0);
+        assert!(held.filed);
+        assert_eq!(held.last_error.as_deref(), Some("no database"));
+        let (label, kind) = stuck_label(&held);
+        assert!(
+            !label.contains("не сохранена") && !label.contains("not saved"),
+            "{label}"
+        );
+        assert_eq!(kind, FILED_KIND);
+        // A copy the server refused is still the old task.
+        let refused = StuckCopy { filed: false, ..held };
+        let (label, kind) = stuck_label(&refused);
+        assert!(label.contains("не сохранена") || label.contains("not saved"), "{label}");
+        assert_eq!(kind, "other");
+    }
+
+    /// «Don't keep» finds the wait still held for the copy, so it starts it before the copy goes.
+    #[test]
+    fn dropping_a_copy_does_not_lose_the_wait_held_for_it() {
+        let store = Store::open_in_memory().unwrap();
+        let id = store
+            .outbox_add("a", &Default::default(), 1, 1, 0, &Default::default())
+            .unwrap();
+        let item = store.outbox().unwrap().remove(0);
+        store
+            .outbox_sent_with_copy(
+                id,
+                &NewSentCopy {
+                    account_id: "a",
+                    folder: "Sent",
+                    raw: b"raw",
+                    flags: "(\\Seen)",
+                    message_id: Some("m@x"),
+                    subject: "Contract",
+                    pending: Some(&item),
+                },
+            )
+            .unwrap();
+        let copy = store.sent_copies().unwrap().remove(0);
+        assert_eq!(wait_before_drop(&copy).map(|i| i.id), Some(item.id));
+        let plain = sent(&Store::open_in_memory().unwrap());
+        assert!(wait_before_drop(&plain).is_none());
     }
 }

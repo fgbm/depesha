@@ -730,6 +730,7 @@ export const en = {
   "tasks.syncing": "Syncing…",
   "stuck.title": "Waiting for you",
   "stuck.text": "The letter reached the recipient, but the server does not take its copy into Sent. Depesha stopped trying after 3 refusals.",
+  "stuck.textFiled": "The copy is already in Sent, but Depesha could not start the wait for a reply to this letter. It will try again; after 3 failures it stops.",
   "stuck.save": "Save .eml",
   "stuck.drop": "Don't keep the copy",
   "stuck.saveTitle": "Save a copy of the letter",

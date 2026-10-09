@@ -5,7 +5,7 @@
 
 use rusqlite::{Connection, params};
 
-use super::{OutboxItem, Store};
+use super::{OutboxItem, Store, add_column};
 use crate::Result;
 
 /// 19: the copies of sent letters not yet in «Sent».
@@ -38,6 +38,13 @@ pub(super) fn v20_stuck_copies(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 22: a copy the server has taken whose local finish (the answered mark, the wait for a
+/// reply) failed is marked, so that its repeat does not upload the copy a second time.
+pub(super) fn v22_copy_filed(conn: &Connection) -> Result<()> {
+    add_column(conn, "sent_copies", "filed", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
 /// A copy to file in «Sent».
 #[derive(Debug, Clone)]
 pub struct SentCopy {
@@ -57,6 +64,9 @@ pub struct SentCopy {
     /// letter is not uploaded again.
     pub paused: bool,
     pub subject: String,
+    /// The server has the copy already; what is left is the local finish of the letter. A
+    /// repeat does the finish only and never uploads the copy again.
+    pub filed: bool,
     /// The sent letter whose answered mark and wait for a reply start once the copy is in
     /// the cache: a wait is countable and cancellable only while its letter is cached.
     pub pending: Option<OutboxItem>,
@@ -81,6 +91,8 @@ pub struct StuckCopy {
     pub subject: String,
     pub last_error: Option<String>,
     pub refusals: u32,
+    /// The server has the copy: what failed is the local finish of the letter.
+    pub filed: bool,
 }
 
 impl Store {
@@ -126,7 +138,7 @@ impl Store {
     fn sent_copies_where(&self, filter: &str, arg: i64) -> Result<Vec<SentCopy>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!(
-            "SELECT id, account_id, folder, raw, flags, message_id, attempts, next_attempt, last_error, pending, refusals, paused, subject
+            "SELECT id, account_id, folder, raw, flags, message_id, attempts, next_attempt, last_error, pending, refusals, paused, subject, filed
              FROM sent_copies {filter} ORDER BY id"
         ))?;
         let rows = stmt.query_map([arg], |r| {
@@ -146,6 +158,7 @@ impl Store {
                 refusals: r.get(10)?,
                 paused: r.get::<_, i64>(11)? != 0,
                 subject: r.get(12)?,
+                filed: r.get::<_, i64>(13)? != 0,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -177,11 +190,23 @@ impl Store {
         Ok(())
     }
 
+    /// The server has the copy but the local finish of the letter failed: the copy is
+    /// marked as filed, the failure counted like a refusal, and at the last one (`pause`)
+    /// the copy waits for the user.
+    pub fn sent_copy_unfinished(&self, id: i64, next_attempt: i64, error: &str, pause: bool) -> Result<()> {
+        self.conn().execute(
+            "UPDATE sent_copies SET filed = 1, attempts = attempts + 1, refusals = refusals + 1, next_attempt = ?2,
+                    last_error = ?3, paused = ?4 WHERE id = ?1",
+            params![id, next_attempt, error, pause],
+        )?;
+        Ok(())
+    }
+
     /// The copies waiting for the user, without their bytes.
     pub fn sent_copies_stuck(&self) -> Result<Vec<StuckCopy>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, account_id, subject, last_error, refusals FROM sent_copies WHERE paused = 1 ORDER BY id",
+            "SELECT id, account_id, subject, last_error, refusals, filed FROM sent_copies WHERE paused = 1 ORDER BY id",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(StuckCopy {
@@ -190,6 +215,7 @@ impl Store {
                 subject: r.get(2)?,
                 last_error: r.get(3)?,
                 refusals: r.get(4)?,
+                filed: r.get::<_, i64>(5)? != 0,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)

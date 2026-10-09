@@ -71,6 +71,7 @@ const MIGRATIONS: &[Step] = &[
     sent_copies::v19_sent_copies,
     sent_copies::v20_stuck_copies,
     v21_outbox_archive,
+    sent_copies::v22_copy_filed,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the

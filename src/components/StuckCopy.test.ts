@@ -40,6 +40,19 @@ describe("the task of a copy the server refuses (#88)", () => {
     expect(body).toContain('data-copy="7"');
   });
 
+  it("does not call a saved copy unsaved when only the wait for a reply failed (#99)", () => {
+    const filed: Task = {
+      ...task,
+      label: "Копия сохранена, но не удалось начать ожидание ответа: «Договор»",
+      error: { kind: "copy-filed", message: "база занята" },
+    };
+    const { body } = render(StuckCopy, { props: { task: filed } });
+    expect(body).toContain("Копия сохранена, но не удалось начать ожидание ответа");
+    expect(body).toContain("Копия уже лежит в «Отправленные»");
+    expect(body).not.toContain("сервер не принимает");
+    expect(body).toContain("база занята");
+  });
+
   it("speaks English in the English interface", () => {
     i18n.lang = "en";
     const { body } = render(StuckCopy, { props: { task } });

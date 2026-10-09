@@ -1807,12 +1807,12 @@ pub async fn sent_copy_save(state: St<'_>, id: i64, path: String) -> CmdResult<(
     Ok(())
 }
 
-/// «Don't keep the copy»: the record and its bytes are deleted.
+/// «Don't keep the copy»: the record and its bytes are deleted; a wait for a reply held for
+/// the copy starts first, without it.
 #[tauri::command]
-pub fn sent_copy_drop(state: St<'_>, id: i64) -> CmdResult<()> {
-    state.store.sent_copy_done(id)?;
-    state.task_done(&crate::outbox::stuck_key(id));
-    Ok(())
+pub async fn sent_copy_drop(state: St<'_>, id: i64) -> CmdResult<()> {
+    let state = state.inner().clone();
+    crate::outbox::drop_copy(&state, id).await
 }
 
 /// Per account: the last full sync and how much of the offline window is downloaded.
