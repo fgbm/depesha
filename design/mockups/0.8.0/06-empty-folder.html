@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Очистить Корзину, Спам и Черновики (0.8.0, #74)</title>
+<style>
+/* Макет к 0.8.0, заявка #74. Код приложения не тронут. Файл самодостаточный: без сети, данные вымышленные.
+   Токены темы «Бумага» — из src/app.css. */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --ok: #2e7d4f; --warn: #b26a00; --side: #1f2a37; --radius: 8px;
+  color: var(--ink);
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; }
+.doc { width: 1400px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.v { font-size: 16px; margin: 22px 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+h3.v .n { background: #fff; border: 1px solid #b5ae9f; border-radius: 5px; padding: 0 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v em { flex-basis: 100%; font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 1040px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.pc { margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 1040px; }
+.plus { color: #2e7d4f; font-weight: 700; } .minus { color: #b3261e; font-weight: 700; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+kbd { font-family: ui-monospace, Consolas, monospace; font-size: 11px; border: 1px solid #b5ae9f; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #faf7f1; color: #3c444e; white-space: nowrap; }
+.cap { font-size: 12.5px; color: #3c444e; margin: 6px 0 0; max-width: 1040px; line-height: 1.5; }
+.cols { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.slot { flex: none; width: 440px; }
+.slot.wide { width: 640px; }
+.slot .t { font-size: 12.5px; color: #3c444e; margin: 0 0 6px; line-height: 1.4; }
+table.q { border-collapse: collapse; font-size: 13px; line-height: 1.45; max-width: 1240px; background: #f4f1ea; }
+table.q th, table.q td { border: 1px solid #c7c0b1; padding: 6px 10px; text-align: left; vertical-align: top; }
+table.q td.n { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+table.risk { border-collapse: collapse; font-size: 13px; background: #f4f1ea; max-width: 1240px; }
+table.risk th, table.risk td { border: 1px solid #c7c0b1; padding: 5px 10px; text-align: left; vertical-align: top; }
+
+/* Окно приложения (упрощённо) */
+.win { width: 100%; border: 1px solid #9c957f; border-radius: 10px; overflow: hidden; background: var(--paper); box-shadow: 0 4px 18px rgb(0 0 0 / .15); position: relative; font-size: 13px; }
+.app { display: flex; height: 330px; position: relative; }
+.side { width: 150px; flex: none; background: var(--side); color: #c9d2dc; padding: 8px 0; font-size: 12.5px; }
+.side .f { padding: 3px 12px; display: flex; justify-content: space-between; }
+.side .f.on { background: #324255; color: #fff; }
+.side .f b { font-weight: 400; color: #8c99a8; font-size: 11.5px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--paper-2); }
+.head .ttl { font-weight: 650; }
+.head .cnt { color: var(--muted); font-size: 12px; }
+.head .sp { flex: 1; }
+.btn { font: inherit; font-size: 12px; border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 2px 10px; color: var(--ink); white-space: nowrap; }
+.btn.danger { border-color: var(--accent); color: var(--accent); }
+.btn.fill { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.dis { opacity: .45; }
+.btn.foc { outline: 2px solid var(--link); outline-offset: 1px; }
+.rows .r { padding: 6px 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+.rows .r b { width: 130px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rows .r span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rows .r.sel { background: var(--selected); }
+.rows .empty { padding: 50px 0; text-align: center; color: var(--muted); }
+.menu { position: absolute; z-index: 5; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 22px rgb(0 0 0 / .22); padding: 4px 0; min-width: 215px; font-size: 12.5px; }
+.menu div { padding: 3px 14px; display: flex; justify-content: space-between; gap: 18px; }
+.menu div.hi { background: var(--hover); }
+.menu div.danger { color: var(--accent); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 3px 0; }
+.menu kbd { font-size: 10.5px; }
+.pal { position: absolute; z-index: 5; left: 70px; top: 18px; width: 340px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 22px rgb(0 0 0 / .25); font-size: 12.5px; }
+.pal .in { padding: 7px 12px; border-bottom: 1px solid var(--line); }
+.pal .it { padding: 4px 12px; display: flex; justify-content: space-between; }
+.pal .it.hi { background: var(--hover); }
+.veil { position: absolute; inset: 0; background: rgb(20 24 30 / .38); display: flex; align-items: center; justify-content: center; z-index: 8; }
+.dlg { width: 360px; background: var(--paper); border-radius: 10px; padding: 16px 18px 14px; box-shadow: 0 8px 30px rgb(0 0 0 / .35); }
+.dlg h4 { margin: 0 0 6px; font-size: 14.5px; }
+.dlg p { margin: 4px 0; line-height: 1.45; font-size: 12.5px; color: #3c444e; }
+.dlg .bt { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.dlg input[type=text] { width: 100%; font: inherit; font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: #fff; margin-top: 6px; }
+.dlg .chk { font-size: 12px; margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; }
+.dlg .warn { color: var(--warn); }
+.toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 9; background: #263444; color: #f0ece4; border-radius: 8px; padding: 7px 14px; font-size: 12.5px; display: flex; gap: 14px; align-items: center; white-space: nowrap; box-shadow: 0 4px 16px rgb(0 0 0 / .35); }
+.toast a { color: #9fc4f0; text-decoration: underline; }
+.toast .bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 60%; background: #9fc4f0; border-radius: 0 0 8px 8px; }
+.tasks { position: absolute; z-index: 6; right: 10px; bottom: 10px; width: 300px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 22px rgb(0 0 0 / .25); padding: 8px 12px; font-size: 12px; }
+.tasks .tt { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.tasks .pg { height: 5px; border-radius: 3px; background: var(--line); margin: 5px 0 3px; overflow: hidden; }
+.tasks .pg i { display: block; height: 100%; background: var(--link); }
+.tasks .pg.err i { background: var(--accent); }
+.tasks .m { color: var(--muted); }
+.tasks .e { color: var(--accent); }
+.ban { background: #f7e2cf; color: #6f4300; padding: 4px 12px; font-size: 12px; border-bottom: 1px solid #e3c9a8; }
+.pill { display: inline-block; border-radius: 9px; padding: 0 7px; font-size: 11px; background: #ddd5c3; color: #3c444e; }
+.pill.bad { background: #f3d4d0; color: #8e1d16; } .pill.ok { background: #d3ead9; color: #1d5c37; }
+.sep { color: var(--muted); font-size: 11.5px; padding: 3px 12px; background: var(--paper-2); border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="doc theme">
+<h1>Депеша 0.8.0 — «Очистить» для Корзины, Спама и Черновиков</h1>
+<p class="lead">Заявка #74: одним действием очистить три системные папки. Сегодня для этого надо выделить письма (<kbd>Ctrl</kbd>+<kbd>A</kbd>) и нажать <kbd>Delete</kbd>; а если папка больше загруженной части списка, выделение не охватывает всё, что лежит на сервере. Ниже пять экранов; вопросы с рекомендациями — в конце. Данные вымышленные.</p>
+
+<div class="ctx"><b>Как устроено сейчас.</b>
+<ul class="pc">
+<li><b>Удаление</b> — команда <code>delete_messages</code>: из обычной папки письмо уходит в Корзину (перенос, отмена клавишей <kbd>Z</kbd> через <code>lastUndo</code>); из Корзины или ящика без Корзины — безвозвратно (<code>Work::Delete</code> в очереди ящика).</li>
+<li><b>IMAP</b>: <code>STORE +FLAGS.SILENT (\Deleted)</code> и <code>UID EXPUNGE</code> по списку UID. Если сервер не знает UIDPLUS, письма только помечаются, а не стираются (отдельный изъян: обычного <code>EXPUNGE</code> нет). Для «Очистить» хватит <code>STORE 1:* +FLAGS \Deleted</code> и <code>EXPUNGE</code>: список писем в приложении не нужен, а <code>EXPUNGE</code> заберёт и то, что пришло позже просмотра.</li>
+<li><b>EWS</b>: <code>DeleteItem</code> с <code>SoftDelete</code> порциями по 100 (письмо уходит в «Восстанавливаемые элементы» на срок хранения сервера, клиент его оттуда не достаёт). Для «Очистить» есть <code>EmptyFolder</code>, одна операция на папку.</li>
+<li><b>Черновики</b>: серверная папка Drafts плюс локальные копии <code>drafts/&lt;ключ&gt;.json</code> (<code>CachedDraft</code>; <code>draft_id</code> и <code>draft_message_id</code> связывают копию с серверным письмом). Копия живёт, пока черновик не дошёл до сервера; открытое окно письма пишет её после каждой паузы.</li>
+<li><b>Команды над папкой</b>: контекстное меню папки в боковой панели (<code>FolderMenu</code>), шапка списка, палитра команд; есть «Отметить все прочитанными».</li>
+<li><b>Клавиши</b> (<code>keyCommands.ts</code>): заняты <kbd>c</kbd> <kbd>/</kbd> <kbd>z</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>r</kbd> <kbd>a</kbd> <kbd>f</kbd> <kbd>e</kbd> <kbd>u</kbd> <kbd>s</kbd> <kbd>l</kbd> <kbd>w</kbd> <kbd>!</kbd> <kbd>#</kbd> <kbd>Delete</kbd> <kbd>Mod+A</kbd> <kbd>Mod+,</kbd> <kbd>Mod+Q</kbd>. <kbd>Mod+Shift+Delete</kbd> свободно, в списке его не использует ничего.</li>
+</ul></div>
+
+<!-- ============================ ЭКРАН 1 ============================ -->
+<h2 class="screen">Экран 1. Где команда и какая клавиша</h2>
+<p class="lead">Команда нужна только в трёх папках. В остальных её нет вообще (не серая, а отсутствует), чтобы не было лишних пунктов. Принципы: всё с клавиатуры, похожее устроено одинаково.</p>
+
+<h3 class="v" data-q="1.1" data-variant="А" data-q-title="Где команда" data-variants="А,Б,В" data-recommended="В"><span class="n">1.А</span> Кнопка в шапке списка <em>только у трёх папок: «Очистить корзину (128)»</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app">
+<div class="side"><div class="f">Входящие <b>12</b></div><div class="f">Отправленные</div><div class="f">Черновики <b>3</b></div><div class="f on">Корзина <b>128</b></div><div class="f">Спам <b>14</b></div></div>
+<div class="main"><div class="head"><span class="ttl">Корзина</span><span class="cnt">128</span><span class="sp"></span><button class="btn danger">Очистить корзину (128)</button></div>
+<div class="rows"><div class="r"><b>Мария Орлова</b><span>Re: Договор поставки — подписанный экземпляр</span></div><div class="r"><b>Склад «Север»</b><span>Накладная № 4471</span></div><div class="r"><b>Бюро путешествий</b><span>Ваш билет на 14 ноября</span></div></div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> видно сразу, как «Отметить все прочитанными»;</li><li><span class="minus">−</span> без меню и клавиши команду не найти в палитре, а в шапке уже кнопки поиска и сортировки.</li></ul></div></div>
+
+<h3 class="v" data-q="1.1" data-variant="Б"><span class="n">1.Б</span> Пункт в контекстном меню папки и в палитре <em>кнопки нет</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app">
+<div class="side"><div class="f">Входящие <b>12</b></div><div class="f">Отправленные</div><div class="f">Черновики <b>3</b></div><div class="f on">Корзина <b>128</b></div><div class="f">Спам <b>14</b></div></div>
+<div class="main"><div class="head"><span class="ttl">Корзина</span><span class="cnt">128</span></div>
+<div class="rows"><div class="r"><b>Мария Орлова</b><span>Re: Договор поставки — подписанный экземпляр</span></div><div class="r"><b>Склад «Север»</b><span>Накладная № 4471</span></div></div></div>
+<div class="menu" style="left:60px; top:112px"><div>Обновить</div><div>Отметить все прочитанными</div><hr><div class="danger hi">Очистить корзину… <kbd>Ctrl+Shift+Del</kbd></div><hr><div>Свойства папки</div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> «меню у письма» и «меню у папки» устроены одинаково, шапка не растёт;</li><li><span class="minus">−</span> без подсказки о существовании кнопки новичок не найдёт команду.</li></ul></div>
+<div class="slot"><div class="win"><div class="app" style="height:150px"><div class="pal" style="left:50px; top:12px"><div class="in">очист</div><div class="it hi"><span>Очистить корзину…</span><kbd>Ctrl+Shift+Del</kbd></div><div class="it"><span>Очистить кэш вложений</span><span></span></div></div></div></div><p class="cap">Палитра: пункт есть только в этих трёх папках.</p></div></div>
+
+<h3 class="v rec" data-q="1.1" data-variant="В"><span class="n">1.В</span> Оба: кнопка в шапке, пункт в меню и в палитре <em>одна команда <code>core.empty-folder</code>, одна клавиша</em></h3>
+<p class="lead">Кнопка и пункт меню вызывают одно и то же; в подсказке кнопки и справа в пункте — клавиша. Шапка из 1.А, меню и палитра из 1.Б. Лишних пунктов нет: всё одно и то же действие, а не три разных.</p>
+
+<h3 class="v rec" data-q="1.2" data-variant="А" data-q-title="Клавиша" data-variants="А,Б,В" data-recommended="А"><span class="n">1.2 А</span> <kbd>Ctrl+Shift+Delete</kbd> <em>одна и та же в трёх папках; <kbd>Delete</kbd> удаляет письма, а то же с <kbd>Shift</kbd> — всю папку</em></h3>
+<h3 class="v" data-q="1.2" data-variant="Б"><span class="n">1.2 Б</span> Без клавиши, только мышь и палитра <em>как у «Обновить»; в палитре можно набрать «очист»</em></h3>
+<h3 class="v" data-q="1.2" data-variant="В"><span class="n">1.2 В</span> Одна буква, например <kbd>x</kbd> <em>свободна, но в этом списке соседи <kbd>e</kbd>, <kbd>s</kbd>, <kbd>u</kbd> — промах опасен, а подтверждение стоит одного нажатия</em></h3>
+
+<!-- ============================ ЭКРАН 2 ============================ -->
+<h2 class="screen">Экран 2. Подтверждение</h2>
+<p class="lead">Очистку нельзя отменить: для Корзины и Спама письма стираются безвозвратно (на EWS — уходят в «Восстанавливаемые элементы», клиентом не достать). Подтверждение нужно в любом варианте. Фокус по умолчанию — на «Отмена», так что случайный <kbd>Enter</kbd> ничего не стирает.</p>
+
+<h3 class="v rec" data-q="2.1" data-variant="А" data-q-title="Подтверждение" data-variants="А,Б,В" data-recommended="А"><span class="n">2.А</span> Диалог с числом писем <em>фокус на «Отмена»; <kbd>Tab</kbd> — на «Стереть»</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:230px">
+<div class="main"><div class="head"><span class="ttl">Корзина</span><span class="cnt">128</span></div><div class="rows"><div class="r"><b>Мария Орлова</b><span>Re: Договор поставки</span></div></div></div>
+<div class="veil"><div class="dlg"><h4>Очистить корзину?</h4><p>Будут стёрты все письма в папке: <b>128</b> (в списке загружено 50). Отменить это нельзя.</p><div class="bt"><button class="btn foc">Отмена</button><button class="btn fill">Стереть 128</button></div></div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> один диалог, как «Закрыть окно с несохранённым письмом»; число даёт понять размер;</li><li><span class="minus">−</span> привычка нажимать «Стереть» не глядя.</li></ul></div></div>
+
+<h3 class="v" data-q="2.1" data-variant="Б"><span class="n">2.Б</span> Ввод подтверждения <em>надо набрать «Стереть» или число</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:230px">
+<div class="veil" style="position:absolute"><div class="dlg"><h4>Очистить корзину?</h4><p>Будет стёрто писем: <b>128</b>. Отменить нельзя. Чтобы продолжить, наберите <b>128</b>.</p><input type="text" value="12" aria-label="число"><div class="bt"><button class="btn foc">Отмена</button><button class="btn dis">Стереть</button></div></div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> защита от «нажал не глядя»;</li><li><span class="minus">−</span> для папки Корзины, которую чистят каждую неделю, тяжело; клавиатуре и «похожее одинаково» не помогает (нигде в приложении так не подтверждают).</li></ul></div></div>
+
+<h3 class="v" data-q="2.1" data-variant="В"><span class="n">2.В</span> Диалог плюс задержка <em>«Очищаю через 5 с · Отменить», как отмена отправки</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:200px">
+<div class="main"><div class="head"><span class="ttl">Корзина</span><span class="cnt">128</span></div></div>
+<div class="toast">Очищаю корзину через 5 с (128 писем) · <a>Отменить</a><div class="bar"></div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> даёт шанс одуматься уже после диалога, совпадает с «Отмена отправки»;</li><li><span class="minus">−</span> два шага подряд; за 5 с письма всё ещё в папке, а читать их никто не будет; команда с задержкой в очереди ящика усложняет выход приложения.</li></ul></div></div>
+
+<!-- ============================ ЭКРАН 3 ============================ -->
+<h2 class="screen">Экран 3. Черновики</h2>
+<p class="lead">В заявке для Черновиков «Очистить» значит перенос в Корзину. Здесь больше всего риска потери: черновик может быть открыт в окне, а его локальная копия может быть единственной.</p>
+
+<h3 class="v" data-q="3.1" data-variant="А" data-q-title="Что делать с черновиками" data-variants="А,Б" data-recommended="Б"><span class="n">3.1 А</span> Удалить совсем <em>как в Корзине: стереть на сервере</em></h3>
+<ul class="pc"><li><span class="plus">+</span> папка действительно пуста;</li><li><span class="minus">−</span> безвозвратно, а черновик — часть работы человека; самая «дорогая» потеря из всех трёх папок.</li></ul>
+<h3 class="v rec" data-q="3.1" data-variant="Б"><span class="n">3.1 Б</span> Перенести в Корзину <em>как в заявке; отмена клавишей <kbd>Z</kbd>, как у обычного удаления</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:240px">
+<div class="veil"><div class="dlg"><h4>Очистить черновики?</h4><p>3 черновика уйдут в Корзину; оттуда их можно вернуть или стереть вместе с остальным.</p><p class="warn">1 открыт в окне письма, 1 копия ещё не на сервере — см. вопросы 3.2 и 3.3.</p><div class="bt"><button class="btn foc">Отмена</button><button class="btn fill">В корзину 3</button></div></div></div>
+</div></div></div></div>
+<p class="cap">Перенос обратим (<kbd>Z</kbd> сразу после, потом — из Корзины), поэтому слов «нельзя отменить» в диалоге нет, остальной вид тот же, что в 2.А.</p>
+
+<h3 class="v rec" data-q="3.2" data-variant="А" data-q-title="Черновик, открытый в окне" data-variants="А,Б,В" data-recommended="А"><span class="n">3.2 А</span> Пропустить открытые <em>черновик в окне письма остаётся в папке; в диалоге строка «1 открыт в окне — останется»</em></h3>
+<h3 class="v" data-q="3.2" data-variant="Б"><span class="n">3.2 Б</span> Взять тоже и оставить окно <em>окно переживёт, но при следующем автосохранении создаст черновик заново: «очистка» вернётся из мёртвых</em></h3>
+<h3 class="v" data-q="3.2" data-variant="В"><span class="n">3.2 В</span> Взять тоже и закрыть окно без сохранения <em>несохранённый набор пропадает: самая плохая из потерь</em></h3>
+
+<h3 class="v rec" data-q="3.3" data-variant="А" data-q-title="Локальные копии, которых нет на сервере" data-variants="А,Б,В" data-recommended="А"><span class="n">3.3 А</span> Копии, связанные с очищаемыми серверными письмами (<code>draft_id</code>), убрать; не связанные оставить <em>в диалоге строка «1 копия ещё не на сервере — останется»; при следующем запуске приложение предложит её восстановить, как обычно</em></h3>
+<h3 class="v" data-q="3.3" data-variant="Б"><span class="n">3.3 Б</span> Убрать все локальные копии <em>папка и диск чисты, но копия, не дошедшая до сервера, пропадает навсегда</em></h3>
+<h3 class="v" data-q="3.3" data-variant="В"><span class="n">3.3 В</span> Флажок в диалоге «Убрать и локальные копии, не дошедшие до сервера (1)» <em>выключен по умолчанию</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:250px">
+<div class="veil"><div class="dlg"><h4>Очистить черновики?</h4><p>3 черновика уйдут в Корзину.</p><div class="chk"><input type="checkbox"><span>Убрать и локальные копии, не дошедшие до сервера (1)</span></div><div class="bt"><button class="btn foc">Отмена</button><button class="btn fill">В корзину 3</button></div></div></div>
+</div></div></div></div>
+
+<table class="risk" style="margin-top:16px"><tr><th>Случай</th><th>Что теряется</th><th>Как защищено в рекомендации</th></tr>
+<tr><td>Черновик открыт в окне, набран, не сохранён</td><td>несохранённый набор</td><td>пропускается (3.2 А)</td></tr>
+<tr><td>Локальная копия, на сервере нет</td><td>единственный экземпляр текста</td><td>остаётся и предлагается к восстановлению (3.3 А)</td></tr>
+<tr><td>Серверный черновик без окна и копии</td><td>ничего: уходит в Корзину</td><td>обратимо, <kbd>Z</kbd> (3.1 Б)</td></tr>
+<tr><td>Черновик, который тем временем сохранило окно после очистки</td><td>возникает снова в папке</td><td>это новая версия, а не воскрешение: окно было пропущено (3.2 А)</td></tr></table>
+
+<!-- ============================ ЭКРАН 4 ============================ -->
+<h2 class="screen">Экран 4. Ход и ошибки</h2>
+<p class="lead">Корзина может быть на тысячи писем, а в списке загружено только окно. Очищаются <b>все письма на сервере</b>, не загруженные в список. Работа идёт в очереди ящика, как удаление, а ход виден в панели задач (<code>Tasks.svelte</code>).</p>
+
+<h3 class="v rec" data-q="4.1" data-variant="А" data-q-title="Ход очистки" data-variants="А,Б" data-recommended="А"><span class="n">4.1 А</span> Задача в панели «Очистка корзины: 340 из 2 100» <em>счётчик папки в боковой панели падает по мере удаления; кнопка «Остановить» оставляет остаток</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:230px">
+<div class="side"><div class="f">Входящие <b>12</b></div><div class="f on">Корзина <b>1 760</b></div></div>
+<div class="main"><div class="head"><span class="ttl">Корзина</span><span class="cnt">1 760</span><span class="sp"></span><button class="btn dis">Очистить корзину</button></div></div>
+<div class="tasks"><b>Очистка корзины</b><div class="pg"><i style="width:16%"></i></div><div class="tt"><span class="m">340 из 2 100</span><a>Остановить</a></div></div>
+</div></div></div></div>
+<p class="cap">Кнопка на время задачи недоступна (повторный запуск не нужен). IMAP умеет стирать одним <code>EXPUNGE</code>, но «340 из 2 100» нужна пачками по 500 UID; EWS — порциями по 100.</p>
+<h3 class="v" data-q="4.1" data-variant="Б"><span class="n">4.1 Б</span> Без хода, только итог <em>«Корзина очищена: 2 100» после конца</em></h3>
+
+<h3 class="v rec" data-q="4.2" data-variant="А" data-q-title="Ошибка посередине" data-variants="А,Б" data-recommended="А"><span class="n">4.2 А</span> Остановиться, оставить сделанное, показать итог и «Повторить» <em>вернуть стёртое нельзя, поэтому и не пытаемся</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:190px">
+<div class="tasks" style="left:10px;right:auto"><b>Очистка корзины</b> <span class="pill bad">ошибка</span><div class="pg err"><i style="width:57%"></i></div><div class="tt"><span class="e">Стёрто 1 200 из 2 100. Сервер ответил: превышено время ожидания.</span></div><div class="tt"><span class="m">Осталось 900</span><a>Повторить</a></div></div>
+</div></div></div></div>
+<h3 class="v" data-q="4.2" data-variant="Б"><span class="n">4.2 Б</span> Молча повторить до трёх раз и только потом сообщить <em>папка могла уже частично опустеть, пользователь не узнаёт сразу</em></h3>
+
+<h3 class="v rec" data-q="4.3" data-variant="А" data-q-title="Офлайн" data-variants="А,Б" data-recommended="А"><span class="n">4.3 А</span> Команда недоступна, подсказка «Нет соединения» <em>как у других серверных команд; в очередь не ставим</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:140px">
+<div class="main"><div class="ban">Нет соединения с сервером</div><div class="head"><span class="ttl">Корзина</span><span class="cnt">128</span><span class="sp"></span><button class="btn dis" title="Нет соединения">Очистить корзину (128)</button></div></div>
+</div></div></div></div>
+<h3 class="v" data-q="4.3" data-variant="Б"><span class="n">4.3 Б</span> Поставить в очередь ящика и выполнить при появлении сети <em>безвозвратное действие откладывается на неопределённое время: к тому времени в Корзину могло прийти то, что человек не собирался стирать</em></h3>
+
+<h3 class="v rec" data-q="4.4" data-variant="А" data-q-title="Счётчики после очистки" data-variants="А,Б" data-recommended="А"><span class="n">4.4 А</span> Сразу обнулить, потом сверить синхронизацией папки <em>как после <code>Work::Delete</code>: <code>sync_one</code> и событие <code>counters-changed</code>; итог в тосте «Корзина очищена: 128»</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:170px">
+<div class="side"><div class="f">Входящие <b>12</b></div><div class="f on">Корзина</div></div>
+<div class="main"><div class="head"><span class="ttl">Корзина</span><span class="cnt">0</span></div><div class="rows"><div class="empty">В папке нет писем</div></div></div>
+<div class="toast">Корзина очищена: 128</div>
+</div></div></div></div>
+<h3 class="v" data-q="4.4" data-variant="Б"><span class="n">4.4 Б</span> Менять счётчик только после ответа сервера <em>точнее, но в большой папке число висит минуту</em></h3>
+
+<!-- ============================ ЭКРАН 5 ============================ -->
+<h2 class="screen">Экран 5. Спам</h2>
+<p class="lead">Спам иногда съедает нужное письмо. Вопрос, давать ли шанс заметить это перед стиранием.</p>
+
+<h3 class="v rec" data-q="5.1" data-variant="А" data-q-title="Спам: спрашивать про «это не спам»" data-variants="А,Б" data-recommended="А"><span class="n">5.А</span> Просто очистить, как Корзину <em>тот же диалог 2.А, без лишних шагов</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:210px">
+<div class="veil"><div class="dlg"><h4>Очистить спам?</h4><p>Будут стёрты все письма в папке: <b>14</b>. Отменить это нельзя.</p><div class="bt"><button class="btn foc">Отмена</button><button class="btn fill">Стереть 14</button></div></div></div>
+</div></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> единообразие, никаких лишних экранов; спам смотрят в папке без нас;</li><li><span class="minus">−</span> случайное письмо может пропасть.</li></ul>
+<h3 class="v" data-q="5.1" data-variant="Б"><span class="n">5.Б</span> Показать отправителей в диалоге со ссылкой «Не спам…» <em>короткий список из отправителей; по ссылке письмо возвращается во «Входящие»</em></h3>
+<div class="cols"><div class="slot wide"><div class="win"><div class="app" style="height:270px">
+<div class="veil"><div class="dlg" style="width:410px"><h4>Очистить спам?</h4><p>Будут стёрты все письма в папке: <b>14</b>. Отменить нельзя.</p><div class="rows" style="border:1px solid var(--line);border-radius:6px;margin-top:6px"><div class="r"><b>Акция-Плюс</b><span>Только сегодня −70%</span><a style="margin-left:auto;white-space:nowrap">Не спам</a></div><div class="r"><b>Игорь Лавров</b><span>Re: смета на ремонт</span><a style="margin-left:auto;white-space:nowrap">Не спам</a></div><div class="sep">ещё 12</div></div><div class="bt"><button class="btn foc">Отмена</button><button class="btn fill">Стереть 14</button></div></div></div>
+</div></div></div></div>
+<ul class="pc"><li><span class="plus">+</span> страховка от потери нужного;</li><li><span class="minus">−</span> диалог становится экраном; тот, кто хочет просмотреть, и так откроет папку; нужен ещё и спам-фильтр «Не спам» для письма — другая заявка.</li></ul>
+
+<!-- ============================ ВОПРОСЫ ============================ -->
+<h2 class="screen">Вопросы</h2>
+<table class="q">
+<tr><th>Тема</th><th>№</th><th>Вопрос, варианты и рекомендация</th></tr>
+<tr data-q="1.1" data-q-title="Где команда" data-variants="А,Б,В" data-recommended="В"><td><b>Место</b></td><td class="n">1.1</td><td><b>А</b> кнопка в шапке только в трёх папках; <b>Б</b> пункт в меню папки и палитре; <b>В</b> оба. <i>Рекомендую В</i>: кнопка видна, меню и палитра дают клавиатурный путь; это одна команда, а не три.</td></tr>
+<tr data-q="1.2" data-q-title="Клавиша" data-variants="А,Б,В" data-recommended="А"><td><b>Клавиша</b></td><td class="n">1.2</td><td><b>А</b> Ctrl+Shift+Delete; <b>Б</b> без клавиши; <b>В</b> одна буква (<kbd>x</kbd>). <i>Рекомендую А</i>: свободна по <code>keyCommands.ts</code>, смысл «Delete, но всё» и промах невозможен.</td></tr>
+<tr data-q="2.1" data-q-title="Подтверждение" data-variants="А,Б,В" data-recommended="А"><td><b>Подтверждение</b></td><td class="n">2.1</td><td><b>А</b> диалог с числом, фокус на «Отмена»; <b>Б</b> ввод числа; <b>В</b> диалог плюс задержка 5 с. <i>Рекомендую А</i>: Б утомляет при частой чистке, В — два шага подряд.</td></tr>
+<tr data-q="3.1" data-q-title="Что делать с черновиками" data-variants="А,Б" data-recommended="Б"><td><b>Черновики</b></td><td class="n">3.1</td><td><b>А</b> стереть совсем; <b>Б</b> в Корзину. <i>Рекомендую Б</i>: как в заявке, обратимо и без потери.</td></tr>
+<tr data-q="3.2" data-q-title="Черновик, открытый в окне" data-variants="А,Б,В" data-recommended="А"><td><b>Открытое окно</b></td><td class="n">3.2</td><td><b>А</b> пропустить; <b>Б</b> взять, окно останется; <b>В</b> взять и закрыть окно. <i>Рекомендую А</i>: набранное не теряется, диалог говорит, что осталось.</td></tr>
+<tr data-q="3.3" data-q-title="Локальные копии, которых нет на сервере" data-variants="А,Б,В" data-recommended="А"><td><b>Локальные копии</b></td><td class="n">3.3</td><td><b>А</b> связанные убрать, несвязанные оставить; <b>Б</b> убрать все; <b>В</b> флажок в диалоге. <i>Рекомендую А</i>: единственный экземпляр текста не стираем без явной просьбы; если хочется стереть, пусть будет флажок (В) позже.</td></tr>
+<tr data-q="4.1" data-q-title="Ход очистки" data-variants="А,Б" data-recommended="А"><td><b>Ход</b></td><td class="n">4.1</td><td><b>А</b> задача в панели с «из N» и «Остановить»; <b>Б</b> без хода. <i>Рекомендую А</i>: в большой папке иначе непонятно, идёт ли дело.</td></tr>
+<tr data-q="4.2" data-q-title="Ошибка посередине" data-variants="А,Б" data-recommended="А"><td><b>Ошибка</b></td><td class="n">4.2</td><td><b>А</b> остановиться, показать итог, «Повторить»; <b>Б</b> молча повторять. <i>Рекомендую А</i>: стёртое не вернуть, человек должен знать, что осталось.</td></tr>
+<tr data-q="4.3" data-q-title="Офлайн" data-variants="А,Б" data-recommended="А"><td><b>Офлайн</b></td><td class="n">4.3</td><td><b>А</b> команда недоступна; <b>Б</b> в очередь. <i>Рекомендую А</i>: безвозвратное действие не откладываем.</td></tr>
+<tr data-q="4.4" data-q-title="Счётчики после очистки" data-variants="А,Б" data-recommended="А"><td><b>Счётчики</b></td><td class="n">4.4</td><td><b>А</b> сразу обнулить и сверить синхронизацией; <b>Б</b> после ответа сервера. <i>Рекомендую А</i>: так же работает обычное удаление.</td></tr>
+<tr data-q="5.1" data-q-title="Спам: спрашивать про «это не спам»" data-variants="А,Б" data-recommended="А"><td><b>Спам</b></td><td class="n">5.1</td><td><b>А</b> просто очистить; <b>Б</b> показать отправителей и «Не спам» в диалоге. <i>Рекомендую А</i>: единообразие и без лишних экранов; «Не спам» — отдельная функция.</td></tr>
+</table>
+</div>
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+@media (max-width: 1099px) { html.mk-open body { margin-right: 0; } }
+html.mk-noting, html.mk-noting * { cursor: crosshair !important; }
+html.mk-noting .mk-panel, html.mk-noting .mk-panel *, html.mk-noting .mk-tab { cursor: default !important; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var PANEL_W = 372, NARROW = 1100; // уже NARROW панель лежит поверх страницы и по умолчанию свёрнута
+  var S = { a: {}, n: [], open: innerWidth >= NARROW };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; if (typeof d.open === "boolean") S.open = d.open; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var pinBtn = h("button", { type: "button", title: "Поставить заметку: следующий щелчок по макету (клавиша N)" }, "📌 Заметка");
+    pinBtn.addEventListener("click", function () { setNoting(!noting); });
+    noteBtn = pinBtn;
+    head.appendChild(pinBtn);
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>N</kbd> или «📌 Заметка», затем щелчок по макету (или <kbd>Alt</kbd>+щелчок) — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    shiftFixed();
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  // Элементы макета с position:fixed и right в px (верхние панели переключателей) сдвигаются вместе со страницей.
+  // Макеты шире свободного места (.doc: 1180 и 1400 px): содержимое масштабируется (zoom у детей body), чтобы правый край не уходил под панель.
+  var shifted = [], zoomed = [];
+  function shiftFixed() {
+    var on = S.open && innerWidth >= NARROW, z = 1;
+    shifted.forEach(function (s) { s.el.style.right = s.orig; });
+    shifted = [];
+    zoomed.forEach(function (el) { el.style.zoom = ""; });
+    zoomed = [];
+    if (!on) return;
+    var free = innerWidth - PANEL_W, need = doc.documentElement.scrollWidth;
+    if (need > free) {
+      z = Math.max(0.5, free / need);
+      Array.prototype.slice.call(doc.body.children).forEach(function (el) {
+        if (el.hasAttribute("data-mk") || /^(SCRIPT|STYLE)$/.test(el.tagName)) return;
+        el.style.zoom = String(z); zoomed.push(el);
+      });
+      layout();
+    }
+    $$("body *").forEach(function (el) {
+      if (el.closest("[data-mk]")) return;
+      var cs = getComputedStyle(el);
+      if (cs.position !== "fixed") return;
+      var r = parseFloat(cs.right);
+      if (isNaN(r) || r > 100) return; // только прижатые к правому краю
+      shifted.push({ el: el, orig: el.style.right });
+      el.style.right = (r + PANEL_W / z) + "px";
+    });
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyN" || e.key === "n" || e.key === "т")) {
+      e.preventDefault(); setNoting(!noting); return;
+    }
+    if (e.key === "Escape" && noting) { e.preventDefault(); setNoting(false); return; }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  var noting = false, noteBtn = null;
+  function setNoting(v) {
+    noting = v;
+    doc.documentElement.classList.toggle("mk-noting", v);
+    if (noteBtn) noteBtn.setAttribute("aria-pressed", v ? "true" : "false");
+    if (v) toast("Щелкните по макету, чтобы поставить заметку · Esc — отмена");
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (noting && e.key === "Escape" && !(pop && pop.contains(e.target))) { e.preventDefault(); e.stopPropagation(); setNoting(false); }
+  }, true);
+  doc.addEventListener("click", function (e) {
+    if ((!e.altKey && !noting) || !e.target.closest || e.target.closest("[data-mk]")) return;
+    setNoting(false);
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Кнопка «📌 Заметка» или N, затем щелчок по макету (или Alt+щелчок).")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы · " + done + "/" + total;
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", function () { layout(); shiftFixed(); });
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(function () { layout(); shiftFixed(); }, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
+</body>
+</html>
