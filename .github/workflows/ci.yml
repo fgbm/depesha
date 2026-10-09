@@ -51,12 +51,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: docker compose -f compose.test.yaml up -d
       - name: Wait for servers
-        run: |
-          for _ in $(seq 60); do
-            python3 -c "import imaplib; imaplib.IMAP4('127.0.0.1', 3143).logout(); imaplib.IMAP4('127.0.0.1', 31143).logout()" 2>/dev/null && exit 0
-            sleep 1
-          done
-          exit 1
+        run: python3 scripts/wait-stand.py
       - run: DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
 
   e2e:

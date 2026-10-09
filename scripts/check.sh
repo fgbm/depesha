@@ -123,14 +123,18 @@ if [[ "${1:-}" == "--fast" ]]; then
   exit 0
 fi
 
+# The build needs no stand, so it goes before the lock and does not hold the others up.
+step "сборка для E2E"
+npx tauri build --debug --no-bundle --features e2e
+
 # One stand for every worktree and agent (ports 3025/3143/…, WebDriver 4444/4445): wait for a
 # run that holds it. e2e/run.mjs started by hand takes the same lock itself.
 step "стенд"
 lock="${DEPESHA_STAND_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock}"
 exec 9>"$lock"
 if ! flock -n 9; then
-  echo "стенд занят, жду… ($lock)"
-  flock 9
+  echo "стенд занят, жду до часа… ($lock)"
+  flock -w 3600 9 || { echo "стенд не освободился за час ($lock)" >&2; exit 1; }
 fi
 export DEPESHA_STAND_LOCKED=1
 
@@ -143,8 +147,9 @@ stand_up() {
 step "GreenMail"
 stand_up
 step "integration tests"
-# Full parallelism drops dozens of TLS sessions against one Dovecot at once.
-DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot -- --test-threads=4
+# Full parallelism drops dozens of TLS sessions against one Dovecot at once. 9>&-: a sccache
+# server started by cargo here must not inherit the lock's descriptor and keep the lock alive.
+DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot -- --test-threads=4 9>&-
 
 step "E2E"
 stand_up
@@ -154,5 +159,4 @@ for i in $(seq 10); do
   [[ $i == 10 ]] && { echo "seed failed"; exit 1; }
   sleep 2
 done
-npx tauri build --debug --no-bundle --features e2e
 e2e/keyring.sh node e2e/run.mjs

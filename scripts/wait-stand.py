@@ -14,26 +14,26 @@ ctx.verify_mode = ssl.CERT_NONE
 
 
 def greenmail_plain():
-    c = imaplib.IMAP4(HOST, 3143)
+    c = imaplib.IMAP4(HOST, 3143, timeout=5)
     c.login("alice", "secret")
     c.logout()
 
 
 def greenmail_tls():
-    c = imaplib.IMAP4_SSL(HOST, 3993, ssl_context=ctx)
+    c = imaplib.IMAP4_SSL(HOST, 3993, ssl_context=ctx, timeout=5)
     c.login("alice", "secret")
     c.logout()
 
 
 def dovecot_starttls():
-    c = imaplib.IMAP4(HOST, 31143)
+    c = imaplib.IMAP4(HOST, 31143, timeout=5)
     c.starttls(ssl_context=ctx)
     c.login("alice", "secret")
     c.logout()
 
 
 def dovecot_tls():
-    c = imaplib.IMAP4_SSL(HOST, 31993, ssl_context=ctx)
+    c = imaplib.IMAP4_SSL(HOST, 31993, ssl_context=ctx, timeout=5)
     c.login("alice", "secret")
     c.logout()
 

@@ -29,8 +29,12 @@ if (!process.env.DEPESHA_STAND_LOCKED) {
   // 200: flock's own "busy" code (-E), so it cannot be taken for the run's exit code.
   let done = again(["-n", "-E", "200"]);
   if (done.status === 200) {
-    console.log(`стенд занят, жду… (${lock})`);
-    done = again([]);
+    console.log(`стенд занят, жду до часа… (${lock})`);
+    done = again(["-w", "3600", "-E", "200"]);
+    if (done.status === 200) {
+      console.error(`стенд не освободился за час (${lock}): прогон не начат`);
+      process.exit(1);
+    }
   }
   if (done.error) throw done.error;
   process.exit(done.status ?? 1);
@@ -88,10 +92,23 @@ const step = createStepRunner({ screenshot, tidyUp, log: console.log, results, r
 
 /** Closes what a failed step left open (menus, the viewer, dialogs): it would cover the next step's clicks. */
 async function tidyUp() {
+  // Like closeSettings(): the settings window and the search box listen on themselves, not on
+  // the window, so the key starts at the window element or at the focused one.
   for (let i = 0; i < 3; i++) {
-    await press("Escape").catch(() => {});
+    await d
+      .exec(
+        `const t = document.querySelector('.modal.prefs') ?? document.activeElement ?? document.body;
+         t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));`,
+      )
+      .catch(() => {});
     await new Promise((r) => setTimeout(r, 100));
   }
+}
+
+/** DEPESHA_E2E_FAIL_FIRST=6.4,7.21: the first try of these steps fails after the input (a test of the retry). */
+const failFirst = new Set((process.env.DEPESHA_E2E_FAIL_FIRST ?? "").split(",").filter(Boolean));
+function injectFailure(id) {
+  if (failFirst.delete(id)) throw new Error(`DEPESHA_E2E_FAIL_FIRST: ${id}`);
 }
 
 async function rowBySubject(subject, timeoutMs = 15000) {
@@ -401,7 +418,7 @@ try {
     await d.button("На сервере");
     await rowBySubject("Quarterly report archive", 20000);
     await d.type(box, "\uE00C");
-  }, { retry: true });
+  });
 
   await step("3.4", "первая синхронизация: свежие письма сразу, старые — при прокрутке", async () => {
     await rowBySubject("Счёт за октябрь", 30000);
@@ -1451,8 +1468,10 @@ try {
 
   await step("6.4", "поиск по тексту открытых писем, по-русски", async () => {
     const box = await d.find(".list .search input");
+    await d.clear(box);
     await d.click(box);
     await d.type(box, "пятниц");
+    injectFailure("6.4");
     await d.until("search results", async () => {
       const t = await textOf(".list");
       return t.includes("Счёт за октябрь") && t.includes("Счёт на оплату");
@@ -2141,7 +2160,9 @@ try {
     if (!box.sym) throw new Error("окно настроек не по центру по ширине");
     // The search over the settings sits above the menu of pages (#68).
     if (!(await d.findAll(".prefs .psearch .q")).length) throw new Error("нет поля «Найти настройку»");
+    await d.clear(await d.find(".prefs .psearch .q"));
     await d.type(await d.find(".prefs .psearch .q"), "markdown");
+    injectFailure("7.21");
     await d.until("results", async () => (await d.findAll(".prefs .rlist .hit")).length > 0);
     const found = await textOf(".prefs .content.results");
     if (!found.includes("Формат новых писем")) throw new Error(`по «markdown» не нашёлся «Формат новых писем»: ${found}`);
