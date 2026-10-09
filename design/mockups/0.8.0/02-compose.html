@@ -65,6 +65,34 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid #b5ae9f; bord
 .win header { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--paper-2); flex: none; }
 .win header .ttl { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .win header .hb { color: var(--muted); font-size: 14px; padding: 0 5px; }
+/* ящик в заголовке (1.1 Б): фон — 14% цвета ящика, как строка «От» у плагина account-color (Compose.svelte, .from-row::before) */
+.win header.tint { background: color-mix(in srgb, var(--row-tint) 14%, var(--paper-2)); }
+.win header.tint .hb { color: color-mix(in srgb, var(--ink) 72%, transparent); }
+.win header .ttl.empty { color: var(--muted); font-weight: 400; }
+.win header .hdbox { flex: none; cursor: pointer; background: color-mix(in srgb, var(--row-tint) 14%, var(--paper)); border-color: color-mix(in srgb, var(--row-tint) 40%, var(--line)); font-weight: 400; }
+.win header .hdbox.open { outline: 2px solid var(--link); }
+.win header .hdbox .dot { width: 9px; height: 9px; background: var(--row-tint); }
+.win header.two { flex-direction: column; align-items: stretch; gap: 2px; height: auto; padding: 6px 8px 6px 12px; }
+.win header.two .h1 { display: flex; align-items: flex-start; gap: 6px; }
+.win header.two .ttl { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.win header.two .h2 { display: flex; }
+.subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop .nt.cl { position: relative; padding-right: 26px; }
+.pop .nt .ntx { position: absolute; right: 4px; top: 2px; width: 18px; height: 18px; line-height: 17px; text-align: center; border-radius: 4px; cursor: pointer; color: var(--muted); font-size: 14px; }
+.pop .nt .ntx:hover { background: var(--hover); color: var(--ink); }
+.setfrag { width: 430px; background: #faf7f1; color: #1d232b; border-radius: 10px; padding: 12px 16px 14px; box-shadow: 0 0 0 1px rgb(0 0 0 / 10%); font-size: 13px; }
+.setfrag .crumb { color: #6b7480; font-size: 12px; margin-bottom: 8px; }
+.setfrag h4 { margin: 0 0 6px; font-size: 14px; padding-bottom: 4px; border-bottom: 1px solid #e4ddcf; }
+.setfrag .sr { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+.setfrag .sr .lb { flex: 1; }
+.setfrag .sr small { display: block; color: #6b7480; font-size: 12px; margin-top: 2px; }
+.setfrag .sw { width: 34px; height: 20px; border-radius: 10px; background: #cfc9be; position: relative; cursor: pointer; flex: none; border: 0; padding: 0; }
+.setfrag .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .12s; }
+.setfrag .sw.on { background: #b3261e; } .setfrag .sw.on::after { left: 16px; }
+.setfrag .sw:focus-visible { outline: 2px solid #1f5fa8; outline-offset: 2px; }
+table.ct { border-collapse: collapse; font-size: 12.5px; background: #faf7f1; }
+table.ct th, table.ct td { border: 1px solid #ddd5c4; padding: 4px 10px; text-align: left; }
+table.ct td.f { color: #b3261e; font-weight: 700; } table.ct td.p { color: #2e7d4f; }
 .panel { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow-y: auto; }
 .fields { flex: none; }
 .row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 3px 12px; border-bottom: 1px solid var(--line); position: relative; }
@@ -182,8 +210,21 @@ table.k th { background: #ece8e1; }
 <p class="lead">Общее для всех вариантов: <b>Копия</b> не бывает двойной высоты — адреса идут в одну строку, лишние сворачиваются в «+N» (в «Сейчас» одиночный адрес даёт полосу 52 px). Пустые Копия и Скрытая свёрнуты; открываются ссылкой справа от «Кому» или клавишей. Если в черновике уже есть Копия или Скрытая — поле открыто сразу (как нынешнее <code>showCc</code>). Переключатели: <b>ящиков</b> 1 (ящик очевиден или выбран по контексту) или 3 (выбор нужен); <b>Копия</b>: пусто / 1 адрес.</p>
 <div class="row3 theme" id="s1"></div>
 <h3 data-q="1.1" data-variant="А" class="v"><span class="n">1А</span>«Кому» + ссылки «Копия, Скрытая»; «От» — строка только когда ящиков больше одного <em>(строки: Кому, Копия и Скрытая раздельно — по одной, по клавише)</em></h3>
-<h3 data-q="1.1" data-variant="Б" class="v rec"><span class="n">1Б</span>«От» — в заголовке окна («Re: Смета · от anna@example.com ▾»), никогда не отдельная строка <em>(самое короткое; выбор ящика — клик или <kbd>Alt</kbd>+<kbd>M</kbd>)</em></h3>
+<h3 data-q="1.1" data-variant="Б" class="v rec"><span class="n">1Б</span>«От» — в заголовке окна («Re: Смета  ● anna ▾», фон — 14% цвета ящика), никогда не отдельная строка <em>(самое короткое; выбор ящика — клик или <kbd>Alt</kbd>+<kbd>M</kbd>)</em></h3>
 <h3 data-q="1.3" data-variant="Б" class="v"><span class="n">1В</span>Как 1А, но Копия и Скрытая, когда открыты обе, делят одну строку пополам <em>(на строку меньше, но половина ширины на поле)</em></h3>
+
+<h2 class="screen">Экран 1а. Заголовок: ящик с цветом и длинная тема (1.4)</h2>
+<div class="ctx"><b>Решение 1.1 Б: «От» живёт в заголовке окна.</b> Оператор: «плагин подсветки надо изменить тоже, применив его к заголовку окна. Что если тема очень длинная?» Плагин <code>account-color</code> (<code>plugins/account-color/FromTint.svelte</code>) ставит на строку «От» переменную <code>--row-tint</code> с цветом ящика (<code>compose.accountColor()</code>), а ядро (<code>Compose.svelte</code>, <code>.row.from-row::before</code>) рисует слой: <code>color-mix(in srgb, var(--row-tint) 14%, transparent)</code> на всю ширину строки. Так же поступаем с заголовком: плагин ставит <code>--row-tint</code> на заголовок окна (слот «заголовок» вместо «from»), фон заголовка — те же 14% цвета ящика; у метки ящика — цветная точка. Строки «От» нет вовсе, так что слой переезжает целиком. Плагин выключен по умолчанию (<code>defaultOff</code>), без него заголовок остаётся бумажным.<br>
+Окна ниже живые. Тема: обычная, очень длинная, пустая («Новое письмо»); ящик меняется щелчком по метке или <kbd>Alt</kbd>+<kbd>M</kbd> (меню: <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd>, <kbd>Esc</kbd>); ширина 640 и 480 px (проверка на запас). Кнопки окна («–», «▢», «×») остаются на месте при любой теме.</div>
+<div class="row3 theme" id="s1a"></div>
+<h3 data-q="1.4" data-variant="А" class="v rec"><span class="n">1.4А</span>Тема обрезается многоточием; метка ящика («● anna ▾») справа, не сжимается <em>(полная тема — всплывающая подсказка заголовка и поле «Тема»; полный адрес — подсказка метки)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> метка всегда на одном месте и узнаётся по цвету и имени; самый простой код</li><li><span class="minus">−</span> метка отнимает около 70 px у темы; в окне 480 px видно ~18 знаков темы</li></ul>
+<h3 data-q="1.4" data-variant="Б" class="v"><span class="n">1.4Б</span>Метка сжимается до «● A ▾» (цвет и первая буква), когда тема длиннее 48 знаков или окно уже 560 px <em>(у короткой темы — как А)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> теме достаётся на ~40 px больше именно тогда, когда она не помещается</li><li><span class="minus">−</span> вид метки «прыгает» от темы; две ящика на одну букву неразличимы по тексту, остаётся цвет</li></ul>
+<h3 data-q="1.4" data-variant="В" class="v"><span class="n">1.4В</span>Заголовок в две строки: сверху тема (до 2 строк), снизу «От anna@example.com ▾» — только когда окно на весь экран <em>(в окне 640 работает как А)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> тема и полный адрес читаются целиком, когда места много</li><li><span class="minus">−</span> две раскладки заголовка; на весь экран она нужна реже всего — там тема и так помещается</li></ul>
+<p class="lead"><b>Контраст заголовка</b> (14% цвета ящика на фоне заголовка; норма WCAG AA для текста 4,5 : 1; считает страница):</p>
+<table class="ct" id="contrast"></table>
 
 <h2 class="screen">Экран 2. Вложения</h2>
 <p class="lead">Тексту гарантирована минимальная высота (в макете 140 px; <code>--mint</code>): если полос слишком много, прокручивается вся панель окна, а не поле текста сжимается до нуля. Под каждым живым окном — миниатюры при 1, 3, 8 и 20 файлах с долей высоты под текст. Переключатель «Файлов» меняет живое окно.</p>
@@ -207,7 +248,7 @@ table.k th { background: #ece8e1; }
 <h3 data-q="3.2" data-variant="Б" class="v"><span class="n">3Г</span>Тот же вид, что 3А, но кнопка формата — слева на панели оформления, в нижней её нет <em>(вопрос 3.2)</em></h3>
 
 <h2 class="screen">Экран 4. Сборка</h2>
-<p class="lead">Рекомендация: <b>1Б + 2В + 3А</b>. Сверху слева — «Сейчас» (для сравнения), рядом — «После». Ответ с цитатой (раскрыта по <kbd>Alt</kbd>+<kbd>Q</kbd>), 8 вложений. Окна живые; доля под текст — под каждым.</p>
+<p class="lead">Решение оператора (4.2): <b>1Б + 2А + 3А</b>; на весь экран вложения — <b>2Б</b> (по 2.1). Без подписей клавиш у ссылок «Копия» и «Скрытая» (1.2 А). Слева — «Сейчас» (для сравнения), рядом — «После». Ответ с цитатой (раскрыта по <kbd>Alt</kbd>+<kbd>Q</kbd>), 8 вложений. Окна живые; доля под текст — под каждым.</p>
 <div class="theme" id="s4"></div>
 
 <h2 class="screen">Экран 5. Срок напоминания: то же меню, что «Отложить»</h2>
@@ -216,11 +257,15 @@ table.k th { background: #ece8e1; }
 <b>Как они ложатся в новое меню (вопрос 4.4, вариант А):</b> «через день / 3 дня / неделю» — вводом «через 3 дня»; сохранённые, «до срока» и повтор остаются за пунктом «Настроить…» (та же форма). «Без напоминания» — отдельный пункт внизу. Выбранный из меню срок — абсолютная дата, а не «через N от отправки»: если письмо уйдёт позже, срок не сдвигается.</div>
 <div class="row3 theme" id="s5"></div>
 
+<h2 class="screen">Экран 6. Пояснение «Уйдёт тремя частями…»: закрыть и вернуть (3.3 А)</h2>
+<p class="lead">Решение 3.3 А: пояснение остаётся в меню формата. Добавлен <b>лёгкий крестик «×»</b> в углу пояснения: щёлкнули — оно исчезает и больше не показывается. Включается обратно в <b>Настройки → Вид и язык → группа «Подсказки»</b> (по решениям #102: 2.2 А «Подсказки» — в раздел с программными переключателями; в <code>01-settings.html</code> это экран «Вид и язык» раскладки 2.В) отдельной строкой под «Показывать подсказки» с подписью «Пояснение про три части письма в меню формата». Окно и переключатель связаны: закройте пояснение в меню и верните в настройках.</p>
+<div class="row3 theme" id="s6"></div>
+
 <h2 class="screen">Клавиатура</h2>
 <p class="lead">Принципы: всё с клавиатуры; похожее устроено одинаково; без лишних пунктов. Единая схема: <kbd>Alt</kbd>+буква <b>открывает/раскрывает</b> нужное, внутри — <kbd>↑</kbd><kbd>↓</kbd> (или <kbd>←</kbd><kbd>→</kbd> по строке) — переход, <kbd>Enter</kbd> — выбрать, <kbd>Delete</kbd> — убрать, <kbd>Esc</kbd> — закрыть и вернуть фокус в текст. Сочетания условные: при реализации сверю с <code>keymap.ts</code> на конфликты. Попробуйте на любом окне выше.</p>
 <table class="k">
 <tr><th>Действие</th><th>Клавиши</th><th>Одинаково с…</th></tr>
-<tr><td>Показать/скрыть Копию, Скрытую</td><td><kbd>Alt</kbd>+<kbd>C</kbd>, <kbd>Alt</kbd>+<kbd>B</kbd> — раскрывает поле и ставит в него курсор; повторно (при пустом поле) — сворачивает</td><td>ссылки «Копия Alt+C» подписаны</td></tr>
+<tr><td>Показать/скрыть Копию, Скрытую</td><td><kbd>Alt</kbd>+<kbd>C</kbd>, <kbd>Alt</kbd>+<kbd>B</kbd> — раскрывает поле и ставит в него курсор; повторно (при пустом поле) — сворачивает</td><td>клавиши не подписаны в интерфейсе (1.2 А: «это шум»); см. таблицу и подсказки</td></tr>
 <tr><td>Выбрать ящик «От»</td><td><kbd>Alt</kbd>+<kbd>M</kbd> — меню ящиков</td><td>меню формата и напоминания</td></tr>
 <tr><td>Пройти по вложениям, удалить</td><td><kbd>Alt</kbd>+<kbd>A</kbd> — фокус на список; <kbd>↑</kbd><kbd>↓</kbd> — по файлам; <kbd>Delete</kbd> — убрать выбранный; <kbd>Esc</kbd> — назад в текст; <kbd>Enter</kbd> без списка — добавить файлы (кнопка «Файлы»)</td><td>как список писем: стрелки + Delete</td></tr>
 <tr><td>Раскрыть/скрыть цитату</td><td><kbd>Alt</kbd>+<kbd>Q</kbd></td><td>тот же щелчок по строке</td></tr>
@@ -232,13 +277,12 @@ table.k th { background: #ece8e1; }
 
 <div class="qs theme" style="color:#1d232b">
 <h2>Решено</h2>
-<ul>
-<li>Срок напоминания задаётся тем же меню, что «Отложить» (#95).</li>
-</ul>
+<p>Решения оператора по этому макету записаны в <code>decisions.md</code>, раздел «Окно письма (#103)». Остался открытым один вопрос — 1.4.</p>
 <h2>Вопросы</h2>
 <table class="k">
 <tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
 <tr data-q="1.1" data-q-title="Где «От» (выбор ящика)" data-variants="А,Б,В" data-recommended="Б"><td>1.1</td><td>Где «От» (выбор ящика)</td><td>А. Отдельная строка, только если ящиков больше одного.<br>Б. Подпись в заголовке окна «от anna@example.com ▾», строки нет никогда.<br>В. Как А, но в одну строку с «Кому».</td><td><b>Б.</b> Ящик в 90% писем очевиден (по контексту), строка не нужна; цвет ящика (0.6.2) остаётся рядом с адресом в заголовке. Смена — клик или <kbd>Alt</kbd>+<kbd>M</kbd>.</td></tr>
+<tr data-q="1.4" data-q-title="Заголовок окна: длинная тема и метка ящика" data-variants="А,Б,В" data-recommended="А"><td>1.4</td><td>Заголовок окна: длинная тема и метка ящика (после 1.1 Б)</td><td>А. Тема с «…», метка ящика справа не сжимается.<br>Б. Метка сжимается до цветной точки с буквой, когда темы много.<br>В. Две строки в заголовке — только на весь экран.</td><td><b>А.</b> Метка на одном месте, цвет и имя ящика всегда видны, код проще; полная тема — в подсказке и в поле «Тема». Б добавляет «прыгающий» вид, В — вторую раскладку заголовка ради редкого режима.</td></tr>
 <tr data-q="1.2" data-q-title="Как раскрывать Копию и Скрытую" data-variants="А,Б,В" data-recommended="А"><td>1.2</td><td>Как раскрывать Копию и Скрытую</td><td>А. Две ссылки справа от «Кому» + <kbd>Alt</kbd>+<kbd>C</kbd>/<kbd>B</kbd>.<br>Б. Одна ссылка «Копия/Скрытая», раскрывает оба поля.<br>В. Только клавиши, без ссылок.</td><td><b>А.</b> Скрытая нужна реже Копии: открывать оба поля ради одного — лишняя полоса. Ссылки подписаны клавишей, значит учатся сами.</td></tr>
 <tr data-q="1.3" data-q-title="Копия и Скрытая, когда открыты обе" data-variants="А,Б" data-recommended="А"><td>1.3</td><td>Копия и Скрытая, когда открыты обе</td><td>А. Две строки по 30 px.<br>Б. Одна строка пополам.</td><td><b>А.</b> Адресов в Копии обычно несколько, половинная ширина обрежет их; Скрытая открыта редко, потеря 30 px не страшна.</td></tr>
 <tr data-q="2.1" data-q-title="Вложения" data-variants="А,Б,В" data-recommended="В"><td>2.1</td><td>Вложения</td><td>А. Одна строка чипов + «+N ещё ›».<br>Б. Полоса до 2 строк со своей прокруткой.<br>В. Счётчик «📎 8» на кнопке «Файлы» + выпадающий список.</td><td><b>В.</b> Высота текста не зависит от вложений вообще, список устроен как остальные меню. Если нужны видимые имена — А.</td></tr>
@@ -365,6 +409,8 @@ table.k th { background: #ece8e1; }
     return true;
   }
   var BOXES = ["anna@example.com", "sales@example.com", "boris@example.org"];
+  var BCOL = ["#3f7cc4", "#c77d1a", "#2e7d4f"]; /* цвет ящика (0.6.2), как в sending.test.ts */
+  var TT = { norm: "Re: Смета и договор", long: "Re: Re: Fwd: Смета и договор по складу в Подмосковье: уточнённые сроки поставки, график платежей на четвёртый квартал 2026 года и акт сверки", empty: "" };
   var TEXT = "Добрый день, Пётр!<br>Смета и договор во вложении. Сроки по складу подтверждены, схема — в третьем файле.<br>Если нужно, подготовлю новый вариант с учётом ваших замечаний.<br><br>С уважением,<br>Анна";
   var QUOTE = "Анна, добрый день! Пришлите, пожалуйста, смету и договор до пятницы. Нужно согласовать сроки по складу и подтвердить объём первой поставки.<br>Пётр";
   var stages = {}; var seq = 0;
@@ -377,10 +423,11 @@ table.k th { background: #ece8e1; }
     var n = S.n, h = [];
     var minT = (S.hdr === "now" && S.att === "now" && S.st === "now") ? 0 : 160;
     var fmt = FMT.filter(function (f) { return f.v === S.fmt; })[0];
-    var title = "Re: Смета и договор";
+    var tt = TT[S.title] != null ? TT[S.title] : TT.norm;
     var box = BOXES[S.boxSel];
-    if (S.hdr === "B") title += ' <span class="mailbox" data-act="pop:box" ' + (S.pop === "box" ? 'style="outline:2px solid var(--link)"' : '') + '><i class="dot"></i>от ' + esc(box) + ' ▾</span>';
-    h.push('<header><span class="ttl">' + title + '</span><span class="hb">–</span><span class="hb">▢</span><span class="hb">×</span></header>');
+    var hbs = '<span class="hb">–</span><span class="hb">▢</span><span class="hb">×</span>';
+    if (S.hdr === "B") h.push(hdrB(S, tt, hbs));
+    else h.push('<header><span class="ttl' + (tt ? '' : ' empty') + '" title="' + esc(tt) + '">' + esc(tt || "Новое письмо") + '</span>' + hbs + '</header>');
     h.push('<div class="panel" style="--mint:' + minT + 'px">');
     h.push('<div class="fields">');
     /* От */
@@ -393,7 +440,8 @@ table.k th { background: #ece8e1; }
     var links = "";
     if (!now) {
       if (S.hdr === "B" && S.boxes > 1) { /* ящик уже в заголовке */ }
-      links = '<button class="lnk" data-act="cc">Копия<kbd>Alt+C</kbd></button><button class="lnk" data-act="bcc">Скрытая<kbd>Alt+B</kbd></button>';
+      /* 1.2 А: клавиши Alt+C / Alt+B работают, но в интерфейсе не подписаны */
+      links = '<button class="lnk" data-act="cc">Копия</button><button class="lnk" data-act="bcc">Скрытая</button>';
       if (S.cc) links = links.replace('data-act="cc">Копия', 'data-act="cc" style="opacity:.45">Копия');
       if (S.bcc) links = links.replace('data-act="bcc">Скрытая', 'data-act="bcc" style="opacity:.45">Скрытая');
     }
@@ -411,7 +459,7 @@ table.k th { background: #ece8e1; }
       if (S.ccOne || S.cc) h.push('<div class="row slim"><span class="label">Копия</span><span class="val"><span class="adr">maria@example.com</span>' + (S.cc && !S.ccOne ? '<span class="ph">адрес<span class="caret"></span></span>' : '') + '</span></div>');
       if (S.bcc) h.push('<div class="row slim"><span class="label">Скрытая</span><span class="val"><span class="ph">адрес<span class="caret"></span></span></span></div>');
     }
-    h.push('<div class="row' + (now ? '' : ' slim') + '"><span class="label">Тема</span><span class="val">Re: Смета и договор</span></div>');
+    h.push('<div class="row' + (now ? '' : ' slim') + '"><span class="label">Тема</span><span class="val"><span class="subj">' + (tt ? esc(tt) : '<span class="ph">Тема</span>') + '</span></span></div>');
     h.push('</div>');
     /* панель оформления */
     h.push('<div class="bar fixed">' + (S.fp === "bar" ? fmtBtn(S, fmt) : '') + '<b>B</b><i><em>I</em></i><u>U</u><b>•≡</b><b>🔗</b><span class="sp"></span>' + (now ? '<span class="tgl' + (S.markup ? ' on' : '') + '" data-act="markup">Разметка</span>' : '') + '</div>');
@@ -466,6 +514,18 @@ table.k th { background: #ece8e1; }
     return h.join("");
   }
 
+  /* заголовок 1.1 Б: тема слева (обрезается многоточием), ящик справа и не сжимается; окно — фон 14% цвета ящика.
+     hv: А — метка «● anna ▾»; Б — при длинной теме или узком окне метка сжимается до «● A ▾»; В — две строки на весь экран */
+  function hdrB(S, tt, hbs) {
+    var i = S.boxSel, ad = BOXES[i], col = BCOL[i], shown = tt || "Новое письмо";
+    var two = S.hv === "C" && S.full, tiny = S.hv === "B" && (S.w < 560 || tt.length > 48);
+    var dot = '<i class="dot"></i>';
+    var lab = two ? dot + 'От ' + esc(ad) + ' ▾' : (tiny ? dot + esc(ad.charAt(0).toUpperCase()) + ' ▾' : dot + esc(ad.split("@")[0]) + ' ▾');
+    var box = '<span class="mailbox hdbox' + (S.pop === "box" ? ' open' : '') + '" data-act="pop:box" title="От: ' + esc(ad) + ' — сменить ящик (Alt+M)">' + lab + '</span>';
+    var ttl = '<span class="ttl' + (tt ? '' : ' empty') + '" title="' + esc(tt || "Новое письмо") + '">' + esc(shown) + '</span>';
+    if (two) return '<header class="tint two" style="--row-tint:' + col + '"><div class="h1">' + ttl + hbs + '</div><div class="h2">' + box + '</div></header>';
+    return '<header class="tint" style="--row-tint:' + col + '">' + ttl + box + hbs + '</header>';
+  }
   function fmtBtn(S, fmt) {
     if (S.hdr === "now") return '<button class="btn ghost" data-act="pop:fmt" title="Формат письма: ' + fmt.l + '">' + fmt.i + " " + fmt.l + '</button>';
     return '<button class="btn ghost' + (S.pop === "fmt" ? " ac" : "") + '" data-act="pop:fmt" title="Формат письма: ' + fmt.l + '">' + fmt.i + " " + fmt.l + ' ▾</button>';
@@ -480,14 +540,14 @@ table.k th { background: #ece8e1; }
     if (p === "fmt") {
       it.push({ mt: "Формат письма" });
       FMT.forEach(function (f) { it.push({ k: "fmt:" + f.v, t: f.l, tick: S.fmt === f.v }); });
-      if (S.fmt === "markdown" && S.hdr !== "now") { it.push({ sep: 1 }); it.push({ k: "markup", t: "Показать разметку", tick: S.markup }); it.push({ nt: "Уйдёт тремя частями: текст, HTML и исходный Markdown" }); }
+      if (S.fmt === "markdown" && S.hdr !== "now") { it.push({ sep: 1 }); it.push({ k: "markup", t: "Показать разметку", tick: S.markup }); if (S.nt) it.push({ nt: "Уйдёт тремя частями: текст, HTML и исходный Markdown", cl: 1 }); }
     } else if (p === "rem") {
       it.push({ mt: "Напомнить, если не ответят" });
       REM.forEach(function (r, i) { it.push({ k: "rem:" + i, t: r, tick: S.rem === i }); });
       it.push({ k: "remcfg", t: "Настроить…" });
     } else if (p === "box") {
       it.push({ mt: "От" });
-      BOXES.slice(0, Math.max(S.boxes, 1)).forEach(function (b, i) { it.push({ k: "box:" + i, t: b, tick: S.boxSel === i }); });
+      BOXES.slice(0, Math.max(S.boxes, 1)).forEach(function (b, i) { it.push({ k: "box:" + i, t: b, tick: S.boxSel === i, dot: BCOL[i] }); });
     } else if (p === "att") {
       it.push({ mt: "Вложения: " + S.n + " · ↑↓ Delete" });
       FILES.slice(0, S.n).forEach(function (f, i) { it.push({ k: "att:" + i, t: f, hint: SIZES[i] + "  ×" }); });
@@ -514,8 +574,8 @@ table.k th { background: #ece8e1; }
     it.forEach(function (x) {
       if (x.mt) h += '<div class="mt">' + esc(x.mt) + '</div>';
       else if (x.sep) h += '<div class="sep"></div>';
-      else if (x.nt) h += '<div class="nt">' + esc(x.nt) + '</div>';
-      else { h += '<div class="mi' + (cur === S.pi ? " cur" : "") + (x.cls ? " " + x.cls : "") + '" data-act="' + x.k + '"><span class="tick">' + (x.tick ? "✓" : "") + '</span>' + esc(x.t) + (x.hint ? '<span class="hint">' + esc(x.hint) + '</span>' : '') + '</div>'; cur++; }
+      else if (x.nt) h += '<div class="nt' + (x.cl ? ' cl' : '') + '">' + esc(x.nt) + (x.cl ? '<span class="ntx" data-act="ntx" title="Больше не показывать" role="button" aria-label="Закрыть пояснение">×</span>' : '') + '</div>';
+      else { h += '<div class="mi' + (cur === S.pi ? " cur" : "") + (x.cls ? " " + x.cls : "") + '" data-act="' + x.k + '"><span class="tick">' + (x.tick ? "✓" : "") + '</span>' + (x.dot ? '<i class="dot" style="background:' + x.dot + '"></i>' : '') + esc(x.t) + (x.hint ? '<span class="hint">' + esc(x.hint) + '</span>' : '') + '</div>'; cur++; }
     });
     var style = S.pop === "box" ? "left:12px;top:-1px;position:absolute" : pos;
     return '<div class="pop" style="' + style + '" data-pop="1">' + h + '</div>';
@@ -523,7 +583,7 @@ table.k th { background: #ece8e1; }
   function actionable(S) { return items(S).filter(function (x) { return x.k; }); }
 
   /* ---------- состояние и отрисовка ---------- */
-  var DEF = { w: 640, h: 640, n: 0, hdr: "now", att: "now", st: "now", fp: "foot", quote: true, qopen: false, cc: false, bcc: false, ccOne: false, boxes: 1, boxSel: 0, fmt: "markdown", markup: false, arch: false, rem: 0, remAt: null, rq: "", rc: 0, rhot: false, rsub: false, rsc: 0, rcal: false, rmo: 0, pop: null, pi: 0, af: -1 };
+  var DEF = { w: 640, h: 640, n: 0, hdr: "now", att: "now", st: "now", fp: "foot", quote: true, qopen: false, cc: false, bcc: false, ccOne: false, boxes: 1, boxSel: 0, title: "norm", hv: "A", full: false, nt: true, fmt: "markdown", markup: false, arch: false, rem: 0, remAt: null, rq: "", rc: 0, rhot: false, rsub: false, rsc: 0, rcal: false, rmo: 0, pop: null, pi: 0, af: -1 };
   function mk(host, cfg, opts) {
     var S = Object.assign({}, DEF, cfg); S.id = ++seq; S.host = host; S.opts = opts || {};
     stages[S.id] = S; if (S.pop === "rem") { openRem(S); if (cfg.rq) { S.rq = cfg.rq; S.rhot = cfg.rq.length === 1; remCursor(S); } if (cfg.rsub) S.rsub = true; if (cfg.rcal) S.rcal = true; } host.dataset.sid = S.id; host.setAttribute("tabindex", "0");
@@ -532,7 +592,7 @@ table.k th { background: #ece8e1; }
   function paint(S) {
     var host = S.host;
     host.innerHTML = '<div class="win' + (S.opts.marks ? " marks" : "") + '" style="width:' + S.w + 'px;height:' + S.h + 'px">' + win(S) + '</div>';
-    if (S.pop === "box") { var pp = host.querySelector(".pop"); var foot = host.querySelector(".foot"); if (pp && foot) { host.querySelector(".win").appendChild(pp); pp.style.cssText = "left:60px;top:" + (S.hdr === "B" ? 30 : 76) + "px"; } }
+    if (S.pop === "box") { var pp = host.querySelector(".pop"); var foot = host.querySelector(".foot"); if (pp && foot) { host.querySelector(".win").appendChild(pp); pp.style.cssText = S.hdr === "B" ? "right:44px;top:" + (S.hv === "C" && S.full ? 56 : 32) + "px" : "left:60px;top:76px"; } }
     var w = host.querySelector(".win"), ta = host.querySelector(".ta");
     var sh = host.parentNode.querySelector(".share");
     if (sh && w && ta) {
@@ -571,6 +631,7 @@ table.k th { background: #ece8e1; }
     else if (a === "quote") S.qopen = !S.qopen;
     else if (a === "arch") S.arch = !S.arch;
     else if (a === "markup") S.markup = !S.markup;
+    else if (a === "ntx") S.nt = false;
     else if (a === "files") { S.pop = null; }
     else if (a === "send" || a === "save" || a === "discard") S.pop = null;
     else if ((m = /^pop:(.+)$/.exec(a))) { S.pop = S.pop === m[1] ? null : m[1]; S.pi = 0; if (S.pop === "att" && S.af >= 0) S.pi = S.af; if (S.pop === "rem") openRem(S); }
@@ -602,6 +663,8 @@ table.k th { background: #ece8e1; }
     var S = stages[b.closest(".slot").querySelector(".stage").dataset.sid];
     var v = b.dataset.v; S[b.dataset.set] = /^\d+$/.test(v) ? +v : (v === "true" ? true : (v === "false" ? false : v));
     if (b.dataset.set === "ccOne" && S.ccOne) S.cc = false;
+    if (b.dataset.set === "full") S.w = S.full ? 960 : 640;
+    if (b.dataset.set === "full" || b.dataset.set === "w") S.att = S.full ? "scroll" : "one";
     S.af = -1; paint(S); syncTb(S);
   });
   document.addEventListener("keydown", function (e) {
@@ -690,11 +753,67 @@ table.k th { background: #ece8e1; }
   var s4 = document.getElementById("s4");
   [[640, 640], [900, 700]].forEach(function (sz) {
     var wrap = document.createElement("div"); wrap.style.marginBottom = "30px"; s4.appendChild(wrap);
-    var h = document.createElement("h3"); h.className = "v"; h.innerHTML = '<span class="n">' + sz[0] + '×' + sz[1] + '</span>Сейчас → после (1Б + 2В + 3А), 8 вложений, цитата раскрыта'; wrap.appendChild(h);
+    var h = document.createElement("h3"); h.className = "v"; h.innerHTML = '<span class="n">' + sz[0] + '×' + sz[1] + '</span>Сейчас → после (1Б + 2А + 3А), 8 вложений, цитата раскрыта'; wrap.appendChild(h);
     var r = document.createElement("div"); r.className = "row3"; wrap.appendChild(r);
     slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, ccOne: true, arch: true }, null, { marks: true }, "Сейчас").host.parentNode.querySelector(".tb").style.display = "none";
-    slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, hdr: "B", att: "count", st: "merge", boxes: 3, arch: true, remAt: "пн, 12 окт, 9:00" }, null, {}, "После").host.parentNode.querySelector(".tb").style.display = "none";
+    slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, hdr: "B", att: "one", st: "merge", boxes: 3, arch: true, remAt: "пн, 12 окт, 9:00" }, null, {}, "После").host.parentNode.querySelector(".tb").style.display = "none";
   });
+  /* на весь экран — вложения 2Б (2.1 А: «вариант Б возможен при открытии формы на полный экран») */
+  (function () {
+    var wrap = document.createElement("div"); wrap.style.marginBottom = "30px"; s4.appendChild(wrap);
+    var h = document.createElement("h3"); h.className = "v"; h.innerHTML = '<span class="n">на весь экран</span>1Б + <b>2Б</b> + 3А: полоса вложений до 2 строк со своей прокруткой (экран 1280×800 — окно занимает 1180×760)'; wrap.appendChild(h);
+    var r = document.createElement("div"); r.className = "row3"; wrap.appendChild(r);
+    slot(r, { w: 1180, h: 760, n: 8, qopen: true, hdr: "B", att: "scroll", st: "merge", boxes: 3, arch: true, remAt: "пн, 12 окт, 9:00" }, null, {}, "Полный экран").host.parentNode.querySelector(".tb").style.display = "none";
+  })();
+
+  /* 1.4: заголовок — ящик с цветом и длинная тема */
+  var s1a = document.getElementById("s1a");
+  var TB_T = function (full) {
+    var t = [{ label: "Тема", key: "title", vals: [["norm", "обычная"], ["long", "очень длинная"], ["empty", "пустая"]] }, { label: "Ящик", key: "boxSel", vals: [[0, "anna"], [1, "sales"], [2, "boris"]] }, { label: "Ширина", key: "w", vals: [[640, "640"], [480, "480"]] }];
+    if (full) t = [t[0], t[1], { label: "Режим", key: "full", vals: [[false, "окно 640"], [true, "на весь экран"]] }];
+    return t;
+  };
+  [["A", "1.4 А (рекомендую): тема с «…», метка ящика справа не сжимается"], ["B", "1.4 Б: метка сжимается до «● A ▾», когда тема длинная или окно уже 560 px"], ["C", "1.4 В: две строки — только на весь экран (в окне 640 как А)"]].forEach(function (v) {
+    var st = slot(s1a, { hdr: "B", hv: v[0], att: "count", st: "merge", boxes: 3, w: 640, h: 300, title: "long", n: 0 }, TB_T(v[0] === "C"), {}, v[1]);
+    if (v[0] === "C") st.host.parentNode.style.maxWidth = "960px";
+  });
+  (function () {
+    var cap = document.getElementById("contrast"); if (!cap) return;
+    function lin(c) { c /= 255; return c <= .03928 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }
+    function L(rgb) { return .2126 * lin(rgb[0]) + .7152 * lin(rgb[1]) + .0722 * lin(rgb[2]); }
+    function hex(s) { return [1, 3, 5].map(function (i) { return parseInt(s.substr(i, 2), 16); }); }
+    function mix(a, b, p) { return a.map(function (x, i) { return Math.round(x * p + b[i] * (1 - p)); }); }
+    function cr(a, b) { var x = L(a), y = L(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); }
+    var TH = [["Бумага", hex("#f3eee4"), hex("#1d232b"), hex("#faf7f1")], ["Ночь", hex("#1d2128"), hex("#e4e0d8"), hex("#171a1f")]];
+    var rows = '<tr><th>Тема</th><th>Ящик</th><th>Текст темы (ink)</th><th>Кнопки окна (ink 72%)</th><th>Метка ящика</th></tr>';
+    TH.forEach(function (t) {
+      BCOL.forEach(function (c, i) {
+        var bg = mix(hex(c), t[1], .14), lab = mix(hex(c), t[3], .14);
+        var hb = mix(t[2], bg, .72);
+        function cell(v) { return '<td class="' + (v >= 4.5 ? 'p' : 'f') + '">' + v.toFixed(1) + ':1</td>'; }
+        rows += '<tr><td>' + t[0] + '</td><td><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + c + ';margin-right:6px"></i>' + BOXES[i].split("@")[0] + '</td>' + cell(cr(t[2], bg)) + cell(cr(hb, bg)) + cell(cr(t[2], lab)) + '</tr>';
+      });
+    });
+    cap.innerHTML = rows;
+  })();
+
+  /* 3.3: закрыть пояснение крестиком; вернуть в настройках */
+  var s6 = document.getElementById("s6");
+  (function () {
+    var S6 = slot(s6, { hdr: "B", att: "count", st: "merge", boxes: 3, w: 640, h: 460, n: 3, arch: true, remAt: "пн, 12 окт, 9:00", pop: "fmt" }, null, {}, "Меню формата: щёлкните по «×» в пояснении");
+    S6.host.parentNode.querySelector(".tb").style.display = "none";
+    var f = document.createElement("div"); f.className = "slot";
+    f.innerHTML = '<div style="font-weight:600;margin-bottom:4px">Настройки → Программа → Вид и язык → «Подсказки»</div><div class="setfrag"><div class="crumb">Настройки › Вид и язык</div><h4>Подсказки</h4>' +
+      '<div class="sr"><div class="lb">Показывать подсказки<small>Депеша может предложить запомнить формат или вид. Одна за раз, не больше трёх в день и никогда во время набора.</small></div><button class="sw on" role="switch" aria-checked="true" aria-label="Показывать подсказки" disabled></button></div>' +
+      '<div class="sr"><div class="lb">Пояснение про три части письма в меню формата<small>«Уйдёт тремя частями: текст, HTML и исходный Markdown». Закрыли крестиком — верните здесь.</small></div><button class="sw" id="s6sw" role="switch" aria-checked="false" aria-label="Пояснение про три части письма в меню формата"></button></div></div>' +
+      '<div class="share" id="s6st"></div>';
+    s6.appendChild(f);
+    var sw = f.querySelector("#s6sw"), st = f.querySelector("#s6st");
+    function sync() { sw.classList.toggle("on", S6.nt); sw.setAttribute("aria-checked", S6.nt ? "true" : "false"); st.textContent = S6.nt ? "Пояснение показывается в меню формата Markdown." : "Закрыто крестиком: в меню его нет. Переключатель выше возвращает."; }
+    sw.addEventListener("click", function () { S6.nt = !S6.nt; sync(); paint(S6); });
+    S6.host.addEventListener("click", function () { setTimeout(sync, 0); });
+    sync();
+  })();
 
   var s5 = document.getElementById("s5");
   [["Сейчас: выпадающий список (щелчок по «⏰ Без напоминания ▾» или Alt+R)", { hdr: "now", att: "now", st: "now", ccOne: true, arch: true, pop: "rem", h: 460 }],
@@ -713,7 +832,7 @@ table.k th { background: #ece8e1; }
     });
   });
   document.querySelectorAll(".theme").forEach(function () {});
-  document.querySelectorAll("#s0,#s1,#s2,#s3,#s4,#s5").forEach(function (el) { el.classList.add("theme"); });
+  document.querySelectorAll("#s0,#s1,#s1a,#s2,#s3,#s4,#s5,#s6").forEach(function (el) { el.classList.add("theme"); });
   /* пересчёт долей после загрузки шрифтов и вёрстки */
   window.addEventListener("load", function () { Object.keys(stages).forEach(function (id) { paint(stages[id]); }); });
   window.__compose = { stages: stages };
