@@ -524,27 +524,62 @@ fn wait_before_drop(copy: &SentCopy) -> Option<&OutboxItem> {
 
 /// «Don't keep the copy»: a wait for a reply still held for the copy starts first, without
 /// it, so that dropping the copy never cancels the wait in silence. When the wait cannot
-/// start, the copy stays and the failure is shown.
+/// start the copy is dropped all the same, or the task would come back at every start; the
+/// failure is shown in a toast of its own.
 pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdError> {
     let Some(copy) = state.store.sent_copy(id)? else {
         return Ok(());
     };
-    if let Some(item) = wait_before_drop(&copy)
-        && let Ok(account) = state.account(&copy.account_id)
-    {
-        if !state.copy_claim(id) {
-            return Err(CmdError::new(
-                "other",
-                tr!("the copy is being filed just now", "копия сейчас отправляется"),
-            ));
-        }
-        let done = finish_sent(state, &account, item, copy.message_id.clone(), copy.filed).await;
-        state.copy_release(id);
-        done?;
+    let account = state.account(&copy.account_id).ok();
+    if wait_before_drop(&copy).is_some() && account.is_some() && !state.copy_claim(id) {
+        return Err(CmdError::new(
+            "other",
+            tr!("the copy is being filed just now", "копия сейчас отправляется"),
+        ));
     }
-    state.store.sent_copy_done(id)?;
+    let (account, held) = (&account, &copy);
+    let failed = drop_with(&state.store, &copy, |item| async move {
+        let Some(account) = account.as_ref() else {
+            return Ok(());
+        };
+        let done = finish_sent(state, account, &item, held.message_id.clone(), held.filed).await;
+        state.copy_release(id);
+        done
+    })
+    .await?;
     state.task_done(&stuck_key(id));
+    if let Some(kind) = failed {
+        // The error is logged by its kind: its text may name the letter or its addresses.
+        tracing::warn!(
+            copy = id,
+            kind,
+            "the wait for a reply did not start while dropping the copy"
+        );
+        state.emit(
+            "app-error",
+            json!({ "message": tr!("the copy was dropped, but the wait for a reply did not start", "копия удалена, но ожидание ответа не начато") }),
+        );
+    }
     Ok(())
+}
+
+/// Starts the wait held for the copy with `finish`, then drops the copy whatever came of it.
+/// Gives the kind of the failure when the wait did not start.
+async fn drop_with<F, Fut>(
+    store: &depesha_core::store::Store,
+    copy: &SentCopy,
+    finish: F,
+) -> Result<Option<String>, CmdError>
+where
+    F: FnOnce(OutboxItem) -> Fut,
+    Fut: std::future::Future<Output = Result<(), CmdError>>,
+{
+    let failed = match wait_before_drop(copy) {
+        Some(item) => finish(item.clone()).await.err().map(|e| e.kind),
+        None => None,
+    };
+    store.sent_copy_done(copy.id)?;
+    Ok(failed)
 }
 
 #[cfg(test)]
@@ -838,5 +873,36 @@ mod tests {
         assert_eq!(wait_before_drop(&copy).map(|i| i.id), Some(item.id));
         let plain = sent(&Store::open_in_memory().unwrap());
         assert!(wait_before_drop(&plain).is_none());
+    }
+
+    /// A wait that cannot start does not keep the copy: it is dropped, so that its task is
+    /// not left to come back after every start.
+    #[tokio::test]
+    async fn dropping_a_copy_whose_wait_cannot_start_still_drops_it() {
+        let store = Store::open_in_memory().unwrap();
+        let id = store
+            .outbox_add("a", &Default::default(), 1, 1, 0, &Default::default())
+            .unwrap();
+        let item = store.outbox().unwrap().remove(0);
+        store
+            .outbox_sent_with_copy(
+                id,
+                &NewSentCopy {
+                    account_id: "a",
+                    folder: "Sent",
+                    raw: b"raw",
+                    flags: "(\\Seen)",
+                    message_id: Some("m@x"),
+                    subject: "Contract",
+                    pending: Some(&item),
+                },
+            )
+            .unwrap();
+        let copy = store.sent_copies().unwrap().remove(0);
+        let failed = drop_with(&store, &copy, |_| async { Err(CmdError::new("other", "no database")) })
+            .await
+            .unwrap();
+        assert_eq!(failed.as_deref(), Some("other"));
+        assert!(store.sent_copies().unwrap().is_empty(), "the copy is gone");
     }
 }
