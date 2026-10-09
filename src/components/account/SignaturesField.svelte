@@ -142,8 +142,8 @@
               <button class="mi" disabled={form.defaultSignature === sig.id} onclick={() => { menu = null; form.defaultSignature = sig.id; }}>{t("account.signatures.makeDefault")}</button>
               <button class="mi" disabled={form.replySignature === sig.id} onclick={() => { menu = null; form.replySignature = sig.id; }}>{t("account.signatures.makeReplyDefault")}</button>
               <hr />
-              <button class="mi" disabled={i === 0} onclick={() => move(sig.id, -1)}>{t("account.signatures.up")}<span class="hint">Alt+↑</span></button>
-              <button class="mi" disabled={i === form.signatures.length - 1} onclick={() => move(sig.id, 1)}>{t("account.signatures.down")}<span class="hint">Alt+↓</span></button>
+              <button class="mi" disabled={i === 0} onclick={() => move(sig.id, -1)}>{t("account.signatures.up")}</button>
+              <button class="mi" disabled={i === form.signatures.length - 1} onclick={() => move(sig.id, 1)}>{t("account.signatures.down")}</button>
               <hr />
               <button class="mi danger-text" onclick={() => remove(sig.id)}>{t("act.delete")}<span class="hint">Del</span></button>
             </Popover>
