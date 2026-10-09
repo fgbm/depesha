@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Адресная книга: несколько адресов, объединение дублей (0.8.0, #104)</title>
+<style>
+/* ============================================================================
+   Макет к 0.8.0, заявка #104. Код приложения не тронут. Файл самодостаточный: без сети.
+   Переменные темы — из src/app.css («Бумага» и «Ночь»), вид карточки — из PersonCard.svelte,
+   вид списка — из PeoplePanel.svelte, тост — из Dock.svelte. Все люди и адреса вымышленные.
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --side: #1f2a37; --side-2: #263444; --side-ink: #d5dde6; --side-muted: #8c99a8;
+  --ok: #2e7d4f; --warn: #b26a00; --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+body.night .theme {
+  --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #8f97a2; --line: #2c323b;
+  --hover: #222831; --selected: #2e3742; --link: #7fb0ec; --side: #11161c; --side-2: #1a222b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+.doc { width: 1180px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.q { font-size: 16px; margin: 30px 0 4px; }
+h3.q .n, h3.v .n { display: inline-block; background: #1f2a37; color: #fff; border-radius: 5px; padding: 0 8px; margin-right: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v { font-size: 17px; margin: 34px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+h3.v .n { background: #fff; color: #1d232b; border: 1px solid #b5ae9f; }
+h3.v em { font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 960px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.pc { margin: 8px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 960px; }
+.pc li { margin: 2px 0; }
+.plus { color: #2e7d4f; font-weight: 700; }
+.minus { color: #b3261e; font-weight: 700; }
+.cap { font-size: 12.5px; color: #5a626c; margin: 4px 0 0; line-height: 1.45; max-width: 960px; }
+kbd { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 11px; border: 1px solid #c9c1b2; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #faf7f1; color: #6b7480; white-space: nowrap; }
+.theme kbd { border-color: var(--line); background: var(--paper); color: var(--muted); }
+.topbar { position: fixed; right: 16px; top: 10px; z-index: 90; background: #1f2a37; color: #fff; border-radius: 6px; padding: 5px 10px; font-size: 12px; display: flex; gap: 8px; align-items: center; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; font-size: 13px; }
+.toc a { color: #1f5fa8; text-decoration: none; } .toc a:hover { text-decoration: underline; }
+.row2 { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+.col { flex: 1 1 0; min-width: 0; }
+.tag { display: inline-block; font-size: 11px; border-radius: 4px; padding: 0 6px; background: #1f2a37; color: #fff; margin-right: 4px; }
+.tag.red { background: #b3261e; } .tag.grn { background: #2e7d4f; }
+.probs { margin: 8px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 960px; }
+.probs li { margin: 0 0 6px; }
+.probs .c, .callout { display: inline-flex; width: 18px; height: 18px; border-radius: 50%; background: #b3261e; color: #fff; font-size: 11px; font-weight: 700; align-items: center; justify-content: center; margin-right: 6px; flex: none; }
+.callout { position: absolute; z-index: 5; box-shadow: 0 0 0 2px #fff; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+.ctlbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; background: #ece8e1; border-radius: 8px; padding: 6px 12px; margin: 8px 0; max-width: 960px; }
+.ctlbar label { display: inline-flex; gap: 5px; align-items: center; }
+.ctlbar button { font: inherit; font-size: 12.5px; border: 1px solid #b5ae9f; background: #faf7f1; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+
+/* --- общие части макета приложения --- */
+.stage { position: relative; background: var(--paper); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 14px rgb(0 0 0 / 16%); font-size: 13px; outline: none; }
+.stage:focus-within, .stage.hot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 55%, transparent), 0 2px 14px rgb(0 0 0 / 16%); }
+.stage.static:focus-within { box-shadow: 0 2px 14px rgb(0 0 0 / 16%); }
+.btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 3px 9px; white-space: nowrap; cursor: pointer; }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { font-size: 12px; padding: 2px 8px; }
+.btn:focus-visible, .btn.focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 55%, transparent); }
+.chip { font-size: 11px; border-radius: 4px; padding: 0 5px; line-height: 16px; background: var(--paper-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; display: inline-block; }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, var(--paper)); }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.muted { color: var(--muted); } .small { font-size: 12px; }
+.av { flex: none; width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.av.l { width: 34px; height: 34px; font-size: 13px; }
+.input { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; background: var(--paper); color: var(--ink); font: inherit; font-size: 13.5px; }
+.input:focus { outline: none; border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 25%, transparent); }
+.radio { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--line); display: inline-block; }
+.radio.on { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--paper); }
+.sel { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; background: var(--paper); min-width: 130px; font-size: 12.5px; }
+.pop { position: absolute; z-index: 45; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; font-size: 13px; }
+
+/* --- карточка человека (PersonCard.svelte) --- */
+.pcard { width: 340px; max-width: 100%; font-size: 13px; }
+.pcard.wide { width: auto; }
+.pcard .rw { display: block; border-radius: 6px; outline: none; cursor: default; }
+.pcard .rw:focus { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
+.pcard .rw:focus .kh { visibility: visible; }
+.pc-head { display: flex; gap: 12px; align-items: center; padding: 8px 10px 6px; }
+.pc-head .nm { font-weight: 700; font-size: 15px; }
+.pc-head .nt { font-size: 12px; color: var(--muted); }
+.pc-head .who { flex: 1; min-width: 0; }
+.pc-head .fl { font-size: 11px; color: var(--ok); }
+.pc-head .who.rw { padding: 3px 6px; margin: -3px -6px; }
+.pc-acts { padding: 0 10px 8px; display: flex; gap: 6px; }
+.pc-acts .btn.primary:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 55%, transparent); }
+.pc-sec { border-top: 1px solid var(--line); padding: 8px 10px; }
+.pc-sec h5 { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.pc-sec .rw { padding: 3px 6px; margin: 0 -6px; }
+.addr, .pcard .rw.addr { display: flex; align-items: center; gap: 8px; }
+.addr .em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addr .m { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.kh { visibility: hidden; font-size: 11px; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+.pcard .rw.addr { flex-wrap: wrap; }
+.pcard .rw.addr .kh { display: none; flex-basis: 100%; margin: 0 0 0 23px; }
+.pcard .rw.addr:focus .kh { display: block; visibility: visible; }
+.pcard .radio { border-color: var(--muted); }
+.pcard .radio.on { border-color: var(--accent); }
+.pcard .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pcard .row .v { font-size: 12.5px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; min-width: 130px; text-align: center; background: var(--paper); }
+.pcard .row .v::before { content: "‹ "; color: var(--muted); } .pcard .row .v::after { content: " ›"; color: var(--muted); }
+.pcard .box { width: 14px; height: 14px; border: 1.5px solid var(--line); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; flex: none; }
+.pcard .box.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pcard .noteline { color: var(--ink); white-space: pre-wrap; line-height: 1.4; }
+.pcard .noteline.empty { color: var(--muted); }
+.pcard textarea.input, .pcard input.input { width: 100%; }
+.pcard textarea.input { min-height: 54px; resize: vertical; }
+.pc-dup { margin: 0 10px 8px; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 9%, var(--paper)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); font-size: 12.5px; line-height: 1.45; display: block; }
+.pc-msg { padding: 4px 6px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.pc-msg.err { color: var(--accent); }
+.pc-foot { border-top: 1px solid var(--line); padding: 6px 10px; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+/* --- тост (Dock.svelte) --- */
+.toasts { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; justify-content: center; z-index: 60; pointer-events: none; }
+.toast { pointer-events: auto; background: var(--side); color: var(--side-ink); border-radius: 8px; padding: 8px 12px; font-size: 13px; display: flex; align-items: center; gap: 12px; box-shadow: 0 6px 20px rgb(0 0 0 / 28%); max-width: 640px; }
+.toast .btn { background: transparent; color: var(--side-ink); border-color: var(--side-muted); }
+.toast kbd { background: transparent; color: var(--side-ink); border-color: var(--side-muted); }
+
+/* --- диалог --- */
+.ov { position: absolute; inset: 0; z-index: 55; background: rgb(20 24 30 / 40%); display: flex; align-items: center; justify-content: center; }
+.dlg { width: 540px; max-height: 94%; overflow: auto; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 16px 48px rgb(0 0 0 / 35%); padding: 16px 18px; font-size: 13px; }
+.dlg h4 { margin: 0 0 8px; font-size: 16px; }
+.dlg h6 { margin: 12px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.dlg label.opt { display: flex; gap: 8px; align-items: baseline; padding: 3px 6px; border-radius: 5px; margin: 0 -6px; }
+.dlg label.opt:hover { background: var(--hover); }
+.dlg label.opt:focus-within { background: var(--selected); }
+.dlg label.opt .why { color: var(--muted); font-size: 12px; }
+.dlg .conf { border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 7%, var(--paper)); border-radius: 6px; padding: 4px 10px 6px; margin-top: 6px; }
+.dlg .conf h6 { margin-top: 6px; color: var(--warn); }
+.dlg .agree { color: var(--muted); padding: 2px 0; }
+.dlg .prev { margin-top: 12px; padding: 8px 10px; background: var(--paper-2); border-radius: 6px; line-height: 1.5; }
+.dlg .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* --- книга: список (PeoplePanel.svelte) --- */
+.book { display: flex; height: 600px; }
+.bl { width: 400px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.bl-top { padding: 10px 12px 8px; }
+.bl-top .inp { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--muted); }
+.bl-top .inp input { flex: 1; min-width: 0; border: none; background: none; color: var(--ink); font: inherit; font-size: 13px; outline: none; }
+.bl-top .inp:focus-within { border-color: var(--link); }
+.banner { margin: 0 12px 8px; padding: 7px 10px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 9%, var(--paper)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); line-height: 1.45; font-size: 12.5px; }
+.banner .ba { display: flex; gap: 10px; margin-top: 3px; align-items: center; flex-wrap: wrap; }
+.bl-list { flex: 1; overflow-y: auto; padding: 0 6px; outline: none; }
+.pr { display: flex; gap: 9px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: default; }
+.pr.cur { background: var(--selected); }
+.bl-list:focus .pr.cur { box-shadow: inset 3px 0 0 var(--accent); }
+.pr .cb { width: 14px; height: 14px; border: 1.5px solid var(--line); border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+.pr.sel .cb { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pr.sel { background: color-mix(in srgb, var(--selected) 55%, var(--paper)); }
+.pr.sel.cur { background: var(--selected); }
+.pr .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pr .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr .em { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr .meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.bl-foot { border-top: 1px solid var(--line); padding: 6px 12px; font-size: 11.5px; color: var(--muted); line-height: 1.8; }
+.bp { flex: 1; min-width: 0; overflow-y: auto; padding: 8px 10px; outline: none; }
+.bp-hint { padding: 20px; color: var(--muted); }
+
+/* --- письмо и подсказка адресов --- */
+.letter { padding: 14px 22px; min-height: 360px; }
+.letter .lh { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 10px; flex-wrap: wrap; }
+.letter .from { border: none; background: none; font: inherit; font-weight: 600; color: var(--link); cursor: pointer; padding: 0; }
+.letter p { margin: 6px 0; line-height: 1.5; max-width: 560px; }
+.compose { padding: 12px 16px; font-size: 13px; }
+.compose .to { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; border-bottom: 1px solid var(--line); padding: 4px 0 6px; }
+.compose .to .lab { color: var(--muted); width: 38px; }
+.compose .to input { flex: 1; min-width: 120px; border: none; background: none; font: inherit; color: var(--ink); outline: none; }
+.rcp { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: var(--paper-2); border-radius: 12px; padding: 0 8px; line-height: 20px; font-size: 12.5px; }
+.sug { margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); box-shadow: 0 6px 18px rgb(0 0 0 / 14%); padding: 3px; }
+.sug .it { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px; }
+.sug .it.cur { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
+.sug .it .nm { font-weight: 600; }
+.sug .ad { font-size: 12px; color: var(--muted); border-radius: 4px; padding: 0 5px; border: 1px solid transparent; }
+.sug .ad.act { color: var(--ink); border-color: var(--line); background: var(--paper-2); }
+.sug .none { padding: 6px 8px; color: var(--muted); font-size: 12.5px; }
+.fmtline { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.fmtline b { color: var(--ink); }
+
+/* --- каркасы окна для экранов 0 и 1 --- */
+.win { display: flex; height: 520px; }
+.win .side { width: 190px; flex: none; background: var(--side); color: var(--side-ink); padding: 10px 8px; font-size: 12.5px; }
+.win .side .sec { color: var(--side-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; padding: 8px 8px 3px; }
+.win .side .f { display: flex; padding: 4px 8px; border-radius: 5px; gap: 8px; }
+.win .side .f.on { background: var(--side-2); color: #fff; }
+.win .side .f .c { margin-left: auto; color: var(--side-muted); }
+.win .mid { width: 330px; flex: none; border-right: 1px solid var(--line); overflow: hidden; }
+.win .main { flex: 1; min-width: 0; overflow: hidden; }
+.sethead { display: flex; height: 520px; }
+.sethead .snav { width: 170px; flex: none; background: var(--paper-2); border-right: 1px solid var(--line); padding: 10px 6px; font-size: 13px; }
+.snav .i { padding: 5px 10px; border-radius: 5px; }
+.snav .i.on { background: var(--selected); font-weight: 600; }
+.sbody { flex: 1; min-width: 0; padding: 12px 14px; position: relative; }
+.pal { top: 40px; left: 50%; margin-left: -230px; width: 460px; padding: 6px; }
+.pal .q { display: flex; gap: 8px; align-items: center; border: 1px solid var(--link); border-radius: 6px; padding: 6px 10px; margin-bottom: 4px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 25%, transparent); }
+.pal .g { padding: 5px 10px 1px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.pal .it { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 5px; }
+.pal .it.cur { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
+.pal .it .r { margin-left: auto; color: var(--muted); font-size: 12px; }
+.mrow { padding: 7px 14px; border-bottom: 1px solid var(--line); }
+.mrow .l1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.mrow .l2 { color: var(--muted); font-size: 12px; margin-top: 1px; }
+.mrow.on { background: var(--selected); }
+
+/* --- вопросы и таблицы --- */
+.qs { background: #faf7f1; border-radius: 10px; padding: 16px 20px; margin-top: 40px; }
+.qs h2 { margin: 0 0 8px; font-size: 20px; }
+.qs table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.qs th, .qs td { text-align: left; vertical-align: top; padding: 7px 8px; border-top: 1px solid #e4ddcf; line-height: 1.5; }
+.qs td.n { font-family: ui-monospace, Consolas, monospace; font-weight: 700; white-space: nowrap; }
+.qs td.r { color: #2e5d3e; }
+.qs .reply { margin-top: 12px; padding: 8px 12px; background: #ece8e1; border-radius: 6px; font-size: 13px; }
+.kv { width: 100%; border-collapse: collapse; font-size: 13px; max-width: 1000px; }
+.kv th, .kv td { text-align: left; vertical-align: top; padding: 6px 10px; border: 1px solid #c9c1b2; line-height: 1.45; background: #faf7f1; }
+.kv th { background: #ece8e1; }
+pre.sql { background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 12px 16px; font-size: 12px; line-height: 1.5; overflow: auto; max-width: 1000px; }
+</style>
+</head>
+<body>
+<div class="topbar"><label><input type="checkbox" id="night"> тема «Ночь»</label></div>
+<div class="doc">
+
+<h1>Депеша 0.8.0 — адресная книга: несколько адресов, объединение дублей</h1>
+<p class="lead">Заявка <b>#104</b>. Сейчас человек — это один адрес. Нужно: править имя и заметку из карточки в письме, держать несколько адресов у одного человека, объединять дубли с отменой и разделять обратно, понятно разрешать конфликт правил, и чтобы подсказки адресов, «Все письма человека» и правила работали по всем адресам. Решается и где живёт книга. Раскладку окна настроек этот макет не трогает: её решает макет настроек (<code>01-settings.html</code>); здесь — только сама книга. Экраны 2 и 3 живые: у каждого своя копия вымышленных данных и кнопка «Сбросить»; управляются <b>только с клавиатуры</b> (мышь тоже работает). Порядок работы: макет → решения → тесты → реализация.</p>
+<div class="toc">
+  <a href="#s0">0. Сейчас</a><a href="#s1">1. Где живёт книга</a><a href="#s2">2. Карточка человека</a><a href="#s3">3. Объединение дублей</a><a href="#s4">4. Следствия</a><a href="#kb">Клавиатура</a><a href="#note">Записка для реализации</a><a href="#qs">Вопросы</a>
+</div>
+
+<!-- ============================ ЭКРАН 0 ============================ -->
+<h2 class="screen" id="s0">Экран 0. Сейчас</h2>
+<p class="lead">Слева — страница «Люди» в настройках (<code>PeoplePanel.svelte</code>), справа — карточка из письма (<code>PersonCard.svelte</code>). Красные цифры — ограничения, которые снимает заявка.</p>
+<div class="row2">
+  <div class="col" style="flex: 1.55">
+    <div class="stage theme static" style="padding: 12px 14px;">
+      <div style="display:flex; gap:16px; height: 380px;">
+        <div style="width:230px; flex:none; display:flex; flex-direction:column; gap:6px;">
+          <div class="input muted" style="padding:4px 9px">🔍 Поиск людей</div>
+          <div style="display:flex; gap:5px"><span class="chip">Все</span><span class="chip">С правилами</span><span class="chip">Вручную</span><span class="chip">Скрытые</span></div>
+          <div id="s0list" style="flex:1"></div>
+        </div>
+        <div style="flex:1; min-width:0; position:relative;">
+          <div style="font-size:17px; font-weight:700">Ольга Смирнова <span class="muted small" style="font-weight:400; margin-left:8px">31 письмо</span></div>
+          <div style="display:grid; grid-template-columns:90px 1fr; gap:8px 10px; margin-top:10px; align-items:center">
+            <span class="muted">Имя</span><span class="input">Ольга Смирнова</span>
+            <span class="muted">Адреса</span><div class="addr"><span class="radio on"></span><span class="input" style="flex:1; opacity:.7">olga@example.org</span></div>
+            <span class="muted"></span><span class="muted small" style="margin-top:-6px; margin-left:23px">основной</span>
+            <span class="muted">Формат</span><span class="sel">Простой текст</span>
+            <span class="muted">Вид писем</span><span class="sel">Как обычно</span>
+            <span class="muted">Заметка</span><span class="input" style="min-height:50px">Заказывает залы</span>
+            <span class="muted"></span><span>▢ Скрыть из подсказок адресов</span>
+          </div>
+          <span class="callout" style="left:-8px; top:-6px">1</span>
+          <span class="callout" style="left:62px; top:78px">2</span>
+          <span class="callout" style="left:62px; top:134px">3</span>
+        </div>
+      </div>
+    </div>
+    <p class="cap">Страница «Люди» настроек. Список слева — по одной строке на адрес.</p>
+  </div>
+  <div class="col" style="flex: 1; max-width: 400px">
+    <div class="stage theme static" style="padding: 14px 24px 14px 24px; min-height: 380px; background: var(--paper-2);">
+      <div style="position:relative; display:inline-block; background: var(--paper); border:1px solid var(--line); border-radius:8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding:4px 0 6px;">
+        <div class="pcard" id="s0card"></div>
+        <span class="callout" style="left:-12px; top:6px">4</span>
+        <span class="callout" style="left:-12px; top:122px">5</span>
+      </div>
+    </div>
+    <p class="cap">Карточка из письма (клик по имени отправителя).</p>
+  </div>
+</div>
+<ul class="probs">
+  <li><span class="c">1</span>Человек = адрес. Один человек под двумя адресами — две строки в списке, правила у каждой свои. Дубли не находятся и не объединяются.</li>
+  <li><span class="c">2</span>Блок «Адреса» всегда показывает один адрес «только для чтения». Добавить второй, выбрать основной, отвязать — нельзя.</li>
+  <li><span class="c">3</span>Имя и заметка правятся только в «Настройки → Люди». Заметки в карточке из письма нет.</li>
+  <li><span class="c">4</span>В карточке из письма имя не правится: «Смирнова Ольга» так и останется, если письма пишут так.</li>
+  <li><span class="c">5</span>Строка «Адреса» в карточке — один адрес, как в настройках. Править нечего.</li>
+  <li><span class="tag">ещё</span>Подсказки адресов, «Все письма» (<code>from:адрес</code>) и правила формата ищут по одному адресу. Уведомления «только от людей» от книги не зависят: рассылка определяется по заголовкам письма (<code>bulk</code>).</li>
+  <li><span class="tag">ещё</span>С клавиатуры карточка из письма: Enter запускает «Все письма», дальше — только Tab по двум выпадающим спискам.</li>
+</ul>
+
+<!-- ============================ ЭКРАН 1 ============================ -->
+<h2 class="screen" id="s1">Экран 1. Где живёт книга</h2>
+<p class="lead">Книга нужна для двух разных дел. <b>Найти человека и увидеть его письма</b> — почтовое дело, оно частое. <b>Разобрать дубли и поставить правила</b> — настройка, она редкая. От этого зависит выбор. Три варианта ниже; <b>внутри каждого карточка одна и та же</b> (экран 2).</p>
+
+<h3 class="v"><span class="n">1.А</span>Раздел настроек, как сейчас <em>список + карточка в окне настроек</em></h3>
+<div class="stage theme static"><div class="sethead">
+  <div class="snav"><div class="i">Общие</div><div class="i">Почта</div><div class="i on">Люди</div><div class="i">Подсказки</div><div class="i">Клавиши</div></div>
+  <div class="sbody"><div style="display:flex; gap:14px; height:100%"><div style="width:300px; flex:none" id="v1a-list"></div><div style="flex:1; min-width:0" id="v1a-card"></div></div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> Ничего не переезжает: список, поиск и фильтры уже есть; объединение — новое действие в нём. Правила лежат рядом с остальными настройками.</li>
+<li><span class="plus">+</span> Дешевле всего: нет нового места в главном окне, нет конфликта клавиш.</li>
+<li><span class="minus">−</span> «Найти человека и открыть его письма» — через окно настроек: далеко для частого дела.</li>
+<li><span class="minus">−</span> Страница «Люди» живёт в разделе, раскладку которого переделывает отдельный макет: придётся согласовать.</li></ul>
+
+<h3 class="v"><span class="n">1.Б</span>Отдельное место в главном окне <em>«Люди» рядом с папками, вход: папка, палитра, клавиша</em></h3>
+<div class="stage theme static"><div class="win">
+  <div class="side"><div class="sec">Ящик</div><div class="f"><span>Входящие</span><span class="c">12</span></div><div class="f"><span>Отправленные</span></div><div class="f"><span>Черновики</span><span class="c">2</span></div><div class="sec">Ещё</div><div class="f on"><span>Люди</span><span class="c"><kbd style="background:transparent;color:var(--side-ink);border-color:var(--side-muted)">g</kbd> <kbd style="background:transparent;color:var(--side-ink);border-color:var(--side-muted)">p</kbd></span></div><div class="f"><span>Метки</span></div></div>
+  <div class="mid" id="v1b-list"></div>
+  <div class="main" style="padding:10px"><div id="v1b-card" style="max-width:380px"></div></div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> Книга под рукой: <kbd>g</kbd> <kbd>p</kbd>, имя, Enter — и вот человек, его адреса и «Все письма».</li>
+<li><span class="plus">+</span> Дубли разбираются там же, где люди ищутся и открываются.</li>
+<li><span class="minus">−</span> Новая сущность в главном окне: ещё один «режим» рядом с папками, новая клавиша (<kbd>g p</kbd> — предложение, свободна ли она, проверить при реализации), новый вид списка.</li>
+<li><span class="minus">−</span> Правила формата и вида писем остаются в карточке, а раздел настроек «Люди» либо пропадает (ломает привычное место), либо дублирует.</li></ul>
+
+<h3 class="v rec"><span class="n">1.В</span>Только карточка и поиск в палитре <em>списка людей нет совсем</em></h3>
+<div class="stage theme static" style="min-height:420px"><div class="win" style="position:relative; height:420px">
+  <div class="side"><div class="sec">Ящик</div><div class="f on"><span>Входящие</span><span class="c">12</span></div><div class="f"><span>Отправленные</span></div><div class="f"><span>Черновики</span></div></div>
+  <div class="mid"><div class="mrow"><div class="l1"><b>Ольга Смирнова</b><span class="muted small">вт</span></div><div class="l2">Re: зал на пятницу</div></div><div class="mrow"><div class="l1"><b>Иван Петров</b><span class="muted small">пн</span></div><div class="l2">Счёт за сентябрь</div></div></div>
+  <div class="main" style="padding:16px;color:var(--muted)">Письмо…</div>
+  <div class="pop pal"><div class="q"><span class="muted">›</span><span>смирн</span><span style="width:1px;height:14px;background:var(--ink)"></span></div>
+    <div class="g">Люди</div>
+    <div class="it cur"><span class="av" style="background:#6b5b95; width:22px; height:22px; font-size:10px">ОС</span><b>Ольга Смирнова</b><span class="muted small">olga@example.org +1</span><span class="r"><kbd>Enter</kbd> карточка</span></div>
+    <div class="it"><span class="av" style="background:#2e7d4f; width:22px; height:22px; font-size:10px">АС</span><b>Антон Смирнов</b><span class="muted small">a.smirnov@example.net</span></div>
+    <div class="g">Письма</div>
+    <div class="it"><span>Re: зал на пятницу</span><span class="r">Ольга Смирнова</span></div>
+    <div class="g" style="padding-top:8px;border-top:1px solid var(--line);margin-top:4px;">В карточке: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> — «Все письма»</div>
+  </div>
+</div></div>
+<ul class="pc"><li><span class="plus">+</span> Нет нового раздела и нового вида списка. Человек находится там же, где всё остальное: в палитре команд (она уже есть).</li>
+<li><span class="plus">+</span> Меньше всего нового кода и меню.</li>
+<li><span class="minus">−</span> Нет обзора «всех людей»: объединять дубли можно, только зная, кого с кем. Подсказка «возможно, это один человек» должна приходить сама — в карточке и уведомлением (экран 3).</li>
+<li><span class="minus">−</span> Без списка нет ручного выбора двух и более людей. Раздел настроек «Люди» остаётся (как 1.А) или переезжает во вкладку настроек по ссылке из карточки.</li></ul>
+<p class="cap"><b>Моя рекомендация — «1.А + вход из палитры» (вопросы 1.1 и 1.2):</b> список остаётся в настройках, где он уже есть и где живут правила; частое дело «найти человека, открыть карточку» берёт палитра (1.В).</p>
+
+<!-- ============================ ЭКРАН 2 ============================ -->
+<h2 class="screen" id="s2">Экран 2. Карточка человека</h2>
+<p class="lead">Карточка <b>одна и та же</b> в письме и в книге («похожее устроено одинаково»): имя и заметка правятся прямо в ней, адресов может быть несколько. Строки — по <kbd>↑</kbd> <kbd>↓</kbd>; у строки в фокусе справа появляется подсказка клавиш. Изменение сохраняется сразу (как в настройках, «Сохранить» нет).</p>
+<div class="ctx"><b>Попробуйте.</b> Нажмите в окне <kbd>Tab</kbd> (или кликните), карточка открыта на «Все письма». <kbd>↓</kbd> до имени → <kbd>Enter</kbd>, поправьте, <kbd>Enter</kbd>. <kbd>A</kbd> — добавить адрес (введите <code>maria.o@example.org</code>); введите <code>ipetrov@example.com</code> — адрес уже у другого человека, будет предложено объединить. На адресе: <kbd>P</kbd> — сделать основным, <kbd>U</kbd> — отвязать в отдельного человека (тост с <kbd>Z</kbd>). <kbd>Esc</kbd> закрывает карточку, <kbd>P</kbd> в письме открывает снова.</div>
+<div class="ctlbar"><button id="s2reset">Сбросить</button><span class="muted">Кнопки «Написать» и «Недавние письма» карточки не меняются и здесь не показаны.</span></div>
+<div class="stage theme" id="stage2" tabindex="0" style="height: 640px;">
+  <div class="letter">
+    <div class="lh"><span class="av" style="background:#a0436b">МО</span><button class="from" id="s2from">Мария Орлова</button><span class="muted small">m.orlova@example.org</span><span class="chip" style="margin-left:auto">P — карточка</span></div>
+    <h4 style="margin:0 0 6px; font-size:16px">Сверка по договору</h4>
+    <p>Коллеги, добрый день. Пришлю акт сверки до пятницы. Если удобнее на домашний ящик — напишите.</p>
+    <p class="muted">Мария</p>
+  </div>
+  <div class="pop" id="s2pop" style="left: 70px; top: 54px; padding: 4px 0 4px;"><div class="pcard" id="s2card"></div></div>
+  <div class="toasts"></div><div class="ovhost"></div>
+</div>
+<ul class="pc">
+<li><b>Имя.</b> Enter или <kbd>F2</kbd> на имени — поле; Enter сохраняет, Esc отменяет; пустое имя возвращает имя из писем. Адреса хранят имя из писем отдельно — оно нужно при отвязке.</li>
+<li><b>Заметка.</b> Тот же жест: Enter на строке заметки; Enter сохраняет, <kbd>Shift</kbd>+<kbd>Enter</kbd> — новая строка.</li>
+<li><b>Основной адрес.</b> Он показывается в списке и в подсказках по умолчанию. Основным может быть только адрес человека; единственный адрес всегда основной.</li>
+<li><b>Отвязать.</b> Адрес становится новым человеком: имя из писем, его же счётчик писем; правила формата, вида и «Скрыть» копируются от прежнего человека, заметка — нет (вопрос 2.3). Отвязанная пара больше не предлагается как дубль.</li>
+<li><b>Добавить адрес.</b> Новый адрес — просто строка. Если он уже у другого человека, карточка не отказывает, а предлагает объединить (вопрос 2.5).</li>
+</ul>
+
+<!-- ============================ ЭКРАН 3 ============================ -->
+<h2 class="screen" id="s3">Экран 3. Объединение дублей</h2>
+<p class="lead">Список людей с карточкой справа (так будет в настройках или в «Людях» главного окна — вопрос 1.1). Дубли находятся двумя путями: <b>подсказка</b> над списком и <b>ручной выбор</b> двух и более людей.</p>
+<div class="ctx"><b>Попробуйте.</b> Фокус в списке. Над списком — подсказка «возможно, это один человек»: <kbd>M</kbd> объединяет, <kbd>N</kbd> — «нет, разные» (запоминается). Вручную: <kbd>Space</kbd> отмечает людей, <kbd>M</kbd> объединяет отмеченных. <kbd>Enter</kbd> уходит в карточку справа, <kbd>Esc</kbd> — обратно. В диалоге: <kbd>Tab</kbd> — между группами, <kbd>↑</kbd> <kbd>↓</kbd> — внутри группы, <kbd>Enter</kbd> — «Объединить», <kbd>Esc</kbd> — отмена. После объединения: тост, <kbd>Z</kbd> — вернуть всё как было. Обратная операция — <kbd>U</kbd> на адресе в карточке. Пара «Пётр Волков / Петр Волков» показывает конфликт «Скрыть», пара «Ольга Смирнова / Смирнова Ольга» — конфликт форматов.</div>
+<div class="ctlbar">
+  <span><b>Вопрос 3.1 — как искать дубли:</b></span>
+  <label><input type="radio" name="tier" value="А"> А. Имя</label>
+  <label><input type="radio" name="tier" value="Б" checked> Б. Имя + начало адреса</label>
+  <label><input type="radio" name="tier" value="В"> В. + транслитерация</label>
+  <button id="s3reset">Сбросить</button>
+</div>
+<div class="stage theme" id="stage3" style="height: 620px;">
+  <div class="book">
+    <div class="bl">
+      <div class="bl-top"><div class="inp">🔍 <input id="s3q" placeholder="Поиск людей — /" autocomplete="off"></div></div>
+      <div id="s3banner"></div>
+      <div class="bl-list" id="s3list" tabindex="0" role="listbox" aria-label="Люди"></div>
+      <div class="bl-foot"><kbd>↑</kbd><kbd>↓</kbd> строки · <kbd>Space</kbd> отметить · <kbd>M</kbd> объединить · <kbd>N</kbd> «разные» · <kbd>Enter</kbd> карточка · <kbd>/</kbd> поиск</div>
+    </div>
+    <div class="bp" id="s3pane"><div class="pcard wide" id="s3card"></div></div>
+  </div>
+  <div class="toasts"></div><div class="ovhost"></div>
+</div>
+<ul class="pc">
+<li><b>Подсказка.</b> Один совпавший вариант за раз, <kbd>M</kbd> — принять, <kbd>N</kbd> — отклонить. Отказ сохраняется в таблице подсказок (<code>hints</code>: <code>same-person</code> + пара адресов), как отказы 0.7: «Спрашивать заново» стирает и его. В карточке человека та же подсказка стоит над «Все письма» (вопрос 3.2).</li>
+<li><b>Правила совпадения</b> (вопрос 3.1). А: имена равны с точностью до регистра, ё/е, порядка слов, знаков. Б: плюс одинаковая часть адреса до <code>@</code> при разных доменах (<code>anna@…org</code> и <code>anna@…net</code>). В: плюс совпадение в транслитерации (<i>Иван Петров</i> ≈ <i>Ivan Petrov</i>) — чаще верно, но и чаще ошибается на однофамильцах.</li>
+<li><b>Диалог объединения.</b> Какое имя оставить (по умолчанию — у человека с большим числом писем), какой адрес основной. Если правила двух людей расходятся, диалог показывает конфликт и то, что победит по умолчанию; изменить можно здесь же.</li>
+<li><b>Конфликты.</b> Формат отправки: побеждает самый строгий (простой текст &lt; HTML &lt; Markdown) — так же письмо нескольким адресатам берёт самый строгий формат (<code>recipientParts</code>), вопрос 3.3. «Скрыть»: побеждает «скрыт», если скрыт хоть один — открыть человека проще, чем объяснять, откуда у скрытого вдруг взялась подсказка (вопрос 3.4). Правило вида писем: берётся у того, чьё имя оставлено. Если у одного правило есть, у другого пусто, — остаётся то, что есть, конфликта нет. Заметки склеиваются через пустую строку (вопрос 3.5).</li>
+<li><b>Отмена.</b> Тост «Объединено… Отменить Z» возвращает людей, их правила, заметки и порядок адресов ровно как были (снимок до операции). В приложении тост живёт ~10 с (в макете 12). Позже вернуть можно только вручную — разделением (вопрос 3.6).</li>
+<li><b>Разделение.</b> <kbd>U</kbd> на адресе в карточке (экран 2). Из карточки в книге объединение с другим человеком — <kbd>M</kbd>: открывается поле выбора второго человека (то же поле поиска, что в списке), затем тот же диалог. Новых пунктов меню нет.</li>
+</ul>
+
+<!-- ============================ ЭКРАН 4 ============================ -->
+<h2 class="screen" id="s4">Экран 4. Следствия объединения</h2>
+<p class="lead">Допустим, объединили «Ольга Смирнова» (<code>olga@example.org</code>, правило «Простой текст») и «Смирнова Ольга» (<code>o.smirnova@example.com</code>, правило «Markdown», вид «Markdown»). Слева — как сейчас, справа — после. Три места, где человек используется.</p>
+
+<h3 class="q"><span class="n">4а</span>Подсказки адресов в новом письме</h3>
+<p class="lead">Введите в поле «Кому» <code>ол</code>. <kbd>↑</kbd> <kbd>↓</kbd> — человек, <kbd>←</kbd> <kbd>→</kbd> — его адрес (только справа), <kbd>Enter</kbd> — вставить. Попробуйте <code>бю</code>: скрытого человека подсказки не предлагают ни по одному из адресов.</p>
+<div class="row2">
+  <div class="col"><div class="tag red">сейчас: два человека, две строки</div><div class="stage theme" id="auto-before" style="margin-top:6px; height:290px"></div></div>
+  <div class="col"><div class="tag grn">после: один человек, выбор адреса</div><div class="stage theme" id="auto-after" style="margin-top:6px; height:290px"></div></div>
+</div>
+<p class="cap">Справа в подсказке один человек; основной адрес выбран, остальные видны рядом. Строка вставляется целиком как <i>Ольга Смирнова &lt;адрес&gt;</i>. Формат письма под полем считается по правилу человека, а не адреса (вопрос 4.1 — какой адрес выбирать по умолчанию).</p>
+
+<h3 class="q"><span class="n">4б</span>«Все письма человека»</h3>
+<div class="row2">
+  <div class="col"><div class="tag red">сейчас</div>
+    <div class="stage theme static" style="margin-top:6px"><div style="padding:8px 14px; border-bottom:1px solid var(--line)"><span class="muted">Поиск:</span> <code>from:olga@example.org</code> <span class="chip" style="margin-left:6px">31</span></div>
+      <div class="mrow"><div class="l1"><b>Re: зал на пятницу</b><span class="muted small">вт</span></div><div class="l2">olga@example.org</div></div>
+      <div class="mrow"><div class="l1"><b>Смета на октябрь</b><span class="muted small">пн</span></div><div class="l2">olga@example.org</div></div>
+      <div class="mrow" style="opacity:.45"><div class="l1"><b>Личное: отпуск</b><span class="muted small">сб</span></div><div class="l2">o.smirnova@example.com — не найдено: другой «человек»</div></div></div></div>
+  <div class="col"><div class="tag grn">после</div>
+    <div class="stage theme static" style="margin-top:6px"><div style="padding:8px 14px; border-bottom:1px solid var(--line)"><span class="muted">Все письма:</span> <b>Ольга Смирнова</b> <span class="chip">2 адреса</span> <span class="chip" style="margin-left:6px">40</span></div>
+      <div class="mrow"><div class="l1"><b>Re: зал на пятницу</b><span class="muted small">вт</span></div><div class="l2">olga@example.org</div></div>
+      <div class="mrow"><div class="l1"><b>Личное: отпуск</b><span class="muted small">сб</span></div><div class="l2">o.smirnova@example.com</div></div>
+      <div class="mrow"><div class="l1"><b>Смета на октябрь</b><span class="muted small">пн</span></div><div class="l2">olga@example.org</div></div></div></div>
+</div>
+<p class="cap">«Все письма» ищет <code>from:</code> по каждому адресу человека и складывает результат по дате. Тот же запрос выполняет клавиша в палитре и кнопка карточки. Ищет ли он ещё и письма <i>к</i> человеку — вопрос 4.2.</p>
+
+<h3 class="q"><span class="n">4в</span>Правила формата, «Скрыть» и уведомления «только от людей»</h3>
+<div class="row2">
+  <div class="col"><div class="tag red">сейчас</div>
+    <table class="kv" style="margin-top:6px"><tr><th>Кому</th><th>Правило</th><th>Письмо уйдёт как</th></tr>
+      <tr><td>olga@example.org</td><td>Ольга Смирнова: простой текст</td><td>Простой текст</td></tr>
+      <tr><td>o.smirnova@example.com</td><td>Смирнова Ольга: Markdown</td><td>Markdown</td></tr>
+      <tr><td>оба адреса в «Кому»</td><td>два человека, самый строгий</td><td>Простой текст, «из-за olga@…»</td></tr></table></div>
+  <div class="col"><div class="tag grn">после</div>
+    <table class="kv" style="margin-top:6px"><tr><th>Кому</th><th>Правило</th><th>Письмо уйдёт как</th></tr>
+      <tr><td>olga@example.org</td><td>Ольга Смирнова: простой текст</td><td>Простой текст</td></tr>
+      <tr><td>o.smirnova@example.com</td><td>тот же человек: простой текст</td><td><b>Простой текст</b> <span class="chip warn">изменилось</span></td></tr>
+      <tr><td>оба адреса в «Кому»</td><td>один человек</td><td>Простой текст, без пометки «из-за…»</td></tr></table></div>
+</div>
+<ul class="pc">
+<li><b>Правила формата и вида писем</b> действуют на все адреса человека. Если письмо идёт на два адреса одного человека, это один получатель: правило одно, пометка «из-за кого простой текст» называет человека, а не адрес.</li>
+<li><b>«Скрыть»</b> теперь у человека, а не у адреса: скрытый человек не предлагается в подсказках ни по одному из адресов; его письма, уведомления и поиск остаются как были. Тонкая настройка «скрыть только этот адрес» не нужна: отвяжите адрес (<kbd>U</kbd>), и он станет отдельным человеком.</li>
+<li><b>Уведомления «только от людей».</b> Сегодня «рассылка» (<code>bulk</code>) определяется по заголовкам письма и от книги не зависит: объединение их не меняет, письмо от <code>o.smirnova@example.com</code> с <code>List-Unsubscribe</code> остаётся рассылкой. Нужно ли, чтобы человек из книги <i>никогда</i> не считался рассылкой, — вопрос 4.3.</li>
+<li><b>Подсказки 0.7 (формат, вид)</b> считают отказы и счётчики по адресу (<code>hints.subject</code>). Они продолжают работать по адресам; после объединения подсказка «писать этому адресу в Markdown» не предлагается, если у человека уже есть правило.</li>
+</ul>
+
+<!-- ============================ КЛАВИАТУРА ============================ -->
+<h2 class="screen" id="kb">Клавиатура</h2>
+<p class="lead">Принципы: всё с клавиатуры; похожее устроено одинаково; без лишних пунктов. Одни и те же жесты в карточке (в письме и в книге) и в диалоге.</p>
+<table class="kv">
+  <tr><th>Где</th><th>Клавиша</th><th>Действие</th></tr>
+  <tr><td>Письмо</td><td><kbd>P</kbd> (предложение, занятость проверить при реализации)</td><td>Открыть карточку отправителя (вопрос 2.4)</td></tr>
+  <tr><td>Палитра</td><td>имя или адрес → <kbd>Enter</kbd> / <kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Карточка человека / «Все письма»</td></tr>
+  <tr><td>Карточка</td><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Между строками</td></tr>
+  <tr><td>Карточка</td><td><kbd>Enter</kbd> или <kbd>F2</kbd> на имени и заметке</td><td>Править; <kbd>Enter</kbd> сохранить, <kbd>Esc</kbd> отмена</td></tr>
+  <tr><td>Карточка</td><td><kbd>A</kbd></td><td>Добавить адрес</td></tr>
+  <tr><td>Карточка, адрес</td><td><kbd>P</kbd> / <kbd>U</kbd></td><td>Сделать основным / отвязать в отдельного человека</td></tr>
+  <tr><td>Карточка, формат и вид</td><td><kbd>←</kbd> <kbd>→</kbd> или <kbd>Space</kbd></td><td>Сменить значение (список значений — по кругу)</td></tr>
+  <tr><td>Карточка, «Скрыть»</td><td><kbd>Space</kbd></td><td>Переключить</td></tr>
+  <tr><td>Карточка</td><td><kbd>M</kbd> / <kbd>N</kbd> при подсказке</td><td>Объединить / «нет, разные». Без подсказки <kbd>M</kbd> — выбрать второго человека</td></tr>
+  <tr><td>Список людей</td><td><kbd>↑</kbd> <kbd>↓</kbd> · <kbd>Space</kbd> · <kbd>M</kbd> · <kbd>N</kbd> · <kbd>/</kbd> · <kbd>Enter</kbd> · <kbd>Esc</kbd></td><td>Строки · отметить · объединить · «разные» · поиск · в карточку · из карточки</td></tr>
+  <tr><td>Диалог</td><td><kbd>Tab</kbd> · <kbd>↑</kbd> <kbd>↓</kbd> · <kbd>Enter</kbd> · <kbd>Esc</kbd></td><td>Группы · варианты внутри группы · объединить · отмена</td></tr>
+  <tr><td>Тост</td><td><kbd>Z</kbd> (или <kbd>Ctrl</kbd>+<kbd>Z</kbd>)</td><td>Вернуть объединение или отвязку</td></tr>
+  <tr><td>Подсказка адресов</td><td><kbd>↑</kbd> <kbd>↓</kbd> · <kbd>←</kbd> <kbd>→</kbd> · <kbd>Enter</kbd></td><td>Человек · его адрес · вставить</td></tr>
+</table>
+<p class="cap">Все клавиши — команды клавиатурной карты (<code>keyCommands.ts</code>): оператор может их переназначить; в макете они стоят по умолчанию. Буквы <kbd>A P U M N Z</kbd> работают только пока фокус не в поле ввода.</p>
+
+<!-- ============================ ЗАПИСКА ============================ -->
+<h2 class="screen" id="note">Записка для реализации</h2>
+<p class="lead">Набросок, не решение: после ответов на вопросы пишутся тесты, затем код.</p>
+
+<h3 class="q" style="margin-top:12px">Модель данных</h3>
+<p class="lead">Сейчас: <code>people(email PK, name, send_format, view, note, hidden, manual, via, saved)</code> — по строке на адрес; «люди» без записи — виртуальные, из таблицы <code>addresses</code> кэша. Предлагается: человек получает собственный ключ, адреса привязываются к нему.</p>
+<pre class="sql">-- v15 (новые таблицы рядом, старая people остаётся до конца миграции)
+CREATE TABLE persons (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL DEFAULT '',   -- имя пользователя; пусто — берётся из писем главного адреса
+    send_format TEXT NOT NULL DEFAULT '',
+    view        TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    hidden      INTEGER NOT NULL DEFAULT 0,
+    manual      INTEGER NOT NULL DEFAULT 0,
+    via         TEXT NOT NULL DEFAULT '',
+    saved       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE person_addresses (
+    email     TEXT PRIMARY KEY,             -- fold(email): адрес принадлежит не больше чем одному человеку
+    person_id INTEGER NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+    primary   INTEGER NOT NULL DEFAULT 0    -- ровно один 1 на человека (частичный уникальный индекс)
+);
+CREATE UNIQUE INDEX one_primary ON person_addresses(person_id) WHERE primary = 1;</pre>
+<ul class="pc">
+<li><b>Человек без записи</b> остаётся виртуальным: адрес из <code>addresses</code> без строки в <code>person_addresses</code> — человек из одного адреса. Строка появляется, когда пользователь что-то решил (правило, имя, объединение). Список книги = <code>persons</code> ∪ адреса без привязки.</li>
+<li><b>Имя из писем</b> хранится у адреса (<code>addresses.name</code>, как сейчас); имя человека — его собственное или имя основного адреса. Поэтому при отвязке новый человек получает имя из писем.</li>
+<li><b>API</b> (<code>commands.rs</code>): <code>Person</code> получает <code>id</code> и <code>emails: [{email, primary, uses, name}]</code>; <code>people</code> и <code>person_save</code> остаются; новые <code>person_merge(ids, keep_name, primary, resolution)</code> → снимок для отмены, <code>person_split(email)</code>, <code>person_add_address(id, email)</code>, <code>person_set_primary(id, email)</code>; <code>person_forget</code> по <code>id</code>. Отмена — снимок затронутых строк в самом ответе (не в журнале базы): тост хранит его на 10 с.</li>
+<li><b>Фронтенд:</b> <code>findPerson(people, email)</code> ищет по любому адресу — сигнатура <code>peopleBook.find(email)</code> не меняется, <code>RecipientRule</code>, <code>Compose</code>, <code>PersonCard</code> продолжают работать. <code>recipientParts</code> считает получателей по человеку, а не по адресу.</li>
+<li><b>Подсказки адресов:</b> запрос завершения группирует адреса по человеку, скрытого человека отбрасывает целиком; ответ несёт список адресов человека с признаком основного.</li>
+<li><b>«Все письма человека»:</b> запрос из нескольких <code>from:</code> (или один запрос по списку адресов в SQL) вместо одного.</li>
+<li><b>Дубли:</b> считаются на чтении (чистая функция: имена, начало адреса, транслитерация), не хранятся; отказ «нет, разные» — строка <code>hints(id='same-person', subject='a|b')</code>.</li>
+</ul>
+<h3 class="q">Миграция с «человек = адрес»</h3>
+<ul class="pc">
+<li>Для каждой строки <code>people</code> создаётся <code>persons</code> со всеми полями и одна строка <code>person_addresses</code> с <code>primary = 1</code>. Адреса без записи в <code>people</code> ничего не создают. Одна транзакция; старая <code>people</code> переименовывается в <code>people_v14</code> и удаляется только следующим выпуском, чтобы откат версии не терял правила.</li>
+<li><code>hints.subject</code> и <code>hint_counts.subject</code> остаются по адресам: они про наблюдения за адресом (письма, переключения вида); на уровень человека их поднимает чтение.</li>
+<li>Тесты до кода: миграция (запись → человек с одним основным адресом); слияние (имя, порядок адресов, конфликты формата/вида/«Скрыть», заметки); отмена возвращает байт-в-байт; отвязка (имя из писем, копия правил, пара больше не предлагается); регистр адресов; адрес не может принадлежать двум людям; подсказки адресов и поиск «Все письма» по нескольким адресам; <code>forget</code> человека с несколькими адресами.</li>
+</ul>
+<h3 class="q">Риски</h3>
+<ul class="pc">
+<li><span class="minus">!</span> <b>Ложное слияние</b> (однофамильцы, общий адрес <code>info@</code>/<code>booking@</code>): подсказка не объединяет сама, диалог показывает итог; отмена обязательна. Транслитерация (3.1-В) — самый рискованный вариант.</li>
+<li><span class="minus">!</span> <b>Потеря данных при слиянии:</b> заметки склеиваются, не заменяются; выбранные правила видны в диалоге; снимок для отмены.</li>
+<li><span class="minus">!</span> <b>Параллельные окна:</b> событие <code>people-changed</code> уже есть; слияние может прийти во время правки карточки в другом окне. Нужен номер версии строки (<code>saved</code>) и повторное чтение, а не слепая перезапись.</li>
+<li><span class="minus">!</span> <b>Скрытые адреса и новая почта:</b> письмо с нового адреса известного человека не знает о нём; адрес «прибивается» к человеку только вручную или через подсказку дубля, а не автоматически.</li>
+<li><span class="minus">!</span> <b>Откат версии:</b> старый выпуск читает <code>people</code>; поэтому сохранить старую таблицу на один выпуск.</li>
+<li><span class="minus">!</span> <b>Подсказки 0.7</b> (формат, вид) считают по адресу — не должны вдвое предлагать одному человеку одно и то же по разным адресам; проверить на реальной базе.</li>
+<li><span class="minus">!</span> <b>Раскладка настроек</b> переделывается отдельно (<code>01-settings.html</code>): страница «Люди» должна уметь жить в любой её раскладке (список + карточка — один компонент).</li>
+</ul>
+
+<!-- ============================ ВОПРОСЫ ============================ -->
+<div class="qs" id="qs">
+<h2>Вопросы</h2>
+<table>
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендация</th></tr>
+<tr><td class="n">1.1</td><td>Где живёт книга (экран 1)</td><td><b>А</b> раздел настроек, как сейчас · <b>Б</b> отдельное место в главном окне (папка, палитра, клавиша) · <b>В</b> только карточка и поиск в палитре, списка нет</td><td class="r"><b>А.</b> Список — дело редкое (разбор дублей, правила), он уже в настройках; вход 1.В берём как 1.2.</td></tr>
+<tr><td class="n">1.2</td><td>Вход в карточку человека из палитры</td><td><b>А</b> нет · <b>Б</b> да: имя или адрес, Enter — карточка, Ctrl+Enter — «Все письма» · <b>В</b> да, и ещё «Открыть список людей» в настройках</td><td class="r"><b>Б.</b> Найти человека — частое дело, лишних пунктов нет (человек — результат поиска). «Список» достаётся из настроек без новой команды.</td></tr>
+<tr><td class="n">2.1</td><td>Правка имени в карточке (экран 2)</td><td><b>А</b> поле всегда видно, до него Tab · <b>Б</b> строка имени, Enter или F2 открывает поле, Enter сохраняет · <b>В</b> отдельная кнопка «Изменить»</td><td class="r"><b>Б.</b> Один жест для имени и заметки, одинаково в письме и в книге; кнопок не прибавляется.</td></tr>
+<tr><td class="n">2.2</td><td>Заметка в карточке из письма</td><td><b>А</b> только в книге, карточка письма короткая · <b>Б</b> и там, одной строкой (при пустой — «Заметка…»), Enter открывает поле · <b>В</b> заметка всегда раскрыта</td><td class="r"><b>Б.</b> Одна карточка в обоих местах; длинная заметка не разбухает окно.</td></tr>
+<tr><td class="n">2.3</td><td>Что получает отвязанный адрес</td><td><b>А</b> копию правил (формат, вид, «Скрыть»), без заметки; имя — из писем · <b>Б</b> ничего: чистого человека · <b>В</b> спросить</td><td class="r"><b>А.</b> Пользователь, поставивший «простой текст», не обрадуется потере правила, но заметка — про человека, остаётся у него. Спрашивать при каждой отвязке — лишнее.</td></tr>
+<tr><td class="n">2.4</td><td>Как открыть карточку отправителя с клавиатуры</td><td><b>А</b> клавиша на открытом письме (<kbd>P</kbd>, окончательно — после проверки занятости) · <b>Б</b> только палитра (1.2) · <b>В</b> Tab до имени в шапке и Enter</td><td class="r"><b>А.</b> Часто нужная вещь; и Б, и В остаются запасными путями.</td></tr>
+<tr><td class="n">2.5</td><td>Добавили адрес, который уже у другого человека</td><td><b>А</b> отказ с сообщением · <b>Б</b> предложить объединить (Enter → диалог объединения, Esc — отмена) · <b>В</b> молча перенести адрес</td><td class="r"><b>Б.</b> Это и есть дубль; перенос без слова — потеря правил другого человека.</td></tr>
+<tr><td class="n">3.1</td><td>Как искать дубли (экран 3)</td><td><b>А</b> только имя (регистр, ё/е, порядок слов) · <b>Б</b> имя + одинаковое начало адреса до @ · <b>В</b> + транслитерация имени</td><td class="r"><b>Б.</b> Находит «Анна / Anna K.» и перестановки; транслитерация (В) часто ошибается на однофамильцах, подсказывать будет чаще, чем нужно.</td></tr>
+<tr><td class="n">3.2</td><td>Где показывать подсказку «возможно, один человек»</td><td><b>А</b> только над списком книги · <b>Б</b> над списком и в карточке человека · <b>В</b> ещё и уведомлением в окне</td><td class="r"><b>Б.</b> Человек, открывший карточку, видит дубль сразу; уведомления — шум.</td></tr>
+<tr><td class="n">3.3</td><td>Конфликт правила формата отправки</td><td><b>А</b> побеждает самый строгий (простой текст &lt; HTML &lt; Markdown), можно сменить в диалоге · <b>Б</b> правило того, чьё имя оставлено · <b>В</b> без умолчания: выбрать обязательно</td><td class="r"><b>А.</b> Согласовано с письмом нескольким получателям: самый строгий формат не ломает получателя.</td></tr>
+<tr><td class="n">3.4</td><td>Конфликт «Скрыть» (один скрыт, другой нет)</td><td><b>А</b> побеждает «скрыт» · <b>Б</b> скрыт, только если скрыты оба · <b>В</b> без умолчания: выбрать</td><td class="r"><b>А.</b> Скрытие — явное решение пользователя; возвращать человека в подсказки вопреки ему хуже. Отменить можно (Z, или отвязка).</td></tr>
+<tr><td class="n">3.5</td><td>Заметки при слиянии</td><td><b>А</b> склеить через пустую строку · <b>Б</b> оставить заметку того, чьё имя выбрано · <b>В</b> выбрать в диалоге</td><td class="r"><b>А.</b> Ничего не теряется, потом правится Enter'ом.</td></tr>
+<tr><td class="n">3.6</td><td>Отмена объединения</td><td><b>А</b> тост ~10 с, Z; позже — разделение руками (U) · <b>Б</b> журнал отмены до закрытия окна · <b>В</b> Ctrl+Z и после перезапуска</td><td class="r"><b>А.</b> Хватает на опечатку, не требует журнала. Б и В — отдельная система отмены.</td></tr>
+<tr><td class="n">3.7</td><td>Диалог при объединении</td><td><b>А</b> всегда, Enter принимает умолчания · <b>Б</b> без диалога, если нет конфликтов (сразу объединить, тост) · <b>В</b> всегда, но без выбора имени</td><td class="r"><b>А.</b> Операция редкая, цена ошибки — разбираться; один Enter принимает всё, что предложено.</td></tr>
+<tr><td class="n">4.1</td><td>Какой адрес человека подсказка предлагает по умолчанию (экран 4а)</td><td><b>А</b> основной · <b>Б</b> тот, куда писали последним · <b>В</b> каждый адрес отдельной строкой, как сейчас</td><td class="r"><b>А.</b> Предсказуемо; ←/→ меняют адрес. Б угадывает, но удивляет.</td></tr>
+<tr><td class="n">4.2</td><td>«Все письма человека» ищет</td><td><b>А</b> письма от человека по всем адресам · <b>Б</b> и письма к нему (to, cc) · <b>В</b> на выбор клавишей</td><td class="r"><b>А.</b> Как сейчас, но по всем адресам. Расширение — отдельная заявка.</td></tr>
+<tr><td class="n">4.3</td><td>Уведомления «только от людей» и книга (экран 4в)</td><td><b>А</b> не связаны, рассылка определяется по заголовкам · <b>Б</b> человек с записью в книге (правило или добавлен вручную) никогда не рассылка</td><td class="r"><b>А.</b> Меняет смысл настройки; в 0.8.0 книга и уведомления не связываются.</td></tr>
+</table>
+<div class="reply">Ответить можно коротко: «1.1 А, 1.2 Б, 2.1 Б, 2.2 Б, 2.3 А, 2.4 А, 2.5 Б, 3.1 Б, 3.2 Б, 3.3 А, 3.4 А, 3.5 А, 3.6 А, 3.7 А, 4.1 А, 4.2 А, 4.3 А» — это мои рекомендации. Номера вопросов после публикации не меняются.</div>
+</div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+  function $(s, r) { return (r || document).querySelector(s); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  document.getElementById("night").addEventListener("change", function (e) { document.body.classList.toggle("night", e.target.checked); });
+
+  var PAL = ["#6b5b95", "#2e7d4f", "#b26a00", "#1f5fa8", "#a0436b", "#3a7d7d", "#7a5230"];
+  function hue(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return PAL[h % PAL.length]; }
+  function ini(n, e) { var w = (n || e || "?").replace(/[^\p{L}\s]/gu, "").trim().split(/\s+/); return ((w[0] || "?")[0] + (w[1] ? w[1][0] : "")).toUpperCase(); }
+  function av(p, cls) { var a = p.addrs[0]; return '<span class="av ' + (cls || "") + '" style="background:' + hue(a ? a.e : p.name) + '">' + esc(ini(p.name, a && a.e)) + "</span>"; }
+  function plural(n, a, b, c) { var m = n % 10, h = n % 100; return n + " " + (m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c); }
+
+  var FMT = ["", "plain", "html", "markdown"], FMTL = { "": "Как обычно", plain: "Простой текст", html: "HTML", markdown: "Markdown" };
+  var VIEW = ["", "html", "markdown", "text"], VIEWL = { "": "Как обычно", html: "HTML", markdown: "Markdown", text: "Текст" };
+  var STRICT = { plain: 0, html: 1, markdown: 2 };
+
+  /* ---------- данные ---------- */
+  function P(id, name, addrs, o) {
+    o = o || {};
+    return { id: id, name: name, addrs: addrs.map(function (a) { return { e: a[0], n: a[1], nm: a[2] || name }; }), fmt: o.fmt || "", view: o.view || "", hidden: !!o.hidden, note: o.note || "", auto: name };
+  }
+  function seed() {
+    return {
+      next: 100, undo: null, cursor: 3, sel: {}, dismissed: {}, tier: "Б", persons: [
+        P(1, "Иван Петров", [["ivan.petrov@example.org", 24]], { note: "Главбух. Счета — до 25-го." }),
+        P(2, "Ivan Petrov", [["ipetrov@example.com", 6]]),
+        P(3, "Ольга Смирнова", [["olga@example.org", 31]], { fmt: "plain", note: "Заказывает залы" }),
+        P(4, "Смирнова Ольга", [["o.smirnova@example.com", 9]], { fmt: "markdown", view: "markdown", note: "Личная почта" }),
+        P(5, "Пётр Волков", [["pvolkov@example.org", 12]]),
+        P(6, "Петр Волков", [["p.volkov@example.net", 3]], { hidden: true }),
+        P(7, "Анна Козлова", [["anna@example.org", 18]], { fmt: "html" }),
+        P(8, "Anna K.", [["anna@example.net", 2]]),
+        P(9, "Бюро путешествий", [["booking@example.com", 40]], { hidden: true }),
+        P(10, "Мария Орлова", [["m.orlova@example.org", 15], ["maria@example.com", 4, "Maria O."]], { note: "Два ящика: рабочий и домашний" })
+      ]
+    };
+  }
+  function get(st, id) { for (var i = 0; i < st.persons.length; i++) if (st.persons[i].id === id) return st.persons[i]; return null; }
+  function uses(p) { return p.addrs.reduce(function (s, a) { return s + a.n; }, 0); }
+  function ownerOf(st, email) { var e = email.toLowerCase(); for (var i = 0; i < st.persons.length; i++) for (var j = 0; j < st.persons[i].addrs.length; j++) if (st.persons[i].addrs[j].e.toLowerCase() === e) return st.persons[i]; return null; }
+  function sorted(st) { return st.persons.slice().sort(function (a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0; }); }
+
+  /* ---------- дубли ---------- */
+  var TR = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "sch", ы: "y", э: "e", ю: "yu", я: "ya", ь: "", ъ: "" };
+  function words(n) { return n.toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean); }
+  function nameKey(n) { return words(n).sort().join(" "); }
+  function trKey(n) { return words(n).map(function (w) { return w.replace(/[а-я]/g, function (c) { return TR[c]; }); }).sort().join(" "); }
+  function local(e) { return e.split("@")[0].toLowerCase(); }
+  var TIERS = ["А", "Б", "В"];
+  function dupTier(a, b) {
+    if (nameKey(a.name) && nameKey(a.name) === nameKey(b.name)) return { t: "А", why: "то же имя: слова переставлены или ё/е" + (a.name.toLowerCase() === b.name.toLowerCase() ? "" : "") };
+    var la = a.addrs.map(function (x) { return local(x.e); });
+    for (var i = 0; i < b.addrs.length; i++) if (la.indexOf(local(b.addrs[i].e)) >= 0 && local(b.addrs[i].e).length > 3) return { t: "Б", why: "одинаковое начало адреса «" + local(b.addrs[i].e) + "»" };
+    if (trKey(a.name) && trKey(a.name) === trKey(b.name)) return { t: "В", why: "имя совпадает в транслитерации" };
+    return null;
+  }
+  function pairKey(a, b) { return Math.min(a.id, b.id) + "-" + Math.max(a.id, b.id); }
+  function dupPairs(st) {
+    var out = [], ps = sorted(st), allowed = TIERS.slice(0, TIERS.indexOf(st.tier) + 1);
+    for (var i = 0; i < ps.length; i++) for (var j = i + 1; j < ps.length; j++) {
+      var d = dupTier(ps[i], ps[j]);
+      if (d && allowed.indexOf(d.t) >= 0 && !st.dismissed[pairKey(ps[i], ps[j])]) out.push({ a: ps[i], b: ps[j], t: d.t, why: d.why });
+    }
+    out.sort(function (x, y) { return TIERS.indexOf(x.t) - TIERS.indexOf(y.t); });
+    return out;
+  }
+  function dupFor(st, p) { var all = dupPairs(st); for (var i = 0; i < all.length; i++) if (all[i].a === p || all[i].b === p) return { other: all[i].a === p ? all[i].b : all[i].a, why: all[i].why, t: all[i].t, pair: all[i] }; return null; }
+
+  /* ---------- тост и отмена ---------- */
+  function snap(st) { return JSON.stringify({ persons: st.persons, dismissed: st.dismissed, next: st.next }); }
+  function toast(root, st, msg, withUndo) {
+    var box = $(".toasts", root); clearTimeout(box._t);
+    box.innerHTML = '<div class="toast"><span>' + esc(msg) + "</span>" + (withUndo ? '<button class="btn small" data-undo>Отменить <kbd>Z</kbd></button>' : "") + "</div>";
+    box._t = setTimeout(function () { box.innerHTML = ""; if (withUndo) st.undo = null; }, 12000);
+  }
+  function undo(root, st) {
+    if (!st.undo) return false;
+    var o = JSON.parse(st.undo); st.persons = o.persons; st.dismissed = o.dismissed; st.next = o.next; st.undo = null;
+    toast(root, st, "Возвращено как было", false); st.redraw(); return true;
+  }
+  function wireUndo(root, st) {
+    root.addEventListener("click", function (e) { if (e.target.closest("[data-undo]")) { undo(root, st); } });
+    root.addEventListener("keydown", function (e) {
+      if (e.target.matches("input, textarea") || e.altKey) return;
+      if ((e.key === "z" || e.key === "Z" || e.key === "я") && !e.shiftKey && st.undo) { e.preventDefault(); undo(root, st); }
+    });
+  }
+
+  /* ---------- объединение: диалог ---------- */
+  function openMerge(root, st, ids, after) {
+    var ps = ids.map(function (i) { return get(st, i); }).filter(Boolean).sort(function (a, b) { return uses(b) - uses(a); });
+    if (ps.length < 2) return;
+    var host = $(".ovhost", root), n = Math.random().toString(36).slice(2, 6);
+    var names = []; ps.forEach(function (p) { if (names.indexOf(p.name) < 0) names.push(p.name); });
+    var addrs = []; ps.forEach(function (p) { p.addrs.forEach(function (a) { addrs.push({ e: a.e, p: p }); }); });
+    function setVals(field) { var v = []; ps.forEach(function (p) { if (p[field] && v.indexOf(p[field]) < 0) v.push(p[field]); }); return v; }
+    var fmtV = setVals("fmt"), viewV = setVals("view");
+    var hidSome = ps.some(function (p) { return p.hidden; }), hidAll = ps.every(function (p) { return p.hidden; });
+    var fmtDef = fmtV.slice().sort(function (a, b) { return STRICT[a] - STRICT[b]; })[0] || "";
+    var viewDef = ps[0].view || viewV[0] || "";
+    var nameHtml = names.map(function (nm, i) {
+      var p = ps.filter(function (x) { return x.name === nm; })[0];
+      return '<label class="opt"><input type="radio" name="n' + n + '" value="' + esc(nm) + '"' + (i === 0 ? " checked" : "") + "> <span><b>" + esc(nm) + '</b> <span class="why">' + esc(plural(uses(p), "письмо", "письма", "писем")) + (i === 0 ? ", больше всего писем" : "") + "</span></span></label>";
+    }).join("");
+    var addrHtml = addrs.map(function (a, i) {
+      return '<label class="opt"><input type="radio" name="a' + n + '" value="' + esc(a.e) + '"' + (i === 0 ? " checked" : "") + "> <span>" + esc(a.e) + ' <span class="why">' + esc(plural(a.p.addrs.filter(function (x) { return x.e === a.e; })[0].n, "письмо", "письма", "писем")) + "</span></span></label>";
+    }).join("");
+    function conflict(title, field, vals, def, labels, detail) {
+      if (vals.length < 2) return '<div class="agree">' + title + ": " + esc(labels[vals[0] || ""] || labels[""]) + (vals.length ? "" : " (правила нет)") + "</div>";
+      return '<div class="conf"><h6>' + title + " — правила расходятся</h6>" + vals.map(function (v) {
+        var who = ps.filter(function (p) { return p[field] === v; }).map(function (p) { return p.name; }).join(", ");
+        return '<label class="opt"><input type="radio" name="' + field + n + '" value="' + esc(v) + '"' + (v === def ? " checked" : "") + "> <span><b>" + esc(labels[v]) + '</b> <span class="why">у «' + esc(who) + "»" + (v === def ? " · " + detail : "") + "</span></span></label>";
+      }).join("") + "</div>";
+    }
+    var hidHtml = !hidSome ? '<div class="agree">Скрыть из подсказок: нет</div>' : hidAll ? '<div class="agree">Скрыть из подсказок: да (у обоих)</div>' :
+      '<div class="conf"><h6>«Скрыть из подсказок» — расходится</h6>' +
+      '<label class="opt"><input type="radio" name="h' + n + '" value="1" checked> <span><b>Скрыть</b> <span class="why">у «' + esc(ps.filter(function (p) { return p.hidden; }).map(function (p) { return p.name; }).join(", ")) + "» · по умолчанию: «Скрыть» побеждает</span></span></label>" +
+      '<label class="opt"><input type="radio" name="h' + n + '" value="0"> <span><b>Не скрывать</b> <span class="why">у «' + esc(ps.filter(function (p) { return !p.hidden; }).map(function (p) { return p.name; }).join(", ")) + "»</span></span></label></div>";
+    var notes = ps.map(function (p) { return p.note; }).filter(Boolean);
+    host.innerHTML = '<div class="ov"><div class="dlg" role="dialog" aria-label="Объединить"><h4>Объединить ' + plural(ps.length, "человека", "человека", "человек") + " в одного</h4>" +
+      '<div class="muted small">' + esc(ps.map(function (p) { return p.name; }).join(" · ")) + "</div>" +
+      "<h6>Какое имя оставить</h6>" + nameHtml + "<h6>Основной адрес</h6>" + addrHtml +
+      "<h6>Правила</h6>" +
+      conflict("Формат отправки", "fmt", fmtV, fmtDef, FMTL, "по умолчанию побеждает самый строгий") +
+      conflict("Вид писем", "view", viewV, viewDef, VIEWL, "по умолчанию — правило оставленного имени") + hidHtml +
+      (notes.length > 1 ? '<div class="agree">Заметки склеятся через пустую строку.</div>' : "") +
+      '<div class="prev" data-prev></div><div class="acts"><button class="btn" data-no>Отмена <kbd>Esc</kbd></button><button class="btn primary" data-yes>Объединить <kbd>Enter</kbd></button></div></div></div>';
+    var dlg = $(".dlg", host), prevFocus = document.activeElement;
+    function val(nm) { var e = dlg.querySelector('input[name="' + nm + n + '"]:checked'); return e ? e.value : null; }
+    function choice() {
+      return { name: val("n"), prim: val("a"), fmt: fmtV.length < 2 ? (fmtV[0] || "") : val("fmt"), view: viewV.length < 2 ? (viewV[0] || "") : val("view"), hidden: !hidSome ? false : hidAll ? true : val("h") === "1" };
+    }
+    function preview() {
+      var c = choice();
+      $("[data-prev]", dlg).innerHTML = "Получится: <b>" + esc(c.name) + "</b> · " + plural(addrs.length, "адрес", "адреса", "адресов") + ", основной " + esc(c.prim) + "<br>Формат: " + esc(FMTL[c.fmt]) + " · вид писем: " + esc(VIEWL[c.view]) + " · " + (c.hidden ? "скрыт из подсказок" : "в подсказках");
+    }
+    dlg.addEventListener("change", preview); preview();
+    function close() { host.innerHTML = ""; if (prevFocus && prevFocus.focus) prevFocus.focus(); }
+    function go() {
+      var c = choice(), before = snap(st), keep = ps[0];
+      var all = []; ps.forEach(function (p) { p.addrs.forEach(function (a) { all.push(a); }); });
+      all.sort(function (a, b) { return (b.e === c.prim) - (a.e === c.prim); });
+      keep.name = c.name; keep.addrs = all; keep.fmt = c.fmt; keep.view = c.view; keep.hidden = c.hidden;
+      keep.note = notes.join("\n\n");
+      ps.slice(1).forEach(function (p) { st.persons.splice(st.persons.indexOf(p), 1); });
+      st.sel = {}; st.cursor = keep.id; st.undo = before;
+      close(); st.redraw(); toast(root, st, "Объединено: «" + keep.name + "», " + plural(all.length, "адрес", "адреса", "адресов") + ".", true);
+      if (after) after(keep);
+    }
+    dlg.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+      else if (e.key === "Enter") { e.preventDefault(); go(); }
+      else if (e.key === "Tab") { var f = dlg.querySelectorAll("input, button"), first = f[0], last = f[f.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
+    });
+    $("[data-no]", dlg).addEventListener("click", close); $("[data-yes]", dlg).addEventListener("click", go);
+    var firstRadio = dlg.querySelector("input:checked"); (firstRadio || dlg).focus();
+  }
+
+  /* ---------- карточка ---------- */
+  function mountCard(st, root, host, getPid, opts) {
+    opts = opts || {};
+    var C = { cur: "all", edit: null, adding: false, msg: null, coll: null, flash: 0 };
+    function person() { return get(st, getPid()); }
+    function rowsOf(p) {
+      var r = ["name"];
+      if (dupFor(st, p)) r.push("dup");
+      r.push("all", "note");
+      p.addrs.forEach(function (a, i) { r.push("a:" + i); });
+      r.push("add"); if (C.coll) r.push("coll");
+      r.push("fmt", "view", "hid");
+      return r;
+    }
+    function render(focus) {
+      var p = person(); if (!p) { host.innerHTML = '<div class="bp-hint">Никого не выбрано.</div>'; return; }
+      var d = dupFor(st, p), prim = p.addrs[0], s = "";
+      s += '<div class="pc-head">' + av(p, "l") + '<div class="who rw" tabindex="-1" data-r="name">';
+      if (C.edit === "name") s += '<input class="input" data-in="name" value="' + esc(p.name) + '" aria-label="Имя">';
+      else s += '<div class="nm">' + esc(p.name) + (C.flash ? ' <span class="fl">сохранено</span>' : "") + '<span class="kh">Enter — изменить имя</span></div>';
+      s += '<div class="nt">' + esc(prim ? prim.e : "") + " · " + esc(plural(uses(p), "письмо", "письма", "писем")) + "</div></div></div>";
+      if (d) s += '<div class="pc-dup rw" tabindex="-1" data-r="dup">Возможно, это один человек: <b>' + esc(d.other.name) + "</b> <span class=\"muted\">(" + esc(d.other.addrs[0].e) + ", " + esc(d.why) + ")</span><br><kbd>M</kbd> объединить · <kbd>N</kbd> нет, разные</div>";
+      s += '<div class="pc-acts"><button class="btn primary" tabindex="-1" data-r="all">Все письма <kbd style="background:transparent;color:inherit;border-color:currentColor">Enter</kbd></button></div>';
+      s += '<div class="pc-sec"><h5>Заметка</h5>';
+      if (C.edit === "note") s += '<textarea class="input" data-in="note" aria-label="Заметка">' + esc(p.note) + "</textarea>";
+      else s += '<div class="rw" tabindex="-1" data-r="note"><span class="noteline' + (p.note ? "" : " empty") + '">' + esc(p.note || "Заметка…") + '</span><span class="kh">Enter</span></div>';
+      s += "</div>";
+      s += '<div class="pc-sec"><h5>Адреса</h5>';
+      p.addrs.forEach(function (a, i) {
+        s += '<div class="rw addr" tabindex="-1" data-r="a:' + i + '"><span class="radio' + (i === 0 ? " on" : "") + '"></span><span class="em">' + esc(a.e) + '</span><span class="m">' + (i === 0 ? "основной" : esc(plural(a.n, "письмо", "письма", "писем"))) + '</span><span class="kh">' + (i ? "<kbd>P</kbd> основной · " : "") + (p.addrs.length > 1 ? "<kbd>U</kbd> отдельным" : "") + "</span></div>";
+      });
+      if (C.adding) s += '<div style="padding:4px 0"><input class="input" data-in="add" placeholder="адрес@example.org" aria-label="Новый адрес" autocomplete="off" spellcheck="false"></div>';
+      else s += '<div class="rw" tabindex="-1" data-r="add" style="padding:3px 6px"><span style="color:var(--link)">+ Добавить адрес</span><span class="kh"><kbd>A</kbd></span></div>';
+      if (C.msg) s += '<div class="pc-msg err">' + esc(C.msg) + "</div>";
+      if (C.coll) { var o = get(st, C.coll); s += '<div class="pc-dup rw" tabindex="-1" data-r="coll" style="margin:4px 0 0">Этот адрес уже у «<b>' + esc(o ? o.name : "") + "</b>». <kbd>Enter</kbd> — объединить, <kbd>Esc</kbd> — отмена.</div>"; }
+      s += "</div>";
+      s += '<div class="pc-sec"><div class="rw row" tabindex="-1" data-r="fmt"><span>Формат отправки</span><span class="v">' + esc(FMTL[p.fmt]) + '</span></div>';
+      s += '<div class="rw row" tabindex="-1" data-r="view"><span>Вид писем</span><span class="v">' + esc(VIEWL[p.view]) + '</span></div>';
+      s += '<div class="rw row" tabindex="-1" data-r="hid" style="justify-content:flex-start"><span class="box' + (p.hidden ? " on" : "") + '">' + (p.hidden ? "✓" : "") + "</span><span>Скрыть из подсказок адресов</span></div></div>";
+      s += '<div class="pc-foot"><kbd>↑</kbd><kbd>↓</kbd> строки · <kbd>Enter</kbd> изменить · <kbd>A</kbd> адрес · <kbd>Z</kbd> вернуть' + (opts.esc ? " · <kbd>Esc</kbd> закрыть" : "") + "</div>";
+      host.innerHTML = s;
+      var f;
+      if (C.edit) f = host.querySelector('[data-in="' + C.edit + '"]'); else if (C.adding) f = host.querySelector('[data-in="add"]');
+      else if (focus) f = host.querySelector('[data-r="' + C.cur + '"]') || host.querySelector("[data-r]");
+      if (f) { f.focus(); if (f.select && C.edit === "name") f.select(); }
+    }
+    function flash() { C.flash = 1; clearTimeout(C._f); C._f = setTimeout(function () { C.flash = 0; var nm = host.querySelector(".fl"); if (nm) nm.remove(); }, 1500); }
+    function move(d) {
+      var p = person(), r = rowsOf(p), i = r.indexOf(C.cur); if (i < 0) i = 0;
+      C.cur = r[Math.max(0, Math.min(r.length - 1, i + d))];
+      var el = host.querySelector('[data-r="' + C.cur + '"]'); if (el) el.focus();
+    }
+    function cycle(list, key, dir) { var p = person(); var i = list.indexOf(p[key]); p[key] = list[(i + dir + list.length) % list.length]; flash(); st.redraw(true); }
+    function commit(kind, value) {
+      var p = person(); if (!p || !C.edit) return;
+      if (kind === "name") p.name = value.trim() || p.addrs[0].nm || p.auto; else p.note = value.replace(/\s+$/, "");
+      C.edit = null; flash(); st.redraw(true);
+    }
+    function startAdd() { C.adding = true; C.msg = null; C.coll = null; C.cur = "add"; render(true); }
+    function addAddr(v) {
+      var p = person(), m = v.trim().match(/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/);
+      if (!m) { C.msg = "Это не похоже на адрес."; C.adding = false; C.cur = "add"; render(true); return; }
+      var own = ownerOf(st, v.trim());
+      if (own && own.id === p.id) { C.msg = "Этот адрес уже у этого человека."; C.adding = false; render(true); return; }
+      if (own) { C.adding = false; C.msg = null; C.coll = own.id; C.cur = "coll"; render(true); return; }
+      p.addrs.push({ e: v.trim(), n: 0, nm: "" }); C.adding = false; C.msg = null; C.cur = "a:" + (p.addrs.length - 1); st.redraw(true);
+    }
+    function mergeDup(d) { openMerge(root, st, [d.pair.a.id, d.pair.b.id], null); }
+    host.addEventListener("keydown", function (e) {
+      var t = e.target;
+      if (t.matches("[data-in]")) {
+        var kind = t.getAttribute("data-in");
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); C.edit = null; C.adding = false; render(true); }
+        else if (e.key === "Enter" && !(kind === "note" && e.shiftKey)) { e.preventDefault(); e.stopPropagation(); if (kind === "add") addAddr(t.value); else commit(kind, t.value); }
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      var p = person(); if (!p) return;
+      var row = (t.closest && t.closest("[data-r]")); if (row) C.cur = row.getAttribute("data-r");
+      var cur = C.cur, k = e.key.toLowerCase();
+      function stop() { e.preventDefault(); e.stopPropagation(); }
+      if (e.key === "ArrowDown") { stop(); move(1); }
+      else if (e.key === "ArrowUp") { stop(); move(-1); }
+      else if (e.key === "Escape") { if (C.coll) { stop(); C.coll = null; render(true); } else if (opts.esc) { stop(); opts.esc(); } }
+      else if (e.key === "Enter" || e.key === "F2") {
+        if (cur === "name") { stop(); C.edit = "name"; render(true); }
+        else if (cur === "note") { stop(); C.edit = "note"; render(true); }
+        else if (cur === "all") { stop(); toast(root, st, "Поиск: " + p.addrs.map(function (a) { return "from:" + a.e; }).join(" или "), false); }
+        else if (cur === "add") { stop(); startAdd(); }
+        else if (cur === "dup") { stop(); mergeDup(dupFor(st, p)); }
+        else if (cur === "coll") { stop(); var o = get(st, C.coll); C.coll = null; if (o) openMerge(root, st, [p.id, o.id], null); }
+        else if (cur === "fmt") { stop(); cycle(FMT, "fmt", 1); }
+        else if (cur === "view") { stop(); cycle(VIEW, "view", 1); }
+        else if (cur === "hid") { stop(); p.hidden = !p.hidden; flash(); st.redraw(true); }
+      }
+      else if (e.key === " " && (cur === "hid" || cur === "fmt" || cur === "view")) { stop(); if (cur === "hid") { p.hidden = !p.hidden; flash(); st.redraw(true); } else cycle(cur === "fmt" ? FMT : VIEW, cur, 1); }
+      else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && (cur === "fmt" || cur === "view")) { stop(); cycle(cur === "fmt" ? FMT : VIEW, cur, e.key === "ArrowRight" ? 1 : -1); }
+      else if (k === "a" || k === "ф") { stop(); startAdd(); }
+      else if ((k === "p" || k === "з") && cur.indexOf("a:") === 0) {
+        stop(); var i = +cur.slice(2); if (i > 0) { var a = p.addrs.splice(i, 1)[0]; p.addrs.unshift(a); C.cur = "a:0"; flash(); st.redraw(true); }
+      }
+      else if ((k === "u" || k === "г") && cur.indexOf("a:") === 0 && p.addrs.length > 1) {
+        stop(); var j = +cur.slice(2), before = snap(st), ad = p.addrs.splice(j, 1)[0];
+        var np = { id: st.next++, name: ad.nm || ad.e, auto: ad.nm || ad.e, addrs: [ad], fmt: p.fmt, view: p.view, hidden: p.hidden, note: "" };
+        st.persons.push(np); st.dismissed[pairKey(p, np)] = 1; st.undo = before; C.cur = "name";
+        st.redraw(true); toast(root, st, "Адрес " + ad.e + " теперь отдельный человек: «" + np.name + "».", true);
+      }
+      else if (k === "m" || k === "ь") { var d = dupFor(st, p); if (d) { stop(); mergeDup(d); } else if (opts.pick) { stop(); opts.pick(p); } }
+      else if (k === "n" || k === "т") { var d2 = dupFor(st, p); if (d2) { stop(); st.dismissed[pairKey(d2.pair.a, d2.pair.b)] = 1; st.redraw(true); toast(root, st, "Запомнено: это разные люди.", false); } }
+    });
+    host.addEventListener("focusin", function (e) { var row = e.target.closest && e.target.closest("[data-r]"); if (row) C.cur = row.getAttribute("data-r"); });
+    host.addEventListener("click", function (e) {
+      var row = e.target.closest("[data-r]"); if (!row) return; C.cur = row.getAttribute("data-r");
+      if (C.cur === "name" || C.cur === "note") { C.edit = C.cur; render(true); }
+      else if (C.cur === "add") startAdd();
+      else if (C.cur === "hid") { var p = person(); p.hidden = !p.hidden; st.redraw(true); }
+      else if (C.cur === "fmt") cycle(FMT, "fmt", 1); else if (C.cur === "view") cycle(VIEW, "view", 1);
+      else if (C.cur === "dup") mergeDup(dupFor(st, person()));
+    });
+    C.render = render; C.reset = function () { C.cur = "all"; C.edit = null; C.adding = false; C.msg = null; C.coll = null; };
+    return C;
+  }
+
+  /* ---------- экран 2 ---------- */
+  (function () {
+    var root = $("#stage2"), host = $("#s2card"), pop = $("#s2pop"), st, card, open = true;
+    function init() { st = seed(); st.tier = "А"; st.cursor = 10; card.reset(); open = true; pop.style.display = ""; st.redraw(); }
+    st = seed();
+    card = mountCard(st, root, host, function () { return 10; }, { esc: function () { open = false; pop.style.display = "none"; root.focus(); } });
+    st.redraw = function (f) { card.render(f); };
+    wireUndo(root, st);
+    function openCard() { open = true; pop.style.display = ""; card.reset(); card.render(true); }
+    root.addEventListener("keydown", function (e) { if (!open && !e.target.matches("input,textarea") && !e.ctrlKey && (e.key.toLowerCase() === "p" || e.key.toLowerCase() === "з")) { e.preventDefault(); openCard(); } });
+    $("#s2from").addEventListener("click", function () { open ? 0 : openCard(); });
+    root.addEventListener("focus", function (e) { if (e.target === root && open) card.render(true); });
+    $("#s2reset").addEventListener("click", function () { var s2 = seed(); st.persons = s2.persons; st.dismissed = {}; st.undo = null; $(".toasts", root).innerHTML = ""; card.reset(); open = true; pop.style.display = ""; card.render(false); });
+    card.render(false);
+  })();
+
+  /* ---------- экран 3 ---------- */
+  (function () {
+    var root = $("#stage3"), list = $("#s3list"), ban = $("#s3banner"), q = $("#s3q"), st = seed(), cardHost = $("#s3card");
+    var card = mountCard(st, root, cardHost, function () { return st.cursor; }, { esc: function () { list.focus(); }, pick: function (p) { pickSecond(p); } });
+    function visible() { var s = q.value.trim().toLowerCase(); return sorted(st).filter(function (p) { return !s || (p.name + " " + p.note + " " + p.addrs.map(function (a) { return a.e; }).join(" ")).toLowerCase().indexOf(s) >= 0; }); }
+    function marks(p) {
+      var s = ""; if (p.fmt) s += '<span class="chip">' + (p.fmt === "markdown" ? "MD" : p.fmt === "html" ? "HTML" : "T") + "</span> ";
+      if (p.hidden) s += '<span class="chip warn">скрыт</span>'; return s;
+    }
+    function draw(keepFocus) {
+      var vs = visible();
+      if (!get(st, st.cursor) || (vs.length && vs.indexOf(get(st, st.cursor)) < 0)) st.cursor = vs.length ? vs[0].id : 0;
+      var selN = Object.keys(st.sel).length;
+      list.innerHTML = vs.map(function (p) {
+        var extra = p.addrs.length > 1 ? " +" + (p.addrs.length - 1) : "";
+        return '<div class="pr' + (p.id === st.cursor ? " cur" : "") + (st.sel[p.id] ? " sel" : "") + '" role="option" data-id="' + p.id + '" aria-selected="' + (p.id === st.cursor) + '"><span class="cb">' + (st.sel[p.id] ? "✓" : "") + "</span>" + av(p) + '<span class="who"><span class="nm">' + esc(p.name) + '</span><span class="em">' + esc(p.addrs[0].e) + esc(extra) + "</span></span><span class=\"meta\">" + marks(p) + '<span class="muted small">' + uses(p) + "</span></span></div>";
+      }).join("") || '<div class="bp-hint">Никого не найдено.</div>';
+      var cur = list.querySelector(".cur"); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
+      var d = dupPairs(st)[0];
+      if (selN >= 2) ban.innerHTML = '<div class="banner">Отмечено: <b>' + selN + "</b>. <kbd>M</kbd> — объединить, <kbd>Space</kbd> — снять отметку.</div>";
+      else if (d) ban.innerHTML = '<div class="banner">Возможно, это один человек: <b>' + esc(d.a.name) + "</b> и <b>" + esc(d.b.name) + '</b><div class="muted small">' + esc(d.a.addrs[0].e) + " · " + esc(d.b.addrs[0].e) + " — " + esc(d.why) + ' <span class="chip">' + d.t + '</span></div><div class="ba"><span><kbd>M</kbd> объединить</span><span><kbd>N</kbd> нет, разные</span></div></div>';
+      else ban.innerHTML = "";
+      card.render(!!keepFocus && root.contains(document.activeElement) && cardHost.contains(document.activeElement));
+    }
+    st.redraw = function (f) { draw(f); };
+    wireUndo(root, st);
+    function pickSecond(p) {
+      var vs = sorted(st).filter(function (x) { return x !== p; });
+      var host = $(".ovhost", root);
+      host.innerHTML = '<div class="ov"><div class="dlg" style="width:420px"><h4>Объединить «' + esc(p.name) + '» с…</h4><input class="input" id="pk" placeholder="Имя или адрес" style="width:100%" autocomplete="off"><div id="pkl" style="margin-top:6px"></div><div class="muted small" style="margin-top:6px"><kbd>↑</kbd><kbd>↓</kbd> · <kbd>Enter</kbd> выбрать · <kbd>Esc</kbd> отмена</div></div></div>';
+      var inp = $("#pk", host), cur = 0, items = vs;
+      function paint() { var s = inp.value.trim().toLowerCase(); items = vs.filter(function (x) { return !s || (x.name + " " + x.addrs.map(function (a) { return a.e; }).join(" ")).toLowerCase().indexOf(s) >= 0; }).slice(0, 6); cur = Math.min(cur, Math.max(0, items.length - 1)); $("#pkl", host).innerHTML = items.map(function (x, i) { return '<div class="sug"><div class="it' + (i === cur ? " cur" : "") + '"><b class="nm">' + esc(x.name) + '</b><span class="muted small">' + esc(x.addrs[0].e) + "</span></div></div>"; }).join(""); }
+      function close() { host.innerHTML = ""; var r = cardHost.querySelector("[data-r]"); if (r) r.focus(); }
+      inp.addEventListener("input", function () { cur = 0; paint(); });
+      inp.addEventListener("keydown", function (e) {
+        e.stopPropagation();
+        if (e.key === "ArrowDown") { e.preventDefault(); cur = Math.min(items.length - 1, cur + 1); paint(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); cur = Math.max(0, cur - 1); paint(); }
+        else if (e.key === "Escape") { e.preventDefault(); close(); }
+        else if (e.key === "Enter" && items[cur]) { e.preventDefault(); host.innerHTML = ""; openMerge(root, st, [p.id, items[cur].id], null); }
+      });
+      paint(); inp.focus();
+    }
+    function moveCur(d) { var vs = visible(), i = vs.indexOf(get(st, st.cursor)); i = Math.max(0, Math.min(vs.length - 1, (i < 0 ? 0 : i) + d)); if (vs[i]) { st.cursor = vs[i].id; draw(false); } }
+    list.addEventListener("keydown", function (e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      var k = e.key.toLowerCase();
+      if (e.key === "ArrowDown") { e.preventDefault(); moveCur(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); moveCur(-1); }
+      else if (e.key === "Home") { e.preventDefault(); moveCur(-999); } else if (e.key === "End") { e.preventDefault(); moveCur(999); }
+      else if (e.key === " ") { e.preventDefault(); if (st.sel[st.cursor]) delete st.sel[st.cursor]; else st.sel[st.cursor] = 1; moveCur(1); draw(false); }
+      else if (e.key === "Enter") { e.preventDefault(); var r = cardHost.querySelector('[data-r="all"]') || cardHost.querySelector("[data-r]"); if (r) r.focus(); }
+      else if (e.key === "/") { e.preventDefault(); q.focus(); q.select(); }
+      else if (k === "m" || k === "ь") {
+        e.preventDefault(); var ids = Object.keys(st.sel).map(Number);
+        if (ids.length >= 2) openMerge(root, st, ids, null);
+        else { var d = dupPairs(st)[0]; if (d) openMerge(root, st, [d.a.id, d.b.id], null); }
+      }
+      else if (k === "n" || k === "т") { var d2 = dupPairs(st)[0]; if (d2) { e.preventDefault(); st.dismissed[pairKey(d2.a, d2.b)] = 1; draw(false); toast(root, st, "Запомнено: это разные люди.", false); } }
+    });
+    list.addEventListener("click", function (e) { var r = e.target.closest(".pr"); if (!r) return; st.cursor = +r.getAttribute("data-id"); if (e.target.closest(".cb")) { if (st.sel[st.cursor]) delete st.sel[st.cursor]; else st.sel[st.cursor] = 1; } draw(false); });
+    q.addEventListener("input", function () { draw(false); });
+    q.addEventListener("keydown", function (e) { if (e.key === "Escape" || e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); list.focus(); } });
+    ban.addEventListener("click", function () {});
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="tier"]'), function (r) { r.addEventListener("change", function () { st.tier = r.value; st.sel = {}; draw(false); }); });
+    $("#s3reset").addEventListener("click", function () {
+      var s = seed(), tier = st.tier; st.persons = s.persons; st.dismissed = {}; st.sel = {}; st.undo = null; st.cursor = 3; st.tier = tier; card.reset(); q.value = ""; $(".toasts", root).innerHTML = ""; $(".ovhost", root).innerHTML = ""; draw(false);
+    });
+    draw(false);
+  })();
+
+  /* ---------- экран 0 и экран 1: статичные виды ---------- */
+  function staticList(host, rows, cur) {
+    host.innerHTML = rows.map(function (r, i) {
+      return '<div class="pr' + (i === cur ? " cur" : "") + '" style="padding:5px 8px"><span class="av" style="background:' + hue(r[1]) + '">' + esc(ini(r[0], r[1])) + '</span><span class="who"><span class="nm">' + esc(r[0]) + '</span><span class="em">' + esc(r[1]) + "</span></span>" + (r[2] || "") + "</div>";
+    }).join("");
+  }
+  var ROWS_NOW = [["Анна Козлова", "anna@example.org", '<span class="chip">HTML</span>'], ["Бюро путешествий", "booking@example.com", '<span class="chip warn">скрыт</span>'], ["Иван Петров", "ivan.petrov@example.org"], ["Ольга Смирнова", "olga@example.org", '<span class="chip">T</span>'], ["Смирнова Ольга", "o.smirnova@example.com", '<span class="chip">MD</span>'], ["Пётр Волков", "pvolkov@example.org"]];
+  staticList($("#s0list"), ROWS_NOW, 3);
+  (function () {
+    var s0 = { next: 1, persons: [P(1, "Ольга Смирнова", [["olga@example.org", 31]], { fmt: "plain" })], dismissed: {}, tier: "А" };
+    var h = $("#s0card"); var p = s0.persons[0];
+    h.innerHTML = '<div class="pc-head">' + av(p, "l") + '<div class="who"><div class="nm">Смирнова Ольга</div><div class="nt">olga@example.org</div></div></div><div class="pc-acts"><button class="btn primary">Все письма</button><button class="btn">Написать</button></div><div class="pc-sec"><h5>Адреса</h5><div class="addr"><span class="radio on"></span><span class="em">olga@example.org</span><span class="m">основной</span></div></div><div class="pc-sec"><div class="row"><span>Формат отправки</span><span class="sel" style="min-width:120px">Простой текст</span></div><div class="row" style="margin-top:4px"><span>Вид писем</span><span class="sel" style="min-width:120px">Как обычно</span></div></div><div class="pc-sec"><h5>Недавние письма</h5><div class="small">Re: зал на пятницу <span class="muted">вт</span></div><div class="small">Смета на октябрь <span class="muted">пн</span></div></div>';
+  })();
+  /* вид 1.А и 1.Б: список и карточка той же формы, что в экранах 2 и 3 */
+  (function () {
+    var st = seed(); st.tier = "Б"; st.cursor = 10;
+    function lst(host, n) {
+      var vs = sorted(st).slice(0, n || 7);
+      host.innerHTML = vs.map(function (p) { return '<div class="pr' + (p.id === 10 ? " cur" : "") + '" style="padding:5px 8px">' + av(p) + '<span class="who"><span class="nm">' + esc(p.name) + '</span><span class="em">' + esc(p.addrs[0].e) + (p.addrs.length > 1 ? " +" + (p.addrs.length - 1) : "") + '</span></span><span class="meta">' + (p.hidden ? '<span class="chip warn">скрыт</span>' : "") + "</span></div>"; }).join("");
+    }
+    function crd(host) {
+      var p = get(st, 10), s = '<div class="pc-head">' + av(p, "l") + '<div class="who"><div class="nm">' + esc(p.name) + '</div><div class="nt">' + esc(p.addrs[0].e) + " · " + esc(plural(uses(p), "письмо", "письма", "писем")) + '</div></div></div><div class="pc-acts"><button class="btn primary">Все письма</button></div><div class="pc-sec"><h5>Заметка</h5><span class="noteline">' + esc(p.note) + '</span></div><div class="pc-sec"><h5>Адреса</h5>';
+      p.addrs.forEach(function (a, i) { s += '<div class="addr" style="padding:2px 0"><span class="radio' + (i ? "" : " on") + '"></span><span class="em">' + esc(a.e) + '</span><span class="m">' + (i ? esc(plural(a.n, "письмо", "письма", "писем")) : "основной") + "</span></div>"; });
+      s += '<div style="color:var(--link); padding:2px 0 0 23px">+ Добавить адрес</div></div><div class="pc-sec"><div class="row"><span>Формат отправки</span><span class="sel" style="min-width:120px">Как обычно</span></div></div>';
+      host.innerHTML = '<div class="pcard wide">' + s + "</div>";
+    }
+    lst($("#v1a-list"), 9); crd($("#v1a-card")); lst($("#v1b-list"), 9); crd($("#v1b-card"));
+  })();
+
+  /* ---------- экран 4а: подсказки адресов ---------- */
+  (function () {
+    var PEOPLE_BEFORE = [
+      { name: "Ольга Смирнова", addrs: ["olga@example.org"], fmt: "plain" },
+      { name: "Смирнова Ольга", addrs: ["o.smirnova@example.com"], fmt: "markdown" },
+      { name: "Олег Тихонов", addrs: ["oleg@example.net"], fmt: "" },
+      { name: "Бюро путешествий", addrs: ["booking@example.com"], fmt: "", hidden: true }
+    ];
+    var PEOPLE_AFTER = [
+      { name: "Ольга Смирнова", addrs: ["olga@example.org", "o.smirnova@example.com"], fmt: "plain" },
+      { name: "Олег Тихонов", addrs: ["oleg@example.net"], fmt: "" },
+      { name: "Бюро путешествий", addrs: ["booking@example.com"], fmt: "", hidden: true }
+    ];
+    function mount(host, people, multi) {
+      var chips = [], cur = 0, ai = {}, items = [];
+      host.innerHTML = '<div class="compose"><div class="to"><span class="lab">Кому</span><span data-chips style="display:contents"></span><input aria-label="Кому" autocomplete="off" spellcheck="false" placeholder="Начните вводить…"></div><div data-sug></div><div class="fmtline" data-fmt></div></div><div class="toasts"></div>';
+      var inp = $("input", host), sug = $("[data-sug]", host);
+      function ruleOf(email) { for (var i = 0; i < people.length; i++) if (people[i].addrs.indexOf(email) >= 0) return people[i]; return null; }
+      function paintFmt() {
+        var by = null, best = "markdown";
+        chips.forEach(function (c) { var p = ruleOf(c.e); if (p && p.fmt && STRICT[p.fmt] < STRICT[best]) { best = p.fmt; by = p; } });
+        var f = chips.length ? (by ? "<b>" + esc(FMTL[best]) + "</b> — правило " + (multi ? "человека" : "адреса") + " «" + esc(by.name) + "»" : "<b>HTML</b> — как в ящике") : "Формат письма: появится после выбора получателя";
+        $("[data-fmt]", host).innerHTML = (chips.length ? "Письмо уйдёт как " : "") + f;
+        $("[data-chips]", host).innerHTML = chips.map(function (c) { return '<span class="rcp">' + esc(c.n) + ' <span class="muted">' + esc(c.e) + "</span></span>"; }).join("");
+      }
+      function paint() {
+        var s = inp.value.trim().toLowerCase();
+        items = !s ? [] : people.filter(function (p) { return !p.hidden && (p.name + " " + p.addrs.join(" ")).toLowerCase().indexOf(s) >= 0; });
+        cur = Math.min(cur, Math.max(0, items.length - 1));
+        if (!s) { sug.innerHTML = ""; return; }
+        sug.innerHTML = '<div class="sug">' + (items.length ? items.map(function (p, i) {
+          var a = ai[p.name] || 0;
+          return '<div class="it' + (i === cur ? " cur" : "") + '"><span class="nm">' + esc(p.name) + "</span>" + p.addrs.map(function (e, k) { return '<span class="ad' + (k === a ? " act" : "") + '">' + esc(e) + "</span>"; }).join("") + (i === cur && p.addrs.length > 1 ? '<span class="muted small" style="margin-left:auto"><kbd>←</kbd><kbd>→</kbd> адрес</span>' : "") + "</div>";
+        }).join("") : '<div class="none">' + (/бю/.test(s) ? "Скрытый человек не предлагается (ни один его адрес)." : "Никого.") + "</div>") + "</div>";
+      }
+      inp.addEventListener("input", function () { cur = 0; paint(); });
+      inp.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowDown") { e.preventDefault(); cur = Math.min(items.length - 1, cur + 1); paint(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); cur = Math.max(0, cur - 1); paint(); }
+        else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && multi && items[cur] && items[cur].addrs.length > 1) { e.preventDefault(); var p = items[cur], n = p.addrs.length; ai[p.name] = ((ai[p.name] || 0) + (e.key === "ArrowRight" ? 1 : n - 1)) % n; paint(); }
+        else if (e.key === "Enter" && items[cur]) { e.preventDefault(); var q = items[cur]; chips.push({ n: q.name, e: q.addrs[multi ? (ai[q.name] || 0) : 0] }); inp.value = ""; paint(); paintFmt(); }
+        else if (e.key === "Backspace" && !inp.value && chips.length) { chips.pop(); paintFmt(); }
+      });
+      paintFmt();
+    }
+    mount($("#auto-before"), PEOPLE_BEFORE, false); mount($("#auto-after"), PEOPLE_AFTER, true);
+  })();
+})();
+</script>
+</body>
+</html>
