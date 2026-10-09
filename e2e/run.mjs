@@ -5,14 +5,36 @@
 //   npx tauri build --debug --no-bundle --features e2e
 //   e2e/keyring.sh node e2e/run.mjs   (a throwaway keyring, see e2e/README.md)
 //
-// Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99).
+// Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99),
+// DEPESHA_STAND_LOCK (the stand lock file, default $XDG_RUNTIME_DIR/depesha-e2e.lock).
+//
+// The stand is one for every worktree: unless scripts/check.sh already holds the lock
+// (DEPESHA_STAND_LOCKED=1), the run starts itself again under `flock` and waits its turn.
 
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
+import { Abort, createStepRunner } from "./step.mjs";
+
+if (!process.env.DEPESHA_STAND_LOCKED) {
+  const lock = process.env.DEPESHA_STAND_LOCK ?? join(process.env.XDG_RUNTIME_DIR ?? "/tmp", "depesha-e2e.lock");
+  const again = (flags) =>
+    spawnSync("flock", [...flags, lock, process.execPath, ...process.argv.slice(1)], {
+      stdio: "inherit",
+      env: { ...process.env, DEPESHA_STAND_LOCKED: "1" },
+    });
+  // 200: flock's own "busy" code (-E), so it cannot be taken for the run's exit code.
+  let done = again(["-n", "-E", "200"]);
+  if (done.status === 200) {
+    console.log(`стенд занят, жду… (${lock})`);
+    done = again([]);
+  }
+  if (done.error) throw done.error;
+  process.exit(done.status ?? 1);
+}
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const app = process.env.DEPESHA_APP ?? join(root, "target/debug/depesha");
@@ -57,41 +79,11 @@ async function screenshot(name) {
   await d.exec("document.querySelector('.toasts')?.style.removeProperty('visibility')").catch(() => {});
 }
 
-/** Failed steps in a row: past this many the rest only waits out its timeouts, so the run stops. */
-const CASCADE = 3;
-let failedInRow = 0;
-
-class Abort extends Error {}
-
 /** Steps that passed only on the second try: the summary lists them, they are not hidden. */
 const retried = [];
 
-/** `critical`: the steps after it cannot pass without it (the account is not set up). */
-async function step(criteria, name, fn, { critical = false } = {}) {
-  const started = Date.now();
-  try {
-    try {
-      await fn();
-    } catch (first) {
-      // One restart of a failed step; failing twice is a failure.
-      console.log(`  ↻ [${criteria}] ${name}: перезапуск после «${first.message}»`);
-      await screenshot(`RETRY-${name.replace(/[^\p{L}\d]+/gu, "_")}`).catch(() => {});
-      await tidyUp();
-      await fn();
-      retried.push(name);
-    }
-    failedInRow = 0;
-    results.push({ criteria, name, ok: true, ms: Date.now() - started });
-    console.log(`  ✓ [${criteria}] ${name} (${Date.now() - started} мс)`);
-  } catch (e) {
-    results.push({ criteria, name, ok: false, error: e.message, ms: Date.now() - started });
-    console.log(`  ✗ [${criteria}] ${name}: ${e.message}`);
-    await screenshot(`FAIL-${name.replace(/[^\p{L}\d]+/gu, "_")}`).catch(() => {});
-    if (critical) throw new Abort(`без шага «${name}» дальше идти нельзя`);
-    if (++failedInRow >= CASCADE) throw new Abort(`${CASCADE} шага подряд не прошли, остальные упадут по таймаутам`);
-    await tidyUp();
-  }
-}
+/** Only a step marked `{ retry: true }` is restarted (see e2e/step.mjs); `critical` aborts the run. */
+const step = createStepRunner({ screenshot, tidyUp, log: console.log, results, retried });
 
 /** Closes what a failed step left open (menus, the viewer, dialogs): it would cover the next step's clicks. */
 async function tidyUp() {
@@ -380,7 +372,7 @@ try {
       if (text.includes(hidden)) throw new Error(`служебная папка «${hidden}» видна`);
     }
     await screenshot("main");
-  });
+  }, { retry: true });
 
   await step("6.5", "поиск на сервере находит письмо вне локального кэша", async () => {
     const box = await d.find(".list .search input");
@@ -391,7 +383,7 @@ try {
     await d.button("На сервере");
     await rowBySubject("Quarterly report archive", 20000);
     await d.type(box, "\uE00C");
-  });
+  }, { retry: true });
 
   await step("3.4", "первая синхронизация: свежие письма сразу, старые — при прокрутке", async () => {
     await rowBySubject("Счёт за октябрь", 30000);
@@ -429,7 +421,7 @@ try {
     const text = await textOf(".reader");
     if (!text.includes("Оплатите до пятницы")) throw new Error(text.slice(0, 300));
     if (!text.includes("Бухгалтерия")) throw new Error("имя отправителя KOI8-R");
-  });
+  }, { retry: true });
 
   await step("4.3–4.5", "HTML: скрипты вырезаны, трекер скрыт, cid-картинка и вложение на месте", async () => {
     await openBySubject("HTML-письмо с картинками");
@@ -1444,7 +1436,7 @@ try {
     }, 10000);
     await screenshot("search");
     await d.type(box, "");
-  });
+  }, { retry: true });
 
   await step("3.7", "флаг, поставленный другим клиентом, виден", async () => {
     await d.button("Входящие");
@@ -1487,7 +1479,7 @@ try {
     const t = await textOf(".thread");
     if (!t.includes("Мария Соколова")) throw new Error(`цепочка: ${t}`);
     await screenshot("conversation");
-  });
+  }, { retry: true });
 
   await step("8", "письмо, открытое из карточки беседы, не закрывается, когда список обновляется", async () => {
     // The first letter of the conversation: not a row of the grouped list.
@@ -2134,7 +2126,7 @@ try {
     );
     await screenshot("settings-search");
     await closeSettings();
-  });
+  }, { retry: true });
 
   await step("11.1", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
     await press(",", { ctrlKey: true });
