@@ -1,18 +1,22 @@
 // A drop acts on the backend's `files-dropped` (#79), not on Tauri's own drop event.
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
 vi.mock("@tauri-apps/api/webview", () => import("./testing").then((m) => m.webviewModule));
 
 import { readFileSync } from "node:fs";
-import { listenDrops, watchDrops } from "./drops";
+import { listenDrops, watchDrops, zoneAt } from "./drops";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { emit, eventModule, flush, webviewListen } from "./testing";
 import type { AppStore } from "./store.svelte";
+
+beforeEach(() => vi.stubGlobal("window", { devicePixelRatio: 1, innerWidth: 800, innerHeight: 600 }));
+afterEach(() => vi.unstubAllGlobals());
 
 describe("files dropped on the window", () => {
   it("are attached on the backend's event, with the zone under the pointer", async () => {
     const dropFiles = vi.fn(async () => {});
-    const c = {};
+    const c = { draft: { attachments: [] } };
     const app = { activeCompose: () => c, compose: { dropFiles } } as unknown as AppStore;
     const zoneAt = vi.fn((_: unknown) => "attach" as const);
     await listenDrops(app, zoneAt);
@@ -23,13 +27,27 @@ describe("files dropped on the window", () => {
     expect(zoneAt.mock.calls[0][0]).toMatchObject({ x: 10, y: 20 });
   });
 
-  it("go nowhere without an open composition", async () => {
+  it("go nowhere without an open composition, and say so (#79)", async () => {
     const dropFiles = vi.fn(async () => {});
-    const app = { activeCompose: () => null, compose: { dropFiles } } as unknown as AppStore;
+    const toast = vi.fn();
+    const app = { activeCompose: () => null, compose: { dropFiles }, toast } as unknown as AppStore;
     await listenDrops(app, () => null);
     emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
     await flush();
     expect(dropFiles).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast.mock.calls[0][0]).toMatch(/откройте ответ|open a reply/);
+  });
+
+  it("a drop beside the zones still attaches the files and is logged as a miss", async () => {
+    const dropFiles = vi.fn(async () => {});
+    const toast = vi.fn();
+    const app = { activeCompose: () => ({ draft: { attachments: [] } }), compose: { dropFiles, dragging: { zones: true, zone: null } }, toast } as unknown as AppStore;
+    await listenDrops(app, () => null);
+    emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
+    await flush();
+    expect(dropFiles).toHaveBeenCalledWith(expect.anything(), ["/a/b.pdf"], null);
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("listen on the current webview, not on every window", async () => {
@@ -43,7 +61,7 @@ describe("files dropped on the window", () => {
 describe("every window that can hold a draft hears drops (#107)", () => {
   it("watchDrops attaches the dropped files to the window's own draft", async () => {
     const dropFiles = vi.fn(async () => {});
-    const c = {};
+    const c = { draft: { attachments: [] } };
     const app = { activeCompose: () => c, compose: { dropFiles } } as unknown as AppStore;
     vi.stubGlobal("window", { devicePixelRatio: 1 });
     vi.stubGlobal("document", { elementFromPoint: () => null });
@@ -59,5 +77,17 @@ describe("every window that can hold a draft hears drops (#107)", () => {
     for (const f of ["App.svelte", "MessageWindow.svelte"]) {
       expect(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"), f).toMatch(/watchDrops\(app\)/);
     }
+  });
+});
+
+describe("the zone under a scaled pointer (#79)", () => {
+  it("takes physical pixels at a scale of 1.5 to the logical point of the zone", () => {
+    const zone = { dataset: { dropZone: "attach" } };
+    const elementFromPoint = vi.fn((x: number, y: number) => (x === 200 && y === 100 ? { closest: () => zone } : null));
+    vi.stubGlobal("document", { elementFromPoint });
+    expect(zoneAt(new PhysicalPosition(300, 150), 1.5)).toBe("attach");
+    expect(elementFromPoint).toHaveBeenCalledWith(200, 100);
+    expect(zoneAt(new PhysicalPosition(200, 100), 1.5)).toBeNull();
+    vi.unstubAllGlobals();
   });
 });

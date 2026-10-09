@@ -137,6 +137,7 @@
     "allow-compose-unsaved",
     "allow-quit-cancel",
     "allow-drop-seen",
+    "allow-drop-outcome",
     "allow-draft-cache-put",
     "allow-draft-cache-list",
     "allow-draft-cache-drop"

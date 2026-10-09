@@ -748,6 +748,7 @@ export const en = {
   "toast.keepInInbox": "Keep in the inbox",
   "toast.parkFailed": "The letter was not moved to “Waiting for reply”: {error}. It stayed in the inbox",
   "toast.parkRefused": "Could not create the folder “{folder}”: the server does not allow it. The letter stayed in the inbox",
+  "drop.nowhere": "To attach a file, open a reply or a new message and drop the file on it",
   "toast.scheduled": "Will be sent {when}. The message waits in the Outbox.",
   "toast.unsnoozePartial": "Some letters did not come back from Snoozed: the server refused the move. The rest came back.",
   "toast.sendFailed": "Not sent: {error}. The message is in the Outbox.",
