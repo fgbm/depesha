@@ -3480,6 +3480,18 @@ pub fn e2e_seed_message(state: St<'_>, account_id: String) -> CmdResult<i64> {
         flags: Default::default(),
         keywords: Vec::new(),
     };
+    // The mailbox has no folders yet when there is no server to list them.
+    state.store.replace_folders(
+        &account_id,
+        &[depesha_core::imap::Folder {
+            name: "INBOX".into(),
+            display_name: "INBOX".into(),
+            delimiter: Some("/".into()),
+            role: Some(depesha_core::imap::FolderRole::Inbox),
+            selectable: true,
+            hidden: false,
+        }],
+    )?;
     let id = state.store.insert_message(&account_id, "INBOX", &msg)?;
     state.store.save_body(id, raw, "A letter for the drop run.")?;
     Ok(id)
