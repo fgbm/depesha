@@ -570,7 +570,7 @@ export interface Settings {
   list_sort: SortKey[];
   /** Lists ordered their own way, by view key. */
   view_sorts: Record<string, SortKey[]>;
-  /** What counts as a large letter in the ready queries (Settings → General → Search), megabytes. */
+  /** What counts as a large letter in the ready queries (Settings → Storage → Search), megabytes. */
   large_mb: number;
   /** A picture put into a letter's text is drawn no wider than this on its long side, pixels. */
   image_max_px: number;
@@ -597,6 +597,8 @@ export interface Settings {
   tray_always: boolean;
   /** The suggestions of 0.7 (#69): the one switch that turns every one of them off. */
   hints: boolean;
+  /** The note about the three parts of a Markdown letter, in the format menu (#103): false once it was closed. */
+  markdown_parts_note: boolean;
   /** When the day and the evening begin for «Snooze» (#95), «9:00»; the days it counts as work, ISO 1 Monday … 7 Sunday. */
   day_start: string;
   evening_start: string;

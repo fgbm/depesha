@@ -82,6 +82,7 @@ export const settings = (): Settings => ({
   tray_count: true,
   tray_always: true,
   hints: true,
+  markdown_parts_note: true,
   day_start: "9:00",
   evening_start: "18:00",
   work_days: [1, 2, 3, 4, 5],

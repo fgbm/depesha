@@ -99,6 +99,9 @@ pub struct Settings {
     pub tray_always: bool,
     /// The suggestions of 0.7 (#69): the one switch that turns every one of them off.
     pub hints: bool,
+    /// The note about the three parts of a Markdown letter in the format menu (#103): `false`
+    /// once the user closed it; Settings → Look → Hints brings it back.
+    pub markdown_parts_note: bool,
     /// When the day begins for «Snooze» (#95), `H:MM`: «Tomorrow» and the working days point here.
     pub day_start: String,
     /// When the evening begins for «Snooze», `H:MM`: «This evening» points here.
@@ -152,6 +155,7 @@ impl Default for Settings {
             tray_count: true,
             tray_always: true,
             hints: true,
+            markdown_parts_note: true,
             day_start: "9:00".into(),
             evening_start: "18:00".into(),
             work_days: vec![1, 2, 3, 4, 5],
@@ -320,6 +324,16 @@ mod tests {
         assert_eq!(mine.day_start, "8:30");
         assert!(mine.work_days.is_empty());
         assert_eq!(mine.evening_start, "18:00");
+    }
+
+    /// The note about the three parts of a Markdown letter (#103) shows until it is closed: a
+    /// config from before the key reads it as shown, and Settings brings a closed one back.
+    #[test]
+    fn the_markdown_parts_note_shows_until_it_is_closed() {
+        let old: Settings = serde_json::from_str(r#"{"undo_send_secs":5}"#).unwrap();
+        assert!(old.markdown_parts_note && Settings::default().markdown_parts_note);
+        let closed: Settings = serde_json::from_str(r#"{"markdown_parts_note":false}"#).unwrap();
+        assert!(!closed.markdown_parts_note);
     }
 
     #[test]
