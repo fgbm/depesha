@@ -42,7 +42,7 @@
     {#each states as s (s.id + "\u0000" + s.subject)}
       <div class="row">
         <span>{t(`hints.name.${s.id}` as "hints.name.send-format")}</span>
-        <span class="muted">{s.subject || t("hints.anyone")}</span>
+        <span class="muted">{s.subject.replace("|", " · ") || t("hints.anyone")}</span>
         <span class="state">{t(`hints.state.${s.decision}` as "hints.state.accepted")}</span>
       </div>
     {/each}

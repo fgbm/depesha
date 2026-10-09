@@ -12,6 +12,8 @@
     placeholder: { en: "What to do? E.g. “sno tom” or “mov arch”", ru: "Что сделать? Например: «отл завт» или «пер архив»" },
     none: { en: "No such command", ru: "Нет такой команды" },
     edit: { en: "Alt+Enter — edit the key", ru: "Alt+Enter — изменить клавишу" },
+    people: { en: "People", ru: "Люди" },
+    personTip: { en: "Enter — the card, Ctrl+Enter — all mail", ru: "Enter — карточка, Ctrl+Enter — все письма" },
   };
 
   /** Opens Settings → «Keys», at this command when there is one (Alt+Enter, #46). */
@@ -26,6 +28,9 @@
 
   /** The best matches, the ones used last first among equals: what was run before is near. */
   const shown = $derived(palette.open ? rank(ctx.commands(), query, recency).slice(0, 12) : []);
+  /** People by name or address (#104, 1.2 Б): after the commands, found by what is typed. */
+  const people = $derived(palette.open && query.trim().length >= 2 ? ctx.people.find(query).slice(0, 5) : []);
+  const count = $derived(shown.length + people.length);
 
   $effect(() => {
     void query;
@@ -46,10 +51,19 @@
     c.run();
   }
 
+  /** Enter opens the card of the person, Ctrl+Enter their letters. */
+  function person(i: number, mail: boolean) {
+    const p = people[i - shown.length];
+    if (!p) return;
+    palette.open = false;
+    if (mail) ctx.people.allMail(p.email);
+    else ctx.people.open(p.email);
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      active = Math.min(shown.length - 1, active + 1);
+      active = Math.min(count - 1, active + 1);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       active = Math.max(0, active - 1);
@@ -57,7 +71,8 @@
       e.preventDefault();
       // Alt+Enter edits the highlighted command's key instead of running it (#46).
       const edit = editTarget(e, shown, active);
-      if (edit) configure(edit);
+      if (active >= shown.length) person(active, e.ctrlKey || e.metaKey);
+      else if (edit) configure(edit);
       else run(shown[active]);
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -78,8 +93,19 @@
             {#if i === active}<span class="pedit" class:solo={!ctx.keyOf(c.id) && !c.hint} title={ctx.t(S.edit)}><Pencil size={12} /> Alt+Enter</span>{/if}
           </button>
         {:else}
-          <div class="none muted">{ctx.t(S.none)}</div>
+          {#if !people.length}<div class="none muted">{ctx.t(S.none)}</div>{/if}
         {/each}
+        {#if people.length}
+          <div class="group muted">{ctx.t(S.people)}</div>
+          {#each people as p, j (p.email)}
+            {@const i = shown.length + j}
+            <button class="item" class:active={i === active} role="option" aria-selected={i === active} title={ctx.t(S.personTip)} onpointermove={() => (active = i)} onclick={(e) => person(i, e.ctrlKey || e.metaKey)}>
+              <span>{p.name}</span>
+              <span class="hint">{p.email}{p.emails.length > 1 ? ` +${p.emails.length - 1}` : ""}</span>
+
+            </button>
+          {/each}
+        {/if}
       </div>
     </div>
   </div>
@@ -166,5 +192,12 @@
 
   .none {
     padding: 14px;
+  }
+
+  .group {
+    padding: 8px 12px 2px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 </style>

@@ -1,17 +1,32 @@
-// The address book and the rules of a person (#66, #44). The book is built on the table of
-// addresses the cache already keeps for completion: every address of the correspondence is
-// in it, and a person's own record holds what the user decided about them — the name to
-// show, the format to write in, the form to show their letters, a note, and whether to
-// keep the address out of completion. One person is one address in 0.7: joining several
-// addresses into one person is a task of its own. The rules leave the address book for the
-// places that need them: the compose window writes by them, the reader shows by them.
+// The address book and the rules of a person (#66, #44, #104). The book is built on the
+// table of addresses the cache already keeps: every address of the correspondence is in it,
+// and a person's own record holds what the user decided about them — the name to show, the
+// format to write in, the form to show their letters, a note, and whether to keep them out
+// of completion. A person has one address or several; one without a record is a person of
+// that one address. The rules leave the address book for the places that need them: the
+// compose window writes by them, the reader shows by them.
 import type { BodyFormat, LetterViewPref, MessageView, ViewRule } from "./types";
 export type { ViewRule } from "./types";
 
+/** One address of a person. */
+export interface PersonAddress {
+  email: string;
+  /** The one shown in the list and offered first in completion; one per person. */
+  primary: boolean;
+  /** Letters carrying the address. */
+  uses: number;
+  /** The name the letters give the address; kept apart from the person's own. */
+  name: string;
+}
+
 /** A person of the book: their record, or one only found in the correspondence. */
 export interface Person {
-  /** The address the record is kept by; addresses are told apart without their case. */
+  /** The record's key; 0 for a person without a record. */
+  id: number;
+  /** The primary address. */
   email: string;
+  /** Every address, the primary one first. */
+  emails: PersonAddress[];
   /** The name shown and offered in completion: the user's own over the letters' spelling. */
   name: string;
   /** Which format letters to them are written in; "" follows the mailbox. */
@@ -19,25 +34,94 @@ export interface Person {
   /** Which form of their letters the reader shows; "" follows the mailbox, then the app. */
   view: ViewRule;
   note: string;
-  /** Kept out of address completion. */
+  /** Kept out of address completion, by every address. */
   hidden: boolean;
   /** Added by hand; one seen only in the correspondence is not. */
   manual: boolean;
   /** The hint that set a rule (#69); "" when it was set by hand. */
   via: string;
-  /** Letters carrying the address, both ways. */
+  /** Letters carrying any of the addresses. */
   uses: number;
+}
+
+/** What a merge asks the backend for (see `mergeRequest`). */
+export interface Merge {
+  emails: string[];
+  name: string;
+  primary: string;
+  send_format: BodyFormat | "";
+  view: ViewRule;
+  hidden: boolean;
+}
+
+/** What a merge or a split changed, as it was: handed back, it restores everything. Opaque here. */
+export type Snapshot = Record<string, unknown>;
+
+export interface Merged {
+  person: Person;
+  undo: Snapshot;
+}
+
+export interface Split {
+  /** The address that left, now a person of its own. */
+  person: Person;
+  /** The person it left. */
+  origin: Person;
+  undo: Snapshot;
+}
+
+/** The answer to adding an address: the person, or — when the address is another's — that person. */
+export interface Added {
+  person: Person | null;
+  owner: Person | null;
+}
+
+/** A person for address completion: the address to insert, and the person's other addresses to choose. */
+export interface Suggestion {
+  email: string;
+  name: string | null;
+  /** Every address of the person, the one to insert first. */
+  emails: string[];
 }
 
 /** A person's record with every field set; what a new one starts as. */
 export function blankPerson(email: string): Person {
-  return { email, name: "", send_format: "", view: "", note: "", hidden: false, manual: false, via: "", uses: 0 };
+  return {
+    id: 0,
+    email,
+    emails: [{ email, primary: true, uses: 0, name: "" }],
+    name: "",
+    send_format: "",
+    view: "",
+    note: "",
+    hidden: false,
+    manual: false,
+    via: "",
+    uses: 0,
+  };
 }
 
-/** The address book's record of an address, wherever the address is spelled with case. */
+/** The addresses of a person, whatever the shape they came in. */
+export function addressesOf(person: Person): string[] {
+  return person.emails?.length ? person.emails.map((a) => a.email) : [person.email];
+}
+
+/** Whether the address is one of the person's, wherever it is spelled with case. */
+export function hasAddress(person: Person, email: string): boolean {
+  const want = email.trim().toLowerCase();
+  return addressesOf(person).some((a) => a.toLowerCase() === want);
+}
+
+/** The address book's record of an address — any of a person's — wherever it is spelled with case. */
 export function findPerson(people: Person[], email: string): Person | undefined {
   const want = email.trim().toLowerCase();
-  return people.find((p) => p.email.toLowerCase() === want);
+  return people.find((p) => p.email.toLowerCase() === want) ?? people.find((p) => hasAddress(p, want));
+}
+
+/** The search that finds the letters of a person, from any of their addresses (#104, 4.2 А). */
+export function allMailQuery(person: Pick<Person, "email" | "emails">): string {
+  const all = person.emails?.length ? person.emails.map((a) => a.email) : [person.email];
+  return `from:${all.join("|")}`;
 }
 
 // ---- Format of what is written (#44) ----
@@ -129,7 +213,9 @@ export function matchPerson(person: Person, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (
-    person.name.toLowerCase().includes(q) || person.email.toLowerCase().includes(q) || person.note.toLowerCase().includes(q)
+    person.name.toLowerCase().includes(q) ||
+    addressesOf(person).some((a) => a.toLowerCase().includes(q)) ||
+    person.note.toLowerCase().includes(q)
   );
 }
 

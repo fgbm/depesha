@@ -17,7 +17,7 @@
   import Popover from "../Popover.svelte";
   import PersonCard from "./PersonCard.svelte";
   import type { AccountView, OpenedMessage } from "../../lib/types";
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import type { AttachmentInfo } from "../../lib/types";
 
   let {
@@ -77,6 +77,16 @@
   /** The card of the sender (#66): what a click on the name opens now; «All mail» in it
    *  does what the click used to do. */
   let card = $state(false);
+
+  // The key of the open letter (#104, 2.4 А) opens the same card; a request made before this
+  // header was there is not its own.
+  let asked = untrack(() => app.senderCard);
+  $effect(() => {
+    const n = app.senderCard;
+    if (n === asked) return;
+    asked = n;
+    if (from?.email) card = true;
+  });
 </script>
 
 <div class="head selectable">

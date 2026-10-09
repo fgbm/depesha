@@ -228,6 +228,18 @@ export interface PluginContext {
    * `title` instead (#46).
    */
   editKeys(commandId: string, title: string): void;
+  /**
+   * The address book (#104), for a plugin that offers people: who matches what was typed, by
+   * name, address or note, and the way to a person's card and to all their letters. The book
+   * is the main window's.
+   */
+  people: {
+    find(query: string): { name: string; email: string; emails: string[] }[];
+    /** Opens the book at the person: their card. */
+    open(email: string): void;
+    /** Shows every letter of the person, from any of their addresses. */
+    allMail(email: string): void;
+  };
 
   mail: {
     opened(): OpenedMessage | null;

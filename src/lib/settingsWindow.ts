@@ -16,7 +16,7 @@ export const MENU_WIDTH = 220;
 export const COLUMN_MAX = 680;
 
 /** The pages whose content is not capped to one column: a table gets the whole width. */
-const WIDE = new Set(["keys", "people"]);
+const WIDE = new Set(["keys"]);
 
 /** Whether the page's content may use the whole width (a table, not a column). */
 export function widePage(page: string): boolean {
@@ -28,5 +28,5 @@ export function widePage(page: string): boolean {
  * plugins): the line «Changes apply at once» is for the pages made of rows.
  */
 export function isRowPage(page: string): boolean {
-  return !["keys", "people", "accounts", "plugins"].includes(page) && !page.startsWith("account:");
+  return !["keys", "accounts", "plugins"].includes(page) && !page.startsWith("account:");
 }

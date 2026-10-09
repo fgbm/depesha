@@ -1,0 +1,353 @@
+// @vitest-environment jsdom
+// The address book at work (#104): the card of a person with several addresses, the book of the
+// main window, the dialog that joins people. Keyboard first: every gesture below is a key.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/api/event", () => import("../../lib/testing").then((m) => m.eventModule));
+vi.mock("@tauri-apps/api/window", () => import("../../lib/testing").then((m) => m.windowModule));
+vi.mock("@tauri-apps/api/app", () => import("../../lib/testing").then((m) => m.appModule));
+vi.mock("../../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../../lib/testing")).api }));
+
+import { flushSync, mount, tick, unmount } from "svelte";
+import PersonCard from "../reader/PersonCard.svelte";
+import PeopleView from "./PeopleView.svelte";
+import MergeDialog from "./MergeDialog.svelte";
+import { app } from "../../lib/store.svelte";
+import { i18n } from "../../lib/i18n.svelte";
+import { blankPerson, type Person } from "../../lib/people";
+import { peopleBook } from "../../lib/peopleBook.svelte";
+import { peopleOps } from "../../lib/peopleOps.svelte";
+import { api } from "../../lib/testing";
+
+// jsdom has no CSS.escape and no scrolling; the components use both.
+(globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
+
+let next = 1;
+const person = (name: string, emails: string[], fields: Partial<Person> = {}): Person => ({
+  ...blankPerson(emails[0]),
+  id: next++,
+  name,
+  emails: emails.map((email, i) => ({ email, primary: i === 0, uses: 3, name: "" })),
+  uses: 3 * emails.length,
+  ...fields,
+});
+
+const olga = () => person("Ольга Смирнова", ["olga@example.org", "o.smirnova@example.com"], { note: "Заказывает залы" });
+const ivan = () => person("Иван Петров", ["ivan@example.org"]);
+
+async function book(list: Person[]) {
+  api.people.mockResolvedValue(list);
+  api.hints.mockResolvedValue([]);
+  await peopleBook.refresh();
+}
+
+const press = (el: Element, k: string, init: KeyboardEventInit = {}) => {
+  const e = new KeyboardEvent("keydown", { key: k, code: /^[a-z]$/.test(k) ? `Key${k.toUpperCase()}` : k, bubbles: true, cancelable: true, ...init });
+  el.dispatchEvent(e);
+  flushSync();
+  return e;
+};
+
+const rowOf = (root: ParentNode, mark: string) => root.querySelector<HTMLElement>(`[data-r="${mark}"]`)!;
+
+let view: ReturnType<typeof mount> | null = null;
+let target: HTMLElement;
+
+function show(component: typeof PersonCard | typeof PeopleView | typeof MergeDialog, props: Record<string, unknown> = {}) {
+  target = document.createElement("div");
+  document.body.append(target);
+  view = mount(component as never, { target, props });
+  flushSync();
+  return target;
+}
+
+beforeEach(() => {
+  i18n.lang = "ru";
+  next = 1;
+  for (const m of Object.values(api)) m.mockReset();
+  api.people.mockResolvedValue([]);
+  api.hints.mockResolvedValue([]);
+  api.search.mockResolvedValue([]);
+  peopleOps.cancel();
+  peopleOps.stopPicking();
+});
+
+afterEach(() => {
+  if (view) unmount(view);
+  view = null;
+  document.body.innerHTML = "";
+});
+
+describe("the card of a person with two addresses", () => {
+  it("lists both, the primary marked, and shows the note", async () => {
+    await book([olga()]);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    expect(root.textContent).toContain("Ольга Смирнова");
+    const rows = [...root.querySelectorAll(".addr")];
+    expect(rows.map((r) => r.querySelector(".em")?.textContent)).toEqual(["olga@example.org", "o.smirnova@example.com"]);
+    expect(rows[0].querySelector(".radio.on")).not.toBeNull();
+    expect(rows[1].querySelector(".radio.on")).toBeNull();
+    expect(rowOf(root, "note").textContent).toContain("Заказывает залы");
+  });
+
+  it("writes the name on Enter, saves it on Enter and leaves on Esc (2.1 Б)", async () => {
+    await book([olga()]);
+    api.personSave.mockImplementation(async (p) => p);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    rowOf(root, "name").focus();
+    press(rowOf(root, "name"), "F2");
+    const input = root.querySelector<HTMLInputElement>("input[data-own]")!;
+    expect(input.value).toBe("Ольга Смирнова");
+    // Esc leaves the line and saves nothing.
+    press(input, "Escape");
+    expect(root.querySelector("input[data-own]")).toBeNull();
+    expect(api.personSave).not.toHaveBeenCalled();
+    press(rowOf(root, "name"), "F2");
+    const again = root.querySelector<HTMLInputElement>("input[data-own]")!;
+    again.value = "Ольга С.";
+    again.dispatchEvent(new Event("input", { bubbles: true }));
+    press(again, "Enter");
+    await tick();
+    expect(api.personSave).toHaveBeenCalledWith(expect.objectContaining({ id: 1, name: "Ольга С." }));
+  });
+
+  it("keeps the note's Shift+Enter for a new line and saves on Enter", async () => {
+    await book([olga()]);
+    api.personSave.mockImplementation(async (p) => p);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    press(rowOf(root, "note"), "Enter");
+    // Enter on a button clicks it in a browser; the click opens the line.
+    rowOf(root, "note").click();
+    flushSync();
+    const area = root.querySelector<HTMLTextAreaElement>("textarea[data-own]")!;
+    area.value = "Две строки";
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+    const shifted = press(area, "Enter", { shiftKey: true });
+    expect(shifted.defaultPrevented).toBe(false);
+    expect(api.personSave).not.toHaveBeenCalled();
+    press(area, "Enter");
+    await tick();
+    expect(api.personSave).toHaveBeenCalledWith(expect.objectContaining({ note: "Две строки" }));
+  });
+
+});
+
+describe("the addresses in the card", () => {
+  it("makes an address the primary one with P and lets it go with U", async () => {
+    await book([olga()]);
+    api.personSetPrimary.mockResolvedValue(olga());
+    api.personSplit.mockResolvedValue({ person: ivan(), origin: olga(), undo: {} });
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    const second = rowOf(root, "a:o.smirnova@example.com");
+    second.focus();
+    // P on the primary changes nothing; on the other address it makes it the primary.
+    press(rowOf(root, "a:olga@example.org"), "p");
+    expect(api.personSetPrimary).not.toHaveBeenCalled();
+    const stopped = press(second, "p");
+    expect(stopped.defaultPrevented).toBe(true);
+    expect(api.personSetPrimary).toHaveBeenCalledWith("o.smirnova@example.com");
+    press(second, "u");
+    await tick();
+    expect(api.personSplit).toHaveBeenCalledWith("o.smirnova@example.com");
+  });
+
+  it("answers the Russian layout: з is P, г is U, ф is A", async () => {
+    await book([olga()]);
+    api.personSetPrimary.mockResolvedValue(olga());
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    const second = rowOf(root, "a:o.smirnova@example.com");
+    press(second, "з", { code: "KeyP" });
+    expect(api.personSetPrimary).toHaveBeenCalledWith("o.smirnova@example.com");
+    press(second, "ф", { code: "KeyA" });
+    expect(root.querySelector("input[data-own]")).not.toBeNull();
+  });
+
+  it("walks the rows with the arrows", async () => {
+    await book([olga()]);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    rowOf(root, "name").focus();
+    press(rowOf(root, "name"), "ArrowDown");
+    expect(document.activeElement).toBe(rowOf(root, "all"));
+    press(rowOf(root, "all"), "ArrowUp");
+    expect(document.activeElement).toBe(rowOf(root, "name"));
+  });
+
+  it("turns the format and the view with the arrows and Space-Enter, and the hiding with a click", async () => {
+    await book([olga()]);
+    api.personSave.mockImplementation(async (p) => p);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    press(rowOf(root, "fmt"), "ArrowRight");
+    expect(api.personSave).toHaveBeenLastCalledWith(expect.objectContaining({ send_format: "html" }));
+    press(rowOf(root, "view"), "ArrowLeft");
+    expect(api.personSave).toHaveBeenLastCalledWith(expect.objectContaining({ view: "text" }));
+    rowOf(root, "hide").click();
+    expect(api.personSave).toHaveBeenLastCalledWith(expect.objectContaining({ hidden: true }));
+  });
+
+});
+
+describe("an address that may be another person's", () => {
+  it("offers a merge, not a refusal, for an address that is another person's (2.5 Б)", async () => {
+    const list = [olga(), ivan()];
+    await book(list);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    press(rowOf(root, "name"), "a");
+    const input = root.querySelector<HTMLInputElement>("input[data-own]")!;
+    input.value = "Ivan@Example.org";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    press(input, "Enter");
+    await tick();
+    expect(api.personAddAddress).not.toHaveBeenCalled();
+    const clash = rowOf(root, "clash");
+    expect(root.textContent).toContain("уже у «Иван Петров»");
+    clash.click();
+    expect(peopleOps.dialog?.plan.people.map((p) => p.name).sort()).toEqual(["Иван Петров", "Ольга Смирнова"]);
+  });
+
+  it("adds an address that nobody has, and says so for a bad one", async () => {
+    await book([olga()]);
+    api.personAddAddress.mockResolvedValue({ person: olga(), owner: null });
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    press(rowOf(root, "name"), "a");
+    let input = root.querySelector<HTMLInputElement>("input[data-own]")!;
+    input.value = "не адрес";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    press(input, "Enter");
+    await tick();
+    expect(root.textContent).toContain("Это не похоже на адрес");
+    expect(api.personAddAddress).not.toHaveBeenCalled();
+    press(rowOf(root, "add"), "a");
+    input = root.querySelector<HTMLInputElement>("input[data-own]")!;
+    input.value = "maria.o@example.org";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    press(input, "Enter");
+    await tick();
+    expect(api.personAddAddress).toHaveBeenCalledWith("olga@example.org", "maria.o@example.org");
+  });
+
+  it("suggests the pair that may be one person, and N remembers they are two", async () => {
+    const smirnova = person("Смирнова Ольга", ["o.smirnova@example.net"]);
+    await book([olga(), smirnova]);
+    const root = show(PersonCard, { email: "o.smirnova@example.net", name: "", onAllMail: () => {}, inBook: true });
+    expect(root.textContent).toContain("Возможно, это один человек: Ольга Смирнова");
+    press(rowOf(root, "all"), "n");
+    await tick();
+    expect(api.hintSave).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "same-person", subject: "o.smirnova@example.net|olga@example.org", decision: "never" }),
+    );
+    expect(peopleBook.duplicates).toEqual([]);
+  });
+});
+
+describe("the book of the main window", () => {
+  it("lists the people by name, finds one by any of his addresses and filters", async () => {
+    await book([olga(), ivan(), person("Бюро", ["booking@example.com"], { hidden: true, manual: true })]);
+    const root = show(PeopleView);
+    const names = () => [...root.querySelectorAll(".pr .nm")].map((n) => n.textContent);
+    expect(names()).toEqual(["Ольга Смирнова", "Иван Петров", "Бюро"]);
+    const search = root.querySelector<HTMLInputElement>("input[type=search]")!;
+    search.value = "o.smirnova@";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(names()).toEqual(["Ольга Смирнова"]);
+    search.value = "";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    [...root.querySelectorAll<HTMLButtonElement>(".fchip")].find((b) => b.textContent === "Скрытые")!.click();
+    flushSync();
+    expect(names()).toEqual(["Бюро"]);
+  });
+
+  it("opens at a person and the filter a link asked for", async () => {
+    const formatted = person("Иван Петров", ["ivan@example.org"], { send_format: "plain" });
+    await book([olga(), formatted]);
+    app.peopleFocus = { email: "ivan@example.org", filter: "ruled" };
+    const root = show(PeopleView);
+    await tick();
+    expect([...root.querySelectorAll(".pr .nm")].map((n) => n.textContent)).toEqual(["Иван Петров"]);
+    expect(root.querySelector(".pd")?.textContent).toContain("Иван Петров");
+    expect(app.peopleFocus).toBeNull();
+  });
+
+});
+
+describe("the keys of the book", () => {
+  it("walks with the arrows, marks with Space and joins the marked with M", async () => {
+    await book([olga(), ivan(), person("Мария", ["maria@example.org"])]);
+    const root = show(PeopleView);
+    const list = root.querySelector<HTMLElement>("[role=listbox]")!;
+    list.focus();
+    press(list, "ArrowDown");
+    press(list, " ");
+    press(list, "ArrowDown");
+    press(list, " ");
+    expect(root.querySelectorAll(".pr.flagged")).toHaveLength(2);
+    expect(root.textContent).toContain("Отмечено: 2");
+    press(list, "m");
+    expect(peopleOps.dialog?.plan.people).toHaveLength(2);
+  });
+
+  it("shows the suggestion over the list, M joins the pair and N says they are two", async () => {
+    await book([olga(), person("Смирнова Ольга", ["o.smirnova@example.net"]), ivan()]);
+    const root = show(PeopleView);
+    expect(root.querySelector(".banner")?.textContent).toContain("Возможно, это один человек");
+    const list = root.querySelector<HTMLElement>("[role=listbox]")!;
+    press(list, "m");
+    expect(peopleOps.dialog?.plan.people.map((p) => p.name).sort()).toEqual(["Ольга Смирнова", "Смирнова Ольга"]);
+    peopleOps.cancel();
+    press(list, "n");
+    await tick();
+    expect(api.hintSave).toHaveBeenCalledWith(expect.objectContaining({ id: "same-person" }));
+  });
+
+  it("goes into the card on Enter and back on Esc", async () => {
+    await book([olga(), ivan()]);
+    const root = show(PeopleView);
+    const list = root.querySelector<HTMLElement>("[role=listbox]")!;
+    list.focus();
+    press(list, "Enter");
+    expect(document.activeElement).toBe(rowOf(root, "all"));
+    press(rowOf(root, "all"), "Escape");
+    expect(document.activeElement).toBe(list);
+  });
+});
+
+describe("the merge dialog", () => {
+  it("offers the defaults of the decisions and Enter takes them", async () => {
+    const a = person("Ольга Смирнова", ["olga@example.org"], { send_format: "plain", uses: 31 });
+    const b = person("Смирнова Ольга", ["o.smirnova@example.com"], { send_format: "markdown", view: "markdown", hidden: true, uses: 9 });
+    await book([a, b]);
+    api.personMerge.mockResolvedValue({ person: { ...a, emails: [...a.emails, ...b.emails] }, undo: { persons: [] } });
+    peopleOps.merge([b, a]);
+    const root = show(MergeDialog);
+    expect(root.textContent).toContain("Объединить 2 человека в одного");
+    // The format differs: the strictest, plain text, is chosen; the hiding differs: «Hide» wins.
+    expect(root.querySelector<HTMLInputElement>('input[name="merge-format"]:checked')?.value).toBe("plain");
+    expect(root.querySelector<HTMLInputElement>('input[name="merge-name"]:checked')?.value).toBe("Ольга Смирнова");
+    expect(root.querySelector<HTMLInputElement>('input[name="merge-hidden"]:checked')?.value).toBe("true");
+    press(document.body, "Enter");
+    await vi.waitFor(() => expect(app.lastUndo?.text).toContain("Объединено"));
+    expect(api.personMerge).toHaveBeenCalledWith({
+      emails: ["olga@example.org", "o.smirnova@example.com"],
+      name: "Ольга Смирнова",
+      primary: "olga@example.org",
+      send_format: "plain",
+      view: "markdown",
+      hidden: true,
+    });
+    expect(peopleOps.dialog).toBeNull();
+    // The way back is on offer: the toast's button and Z.
+    await app.undo();
+    expect(api.personRestore).toHaveBeenCalledWith({ persons: [] });
+  });
+
+  it("joins nothing on Esc", async () => {
+    const a = ivan();
+    const b = olga();
+    await book([a, b]);
+    peopleOps.merge([a, b]);
+    show(MergeDialog);
+    press(document.body, "Escape");
+    expect(peopleOps.dialog).toBeNull();
+    expect(api.personMerge).not.toHaveBeenCalled();
+  });
+});

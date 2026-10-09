@@ -30,13 +30,14 @@ describe("the size of the window", () => {
 describe("what a page says about itself", () => {
   it("lets a page take the whole width only if it is a table", () => {
     expect(widePage("keys")).toBe(true);
-    expect(widePage("people")).toBe(true);
+    // The people have a place of their own in the main window; the page is not here (#104).
+    expect(widePage("people")).toBe(false);
     expect(widePage("reading")).toBe(false);
   });
 
   it("draws the line «changes apply at once» only on the pages made of rows", () => {
     expect(isRowPage("reading")).toBe(true);
     expect(isRowPage("start")).toBe(true);
-    for (const own of ["keys", "people", "accounts", "plugins", "account:1", "account:new"]) expect(isRowPage(own)).toBe(false);
+    for (const own of ["keys", "accounts", "plugins", "account:1", "account:new"]) expect(isRowPage(own)).toBe(false);
   });
 });

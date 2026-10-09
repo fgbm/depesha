@@ -3,7 +3,6 @@ import type {
   Account,
   AccountSync,
   AccountView,
-  Addr,
   CmdError,
   ComposeDraft,
   CachedDraft,
@@ -43,7 +42,7 @@ import type {
   LabelCheck,
   LabelCount,
 } from "./types";
-import type { Person } from "./people";
+import type { Added, Merge, Merged, Person, Snapshot, Split, Suggestion } from "./people";
 import type { HintCount, HintState } from "./hints";
 import type { NotificationOpen } from "./arrivals.svelte";
 
@@ -176,10 +175,19 @@ export const api = {
   accountLook: (id: string, label: string, color: string) => call<void>("account_look", { id, label, color }),
   avatar: (accountId: string, email: string, authenticated: boolean) =>
     call<string | null>("avatar", { accountId, email, authenticated }),
-  addresses: (prefix: string) => call<Addr[]>("addresses", { prefix }),
+  /** People for completion: each with the address to insert and the others to choose (#104). */
+  addresses: (prefix: string) => call<Suggestion[]>("addresses", { prefix }),
   /** The address book (#66), filtered by a query over name, address and note. */
   people: (query: string) => call<Person[]>("people", { query }),
-  personSave: (person: Person) => call<void>("person_save", { person }),
+  /** Saves the fields of a person; the record as it is kept comes back. */
+  personSave: (person: Person) => call<Person>("person_save", { person }),
+  /** Adds an address to the person who has `to` among theirs; one of another person is named, not moved (#104). */
+  personAddAddress: (to: string, email: string) => call<Added>("person_add_address", { to, email }),
+  personSetPrimary: (email: string) => call<Person | null>("person_set_primary", { email }),
+  personMerge: (merge: Merge) => call<Merged | null>("person_merge", { merge }),
+  personSplit: (email: string) => call<Split | null>("person_split", { email }),
+  /** Puts back what a merge or a split changed. */
+  personRestore: (undo: Snapshot) => call<void>("person_restore", { undo }),
   /** Removes a person added by hand; one from the correspondence cannot go. */
   personForget: (email: string) => call<boolean>("person_forget", { email }),
   /** The decisions about the suggestions (#69). */

@@ -17,7 +17,9 @@ export type View =
   | { kind: "search"; text: string }
   /** A list contributed by a plugin (`ui.view`). */
   | { kind: "plugin"; id: string }
-  | { kind: "outbox" };
+  | { kind: "outbox" }
+  /** The address book (#104): not a list of letters. */
+  | { kind: "people" };
 
 export const PAGE = 200;
 
@@ -208,7 +210,7 @@ export class ListController {
           if (waiting && this.view === waiting) await this.reload();
           for (const done of waiters) done();
         }
-      } else if (v.kind === "outbox") {
+      } else if (v.kind === "outbox" || v.kind === "people") {
         this.messages = [];
         this.exhausted = true;
         return;

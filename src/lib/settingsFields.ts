@@ -9,7 +9,7 @@ import type { SearchEntry } from "./settingsSearch";
 
 const NONE: RowContext = { accounts: [], noTray: false };
 
-/** The fields of a person's card: the page of «People» is not made of rows, so its fields are named here (#66). */
+/** The fields of a person's card: the card is not a page of the settings any more (#104), but a hit on one of its fields leads to the book. */
 const PEOPLE_FIELDS: { anchor: string; label: Key; also?: Key[] }[] = [
   { anchor: "people-name", label: "people.name" },
   { anchor: "people-send", label: "people.sendFormat", also: ["format.html", "format.markdown", "format.plain", "people.asUsual"] },
@@ -35,8 +35,9 @@ export function buildSettingsIndex(): SearchEntry[] {
       }
     }
   }
+  out.push({ page: "people", group: t("people.title"), section: "", label: t("people.title"), anchor: null });
   for (const f of PEOPLE_FIELDS) {
-    out.push({ page: "people", group: pageTitle("people"), section: t("people.title"), label: t(f.label), synonyms: f.also?.map((k) => t(k)).join(" ") ?? "", anchor: f.anchor });
+    out.push({ page: "people", group: t("people.title"), section: t("people.card"), label: t(f.label), synonyms: f.also?.map((k) => t(k)).join(" ") ?? "", anchor: f.anchor });
   }
   return out;
 }

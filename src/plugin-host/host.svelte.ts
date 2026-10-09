@@ -11,6 +11,8 @@ import { coreCommands } from "../lib/commands";
 import { keyAnchor } from "../lib/anchor";
 import { workTimeFrom } from "../lib/workTime";
 import { shortcuts } from "../lib/shortcuts.svelte";
+import { addressesOf, allMailQuery, blankPerson, matchPerson } from "../lib/people";
+import { peopleBook } from "../lib/peopleBook.svelte";
 import { registry } from "./registry.svelte";
 
 function fill(s: string, params?: Record<string, string | number>): string {
@@ -73,6 +75,15 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     keyOf: (command) => shortcuts.key(command),
     keyTitle: (text, command) => shortcuts.titled(text, command),
     editKeys: (command, title) => app.editKeys(command, title),
+    people: {
+      find: (query) =>
+        peopleBook.list
+          .filter((p) => matchPerson(p, query))
+          .slice(0, 6)
+          .map((p) => ({ name: p.name || p.email, email: p.email, emails: addressesOf(p) })),
+      open: (email) => void app.openPeople({ email }),
+      allMail: (email) => void app.setView({ kind: "search", text: allMailQuery(peopleBook.find(email) ?? blankPerson(email)) }),
+    },
     mail: {
       opened: () => app.opened,
       selection: () => app.selectedIds(),

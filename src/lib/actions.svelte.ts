@@ -34,7 +34,7 @@ export interface ActionHost {
   takeOut(ids: number[]): void;
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server?: boolean): void;
-  toast(text: string, error?: boolean, action?: { label: string; run: () => void }): void;
+  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): void;
   fail(e: unknown, prefix?: string): void;
   /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
   folderProperties?(accountId: string, folder: string): void;
@@ -172,6 +172,19 @@ export class ActionRunner {
 
   spam(ids: number[]) {
     return this.perform(t("done.spam"), ids, api.spam, t("err.spam"));
+  }
+
+  /**
+   * Offers to take back something that is not a move of letters (a merge of people, #104): the
+   * toast's button and "z" run `run`, for `ms`, then it is no longer on offer.
+   */
+  offer(text: string, run: () => Promise<void>, ms = 10_000) {
+    const u: Undoable = { moved: [], text, run };
+    this.lastUndo = u;
+    this.host.toast(text, false, { label: t("undo"), run: () => void this.undo() }, ms);
+    setTimeout(() => {
+      if (this.lastUndo === u) this.lastUndo = null;
+    }, ms);
   }
 
   /** Takes back the last move; waits for an action still on its way. */

@@ -94,12 +94,14 @@
   }
 
   function items(): HTMLElement[] {
-    return box ? [...box.querySelectorAll<HTMLElement>("button.mi:not(:disabled), button[role='menuitem']:not(:disabled)")] : [];
+    return box ? [...box.querySelectorAll<HTMLElement>("button.mi:not(:disabled), button[role='menuitem']:not(:disabled), button[role='menuitemcheckbox']:not(:disabled)")] : [];
   }
 
   // Capture: the menu gets Escape before the dialog it sits in would close.
   function onKey(e: KeyboardEvent) {
     if (!open) return;
+    // A field marked `data-own` keeps its keys: the card's name being written takes Esc and the arrows itself.
+    if ((document.activeElement as HTMLElement | null)?.dataset?.own !== undefined) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       e.preventDefault();

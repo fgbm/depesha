@@ -4,6 +4,7 @@
   import { addrFull, parseAddr } from "../lib/format";
   import Popover from "./Popover.svelte";
   import type { Addr } from "../lib/types";
+  import type { Suggestion } from "../lib/people";
   import type { Snippet } from "svelte";
 
   let {
@@ -20,8 +21,10 @@
   } = $props();
 
   let text = $state("");
-  let suggestions = $state<Addr[]>([]);
+  let suggestions = $state<Suggestion[]>([]);
   let active = $state(0);
+  /** Which address of each suggested person is on offer: the primary one until ←/→ turn to another (#104, 4.1 А). */
+  let which = $state<number[]>([]);
   let invalid = $state(false);
   let input = $state<HTMLInputElement | null>(null);
   /** Which chip's card is open, by its address. */
@@ -58,7 +61,8 @@
     timer = setTimeout(async () => {
       try {
         const found = await api.addresses(prefix);
-        suggestions = found.filter((a) => !value.some((v) => v.email.toLowerCase() === a.email.toLowerCase()));
+        suggestions = found.filter((a) => !a.emails.every((e) => value.some((v) => v.email.toLowerCase() === e.toLowerCase())));
+        which = suggestions.map(() => 0);
         active = 0;
       } catch {
         suggestions = [];
@@ -66,8 +70,16 @@
     }, 120);
   }
 
-  function pick(a: Addr) {
-    value.push(a);
+  /** The address of the suggested person that is on offer now. */
+  function offered(i: number): string {
+    const s = suggestions[i];
+    const list = s.emails.filter((e) => !value.some((v) => v.email.toLowerCase() === e.toLowerCase()));
+    return list[(which[i] ?? 0) % list.length] ?? s.email;
+  }
+
+  function pick(i: number) {
+    const s = suggestions[i];
+    value.push({ name: s.name, email: offered(i) });
     text = "";
     suggestions = [];
     input?.focus();
@@ -77,10 +89,14 @@
     if (suggestions.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
       e.preventDefault();
       active = (active + (e.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length;
+    } else if (suggestions.length && (e.key === "ArrowRight" || e.key === "ArrowLeft") && suggestions[active].emails.length > 1) {
+      e.preventDefault();
+      const n = suggestions[active].emails.filter((x) => !value.some((v) => v.email.toLowerCase() === x.toLowerCase())).length;
+      which[active] = ((which[active] ?? 0) + (e.key === "ArrowRight" ? 1 : n - 1)) % n;
     } else if (e.key === "Enter" || e.key === "Tab") {
       if (suggestions.length && text.trim()) {
         e.preventDefault();
-        pick(suggestions[active]);
+        pick(active);
       } else if (text.trim()) {
         if (e.key === "Enter") e.preventDefault();
         commit();
@@ -123,8 +139,9 @@
     {#if suggestions.length}
       <div class="suggest">
         {#each suggestions as s, i (s.email)}
-          <button class:active={i === active} onmousedown={(e) => { e.preventDefault(); pick(s); }}>
-            {#if s.name}<b>{s.name}</b> {/if}<span class="muted">{s.email}</span>
+          <button class:active={i === active} onmousedown={(e) => { e.preventDefault(); pick(i); }}>
+            {#if s.name}<b>{s.name}</b> {/if}<span class="muted">{offered(i)}</span>
+            {#if s.emails.length > 1}<span class="more muted small">+{s.emails.length - 1}</span>{/if}
           </button>
         {/each}
       </div>
@@ -221,6 +238,11 @@
     text-align: left;
     padding: 6px 10px;
     border-radius: 5px;
+  }
+
+  .more {
+    margin-left: 6px;
+    font-size: 11.5px;
   }
 
   .suggest button.active,

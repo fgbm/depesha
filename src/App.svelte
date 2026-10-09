@@ -14,6 +14,10 @@
   import Dock from "./components/Dock.svelte";
   import Wizard from "./components/Wizard.svelte";
   import Outbox from "./components/Outbox.svelte";
+  import PeopleView from "./components/people/PeopleView.svelte";
+  import MergeDialog from "./components/people/MergeDialog.svelte";
+  import PickPerson from "./components/people/PickPerson.svelte";
+  import { peopleOps } from "./lib/peopleOps.svelte";
   import Preferences from "./components/Preferences.svelte";
   import Tasks from "./components/Tasks.svelte";
   import WindowControls from "./components/WindowControls.svelte";
@@ -49,6 +53,9 @@
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", up);
   }
+
+  /** The outbox and the address book take the place of the list and the letter. */
+  const wideView = $derived(app.view.kind === "outbox" || app.view.kind === "people");
 
   /** A letter (or its error, or one being opened) to show; several selected rows are not one. */
   const hasLetter = $derived(app.selected.size <= 1 && !!(app.opened || app.opening || app.openError));
@@ -94,7 +101,9 @@
     "core.settings": () => app.openSettings(),
     "core.quit": () => quitApp(),
     "core.compose": () => app.newMessage(),
-    "core.search": () => searchInput?.focus(),
+    "core.search": () => (app.view.kind === "people" ? app.focusPeople() : searchInput?.focus()),
+    "core.people": () => void app.openPeople(),
+    "core.sender-card": () => app.openSenderCard(),
     "core.undo": () => app.undo(),
     "core.sync": () => api.syncNow().catch((e) => app.fail(e)),
     "core.next": () => app.move(1),
@@ -208,7 +217,7 @@
 <div
   class="layout"
   class:single={layout.single}
-  style:grid-template-columns={app.view.kind === "outbox"
+  style:grid-template-columns={wideView
     ? `${layout.sideWidth}px 1fr`
     : layout.single
       ? `${layout.sideWidth}px 1px 1fr`
@@ -217,6 +226,8 @@
   <Sidebar onCompose={() => app.newMessage()} />
   {#if app.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
+  {:else if app.view.kind === "people"}
+    <section class="wide"><PeopleView /></section>
   {:else}
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
     <!-- Both stay in place in a narrow window, one of them hidden: the list keeps its scroll and selection. -->
@@ -245,6 +256,9 @@
 {#each registry.lists.overlays as o (o)}
   <o.item.component {...o.item.props ?? {}} />
 {/each}
+
+{#if peopleOps.dialog}<MergeDialog />{/if}
+{#if peopleOps.picking}<PickPerson />{/if}
 
 {#if app.confirmation}
   {#key app.confirmation}<Confirm q={app.confirmation} />

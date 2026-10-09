@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  addressesOf,
+  allMailQuery,
   autoFormat,
   blankPerson,
   filterPeople,
   findPerson,
   formatMark,
+  hasAddress,
   letterViewFor,
   matchPerson,
   recipientParts,
@@ -111,5 +114,43 @@ describe("the address book", () => {
     expect(filterPeople(people, "ruled")).toEqual([ruled]);
     expect(filterPeople(people, "manual")).toEqual([manual]);
     expect(filterPeople(people, "hidden")).toEqual([hidden]);
+  });
+});
+
+describe("a person with several addresses", () => {
+  const olga = person("olga@example.org", {
+    name: "Ольга Смирнова",
+    emails: [
+      { email: "olga@example.org", primary: true, uses: 31, name: "Ольга" },
+      { email: "O.Smirnova@example.com", primary: false, uses: 9, name: "Смирнова Ольга" },
+    ],
+  });
+
+  it("is found by any of its addresses, wherever they are spelled with case", () => {
+    expect(findPerson([olga], "o.smirnova@EXAMPLE.com")).toBe(olga);
+    expect(findPerson([olga], "olga@example.org")).toBe(olga);
+    expect(findPerson([olga], "other@example.org")).toBeUndefined();
+    expect(hasAddress(olga, " O.SMIRNOVA@example.com ")).toBe(true);
+    expect(addressesOf(olga)).toEqual(["olga@example.org", "O.Smirnova@example.com"]);
+  });
+
+  it("searches the letters of every address at once", () => {
+    expect(allMailQuery(olga)).toBe("from:olga@example.org|O.Smirnova@example.com");
+    expect(allMailQuery(blankPerson("ivan@x"))).toBe("from:ivan@x");
+  });
+
+  it("is matched by the search through any address", () => {
+    expect(matchPerson(olga, "smirnova@ex")).toBe(true);
+    expect(matchPerson(olga, "nope")).toBe(false);
+  });
+
+  it("gives one rule to every address when a letter goes to two of them", () => {
+    const rule = { ...olga, send_format: "plain" as const };
+    // Both addresses of one person: one rule, and it is the person who forced it.
+    expect(recipientParts([rule], ["olga@example.org", "o.smirnova@example.com"], "markdown")).toEqual({
+      parts: "plain",
+      by: "olga@example.org",
+    });
+    expect(recipientParts([rule], ["o.smirnova@example.com"], "markdown")).toEqual({ parts: "plain", by: "o.smirnova@example.com" });
   });
 });

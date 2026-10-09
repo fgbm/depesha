@@ -1,6 +1,6 @@
 <script lang="ts">
   // The smart sections above the mailboxes: «All inboxes», «Unread», «Flagged», «All
-  // drafts», the plugins' views and «Outbox». The same list in both halves of the
+  // drafts», the plugins' views, «Outbox» and the address book «People» (#104). The same list in both halves of the
   // sidebar — a row with a counter in the full one, a square tile with a badge in the
   // strip — so it is rendered once here.
   import Hourglass from "@lucide/svelte/icons/hourglass";
@@ -8,6 +8,7 @@
   import Mail from "@lucide/svelte/icons/mail";
   import Flag from "@lucide/svelte/icons/flag";
   import FilePen from "@lucide/svelte/icons/file-pen";
+  import Users from "@lucide/svelte/icons/users";
   import type { Component } from "svelte";
   import { app, type View } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
@@ -47,6 +48,9 @@
       <span class="badge" class:alert={sidebarUi.outboxFailed}>{sidebarUi.badge(app.outbox.length)}</span>
     </button>
   {/if}
+  <button class="tile" class:active={sidebarUi.isActive({ kind: "people" })} onclick={() => void app.openPeople()} title={t("nav.people")} aria-label={t("nav.people")}>
+    <Users size={18} />
+  </button>
 {:else}
   {#each smart as s (s.label)}
     <button class="item" class:active={sidebarUi.isActive(s.view)} onclick={() => app.setView(s.view)}>
@@ -72,4 +76,8 @@
       <span class="count" class:alert={sidebarUi.outboxFailed}>{app.outbox.length}</span>
     </button>
   {/if}
+  <button class="item" class:active={sidebarUi.isActive({ kind: "people" })} onclick={() => void app.openPeople()}>
+    <span class="icon"><Users size={16} /></span>
+    <span class="name">{t("nav.people")}</span>
+  </button>
 {/if}

@@ -65,8 +65,14 @@ export class UiController {
   settingsPage = $state("reading");
   /** A section of a mailbox's page to open the settings at (`storage`), once. */
   settingsSection: string | null = null;
-  /** A person to open the page «People» at, once (from «Own at 2 people ›»; #104 sends it to the book). */
-  settingsPerson: string | null = null;
+  /** Where the address book opens in the main window: at a person and a filter, once (a link from the settings; #104). */
+  peopleFocus: { email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null = null;
+  /** Counts the requests to open the book at a place: an open book turns to it. */
+  peopleTurn = $state(0);
+  /** Puts the focus into the search of the book; set by the book while it is shown. */
+  focusPeople: () => void = () => {};
+  /** Counts the requests to open the card of the open letter's sender (its key, #104). */
+  senderCard = $state(0);
   /** A command to open the «Keys» page at (the palette's Alt+Enter), once. */
   settingsKeys: { id: string; title: string } | null = null;
   /** Counts `openSettings` calls: an already open settings window turns to the page asked for. */

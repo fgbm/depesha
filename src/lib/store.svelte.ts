@@ -75,8 +75,21 @@ export class AppStore {
   set settingsPage(v) { this.ui.settingsPage = v; }
   get settingsSection() { return this.ui.settingsSection; }
   set settingsSection(v) { this.ui.settingsSection = v; }
-  get settingsPerson() { return this.ui.settingsPerson; }
-  set settingsPerson(v) { this.ui.settingsPerson = v; }
+  get peopleFocus() { return this.ui.peopleFocus; }
+  set peopleFocus(v) { this.ui.peopleFocus = v; }
+  get peopleTurn() { return this.ui.peopleTurn; }
+  get focusPeople() { return this.ui.focusPeople; }
+  set focusPeople(v) { this.ui.focusPeople = v; }
+  get senderCard() { return this.ui.senderCard; }
+  /** Asks the open letter's header to show the card of its sender. */
+  openSenderCard() { this.ui.senderCard++; }
+  /** Opens the address book in the main window, at a person and a filter; the settings window gives way. */
+  async openPeople(at: { email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null = null) {
+    this.ui.settingsOpen = false;
+    this.ui.peopleFocus = at;
+    this.ui.peopleTurn++;
+    await this.setView({ kind: "people" });
+  }
   get settingsKeys() { return this.ui.settingsKeys; }
   set settingsKeys(v) { this.ui.settingsKeys = v; }
   get settingsTurn() { return this.ui.settingsTurn; }
@@ -255,6 +268,7 @@ export class AppStore {
   archive(ids = this.selectedIds()) { return this.actions.archive(ids); }
   spam(ids = this.selectedIds()) { return this.actions.spam(ids); }
   undo() { return this.actions.undo(); }
+  offerUndo(text: string, run: () => Promise<void>) { return this.actions.offer(text, run); }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
   send(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {

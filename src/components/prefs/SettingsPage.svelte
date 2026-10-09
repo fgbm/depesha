@@ -33,7 +33,7 @@
     /** The row a search hit just opened the page at: lit a moment (the window sets it and takes it away). */
     flash?: string | null;
     /** Opens another page of the window: a mailbox's page at a section, or a person. */
-    go: (page: string, opts?: { section?: string; person?: string }) => void;
+    go: (page: string, opts?: { section?: string; person?: string }) => void | Promise<void>;
   } = $props();
 
   const s = $derived(app.settings);

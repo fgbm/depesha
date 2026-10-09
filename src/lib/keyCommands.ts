@@ -27,6 +27,8 @@ export const CORE_KEYS: CoreKey[] = [
   row("core.search", "cmd.search", ["/"], "everywhere"),
   row("core.undo", "keys.cmd.undo", ["z"], "everywhere"),
   row("core.sync", "cmd.sync", [], "everywhere"),
+  // The address book (#104): no key by default, the user gives one on this page or in the palette.
+  row("core.people", "cmd.people", [], "everywhere"),
   // The list and the letter.
   row("core.next", "nav.next", ["j", "ArrowDown"], "list"),
   row("core.prev", "nav.prev", ["k", "ArrowUp"], "list"),
@@ -44,6 +46,8 @@ export const CORE_KEYS: CoreKey[] = [
   row("core.flag", "cmd.flag", ["s"], "list"),
   // Labels (#42, frame 10): l is free; the Russian д sits on the same key.
   row("core.labels", "act.labels", ["l"], "list"),
+  // The card of the open letter's sender (#104, 2.4 А): p is free; the Russian з sits on the same key.
+  row("core.sender-card", "cmd.senderCard", ["p"], "list"),
   // One key for "Stop waiting" and "Bring back now": the plugins that own the letter's state run it.
   row("core.release", "cmd.release", ["w"], "list"),
   // The composition window: single keys type there, so only with Ctrl or Alt, and Esc.

@@ -1974,6 +1974,124 @@ try {
     await d.until("search by sender", async () => (await d.exec("return document.querySelector('.list .search input')?.value ?? ''")).includes("from:petr@example.org"));
     await rowBySubject(subj, 10000);
   });
+  await step("9.3", "адресная книга (#104): открыть с клавиатуры, найти человека, изменить настройку, объединить и вернуть; ссылка «Своё у …» из настроек; карточка письма клавишей, имя в карточке", async () => {
+    const people = () => invoke("people", { query: "" });
+    const byEmail = async (email) => (await people()).find((p) => p.emails.some((a) => a.email.toLowerCase() === email));
+    const night = (on) => d.exec("document.documentElement.dataset.theme = arguments[0]", on ? "night" : "paper");
+    const was = await d.exec("return document.documentElement.dataset.theme ?? ''");
+    const focusList = () => d.exec("document.querySelector('.people [role=listbox]').focus()");
+    const rowMark = (mark) => d.exec(`document.querySelector('.people [data-r="${mark}"]').focus()`);
+    // Two records that may be one person: the same words of a name in another order.
+    for (const [email, name] of [["olga.e2e@example.org", "Ольга Смирнова"], ["smirnova.e2e@example.net", "Смирнова Ольга"]]) {
+      await invoke("person_save", { person: { email, name, manual: true } });
+    }
+    await reloadWindow();
+    await d.button("Входящие");
+
+    // The book opens from the keyboard: the palette, «go to people».
+    await press("k", { ctrlKey: true });
+    await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+    await d.type(await d.find(".palette .q"), "перейти люди");
+    await d.type(await d.find(".palette .q"), "\uE007");
+    await d.until("book", async () => (await d.findAll(".people")).length === 1);
+    if (!(await d.findAll("nav.side .item.active")).length) throw new Error("в боковой панели «Люди» не отмечены");
+    await screenshot("people-book");
+    await night(true);
+    await screenshot("people-book-night");
+    await night(false);
+
+    // A person is found by a word of the name: «/» in the list goes to the search, ↓ comes back.
+    await focusList();
+    await d.pressKey("/");
+    await d.until("search has the focus", async () => (await d.exec("return document.activeElement?.type")) === "search");
+    await d.type(await d.find(".people input[type=search]"), "смирнова");
+    await d.until("two found", async () => (await d.findAll(".people .pr")).length === 2);
+    await d.pressKey("\uE015");
+    await d.until("list has the focus", async () => (await d.exec("return document.activeElement?.getAttribute('role')")) === "listbox");
+    // The card on the right is the first person's, and it suggests the second as the same person.
+    const cards = await textOf(".people .pd");
+    if (!cards.includes("Ольга Смирнова")) throw new Error(`карточка справа: ${cards.slice(0, 200)}`);
+    if (!(await textOf(".people .pd .pc-dup")).includes("Смирнова Ольга")) throw new Error(`нет подсказки о дубле в карточке: ${cards.slice(0, 300)}`);
+
+    // Enter goes into the card, on «All mail»; its format is turned by the arrows and saved at once.
+    await d.pressKey("\uE007");
+    await d.until("card has the focus", async () => (await d.exec("return document.activeElement?.dataset?.r")) === "all");
+    await rowMark("fmt");
+    await d.pressKey("\uE014");
+    await d.until("format saved", async () => (await byEmail("olga.e2e@example.org"))?.send_format === "html", 15000);
+    await screenshot("people-card");
+    await night(true);
+    await screenshot("people-card-night");
+    await night(false);
+
+    // Esc comes back to the list; M joins the suggested pair, the dialog shows what it offers, Enter takes it.
+    await d.pressKey("\uE00C");
+    await d.until("list again", async () => (await d.exec("return document.activeElement?.getAttribute('role')")) === "listbox");
+    // Space marks the two, the banner counts them, M opens the dialog.
+    await d.pressKey(" ");
+    await d.pressKey("\uE015");
+    await d.pressKey(" ");
+    await d.until("two marked", async () => (await textOf(".people .banner")).includes("Отмечено: 2"));
+    await d.pressKey("m");
+    await d.until("merge dialog", async () => (await d.findAll(".merge")).length === 1);
+    await screenshot("people-merge");
+    await night(true);
+    await screenshot("people-merge-night");
+    await night(false);
+    await d.pressKey("\uE007");
+    await d.until("merged", async () => (await byEmail("olga.e2e@example.org"))?.emails.length === 2, 15000);
+    await d.until("undo toast", async () => (await textOf(".toasts")).includes("Объединено"));
+    const merged = await byEmail("smirnova.e2e@example.net");
+    if (merged.send_format !== "html") throw new Error(`правило не сохранилось при объединении: ${JSON.stringify(merged)}`);
+    // Z takes it back: two people again, each with their own address.
+    await d.pressKey("z");
+    await d.until("split back", async () => (await byEmail("olga.e2e@example.org"))?.emails.length === 1 && (await byEmail("smirnova.e2e@example.net"))?.emails.length === 1, 15000);
+
+    // The way from the settings: «Own at …» on the format's row opens the book, narrowed to the people with a format.
+    await press(",", { ctrlKey: true });
+    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+    await d.click(await d.find(".prefs .tab[data-page='writing']"));
+    await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
+    await d.click(await d.find(".prefs [data-row='layer_format'] .lnk"));
+    // Several places differ (a mailbox too): the way is a menu, and the person is picked in it.
+    if (await d.exec("return new Promise((r) => setTimeout(() => r(!!document.querySelector('.pop')), 400))")) {
+      await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Ольга Смирнова')]"));
+    }
+    await d.until("book from settings", async () => (await d.findAll(".people")).length === 1 && (await d.findAll(".prefs")).length === 0);
+    if (!(await textOf(".people .fchip.on")).includes("С особым форматом")) throw new Error("список не отфильтрован по «С особым форматом»");
+    await screenshot("people-from-settings");
+    if ((await d.findAll(".prefs .tab[data-page='people']")).length) throw new Error("в настройках остался пункт «Люди»");
+
+    // The test people go away; the letter of 9.2 gets its card by the key, and the name is written in it.
+    for (const email of ["olga.e2e@example.org", "smirnova.e2e@example.net"]) await invoke("person_forget", { email });
+    await d.button("Входящие");
+    const subj = `Карточка ${stamp}`;
+    await openBySubject(subj);
+    await d.exec("document.activeElement?.blur?.()");
+    await d.pressKey("p");
+    await d.until("card by the key", async () => (await d.findAll(".pcard")).length === 1);
+    await d.until("card focus", async () => (await d.exec("return document.activeElement?.dataset?.r")) === "all");
+    await screenshot("people-letter-card");
+    await d.pressKey("\uE013");
+    await d.pressKey("\uE032");
+    await d.until("name line", async () => (await d.findAll(".pcard input[data-own]")).length === 1);
+    await d.type(await d.find(".pcard input[data-own]"), " Е2Е\uE007");
+    await d.until("name saved", async () => (await byEmail("petr@example.org"))?.name.endsWith("Е2Е"), 15000);
+    // Esc leaves the line without closing the card; the name goes back to what the letters say.
+    await d.pressKey("\uE032");
+    await d.until("name line again", async () => (await d.findAll(".pcard input[data-own]")).length === 1);
+    await d.pressKey("\uE00C");
+    if ((await d.findAll(".pcard")).length !== 1) throw new Error("Esc в строке имени закрыл карточку");
+    await d.pressKey("\uE032");
+    await d.until("name line third", async () => (await d.findAll(".pcard input[data-own]")).length === 1);
+    // The line opens with the name selected: BackSpace empties it, Enter saves an empty name (the letters' own comes back).
+    await d.pressKey("\uE003");
+    await d.pressKey("\uE007");
+    await d.until("name back", async () => !(await byEmail("petr@example.org"))?.name.endsWith("Е2Е"), 15000);
+    await d.pressKey("\uE00C");
+    await d.until("card closed", async () => (await d.findAll(".pcard")).length === 0);
+    await d.exec("document.documentElement.dataset.theme = arguments[0]", was);
+  });
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");

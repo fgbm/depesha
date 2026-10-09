@@ -15,7 +15,6 @@ import Palette from "@lucide/svelte/icons/palette";
 import Power from "@lucide/svelte/icons/power";
 import Puzzle from "@lucide/svelte/icons/puzzle";
 import SquarePen from "@lucide/svelte/icons/square-pen";
-import Users from "@lucide/svelte/icons/users";
 import { accountLabel } from "./format";
 import { t, tn } from "./i18n.svelte";
 import type { NumberSpec, RowKind } from "./settingsRows";
@@ -462,8 +461,6 @@ export const PAGES: PageSpec[] = [
 /** The pages that are not a list of rows: each draws itself and saves itself. */
 export const OWN_PAGES: { id: string; title: () => string; icon: Component }[] = [
   { id: "keys", title: () => t("keys.title"), icon: Keyboard },
-  // #104 takes «People» into the main window; until then the panel stays here, and this entry goes with it.
-  { id: "people", title: () => t("people.title"), icon: Users },
   { id: "accounts", title: () => t("accounts.title"), icon: Inbox },
   { id: "plugins", title: () => t("ext.manageTitle"), icon: Puzzle },
 ];
@@ -477,7 +474,7 @@ export interface MenuGroup {
 export const MENU: MenuGroup[] = [
   { title: () => t("settings.group.mail"), pages: ["reading", "writing", "later", "storage"] },
   { title: () => t("settings.group.app"), pages: ["look", "notify", "start", "keys"] },
-  { title: () => t("settings.group.mailboxes"), pages: ["people", "accounts"] },
+  { title: () => t("settings.group.mailboxes"), pages: ["accounts"] },
   { title: () => t("settings.page.plugins"), pages: ["plugins"] },
 ];
 

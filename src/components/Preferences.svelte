@@ -11,7 +11,6 @@
   import { searchSettings } from "../lib/settingsSearch";
   import { isRowPage, widePage } from "../lib/settingsWindow";
   import SettingsPage from "./prefs/SettingsPage.svelte";
-  import PeoplePanel from "./prefs/PeoplePanel.svelte";
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
   import PluginsPanel from "./prefs/PluginsPanel.svelte";
   import KeysPanel from "./prefs/KeysPanel.svelte";
@@ -70,6 +69,8 @@
   /** Opens a hit: the page it is on, then the row, lit a moment and with the focus on it (#102, 4.4 А). */
   async function openHit(hit: { page: string; anchor: string | null }) {
     query = "";
+    // What was a page of the settings is the book now (#104): a hit on a person's field leads there.
+    if (hit.page === "people") return void (await go("people"));
     await turn(hit.page);
     if (!hit.anchor) return;
     await reveal(hit.anchor);
@@ -119,8 +120,15 @@
   const backToList = (p: string) => (page = p);
 
   /** From a row: another page, a mailbox's at a section, or a person in the book. */
-  function go(next: string, opts: { section?: string; person?: string } = {}) {
-    if (opts.person) app.settingsPerson = opts.person;
+  async function go(next: string, opts: { section?: string; person?: string } = {}) {
+    // The people live in the main window (#104): the settings give way to the book, with the
+    // list narrowed to the people who differ when a person is asked for.
+    if (next === "people") {
+      await settle();
+      if (!(await mayLeave())) return;
+      void app.openPeople({ email: opts.person, filter: "ruled" });
+      return;
+    }
     app.openSettings(next, opts.section ?? null);
   }
 
@@ -280,8 +288,6 @@
             {/key}
           {:else if current === "keys"}
             <KeysPanel draft={app.settings} />
-          {:else if current === "people"}
-            <PeoplePanel />
           {:else if current === "plugins"}
             <PluginsPanel sections={sectionsOn("plugins")} />
           {:else}

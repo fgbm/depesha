@@ -145,3 +145,33 @@ describe("Ctrl+Z on a mailbox's page (#102)", () => {
     await vi.waitFor(() => expect(stored.color).toBe(""));
   });
 });
+
+describe("the people moved to the main window (#104)", () => {
+  it("has no page «People» in the menu", () => {
+    open("reading");
+    const tabs = [...target.querySelectorAll<HTMLElement>(".tab[data-page]")].map((t) => t.dataset.page);
+    expect(tabs).not.toContain("people");
+    expect(tabs).toContain("accounts");
+  });
+
+  it("opens the book, narrowed to the people with a format of their own, from the way on the format's row", async () => {
+    const book = vi.spyOn(app, "openPeople").mockResolvedValue();
+    open("writing");
+    row("layer_format").querySelector<HTMLElement>(".lnk")!.click();
+    await vi.waitFor(() => expect(book).toHaveBeenCalledWith({ email: undefined, filter: "ruled" }));
+    book.mockRestore();
+  });
+
+  it("opens the book on a hit of the search on a field of the card", async () => {
+    const book = vi.spyOn(app, "openPeople").mockResolvedValue();
+    open("reading");
+    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
+    field.value = "писать ему";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Люди"))!;
+    hit.click();
+    await vi.waitFor(() => expect(book).toHaveBeenCalled());
+    book.mockRestore();
+  });
+});

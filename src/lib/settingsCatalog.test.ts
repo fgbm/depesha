@@ -12,9 +12,15 @@ beforeEach(() => {
 
 describe("the menu (#102, 2.1 В)", () => {
   it("has two axes, «Mail» and «App», then the mailboxes and the plugins", () => {
-    expect(MENU.map((g) => g.title())).toEqual(["Почта", "Программа", "Люди и ящики", "Плагины"]);
+    expect(MENU.map((g) => g.title())).toEqual(["Почта", "Программа", "Ящики", "Плагины"]);
     expect(MENU[0].pages).toEqual(["reading", "writing", "later", "storage"]);
     expect(MENU[1].pages).toEqual(["look", "notify", "start", "keys"]);
+  });
+
+  it("has no page «People»: the people moved to the main window (#104), the menu is ten entries", () => {
+    expect(menuPages()).not.toContain("people");
+    expect(menuPages()).toHaveLength(10);
+    expect(OWN_PAGES.some((p) => p.id === "people")).toBe(false);
   });
 
   it("has a page for each entry, and no mailbox of its own in the menu (2.6 Б)", () => {
@@ -32,7 +38,6 @@ describe("the menu (#102, 2.1 В)", () => {
       "Уведомления и значок",
       "Запуск и обновления",
       "Клавиши",
-      "Люди",
       "Ящики",
       "Все плагины",
     ]);

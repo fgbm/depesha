@@ -155,3 +155,27 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     expect(api.undo).not.toHaveBeenCalled();
   });
 });
+
+describe("an offer to take back something that is not a move (#104)", () => {
+  it("runs on z and is gone after ten seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = new AppStore();
+      const run = vi.fn(async () => {});
+      s.offerUndo("Объединено: «Ольга», 2 адреса.", run);
+      expect(s.lastUndo?.text).toBe("Объединено: «Ольга», 2 адреса.");
+      expect(s.toasts.at(-1)?.action?.label).toBe(t("undo"));
+      await s.undo();
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(s.lastUndo).toBeNull();
+
+      s.offerUndo("Ещё одно", run);
+      vi.advanceTimersByTime(10_001);
+      expect(s.lastUndo).toBeNull();
+      await s.undo();
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

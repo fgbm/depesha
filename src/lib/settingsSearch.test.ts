@@ -42,7 +42,7 @@ describe("finding a setting by name", () => {
     expect(hit!.section).toBe("Поиск");
   });
 
-  it("finds the fields of a person's card, which the page of people names itself", () => {
+  it("finds the fields of a person's card, though the card is in the main window now and a hit leads there (#104)", () => {
     const send = searchSettings(index(), "писать ему").find((h) => h.anchor === "people-send");
     expect(send).toBeDefined();
     expect(send!.page).toBe("people");
