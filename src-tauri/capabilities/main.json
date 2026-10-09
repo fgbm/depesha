@@ -50,6 +50,7 @@
     "allow-thread",
     "allow-counters",
     "allow-followup-cancel",
+    "allow-followup-resume",
     "allow-followup-postpone",
     "allow-followup-unpark",
     "allow-followup-return",

@@ -310,6 +310,7 @@ pub fn run() {
             commands::thread,
             commands::counters,
             commands::followup_cancel,
+            commands::followup_resume,
             commands::followup_postpone,
             commands::followup_unpark,
             commands::followup_return,

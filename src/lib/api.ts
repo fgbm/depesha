@@ -122,7 +122,7 @@ export const api = {
   undo: (moved: Moved[]) => call<void>("undo", { moved }),
   thread: (id: number) => call<MessageRow[]>("thread", { id }),
   counters: () => call<Counters>("counters"),
-  followupCancel: (id: number) => call<void>("followup_cancel", { id }),
+  followupCancel: (id: number) => call<number>("followup_cancel", { id }),
   /** "Keep in the inbox" right after an answer took the letter to wait. */
   followupUnpark: (accountId: string, messageId: string) => call<void>("followup_unpark", { accountId, messageId }),
   unsubscribePlan: (id: number) => call<UnsubscribePlan>("unsubscribe_plan", { id }),

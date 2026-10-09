@@ -2411,6 +2411,15 @@ try {
     await d.click(await d.until("template", () => d.xpath("//div[contains(@class,'pop')]//button[contains(., 'Получил')]")));
     const text = await d.exec("return document.querySelector('.compose textarea').value");
     if (!text.includes("Спасибо, получил.")) throw new Error(JSON.stringify(text));
+    // The toast says so and takes it back (#98): the wait returns, with its reminder.
+    const stopToast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Не ждём ответа')]";
+    await d.until("stop toast", () => d.xpath(stopToast));
+    await screenshot("followups-stop-toast");
+    await d.click(await d.xpath(`${stopToast}//button[contains(@class,'act')]`));
+    await d.until("waiting again", async () => (await invoke("counters")).followups > 0, 20000);
+    await d.until("wait banner back", async () => (await textOf(".reader")).includes("Не ждать"), 20000);
+    await d.button("Не ждать");
+    await d.until("not waiting again", async () => (await invoke("counters")).followups === 0, 20000);
     await d.click(await d.find(".compose header button:last-child"));
     await composeClosed();
     await press("k", { ctrlKey: true });

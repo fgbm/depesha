@@ -7,12 +7,15 @@ import { registerStop } from "./stop";
 function fakeContext(opened: OpenedMessage | null) {
   const keys: KeyBinding[] = [];
   const actions: RowAction[] = [];
-  const backend = vi.fn(async () => undefined);
+  const backend = vi.fn(async (command: string): Promise<unknown> => (command === "followup_cancel" ? 1_800_000_000 : command === "followup_resume" ? true : undefined));
   const reload = vi.fn();
+  const toast = vi.fn();
   const say = sayIn("ru");
   const ctx = {
     ...say,
     backend,
+    toast,
+    fail: vi.fn(),
     mail: { opened: () => opened, reload, viewing: () => false },
     ui: {
       keybinding: (b: KeyBinding) => keys.push(b),
@@ -20,7 +23,7 @@ function fakeContext(opened: OpenedMessage | null) {
     },
   } as unknown as PluginContext;
   registerStop(ctx);
-  return { keys, actions, backend, reload };
+  return { keys, actions, backend, reload, toast };
 }
 
 const opened = (status: "waiting" | "closed") => ({ row: letter(wait({ status })) }) as OpenedMessage;
@@ -48,5 +51,40 @@ describe("«Stop waiting» on the key shared with bringing snoozed mail back (#9
     expect(item.when?.([1], [letter(wait({ status: "answered" }))])).toBe(false);
     item.run?.([7]);
     expect(backend).toHaveBeenCalledWith("followup_cancel", { id: 7 });
+  });
+});
+
+describe("«Stop waiting» tells so and can be taken back, as «Bring back now» can (#98)", () => {
+  it("shows a toast with the subject and «Отменить»", async () => {
+    const msg = opened("waiting");
+    const { keys, toast } = fakeContext(msg);
+    keys.find((k) => k.id === "core.release")!.run();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(toast.mock.calls[0][0]).toBe(`Не ждём ответа: ${msg.row.subject}`);
+    expect(toast.mock.calls[0][1].action.label).toBe("Отменить");
+  });
+
+  it("takes the wait back with the moment it was closed at, and reloads the list", async () => {
+    const { keys, toast, backend, reload } = fakeContext(opened("waiting"));
+    keys.find((k) => k.id === "core.release")!.run();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+    reload.mockClear();
+    toast.mock.calls[0][1].action.run();
+    await vi.waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(backend).toHaveBeenCalledWith("followup_resume", { id: expect.any(Number), ended: 1_800_000_000 });
+  });
+
+  it("says so, once, when many rows are stopped, and tells when an undo is too late", async () => {
+    const { actions, toast, backend } = fakeContext(null);
+    const item = actions.find((a) => a.id === "followups.stop")!;
+    item.when?.([7, 8], [{ ...letter(wait()), id: 7, subject: "Один" }, { ...letter(wait()), id: 8, subject: "Два" }]);
+    item.run?.([7, 8]);
+    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast.mock.calls[0][0]).toBe("Не ждём ответа: 2 письма");
+    backend.mockImplementation(async () => false);
+    toast.mock.calls[0][1].action.run();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(2));
+    expect(toast.mock.calls[1][1]).toEqual({ error: true });
   });
 });

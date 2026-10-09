@@ -37,6 +37,7 @@ const COMMANDS: &[&str] = &[
     "thread",
     "counters",
     "followup_cancel",
+    "followup_resume",
     "followup_postpone",
     "followup_unpark",
     "followup_return",

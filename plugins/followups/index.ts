@@ -1,6 +1,6 @@
 // "Waiting for reply": the parts are wired here and live in their own modules — the view
 // (view.ts), rows (rows.ts), the banner (banner.ts), the line of the compose window with
-// the folder and the reminder (WaitLine, RemindSelect, RemindLine), the settings
+// the folder and the reminder (WaitLine, RemindMenu, RemindLine), the settings
 // (RemindSettings), the notification (notify.ts).
 
 import type { Plugin } from "@depesha/plugin-api";
@@ -58,11 +58,17 @@ export default {
               row.followup_due = null;
             })
             .catch((e) => ctx.fail(e)),
+        // The toast takes it back (#98): the banner is the wait as it was.
         stop: () =>
-          stopWaiting(ctx, row.id).then((ok) => {
-            if (!ok) return;
-            if (f) row.followup = { ...f, status: "closed", ended: now() };
-            row.followup_due = null;
+          void stopWaiting(ctx, [{ id: row.id, subject: row.subject }], {
+            done: () => {
+              if (f) row.followup = { ...f, status: "closed", ended: now() };
+              row.followup_due = null;
+            },
+            undone: () => {
+              if (f) row.followup = f;
+              row.followup_due = f && f.due > 0 ? f.due : null;
+            },
           }),
         openAnswer: ctx.mail.main() ? (id) => void ctx.mail.open(id) : undefined,
       });

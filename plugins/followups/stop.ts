@@ -8,12 +8,53 @@ import { stateOf, waitOf } from "./wait";
 
 const now = () => Math.floor(Date.now() / 1000);
 
-/** Ends the wait on the backend; false (and the error told) when it did not. */
-export const stopWaiting = (ctx: PluginContext, id: number) =>
-  ctx
-    .backend("followup_cancel", { id })
-    .then(() => true)
-    .catch((e) => (ctx.fail(e), false));
+/** A letter whose wait is stopped: its row and what the toast calls it. */
+export interface Stopped {
+  id: number;
+  subject: string;
+}
+
+/** What a stop tells its caller to do to the rows it shows: after it, and after its undo. */
+export interface StopHooks {
+  done?: () => void;
+  undone?: () => void;
+}
+
+/**
+ * Ends the waits on the backend and says so with a toast that takes it back, as "Bring back
+ * now" does (#98): the waiting returns with the time it had. False (and the error told) when
+ * none was ended.
+ */
+export async function stopWaiting(ctx: PluginContext, rows: Stopped[], hooks: StopHooks = {}): Promise<boolean> {
+  const ended: { row: Stopped; at: number }[] = [];
+  for (const row of rows) {
+    try {
+      ended.push({ row, at: await ctx.backend<number>("followup_cancel", { id: row.id }) });
+    } catch (e) {
+      ctx.fail(e);
+    }
+  }
+  if (!ended.length) return false;
+  hooks.done?.();
+  const what = ended.length === 1 ? ended[0].row.subject || ctx.t(S.noSubject) : ctx.plural(ended.length, S.stoppedMany);
+  ctx.toast(ctx.t(S.stopped, { what }), { action: { label: ctx.t(S.undo), run: () => void resumeWaiting(ctx, ended, hooks) } });
+  return true;
+}
+
+/** "Undo" of the toast: each wait stopped waits again; one that cannot (it ended another way since) is told. */
+async function resumeWaiting(ctx: PluginContext, ended: { row: Stopped; at: number }[], hooks: StopHooks) {
+  let lost = false;
+  for (const { row, at } of ended) {
+    try {
+      if (!(await ctx.backend<boolean>("followup_resume", { id: row.id, ended: at }))) lost = true;
+    } catch (e) {
+      ctx.fail(e);
+    }
+  }
+  if (lost) ctx.toast(ctx.t(S.resumeFailed), { error: true });
+  else hooks.undone?.();
+  ctx.mail.reload();
+}
 
 /** A wait that is still on: what the line over the letter offers "Stop waiting" for. */
 const isWaiting = (row: MessageRow) => {
@@ -22,12 +63,14 @@ const isWaiting = (row: MessageRow) => {
 };
 
 export function registerStop(ctx: PluginContext) {
+  // The menu of the rows learns the subjects as it is built; the toast names the letter by them.
+  const subjects = new Map<number, string>();
   ctx.ui.keybinding({
     id: "core.release",
     title: () => ctx.t(S.stop),
     run: () => {
       const row = ctx.mail.opened()?.row;
-      if (row) void stopWaiting(ctx, row.id).then((ok) => ok && ctx.mail.reload());
+      if (row) void stopWaiting(ctx, [{ id: row.id, subject: row.subject }]).then((ok) => ok && ctx.mail.reload());
     },
     when: () => {
       const row = ctx.mail.opened()?.row;
@@ -39,7 +82,10 @@ export function registerStop(ctx: PluginContext) {
     title: () => ctx.t(S.stop),
     icon: MessageSquareReply,
     command: "core.release",
-    when: (_ids, rows) => rows.length > 0 && rows.every(isWaiting),
-    run: (ids) => void Promise.all(ids.map((id) => stopWaiting(ctx, id))).then(() => ctx.mail.reload()),
+    when: (_ids, rows) => {
+      for (const r of rows) subjects.set(r.id, r.subject);
+      return rows.length > 0 && rows.every(isWaiting);
+    },
+    run: (ids) => void stopWaiting(ctx, ids.map((id) => ({ id, subject: subjects.get(id) ?? "" }))).then(() => ctx.mail.reload()),
   });
 }

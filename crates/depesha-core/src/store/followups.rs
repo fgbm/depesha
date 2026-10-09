@@ -366,6 +366,23 @@ impl Store {
         Ok(())
     }
 
+    /// "Undo" of the toast after "Stop waiting": the wait closed by hand at `ended` waits
+    /// again as it was: stopping leaves the reminder, the deadline, the repeat and the awaited
+    /// address as they are. Letters that had not yet left the folder stay in it; ones already
+    /// back in the inbox stay there. False when nothing was resumed: the wait ended another
+    /// way since, or is waiting already.
+    pub fn followup_resume(&self, account_id: &str, message_id: &str, ended: i64) -> Result<bool> {
+        let n = self.conn().execute(
+            "UPDATE followups SET status = 'waiting', ended = NULL,
+                park = CASE park WHEN 'back' THEN 'parked' ELSE park END
+             WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed' AND ended = ?3
+               AND NOT EXISTS (SELECT 1 FROM followups
+                 WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting')",
+            params![account_id, message_id.trim_matches(['<', '>']), ended],
+        )?;
+        Ok(n > 0)
+    }
+
     /// Marks waits that got an answer: the first message outside Sent and Drafts that
     /// replies to the sent one, its Message-ID in In-Reply-To or References exactly, and
     /// from the awaited address when there is one; for a letter that went to wait, a new
@@ -728,6 +745,55 @@ mod tests {
         assert_eq!(store.find_any_by_message_id("a", "<q@x>").unwrap(), Some(id));
         // Another account's letter with the same id is not this account's.
         assert_eq!(store.find_any_by_message_id("b", "q@x").unwrap(), None);
+    }
+
+    #[test]
+    fn stopping_to_wait_is_taken_back_with_the_same_time() {
+        let store = mailbox();
+        put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
+        let now = chrono::Utc::now().timestamp();
+        wait_for(&store, "q@x", now + 86_400, |f| {
+            f.kind = "Каждые 3 дня".into();
+            f.repeat_secs = 259_200;
+            f.expect = "boss@example.org".into();
+        });
+        let before = info(&store, FollowupFilter::Active, "Вопрос");
+        store.followup_stop("a", "q@x", now, None).unwrap();
+        assert_eq!(
+            store.followups_count().unwrap(),
+            FollowupCounts { active: 0, closed: 1 }
+        );
+
+        // Another moment is not the stop the toast spoke of.
+        assert!(!store.followup_resume("a", "q@x", now + 1).unwrap());
+        assert!(store.followup_resume("a", "<q@x>", now).unwrap());
+        assert_eq!(
+            store.followups_count().unwrap(),
+            FollowupCounts { active: 1, closed: 0 }
+        );
+        let after = info(&store, FollowupFilter::Active, "Вопрос");
+        assert_eq!(
+            (
+                after.status,
+                after.ended,
+                after.due,
+                after.deadline,
+                after.repeat_secs,
+                after.expect,
+                after.kind
+            ),
+            (
+                FollowupStatus::Waiting,
+                None,
+                before.due,
+                before.deadline,
+                before.repeat_secs,
+                before.expect,
+                before.kind
+            )
+        );
+        // Once: a wait that is waiting is not resumed again.
+        assert!(!store.followup_resume("a", "q@x", now).unwrap());
     }
 
     #[test]
