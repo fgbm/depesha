@@ -52,7 +52,7 @@ pub fn decide(
 /// The letter `item` answered or forwarded, marked now that it left as `message_id`; the
 /// wait it asked for started. Returns what became of the letters.
 pub async fn after_sent(
-    state: &AppState,
+    state: &Arc<AppState>,
     account: &Account,
     item: &OutboxItem,
     message_id: Option<String>,
@@ -64,7 +64,7 @@ pub async fn after_sent(
     let Some(message_id) = message_id else {
         return Ok(Left {
             parks: false,
-            archived: false,
+            archiving: false,
         });
     };
     let wait = |due_secs: i64| {
@@ -85,7 +85,7 @@ pub async fn after_sent(
         }
         return Ok(Left {
             parks: false,
-            archived: false,
+            archiving: false,
         });
     };
     state
@@ -122,16 +122,27 @@ pub async fn after_sent(
         .store
         .folder_by_role(&account.id, FolderRole::Inbox)?
         .is_some_and(|i| i == acts.folder);
-    let archived =
-        will_archive(item) && in_inbox && archive_answered(state, account, item, &acts.folder, &acts.message_id).await;
-    Ok(Left { parks, archived })
+    // The move waits for the mailbox's queue behind background loads and syncs of two folders:
+    // it must not hold the outbox's round, and the next letters' sending, up (#106). Its toast
+    // comes when the letters have moved; one that moved nothing says a plain "sent".
+    let archiving = will_archive(item) && in_inbox;
+    if archiving {
+        let (state, account, item) = (state.clone(), account.clone(), item.clone());
+        let (folder, message_id) = (acts.folder.clone(), acts.message_id.clone());
+        tokio::spawn(async move {
+            if !archive_answered(&state, &account, &item, &folder, &message_id).await {
+                state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
+            }
+        });
+    }
+    Ok(Left { parks, archiving })
 }
 
 /// What `after_sent` moved: the letters to wait in the folder (the move is the scheduler's),
-/// or to the archive (done).
+/// or to the archive (a task of its own, which says "sent" itself when nothing moved).
 pub struct Left {
     pub parks: bool,
-    pub archived: bool,
+    pub archiving: bool,
 }
 
 /// The conversation of the letter answered goes from the inbox to the archive of the

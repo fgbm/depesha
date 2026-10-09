@@ -123,7 +123,7 @@ async fn round_inner(state: &Arc<AppState>, awake_since: i64) -> Result<(), CmdE
 /// Sends one mailbox's due letters, one after another. Once one is refused (the server
 /// said no, the address is bad), the rest of that mailbox waits for the user; the other
 /// mailboxes go on.
-async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), CmdError> {
+async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(), CmdError> {
     let now = chrono::Utc::now().timestamp();
     let mut blocked = false;
     for item in items {
@@ -274,7 +274,7 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
 /// The letter answered or forwarded is marked, the wait for a reply starts; a plain "sent"
 /// toast follows when the letter was to wait but had nothing to move after all.
 async fn finish_sent(
-    state: &AppState,
+    state: &Arc<AppState>,
     account: &depesha_core::account::Account,
     item: &OutboxItem,
     message_id: Option<String>,
@@ -282,7 +282,7 @@ async fn finish_sent(
 ) -> Result<(), CmdError> {
     let left = crate::waiting::after_sent(state, account, item, message_id, letter_cached).await?;
     let went = if crate::waiting::will_archive(item) {
-        left.archived
+        left.archiving
     } else {
         left.parks
     };
