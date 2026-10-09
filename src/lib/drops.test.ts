@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
 vi.mock("@tauri-apps/api/webview", () => import("./testing").then((m) => m.webviewModule));
 
-import { listenDrops } from "./drops";
+import { readFileSync } from "node:fs";
+import { listenDrops, watchDrops } from "./drops";
 import { emit, eventModule, flush, webviewListen } from "./testing";
 import type { AppStore } from "./store.svelte";
 
@@ -36,5 +37,27 @@ describe("files dropped on the window", () => {
     await listenDrops(app, () => null);
     expect(webviewListen).toHaveBeenCalledWith("files-dropped", expect.any(Function));
     expect(eventModule.listen).not.toHaveBeenCalled();
+  });
+});
+
+describe("every window that can hold a draft hears drops (#107)", () => {
+  it("watchDrops attaches the dropped files to the window's own draft", async () => {
+    const dropFiles = vi.fn(async () => {});
+    const c = {};
+    const app = { activeCompose: () => c, compose: { dropFiles } } as unknown as AppStore;
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    vi.stubGlobal("document", { elementFromPoint: () => null });
+    const stop = watchDrops(app);
+    emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 1, y: 2 } });
+    await flush();
+    expect(dropFiles).toHaveBeenCalledWith(c, ["/a/b.pdf"], null);
+    stop();
+    vi.unstubAllGlobals();
+  });
+
+  it("the main window and the letter window both use it", () => {
+    for (const f of ["App.svelte", "MessageWindow.svelte"]) {
+      expect(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"), f).toMatch(/watchDrops\(app\)/);
+    }
   });
 });

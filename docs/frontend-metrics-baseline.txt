@@ -1,5 +1,5 @@
-component	src/App.svelte	337	220	71	46
-component	src/MessageWindow.svelte	120	86	29	5
+component	src/App.svelte	316	199	71	46
+component	src/MessageWindow.svelte	126	92	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
 component	src/components/Compose.svelte	1004	287	264	453
@@ -246,7 +246,6 @@ function	plugins/templates/TemplatesSettings.svelte::save	5
 function	plugins/templates/TemplatesSettings.svelte::changed	3
 function	src/App.svelte::drag	18
 function	src/App.svelte::refocusList	6
-function	src/App.svelte::zoneAt	5
 function	src/App.svelte::labelTarget	4
 function	src/App.svelte::action	4
 function	src/App.svelte::onKey	55
@@ -593,12 +592,16 @@ function	src/lib/consent.ts::consentItems	7
 function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
-function	src/lib/drops.ts::listenDrops	9
+function	src/lib/drops.ts::heard	3
+function	src/lib/drops.ts::attach	5
+function	src/lib/drops.ts::watchDrops	21
+function	src/lib/drops.ts::listenDrops	7
 function	src/lib/events.ts::common	24
 function	src/lib/events.ts::applySettingsChanged	8
 function	src/lib/events.ts::listenMain	62
 function	src/lib/events.ts::quitDrafts	14
-function	src/lib/events.ts::parked	14
+function	src/lib/events.ts::takeUndo	6
+function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::archivedAfterSend	15
 function	src/lib/events.ts::listenWindow	9
 function	src/lib/extensions.svelte.ts::fromRow	16

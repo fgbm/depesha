@@ -1,10 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
-  import { getCurrentWebview } from "@tauri-apps/api/webview";
-  import type { PhysicalPosition } from "@tauri-apps/api/dpi";
-  import type { DropZone } from "./lib/images";
   import { app } from "./lib/store.svelte";
-  import { listenDrops } from "./lib/drops";
+  import { watchDrops } from "./lib/drops";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
@@ -89,25 +86,7 @@
     app.init().catch((e) => app.fail(e, t("startup")));
     // Files dropped on the window go to the open composition: attached, or, in an HTML
     // letter, pictures into the text when dropped on that zone.
-    const zoneAt = (pos: PhysicalPosition): DropZone | null => {
-      const { x, y } = pos.toLogical(window.devicePixelRatio);
-      const zone = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-zone]")?.dataset.dropZone;
-      return zone === "inline" || zone === "attach" ? zone : null;
-    };
-    const unlisten = getCurrentWebview().onDragDropEvent(async (e) => {
-      const c = app.activeCompose();
-      const p = e.payload;
-      if (!c) return;
-      if (p.type === "enter") app.compose.dragEnter(c, p.paths);
-      else if (p.type === "over" && app.compose.dragging) app.compose.dragging.zone = zoneAt(p.position);
-      else if (p.type === "leave") app.compose.dragging = null;
-      // A drop comes from `listenDrops`: the backend allows the files first (#79).
-    });
-    const unlistenDrops = listenDrops(app, zoneAt);
-    return () => {
-      unlisten.then((f) => f());
-      unlistenDrops.then((f) => f());
-    };
+    return watchDrops(app);
   });
 
   /** What the commands of the main window do; their keys are in keyCommands.ts and Settings → Keys. */

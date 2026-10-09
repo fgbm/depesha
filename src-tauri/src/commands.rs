@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use base64::Engine;
@@ -2392,7 +2392,8 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
     for a in d.attachments {
         let att = match a {
             AttachmentSource::File { path } => {
-                state.paths.check(Use::Attach, &path)?;
+                let checked = state.paths.check(Use::Attach, &path)?;
+                ensure_file(&checked)?;
                 let data = tokio::fs::read(&path)
                     .await
                     .map_err(|e| CmdError::new("io", format!("{path}: {e}")))?;
@@ -2807,6 +2808,19 @@ pub struct FileInfo {
     size: u64,
 }
 
+/// A path allowed to attach is read only if it is a file now: it may have become a folder
+/// or vanished since it was chosen.
+fn ensure_file(path: &Path) -> CmdResult<()> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => Ok(()),
+        Ok(_) => Err(CmdError::new(
+            "not-a-file",
+            tr!("“{path}” is not a file", "«{path}» — не файл", path = path.display()),
+        )),
+        Err(e) => Err(CmdError::new("io", format!("{}: {e}", path.display()))),
+    }
+}
+
 async fn info_of(path: PathBuf) -> CmdResult<FileInfo> {
     let meta = tokio::fs::metadata(&path).await?;
     let name = path
@@ -2832,6 +2846,7 @@ const MAX_PICTURE_FILE: u64 = 25 * 1024 * 1024;
 #[tauri::command]
 pub async fn inline_image(state: St<'_>, path: String) -> CmdResult<String> {
     let path = state.paths.check(Use::Attach, &path)?;
+    ensure_file(&path)?;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -3119,6 +3134,17 @@ pub fn quit_cancel(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_chosen_path_is_read_only_while_it_is_a_file() {
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("depesha-ensure-{}", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        assert!(super::ensure_file(&file).is_ok());
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(super::ensure_file(&file).unwrap_err().kind, "io");
+        assert_eq!(super::ensure_file(&dir).unwrap_err().kind, "not-a-file");
+    }
+
     #[test]
     fn only_a_depesha_draft_of_the_mailbox_may_be_discarded() {
         use depesha_core::message::Summary;

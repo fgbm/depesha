@@ -6,6 +6,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api } from "./lib/api";
   import { app } from "./lib/store.svelte";
+  import { watchDrops } from "./lib/drops";
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
   import Reader from "./components/Reader.svelte";
@@ -37,7 +38,12 @@
       // Kept: a quit waiting for this window stops.
       else api.quitCancel().catch(() => {});
     });
-    return () => void off.then((f) => f());
+    // Files dropped on this window are attached to its own draft (#107).
+    const stopDrops = watchDrops(app);
+    return () => {
+      void off.then((f) => f());
+      stopDrops();
+    };
   });
 
   // A quit asks this window first when a letter is being written here.

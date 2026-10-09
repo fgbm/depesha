@@ -57,6 +57,9 @@ tauri-winrt-notification = "0.8.1"
 # cannot inject markup; `UI_Notifications` shows it and clears it on exit.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
+[dev-dependencies]
+tauri = { version = "2.12.1", features = ["test"] }
+
 [features]
 # Test builds for e2e/run.mjs: files under the folders in DEPESHA_E2E_ROOT count as
 # chosen by the user, since WebDriver cannot answer system dialogs. Never in a release.

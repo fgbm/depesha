@@ -33,7 +33,8 @@ export const webviewListen = vi.fn(async (name: string, h: Handler) => {
   handlers.set(name, h);
   return () => {};
 });
-export const webviewModule = { getCurrentWebview: () => ({ listen: webviewListen }) };
+export const webviewOnDragDrop = vi.fn(async (_h: Handler) => () => {});
+export const webviewModule = { getCurrentWebview: () => ({ listen: webviewListen, onDragDropEvent: webviewOnDragDrop }) };
 
 export const win = { close: vi.fn(async () => {}), setFocus: vi.fn(async () => {}) };
 export const windowModule = { getCurrentWindow: () => win };
