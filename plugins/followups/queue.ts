@@ -43,5 +43,5 @@ export function queueBox(
   if (!folders.some((f) => f.account_id === acts.account_id && f.role === "archive")) {
     return { checked: false, disabled: true, text: say.t(S.queueBox), title: say.t(S.queueNoArchive) };
   }
-  return { checked: choice ?? true, disabled: false, text: say.t(S.queueBox) };
+  return { checked: choice ?? true, disabled: false, text: say.t(S.queueBox), title: say.t(S.queueChainTitle) };
 }

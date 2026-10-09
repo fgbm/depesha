@@ -111,6 +111,7 @@ export const S = {
 
   // The compose window: the letter answered leaves the inbox.
   queueBox: { en: "Take the letter out of the inbox", ru: "Убрать письмо из входящих" },
+  queueChainTitle: { en: "Together with the read letters of this conversation", ru: "Вместе с прочитанными письмами этой переписки" },
   queueGoesToWait: { en: "The letter goes to “Waiting for reply”", ru: "Письмо уйдёт в «Ждут ответа»" },
   queueNoArchive: { en: "The mailbox has no archive folder", ru: "У ящика нет папки архива" },
   queueWaiting: { en: "The letter is waiting for a reply already", ru: "Письмо уже ждёт ответа" },

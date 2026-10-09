@@ -12,7 +12,7 @@ const acts = (over: Partial<ActsOn> = {}): ActsOn => ({ account_id: "a", message
 
 describe("the checkbox «out of the inbox» of the compose window", () => {
   it("is on an answer to a letter of the inbox, ticked as the mailbox says, the window's choice first", () => {
-    expect(queueBox(acts(), "a", on, folders, null, ru)).toEqual({ checked: true, disabled: false, text: "Убрать письмо из входящих" });
+    expect(queueBox(acts(), "a", on, folders, null, ru)).toEqual({ checked: true, disabled: false, text: "Убрать письмо из входящих", title: "Вместе с прочитанными письмами этой переписки" });
     expect(queueBox(acts({ act: "reply_all" }), "a", on, folders, false, ru)).toMatchObject({ checked: false, disabled: false });
   });
 
