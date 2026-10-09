@@ -29,7 +29,7 @@ pub use sent_copies::{NewSentCopy, SentCopy, StuckCopy};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 mod waiting;
-pub use waiting::{ParkJob, ParkKind, Parking, WaitFolder, parks, waiting_folder};
+pub use waiting::{ParkJob, ParkKind, Parking, WaitFolder, moves, parks, waiting_folder};
 
 /// Settings of the connection, made at every open: not part of the cache itself.
 /// `synchronous = NORMAL`: in WAL mode a power cut may lose the last commits, never
@@ -70,6 +70,7 @@ const MIGRATIONS: &[Step] = &[
     labels::v18_label_stripping,
     sent_copies::v19_sent_copies,
     sent_copies::v20_stuck_copies,
+    v21_outbox_archive,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -429,6 +430,13 @@ fn v7_size_index(conn: &Connection) -> Result<()> {
 /// never left, but waits for the user to check «Sent» (a second copy is never sent).
 fn v17_outbox_sending(conn: &Connection) -> Result<()> {
     add_column(conn, "outbox", "sending_started", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
+/// 21: an answer in the outbox says whether it takes its letter to the archive (#106),
+/// apart from `followup_park`, the folder "Waiting for reply".
+fn v21_outbox_archive(conn: &Connection) -> Result<()> {
+    add_column(conn, "outbox", "followup_archive", "INTEGER")?;
     Ok(())
 }
 
@@ -2213,8 +2221,8 @@ impl Store {
         Ok(self.conn().query_row(
             "INSERT INTO outbox (account_id, draft, next_attempt, created, followup_secs,
                 followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
-                followup_due_at, followup_deadline_at, acts_on, acts_kind, followup_park)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING id",
+                followup_due_at, followup_deadline_at, acts_on, acts_kind, followup_park, followup_archive)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) RETURNING id",
             params![
                 account_id,
                 json,
@@ -2229,7 +2237,8 @@ impl Store {
                 followup.deadline_at,
                 acts.map(|a| a.message_id.trim_matches(['<', '>'])),
                 acts.map(|a| a.act.as_str()),
-                followup.park
+                followup.park,
+                followup.archive
             ],
             |r| r.get(0),
         )?)
@@ -2240,7 +2249,7 @@ impl Store {
         let mut stmt = conn.prepare(
             "SELECT id, account_id, draft, attempts, next_attempt, last_error, failed, sending_started, created, followup_secs,
                 followup_deadline_secs, followup_repeat_secs, followup_expect, followup_kind,
-                followup_due_at, followup_deadline_at, followup_park
+                followup_due_at, followup_deadline_at, followup_park, followup_archive
              FROM outbox ORDER BY next_attempt, id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -2263,6 +2272,7 @@ impl Store {
                     due_at: r.get(14)?,
                     deadline_at: r.get(15)?,
                     park: r.get(16)?,
+                    archive: r.get(17)?,
                 },
             })
         })?;

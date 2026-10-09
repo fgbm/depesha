@@ -122,7 +122,7 @@ export class ComposeSending {
       // The saved draft goes away once the letter is sent: the latest copy must be known.
       this.host.autosave.cancel();
       await this.host.autosave.settled();
-      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withPark(this.options.followup, this.park));
+      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withArchive(this.options.followup, this.park));
       // The letter left: its local copy is done with.
       await this.host.autosave.forgetLocal();
       this.host.closeCompose(win.id);
@@ -246,10 +246,13 @@ function makeOptions(host: ComposeSendHost, me: ComposeSending): ComposeContext[
   };
 }
 
-/** The wait the letter asks for, with the window's choice about the folder. */
-function withPark(plan: FollowupPlan | null, park: boolean | null): FollowupPlan | null {
-  if (park === null) return plan;
-  return { ...(plan ?? { deadline_secs: 0, repeat_secs: 0, expect: "", kind: "" }), park };
+/**
+ * The box "Take the letter out of the inbox" is a request to archive it (#106). It adds no
+ * wait: the plan keeps the deadline and the reminder the user chose, "No reminder" none.
+ */
+export function withArchive(plan: FollowupPlan | null, archive: boolean | null): FollowupPlan | null {
+  if (archive === null) return plan;
+  return { ...(plan ?? { deadline_secs: 0, repeat_secs: 0, expect: "", kind: "" }), archive };
 }
 
 /** `p`, or `undefined` once `ms` passed: a save that would hold a close is let go (#71). */

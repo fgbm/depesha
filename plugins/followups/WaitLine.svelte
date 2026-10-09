@@ -1,15 +1,16 @@
 <script lang="ts">
   // The line of the wait in the compose window (frame 6В): "Take the letter out of the
-  // inbox until a reply" for an answer to a letter of the inbox, and the reminder beside
-  // it — both are one wait. A letter of another folder says it stays there (frame 12Б).
+  // inbox" for an answer to a letter of the inbox (to the archive; a reminder chosen sends
+  // it to "Waiting for reply" instead, #106), and the reminder beside it. A letter of
+  // another folder says it stays there (frame 12Б).
   import AlarmClock from "@lucide/svelte/icons/alarm-clock";
   import type { ComposeContext, PluginContext } from "@depesha/plugin-api";
-  import { queueBox } from "./queue";
+  import { queueBox, waitChosen } from "./queue";
   import RemindSelect from "./RemindSelect.svelte";
 
   let { compose, ctx }: { compose: ComposeContext; ctx: PluginContext } = $props();
 
-  const box = $derived(queueBox(compose.draft.acts_on, compose.accountId(), ctx.mail.accounts(), ctx.mail.folders(), compose.options.park, ctx));
+  const box = $derived(queueBox(compose.draft.acts_on, compose.accountId(), ctx.mail.accounts(), ctx.mail.folders(), compose.options.park, ctx, waitChosen(compose.options)));
   // No choice to make (another mailbox in From, a letter that stays): the backend decides.
   $effect(() => {
     if ((!box || box.disabled) && compose.options.park !== null) compose.options.park = null;

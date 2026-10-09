@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use super::{Followup, Store, add_column, json_list};
+use super::{Followup, FollowupPlan, Store, add_column, json_list};
 use crate::Result;
 use crate::account::Waiting;
 use crate::message::Addr;
@@ -91,6 +91,30 @@ pub fn parks(
 ) -> bool {
     let Some(a) = acts else { return false };
     a.act.answers() && a.account_id == account_id && inbox == Some(a.folder.as_str()) && asked.unwrap_or(waiting.park)
+}
+
+/// What an answer does with the letter it answers to, decided when it is queued (#106):
+/// with a wait chosen it goes to the folder "Waiting for reply" (`park`), without one it
+/// goes to the archive when the compose window or the mailbox says so (`archive`), and
+/// never both. A mailbox without the setting does neither.
+pub fn moves(
+    acts: Option<&ActsOn>,
+    plan: &FollowupPlan,
+    followup_secs: i64,
+    account_id: &str,
+    waiting: &Waiting,
+    inbox: Option<&str>,
+) -> (bool, bool) {
+    let waits = plan.waits(followup_secs);
+    let park = parks(acts, Some(waits && waiting.park), account_id, waiting, inbox);
+    let archive = parks(
+        acts,
+        Some(!waits && plan.archive.unwrap_or(waiting.park)),
+        account_id,
+        waiting,
+        inbox,
+    );
+    (park, archive)
 }
 
 /// The folder to wait in: the chosen one while it is there, else one named `default`
@@ -1319,6 +1343,47 @@ mod tests {
             inbox
         ));
         assert!(!parks(Some(&reply), Some(true), "a", &on, None), "no inbox known");
+    }
+
+    #[test]
+    fn without_a_wait_an_answer_archives_and_does_not_park() {
+        let on = Waiting {
+            park: true,
+            ..Default::default()
+        };
+        let off = Waiting::default();
+        let reply = acts("INBOX", Act::Reply, "a");
+        let inbox = Some("INBOX");
+        let none = FollowupPlan::default();
+        let ticked = |archive| FollowupPlan {
+            archive: Some(archive),
+            ..Default::default()
+        };
+        let remind = FollowupPlan {
+            deadline_secs: 3_600,
+            ..Default::default()
+        };
+        // «No reminder»: nothing waits, the letter goes to the archive as the box says.
+        assert_eq!(moves(Some(&reply), &none, 0, "a", &on, inbox), (false, true));
+        assert_eq!(moves(Some(&reply), &ticked(true), 0, "a", &on, inbox), (false, true));
+        assert_eq!(moves(Some(&reply), &ticked(false), 0, "a", &on, inbox), (false, false));
+        // A wait chosen: the folder, no archive, whatever the box says.
+        assert_eq!(moves(Some(&reply), &none, 86_400, "a", &on, inbox), (true, false));
+        assert_eq!(moves(Some(&reply), &remind, 0, "a", &on, inbox), (true, false));
+        assert_eq!(
+            moves(Some(&reply), &ticked(true), 86_400, "a", &on, inbox),
+            (true, false)
+        );
+        // A mailbox without the setting, a forward, another folder: neither.
+        assert_eq!(moves(Some(&reply), &none, 0, "a", &off, inbox), (false, false));
+        assert_eq!(
+            moves(Some(&reply), &ticked(true), 86_400, "a", &off, inbox),
+            (false, false)
+        );
+        let fwd = acts("INBOX", Act::Forward, "a");
+        assert_eq!(moves(Some(&fwd), &none, 0, "a", &on, inbox), (false, false));
+        let other = acts("Archive", Act::Reply, "a");
+        assert_eq!(moves(Some(&other), &none, 0, "a", &on, inbox), (false, false));
     }
 
     #[test]

@@ -217,8 +217,9 @@ async fn send_account(state: &AppState, items: Vec<OutboxItem>) -> Result<(), Cm
                         }
                     }
                 }
-                // A letter going to wait says so once it has moved ("parked"), in one toast.
-                let parking = crate::waiting::will_park(&item);
+                // A letter going to wait or to the archive says so once it has moved ("parked",
+                // "archived-after-send"), in one toast.
+                let parking = crate::waiting::will_park(&item) || crate::waiting::will_archive(&item);
                 state.emit(
                     "sent",
                     json!({ "id": item.id, "subject": item.draft.subject, "parking": parking }),
@@ -279,8 +280,13 @@ async fn finish_sent(
     message_id: Option<String>,
     letter_cached: bool,
 ) -> Result<(), CmdError> {
-    let parks = crate::waiting::after_sent(state, account, item, message_id, letter_cached).await?;
-    if crate::waiting::will_park(item) && !parks {
+    let left = crate::waiting::after_sent(state, account, item, message_id, letter_cached).await?;
+    let went = if crate::waiting::will_archive(item) {
+        left.archived
+    } else {
+        left.parks
+    };
+    if (crate::waiting::will_park(item) || crate::waiting::will_archive(item)) && !went {
         // Nothing to move after all (the letter left the inbox meanwhile): plain "sent".
         state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
     }

@@ -2522,7 +2522,9 @@ pub async fn send(
         .max(0);
     let mut followup = followup.unwrap_or_default();
     // Decided now, as the letter answered lies now: the outbox keeps the decision.
-    followup.park = Some(crate::waiting::decide(&state, &account, &draft, followup.park)?);
+    let (park, archive) = crate::waiting::decide(&state, &account, &draft, followup_secs, &followup)?;
+    followup.park = Some(park);
+    followup.archive = Some(archive);
     let id = state
         .store
         .outbox_add(&account.id, &draft, now, at, followup_secs, &followup)?;

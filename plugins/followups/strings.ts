@@ -109,8 +109,10 @@ export const S = {
   sinceYesterday: { en: "waiting since yesterday", ru: "ждём со вчера" },
   autoTag: { en: "auto-reply {when}: does not count", ru: "автоответ {when} — не в счёт" },
 
-  // The compose window: the letter answered goes to wait.
-  queueBox: { en: "Take the letter out of the inbox until a reply", ru: "Убрать письмо из входящих до ответа" },
+  // The compose window: the letter answered leaves the inbox.
+  queueBox: { en: "Take the letter out of the inbox", ru: "Убрать письмо из входящих" },
+  queueGoesToWait: { en: "The letter goes to “Waiting for reply”", ru: "Письмо уйдёт в «Ждут ответа»" },
+  queueNoArchive: { en: "The mailbox has no archive folder", ru: "У ящика нет папки архива" },
   queueWaiting: { en: "The letter is waiting for a reply already", ru: "Письмо уже ждёт ответа" },
   queueStays: { en: "The letter is in the folder “{folder}” and stays there", ru: "Письмо в папке «{folder}», останется там" },
   queueStaysTitle: {

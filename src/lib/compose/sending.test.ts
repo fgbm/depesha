@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registry, type ComposeControl } from "../../plugin-host/registry.svelte";
 import { emptyDraft } from "../compose";
 import type { ComposeWindow } from "../composes.svelte";
-import { ComposeSending, type ComposeSendHost } from "./sending.svelte";
+import { ComposeSending, withArchive, type ComposeSendHost } from "./sending.svelte";
 import type { ComposeContext, PluginContext } from "../../plugin-api";
 
 const ctx = {} as PluginContext;
@@ -53,5 +53,20 @@ describe("the context of a compose window", () => {
     w.account_id = "b";
     expect(sending.composeCtx.accountId()).toBe("b");
     expect(sending.composeCtx.accountColor()).toBe("#c77d1a");
+  });
+});
+
+describe("the box «out of the inbox» of an answer (#106)", () => {
+  it("with «Без напоминания» asks to archive and makes no wait", () => {
+    const plan = withArchive(null, true);
+    expect(plan).toEqual({ deadline_secs: 0, repeat_secs: 0, expect: "", kind: "", archive: true });
+    expect(plan?.park).toBeUndefined();
+  });
+
+  it("keeps the wait the user chose, and the mailbox's default when the box was not touched", () => {
+    const wait = { deadline_secs: 3_600, repeat_secs: 0, expect: "", kind: "Через час" };
+    expect(withArchive(wait, false)).toEqual({ ...wait, archive: false });
+    expect(withArchive(wait, null)).toBe(wait);
+    expect(withArchive(null, null)).toBeNull();
   });
 });

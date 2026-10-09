@@ -33,6 +33,17 @@ pub struct FollowupPlan {
     /// An answer takes the letter it answers to wait in the folder (#59): asked in the
     /// compose window, the mailbox's setting when not asked. The outbox keeps it decided.
     pub park: Option<bool>,
+    /// An answer takes the letter it answers to the archive, with no wait (#106): asked in
+    /// the compose window, the mailbox's setting when not asked. A wait goes before it.
+    pub archive: Option<bool>,
+}
+
+impl FollowupPlan {
+    /// Whether a wait for an answer is chosen: a reminder or a deadline. Without one the
+    /// answer waits for nothing, and nothing goes to the folder "Waiting for reply" (#106).
+    pub fn waits(&self, followup_secs: i64) -> bool {
+        followup_secs > 0 || self.deadline_secs > 0 || self.due_at > 0 || self.deadline_at > 0
+    }
 }
 
 /// Where a wait for an answer stands. Overdue is a waiting one past its deadline.
@@ -1034,6 +1045,7 @@ mod tests {
             expect: "ivan@example.org".into(),
             kind: "Каждый день".into(),
             park: None,
+            archive: Some(true),
         };
         store.outbox_add("a", &Draft::default(), 1, 1, 3_600, &plan).unwrap();
         let item = &store.outbox().unwrap()[0];

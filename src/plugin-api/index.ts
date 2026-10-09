@@ -204,7 +204,7 @@ export interface ComposeContext {
    * `followupSecs`: remind when no answer comes that long after sending; `followupDays` is the older form of it.
    * `followup`: the rest of that wait (a deadline, repeats, the awaited recipient, the choice's name).
    */
-  /** `park`: the answer takes its letter to wait in the folder ("Waiting for reply"); null: as the mailbox says. */
+  /** `park`: the answer takes its letter out of the inbox, to the archive (a chosen wait takes it to "Waiting for reply" instead); null: as the mailbox says. */
   options: { at: number | null; followupDays: number | null; followupSecs: number | null; followup: FollowupPlan | null; park: boolean | null };
   /** Sends now, or at `at`, after the checks. */
   send(at?: number | null): void;

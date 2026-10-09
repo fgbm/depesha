@@ -1958,6 +1958,37 @@ try {
     await d.button("Активные");
   });
 
+  await step("5.10", "ответ с «Без напоминания» и галочкой «Убрать письмо из входящих»: письмо в архиве, «Ждут ответа» пусто (#106)", async () => {
+    const subj = `Без ожидания ${stamp}`;
+    const acc = (await invoke("accounts"))[0];
+    const waiting = (park) => invoke("account_save", { account: { ...acc, waiting: { park, folder: "", stop_to_archive: false } }, password: null, grant: null });
+    // The mailbox that takes answered letters out of the inbox; the window reads it at start.
+    await waiting(true);
+    try {
+      await d.exec("location.reload()");
+      await d.button("Входящие");
+      helper("deliver", subj);
+      await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
+      await openBySubject(subj);
+      await d.button("Ответить");
+      await d.until("reply compose", async () => (await d.findAll(".compose")).length === 1);
+      await d.until("the box", async () => (await d.findAll(".compose .wait-line .queue input")).length === 1);
+      const text = await textOf(".compose .wait-line");
+      if (!text.includes("Убрать письмо из входящих") || text.includes("до ответа")) throw new Error(`строка: ${text}`);
+      if (!(await d.exec("return document.querySelector('.compose .wait-line .queue input').checked"))) throw new Error("галочка не стоит по умолчанию");
+      if (!text.includes("Без напоминания")) throw new Error(`напоминание: ${text}`);
+      await d.type(await d.find(".compose textarea"), "Принято.");
+      await d.button("Отправить");
+      await d.until("original in archive", async () => helper("count", "Архив", subj) === "1" && helper("count", "INBOX", subj) === "0", 60000, 1000);
+      await d.until("toast", async () => (await textOf(".toasts")).includes("Письмо — в архиве"), 20000);
+      if ((await invoke("counters")).followups !== 0) throw new Error("появилось ожидание");
+      const folders = await invoke("folders");
+      if (folders.some((f) => f.display_name === "Ждут ответа" && f.total > 0)) throw new Error("в «Ждут ответа» есть письма");
+    } finally {
+      await waiting(false);
+    }
+  });
+
   await step("5.10", "«Ждут ответа»: свой срок через «Настроить…» запоминается в списке", async () => {
     const subj = `Свой срок ${stamp}`;
     await newMessage("carol@local.test", subj, "Жду ответа.");

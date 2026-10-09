@@ -28,18 +28,21 @@ fn refused() -> &'static Mutex<HashSet<(String, String)>> {
     REFUSED.get_or_init(Default::default)
 }
 
-/// Whether an answer about to be queued takes its letter to wait: the compose window's
-/// choice, the mailbox's setting otherwise, and only for a letter of the inbox.
+/// What an answer about to be queued does with its letter (#106): `(park, archive)`. A wait
+/// chosen takes it to the folder "Waiting for reply"; with none, the compose window's
+/// choice or the mailbox's setting takes it to the archive; only for a letter of the inbox.
 pub fn decide(
     state: &AppState,
     account: &Account,
     draft: &depesha_core::smtp::Draft,
-    asked: Option<bool>,
-) -> CmdResult<bool> {
+    followup_secs: i64,
+    plan: &depesha_core::store::FollowupPlan,
+) -> CmdResult<(bool, bool)> {
     let inbox = state.store.folder_by_role(&account.id, FolderRole::Inbox)?;
-    Ok(depesha_core::store::parks(
+    Ok(depesha_core::store::moves(
         draft.acts_on.as_ref(),
-        asked,
+        plan,
+        followup_secs,
         &account.id,
         &account.waiting,
         inbox.as_deref(),
@@ -47,19 +50,22 @@ pub fn decide(
 }
 
 /// The letter `item` answered or forwarded, marked now that it left as `message_id`; the
-/// wait it asked for started. Returns whether its letters are to go to the folder.
+/// wait it asked for started. Returns what became of the letters.
 pub async fn after_sent(
     state: &AppState,
     account: &Account,
     item: &OutboxItem,
     message_id: Option<String>,
     letter_cached: bool,
-) -> CmdResult<bool> {
+) -> CmdResult<Left> {
     let now = chrono::Utc::now().timestamp();
     let acts = item.draft.acts_on.as_ref().filter(|a| a.account_id == account.id);
     let reminder = (item.followup_secs > 0 && letter_cached).then_some(());
     let Some(message_id) = message_id else {
-        return Ok(false);
+        return Ok(Left {
+            parks: false,
+            archived: false,
+        });
     };
     let wait = |due_secs: i64| {
         Followup::after_sending(
@@ -77,7 +83,10 @@ pub async fn after_sent(
             state.store.followup_add_once(&wait(item.followup_secs))?;
             state.emit("counters-changed", json!({}));
         }
-        return Ok(false);
+        return Ok(Left {
+            parks: false,
+            archived: false,
+        });
     };
     state
         .store
@@ -85,7 +94,7 @@ pub async fn after_sent(
     mark_on_server(state, &account.id, &acts.folder, &acts.message_id, acts.act).await;
 
     let mut park = None;
-    if item.followup.park == Some(true) && acts.act.answers() {
+    if will_park(item) {
         let inbox = state.store.folder_by_role(&account.id, FolderRole::Inbox)?;
         if let Some(inbox) = inbox.filter(|i| *i == acts.folder) {
             let chain = state.store.inbox_chain(&account.id, &inbox, &acts.message_id)?;
@@ -109,13 +118,85 @@ pub async fn after_sent(
             state.scheduler_notify.notify_one();
         }
     }
-    Ok(parks)
+    let in_inbox = state
+        .store
+        .folder_by_role(&account.id, FolderRole::Inbox)?
+        .is_some_and(|i| i == acts.folder);
+    let archived =
+        will_archive(item) && in_inbox && archive_answered(state, account, item, &acts.folder, &acts.message_id).await;
+    Ok(Left { parks, archived })
+}
+
+/// What `after_sent` moved: the letters to wait in the folder (the move is the scheduler's),
+/// or to the archive (done).
+pub struct Left {
+    pub parks: bool,
+    pub archived: bool,
+}
+
+/// The conversation of the letter answered goes from the inbox to the archive of the
+/// mailbox, as the command "Archive" does it (#106). A mailbox without an archive folder
+/// keeps the letter: nothing is created behind the user's back. The toast offers to undo.
+async fn archive_answered(
+    state: &AppState,
+    account: &Account,
+    item: &OutboxItem,
+    from: &str,
+    message_id: &str,
+) -> bool {
+    let Ok(Some(archive)) = state.store.folder_by_role(&account.id, FolderRole::Archive) else {
+        return false;
+    };
+    let Ok(worker) = state.worker(&account.id) else {
+        return false;
+    };
+    let Ok(mut chain) = state.store.inbox_chain(&account.id, from, message_id) else {
+        return false;
+    };
+    if chain.is_empty() {
+        chain.push(message_id.to_owned());
+    }
+    let work = Work::MoveByMessageId {
+        from: from.to_owned(),
+        message_ids: chain.clone(),
+        to: archive.clone(),
+        unseen: false,
+    };
+    match worker.run_background(work).await {
+        Ok(Output::Count(0)) => false,
+        Ok(_) => {
+            state.emit("counters-changed", json!({}));
+            state.emit(
+                "archived-after-send",
+                json!({
+                    "subject": item.draft.subject,
+                    "moved": { "account_id": account.id, "from": from, "to": archive, "message_ids": chain },
+                }),
+            );
+            true
+        }
+        Err(e) => {
+            tracing::warn!(account = %account.id, "archive of the answered letter: {e}");
+            false
+        }
+    }
 }
 
 /// Whether the outbox item will take its letter to wait once it leaves: the "sent" toast
-/// waits for the move then.
+/// waits for the move then. A wait must be chosen: an item queued before #106 with the
+/// folder asked for and no reminder only archives.
 pub fn will_park(item: &OutboxItem) -> bool {
-    item.followup.park == Some(true) && item.draft.acts_on.as_ref().is_some_and(|a| a.act.answers())
+    item.followup.park == Some(true)
+        && item.followup.waits(item.followup_secs)
+        && item.draft.acts_on.as_ref().is_some_and(|a| a.act.answers())
+}
+
+/// Whether the outbox item will take its letter to the archive once it leaves (#106): a
+/// wait chosen goes before it.
+pub fn will_archive(item: &OutboxItem) -> bool {
+    let archive =
+        item.followup.archive == Some(true) || (item.followup.archive.is_none() && item.followup.park == Some(true));
+    archive && !item.followup.waits(item.followup_secs) && item.draft.acts_on.as_ref().is_some_and(|a| a.act.answers())
 }
 
 /// The server's flag for what was done: `\Answered` and `$Forwarded`, Exchange's verb.
@@ -347,6 +428,88 @@ pub fn stop_to(state: &AppState, account_id: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use depesha_core::smtp::{ActsOn, Draft};
+    use depesha_core::store::FollowupPlan;
+
+    fn answer(secs: i64, plan: FollowupPlan) -> OutboxItem {
+        OutboxItem {
+            id: 1,
+            account_id: "a".into(),
+            draft: Draft {
+                acts_on: Some(ActsOn {
+                    account_id: "a".into(),
+                    folder: "INBOX".into(),
+                    message_id: "q@x".into(),
+                    act: Act::Reply,
+                    waiting: false,
+                }),
+                ..Draft::default()
+            },
+            attempts: 0,
+            next_attempt: 0,
+            last_error: None,
+            failed: false,
+            sending_started: 0,
+            created: 0,
+            followup_secs: secs,
+            followup: plan,
+        }
+    }
+
+    #[test]
+    fn without_a_wait_the_letter_is_archived_not_parked() {
+        // «No reminder» with the box ticked: an old item (park only) and a new one.
+        let old = answer(
+            0,
+            FollowupPlan {
+                park: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(!will_park(&old));
+        assert!(will_archive(&old));
+        let new = answer(
+            0,
+            FollowupPlan {
+                park: Some(false),
+                archive: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(!will_park(&new));
+        assert!(will_archive(&new));
+        // A wait chosen: the folder, and no archive.
+        let waits = answer(
+            86_400,
+            FollowupPlan {
+                park: Some(true),
+                archive: Some(false),
+                ..Default::default()
+            },
+        );
+        assert!(will_park(&waits));
+        assert!(!will_archive(&waits));
+        let by_deadline = answer(
+            0,
+            FollowupPlan {
+                park: Some(true),
+                deadline_secs: 3_600,
+                ..Default::default()
+            },
+        );
+        assert!(will_park(&by_deadline));
+        assert!(!will_archive(&by_deadline));
+        // The box off: neither.
+        let off = answer(
+            0,
+            FollowupPlan {
+                park: Some(false),
+                archive: Some(false),
+                ..Default::default()
+            },
+        );
+        assert!(!will_park(&off) && !will_archive(&off));
+    }
 
     #[test]
     fn a_return_failing_for_an_hour_is_given_up() {

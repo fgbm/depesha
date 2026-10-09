@@ -15,7 +15,7 @@ import { rooms } from "./room.svelte";
 import type { Undoable } from "./actions.svelte";
 import type { View } from "./list.svelte";
 import type { AppStore } from "./store.svelte";
-import type { AccountStatus, CmdError, Task, UpdateStatus } from "./types";
+import type { AccountStatus, CmdError, Moved, Task, UpdateStatus } from "./types";
 
 interface MailChanged {
   account_id: string;
@@ -79,6 +79,8 @@ export function listenMain(app: AppStore) {
       app.scheduleReload();
     }),
     listen<Parked>("parked", (e) => parked(app, e.payload)),
+    // An answer took its letter to the archive (#106): the same undo as the command "Archive".
+    listen<{ subject: string; moved: Moved }>("archived-after-send", (e) => archivedAfterSend(app, e.payload)),
     listen<ParkFailed>("park-failed", (e) => {
       const p = e.payload;
       if (p.refused)
@@ -177,6 +179,14 @@ function parked(app: AppStore, p: Parked) {
       keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
     },
   });
+}
+
+/** The answer left and took its letter to the archive. */
+function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) {
+  const text = t("toast.sentArchived", { subject: p.subject || t("noSubject") });
+  app.actions.lastUndo = { moved: [p.moved], text };
+  app.toast(text, false, { label: t("undo"), run: () => app.undo() });
+  app.reload();
 }
 
 /** A message window: no list, only the letter it shows. */

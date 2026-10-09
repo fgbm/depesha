@@ -404,6 +404,22 @@ describe("extension banners", () => {
   });
 });
 
+describe("an answer that takes its letter to the archive (#106)", () => {
+  it("says so once the letter has moved, and offers the undo of «Archive»", async () => {
+    const s = new AppStore();
+    await s.init();
+    i18n.lang = "ru";
+    const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["q@x"] };
+    emit("sent", { id: 1, subject: "Счёт", parking: true });
+    expect(s.toasts).toEqual([]);
+    emit("archived-after-send", { subject: "Счёт", moved });
+    const toast = s.toasts.at(-1)!;
+    expect(toast.text).toBe("Отправлено: Счёт. Письмо — в архиве");
+    expect(toast.action?.label).toBe("Отменить");
+    expect(s.actions.lastUndo).toEqual({ moved: [moved], text: toast.text });
+  });
+});
+
 describe("an answer that takes its letter to Waiting for reply", () => {
   async function started() {
     const s = new AppStore();

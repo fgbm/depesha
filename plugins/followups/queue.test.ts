@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ActsOn, FolderInfo } from "@depesha/plugin-api";
 import { sayIn } from "./fixtures";
-import { queueBox } from "./queue";
+import { queueBox, waitChosen } from "./queue";
 
 const ru = sayIn("ru");
 const folder = (name: string, display: string, role: FolderInfo["role"]): FolderInfo => ({ account_id: "a", name, display_name: display, delimiter: "/", role, selectable: true, hidden: false, total: 0, unread: 0 });
@@ -10,9 +10,9 @@ const on = [{ id: "a", waiting: { park: true, folder: "", stop_to_archive: false
 const off = [{ id: "a" }];
 const acts = (over: Partial<ActsOn> = {}): ActsOn => ({ account_id: "a", message_id: "m@x", folder: "INBOX", act: "reply", waiting: false, ...over });
 
-describe("the checkbox «out of the inbox until a reply» of the compose window", () => {
+describe("the checkbox «out of the inbox» of the compose window", () => {
   it("is on an answer to a letter of the inbox, ticked as the mailbox says, the window's choice first", () => {
-    expect(queueBox(acts(), "a", on, folders, null, ru)).toEqual({ checked: true, disabled: false, text: "Убрать письмо из входящих до ответа" });
+    expect(queueBox(acts(), "a", on, folders, null, ru)).toEqual({ checked: true, disabled: false, text: "Убрать письмо из входящих" });
     expect(queueBox(acts({ act: "reply_all" }), "a", on, folders, false, ru)).toMatchObject({ checked: false, disabled: false });
   });
 
@@ -36,5 +36,27 @@ describe("the checkbox «out of the inbox until a reply» of the compose window"
 
   it("an answer to a letter already waiting says so", () => {
     expect(queueBox(acts({ waiting: true, folder: "INBOX/Ждут ответа" }), "a", on, folders, null, ru)).toEqual({ checked: true, disabled: true, text: "Письмо уже ждёт ответа" });
+  });
+
+  it("with a reminder chosen is greyed: the letter goes to «Ждут ответа» instead of the archive", () => {
+    expect(queueBox(acts(), "a", on, folders, null, ru, true)).toEqual({ checked: false, disabled: true, text: "Убрать письмо из входящих", title: "Письмо уйдёт в «Ждут ответа»" });
+    expect(queueBox(acts(), "a", on, folders, null, ru, false)).toMatchObject({ checked: true, disabled: false });
+  });
+
+  it("is greyed with the reason where the mailbox has no archive folder", () => {
+    const noArchive = folders.filter((f) => f.role !== "archive");
+    expect(queueBox(acts(), "a", on, noArchive, null, ru)).toEqual({ checked: false, disabled: true, text: "Убрать письмо из входящих", title: "У ящика нет папки архива" });
+  });
+});
+
+describe("a wait chosen in the compose window", () => {
+  const options = (over: Partial<Parameters<typeof waitChosen>[0]> = {}) => ({ at: null, followupDays: null, followupSecs: null, followup: null, park: null, ...over });
+  it("is a reminder or a deadline; «Без напоминания» is none", () => {
+    expect(waitChosen(options())).toBe(false);
+    expect(waitChosen(options({ followupSecs: 0 }))).toBe(false);
+    expect(waitChosen(options({ followupSecs: 86_400 }))).toBe(true);
+    expect(waitChosen(options({ followupDays: 3 }))).toBe(true);
+    expect(waitChosen(options({ followup: { deadline_secs: 3_600, repeat_secs: 0, expect: "", kind: "" } }))).toBe(true);
+    expect(waitChosen(options({ followup: { deadline_secs: 0, repeat_secs: 0, expect: "", kind: "", archive: true } }))).toBe(false);
   });
 });

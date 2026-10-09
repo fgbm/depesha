@@ -149,6 +149,8 @@ function	plugins/followups/presets.ts::fresh	4
 function	plugins/followups/presets.ts::edit	25
 function	plugins/followups/queue.test.ts::folder	1
 function	plugins/followups/queue.test.ts::acts	1
+function	plugins/followups/queue.test.ts::options	1
+function	plugins/followups/queue.ts::waitChosen	5
 function	plugins/followups/rows.test.ts::going	1
 function	plugins/followups/rows.test.ts::f	1
 function	plugins/followups/rows.ts::rowTag	43
@@ -563,7 +565,7 @@ function	src/lib/compose/lockedBlock.test.ts::barBox	1
 function	src/lib/compose/lockedBlock.ts::inSight	6
 function	src/lib/compose/lockedBlock.ts::placeLockedBlock	13
 function	src/lib/compose/sending.svelte.ts::makeOptions	34
-function	src/lib/compose/sending.svelte.ts::withPark	4
+function	src/lib/compose/sending.svelte.ts::withArchive	4
 function	src/lib/compose/sending.svelte.ts::within	3
 function	src/lib/compose/sending.svelte.ts::makeContext	13
 function	src/lib/compose/sending.test.ts::control	5
@@ -594,9 +596,10 @@ function	src/lib/debounce.ts::debounce	21
 function	src/lib/drops.ts::listenDrops	8
 function	src/lib/events.ts::common	24
 function	src/lib/events.ts::applySettingsChanged	8
-function	src/lib/events.ts::listenMain	60
+function	src/lib/events.ts::listenMain	62
 function	src/lib/events.ts::quitDrafts	14
 function	src/lib/events.ts::parked	12
+function	src/lib/events.ts::archivedAfterSend	6
 function	src/lib/events.ts::listenWindow	9
 function	src/lib/extensions.svelte.ts::fromRow	16
 function	src/lib/extensions.svelte.ts::textOf	4

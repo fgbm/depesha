@@ -365,6 +365,8 @@ export interface FollowupPlan {
   kind: string;
   /** An answer takes its letter to wait in the folder; absent: as the mailbox says. */
   park?: boolean | null;
+  /** An answer takes its letter to the archive, with no wait (#106); absent: as the mailbox says. */
+  archive?: boolean | null;
 }
 
 export interface Unsubscribe {
