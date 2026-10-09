@@ -129,6 +129,7 @@ const COMMANDS: &[&str] = &[
     "drop_seen",
     "drop_outcome",
     "e2e_drop",
+    "e2e_seed_message",
     "draft_cache_put",
     "draft_cache_list",
     "draft_cache_drop",

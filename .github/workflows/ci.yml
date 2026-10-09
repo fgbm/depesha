@@ -107,6 +107,9 @@ jobs:
   # `scale` 2 asks WebView2 for a device pixel ratio of 2, as on a 200 % screen.
   e2e-windows:
     name: Drop on Windows (${{ matrix.name }})
+    # Not on every pull request: a Windows build and three runs take their time.
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -130,7 +133,8 @@ jobs:
       - run: npm ci
       - run: cargo install tauri-driver --locked
       # The system's own scaling (the page's `devicePixelRatio` follows it), which a runner has
-      # to be told: its screen is 1024x768 at 100 %. Never fails the job; the run says what it got.
+      # to be told: its screen is 1024x768 at 100 %. The step itself never fails the job; the run does
+      # (`E2E_MIN_DPR`) when the page does not report the scale the step was meant to set.
       - name: Screen at the system scale
         if: matrix.system
         shell: powershell
@@ -143,7 +147,17 @@ jobs:
           $version = (Get-ItemProperty $key).pv
           Write-Host "WebView2 $version"
           New-Item -ItemType Directory -Force driver | Out-Null
-          Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
+          try {
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
+            Write-Host "msedgedriver $version (the exact version of WebView2)"
+          } catch {
+            # No build of this exact version: the latest release of its major one.
+            $major = $version.Split('.')[0]
+            $latest = (Invoke-WebRequest "https://msedgedriver.microsoft.com/LATEST_RELEASE_${major}_WINDOWS").Content
+            $latest = ($latest -replace "[^0-9.]", "").Trim()
+            Write-Host "no msedgedriver $version ($($_.Exception.Message)); taking $latest, the latest of $major"
+            Invoke-WebRequest "https://msedgedriver.microsoft.com/$latest/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
+          }
           Expand-Archive driver\edgedriver.zip -DestinationPath driver -Force
           & driver\msedgedriver.exe --version
       - run: npx tauri build --debug --no-bundle --features e2e

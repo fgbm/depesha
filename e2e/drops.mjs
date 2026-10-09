@@ -93,17 +93,54 @@ async function closeCompose() {
 const press = (key) => d.exec("window.dispatchEvent(new KeyboardEvent('keydown', { key: arguments[0], bubbles: true }))", key);
 
 /** The system's drag of files from another window, see e2e/native-drop.ps1. */
-function nativeDrop({ paths, hover, to }) {
+function nativeDrop({ paths, hover, to, title }) {
   const list = join(fix.dir, "files.txt");
   writeFileSync(list, paths.join("\n"), "utf-8");
   const r = spawnSync(
     "powershell",
     ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(root, "e2e/native-drop.ps1"), "-List", list,
-      "-HoverX", hover.x, "-HoverY", hover.y, "-ToX", to.x, "-ToY", to.y, "-FormY", formY].map(String),
+      "-HoverX", hover.x, "-HoverY", hover.y, "-ToX", to.x, "-ToY", to.y, "-FormY", formY, ...(title ? ["-Title", title] : [])].map(String),
     { encoding: "utf-8", timeout: 60000 },
   );
   console.log(`    native-drop: ${(r.stdout + r.stderr).trim().replace(/\s+/g, " ")} (exit ${r.status})`);
   if (r.status !== 0) throw new Error(`настоящий бросок не состоялся (код ${r.status}): ${r.stderr.trim()}`);
+}
+
+/** The size of the main window, which a letter's window is given as well. */
+let windowSize = null;
+const SEED_TITLE = "Seed letter";
+
+/**
+ * A letter's own window with no mail server: the test build puts a letter into the cache
+ * (`e2e_seed_message`) and `message_window` opens it, as a double click in the list does.
+ * `fn` works in that window; the main one is back in front afterwards.
+ */
+async function inLetterWindow(fn) {
+  const account = (await invoke("accounts"))[0];
+  const id = await invoke("e2e_seed_message", { accountId: account.id });
+  const main = await d.req("GET", d.s("/window"));
+  await invoke("message_window", { id, title: SEED_TITLE });
+  const handles = () => d.req("GET", d.s("/window/handles"));
+  await d.until("the letter's window", async () => (await handles()).length === 2, 20000);
+  const other = (await handles()).find((h) => h !== main);
+  await d.req("POST", d.s("/window"), { handle: other });
+  try {
+    if (windowSize) await d.req("POST", d.s("/window/rect"), { x: 0, y: 0, ...windowSize });
+    await d.until("the letter", async () => (await d.exec("return document.querySelector('.reader h1')?.innerText ?? ''")).includes(SEED_TITLE), 30000);
+    await fn({
+      title: SEED_TITLE,
+      openReply: async () => {
+        await d.exec("document.activeElement?.blur?.()");
+        await press("r");
+        await d.until("reply", async () => (await d.findAll(".compose .rich")).length === 1, 20000);
+      },
+    });
+    // Esc closes the window of a letter with nothing being written.
+    await press("Escape");
+    await d.until("the letter's window closed", async () => (await handles()).length === 1, 20000);
+  } finally {
+    await d.req("POST", d.s("/window"), { handle: main }).catch(() => {});
+  }
 }
 
 try {
@@ -134,6 +171,7 @@ try {
       const width = Math.min(900, Math.floor((screenW - 20) / dpr));
       const height = Math.min(600, Math.floor((screenH - 120) / dpr));
       await d.req("POST", d.s("/window/rect"), { x: 0, y: 0, width, height });
+      windowSize = { width, height };
       formY = Math.round(height * dpr) + 20;
       console.log(`    screen ${screenW}x${screenH} px, window ${width}x${height} (dpr ${dpr}), form at y=${formY}`);
     }
@@ -147,6 +185,7 @@ try {
     refused,
     fix,
     nativeDrop: windows ? nativeDrop : null,
+    inLetterWindow,
     expectDpr: process.env.E2E_EXPECT_DPR ? Number(process.env.E2E_EXPECT_DPR) : null,
     minDpr: process.env.E2E_MIN_DPR ? Number(process.env.E2E_MIN_DPR) : null,
     openCompose: async () => {

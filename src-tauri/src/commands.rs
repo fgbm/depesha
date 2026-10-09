@@ -2312,7 +2312,7 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
     } else {
         title
     };
-    tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         &app,
         label,
         tauri::WebviewUrl::App(format!("index.html?message={id}").into()),
@@ -2320,9 +2320,14 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
     .title(title)
     .inner_size(960.0, 760.0)
     .min_inner_size(560.0, 420.0)
-    .decorations(false)
-    .build()
-    .map_err(|e| CmdError::new("window", e.to_string()))?;
+    .decorations(false);
+    // The same arguments as the main window's, or WebView2 does not take the window (see `lib.rs`).
+    #[cfg(all(feature = "e2e", windows))]
+    let builder = match crate::e2e_browser_args() {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    };
+    builder.build().map_err(|e| CmdError::new("window", e.to_string()))?;
     Ok(())
 }
 
@@ -3458,6 +3463,26 @@ pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase
         other => return Err(CmdError::new("bad-request", format!("e2e_drop: unknown phase {other}"))),
     }
     Ok(())
+}
+
+/// Test builds only (`e2e`): a letter in the cache of the mailbox, body and all, so that a window
+/// of its own can open it with no mail server (a Windows run has none). Returns its id.
+#[cfg(feature = "e2e")]
+#[tauri::command(async)]
+pub fn e2e_seed_message(state: St<'_>, account_id: String) -> CmdResult<i64> {
+    let raw = b"From: Seed <seed@example.org>\r\nTo: carol@local.test\r\nSubject: Seed letter\r\nMessage-ID: <seed@example.org>\r\nDate: Fri, 02 Oct 2026 11:00:00 +0000\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nA letter for the drop run.\r\n";
+    let summary = message::parse_summary(raw);
+    let msg = depesha_core::store::NewMessage {
+        uid: 1,
+        summary: &summary,
+        fallback_date: 1_790_000_000,
+        size: raw.len() as u32,
+        flags: Default::default(),
+        keywords: Vec::new(),
+    };
+    let id = state.store.insert_message(&account_id, "INBOX", &msg)?;
+    state.store.save_body(id, raw, "A letter for the drop run.")?;
+    Ok(id)
 }
 
 /// The user keeps a letter being written: a quit waiting for the window stops.

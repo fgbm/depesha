@@ -35,6 +35,23 @@ use crate::state::AppState;
 /// for in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (the remote debugging port): WebView2 takes
 /// the arguments the window sets itself and drops the variable, so without this the driver
 /// finds no `DevToolsActivePort` and the session is never created.
+/// Test builds on Windows only: the arguments for WebView2 that a run asks for. WebView2 takes
+/// the ones a window sets itself and drops the variable, so every window, those of the config
+/// and the letters' own (`message_window`), has to set them: a window with other arguments
+/// cannot share the folder of the data, and msedgedriver would not see it.
+/// `DEPESHA_E2E_WEBVIEW_ARGS`: the run's own, e.g. `--force-device-scale-factor=2`.
+#[cfg(all(feature = "e2e", windows))]
+pub(crate) fn e2e_browser_args() -> Option<String> {
+    let extra = ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "DEPESHA_E2E_WEBVIEW_ARGS"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!extra.trim().is_empty()).then(|| {
+        format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required {extra}")
+    })
+}
+
 #[cfg(not(all(feature = "e2e", windows)))]
 fn context() -> tauri::Context {
     tauri::generate_context!()
@@ -43,17 +60,9 @@ fn context() -> tauri::Context {
 #[cfg(all(feature = "e2e", windows))]
 fn context() -> tauri::Context {
     let mut context = tauri::generate_context!();
-    // `DEPESHA_E2E_WEBVIEW_ARGS`: the run's own, e.g. `--force-device-scale-factor=2`.
-    let extra = ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "DEPESHA_E2E_WEBVIEW_ARGS"]
-        .iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .collect::<Vec<_>>()
-        .join(" ");
-    if !extra.trim().is_empty() {
+    if let Some(args) = e2e_browser_args() {
         for window in &mut context.config_mut().app.windows {
-            window.additional_browser_args = Some(format!(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required {extra}"
-            ));
+            window.additional_browser_args = Some(args.clone());
         }
     }
     context
@@ -396,6 +405,8 @@ pub fn run() {
             // A drop made up for the e2e run (WebDriver cannot drag a file in).
             #[cfg(feature = "e2e")]
             commands::e2e_drop,
+            #[cfg(feature = "e2e")]
+            commands::e2e_seed_message,
             drafts::draft_cache_put,
             drafts::draft_cache_list,
             drafts::draft_cache_drop,

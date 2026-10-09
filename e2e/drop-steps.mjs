@@ -82,7 +82,7 @@ const names = (d) => d.exec("return [...document.querySelectorAll('.compose .fil
  * `closeCompose()` discards it; `fix` is `dropFixtures()`. `expectDpr` (a number or null)
  * is the scale the run was started for: the step fails if the page sees another.
  */
-export async function dropSteps({ d, step, refused, openCompose, closeCompose, fix, expectDpr = null, minDpr = null, nativeDrop = null, log = console.log }) {
+export async function dropSteps({ d, step, refused, openCompose, closeCompose, fix, expectDpr = null, minDpr = null, nativeDrop = null, inLetterWindow = null, log = console.log }) {
   await step("2.9", "перетаскивание: масштаб окна и файл вне доверенных папок", async () => {
     const dpr = await d.exec("return window.devicePixelRatio");
     log(`    devicePixelRatio=${dpr}`);
@@ -150,5 +150,31 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
       await d.until("picture in the text", async () => (await d.exec("return document.querySelectorAll('.compose .rich img').length")) > before, 10000);
       await closeCompose();
     });
+  }
+
+  // A reply written in a letter's own window (`message-*`): it hears drops by itself (#107).
+  if (inLetterWindow) {
+    await step("2.9", "бросок в ответ в окне письма (message-*): оба файла во вложениях", async () => {
+      await inLetterWindow(async ({ openReply }) => {
+        await openReply();
+        await dropOn(d, [fix.pdf, fix.png], { zone: "attach" });
+        await d.until("attachments", async () => (await names(d)).length >= 2, 10000);
+        await closeCompose();
+      });
+    });
+
+    if (nativeDrop) {
+      await step("2.9", "настоящий бросок (OLE) в ответ в окне письма: оба файла во вложениях", async () => {
+        await inLetterWindow(async ({ openReply, title }) => {
+          await openReply();
+          const paths = [fix.pdf, fix.png];
+          const to = await zonePlace(d, paths, "attach");
+          const hover = await physicalCentre(d, ".compose");
+          await nativeDrop({ paths, hover, to, title });
+          await d.until("attachments", async () => (await names(d)).length >= 2, 10000);
+          await closeCompose();
+        });
+      });
+    }
   }
 }

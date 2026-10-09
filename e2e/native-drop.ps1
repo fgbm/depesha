@@ -12,6 +12,8 @@ param(
   [Parameter(Mandatory)] [int] $ToX,
   [Parameter(Mandatory)] [int] $ToY,
   [string] $Process = 'depesha',
+  # The title of the window to drop on, for a window that is not the main one.
+  [string] $Title = '',
   # Where the form of the drag sits on the screen: below the app window.
   [int] $FormX = 20,
   [int] $FormY = 660
@@ -35,6 +37,28 @@ public static class NativeDrop
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extra);
     [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr hwnd, ref POINT p);
+
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc proc, IntPtr param);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    delegate bool EnumProc(IntPtr hwnd, IntPtr param);
+
+    // The visible top-level window of the process with this title; zero if there is none.
+    public static IntPtr Find(int pid, string title)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hwnd, IntPtr p)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hwnd, out owner);
+            System.Text.StringBuilder text = new System.Text.StringBuilder(256);
+            GetWindowText(hwnd, text, 256);
+            if (owner == pid && IsWindowVisible(hwnd) && text.ToString() == title) found = hwnd;
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
 
     static void Move(int fromX, int fromY, int toX, int toY)
     {
@@ -86,7 +110,12 @@ public static class NativeDrop
 }
 '@
 
-$effect = [NativeDrop]::Run($app.MainWindowHandle, $Files, $HoverX, $HoverY, $ToX, $ToY, $FormX, $FormY)
+$hwnd = $app.MainWindowHandle
+if ($Title) {
+  $hwnd = [NativeDrop]::Find($app.Id, $Title)
+  if ($hwnd -eq [IntPtr]::Zero) { Write-Error "no window titled $Title"; exit 2 }
+}
+$effect = [NativeDrop]::Run($hwnd, $Files, $HoverX, $HoverY, $ToX, $ToY, $FormX, $FormY)
 Write-Host "drag effect: $effect"
 # The page tells whether it took the files; only a drag that never started fails here.
 if ($effect -lt 0) { exit 3 }

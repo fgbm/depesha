@@ -142,6 +142,7 @@
     "allow-drop-seen",
     "allow-drop-outcome",
     "allow-e2e-drop",
+    "allow-e2e-seed-message",
     "allow-draft-cache-put",
     "allow-draft-cache-list",
     "allow-draft-cache-drop"
