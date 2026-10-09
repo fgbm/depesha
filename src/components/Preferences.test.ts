@@ -85,6 +85,18 @@ describe("Ctrl+Z in the settings window (#102)", () => {
     await vi.waitFor(() => expect(api.settingsPatch).toHaveBeenCalledTimes(2));
   });
 
+  it("leaves the key to a plugin's group, which is not the page's", async () => {
+    open("reading");
+    row("threads").querySelector<HTMLElement>(".sw")!.click();
+    await vi.waitFor(() => expect(api.settingsPatch).toHaveBeenCalledTimes(1));
+    const group = document.createElement("section");
+    group.dataset.g = "plugin";
+    group.innerHTML = "<button>plugin</button>";
+    target.querySelector(".content")!.append(group);
+    expect(key(group.querySelector("button")!, "z", { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(api.settingsPatch).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves the key to a text field", async () => {
     open("storage");
     const field = row("large_mb").querySelector("input")!;
