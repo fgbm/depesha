@@ -1328,6 +1328,11 @@ async fn permanent_delete_without_uidplus_wipes_ours_and_spares_foreign_marks() 
     conn.session.logout().await.unwrap();
 }
 
+/// The bound a dialog would have counted for the folder now (#74).
+async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> mail::Bound {
+    mail::folder_count(conn, store, account, folder).await.unwrap().1
+}
+
 /// #74: «Clear» wipes every message of the folder on the server in batches, can be stopped
 /// between two of them, leaves other folders alone, and moves (not wipes) when asked to.
 async fn clears_a_folder(conn: imap::Conn, tag: &str) {
@@ -1363,12 +1368,14 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         seen.push((done, total));
         done == 0
     };
+    let bound = bound_of(&mut conn, &store, "a", &junk).await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         "a",
         &junk,
         &mail::Emptying::Erase,
+        &bound,
         &[],
         3,
         &mut progress,
@@ -1392,12 +1399,14 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         seen.push((done, total));
         true
     };
+    let bound = bound_of(&mut conn, &store, "a", &junk).await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         "a",
         &junk,
         &mail::Emptying::Erase,
+        &bound,
         &[],
         3,
         &mut progress,
@@ -1417,12 +1426,14 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     assert_eq!(mail::folder_total(&mut conn, &store, "a", &other).await.unwrap(), 2);
 
     // An empty folder: nothing to do, no batch.
+    let bound = bound_of(&mut conn, &store, "a", &junk).await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         "a",
         &junk,
         &mail::Emptying::Erase,
+        &bound,
         &[],
         3,
         &mut |_, _| true,
@@ -1431,16 +1442,80 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     .unwrap();
     assert_eq!(run, mail::Emptied::default());
 
+    // What arrives after the dialog counted is not wiped; a folder renumbered since is refused.
+    {
+        let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+        for n in 1..=3 {
+            imap::append(c, &junk, &mail("before", n), "").await.unwrap();
+        }
+    }
+    let bound = bound_of(&mut conn, &store, "a", &junk).await;
+    {
+        let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+        imap::append(c, &junk, &mail("late", 1), "").await.unwrap();
+    }
+    let mail::Bound::Imap { validity, next } = bound.clone() else {
+        unreachable!()
+    };
+    let stale = mail::Bound::Imap {
+        validity: validity + 1,
+        next,
+    };
+    let refused = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &stale,
+        &[],
+        3,
+        &mut |_, _| true,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(depesha_core::Error::FolderChanged)),
+        "{refused:?}"
+    );
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &bound,
+        &[],
+        3,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 3,
+            done: 3,
+            stopped: false
+        }
+    );
+    assert_eq!(
+        mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(),
+        1,
+        "the letter that arrived after the count stays"
+    );
+
     // Drafts go to the Trash, except the one kept (open in a window).
     let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
     let (_, uids) = imap::folder_uids(c, &drafts).await.unwrap();
     assert_eq!(uids.len(), 5);
+    let bound = bound_of(&mut conn, &store, "a", &drafts).await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         "a",
         &drafts,
         &mail::Emptying::ToFolder(trash.clone()),
+        &bound,
         &uids[..1],
         2,
         &mut |_, _| true,

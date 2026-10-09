@@ -3,7 +3,8 @@
 // can be cancelled (as a letter being sent does), and only then asks the backend, which
 // works in batches that the tasks window shows with a «Stop». Drafts go to Trash, but for
 // the ones open in a window. Offline there is no command, and a connection lost during the
-// wait means it does not begin.
+// wait means it does not begin. Only what the question counted is cleared: the backend hands
+// back a bound with the number, and the run (also a retry) is asked for that bound.
 
 import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
@@ -46,6 +47,8 @@ export interface ClearTarget {
 export class ClearFolder {
   /** Folders whose question or wait is under way, `account\0folder`: a second press changes nothing. */
   private pending = new Set<string>();
+  /** The bound each folder's last confirmed count gave, `account\0folder`: a retry goes on with it. */
+  private bounds = new Map<string, number>();
 
   constructor(private host: ClearHost) {}
 
@@ -95,9 +98,13 @@ export class ClearFolder {
     }
     this.pending.add(key);
     let count = 0;
+    let bound = 0;
     try {
       const plan = await this.plan(target);
-      if (plan && (await this.host.confirm(plan.question))) count = plan.count;
+      if (plan && (await this.host.confirm(plan.question))) {
+        count = plan.count;
+        bound = plan.bound;
+      }
     } catch (e) {
       this.host.fail(e);
     }
@@ -107,15 +114,18 @@ export class ClearFolder {
     }
     void this.wait(target, count)
       .then(async (go) => {
-        if (go) await this.run(accountId, name);
+        if (go) {
+          this.bounds.set(key, bound);
+          await this.run(accountId, name, bound);
+        }
       })
       .finally(() => this.pending.delete(key));
   }
 
   /** The question, built from what the server holds; null when there is nothing to ask about. */
-  private async plan(target: ClearTarget): Promise<{ question: Omit<Confirmation, "resolve">; count: number } | null> {
+  private async plan(target: ClearTarget): Promise<{ question: Omit<Confirmation, "resolve">; count: number; bound: number } | null> {
     const { account_id, folder, role } = target;
-    const total = await this.host.track(api.folderTotal(account_id, folder.name));
+    const { total, bound } = await this.host.track(api.folderTotal(account_id, folder.name));
     if (total === 0) {
       this.host.toast(t("clear.nothing"));
       return null;
@@ -123,16 +133,19 @@ export class ClearFolder {
     if (role !== "drafts") {
       return {
         count: total,
+        bound,
         question: {
           title: t(`clear.ask.${role}`),
-          text: t("clear.eraseText", { total, loaded: folder.total }),
+          // The list's own number is told only when it differs from the server's.
+          text: total === folder.total ? t("clear.eraseText", { total }) : t("clear.eraseTextLoaded", { total, loaded: folder.total }),
           okLabel: t("clear.erase", { n: total }),
           danger: true,
         },
       };
     }
-    const open = this.open(account_id);
-    const moving = Math.max(0, total - open.length);
+    // Windows of letters are not the main one's: the backend knows the drafts open in all of them.
+    const opened = Math.max(this.open(account_id).length, await api.openDrafts(account_id).catch(() => 0));
+    const moving = Math.max(0, total - opened);
     if (moving === 0) {
       this.host.toast(t("clear.allOpen"));
       return null;
@@ -142,11 +155,12 @@ export class ClearFolder {
     const lonely = (await api.draftCacheList().catch(() => []))
       .filter((c) => c.account_id === account_id && c.draft_id == null && !openKeys.has(c.key)).length;
     const items = [
-      ...(open.length ? [tn("clear.keptOpen", open.length)] : []),
+      ...(opened ? [tn("clear.keptOpen", opened)] : []),
       ...(lonely ? [tn("clear.keptCopies", lonely)] : []),
     ];
     return {
       count: moving,
+      bound,
       question: {
         title: t("clear.ask.drafts"),
         text: tn("clear.draftsText", moving),
@@ -189,11 +203,12 @@ export class ClearFolder {
   }
 
   /** Asks the backend; what it did is told in a toast, and a failure leaves its summary to retry. */
-  private async run(accountId: string, name: string): Promise<void> {
+  private async run(accountId: string, name: string, bound: number): Promise<void> {
     const role = this.target(accountId, name)?.role ?? "trash";
     const keep = this.open(accountId).map((w) => w.draft_id as number);
     try {
-      const run = await this.host.track(api.folderEmpty(accountId, name, role === "drafts" ? keep : []));
+      const run = await this.host.track(api.folderEmpty(accountId, name, role === "drafts" ? keep : [], bound));
+      if (!run.stopped) this.bounds.delete(`${accountId}\0${name}`);
       this.host.toast(run.stopped ? t("clear.stopped", { done: run.done, total: run.total }) : t(`clear.done.${role}`, { n: run.done }));
     } catch (e) {
       // The backend left a task with the summary of how far it got; the toast says it too.
@@ -203,12 +218,18 @@ export class ClearFolder {
     }
   }
 
-  /** The «Retry» of a failed clearing: the confirmation was given already, so it begins at once. */
+  /**
+   * The «Retry» of a failed clearing: the confirmation was given already, so it begins at once,
+   * and on what that confirmation counted, not on what the folder holds now. Without that count
+   * (the window was reloaded) it asks again.
+   */
   async retryTask(task: Pick<Task, "key" | "account_id">): Promise<void> {
     const parsed = parseKey(task);
     if (!parsed) return;
     await api.taskDismiss(task.key).catch(() => {});
-    await this.run(parsed.account_id, parsed.folder);
+    const bound = this.bounds.get(`${parsed.account_id}\0${parsed.folder}`);
+    if (bound === undefined) return this.begin(parsed.account_id, parsed.folder);
+    await this.run(parsed.account_id, parsed.folder, bound);
   }
 }
 

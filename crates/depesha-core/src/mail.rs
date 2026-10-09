@@ -356,6 +356,31 @@ pub async fn folder_total(conn: &mut Conn, store: &Store, account_id: &str, fold
     }
 }
 
+/// What a «Clear» may touch: the folder as it was when the dialog counted it. What arrives
+/// afterwards is not in it and is never wiped, and a run repeated from the same bound goes on
+/// with what is left of it (#74).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Bound {
+    /// IMAP: the messages of this UIDVALIDITY with a UID below `next` (the UIDNEXT then).
+    Imap { validity: u32, next: u32 },
+    /// Exchange: the items the folder held then.
+    Items(Vec<String>),
+}
+
+/// How many messages the folder holds on the server and the bound that counted them.
+pub async fn folder_count(conn: &mut Conn, store: &Store, account_id: &str, folder: &str) -> Result<(usize, Bound)> {
+    match conn {
+        Conn::Imap(c) => {
+            let (exists, validity, next) = imap::folder_mark(c, folder).await?;
+            Ok((exists as usize, Bound::Imap { validity, next }))
+        }
+        Conn::Ews(s) => {
+            let ids = ews::folder_item_ids(s, store, account_id, folder).await?;
+            Ok((ids.len(), Bound::Items(ids)))
+        }
+    }
+}
+
 /// What «Clear» does with the messages of a folder (#74).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Emptying {
@@ -381,11 +406,12 @@ pub const EMPTY_BATCH: usize = 500;
 /// Exchange moves items a hundred at a time.
 const EWS_EMPTY_BATCH: usize = 100;
 
-/// Empties the folder on the server, every message in it and not only those the cache
-/// loaded, except `keep` (cached UIDs of messages that must stay). It works in batches
-/// and calls `progress(done, total)` at the start and after each; `false` from it stops
-/// the run before the next batch. A failed batch ends the run with its error: what
-/// `progress` last reported is what was done.
+/// Empties the folder on the server, every message in it that `bound` names and not only
+/// those the cache loaded, except `keep` (cached UIDs of messages that must stay). What came
+/// into the folder after the bound was taken stays. It works in batches and calls
+/// `progress(done, total)` at the start and after each; `false` from it stops the run before
+/// the next batch. A failed batch ends the run with its error: what `progress` last reported
+/// is what was done. The folder renumbered since the bound is `FolderChanged`.
 #[allow(clippy::too_many_arguments)]
 pub async fn empty_folder(
     conn: &mut Conn,
@@ -393,21 +419,25 @@ pub async fn empty_folder(
     account_id: &str,
     folder: &str,
     how: &Emptying,
+    bound: &Bound,
     keep: &[u32],
-    imap_batch: usize,
+    batch: usize,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
 ) -> Result<Emptied> {
     let mut run = Emptied::default();
-    match conn {
-        Conn::Imap(c) => {
+    match (conn, bound) {
+        (Conn::Imap(c), Bound::Imap { validity: asked, next }) => {
             let (validity, mut uids) = imap::folder_uids(c, folder).await?;
-            uids.retain(|u| !keep.contains(u));
+            if validity != *asked {
+                return Err(Error::FolderChanged);
+            }
+            uids.retain(|u| u < next && !keep.contains(u));
             run.total = uids.len();
             if !progress(0, run.total) {
                 run.stopped = run.total > 0;
                 return Ok(run);
             }
-            for chunk in uids.chunks(imap_batch.max(1)) {
+            for chunk in uids.chunks(batch.max(1)) {
                 match how {
                     Emptying::Erase => imap::delete_permanently(c, folder, Some(validity), chunk).await?,
                     Emptying::ToFolder(to) => imap::move_messages(c, folder, Some(validity), chunk, to).await?,
@@ -419,41 +449,35 @@ pub async fn empty_folder(
                 }
             }
         }
-        Conn::Ews(s) => match how {
-            Emptying::Erase => {
-                // Nothing is kept from the trash or junk; the server wipes the folder in one call.
-                run.total = ews::folder_total(s, store, account_id, folder).await?;
-                if run.total == 0 {
-                    return Ok(run);
+        (Conn::Ews(s), Bound::Items(snapshot)) => {
+            let kept: std::collections::HashSet<String> = match how {
+                Emptying::ToFolder(_) => store.ews_item_ids(account_id, folder, keep)?.into_iter().collect(),
+                Emptying::Erase => Default::default(),
+            };
+            let ids: Vec<&String> = snapshot.iter().filter(|id| !kept.contains(*id)).collect();
+            run.total = ids.len();
+            if !progress(0, run.total) {
+                run.stopped = run.total > 0;
+                return Ok(run);
+            }
+            for chunk in ids.chunks(EWS_EMPTY_BATCH) {
+                let chunk: Vec<String> = chunk.iter().map(|id| (*id).clone()).collect();
+                match how {
+                    Emptying::Erase => ews::delete_item_ids(s, &chunk).await?,
+                    Emptying::ToFolder(to) => ews::move_item_ids(s, store, account_id, &chunk, to).await?,
                 }
-                if !progress(0, run.total) {
+                run.done += chunk.len();
+                if !progress(run.done, run.total) && run.done < run.total {
                     run.stopped = true;
-                    return Ok(run);
-                }
-                ews::empty_folder(s, store, account_id, folder).await?;
-                run.done = run.total;
-                progress(run.done, run.total);
-            }
-            Emptying::ToFolder(to) => {
-                let kept: std::collections::HashSet<String> =
-                    store.ews_item_ids(account_id, folder, keep)?.into_iter().collect();
-                let mut ids = ews::folder_item_ids(s, store, account_id, folder).await?;
-                ids.retain(|id| !kept.contains(id));
-                run.total = ids.len();
-                if !progress(0, run.total) {
-                    run.stopped = run.total > 0;
-                    return Ok(run);
-                }
-                for chunk in ids.chunks(EWS_EMPTY_BATCH) {
-                    ews::move_item_ids(s, store, account_id, chunk, to).await?;
-                    run.done += chunk.len();
-                    if !progress(run.done, run.total) && run.done < run.total {
-                        run.stopped = true;
-                        break;
-                    }
+                    break;
                 }
             }
-        },
+        }
+        _ => {
+            return Err(Error::Protocol(
+                "the bound of the clearing is not of this mailbox".into(),
+            ));
+        }
     }
     Ok(run)
 }

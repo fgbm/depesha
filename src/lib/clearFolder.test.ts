@@ -45,7 +45,8 @@ function host(over: { role?: FolderInfo["role"] | null; total?: number; online?:
 beforeEach(() => {
   resetFakes();
   vi.useFakeTimers();
-  api.folderTotal.mockResolvedValue(128);
+  api.folderTotal.mockResolvedValue({ total: 128, bound: 11 });
+  api.openDrafts.mockResolvedValue(0);
   api.folderEmpty.mockResolvedValue({ total: 128, done: 128, stopped: false });
   api.draftCacheList.mockResolvedValue([]);
 });
@@ -74,7 +75,7 @@ describe("Clear on Trash, Spam and Drafts", () => {
 
   it("asks with the number of letters on the server and sets the focus on Cancel", async () => {
     const x = host();
-    api.folderTotal.mockResolvedValue(2100);
+    api.folderTotal.mockResolvedValue({ total: 2100, bound: 11 });
     await x.clear.begin("a", "Trash");
     expect(api.folderTotal).toHaveBeenCalledWith("a", "Trash");
     const q = x.asked[0] as { text: string; okLabel: string; danger: boolean };
@@ -83,6 +84,15 @@ describe("Clear on Trash, Spam and Drafts", () => {
     expect(q.text).toContain("128");
     expect(q.okLabel).toContain("2100");
     expect(api.folderEmpty).not.toHaveBeenCalled();
+  });
+
+  it("tells the list's own number only when it differs from the server's", async () => {
+    const same = host({ total: 128 });
+    await same.clear.begin("a", "Trash");
+    expect((same.asked[0] as { text: string }).text).toBe(t("clear.eraseText", { total: 128 }));
+    const more = host({ total: 100 });
+    await more.clear.begin("a", "Trash");
+    expect((more.asked[0] as { text: string }).text).toContain("100");
   });
 
   it("does nothing when the question is declined", async () => {
@@ -105,7 +115,7 @@ describe("Clear: the delay after the question", () => {
     await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 - 100);
     expect(api.folderEmpty).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(200);
-    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Trash", []);
+    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Trash", [], 11);
     await flush();
     expect(x.toasts.at(-1)?.text).toBe(t("clear.done.trash", { n: 128 }));
   });
@@ -137,7 +147,7 @@ describe("Clear: the delay after the question", () => {
 
   it("sends no request for a folder that is empty on the server", async () => {
     const x = host();
-    api.folderTotal.mockResolvedValue(0);
+    api.folderTotal.mockResolvedValue({ total: 0, bound: 11 });
     await x.clear.begin("a", "Trash");
     expect(x.asked).toEqual([]);
     expect(api.folderEmpty).not.toHaveBeenCalled();
@@ -181,12 +191,29 @@ describe("Clear: what the backend answers", () => {
     expect(x.asked).toHaveLength(1);
   });
 
-  it("clears the folder of a failed task from its key", async () => {
+  it("retries on what the question counted, not on a fresh count of the folder", async () => {
+    const x = host();
+    api.folderEmpty.mockRejectedValueOnce({ kind: "network", message: "timeout" });
+    await x.clear.begin("a", "Trash");
+    await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 100);
+    await flush();
+    // The folder has grown meanwhile; a count taken now would be another bound.
+    api.folderTotal.mockResolvedValue({ total: 500, bound: 12 });
+    x.toasts.at(-1)!.action!.run();
+    await flush();
+    expect(api.folderEmpty).toHaveBeenNthCalledWith(1, "a", "Trash", [], 11);
+    expect(api.folderEmpty).toHaveBeenNthCalledWith(2, "a", "Trash", [], 11);
+    expect(api.folderTotal).toHaveBeenCalledTimes(1);
+    expect(x.asked).toHaveLength(1);
+  });
+
+  it("asks again to retry a clearing it has no count of", async () => {
     const x = host();
     const task = { key: "empty:a:Trash", kind: "empty", account_id: "a" } as Task;
     await x.clear.retryTask(task);
     expect(api.taskDismiss).toHaveBeenCalledWith("empty:a:Trash");
-    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Trash", []);
+    expect(api.folderEmpty).not.toHaveBeenCalled();
+    expect(x.asked).toHaveLength(1);
   });
 });
 
@@ -199,7 +226,7 @@ describe("Clear on Drafts", () => {
 
   it("names what stays: the draft in a window and the copy not on the server", async () => {
     const x = host({ role: "drafts", total: 5, windows: open });
-    api.folderTotal.mockResolvedValue(5);
+    api.folderTotal.mockResolvedValue({ total: 5, bound: 11 });
     api.draftCacheList.mockResolvedValue([
       { key: "k2", account_id: "a", draft: {} as never, draft_id: null, updated: 1 },
       { key: "old", account_id: "a", draft: {} as never, draft_id: null, updated: 1 },
@@ -212,12 +239,23 @@ describe("Clear on Drafts", () => {
     expect(q.okLabel).toContain("4");
     expect(q.items).toEqual([tn("clear.keptOpen", 1), tn("clear.keptCopies", 1)]);
     await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 100);
-    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Drafts", [7]);
+    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Drafts", [7], 11);
+  });
+
+  it("counts the drafts open in the windows of letters too, as the backend knows them", async () => {
+    const x = host({ role: "drafts", total: 5 });
+    api.folderTotal.mockResolvedValue({ total: 5, bound: 11 });
+    api.openDrafts.mockResolvedValue(2);
+    await x.clear.begin("a", "Drafts");
+    const q = x.asked[0] as { okLabel: string; items: string[] };
+    expect(api.openDrafts).toHaveBeenCalledWith("a");
+    expect(q.okLabel).toContain("3");
+    expect(q.items).toEqual([tn("clear.keptOpen", 2)]);
   });
 
   it("has nothing to do when every draft is open", async () => {
     const x = host({ role: "drafts", windows: [{ account_id: "a", draft_id: 7, local_id: "k1" }] });
-    api.folderTotal.mockResolvedValue(1);
+    api.folderTotal.mockResolvedValue({ total: 1, bound: 11 });
     await x.clear.begin("a", "Drafts");
     expect(x.asked).toEqual([]);
     expect(x.toasts[0].text).toBe(t("clear.allOpen"));

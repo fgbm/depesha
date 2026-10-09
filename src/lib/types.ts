@@ -634,6 +634,13 @@ export interface Task {
   started: number;
 }
 
+/** What a folder holds on the server, and the bound that counted it: the clearing touches only that (#74). */
+export interface FolderCount {
+  total: number;
+  /** Opaque; handed back to `folderEmpty`, also by its retry. */
+  bound: number;
+}
+
 /** How far the clearing of a folder got (#74). */
 export interface Emptied {
   total: number;

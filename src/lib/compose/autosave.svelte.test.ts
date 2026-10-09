@@ -38,6 +38,14 @@ describe("the draft saves one at a time", () => {
     expect(api.draftCacheDrop).toHaveBeenCalledWith("k");
   });
 
+  it("tells the backend which window a saved draft belongs to (#74)", async () => {
+    vi.clearAllMocks();
+    api.draftCachePut.mockResolvedValue(undefined);
+    api.draftSave.mockResolvedValue({ id: 7, message_id: "m7@depesha.local" });
+    await setup().save(true);
+    expect(api.draftSave).toHaveBeenCalledWith("a", expect.anything(), null, null, "k");
+  });
+
   it("never runs two server saves at once", async () => {
     vi.clearAllMocks();
     let running = 0;

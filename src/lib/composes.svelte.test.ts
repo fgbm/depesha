@@ -72,6 +72,27 @@ describe("keeping the drafts of a window", () => {
   });
 });
 
+describe("the drafts the backend spares when Drafts are cleared (#74)", () => {
+  it("reports a window opened on a server draft, and takes it back when the window closes", () => {
+    const mgr = manager();
+    api.draftOpen.mockClear();
+    const draft = emptyDraft({ name: "Me", email: "me@example.com" });
+    const id = mgr.open({ account_id: "a", draft, draft_id: 42 });
+    const local = mgr.windows[0].local_id;
+    expect(api.draftOpen).toHaveBeenCalledWith(local, 42);
+    mgr.close(id);
+    expect(api.draftOpen).toHaveBeenLastCalledWith(local, null);
+  });
+
+  it("says nothing of a window without a server draft", () => {
+    const mgr = manager();
+    api.draftOpen.mockClear();
+    const id = mgr.open({ account_id: "a", draft: emptyDraft({ name: "Me", email: "me@example.com" }), draft_id: null });
+    mgr.close(id);
+    expect(api.draftOpen).not.toHaveBeenCalled();
+  });
+});
+
 describe("the «Sending…» toast", () => {
   it("counts the seconds down while it stays on the screen (#75)", async () => {
     vi.useFakeTimers();

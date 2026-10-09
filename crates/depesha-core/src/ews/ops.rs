@@ -1302,28 +1302,45 @@ pub async fn folder_total(s: &mut Session, store: &Store, account_id: &str, fold
 /// Every item id of the folder, asked of the server: the cache holds only a window of it.
 pub async fn folder_item_ids(s: &mut Session, store: &Store, account_id: &str, folder: &str) -> Result<Vec<String>> {
     let fid = folder_id(store, account_id, folder)?;
-    let mut ids = Vec::new();
-    // Bounded like the folder walk: a server that ignores `Offset` must not spin it forever.
-    for _ in 0..FOLDER_PAGES_MAX {
+    let mut ids: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    // Bounded like the folder walk (and as long as the folder says it is): a server that
+    // ignores `Offset` must not spin it forever, a folder of many pages must not be cut short.
+    let mut pages = FOLDER_PAGES_MAX;
+    let mut n = 0;
+    while n < pages {
+        n += 1;
         let page = find_page(s, &fid, ids.len(), 500, None, None).await?;
+        if let Some(total) = page.total {
+            pages = pages.max(total.div_ceil(500) + 1);
+        }
         let empty = page.items.is_empty();
-        ids.extend(page.items.into_iter().map(|i| i.id));
-        if page.last || empty {
+        let last = page.last;
+        let before = ids.len();
+        for item in page.items {
+            if seen.insert(item.id.clone()) {
+                ids.push(item.id);
+            }
+        }
+        if last || empty || ids.len() == before {
             break;
         }
     }
     Ok(ids)
 }
 
-/// `EmptyFolder` for good, as `delete_permanently` does it: one call for the whole folder.
-pub async fn empty_folder(s: &mut Session, store: &Store, account_id: &str, folder: &str) -> Result<()> {
-    let fid = folder_id(store, account_id, folder)?;
-    let body = format!(
-        r#"<m:EmptyFolder DeleteType="SoftDelete" DeleteSubFolders="false"><m:FolderIds>{}</m:FolderIds></m:EmptyFolder>"#,
-        folder_ref(&fid)
-    );
-    let text_ = s.call(&body).await?;
-    check_all(&text_)
+/// Deletes the items for good (as `delete_permanently` does); one that is gone already is no
+/// error, so a run that is repeated from its snapshot goes on where it stopped.
+pub async fn delete_item_ids(s: &mut Session, ids: &[String]) -> Result<()> {
+    for chunk in ids.chunks(100) {
+        let body = format!(
+            r#"<m:DeleteItem DeleteType="SoftDelete"><m:ItemIds>{}</m:ItemIds></m:DeleteItem>"#,
+            item_ids(chunk)
+        );
+        let text_ = s.call(&body).await?;
+        check_all(&text_)?;
+    }
+    Ok(())
 }
 
 /// Moves one batch of items (as `folder_item_ids` named them) into `to`.

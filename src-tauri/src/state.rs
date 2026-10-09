@@ -60,6 +60,8 @@ pub struct AppState {
     /// A `depesha://` URL the app was started with (a toast click while it was closed),
     /// taken once by the main window when it listens (`deep_link_take`).
     pub pending_deep_link: Mutex<Option<String>>,
+    /// The drafts windows have open and the bounds of «Clear» counts (#74).
+    pub clearing: crate::empty::Clearing,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load

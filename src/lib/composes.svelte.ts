@@ -68,7 +68,10 @@ export class ComposeManager {
     }
     const id = ++this.seq;
     for (const w of this.windows) if (w.mode !== "min") w.mode = "min";
-    this.windows.push({ ...c, id, mode, savedAt: null, local_id: newKey() });
+    const win = { ...c, id, mode, savedAt: null, local_id: newKey() };
+    this.windows.push(win);
+    // The backend spares an open server draft when Drafts are cleared from any window (#74).
+    if (win.draft_id !== null) void api.draftOpen(win.local_id, win.draft_id).catch(() => {});
     return id;
   }
 
@@ -183,6 +186,8 @@ export class ComposeManager {
   }
 
   close(id: number) {
+    const gone = this.windows.find((w) => w.id === id);
+    if (gone?.draft_id != null) void api.draftOpen(gone.local_id, null).catch(() => {});
     this.windows = this.windows.filter((w) => w.id !== id);
   }
 

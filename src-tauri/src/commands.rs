@@ -1776,19 +1776,27 @@ pub fn task_stop(state: St<'_>, key: String) {
 }
 
 /// How many messages Trash, Spam or Drafts hold on the server: the number «Clear» asks
-/// about, which the cache's window does not tell.
+/// about, which the cache's window does not tell, with the bound the run is then limited to.
 #[tauri::command]
-pub async fn folder_total(state: St<'_>, account_id: String, folder: String) -> CmdResult<usize> {
+pub async fn folder_total(state: St<'_>, account_id: String, folder: String) -> CmdResult<crate::empty::FolderCount> {
     crate::empty::role_of(&state, &account_id, &folder)?;
     crate::empty::require_online(&state, &account_id)?;
-    match state.worker(&account_id)?.run(Work::FolderTotal(folder)).await? {
-        Output::Count(n) => Ok(n),
-        _ => Ok(0),
+    match state
+        .worker(&account_id)?
+        .run(Work::FolderCount(folder.clone()))
+        .await?
+    {
+        Output::Counted(total, bound) => Ok(crate::empty::FolderCount {
+            total,
+            bound: state.clearing.hold(&account_id, &folder, bound),
+        }),
+        _ => Err(CmdError::new("other", "no count")),
     }
 }
 
 /// «Clear» (#74): Trash and Spam are wiped, Drafts go to Trash but for the ones open in a
-/// window (`keep_ids`). Asked after the confirmation and the delay; the work shows in the
+/// window (`keep_ids`, and those the backend knows of). Only what the count of `bound` named
+/// is touched. Asked after the confirmation and the delay; the work shows in the
 /// tasks window.
 #[tauri::command]
 pub async fn folder_empty(
@@ -1796,6 +1804,7 @@ pub async fn folder_empty(
     account_id: String,
     folder: String,
     keep_ids: Vec<i64>,
+    bound: u64,
 ) -> CmdResult<mail::Emptied> {
     let role = crate::empty::role_of(&state, &account_id, &folder)?;
     let trash = if role == FolderRole::Drafts {
@@ -1803,7 +1812,7 @@ pub async fn folder_empty(
     } else {
         None
     };
-    crate::empty::run(&state, &account_id, &folder, role, trash, keep_ids).await
+    crate::empty::run(&state, &account_id, &folder, role, trash, keep_ids, bound).await
 }
 
 /// The copies of sent letters the server refuses for good and that wait for the user.
@@ -2774,7 +2783,9 @@ pub struct SavedDraft {
 /// Returns the saved copy, for the next save to replace it.
 #[tauri::command]
 pub async fn draft_save(
+    window: tauri::Window,
     state: St<'_>,
+    local_id: Option<String>,
     account_id: String,
     draft: ComposeDraft,
     replace: Option<i64>,
@@ -2849,7 +2860,26 @@ pub async fn draft_save(
             }),
         None => None,
     };
+    // The window's composition now is this copy: «Clear» in Drafts spares it (#74).
+    if let Some(local_id) = local_id {
+        state
+            .clearing
+            .draft_set(window.label(), &local_id, saved.as_ref().map(|s| s.id));
+    }
     Ok(saved)
+}
+
+/// A window says which server draft its composition is (`None` for none, or once it closed),
+/// so that «Clear» in Drafts, run from any window, leaves it in place (#74).
+#[tauri::command]
+pub fn draft_open(window: tauri::Window, state: St<'_>, local_id: String, draft_id: Option<i64>) {
+    state.clearing.draft_set(window.label(), &local_id, draft_id);
+}
+
+/// How many drafts of the mailbox windows have open: the number «Clear» says will stay.
+#[tauri::command]
+pub fn open_drafts(state: St<'_>, account_id: String) -> usize {
+    crate::empty::open_drafts(&state, &account_id)
 }
 
 #[tauri::command(async)]

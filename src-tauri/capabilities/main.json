@@ -119,6 +119,8 @@
     "allow-open-link",
     "allow-send",
     "allow-draft-save",
+    "allow-draft-open",
+    "allow-open-drafts",
     "allow-draft-discard",
     "allow-outbox",
     "allow-outbox-retry",

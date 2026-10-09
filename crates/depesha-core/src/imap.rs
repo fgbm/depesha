@@ -1076,6 +1076,23 @@ pub async fn folder_total(conn: &mut Conn, folder: &str) -> Result<u32> {
     Ok(conn.session.examine(folder).await?.exists)
 }
 
+/// What one `EXAMINE` says of the folder: how many messages it holds, its UIDVALIDITY and the
+/// UID the next message will get. «Clear» touches only the UIDs below that one: what arrives
+/// after the dialog counted is not wiped (#74).
+pub async fn folder_mark(conn: &mut Conn, folder: &str) -> Result<(u32, u32, u32)> {
+    let mailbox = conn.session.examine(folder).await?;
+    let next = match mailbox.uid_next {
+        Some(next) => next,
+        // UIDNEXT is only a SHOULD for the server: one past the highest UID does as well.
+        None => uid_search(conn, "ALL")
+            .await?
+            .into_iter()
+            .max()
+            .map_or(1, |m| m.saturating_add(1)),
+    };
+    Ok((mailbox.exists, mailbox.uid_validity.unwrap_or(0), next))
+}
+
 /// Removes messages for good. Used for the trash folder itself.
 pub async fn delete_permanently(conn: &mut Conn, folder: &str, validity: Option<u32>, uids: &[u32]) -> Result<()> {
     if uids.is_empty() {

@@ -160,6 +160,7 @@ pub fn run() {
                 background: Default::default(),
                 open_seq: Default::default(),
                 pending_deep_link: Mutex::new(None),
+                clearing: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();
@@ -342,6 +343,8 @@ pub fn run() {
             commands::open_link,
             commands::send,
             commands::draft_save,
+            commands::draft_open,
+            commands::open_drafts,
             commands::draft_discard,
             commands::outbox,
             commands::outbox_retry,
@@ -379,6 +382,9 @@ pub fn run() {
                 if label == "main" {
                     app.exit(0);
                 } else if label.starts_with("message-") {
+                    if let Some(state) = app.try_state::<Arc<AppState>>() {
+                        state.clearing.window_gone(label);
+                    }
                     background::window_gone(app, label);
                 }
             }

@@ -142,8 +142,9 @@ pub enum Work {
     },
     /// Reads the mailbox's quota again (the "Storage" section opened).
     Quota,
-    /// How many messages the folder holds on the server: the cache keeps a window of it.
-    FolderTotal(String),
+    /// How many messages the folder holds on the server (the cache keeps a window of it) and
+    /// the bound that counted them.
+    FolderCount(String),
     /// Empties Trash, Junk or Drafts on the server (#74).
     EmptyFolder(crate::empty::Request),
     /// Puts labels on messages, or takes them off, by their names.
@@ -189,6 +190,8 @@ pub enum Output {
     Props(depesha_core::acl::FolderProps),
     /// The outcome of a label check on a test message (#42, frame 9).
     LabelCheck(depesha_core::acl::LabelCheck),
+    /// What a folder held on the server when it was counted.
+    Counted(usize, mail::Bound),
     /// How far an emptying of a folder got.
     Emptied(mail::Emptied),
 }
@@ -1496,7 +1499,10 @@ async fn perform(
             // The keywords changed on the server: the folder's own sync brings them back.
             Ok(Output::None)
         }
-        Work::FolderTotal(folder) => Ok(Output::Count(mail::folder_total(conn, store, id, folder).await?)),
+        Work::FolderCount(folder) => {
+            let (total, bound) = mail::folder_count(conn, store, id, folder).await?;
+            Ok(Output::Counted(total, bound))
+        }
         Work::EmptyFolder(req) => crate::empty::perform(state, account, conn, req).await,
         Work::FolderProps(folder) => {
             let props = mail::folder_props(conn, store, id, folder).await?;

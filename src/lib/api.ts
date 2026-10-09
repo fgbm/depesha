@@ -8,6 +8,7 @@ import type {
   ComposeDraft,
   CachedDraft,
   Emptied,
+  FolderCount,
   Counters,
   StuckCopy,
   Extension,
@@ -157,9 +158,13 @@ export const api = {
   tasks: () => call<Task[]>("tasks_list"),
   taskDismiss: (key: string) => call<void>("task_dismiss", { key }),
   taskStop: (key: string) => call<void>("task_stop", { key }),
-  folderTotal: (accountId: string, folder: string) => call<number>("folder_total", { accountId, folder }),
-  folderEmpty: (accountId: string, folder: string, keepIds: number[]) =>
-    call<Emptied>("folder_empty", { accountId, folder, keepIds }),
+  folderTotal: (accountId: string, folder: string) => call<FolderCount>("folder_total", { accountId, folder }),
+  folderEmpty: (accountId: string, folder: string, keepIds: number[], bound: number) =>
+    call<Emptied>("folder_empty", { accountId, folder, keepIds, bound }),
+  /** How many drafts of the mailbox windows have open (the main one and the letters'), as the backend knows. */
+  openDrafts: (accountId: string) => call<number>("open_drafts", { accountId }),
+  /** A window says which server draft its composition is (null: none, or closed). */
+  draftOpen: (localId: string, draftId: number | null) => call<void>("draft_open", { localId, draftId }),
   stuckCopies: () => call<StuckCopy[]>("stuck_copies"),
   sentCopyRetry: (id: number) => call<boolean>("sent_copy_retry", { id }),
   sentCopySave: (id: number, path: string) => call<void>("sent_copy_save", { id, path }),
@@ -200,8 +205,8 @@ export const api = {
   openLink: (url: string) => call<void>("open_link", { url }),
   send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, discardMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) =>
     call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, discardMessageId, at, followupSecs, followup }),
-  draftSave: (accountId: string, draft: ComposeDraft, replace: number | null, replaceMessageId: string | null) =>
-    call<{ id: number; message_id: string | null } | null>("draft_save", { accountId, draft: wireDraft(draft), replace, replaceMessageId }),
+  draftSave: (accountId: string, draft: ComposeDraft, replace: number | null, replaceMessageId: string | null, localId: string | null = null) =>
+    call<{ id: number; message_id: string | null } | null>("draft_save", { accountId, draft: wireDraft(draft), replace, replaceMessageId, localId }),
   draftDiscard: (accountId: string, id: number, messageId: string | null) => call<void>("draft_discard", { accountId, id, messageId }),
   /** The local copy of a draft, kept on every typing pause as a fallback for a crash (#71). */
   draftCachePut: (key: string, accountId: string, draft: ComposeDraft, draftId: number | null = null, draftMessageId: string | null = null) =>

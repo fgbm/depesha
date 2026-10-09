@@ -111,7 +111,7 @@ export class ComposeAutosave {
           return true;
         }
         this.savingNow = true;
-        const saved = await api.draftSave(win.account_id, draft, win.draft_id, win.draft_message_id ?? null);
+        const saved = await api.draftSave(win.account_id, draft, win.draft_id, win.draft_message_id ?? null, win.local_id);
         win.draft_id = saved?.id ?? null;
         win.draft_message_id = saved?.message_id ?? null;
         this.lastSaved = text;

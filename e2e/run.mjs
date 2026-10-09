@@ -3073,19 +3073,57 @@ try {
     if (count("Trash") !== 0) throw new Error(`в Корзине осталось ${count("Trash")} писем`);
     await d.until("кнопка отключена в пустой папке", async () => (await d.exec("return document.querySelector('.list .title button.clear')?.disabled ?? false")) || null, 20000);
 
-    // Drafts: from the keyboard; they go to the Trash and can be got back from there.
+    // A reply being written in a letter's window: the main window does not know of it, the backend does.
+    const subj = "Счёт за октябрь";
+    const main = await d.req("GET", d.s("/window"));
+    const handles = () => d.req("GET", d.s("/window/handles"));
+    await openFolder("Входящие");
+    await rowBySubject(subj);
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+       row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));`,
+      subj,
+    );
+    await d.until("окно письма", async () => (await handles()).length === 2, 15000);
+    const other = (await handles()).find((h) => h !== main);
+    await d.req("POST", d.s("/window"), { handle: other });
+    try {
+      await d.until("письмо в окне", async () => (await textOf(".reader h1")).includes(subj), 20000);
+      await d.click(await d.until("ответить", () => d.xpath("//div[contains(@class,'acts')]//button[contains(., 'Ответить')]")));
+      await d.until("ответ в окне", async () => (await d.findAll(".compose")).length === 1);
+      await d.type(await d.find(".compose textarea"), "Набрано в окне письма");
+      await d.until("черновик окна письма на сервере", async () => helper("count", "Drafts", `Re: ${subj}`) === "1", 30000);
+    } finally {
+      await d.req("POST", d.s("/window"), { handle: main });
+    }
+    await sync();
+
+    // Drafts: from the keyboard; they go to the Trash and can be got back from there. The one
+    // open in the letter's window stays, and the question says so.
     await openFolder("Черновики");
-    await clearButton("Очистить черновики (3)");
+    await clearButton("Очистить черновики (4)");
     await press("Delete", { ctrlKey: true, shiftKey: true });
     await dialog();
     const ask = await textOf(".modal.confirm");
     if (!ask.includes("Очистить черновики?") || !ask.includes("Корзину")) throw new Error(`диалог черновиков: «${ask}»`);
+    if (!ask.includes("открыт в окне")) throw new Error(`диалог не говорит об открытом в окне черновике: «${ask}»`);
     await screenshot("clear-drafts-confirm");
     await d.click(await d.xpath("//div[contains(@class,'modal') and contains(@class,'confirm')]//button[contains(@class,'primary')]"));
     await toast("перенесены в Корзину: 3");
     if (count("Drafts") !== 0) throw new Error(`в Черновиках осталось ${count("Drafts")}`);
     if (count("Trash") !== 3) throw new Error(`в Корзине ${count("Trash")} вместо 3 перенесённых черновиков`);
+    if (helper("count", "Drafts", `Re: ${subj}`) !== "1") throw new Error("черновик из окна письма ушёл из Черновиков");
+    if (helper("count", "Trash", `Re: ${subj}`) !== "0") throw new Error("черновик из окна письма оказался в Корзине");
     await screenshot("clear-drafts-done", { toasts: true });
+    // The window still holds it: its next save replaces the same draft, and discarding removes it.
+    await d.req("POST", d.s("/window"), { handle: other });
+    try {
+      await d.click(await d.until("удалить черновик", () => d.find(".compose [aria-label='Удалить черновик']")));
+      if ((await d.findAll(".confirm")).length) await d.click(await d.xpath("//div[contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+      await d.until("черновик окна письма удалён", async () => helper("count", "Drafts", `Re: ${subj}`) === "0", 30000);
+    } finally {
+      await d.req("POST", d.s("/window"), { handle: main });
+    }
   });
 
   await screenshot("final");

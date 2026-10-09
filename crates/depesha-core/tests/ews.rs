@@ -311,14 +311,22 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
             }
             wrap("MoveItem", &msgs)
         }
-        "EmptyFolder" => {
-            let folder = find(&doc, "FolderIds")
-                .and_then(|p| p.descendants().find(|n| local(*n) == "FolderId"))
-                .and_then(|n| n.attribute("Id"))
+        "DeleteItem" => {
+            let ids: Vec<String> = find(&doc, "ItemIds")
                 .unwrap()
-                .to_owned();
-            mb.items.retain(|i| i.folder != folder);
-            wrap("EmptyFolder", &ok("EmptyFolder", ""))
+                .children()
+                .filter_map(|n| n.attribute("Id").map(str::to_owned))
+                .collect();
+            let mut msgs = String::new();
+            for id in ids {
+                if mb.items.iter().any(|i| i.id == id) {
+                    mb.items.retain(|i| i.id != id);
+                    msgs.push_str(&ok("DeleteItem", ""));
+                } else {
+                    msgs.push_str(&err("DeleteItem", "ErrorItemNotFound"));
+                }
+            }
+            wrap("DeleteItem", &msgs)
         }
         "CreateItem" => {
             mb.created.push(body.to_owned());
@@ -735,8 +743,14 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
     assert_eq!(mailbox.lock().unwrap().connections, 1);
 }
 
-/// #74: junk is wiped with one `EmptyFolder`; drafts go to the trash by `MoveItem`, all of
-/// them on the server and not only the cached window, except the one that is kept.
+/// The bound a dialog would have counted for the folder now (#74).
+async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> mail::Bound {
+    mail::folder_count(conn, store, account, folder).await.unwrap().1
+}
+
+/// #74: junk is wiped by `DeleteItem` from the snapshot the dialog counted; drafts go to the trash
+/// by `MoveItem`, all of them on the server and not only the cached window, except the one that
+/// is kept.
 #[tokio::test]
 async fn clearing_exchange_folders() {
     let t0 = 1_790_000_000;
@@ -773,12 +787,14 @@ async fn clearing_exchange_folders() {
     let junk = "Нежелательная почта";
     assert_eq!(mail::folder_total(&mut conn, &store, ACCOUNT, junk).await.unwrap(), 3);
     let mut seen = Vec::new();
+    let bound = bound_of(&mut conn, &store, ACCOUNT, junk).await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         ACCOUNT,
         junk,
         &mail::Emptying::Erase,
+        &bound,
         &[],
         500,
         &mut |d, t| {
@@ -803,12 +819,14 @@ async fn clearing_exchange_folders() {
         assert!(mb.items.iter().any(|i| i.folder == "I"), "other folders stay");
     }
     // Empty now: nothing to do.
+    let bound = bound_of(&mut conn, &store, ACCOUNT, junk).await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         ACCOUNT,
         junk,
         &mail::Emptying::Erase,
+        &bound,
         &[],
         500,
         &mut |_, _| true,
@@ -816,6 +834,64 @@ async fn clearing_exchange_folders() {
     .await
     .unwrap();
     assert_eq!(run, mail::Emptied::default());
+
+    // An item that arrives after the dialog counted is not wiped; the same bound run again
+    // meets items that are gone already and goes on.
+    {
+        let mut mb = mailbox.lock().unwrap();
+        for n in 1..=2 {
+            mb.items.push(item(&format!("k{n}"), "J", t0 + n, "Спам"));
+        }
+    }
+    let bound = bound_of(&mut conn, &store, ACCOUNT, junk).await;
+    mailbox.lock().unwrap().items.push(item("late", "J", t0 + 9, "Поздно"));
+    for _ in 0..2 {
+        let run = mail::empty_folder(
+            &mut conn,
+            &store,
+            ACCOUNT,
+            junk,
+            &mail::Emptying::Erase,
+            &bound,
+            &[],
+            500,
+            &mut |_, _| true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            run,
+            mail::Emptied {
+                total: 2,
+                done: 2,
+                stopped: false
+            }
+        );
+    }
+    {
+        let mb = mailbox.lock().unwrap();
+        let left: Vec<&str> = mb
+            .items
+            .iter()
+            .filter(|i| i.folder == "J")
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(left, ["late"], "the item that arrived after the count stays");
+    }
+    // A bound of another kind is no bound of this mailbox.
+    let mismatched = mail::empty_folder(
+        &mut conn,
+        &store,
+        ACCOUNT,
+        junk,
+        &mail::Emptying::Erase,
+        &mail::Bound::Imap { validity: 1, next: 1 },
+        &[],
+        500,
+        &mut |_, _| true,
+    )
+    .await;
+    assert!(mismatched.is_err());
 
     // Only the newest two drafts are cached; the newest is kept (open in a window).
     let mail::Conn::Ews(s) = &mut conn else { unreachable!() };
@@ -831,12 +907,14 @@ async fn clearing_exchange_folders() {
         })
         .unwrap()[0]
         .uid;
+    let bound = bound_of(&mut conn, &store, ACCOUNT, "Черновики").await;
     let run = mail::empty_folder(
         &mut conn,
         &store,
         ACCOUNT,
         "Черновики",
         &mail::Emptying::ToFolder("Удаленные".into()),
+        &bound,
         &[newest],
         500,
         &mut |_, _| true,
