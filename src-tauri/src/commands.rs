@@ -1245,21 +1245,37 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
     Ok(done)
 }
 
-/// Drops the times of letters `unsnooze` has moved. `moved` is what the server reports
-/// for the whole series: it does not say which letters, so a short count (some were not
-/// found, or went elsewhere) drops nothing. A time that stays is harmless: the scheduler
-/// finds the letter gone from "Snoozed" and removes the time, and one that did not move
-/// still comes back at its time.
+/// Drops the times of the letters `unsnooze` has moved, one by one. The server reports only
+/// a count, and by UIDs, not by Message-ID (a short count may hide a letter that was not
+/// found next to another with the same Message-ID), so the letters are told by the cache:
+/// the move synced the folder, and a letter no longer in it has left. A letter still there
+/// keeps its time and comes back at it. If the sync failed the cache is stale, every letter
+/// looks to be there and nothing is dropped, which is harmless: the scheduler removes the
+/// time of a letter it finds gone from "Snoozed".
 fn drop_unsnoozed(
     store: &depesha_core::store::Store,
     account_id: &str,
     folder: &str,
     message_ids: &[String],
-    moved: usize,
 ) -> depesha_core::Result<()> {
-    if moved >= message_ids.len() {
-        store.snooze_drop_in_folder(account_id, folder, message_ids)?;
+    let mut left = Vec::new();
+    for mid in message_ids {
+        if store.find_by_message_id(account_id, folder, mid)?.is_none() {
+            left.push(mid.clone());
+        }
     }
+    store.snooze_drop_in_folder(account_id, folder, &left)?;
+    Ok(())
+}
+
+/// A group of letters that failed to come back does not take the groups that did down with
+/// it: their `Moved` (the undo) must reach the caller. With nothing moved yet the error is
+/// the caller's.
+fn keep_moved_on_error(moved: &[Moved], e: CmdError) -> CmdResult<()> {
+    if moved.is_empty() {
+        return Err(e);
+    }
+    tracing::warn!("unsnooze: a group of letters stayed: {}", e.message);
     Ok(())
 }
 
@@ -1268,7 +1284,7 @@ fn drop_unsnoozed(
 #[tauri::command]
 pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     let mut done = Vec::new();
-    for (key, rows) in group_rows(&state, &ids)? {
+    'groups: for (key, rows) in group_rows(&state, &ids)? {
         let (account_id, folder, _) = &key;
         let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
         // By the folder they came from: a series of letters may have come from several.
@@ -1288,24 +1304,29 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                 unseen: Vec::new(),
                 snoozed: snoozed.clone(),
             };
-            let out = state
-                .worker(account_id)?
-                .run(Work::MoveByMessageId {
-                    from: folder.clone(),
-                    message_ids: moved.message_ids.clone(),
-                    to,
-                    unseen: true,
-                })
-                .await;
-            // Not moved: the times were never dropped, the letters are still snoozed.
-            let n = match out {
-                Ok(Output::Count(n)) if n > 0 => n,
-                other => {
-                    other?;
-                    continue;
-                }
+            let out = match state.worker(account_id) {
+                Ok(worker) => worker
+                    .run(Work::MoveByMessageId {
+                        from: folder.clone(),
+                        message_ids: moved.message_ids.clone(),
+                        to,
+                        unseen: true,
+                    })
+                    .await
+                    .map_err(CmdError::from),
+                Err(e) => Err(e),
             };
-            drop_unsnoozed(&state.store, account_id, folder, &moved.message_ids, n)?;
+            match out {
+                // Moved, whole or in part: the cache tells which letters left.
+                Ok(Output::Count(n)) if n > 0 => {}
+                // Not moved: the times were never dropped, the letters are still snoozed.
+                Ok(_) => continue,
+                Err(e) => {
+                    keep_moved_on_error(&done, e)?;
+                    break 'groups;
+                }
+            }
+            drop_unsnoozed(&state.store, account_id, folder, &moved.message_ids)?;
             done.push(moved);
         }
     }
@@ -3520,33 +3541,79 @@ mod tests {
     }
 
     #[test]
-    fn unsnooze_drops_a_time_only_for_a_series_that_moved_whole() {
-        use depesha_core::store::{Snooze, Store};
+    fn unsnooze_drops_the_times_of_the_letters_that_left_by_name() {
+        use depesha_core::message::Summary;
+        use depesha_core::store::{NewMessage, Snooze, Store};
         let store = Store::open_in_memory().unwrap();
-        let ids: Vec<String> = vec!["<a@x>".into(), "<b@x>".into()];
-        let fresh = || {
-            for id in &ids {
-                store
-                    .snooze_add(&Snooze {
-                        account_id: "a".into(),
-                        message_id: id.clone(),
-                        folder: "Snoozed".into(),
-                        return_to: "INBOX".into(),
-                        until: 100,
-                        subject: String::new(),
-                    })
-                    .unwrap();
-            }
-        };
-        fresh();
+        store
+            .replace_folders(
+                "a",
+                &[Folder {
+                    name: "Snoozed".into(),
+                    display_name: "Snoozed".into(),
+                    delimiter: Some("/".into()),
+                    role: Some(FolderRole::Snoozed),
+                    selectable: true,
+                    hidden: false,
+                }],
+            )
+            .unwrap();
+        let ids: Vec<String> = vec!["<a@x>".into(), "<b@x>".into(), "<c@x>".into()];
+        for id in &ids {
+            store
+                .snooze_add(&Snooze {
+                    account_id: "a".into(),
+                    message_id: id.clone(),
+                    folder: "Snoozed".into(),
+                    return_to: "INBOX".into(),
+                    until: 100,
+                    subject: String::new(),
+                })
+                .unwrap();
+        }
+        // After a short move the cache of "Snoozed" still holds "b" twice (one Message-ID,
+        // two UIDs: the count of the server cannot tell it from two letters) and not "a", "c".
+        for uid in [1, 2] {
+            let s = Summary {
+                message_id: Some("b@x".into()),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = NewMessage {
+                uid,
+                summary: &s,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            store.insert_message("a", "Snoozed", &msg).unwrap();
+        }
         // Reading the times drops nothing: a crash before the move leaves them.
-        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 2);
-        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 2);
-        // One letter of two was found: both keep their times.
-        super::drop_unsnoozed(&store, "a", "Snoozed", &ids, 1).unwrap();
-        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 2);
-        super::drop_unsnoozed(&store, "a", "Snoozed", &ids, 2).unwrap();
-        assert!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().is_empty());
+        assert_eq!(store.snoozes_in_folder("a", "Snoozed", &ids).unwrap().len(), 3);
+        super::drop_unsnoozed(&store, "a", "Snoozed", &ids).unwrap();
+        let left = store.snoozes_in_folder("a", "Snoozed", &ids).unwrap();
+        assert_eq!(left.len(), 1, "only the letter still snoozed keeps its time");
+        assert_eq!(left[0].message_id, "<b@x>");
+    }
+
+    #[test]
+    fn a_failed_second_group_does_not_cost_the_first_its_undo() {
+        let moved = super::Moved {
+            account_id: "a".into(),
+            from: "Snoozed".into(),
+            to: "INBOX".into(),
+            message_ids: vec!["<a@x>".into()],
+            waits: Vec::new(),
+            unseen: Vec::new(),
+            snoozed: Vec::new(),
+        };
+        let down = || crate::error::CmdError::new("other", "connection lost");
+        assert!(super::keep_moved_on_error(&[moved], down()).is_ok());
+        assert_eq!(
+            super::keep_moved_on_error(&[], down()).unwrap_err().message,
+            "connection lost"
+        );
     }
 
     #[test]
