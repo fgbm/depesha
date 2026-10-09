@@ -28,6 +28,79 @@ fn refused() -> &'static Mutex<HashSet<(String, String)>> {
     REFUSED.get_or_init(Default::default)
 }
 
+/// Archivals of answered letters under way, by mailbox. They run apart from the outbox's
+/// round (#106), so the wait of a later answer must not take its letters before they are done:
+/// the move to the archive would then take them out from under the move to the folder (#109).
+fn archiving() -> &'static Mutex<BTreeMap<String, usize>> {
+    static ARCHIVING: OnceLock<Mutex<BTreeMap<String, usize>>> = OnceLock::new();
+    ARCHIVING.get_or_init(Default::default)
+}
+
+/// An archival under way; it is over when this is dropped, however the task ends.
+struct Archival(String);
+
+impl Archival {
+    fn begin(account_id: &str) -> Self {
+        *archiving()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(account_id.to_owned())
+            .or_default() += 1;
+        Self(account_id.to_owned())
+    }
+}
+
+impl Drop for Archival {
+    fn drop(&mut self) {
+        let mut map = archiving().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = map.get_mut(&self.0) {
+            *n -= 1;
+            if *n == 0 {
+                map.remove(&self.0);
+            }
+        }
+    }
+}
+
+/// How long a wait gives the archivals of its mailbox to finish; a slow server does not hold
+/// the outbox up longer, and the wait then goes by what the cache shows.
+const ARCHIVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Waits until no archival of the mailbox is under way, for at most `limit`.
+async fn archivals_done(account_id: &str, limit: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while archiving()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains_key(account_id)
+        && started.elapsed() < limit
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+/// The letters a wait takes: the conversation of the letter answered, where it sits. In the
+/// inbox as a rule; in the archive when an earlier answer of the conversation took it there
+/// meanwhile (#109), and it then comes back there.
+fn parking_of(
+    store: &depesha_core::store::Store,
+    account_id: &str,
+    inbox: &str,
+    archive: Option<&str>,
+    anchor: &str,
+) -> depesha_core::Result<Option<Parking>> {
+    for from in std::iter::once(inbox).chain(archive) {
+        let chain = store.inbox_chain(account_id, from, anchor)?;
+        if !chain.is_empty() {
+            return Ok(Some(Parking {
+                from: from.to_owned(),
+                chain,
+            }));
+        }
+    }
+    Ok(None)
+}
+
 /// What an answer about to be queued does with its letter (#106): `(park, archive)`. A wait
 /// chosen takes it to the folder "Waiting for reply"; with none, the compose window's
 /// choice or the mailbox's setting takes it to the archive; only for a letter of the inbox.
@@ -89,12 +162,12 @@ pub async fn after_sent(
 
     let mut park = None;
     if will_park(item) {
+        // An earlier answer of the conversation may be taking it to the archive just now.
+        archivals_done(&account.id, ARCHIVAL_WAIT).await;
         let inbox = state.store.folder_by_role(&account.id, FolderRole::Inbox)?;
         if let Some(inbox) = inbox.filter(|i| *i == acts.folder) {
-            let chain = state.store.inbox_chain(&account.id, &inbox, &acts.message_id)?;
-            if !chain.is_empty() {
-                park = Some(Parking { from: inbox, chain });
-            }
+            let archive = state.store.folder_by_role(&account.id, FolderRole::Archive)?;
+            park = parking_of(&state.store, &account.id, &inbox, archive.as_deref(), &acts.message_id)?;
         }
     }
     let f = match reminder {
@@ -123,7 +196,10 @@ pub async fn after_sent(
     if archiving {
         let (state, account, item) = (state.clone(), account.clone(), item.clone());
         let (folder, message_id) = (acts.folder.clone(), acts.message_id.clone());
+        // Counted before the task starts, so a wait that follows at once sees it.
+        let archival = Archival::begin(&account.id);
         tokio::spawn(async move {
+            let _archival = archival;
             archive_answered(&state, &account, &item, &folder, &message_id).await;
         });
     }
@@ -147,13 +223,22 @@ async fn archive_answered(
     message_id: &str,
 ) -> bool {
     let Ok(Some(archive)) = state.store.folder_by_role(&account.id, FolderRole::Archive) else {
+        tracing::debug!(account = %account.id, "archive of the answered letter: the mailbox has no archive folder");
         return false;
     };
-    let Ok(worker) = state.worker(&account.id) else {
-        return false;
+    let worker = match state.worker(&account.id) {
+        Ok(worker) => worker,
+        Err(e) => {
+            tracing::warn!(account = %account.id, "archive of the answered letter: no worker: {}", e.message);
+            return false;
+        }
     };
-    let Ok(mut chain) = state.store.inbox_chain(&account.id, from, message_id) else {
-        return false;
+    let mut chain = match state.store.inbox_chain(&account.id, from, message_id) {
+        Ok(chain) => chain,
+        Err(e) => {
+            tracing::warn!(account = %account.id, "archive of the answered letter: the conversation was not read: {e}");
+            return false;
+        }
     };
     if chain.is_empty() {
         chain.push(message_id.to_owned());
@@ -165,7 +250,10 @@ async fn archive_answered(
         unseen: false,
     };
     match worker.run_background(work).await {
-        Ok(Output::Count(0)) => false,
+        Ok(Output::Count(0)) => {
+            tracing::debug!(account = %account.id, "archive of the answered letter: no letter found to move");
+            false
+        }
         Ok(_) => {
             state.emit("counters-changed", json!({}));
             state.emit(
@@ -511,6 +599,97 @@ mod tests {
             },
         );
         assert!(!will_park(&off) && !will_archive(&off));
+    }
+
+    fn letter(store: &depesha_core::store::Store, folder: &str, uid: u32, mid: &str) {
+        use depesha_core::message::Summary;
+        use depesha_core::store::NewMessage;
+        let s = Summary {
+            message_id: Some(mid.into()),
+            date: Some(1),
+            ..Default::default()
+        };
+        let msg = NewMessage {
+            uid,
+            summary: &s,
+            fallback_date: 0,
+            size: 1,
+            flags: Default::default(),
+            keywords: Vec::new(),
+        };
+        store.insert_message("a", folder, &msg).unwrap();
+    }
+
+    fn folders(store: &depesha_core::store::Store) {
+        use depesha_core::imap::Folder;
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        store
+            .replace_folders(
+                "a",
+                &[
+                    plain("INBOX", Some(FolderRole::Inbox)),
+                    plain("Archive", Some(FolderRole::Archive)),
+                ],
+            )
+            .unwrap();
+    }
+
+    /// A conversation the archive took meanwhile still goes to wait, from where it sits.
+    #[test]
+    fn a_wait_takes_a_conversation_the_archive_took_first() {
+        let store = depesha_core::store::Store::open_in_memory().unwrap();
+        folders(&store);
+        letter(&store, "INBOX", 1, "q@x");
+        let in_inbox = parking_of(&store, "a", "INBOX", Some("Archive"), "q@x")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (in_inbox.from.as_str(), in_inbox.chain.as_slice()),
+            ("INBOX", &["q@x".to_owned()][..])
+        );
+        // The archival moved it: the cache of the inbox no longer has it.
+        letter(&store, "Archive", 7, "r@x");
+        let archived = parking_of(&store, "a", "INBOX", Some("Archive"), "r@x")
+            .unwrap()
+            .unwrap();
+        assert_eq!(archived.from, "Archive");
+        assert!(parking_of(&store, "a", "INBOX", None, "r@x").unwrap().is_none());
+        assert!(
+            parking_of(&store, "a", "INBOX", Some("Archive"), "gone@x")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// A wait lets the archivals of its mailbox finish first, and no others'.
+    #[tokio::test]
+    async fn a_wait_lets_the_archivals_of_its_mailbox_finish() {
+        let limit = std::time::Duration::from_secs(5);
+        let archival = Archival::begin("arch-test");
+        let started = std::time::Instant::now();
+        let other = tokio::time::timeout(limit, archivals_done("other-box", limit)).await;
+        assert!(other.is_ok() && started.elapsed() < std::time::Duration::from_secs(1));
+        let waiting = tokio::spawn(archivals_done("arch-test", limit));
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!waiting.is_finished(), "the archival is still under way");
+        drop(archival);
+        tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
+            .await
+            .expect("the wait goes on once the archival is over")
+            .unwrap();
+        // A wait does not hang on an archival that never ends.
+        let _stuck = Archival::begin("stuck-box");
+        let short = std::time::Duration::from_millis(150);
+        tokio::time::timeout(std::time::Duration::from_secs(2), archivals_done("stuck-box", short))
+            .await
+            .unwrap();
     }
 
     #[test]
