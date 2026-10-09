@@ -1,0 +1,1125 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аватары в списке писем (0.8.0, #108)</title>
+<style>
+/* ============================================================================
+   Макет к 0.8.0, заявка #108. Код приложения не тронут. Файл самодостаточный: без сети.
+   Токены темы «Бумага» и «Ночь» — из src/app.css. Строка списка повторяет MessageList.svelte:
+   высота 62 px (шаг ROW = 64), отступы 9px 10px 0 16px, две строки (.line1: отправитель,
+   «ждём с», число в цепочке, флажок, скрепка, дата; .line2: тема, метки, тег, размер),
+   точка непрочитанного слева (left 5px), полоска ящика 3 px у левого края.
+   Аватар — как .avatar в ReaderHeader.svelte: круг, цвет по avatarColor (hsl(h 42% 40%)),
+   инициалы, логотип или фото на белом фоне с тонкой рамкой.
+   Логотипы и фото ниже — заглушки SVG, данные вымышленные (@example.com).
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --ok: #2e7d4f; --warn: #b26a00; --side: #1f2a37; --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+body.night .theme {
+  --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #8f97a2; --line: #2c323b;
+  --hover: #222831; --selected: #2e3742; --link: #7fb0ec; --side: #11161c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; }
+.doc { width: 1400px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.v { font-size: 16px; margin: 22px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+h3.v .n { background: #fff; border: 1px solid #b5ae9f; border-radius: 5px; padding: 0 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v { flex-wrap: wrap; }
+.slot > h3.v { min-height: 108px; align-content: flex-start; margin-top: 0; }
+h3.v em { flex-basis: 100%; font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 1040px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.pc { margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 1040px; }
+.plus { color: #2e7d4f; font-weight: 700; } .minus { color: #b3261e; font-weight: 700; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid #b5ae9f; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #faf7f1; color: #3c444e; white-space: nowrap; }
+.cap { font-size: 12.5px; color: #3c444e; margin: 6px 0 0; max-width: 1040px; line-height: 1.5; }
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 8px 14px; margin: 14px 0; font-size: 12.5px; }
+.ctl .grp { display: flex; gap: 4px; align-items: center; }
+.ctl .grp > span { color: #8c99a8; margin-right: 2px; }
+.ctl button { font: inherit; font-size: 12px; color: #d5dde6; background: #263444; border: 1px solid #3a4a5e; border-radius: 5px; padding: 1px 9px; cursor: pointer; }
+.ctl button.on { background: #e6dbc6; color: #1d232b; border-color: #e6dbc6; }
+.cols { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.slot { flex: none; width: 420px; }
+.slot.wide { width: 440px; }
+.slot .t { font-size: 12.5px; color: #3c444e; margin: 0 0 6px; line-height: 1.4; min-height: 34px; }
+table.q { border-collapse: collapse; font-size: 13px; line-height: 1.45; max-width: 1240px; background: #f4f1ea; }
+table.q th, table.q td { border: 1px solid #c7c0b1; padding: 6px 10px; text-align: left; vertical-align: top; }
+table.q th { background: #e6e1d6; }
+table.q td.n { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+.bad-box { border: 1px solid #b3261e; background: #f6e3e1; border-radius: 8px; padding: 8px 12px; max-width: 1040px; font-size: 13px; line-height: 1.5; margin: 8px 0; }
+
+/* ---------- окно со списком ---------- */
+.stage { outline: none; position: relative; display: block; }
+.stage:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, #1f5fa8 55%, transparent); border-radius: 10px; }
+.pane { background: var(--paper); border-radius: 10px; box-shadow: 0 8px 30px rgb(0 0 0 / 24%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; position: relative; }
+.pane header { padding: 10px 12px 8px; border-bottom: 1px solid var(--line); }
+.pane .srch { border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); color: var(--muted); padding: 4px 10px; font-size: 13px; }
+.pane h4 { margin: 8px 0 0; font-size: 16px; font-weight: 650; }
+.vp { padding: 4px 0 6px; position: relative; }
+.r { position: relative; margin: 0 6px; height: 62px; padding: 9px 10px 0 16px; border-radius: 7px; overflow: hidden; cursor: default; outline: none; }
+.r + .r { margin-top: 2px; }
+.r::after { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--acct, transparent); }
+.r:hover { background: var(--hover); }
+.r.sel, .r.op { background: var(--selected); }
+.r.fo { box-shadow: inset 2px 0 0 var(--accent); }
+.r.un::before { content: ""; position: absolute; left: 5px; top: 15px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.l1, .l2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.l2 { margin-top: 3px; color: var(--muted); }
+.un .l2 { color: var(--ink); }
+.fr { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.un .fr, .un .sj { font-weight: 650; }
+.dt { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.sj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sz { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; padding-left: 6px; }
+.cnt { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 5px; line-height: 15px; }
+.ic { color: var(--muted); font-size: 12px; } .ic.fl { color: var(--accent); }
+.lbl { flex: none; padding: 0 6px; border-radius: 7px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); font-size: 11px; white-space: nowrap; }
+.tag { flex: none; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.tag.info { color: var(--link); } .tag.good { color: var(--ok); }
+.note { font-size: 11.5px; color: var(--muted); }
+
+/* ---------- аватар в строке ---------- */
+.avs { flex: none; position: relative; width: var(--s); height: var(--s); }
+.lay-A .r { padding-left: 62px; --s: 36px; }
+.lay-A .r .avs { position: absolute; left: 16px; top: 12px; }
+.lay-B .r { --s: 20px; }
+.lay-B .avs { margin-right: 2px; }
+.av { width: 100%; height: 100%; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; letter-spacing: .02em; overflow: hidden; font-size: 13px; }
+.lay-B .av { font-size: 9px; letter-spacing: 0; }
+.av.pic { background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+.av.pic svg { width: 100%; height: 100%; display: block; }
+.av.chk { background: var(--accent); color: var(--accent-ink); font-size: 16px; }
+.lay-B .av.chk { font-size: 12px; }
+.avs.stack .av { position: absolute; width: 68%; height: 68%; font-size: 10px; border: 2px solid var(--paper); }
+.avs.stack .av:first-child { left: 0; top: 0; } .avs.stack .av:last-child { right: 0; bottom: 0; }
+.lay-B .avs.stack .av { font-size: 0; border-width: 1px; }
+.avs.clk { cursor: pointer; } .avs.clk:hover .av { box-shadow: 0 0 0 2px var(--link); }
+.avs .ud { position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--paper); }
+.r.sel .avs .ud, .r.op .avs .ud { border-color: var(--selected); }
+.u-badge .r.un::before { display: none; }
+.pcard { position: absolute; z-index: 40; width: 270px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 24px rgb(0 0 0 / 24%); padding: 10px; font-size: 13px; }
+.pcard .h { display: flex; gap: 10px; align-items: center; }
+.pcard .h .avs { position: static; width: 40px; height: 40px; }
+.pcard .nm { font-weight: 650; } .pcard .em { color: var(--muted); font-size: 12px; }
+.pcard .b { margin-top: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 3px 10px; font-size: 12.5px; }
+.pcard .k { margin-top: 6px; color: var(--muted); font-size: 11.5px; }
+.foot { display: flex; gap: 14px; padding: 6px 12px 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
+
+/* ---------- окно настроек (макет 01-settings.html, раскладка 2.А) ---------- */
+.set { background: var(--paper); border-radius: 10px; box-shadow: 0 8px 30px rgb(0 0 0 / 24%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; font-size: 13px; }
+.set .tt { padding: 0 12px; height: 32px; display: flex; align-items: center; background: var(--paper-2); border-bottom: 1px solid var(--line); font-weight: 600; }
+.set .crumb { padding: 8px 14px 0; color: var(--muted); font-size: 12px; }
+.set section { padding: 6px 14px 12px; }
+.set h4 { margin: 8px 0 6px; font-size: 13px; }
+.set .opt { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; line-height: 1.4; }
+.set .opt.sub { margin-left: 22px; }
+.set .opt.off { opacity: .5; }
+.set .cb { flex: none; width: 15px; height: 15px; border: 1.5px solid var(--muted); border-radius: 3px; margin-top: 2px; display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+.set .cb.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.set .nt { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.set .sel { display: inline-block; border: 1px solid var(--line); background: var(--paper-2); border-radius: 6px; padding: 2px 10px; }
+.set .row { display: flex; gap: 10px; align-items: center; padding: 4px 0; }
+.set .old { color: var(--muted); text-decoration: line-through; }
+.set .new { background: color-mix(in srgb, var(--ok) 16%, transparent); border-radius: 4px; padding: 0 3px; }
+</style>
+</head>
+<body class="">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="L-bank" viewBox="0 0 40 40"><rect width="40" height="40" fill="#fff"/><path d="M6 15 20 7l14 8v3H6z" fill="#1e4f9c"/><rect x="9" y="20" width="4" height="10" fill="#1e4f9c"/><rect x="18" y="20" width="4" height="10" fill="#1e4f9c"/><rect x="27" y="20" width="4" height="10" fill="#1e4f9c"/><rect x="6" y="32" width="28" height="3" fill="#1e4f9c"/></symbol>
+    <symbol id="L-shop" viewBox="0 0 40 40"><rect width="40" height="40" fill="#fff"/><circle cx="20" cy="20" r="14" fill="#c8571f"/><path d="M12 22c3-8 13-8 16 0-4 5-12 5-16 0z" fill="#fff3e0"/><circle cx="20" cy="20" r="3" fill="#c8571f"/></symbol>
+    <symbol id="L-air" viewBox="0 0 40 40"><rect width="40" height="40" fill="#fff"/><circle cx="20" cy="20" r="15" fill="#0f7a8a"/><path d="M8 23 31 11l-7 20-4-8z" fill="#fff"/></symbol>
+    <symbol id="P-1" viewBox="0 0 40 40"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9c9a8"/><stop offset="1" stop-color="#b98a66"/></linearGradient></defs><rect width="40" height="40" fill="url(#g1)"/><circle cx="20" cy="16" r="7" fill="#7a4e33"/><path d="M5 40c1-10 8-14 15-14s14 4 15 14z" fill="#45566b"/></symbol>
+  </defs>
+</svg>
+<div class="doc">
+<h1>Депеша 0.8.0 — аватары в списке писем</h1>
+<p class="lead">Сейчас в списке аватаров нет: логотип, фото и инициалы есть только в открытом письме (<code>avatarOf</code> в <code>Reader.svelte</code>) и карточке человека. Настройка <code>sender_logos</code> («Логотипы компаний рядом с их письмами») стоит в группе «Список писем», а на список не влияет. Здесь: что рисовать в кружке, как уложить кружок в строку, как его включать и как подпись настройки сделать честной. Все списки ниже одинаковы по данным, меняется только аватар. Кликните в живой список (экран 4) и пробуйте с клавиатуры.</p>
+<p class="ctx"><b>Что нашёл в коде.</b> (1) Строка: высота 62 px при шаге <code>ROW = 64</code> (список виртуальный: высота фиксирована), две строки, слева точка непрочитанного (<code>left: 5px</code>) и полоска ящика (3 px) у края; выбор строки — фон <code>--selected</code>, флажка нет. (2) В чтении: <code>avatarOf(ящик, адрес, brand)</code>, где <code>brand = authenticated &amp;&amp; sender_logos</code>; бэкенд (<code>avatar.rs</code>) отдаёт фото из Exchange (с сервера ящика) или, при <code>brand</code>, логотип BIMI: только если у домена включён строгий DMARC и сам файл — SVG до 32 КБ; кэш на неделю. Нет картинки — инициалы на цвете <code>avatarColor(адрес)</code>. (3) В цепочке (<code>Conversation.svelte</code>) логотипов нет: <code>brand = false</code>, фото и инициалы. (4) Карточка человека открывается кликом по имени в заголовке письма, не по кружку.</p>
+<div class="bad-box"><b>Безопасность.</b> Логотип — это доверие: «письмо от банка». Поэтому, как в чтении, логотип показывается <b>только</b> у писем, прошедших проверку подлинности (DMARC), и только при включённой настройке. Подделка (<code>severbank-pay.example.net</code> под «Северный банк») без проверки получает те же инициалы, что любой незнакомец. В списке это важнее, чем в письме: там письмо ещё не открыто, и взгляд скользит по кружкам, не читая адресов.</div>
+
+<div class="ctl" id="ctl">
+  <div class="grp"><span>Тема</span><button data-k="theme" data-v="paper" class="on">Бумага</button><button data-k="theme" data-v="night">Ночь</button></div>
+  <div class="grp"><span>Живой список (экран 4):</span></div>
+  <div class="grp"><span>1.1 Кружок</span><button data-k="mode" data-v="none">нет</button><button data-k="mode" data-v="A">А</button><button data-k="mode" data-v="B">Б</button><button data-k="mode" data-v="V" class="on">В</button></div>
+  <div class="grp"><span>2.1 Место</span><button data-k="layout" data-v="A" class="on">А</button><button data-k="layout" data-v="B">Б</button></div>
+  <div class="grp"><span>2.2 Цепочка</span><button data-k="thread" data-v="last" class="on">А</button><button data-k="thread" data-v="first">Б</button><button data-k="thread" data-v="stack">В</button></div>
+  <div class="grp"><span>2.3 Отправленные</span><button data-k="sent" data-v="first" class="on">А</button><button data-k="sent" data-v="none">Б</button><button data-k="sent" data-v="me">В</button></div>
+  <div class="grp"><span>2.4 Точка</span><button data-k="unread" data-v="dot" class="on">А</button><button data-k="unread" data-v="badge">Б</button></div>
+  <div class="grp"><span>2.5 Выбор</span><button data-k="sel" data-v="bg" class="on">А</button><button data-k="sel" data-v="check">Б</button></div>
+  <div class="grp"><span>4.1 Клик</span><button data-k="card" data-v="0" class="on">А</button><button data-k="card" data-v="1">Б</button></div>
+  <div class="grp"><span>Папка</span><button data-k="folder" data-v="in" class="on">Входящие</button><button data-k="folder" data-v="out">Отправленные</button></div>
+  <div class="grp"><span>«Логотипы компаний»</span><button data-k="logos" data-v="1" class="on">вкл</button><button data-k="logos" data-v="0">выкл</button></div>
+</div>
+
+<h2 class="screen">Экран 0. Сейчас</h2>
+<p class="lead">Список без аватаров: слева только точка непрочитанного и полоска ящика. Это и есть вариант «нет» в живом списке.</p>
+<div class="cols"><div class="slot"><div class="theme"><div class="stage" data-list data-cfg='{"mode":"none","n":7,"selected":[],"opened":1}'></div></div></div></div>
+
+<h2 class="screen">Экран 1. Что в кружке</h2>
+<p class="lead">Один и тот же набор писем. В нём: письмо банка с проверкой (логотип), <b>подделка под банк без проверки</b>, рассылка магазина (логотип), коллега с фото из Exchange (Анна), люди без фото, служба доставки без логотипа. Все три варианта показывают логотип только у проверенных писем. Включена настройка «Логотипы компаний».</p>
+<div class="cols">
+  <div class="slot">
+    <h3 class="v rec-slot" data-q="1.1" data-q-title="Что в кружке" data-variants="А,Б,В" data-recommended="В" data-variant="А"><span class="n">1.А</span> Только логотипы <em>у остальных пусто, место занято</em></h3>
+    <div class="theme"><div class="stage" data-list data-cfg='{"mode":"A","n":8,"selected":[],"opened":-1}'></div></div>
+    <ul class="pc"><li><span class="plus">+</span> нет «пёстрых» кружков: цветной кружок означает именно компанию</li><li><span class="minus">−</span> больше половины строк с пустым местом слева: список выглядит дырявым, а место съедено зря</li><li><span class="minus">−</span> у людей ничего: фото коллеги из чтения в списке не видно</li></ul>
+  </div>
+  <div class="slot">
+    <h3 class="v" data-q="1.1" data-variant="Б"><span class="n">1.Б</span> Логотип, иначе инициалы <em>на цветном фоне</em></h3>
+    <div class="theme"><div class="stage" data-list data-cfg='{"mode":"B","n":8,"selected":[],"opened":-1}'></div></div>
+    <ul class="pc"><li><span class="plus">+</span> у каждой строки есть кружок, глаз цепляется за цвет и форму</li><li><span class="plus">+</span> проще кода: две ветки (логотип / инициалы)</li><li><span class="minus">−</span> фото коллеги, которое видно в чтении, в списке заменено инициалами: «Анна» выглядит в списке и в письме по-разному</li></ul>
+  </div>
+  <div class="slot">
+    <h3 class="v rec" data-q="1.1" data-variant="В"><span class="n">1.В</span> Логотип, иначе фото, иначе инициалы <em>как в чтении</em></h3>
+    <div class="theme"><div class="stage" data-list data-cfg='{"mode":"V","n":8,"selected":[],"opened":-1}'></div></div>
+    <ul class="pc"><li><span class="plus">+</span> тот же порядок, что в <code>Reader.svelte</code>: человек в списке и в письме выглядит одинаково</li><li><span class="plus">+</span> фото только с вашего сервера Exchange: это не «чужой» источник</li><li><span class="minus">−</span> запрос фото на каждую видимую строку (бэкенд кэширует неделю; в окне ~10 строк)</li></ul>
+  </div>
+</div>
+<h3 class="v" data-q="1.2" data-variant="А" data-q-title="Письмо без проверки подлинности" data-variants="А,Б" data-recommended="А"><span class="n">1.2 А</span> Без проверки — обычные инициалы <em>как в чтении сейчас</em></h3>
+<p class="cap">В строке «Северный банк (подделка)» выше: логотип банка не показан, кружок инициальный, как у незнакомца. Ничего не помечено: рисовать «не подтверждено» в каждой строке — шум, а письмо с тревожной темой уже подозрительно само.</p>
+<h3 class="v" data-q="1.2" data-variant="Б"><span class="n">1.2 Б</span> Без проверки — инициалы и значок «⚠» в уголке <em>только если письмо претендует на логотип</em></h3>
+<div class="cols"><div class="slot"><div class="theme"><div class="stage" data-list data-cfg='{"mode":"V","n":3,"only":[1,2],"selected":[],"opened":-1,"warn":true}'></div></div></div>
+<div style="max-width:560px"><ul class="pc"><li><span class="plus">+</span> предупреждает именно там, где подделку пытаются выдать за банк (домен публикует логотип, а письмо проверку не прошло)</li><li><span class="minus">−</span> для этого нужно скачать логотип домена-подозреваемого: то, чего проверка и должна не допускать; плюс новое состояние в интерфейсе, которого в чтении нет</li></ul></div></div>
+
+<h2 class="screen">Экран 2. Раскладка строки</h2>
+<p class="lead">Шаг списка не меняется (<code>ROW = 64</code>, высота строки 62): виртуальный список считает строки по фиксированной высоте, любой вариант её сохраняет. В обоих вариантах ниже: непрочитанное (первая и третья строки), открытое (вторая, «Согласование договора»), выбранное (пятая).</p>
+<div class="cols">
+  <div class="slot">
+    <h3 class="v rec" data-q="2.1" data-variant="А" data-q-title="Размер и место аватара" data-variants="А,Б" data-recommended="А"><span class="n">2.А</span> Слева на две строки <em>36 px, как в чтении</em></h3>
+    <div class="theme"><div class="stage" data-list data-cfg='{"mode":"V","layout":"A","n":8,"selected":[4],"opened":1}'></div></div>
+    <ul class="pc"><li><span class="plus">+</span> текст вертикально ровный: имена и темы начинаются с одной линии</li><li><span class="plus">+</span> логотипы читаются (на 20 px рисунок банка превращается в пятно)</li><li><span class="minus">−</span> текст съедает 46 px ширины: тема короче на ~7 знаков при списке в 420 px</li></ul>
+  </div>
+  <div class="slot">
+    <h3 class="v" data-q="2.1" data-variant="Б"><span class="n">2.Б</span> Слева мелкий в одну строку <em>20 px перед именем</em></h3>
+    <div class="theme"><div class="stage" data-list data-cfg='{"mode":"V","layout":"B","n":8,"selected":[4],"opened":1}'></div></div>
+    <ul class="pc"><li><span class="plus">+</span> тема сохраняет всю ширину</li><li><span class="minus">−</span> тема не под именем, а у края: «рваный» левый край; логотип слабо различим</li></ul>
+  </div>
+</div>
+<h3 class="v" style="margin-top:28px">Как аватар уживается с остальным <em>(в живом списке на экране 4 всё переключается)</em></h3>
+<table class="q">
+<tr><th>Что</th><th>Вопрос</th><th>Варианты</th></tr>
+<tr data-q="2.2" data-q-title="Чей аватар у цепочки" data-variants="А,Б,В" data-recommended="А"><td><b>Цепочки</b></td><td class="n">2.2</td><td><b>А</b> последний, кто писал не я (тот, кто ответил последним); <b>Б</b> первый (инициатор); <b>В</b> два кружка внахлёст: инициатор и последний. Число писем остаётся значком <code>3</code> рядом с именем.</td></tr>
+<tr data-q="2.3" data-q-title="Аватар у отправленных" data-variants="А,Б,В" data-recommended="А"><td><b>Отправленные</b></td><td class="n">2.3</td><td>Сейчас в строке «Кому: …». <b>А</b> аватар первого получателя (фото или инициалы; логотипа нет: проверять подлинность своего письма нечем); <b>Б</b> без аватара, слот пуст; <b>В</b> значок ящика-отправителя (мои инициалы).</td></tr>
+<tr data-q="2.4" data-q-title="Точка непрочитанного" data-variants="А,Б" data-recommended="А"><td><b>Непрочитанное</b></td><td class="n">2.4</td><td><b>А</b> точка остаётся слева (<code>left: 5px</code>) и жирный шрифт, ничего не меняется; <b>Б</b> точка переезжает на уголок аватара (как в мессенджерах); у строк без аватара остаётся слева.</td></tr>
+<tr data-q="2.5" data-q-title="Как показать выбранные письма" data-variants="А,Б" data-recommended="А"><td><b>Выбор</b></td><td class="n">2.5</td><td>Сейчас выбор — фон строки (флажка нет). <b>А</b> так и оставить, аватар не трогать; <b>Б</b> у выбранной строки вместо аватара — галочка (как в Gmail).</td></tr>
+<tr><td><b>Рассылки</b></td><td class="n">—</td><td>Решения не требуется: логотип показывается, если письмо подтверждено (строка «Лавка Корица»), иначе инициалы. Метка «Рассылки» и «отписаться» остаются на своих местах.</td></tr>
+<tr><td><b>Метки, «ждём с», отложено</b></td><td class="n">—</td><td>Живут во второй строке и в первой перед датой: аватар их не трогает. В 2.Б метки занимают вторую строку от левого края.</td></tr>
+<tr><td><b>Полоска ящика</b></td><td class="n">—</td><td>3 px у самого края, левее точки и аватара: не пересекается (<code>left: 0</code> против аватара с <code>left: 16px</code>).</td></tr>
+</table>
+
+<h2 class="screen">Экран 3. Настройка</h2>
+<p class="lead">Окно настроек — раскладка 2.А из <code>01-settings.html</code>: «Вид → Список писем» (там же лежит и <code>sender_logos</code>). Сегодняшняя подпись лжёт: «рядом с их письмами» и место «Список писем» обещают список, а работает только в открытом письме. Зелёным — новое, зачёркнуто — старое.</p>
+<div class="cols">
+  <div class="slot wide">
+    <h3 class="v rec" data-q="3.1" data-variant="А" data-q-title="Как настраиваются аватары" data-variants="А,Б,В" data-recommended="А"><span class="n">3.А</span> Переключатель + «Логотипы компаний»</h3>
+    <div class="theme"><div class="set"><div class="tt">Настройки</div><div class="crumb">Вид → Список писем</div><section>
+      <div class="opt"><span class="cb on">✓</span><span>Собирать переписку в цепочки</span></div>
+      <div class="opt"><span class="cb on">✓</span><span><span class="new">Аватары в списке писем</span><span class="nt">Фото коллег с вашего сервера Exchange и инициалы; у писем от компаний — логотип, если он включён ниже.</span></span></div>
+      <div class="opt sub"><span class="cb on">✓</span><span><span class="old">Логотипы компаний рядом с их письмами</span> <span class="new">Логотипы компаний</span><span class="nt"><span class="new">В списке и в открытом письме.</span> Логотипы, которые компания публикует сама (BIMI), и только у писем, прошедших проверку отправителя (DMARC): подделка останется без логотипа. Скачиваются с сайта компании раз в неделю.</span></span></div>
+    </section></div></div>
+    <ul class="pc"><li><span class="plus">+</span> два независимых вопроса разведены: «рисовать кружки» (локально) и «ходить на сайты компаний за логотипами» (сеть)</li><li><span class="plus">+</span> отключить логотипы можно, оставив фото и инициалы</li><li><span class="minus">−</span> два пункта вместо одного; «Логотипы» без «Аватаров» не имеют смысла в списке (но остаются нужны в письме)</li></ul>
+  </div>
+  <div class="slot wide">
+    <h3 class="v" data-q="3.1" data-variant="Б"><span class="n">3.Б</span> Одна настройка «Аватары» с выбором</h3>
+    <div class="theme"><div class="set"><div class="tt">Настройки</div><div class="crumb">Вид → Список писем</div><section>
+      <div class="opt"><span class="cb on">✓</span><span>Собирать переписку в цепочки</span></div>
+      <div class="row"><span>Аватары</span><span class="sel">Логотипы и инициалы ▾</span></div>
+      <div class="opt" style="padding-left:0"><span class="nt" style="margin:0">Нет · Только логотипы · Логотипы, фото и инициалы. <span class="new">Действует в списке и в открытом письме.</span> Логотипы — BIMI, только у писем с проверкой DMARC, скачиваются с сайта компании раз в неделю.</span></div>
+    </section></div></div>
+    <ul class="pc"><li><span class="plus">+</span> один пункт, одно место, нечего согласовывать между двумя</li><li><span class="minus">−</span> «Нет» отключает и кружок в чтении, и фото коллег там, где сегодня они включены без вопросов: поведение чтения меняется</li><li><span class="minus">−</span> «Только логотипы» даёт пустые места (вариант 1.А), «Фото без логотипов» выразить нельзя</li></ul>
+  </div>
+  <div class="slot wide">
+    <h3 class="v" data-q="3.1" data-variant="В"><span class="n">3.В</span> Новых пунктов нет</h3>
+    <div class="theme"><div class="set"><div class="tt">Настройки</div><div class="crumb">Вид → Список писем</div><section>
+      <div class="opt"><span class="cb on">✓</span><span>Собирать переписку в цепочки</span></div>
+      <div class="opt"><span class="cb on">✓</span><span><span class="old">Логотипы компаний рядом с их письмами</span> <span class="new">Логотипы компаний</span><span class="nt"><span class="new">В списке и в открытом письме; фото и инициалы показываются всегда.</span> Логотипы, которые компания публикует сама (BIMI), и только у писем с проверкой DMARC. Скачиваются с сайта компании раз в неделю.</span></span></div>
+    </section></div></div>
+    <ul class="pc"><li><span class="plus">+</span> ни одного нового пункта; чтение и список ведут себя одинаково</li><li><span class="minus">−</span> убрать кружки из списка (ради компактности) нельзя</li></ul>
+  </div>
+</div>
+<p class="cap">Где живёт настройка: в любом из вариантов — «Вид → Список писем» рядом с «Собирать переписку в цепочки» (в <code>settingsFields.ts</code> меняется только раздел/подпись; ключ <code>sender_logos</code> и значение по умолчанию не меняются).</p>
+
+<h2 class="screen">Экран 4. Клавиатура и живой список</h2>
+<p class="lead">Аватар не должен менять ход по списку. Кружок — часть строки, а не отдельный элемент: он не получает фокус и не добавляет <kbd>Tab</kbd>-остановок, строка остаётся одним <code>role="option"</code>. <kbd>↑</kbd><kbd>↓</kbd> (<kbd>j</kbd><kbd>k</kbd>) — по строкам, <kbd>Пробел</kbd> — выбрать, <kbd>Enter</kbd> — открыть. Клик по кружку, как и по любому месту строки, выбирает/открывает письмо.</p>
+<h3 class="v rec" data-q="4.1" data-variant="А" data-q-title="Клик по аватару" data-variants="А,Б" data-recommended="А"><span class="n">4.А</span> Кружок не кликабелен <em>карточка человека — как сейчас, в заголовке письма</em></h3>
+<h3 class="v" data-q="4.1" data-variant="Б"><span class="n">4.Б</span> Клик по кружку открывает карточку <em>с клавиатуры — <kbd>P</kbd> на строке</em></h3>
+<p class="cap">Включите «4.1 Клик: Б» в верхней панели, щёлкните по кружку или поставьте фокус на строку и нажмите <kbd>P</kbd>; закрыть — <kbd>Esc</kbd>. Это второе место, где открывается карточка, и новая клавиша в таблице «Клавиши»; в 4.А карточка остаётся в письме, где фокус уже сидит на имени.</p>
+<div class="cols"><div class="slot"><div class="theme"><div class="stage" id="live" tabindex="0" data-list data-live aria-label="Живой список"></div></div>
+<p class="cap">Живой список: 14 строк. Состояние строки — в подписи внизу.</p></div>
+<div style="max-width:620px"><table class="q"><tr><th>Клавиша</th><th>Действие</th></tr>
+<tr><td><kbd>↑</kbd> <kbd>↓</kbd>, <kbd>j</kbd> <kbd>k</kbd></td><td>строка выше / ниже</td></tr>
+<tr><td><kbd>Пробел</kbd></td><td>выбрать / снять выбор</td></tr>
+<tr><td><kbd>Enter</kbd></td><td>открыть, письмо становится прочитанным</td></tr>
+<tr><td><kbd>P</kbd> (только в 4.Б)</td><td>карточка отправителя (получателя в «Отправленных»)</td></tr>
+<tr><td><kbd>Esc</kbd></td><td>закрыть карточку</td></tr></table>
+<p class="cap">Что проверить: переключите «Кружок» с <b>нет</b> на А/Б/В — ход по строкам и высота не меняются; смените «Логотипы компаний» на выкл — банк и магазин получают инициалы, как в чтении; «Папка → Отправленные» — аватар получателя (2.3).</p></div></div>
+
+<h2 class="screen">Вопросы</h2>
+<table class="q">
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендация</th></tr>
+<tr data-q="1.1" data-q-title="Что в кружке" data-variants="А,Б,В" data-recommended="В"><td class="n">1.1</td><td>Что в кружке</td><td><b>А</b> только логотипы подтверждённых компаний, у остальных пусто; <b>Б</b> логотип, иначе инициалы; <b>В</b> логотип, иначе фото, иначе инициалы</td><td><b>В</b>: как в чтении, человек выглядит одинаково везде</td></tr>
+<tr data-q="1.2" data-q-title="Письмо без проверки подлинности" data-variants="А,Б" data-recommended="А"><td class="n">1.2</td><td>Письмо без проверки (DMARC)</td><td><b>А</b> обычные инициалы, без отметок; <b>Б</b> инициалы и «⚠» там, где домен публикует логотип</td><td><b>А</b>: как в чтении, без нового состояния</td></tr>
+<tr data-q="2.1" data-q-title="Размер и место аватара" data-variants="А,Б" data-recommended="А"><td class="n">2.1</td><td>Размер и место</td><td><b>А</b> 36 px слева на две строки; <b>Б</b> 20 px в первой строке перед именем</td><td><b>А</b>: логотипы читаются, левый край ровный</td></tr>
+<tr data-q="2.2" data-q-title="Чей аватар у цепочки" data-variants="А,Б,В" data-recommended="А"><td class="n">2.2</td><td>Аватар цепочки</td><td><b>А</b> последний писавший не я; <b>Б</b> первый; <b>В</b> два кружка</td><td><b>А</b>: кто ответил — тот и важен</td></tr>
+<tr data-q="2.3" data-q-title="Аватар у отправленных" data-variants="А,Б,В" data-recommended="А"><td class="n">2.3</td><td>Отправленные</td><td><b>А</b> первый получатель; <b>Б</b> нет; <b>В</b> значок моего ящика</td><td><b>А</b>: как «Кому: …» в строке</td></tr>
+<tr data-q="2.4" data-q-title="Точка непрочитанного" data-variants="А,Б" data-recommended="А"><td class="n">2.4</td><td>Точка непрочитанного</td><td><b>А</b> слева, как сейчас; <b>Б</b> на уголке аватара</td><td><b>А</b>: ничего не переносим</td></tr>
+<tr data-q="2.5" data-q-title="Как показать выбранные письма" data-variants="А,Б" data-recommended="А"><td class="n">2.5</td><td>Выбор строки</td><td><b>А</b> только фон, как сейчас; <b>Б</b> галочка вместо аватара</td><td><b>А</b>: флажка нет и не нужен</td></tr>
+<tr data-q="3.1" data-q-title="Как настраиваются аватары" data-variants="А,Б,В" data-recommended="А"><td class="n">3.1</td><td>Настройка</td><td><b>А</b> «Аватары в списке» + «Логотипы компаний»; <b>Б</b> одна настройка с тремя значениями; <b>В</b> без новых пунктов</td><td><b>А</b>: кружки (вид) и скачивание логотипов (сеть) — разные решения; подпись логотипов исправлена в любом случае</td></tr>
+<tr data-q="4.1" data-q-title="Клик по аватару" data-variants="А,Б" data-recommended="А"><td class="n">4.1</td><td>Клик по кружку</td><td><b>А</b> не кликабелен; <b>Б</b> открывает карточку, с клавиатуры <kbd>P</kbd></td><td><b>А</b>: единообразие, карточка уже в письме</td></tr>
+</table>
+</div>
+
+<script>
+(() => {
+  /* ---------- данные (вымышленные) ---------- */
+  const ME = { name: "Я", email: "me@example.com" };
+  const P = {
+    bank: { name: "Северный банк", email: "noreply@severbank.example.com", logo: "L-bank", auth: true },
+    fake: { name: "Северный банк", email: "security@severbank-pay.example.net", logo: "L-bank", auth: false },
+    shop: { name: "Лавка «Корица»", email: "hello@koritsa.example.com", logo: "L-shop", auth: true },
+    anna: { name: "Анна Лебедева", email: "anna@example.com", photo: "P-1", auth: true },
+    petr: { name: "Пётр Орлов", email: "petr@example.com", auth: true },
+    maria: { name: "Мария Ким", email: "maria@example.org", auth: true },
+    air: { name: "Атлас Авиа", email: "tickets@atlas-air.example.com", logo: "L-air", auth: true },
+    skat: { name: "Служба доставки «Скат»", email: "no-reply@skat.example.com", auth: true },
+    rom: { name: "ООО «Ромашка»", email: "buh@romashka.example.com", auth: false },
+    trk: { name: "Трекер", email: "notify@tracker.example.com", auth: true },
+  };
+  const W = "#1f5fa8", H = "#2e7d4f";
+  // thr: участники по порядку, последний — крайнее письмо
+  const IN = [
+    { f: P.anna, s: "Согласование договора №42", d: "10:42", un: 1, thr: [P.petr, ME, P.anna], lab: [["Договоры", "#7a4e9c"]], clip: 1, ac: W, sz: "1,2 МБ" },
+    { f: P.bank, s: "Выписка за сентябрь готова", d: "09:15", un: 1, ac: H, sz: "84 КБ", clip: 1 },
+    { f: P.fake, s: "Срочно: подтвердите карту, иначе блокировка", d: "09:02", un: 1, ac: H, sz: "6 КБ" },
+    { f: P.shop, s: "Осенние скидки до 30% на всё", d: "вчера", ac: H, lab: [["Рассылки", "#b26a00"]], sz: "42 КБ" },
+    { f: P.petr, s: "Re: смета по складу", d: "вчера", tag: ["info", "ждём с 3 окт"], ac: W, sz: "3 КБ" },
+    { f: P.air, s: "Посадочный талон: рейс 481", d: "вчера", clip: 1, ac: H, sz: "210 КБ" },
+    { f: P.maria, s: "Фото с выезда", d: "пн", thr: [P.maria, ME], ac: H, sz: "5,4 МБ", clip: 1 },
+    { f: P.skat, s: "Курьер уже выехал к вам", d: "пн", ac: H, sz: "9 КБ" },
+    { f: P.rom, s: "Счёт на оплату №118", d: "пн", fl: 1, ac: W, sz: "310 КБ", clip: 1 },
+    { f: P.trk, s: "[ДП-231] Задача назначена на вас", d: "вс", ac: W, sz: "12 КБ" },
+    { f: P.anna, s: "Перенесли встречу", d: "вс", tag: ["good", "до 14:00"], ac: W, sz: "2 КБ" },
+    { f: P.shop, s: "Корзина ждёт вас", d: "сб", ac: H, sz: "38 КБ" },
+    { f: P.petr, s: "Обед в четверг?", d: "сб", ac: W, sz: "1 КБ" },
+    { f: P.maria, s: "Re: фото с выезда", d: "пт", ac: H, sz: "2 КБ" },
+  ];
+  const OUT = [
+    { to: [P.anna], s: "Re: Согласование договора №42", d: "10:50", ac: W, sz: "2 КБ" },
+    { to: [P.petr, P.maria], s: "Смета: итоговая версия", d: "вчера", clip: 1, ac: W, sz: "480 КБ" },
+    { to: [{ name: "Северный банк", email: "support@severbank.example.com", logo: "L-bank" }], s: "Вопрос по тарифу «Базовый»", d: "пн", ac: H, sz: "2 КБ" },
+    { to: [P.maria], s: "Re: Фото с выезда", d: "пн", ac: H, sz: "1 КБ" },
+    { to: [], s: "Черновик: поздравление", d: "вс", draft: 1, ac: H, sz: "—" },
+  ];
+  const DEF = { mode: "V", layout: "A", thread: "last", sent: "first", unread: "dot", sel: "bg", card: "0", folder: "in", logos: "1", theme: "paper" };
+  const S = Object.assign({}, DEF);
+
+  /* ---------- как приложение: цвет и инициалы ---------- */
+  function color(email) { let h = 0; for (const ch of email.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return `hsl(${h % 360} 42% 40%)`; }
+  function ini(a) {
+    const first = (s) => (s.match(/[\p{L}\p{N}]/u) || [""])[0];
+    const nm = (a.name || "").trim();
+    if (nm) { const p = nm.split(/\s+/).map(first).filter(Boolean); return (p.length > 1 ? p[0] + p[p.length - 1] : p[0] || "").toUpperCase(); }
+    return first(a.email).toUpperCase();
+  }
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  /* что рисовать для человека p при настройках cfg; null — пусто */
+  function pick(p, cfg, sent) {
+    if (cfg.mode === "none") return null;
+    const logoOk = cfg.logos === "1" && p.logo && p.auth && !sent;
+    if (logoOk) return { t: "logo", id: p.logo };
+    if (cfg.mode === "A") return null;
+    if (cfg.mode === "V" && p.photo) return { t: "photo", id: p.photo };
+    return { t: "init", p };
+  }
+  function disc(k) {
+    if (!k) return "";
+    if (k.t === "init") return `<span class="av" style="background:${color(k.p.email)}">${esc(ini(k.p))}</span>`;
+    return `<span class="av pic"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#${k.id}"/></svg></span>`;
+  }
+
+  /* аватар строки: {html, who} */
+  function avatarFor(m, cfg, sent) {
+    if (cfg.mode === "none") return "";
+    let k, who, inner;
+    if (sent) {
+      if (cfg.sent === "none" || m.draft && !m.to.length) { k = null; who = null; }
+      else if (cfg.sent === "me") { who = { name: "Я", email: "me@example.com" }; k = cfg.mode === "A" ? null : { t: "init", p: who }; }
+      else { who = m.to[0]; k = who ? pick(who, cfg, true) : null; }
+      inner = disc(k);
+    } else if (m.thr && cfg.thread === "stack") {
+      const others = m.thr.filter((x) => x !== ME);
+      const a = others[0], b = others[others.length - 1];
+      who = b;
+      inner = disc(pick(a, cfg)) + (a !== b ? disc(pick(b, cfg)) : "");
+      if (a === b) inner = disc(pick(b, cfg));
+      else return { who, stack: 1, inner };
+    } else if (m.thr) {
+      const others = m.thr.filter((x) => x !== ME);
+      who = cfg.thread === "first" ? others[0] : others[others.length - 1];
+      k = pick(who, cfg); inner = disc(k);
+    } else { who = m.f; k = pick(who, cfg); inner = disc(k); }
+    return { who, inner };
+  }
+
+  const nameOf = (a) => a.name || a.email;
+  function rowHTML(m, i, cfg, st) {
+    const sent = cfg.folder === "out";
+    const lay = cfg.layout;
+    const un = m.un && !(st.read || []).includes(i) || false;
+    const sel = (st.selected || []).includes(i), op = st.opened === i;
+    const a = avatarFor(m, cfg, sent);
+    let slot = "";
+    if (a) {
+      const chk = sel && cfg.sel === "check";
+      const ud = un && cfg.unread === "badge" ? `<span class="ud"></span>` : "";
+      const clk = cfg.card === "1" && a.who ? " clk" : "";
+      const body = chk ? `<span class="av chk">✓</span>` : a.inner || "";
+      slot = `<span class="avs${a.stack && !chk ? " stack" : ""}${clk}" data-av="${i}">${body}${ud}</span>`;
+    }
+    const names = sent ? (m.to.length ? "Кому: " + m.to.map(nameOf).join(", ") : "Без получателей")
+      : m.thr && m.thr.length > 1 ? [...new Set(m.thr.map((x) => x === ME ? "я" : nameOf(x).split(" ")[0]))].join(", ") : nameOf(m.f);
+    const lbls = (m.lab || []).map(([n, c]) => `<span class="lbl" style="--c:${c}">${n}</span>`).join("");
+    const tag = m.tag ? `<span class="tag ${m.tag[0]}">${m.tag[1]}</span>` : "";
+    const warn = cfg.warn && m.f && m.f.logo && !m.f.auth ? `<span class="tag" style="color:var(--accent)">⚠ не подтверждено</span>` : "";
+    const cnt = m.thr ? `<span class="cnt">${m.thr.length}</span>` : "";
+    const l1 = `${lay === "B" ? slot : ""}<span class="fr">${esc(names)}</span>${cnt}${m.draft ? '<span class="ic fl">Черновик</span>' : ""}${m.fl ? '<span class="ic fl">⚑</span>' : ""}${m.clip ? '<span class="ic">📎</span>' : ""}<span class="dt">${m.d}</span>`;
+    const l2 = `<span class="sj">${esc(m.s)}</span>${lbls}${tag}${warn}<span class="sz">${m.sz}</span>`;
+    return `<div class="r${un ? " un" : ""}${sel ? " sel" : ""}${op ? " op" : ""}${st.focus === i ? " fo" : ""}" role="option" aria-selected="${sel}" data-i="${i}" style="--acct:${m.ac}">${lay === "A" ? slot : ""}<div class="l1">${l1}</div><div class="l2">${l2}</div></div>`;
+  }
+
+  function render(el) {
+    const own = el.dataset.cfg ? JSON.parse(el.dataset.cfg) : {};
+    const live = "live" in el.dataset;
+    const cfg = Object.assign({}, DEF, live ? S : { logos: "1" }, own);
+    const st = live ? el._st : { selected: own.selected || [], opened: own.opened == null ? -1 : own.opened, read: [], focus: -1 };
+    if (live) st.card = el._card;
+    const data = cfg.folder === "out" ? OUT : IN;
+    let idx = data.map((_, i) => i);
+    if (own.only) idx = own.only; else if (own.n) idx = idx.slice(0, own.n);
+    const rows = idx.map((i) => rowHTML(data[i], i, cfg, st)).join("");
+    const title = cfg.folder === "out" ? "Отправленные" : "Входящие";
+    const cl = `lay-${cfg.layout}${cfg.unread === "badge" ? " u-badge" : ""}`;
+    const foot = live ? `<div class="foot" id="state"></div>` : "";
+    el.innerHTML = `<div class="pane ${cl}"><header><div class="srch">Поиск</div><h4>${title}</h4></header><div class="vp">${rows}</div>${foot}</div>`;
+    if (live) { updateState(el); drawCard(el); }
+  }
+
+  /* ---------- живой список ---------- */
+  const live = document.getElementById("live");
+  live._st = { selected: [], opened: -1, read: [], focus: 0 };
+  live._card = null;
+  const len = () => (S.folder === "out" ? OUT : IN).length;
+  function updateState(el) {
+    const st = el._st, d = (S.folder === "out" ? OUT : IN)[st.focus];
+    const f = el.querySelector("#state");
+    if (!f || !d) return;
+    f.textContent = `строка ${st.focus + 1} из ${len()} · выбрано ${st.selected.length}` + (st.opened >= 0 ? ` · открыто ${st.opened + 1}` : "");
+  }
+  function drawCard(el) {
+    const old = el.querySelector(".pcard"); if (old) old.remove();
+    const c = el._card; if (c == null || S.card !== "1") return;
+    const data = S.folder === "out" ? OUT : IN, m = data[c];
+    const cfg = Object.assign({}, DEF, S);
+    const a = avatarFor(m, cfg, S.folder === "out");
+    const who = a && a.who; if (!who) return;
+    const rowEl = el.querySelector(`.r[data-i="${c}"]`); if (!rowEl) return;
+    const top = rowEl.getBoundingClientRect().top - el.getBoundingClientRect().top + 48;
+    const k = pick(who, Object.assign({}, cfg, { mode: cfg.mode === "none" ? "B" : cfg.mode }), S.folder === "out");
+    const div = document.createElement("div");
+    div.className = "pcard"; div.style.left = "52px"; div.style.top = top + "px";
+    div.innerHTML = `<div class="h"><span class="avs">${disc(k)}</span><div><div class="nm">${esc(nameOf(who))}</div><div class="em">${esc(who.email)}</div></div></div><div class="b">Вся почта от этого человека</div><div class="k">Esc — закрыть</div>`;
+    el.appendChild(div);
+  }
+  function setFocus(i) {
+    const st = live._st; st.focus = Math.max(0, Math.min(len() - 1, i)); render(live);
+    const r = live.querySelector(".r.fo"); if (r) r.scrollIntoView({ block: "nearest" });
+  }
+  live.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const st = live._st;
+    if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); live._card = null; setFocus(st.focus + 1); }
+    else if (e.key === "ArrowUp" || e.key === "k") { e.preventDefault(); live._card = null; setFocus(st.focus - 1); }
+    else if (e.key === "Home") { e.preventDefault(); setFocus(0); }
+    else if (e.key === "End") { e.preventDefault(); setFocus(len() - 1); }
+    else if (e.key === " ") { e.preventDefault(); const j = st.selected.indexOf(st.focus); if (j >= 0) st.selected.splice(j, 1); else st.selected.push(st.focus); render(live); }
+    else if (e.key === "Enter") { e.preventDefault(); st.opened = st.focus; if (!st.read.includes(st.focus)) st.read.push(st.focus); render(live); }
+    else if ((e.key === "p" || e.key === "P" || e.key === "з" || e.key === "З") && S.card === "1") { e.preventDefault(); live._card = st.focus; render(live); }
+    else if (e.key === "Escape") { if (live._card != null) { e.preventDefault(); e.stopPropagation(); live._card = null; render(live); } }
+  });
+  live.addEventListener("click", (e) => {
+    const r = e.target.closest(".r"); if (!r) return;
+    const st = live._st, i = +r.dataset.i; st.focus = i;
+    if (e.target.closest(".avs.clk")) { live._card = i; render(live); live.focus(); return; }
+    live._card = null;
+    if (e.ctrlKey || e.metaKey) { const j = st.selected.indexOf(i); if (j >= 0) st.selected.splice(j, 1); else st.selected.push(i); }
+    else { st.opened = i; if (!st.read.includes(i)) st.read.push(i); }
+    render(live); live.focus();
+  });
+
+  /* ---------- панель управления ---------- */
+  document.getElementById("ctl").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-k]"); if (!b) return;
+    const k = b.dataset.k, v = b.dataset.v;
+    S[k] = v;
+    b.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    if (k === "theme") { document.body.classList.toggle("night", v === "night"); return; }
+    if (k === "folder") { live._st = { selected: [], opened: -1, read: [], focus: 0 }; live._card = null; }
+    if (k === "card") live._card = null;
+    render(live);
+  });
+
+  document.querySelectorAll("[data-list]").forEach(render);
+})();
+</script>
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var S = { a: {}, n: [], open: true };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; S.open = d.open !== false; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>Alt</kbd>+щелчок по макету — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  doc.addEventListener("click", function (e) {
+    if (!e.altKey || !e.target.closest || e.target.closest("[data-mk]")) return;
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Alt+щелчок по любому месту макета.")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы " + done + "/" + total + "  ` ";
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", layout);
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(layout, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
+</body>
+</html>
