@@ -86,6 +86,7 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 ### Сборка Rust в worktree
 
 - У каждого параллельного worktree свой `CARGO_TARGET_DIR`. Общий target между ветками с разным кодом смешивает артефакты: cargo подхватывает чужой `depesha-core`, и сборка падает ложными «no method» при живом `cargo check`. `CARGO_INCREMENTAL=0` и `cargo clean -p depesha-core -p depesha` — только если иначе нельзя: общий `target/debug/incremental` тоже делится, а `touch` ядра помогает лишь до следующей чужой сборки.
+- `scripts/check.sh` сам включает `sccache` (общий кэш компиляции всех worktree, `~/.cache/sccache`), если он установлен, и ставит `CARGO_INCREMENTAL=0`: sccache не кэширует инкрементальные крейты. `DEPESHA_NO_SCCACHE=1` отключает. Ловушка: sccache хеширует все переменные `CARGO_*`, и `CARGO_TARGET_DIR` делает ключ уникальным для каждого worktree, кэш не попадает ни разу. Поэтому при `sccache` скрипт снимает `CARGO_TARGET_DIR`, а целью служит `target/` самого worktree (он на `/home`, не в `/tmp`). Установка без sudo: бинарник с GitHub releases в `~/.cargo/bin`.
 - Reflink `target` на этом ZFS не экономит место: `cp -a --reflink=auto` между каталогами копирует десятки гигабайт по-настоящему. Сверяй `df` до и после.
 - `/tmp` — tmpfs на 7 ГБ, `CARGO_TARGET_DIR` туда не класть: сборка tokio его забивает. Параллельные rustc душат память — ограничивай `CARGO_BUILD_JOBS`.
 
@@ -101,6 +102,14 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 - Удалённое нарушение оставляет подавление в `eslint-suppressions.json`, и `eslint .` падает с кодом 2 без единой ошибки («suppressions left that do not occur anymore»). Чисти `eslint . --prune-suppressions` и смотри diff: файл подавлений общий для веток.
 - `max-lines-per-function` считает вложенные `it` внутри `describe`: лимит падает на стрелку `describe`, а не на новый тест. Новый сценарий — в соседний `describe`.
 - `no-control-regex` роняет проверку на литерале управляющих символов в паттерне. Фильтруй циклом по символам (`codePointAt`).
+
+### Проверки и цикл исправлений
+
+- Во время работы над веткой — `scripts/check.sh --changed`: файлы считаются от `git merge-base HEAD origin/main` плюс незакоммиченные. Только Rust — fmt, clippy и тесты затронутых крейтов; только фронтенд — svelte-check, метрики, инварианты, `vitest --changed`, бандл, eslint по изменённым; только docs/design — хук персональных данных.
+- Перед слиянием в `main` — полный `scripts/check.sh` на свободном стенде: `pgrep -af "e2e/run.mjs|WebKitWebDriver|tauri-driver"` пусто. Стенд один, второй прогон рядом ломает оба.
+- e2e — только при слиянии и перед выпуском, один прогон. Упавший шаг `e2e/run.mjs` перезапускается один раз, перезапущенные шаги перечислены в итоговой сводке; упавший дважды — провал, его не маскируют.
+- Reviewer смотрит дифф ветки до слияния: одна попытка исправления по ревью, затем повторное ревью правок. Некритичное уходит в заявку на следующую версию, а не в новый круг.
+- Тест и исправление — в одном коммите. Baseline метрик, инвариантов и бандла пересобирается один раз, при слиянии.
 
 ### Коммиты test → fix
 

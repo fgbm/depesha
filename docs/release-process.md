@@ -126,6 +126,12 @@ Issues для контекста читать через `gh issue view N --json
 
 Метрики и инварианты фронтенда сравниваются с baseline (`docs/frontend-metrics-baseline.txt`, `docs/frontend-invariants/`). Если рост оправдан, baseline перезаписывается `scripts/frontend-metrics.sh --save` и `scripts/frontend-invariants.sh --save` отдельным коммитом с объяснением в теле (образец — `chore: baseline метрик фронтенда после 0.6.2`).
 
+**Ступенчатые проверки.** Локально, пока идёт работа над веткой, гоняется `scripts/check.sh --changed`: изменённое определяется от `git merge-base HEAD origin/main` плюс незакоммиченные файлы. Только Rust — rustfmt, clippy и тесты затронутых крейтов (`depesha-core`, `depesha`); только фронтенд — svelte-check, метрики, инварианты, `vitest --changed`, бандл и eslint по изменённым файлам; только docs и design — хук персональных данных. `--fast` и полный запуск без флагов не изменены. Полный `scripts/check.sh` идёт один раз перед слиянием в `main`, на свободном стенде (`pgrep -af "e2e/run.mjs|WebKitWebDriver|tauri-driver"` пусто), и в CI. e2e гоняется только при слиянии и перед выпуском, одним прогоном; упавший шаг перезапускается один раз с пометкой в выводе, упавший дважды считается провалом, перезапущенные шаги перечислены в сводке.
+
+**Ревью до слияния.** Reviewer смотрит дифф ветки до слияния: одна попытка исправления, затем повторное ревью правок; некритичное — в заявку на следующую версию. Тест и исправление идут одним коммитом, baseline метрик пересобирается один раз, при слиянии.
+
+**Кэш сборки.** `scripts/check.sh` сам включает `sccache`, если он установлен (бинарник в `~/.cargo/bin`), и `CARGO_INCREMENTAL=0`; у каждого worktree своя папка `target/` вне `/tmp`, переменную `CARGO_TARGET_DIR` скрипт снимает, потому что sccache хеширует её вместе с остальными `CARGO_*`. В CI и на машинах без sccache ничего не меняется.
+
 CI (`.github/workflows/ci.yml`) запускается на push в `main` и на pull request, четыре задачи:
 
 - **check** — те же проверки, что `scripts/check.sh --fast`, плюс `npm run build`;
