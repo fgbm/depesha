@@ -434,7 +434,7 @@ describe("an answer that takes its letter to the archive (#106)", () => {
     expect(s.actions.lastUndo).toEqual({ moved: [moved], text: toast.text });
   });
 
-  it("leaves the undo of another action alone: the toast no longer takes its move back", async () => {
+  it("takes its own move back even after another action, and leaves that undo alone", async () => {
     const s = new AppStore();
     await s.init();
     const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["q@x"] };
@@ -445,7 +445,7 @@ describe("an answer that takes its letter to the archive (#106)", () => {
     api.undo.mockResolvedValue(undefined);
     toast.action!.run();
     await flush();
-    expect(api.undo).not.toHaveBeenCalled();
+    expect(api.undo).toHaveBeenCalledWith([moved]);
     expect(s.actions.lastUndo).toBe(other);
   });
 });

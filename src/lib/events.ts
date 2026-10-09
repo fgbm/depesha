@@ -167,10 +167,11 @@ interface BringFailed {
   error?: string;
 }
 
-/** A toast takes its own move back once: not after "z" has, nor after another action took the undo over. */
-function takeUndo(app: AppStore, mine: object) {
-  if (app.actions.lastUndo !== mine) return false;
-  app.actions.lastUndo = null;
+/** A toast takes its own move back, once: not after "z" has, not by a second press; whatever else was done since. */
+function takeUndo(app: AppStore, mine: Undoable) {
+  if (mine.undone) return false;
+  mine.undone = true;
+  if (app.actions.lastUndo === mine) app.actions.lastUndo = null;
   return true;
 }
 
@@ -178,13 +179,12 @@ function takeUndo(app: AppStore, mine: object) {
 function parked(app: AppStore, p: Parked) {
   const text = t("toast.sentParked", { subject: p.subject || t("noSubject") });
   const keep = () => api.followupUnpark(p.account_id, p.key);
-  const mine = { moved: [], text, run: keep };
+  const mine: Undoable = { moved: [], text, run: keep };
   app.actions.lastUndo = mine;
   app.toast(text, false, {
     label: t("toast.keepInInbox"),
     run: () => {
-      // The toast stays a while: another action may have taken the undo since.
-      if (takeUndo(app, mine)) keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
+            if (takeUndo(app, mine)) keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
     },
   });
 }
@@ -192,9 +192,9 @@ function parked(app: AppStore, p: Parked) {
 /** The answer's letter has been taken to the archive; "sent" was said when the answer left. */
 function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) {
   const text = t("toast.archivedAfterSend");
-  const mine = { moved: [p.moved], text };
+  const mine: Undoable = { moved: [p.moved], text };
   app.actions.lastUndo = mine;
-  // The toast undoes its own move, once, and only while nothing else (the "z" key) has undone it.
+  // The toast undoes its own move, once, even after other actions; not after "z" has undone it.
   app.toast(text, false, {
     label: t("undo"),
     run: () => {

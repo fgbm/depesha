@@ -18,6 +18,8 @@ export interface Undoable {
   text: string;
   /** Takes it back otherwise than by moving the letters back: an answer's move to "Waiting for reply". */
   run?: () => Promise<void>;
+  /** Set once the move is taken back, by "z" or by the toast's button: a move is taken back once. */
+  undone?: boolean;
 }
 
 /** What actions need from the app store. */
@@ -178,6 +180,7 @@ export class ActionRunner {
     const u = this.lastUndo;
     if (!u) return;
     this.lastUndo = null;
+    u.undone = true;
     try {
       await (u.run ? u.run() : api.undo(u.moved));
       this.host.toast(t("done.undone"));

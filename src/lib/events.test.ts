@@ -98,31 +98,75 @@ describe("toasts after an answer that archives its letter (#106)", () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it("does not undo the move a second time after «z», nor twice from the toast", async () => {
+  it("does not undo the move a second time after «z»", async () => {
     emit("archived-after-send", { subject: "x", moved });
     await flush();
     const action = toast.mock.calls[0][2];
-    app.actions.lastUndo = null; // «z» has taken the move back
+    const mine = app.actions.lastUndo as { undone?: boolean };
+    mine.undone = true; // «z» has taken the move back
+    app.actions.lastUndo = null;
     action.run();
     await flush();
     expect(api.undo).not.toHaveBeenCalled();
+  });
 
+  it("undoes once from the toast, however many times it is pressed", async () => {
     emit("archived-after-send", { subject: "y", moved });
     await flush();
-    const again = toast.mock.calls[1][2];
-    again.run();
-    again.run();
+    const action = toast.mock.calls[0][2];
+    action.run();
+    action.run();
     await flush();
     expect(api.undo).toHaveBeenCalledTimes(1);
+    expect(api.undo).toHaveBeenCalledWith([moved]);
+    expect(app.actions.lastUndo).toBeNull();
+  });
+
+  it("undoes its own move even when another action has come since, and leaves that one alone", async () => {
+    emit("archived-after-send", { subject: "y", moved });
+    await flush();
+    const other = { moved: [], text: "другое" };
+    app.actions.lastUndo = other;
+    toast.mock.calls[0][2].run();
+    await flush();
+    expect(api.undo).toHaveBeenCalledTimes(1);
+    expect(app.actions.lastUndo).toBe(other);
+  });
+});
+
+describe("toasts after an answer that parks its letter (#106)", () => {
+  let app: { actions: { lastUndo: unknown } };
+  let toast: ReturnType<typeof vi.fn>;
+  beforeEach(async () => {
+    resetFakes();
+    api.undo.mockClear();
+    toast = vi.fn();
+    app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null }, toast, reload: vi.fn(), fail: vi.fn() } as never;
+    await listenMain(app as unknown as AppStore);
   });
 
   it("the «parked» toast keeps the letter in the inbox once only", async () => {
     emit("parked", { account_id: "a", key: "k", subject: "x" });
     await flush();
     const action = toast.mock.calls[0][2];
-    app.actions.lastUndo = null;
+    action.run();
     action.run();
     await flush();
-    expect(api.followupUnpark).not.toHaveBeenCalled();
+    expect(api.followupUnpark).toHaveBeenCalledTimes(1);
+  });
+
+  it("the «parked» toast does not repeat «z», and works after another action", async () => {
+    emit("parked", { account_id: "a", key: "k", subject: "x" });
+    emit("parked", { account_id: "a", key: "k2", subject: "y" });
+    await flush();
+    const first = toast.mock.calls[0][2];
+    first.run(); // another action (the second park) came since
+    await flush();
+    expect(api.followupUnpark).toHaveBeenCalledWith("a", "k");
+    const second = app.actions.lastUndo as { undone?: boolean };
+    second.undone = true; // «z»
+    toast.mock.calls[1][2].run();
+    await flush();
+    expect(api.followupUnpark).toHaveBeenCalledTimes(1);
   });
 });
