@@ -170,3 +170,15 @@ describe("toasts after an answer that parks its letter (#106)", () => {
     expect(api.followupUnpark).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("snoozed letters that did not all come back (#101)", () => {
+  it("warns that some stayed in Snoozed", async () => {
+    const toast = vi.fn();
+    const app = { composes: [], settings: {}, accounts: [], toast } as unknown as AppStore;
+    await listenMain(app);
+
+    emit("unsnooze-partial");
+    await flush();
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("Snoozed"), true);
+  });
+});

@@ -35,6 +35,8 @@ function common(app: AppStore) {
     listen<{ subject: string; parking?: boolean }>("sent", (e) => {
       if (!e.payload.parking) app.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }));
     }),
+    // "Release" brought some of the snoozed letters back and some stayed in "Snoozed".
+    listen("unsnooze-partial", () => app.toast(t("toast.unsnoozePartial"), true)),
     listen<{ error: CmdError }>("send-failed", (e) => app.toast(t("toast.sendFailed", { error: e.payload.error.message }), true)),
     // The address book changed in another window: the cache follows.
     listen("people-changed", () => peopleBook.changed()),

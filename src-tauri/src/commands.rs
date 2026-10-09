@@ -1268,23 +1268,49 @@ fn drop_unsnoozed(
     Ok(())
 }
 
-/// A group of letters that failed to come back does not take the groups that did down with
-/// it: their `Moved` (the undo) must reach the caller. With nothing moved yet the error is
-/// the caller's.
-fn keep_moved_on_error(moved: &[Moved], e: CmdError) -> CmdResult<()> {
-    if moved.is_empty() {
-        return Err(e);
+/// Snoozed letters that come back together: of one mailbox, from one folder, to one folder.
+struct Release {
+    account_id: String,
+    folder: String,
+    to: String,
+    snoozed: Vec<Snooze>,
+}
+
+/// Brings the groups back one after another. A group that failed to come back does not take the
+/// others down with it: their `Moved` (the undo) must reach the caller, and the groups after it
+/// are tried too. The result says whether some letters stayed. With nothing moved at all the
+/// first error is the caller's.
+async fn release_groups<F, Fut>(groups: Vec<Release>, mut one: F) -> CmdResult<(Vec<Moved>, bool)>
+where
+    F: FnMut(Release) -> Fut,
+    Fut: std::future::Future<Output = CmdResult<Option<Moved>>>,
+{
+    let mut done = Vec::new();
+    let mut failed: Option<CmdError> = None;
+    for group in groups {
+        match one(group).await {
+            Ok(Some(moved)) => done.push(moved),
+            // Not moved: the times were never dropped, the letters are still snoozed.
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("unsnooze: a group of letters stayed: {}", e.message);
+                failed.get_or_insert(e);
+            }
+        }
     }
-    tracing::warn!("unsnooze: a group of letters stayed: {}", e.message);
-    Ok(())
+    match failed {
+        Some(e) if done.is_empty() => Err(e),
+        failed => Ok((done, failed.is_some())),
+    }
 }
 
 /// Brings snoozed mail back before its time: into the folder it was snoozed from, unread
 /// as when the time comes, and the time is dropped. The undo snoozes it again for the same time.
+/// When some letters stayed, "unsnooze-partial" says so.
 #[tauri::command]
 pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
-    let mut done = Vec::new();
-    'groups: for (key, rows) in group_rows(&state, &ids)? {
+    let mut groups = Vec::new();
+    for (key, rows) in group_rows(&state, &ids)? {
         let (account_id, folder, _) = &key;
         let message_ids: Vec<String> = rows.iter().filter_map(|r| r.message_id.clone()).collect();
         // By the folder they came from: a series of letters may have come from several.
@@ -1295,6 +1321,23 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
             back.entry(s.return_to.clone()).or_default().push(s);
         }
         for (to, snoozed) in back {
+            groups.push(Release {
+                account_id: account_id.clone(),
+                folder: folder.clone(),
+                to,
+                snoozed,
+            });
+        }
+    }
+    let (done, partial) = release_groups(groups, |group| {
+        let state = state.inner().clone();
+        async move {
+            let Release {
+                account_id,
+                folder,
+                to,
+                snoozed,
+            } = group;
             let moved = Moved {
                 account_id: account_id.clone(),
                 from: folder.clone(),
@@ -1304,34 +1347,36 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                 unseen: Vec::new(),
                 snoozed: snoozed.clone(),
             };
-            let out = match state.worker(account_id) {
-                Ok(worker) => worker
-                    .run(Work::MoveByMessageId {
-                        from: folder.clone(),
-                        message_ids: moved.message_ids.clone(),
-                        to,
-                        unseen: true,
-                    })
-                    .await
-                    .map_err(CmdError::from),
-                Err(e) => Err(e),
-            };
+            let out = state
+                .worker(&account_id)?
+                .run(Work::MoveByMessageId {
+                    from: folder.clone(),
+                    message_ids: moved.message_ids.clone(),
+                    to,
+                    unseen: true,
+                })
+                .await
+                .map_err(CmdError::from);
             match out {
                 // Moved, whole or in part: the cache tells which letters left.
                 Ok(Output::Count(n)) if n > 0 => {}
-                // Not moved: the times were never dropped, the letters are still snoozed.
-                Ok(_) => continue,
-                Err(e) => {
-                    keep_moved_on_error(&done, e)?;
-                    break 'groups;
-                }
+                Ok(_) => return Ok(None),
+                Err(e) => return Err(e),
             }
-            drop_unsnoozed(&state.store, account_id, folder, &moved.message_ids)?;
-            done.push(moved);
+            // The letters are back: a failure to forget their times is logged, not allowed to
+            // take the undo of this and the earlier groups away.
+            if let Err(e) = drop_unsnoozed(&state.store, &account_id, &folder, &moved.message_ids) {
+                tracing::warn!("unsnooze: the times of the letters were not dropped: {e}");
+            }
+            Ok(Some(moved))
         }
-    }
+    })
+    .await?;
     state.scheduler_notify.notify_one();
     state.emit("counters-changed", serde_json::json!({}));
+    if partial {
+        state.emit("unsnooze-partial", serde_json::json!({}));
+    }
     if done.is_empty() {
         return Err(CmdError::new(
             "not-found",
@@ -3634,23 +3679,50 @@ mod tests {
         assert_eq!(left[0].message_id, "<b@x>");
     }
 
-    #[test]
-    fn a_failed_second_group_does_not_cost_the_first_its_undo() {
-        let moved = super::Moved {
+    #[tokio::test]
+    async fn a_failed_middle_group_does_not_cost_the_others_their_undo() {
+        let group = |folder: &str| super::Release {
             account_id: "a".into(),
-            from: "Snoozed".into(),
+            folder: folder.into(),
             to: "INBOX".into(),
-            message_ids: vec!["<a@x>".into()],
+            snoozed: Vec::new(),
+        };
+        let moved = |folder: &str| super::Moved {
+            account_id: "a".into(),
+            from: folder.into(),
+            to: "INBOX".into(),
+            message_ids: vec![format!("<{folder}@x>")],
             waits: Vec::new(),
             unseen: Vec::new(),
             snoozed: Vec::new(),
         };
         let down = || crate::error::CmdError::new("other", "connection lost");
-        assert!(super::keep_moved_on_error(&[moved], down()).is_ok());
+        let (done, partial) = super::release_groups(vec![group("one"), group("two"), group("three")], |g| {
+            let (moved, folder) = (moved(&g.folder), g.folder);
+            async move { if folder == "two" { Err(down()) } else { Ok(Some(moved)) } }
+        })
+        .await
+        .unwrap();
         assert_eq!(
-            super::keep_moved_on_error(&[], down()).unwrap_err().message,
-            "connection lost"
+            done.iter().map(|m| m.from.as_str()).collect::<Vec<_>>(),
+            ["one", "three"],
+            "the group after the failed one was tried too"
         );
+        assert!(partial);
+        // Nothing moved: the error is the caller's.
+        let err = super::release_groups(vec![group("one")], |_| async { Err(down()) })
+            .await
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(err.message, "connection lost");
+        // All back: no warning.
+        let (_, partial) = super::release_groups(vec![group("one")], |g| {
+            let m = moved(&g.folder);
+            async move { Ok(Some(m)) }
+        })
+        .await
+        .unwrap();
+        assert!(!partial);
     }
 
     #[test]

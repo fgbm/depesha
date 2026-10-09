@@ -749,6 +749,7 @@ export const en = {
   "toast.parkFailed": "The letter was not moved to “Waiting for reply”: {error}. It stayed in the inbox",
   "toast.parkRefused": "Could not create the folder “{folder}”: the server does not allow it. The letter stayed in the inbox",
   "toast.scheduled": "Will be sent {when}. The message waits in the Outbox.",
+  "toast.unsnoozePartial": "Some letters did not come back from Snoozed: the server refused the move. The rest came back.",
   "toast.sendFailed": "Not sent: {error}. The message is in the Outbox.",
   "toast.sending": { one: "Sending… {n} second to undo", other: "Sending… {n} seconds to undo" },
   "toast.sent": "Sent: {subject}",
