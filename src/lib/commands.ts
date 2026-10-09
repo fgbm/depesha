@@ -43,6 +43,15 @@ export function coreCommands(): Command[] {
       list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.moveTo(f.name) });
     }
   }
+  // «Clear» (#74): one command, only in Trash, Spam and Drafts.
+  const clear = app.clearing.here();
+  if (clear) {
+    list.push({
+      id: "core.empty-folder",
+      title: () => app.clearing.title(clear.role),
+      run: () => void app.clearing.begin(clear.account_id, clear.folder.name),
+    });
+  }
   // Labels (#42, frame 10): on the selected rows, or on the open letter.
   if (target.length || msg) {
     const ids = target.length ? target : [msg!.row.id];

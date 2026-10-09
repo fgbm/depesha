@@ -348,6 +348,116 @@ pub async fn delete_permanently(
     }
 }
 
+/// How many messages the folder holds on the server (the cache keeps a window of it).
+pub async fn folder_total(conn: &mut Conn, store: &Store, account_id: &str, folder: &str) -> Result<usize> {
+    match conn {
+        Conn::Imap(c) => Ok(imap::folder_total(c, folder).await? as usize),
+        Conn::Ews(s) => ews::folder_total(s, store, account_id, folder).await,
+    }
+}
+
+/// What «Clear» does with the messages of a folder (#74).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Emptying {
+    /// Wipes them for good (Trash, Junk).
+    Erase,
+    /// Moves them into the named folder (Drafts into Trash), where they can be got back.
+    ToFolder(String),
+}
+
+/// How far an emptying got.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Emptied {
+    /// Messages the folder held when the run began, less the ones it was told to keep.
+    pub total: usize,
+    pub done: usize,
+    /// The run was stopped between two batches; the rest is still there.
+    pub stopped: bool,
+}
+
+/// IMAP messages wiped or moved in one request: a few thousand UIDs in a single command
+/// line are refused by some servers, and the batch is also where a stop can take effect.
+pub const EMPTY_BATCH: usize = 500;
+/// Exchange moves items a hundred at a time.
+const EWS_EMPTY_BATCH: usize = 100;
+
+/// Empties the folder on the server, every message in it and not only those the cache
+/// loaded, except `keep` (cached UIDs of messages that must stay). It works in batches
+/// and calls `progress(done, total)` at the start and after each; `false` from it stops
+/// the run before the next batch. A failed batch ends the run with its error: what
+/// `progress` last reported is what was done.
+#[allow(clippy::too_many_arguments)]
+pub async fn empty_folder(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    how: &Emptying,
+    keep: &[u32],
+    imap_batch: usize,
+    progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
+) -> Result<Emptied> {
+    let mut run = Emptied::default();
+    match conn {
+        Conn::Imap(c) => {
+            let (validity, mut uids) = imap::folder_uids(c, folder).await?;
+            uids.retain(|u| !keep.contains(u));
+            run.total = uids.len();
+            if !progress(0, run.total) {
+                run.stopped = run.total > 0;
+                return Ok(run);
+            }
+            for chunk in uids.chunks(imap_batch.max(1)) {
+                match how {
+                    Emptying::Erase => imap::delete_permanently(c, folder, Some(validity), chunk).await?,
+                    Emptying::ToFolder(to) => imap::move_messages(c, folder, Some(validity), chunk, to).await?,
+                }
+                run.done += chunk.len();
+                if !progress(run.done, run.total) && run.done < run.total {
+                    run.stopped = true;
+                    break;
+                }
+            }
+        }
+        Conn::Ews(s) => match how {
+            Emptying::Erase => {
+                // Nothing is kept from the trash or junk; the server wipes the folder in one call.
+                run.total = ews::folder_total(s, store, account_id, folder).await?;
+                if run.total == 0 {
+                    return Ok(run);
+                }
+                if !progress(0, run.total) {
+                    run.stopped = true;
+                    return Ok(run);
+                }
+                ews::empty_folder(s, store, account_id, folder).await?;
+                run.done = run.total;
+                progress(run.done, run.total);
+            }
+            Emptying::ToFolder(to) => {
+                let kept: std::collections::HashSet<String> =
+                    store.ews_item_ids(account_id, folder, keep)?.into_iter().collect();
+                let mut ids = ews::folder_item_ids(s, store, account_id, folder).await?;
+                ids.retain(|id| !kept.contains(id));
+                run.total = ids.len();
+                if !progress(0, run.total) {
+                    run.stopped = run.total > 0;
+                    return Ok(run);
+                }
+                for chunk in ids.chunks(EWS_EMPTY_BATCH) {
+                    ews::move_item_ids(s, store, account_id, chunk, to).await?;
+                    run.done += chunk.len();
+                    if !progress(run.done, run.total) && run.done < run.total {
+                        run.stopped = true;
+                        break;
+                    }
+                }
+            }
+        },
+    }
+    Ok(run)
+}
+
 /// Puts a message into a folder unless one with the same Message-ID is already there.
 pub async fn append_unless_exists(
     conn: &mut Conn,

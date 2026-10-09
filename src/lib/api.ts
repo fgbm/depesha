@@ -7,6 +7,7 @@ import type {
   CmdError,
   ComposeDraft,
   CachedDraft,
+  Emptied,
   Counters,
   StuckCopy,
   Extension,
@@ -155,6 +156,10 @@ export const api = {
   notifyFull: (title: string, body: string) => call<void>("notify_full", { title, body }),
   tasks: () => call<Task[]>("tasks_list"),
   taskDismiss: (key: string) => call<void>("task_dismiss", { key }),
+  taskStop: (key: string) => call<void>("task_stop", { key }),
+  folderTotal: (accountId: string, folder: string) => call<number>("folder_total", { accountId, folder }),
+  folderEmpty: (accountId: string, folder: string, keepIds: number[]) =>
+    call<Emptied>("folder_empty", { accountId, folder, keepIds }),
   stuckCopies: () => call<StuckCopy[]>("stuck_copies"),
   sentCopyRetry: (id: number) => call<boolean>("sent_copy_retry", { id }),
   sentCopySave: (id: number, path: string) => call<void>("sent_copy_save", { id, path }),

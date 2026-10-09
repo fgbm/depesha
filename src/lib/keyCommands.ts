@@ -38,6 +38,8 @@ export const CORE_KEYS: CoreKey[] = [
   // Delete first: menus, the palette and tooltips show the first key.
   row("core.delete", "act.delete", ["Delete", "#"], "list"),
   row("core.spam", "act.spam", ["!"], "list"),
+  // Delete takes the letters, with Shift the whole folder: only in Trash, Spam and Drafts (#74).
+  row("core.empty-folder", "keys.cmd.emptyFolder", ["Mod+Shift+Delete"], "list"),
   row("core.unread", "keys.cmd.toggleRead", ["u"], "list"),
   row("core.flag", "cmd.flag", ["s"], "list"),
   // Labels (#42, frame 10): l is free; the Russian д sits on the same key.

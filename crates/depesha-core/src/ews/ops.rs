@@ -510,6 +510,8 @@ struct Scanned {
 struct Page {
     items: Vec<Scanned>,
     last: bool,
+    /// `TotalItemsInView`: the whole folder (or the restricted view), not just this page.
+    total: Option<usize>,
 }
 
 fn scan_shape() -> String {
@@ -549,6 +551,9 @@ async fn find_page(
     let resp = single(&doc)?;
     // `last` is the same xs:boolean read as the folder walk's (`"false"`/`"0"` mean more).
     let last = child(resp, "RootFolder").is_none_or(|r| !has_next_page(r));
+    let total = child(resp, "RootFolder")
+        .and_then(|r| r.attribute("TotalItemsInView"))
+        .and_then(|v| v.trim().parse().ok());
     let items = items(resp)
         .into_iter()
         .filter_map(|it| {
@@ -560,7 +565,7 @@ async fn find_page(
             })
         })
         .collect();
-    Ok(Page { items, last })
+    Ok(Page { items, last, total })
 }
 
 /// Headers of items for the cache, built from the transport headers when the
@@ -1284,6 +1289,47 @@ pub async fn delete_permanently(
         let text_ = s.call(&body).await?;
         check_all(&text_)?;
     }
+    Ok(())
+}
+
+/// How many items the folder holds on the server.
+pub async fn folder_total(s: &mut Session, store: &Store, account_id: &str, folder: &str) -> Result<usize> {
+    let fid = folder_id(store, account_id, folder)?;
+    let page = find_page(s, &fid, 0, 1, None, None).await?;
+    Ok(page.total.unwrap_or(page.items.len()))
+}
+
+/// Every item id of the folder, asked of the server: the cache holds only a window of it.
+pub async fn folder_item_ids(s: &mut Session, store: &Store, account_id: &str, folder: &str) -> Result<Vec<String>> {
+    let fid = folder_id(store, account_id, folder)?;
+    let mut ids = Vec::new();
+    // Bounded like the folder walk: a server that ignores `Offset` must not spin it forever.
+    for _ in 0..FOLDER_PAGES_MAX {
+        let page = find_page(s, &fid, ids.len(), 500, None, None).await?;
+        let empty = page.items.is_empty();
+        ids.extend(page.items.into_iter().map(|i| i.id));
+        if page.last || empty {
+            break;
+        }
+    }
+    Ok(ids)
+}
+
+/// `EmptyFolder` for good, as `delete_permanently` does it: one call for the whole folder.
+pub async fn empty_folder(s: &mut Session, store: &Store, account_id: &str, folder: &str) -> Result<()> {
+    let fid = folder_id(store, account_id, folder)?;
+    let body = format!(
+        r#"<m:EmptyFolder DeleteType="SoftDelete" DeleteSubFolders="false"><m:FolderIds>{}</m:FolderIds></m:EmptyFolder>"#,
+        folder_ref(&fid)
+    );
+    let text_ = s.call(&body).await?;
+    check_all(&text_)
+}
+
+/// Moves one batch of items (as `folder_item_ids` named them) into `to`.
+pub async fn move_item_ids(s: &mut Session, store: &Store, account_id: &str, ids: &[String], to: &str) -> Result<()> {
+    let to_id = folder_id(store, account_id, to)?;
+    move_ids(s, ids, &to_id).await?;
     Ok(())
 }
 

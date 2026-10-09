@@ -3,6 +3,7 @@
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
 use depesha_core::imap::{self, FlagChange, FolderRole};
+use depesha_core::mail;
 use depesha_core::message::{self, Addr};
 use depesha_core::smtp::{self, Draft, OutgoingAttachment};
 use depesha_core::store::{ListQuery, Store};
@@ -358,4 +359,165 @@ async fn refuses_plaintext_when_starttls_missing() {
         .err()
         .unwrap();
     assert!(matches!(err, depesha_core::Error::NoTls), "{err:?}");
+}
+
+fn letter(kind: &str, n: usize) -> Vec<u8> {
+    format!(
+        "From: Тест <test@example.org>\r\nTo: me@example.org\r\nSubject: {kind} {n}\r\nMessage-ID: <{kind}{n}.{}@example.org>\r\n\
+         Date: Fri, 2 Oct 2026 10:00:00 +0300\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nТело {n}\r\n",
+        std::process::id()
+    )
+    .into_bytes()
+}
+
+/// #74: «Clear» wipes every message of the folder on the server in batches, can be stopped
+/// between two of them, leaves other folders alone, and moves (not wipes) when asked to.
+async fn clears_a_folder(conn: imap::Conn, tag: &str) {
+    let store = Store::open_in_memory().unwrap();
+    let mut conn = mail::Conn::Imap(conn);
+    let (junk, other, drafts, trash) = (
+        format!("Junk{tag}"),
+        format!("Other{tag}"),
+        format!("Drafts{tag}"),
+        format!("Trash{tag}"),
+    );
+    for f in [&junk, &other, &drafts, &trash] {
+        let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+        c.session.create(f).await.unwrap();
+    }
+    {
+        let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+        for n in 1..=7 {
+            imap::append(c, &junk, &letter("junk", n), "").await.unwrap();
+        }
+        for n in 1..=2 {
+            imap::append(c, &other, &letter("other", n), "").await.unwrap();
+        }
+        for n in 1..=5 {
+            imap::append(c, &drafts, &letter("draft", n), "").await.unwrap();
+        }
+    }
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(), 7);
+
+    // Stopped after the first batch of three: the rest stays.
+    let mut seen = Vec::new();
+    let mut progress = |done: usize, total: usize| {
+        seen.push((done, total));
+        done == 0
+    };
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &[],
+        3,
+        &mut progress,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 7,
+            done: 3,
+            stopped: true
+        }
+    );
+    assert_eq!(seen, vec![(0, 7), (3, 7)]);
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(), 4);
+
+    // Run again: only what is left goes, in two batches; the other folder is untouched.
+    let mut seen = Vec::new();
+    let mut progress = |done: usize, total: usize| {
+        seen.push((done, total));
+        true
+    };
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &[],
+        3,
+        &mut progress,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 4,
+            done: 4,
+            stopped: false
+        }
+    );
+    assert_eq!(seen, vec![(0, 4), (3, 4), (4, 4)]);
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(), 0);
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &other).await.unwrap(), 2);
+
+    // An empty folder: nothing to do, no batch.
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &[],
+        3,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(run, mail::Emptied::default());
+
+    // Drafts go to the Trash, except the one kept (open in a window).
+    let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+    let (_, uids) = imap::folder_uids(c, &drafts).await.unwrap();
+    assert_eq!(uids.len(), 5);
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &drafts,
+        &mail::Emptying::ToFolder(trash.clone()),
+        &uids[..1],
+        2,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 4,
+            done: 4,
+            stopped: false
+        }
+    );
+    let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+    assert_eq!(
+        imap::folder_uids(c, &drafts).await.unwrap().1,
+        uids[..1],
+        "the kept draft stays"
+    );
+    assert_eq!(
+        imap::folder_uids(c, &trash).await.unwrap().1.len(),
+        4,
+        "the rest is in the trash"
+    );
+    c.session.logout().await.unwrap();
+}
+
+#[tokio::test]
+async fn clearing_a_folder() {
+    if !enabled() {
+        return;
+    }
+    let conn = imap::connect(&imap_server(), &Credentials::new("carol", "secret"))
+        .await
+        .expect("carol login");
+    clears_a_folder(conn, &std::process::id().to_string()).await;
 }

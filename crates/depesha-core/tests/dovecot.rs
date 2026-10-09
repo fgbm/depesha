@@ -136,7 +136,7 @@ async fn starttls_sync_move_and_fallbacks() {
         1
     );
 
-    // Old server without MOVE and UIDPLUS: COPY + \Deleted, no EXPUNGE that could hit others' mail.
+    // Old server without MOVE and UIDPLUS: COPY, \Deleted, then a plain EXPUNGE (#113).
     conn.caps.move_ = false;
     conn.caps.uidplus = false;
     imap::move_messages(&mut conn, "INBOX", None, &[rows[2].uid], "Trash")
@@ -145,10 +145,7 @@ async fn starttls_sync_move_and_fallbacks() {
     let r = sync::sync_folder(&mut conn, &store, "d", "INBOX", small).await.unwrap();
     assert_eq!(r.removed, 1, "a \\Deleted message disappears from the list");
     let status = conn.session.select("INBOX").await.unwrap();
-    assert_eq!(
-        status.exists, 29,
-        "without UIDPLUS the original stays on the server, marked deleted"
-    );
+    assert_eq!(status.exists, 28, "without UIDPLUS the original is expunged too");
     conn.caps.move_ = true;
     conn.caps.uidplus = true;
 
@@ -608,12 +605,17 @@ async fn changes_from_another_client(test: &str, mut conn: Conn, n: usize) -> Ve
         .await
         .unwrap();
     pass(&mut conn).await; // one expunged
-    other.caps.uidplus = false;
-    imap::delete_permanently(&mut other, "INBOX", None, &[uids[2]])
+    // Another client marks a letter \Deleted and leaves it unexpunged.
+    other.session.select("INBOX").await.unwrap();
+    let _: Vec<_> = other
+        .session
+        .uid_store(uids[2].to_string(), "+FLAGS.SILENT (\\Deleted)")
+        .await
+        .unwrap()
+        .try_collect()
         .await
         .unwrap();
     pass(&mut conn).await; // one \Deleted, not expunged
-    other.caps.uidplus = true;
     imap::delete_permanently(&mut other, "INBOX", None, &[uids[3]])
         .await
         .unwrap();
@@ -1286,4 +1288,165 @@ async fn permanent_delete_without_uidplus_wipes_ours_and_spares_foreign_marks() 
     conn.session.select("Trash").await.unwrap();
     assert!(imap::uid_search(&mut conn, "ALL").await.unwrap().is_empty());
     conn.session.logout().await.unwrap();
+}
+
+/// #74: «Clear» wipes every message of the folder on the server in batches, can be stopped
+/// between two of them, leaves other folders alone, and moves (not wipes) when asked to.
+async fn clears_a_folder(conn: imap::Conn, tag: &str) {
+    let store = Store::open_in_memory().unwrap();
+    let mut conn = mail::Conn::Imap(conn);
+    let (junk, other, drafts, trash) = (
+        format!("Junk{tag}"),
+        format!("Other{tag}"),
+        format!("Drafts{tag}"),
+        format!("Trash{tag}"),
+    );
+    for f in [&junk, &other, &drafts, &trash] {
+        let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+        c.session.create(f).await.unwrap();
+    }
+    {
+        let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+        for n in 1..=7 {
+            imap::append(c, &junk, &mail("junk", n), "").await.unwrap();
+        }
+        for n in 1..=2 {
+            imap::append(c, &other, &mail("other", n), "").await.unwrap();
+        }
+        for n in 1..=5 {
+            imap::append(c, &drafts, &mail("draft", n), "").await.unwrap();
+        }
+    }
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(), 7);
+
+    // Stopped after the first batch of three: the rest stays.
+    let mut seen = Vec::new();
+    let mut progress = |done: usize, total: usize| {
+        seen.push((done, total));
+        done == 0
+    };
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &[],
+        3,
+        &mut progress,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 7,
+            done: 3,
+            stopped: true
+        }
+    );
+    assert_eq!(seen, vec![(0, 7), (3, 7)]);
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(), 4);
+
+    // Run again: only what is left goes, in two batches; the other folder is untouched.
+    let mut seen = Vec::new();
+    let mut progress = |done: usize, total: usize| {
+        seen.push((done, total));
+        true
+    };
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &[],
+        3,
+        &mut progress,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 4,
+            done: 4,
+            stopped: false
+        }
+    );
+    assert_eq!(seen, vec![(0, 4), (3, 4), (4, 4)]);
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &junk).await.unwrap(), 0);
+    assert_eq!(mail::folder_total(&mut conn, &store, "a", &other).await.unwrap(), 2);
+
+    // An empty folder: nothing to do, no batch.
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &junk,
+        &mail::Emptying::Erase,
+        &[],
+        3,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(run, mail::Emptied::default());
+
+    // Drafts go to the Trash, except the one kept (open in a window).
+    let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+    let (_, uids) = imap::folder_uids(c, &drafts).await.unwrap();
+    assert_eq!(uids.len(), 5);
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        "a",
+        &drafts,
+        &mail::Emptying::ToFolder(trash.clone()),
+        &uids[..1],
+        2,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 4,
+            done: 4,
+            stopped: false
+        }
+    );
+    let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+    assert_eq!(
+        imap::folder_uids(c, &drafts).await.unwrap().1,
+        uids[..1],
+        "the kept draft stays"
+    );
+    assert_eq!(
+        imap::folder_uids(c, &trash).await.unwrap().1.len(),
+        4,
+        "the rest is in the trash"
+    );
+    c.session.logout().await.unwrap();
+}
+
+#[tokio::test]
+async fn clearing_a_folder_over_starttls() {
+    if !enabled() {
+        return;
+    }
+    clears_a_folder(connect("clear").await, "A").await;
+}
+
+#[tokio::test]
+async fn clearing_a_folder_without_uidplus() {
+    if !enabled() {
+        return;
+    }
+    let conn = imap::connect(&server_at(31144).await, &user("clearplain"))
+        .await
+        .expect("login over STARTTLS");
+    assert!(!conn.caps.uidplus, "the stand must not offer UIDPLUS");
+    clears_a_folder(conn, "B").await;
 }

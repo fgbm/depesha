@@ -8,6 +8,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use depesha_core::account::{Credentials, EwsConfig};
 use depesha_core::imap::{FlagChange, FolderRole, IdleOutcome};
+use depesha_core::mail;
 use depesha_core::message::Addr;
 use depesha_core::smtp::{self, Draft};
 use depesha_core::store::{ListQuery, Store};
@@ -309,6 +310,15 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
                 }
             }
             wrap("MoveItem", &msgs)
+        }
+        "EmptyFolder" => {
+            let folder = find(&doc, "FolderIds")
+                .and_then(|p| p.descendants().find(|n| local(*n) == "FolderId"))
+                .and_then(|n| n.attribute("Id"))
+                .unwrap()
+                .to_owned();
+            mb.items.retain(|i| i.folder != folder);
+            wrap("EmptyFolder", &ok("EmptyFolder", ""))
         }
         "CreateItem" => {
             mb.created.push(body.to_owned());
@@ -723,4 +733,133 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
     let folders = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
     assert!(folders.iter().any(|f| f.name == "INBOX"));
     assert_eq!(mailbox.lock().unwrap().connections, 1);
+}
+
+/// #74: junk is wiped with one `EmptyFolder`; drafts go to the trash by `MoveItem`, all of
+/// them on the server and not only the cached window, except the one that is kept.
+#[tokio::test]
+async fn clearing_exchange_folders() {
+    let t0 = 1_790_000_000;
+    let mut items = Vec::new();
+    for n in 1..=3 {
+        items.push(item(&format!("j{n}"), "J", t0 + n, "Спам"));
+    }
+    for n in 1..=5 {
+        items.push(item(&format!("d{n}"), "D", t0 + n, "Черновик"));
+    }
+    items.push(item("m1", "I", t0, "Письмо"));
+    let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+        items,
+        next_id: 100,
+        created: Vec::new(),
+        windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
+        find_items: 0,
+    }));
+    let port = fake_exchange(mailbox.clone()).await;
+    let config = EwsConfig {
+        url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+        trusted_cert: None,
+    };
+    let s = ews::connect(&config, &Credentials::new("CORP\\me", "secret"), "me@corp.ru")
+        .await
+        .unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let mut conn = mail::Conn::Ews(s);
+    let mail::Conn::Ews(s) = &mut conn else { unreachable!() };
+    ews::sync_folder_list(s, &store, ACCOUNT).await.unwrap();
+
+    let junk = "Нежелательная почта";
+    assert_eq!(mail::folder_total(&mut conn, &store, ACCOUNT, junk).await.unwrap(), 3);
+    let mut seen = Vec::new();
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        ACCOUNT,
+        junk,
+        &mail::Emptying::Erase,
+        &[],
+        500,
+        &mut |d, t| {
+            seen.push((d, t));
+            true
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 3,
+            done: 3,
+            stopped: false
+        }
+    );
+    assert_eq!(seen, vec![(0, 3), (3, 3)]);
+    {
+        let mb = mailbox.lock().unwrap();
+        assert!(mb.items.iter().all(|i| i.folder != "J"));
+        assert!(mb.items.iter().any(|i| i.folder == "I"), "other folders stay");
+    }
+    // Empty now: nothing to do.
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        ACCOUNT,
+        junk,
+        &mail::Emptying::Erase,
+        &[],
+        500,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(run, mail::Emptied::default());
+
+    // Only the newest two drafts are cached; the newest is kept (open in a window).
+    let mail::Conn::Ews(s) = &mut conn else { unreachable!() };
+    ews::sync_folder(s, &store, ACCOUNT, "Черновики", SyncOptions { initial_limit: 2 })
+        .await
+        .unwrap();
+    let newest = store
+        .list(&ListQuery {
+            account_id: Some(ACCOUNT.into()),
+            folder: Some("Черновики".into()),
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap()[0]
+        .uid;
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        ACCOUNT,
+        "Черновики",
+        &mail::Emptying::ToFolder("Удаленные".into()),
+        &[newest],
+        500,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        run,
+        mail::Emptied {
+            total: 4,
+            done: 4,
+            stopped: false
+        }
+    );
+    let mb = mailbox.lock().unwrap();
+    assert_eq!(
+        mb.items.iter().filter(|i| i.folder == "D").count(),
+        1,
+        "the kept draft stays"
+    );
+    assert_eq!(
+        mb.items.iter().filter(|i| i.folder == "T").count(),
+        4,
+        "the rest, not just the cached, is in the trash"
+    );
 }

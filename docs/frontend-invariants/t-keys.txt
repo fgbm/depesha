@@ -102,6 +102,8 @@ bulk.selectAll
 bulk.selected
 cancel
 clear
+clear.progress
+clear.stop
 close
 cmd.addAccount
 compose.attachHint

@@ -1,4 +1,4 @@
-component	src/App.svelte	316	199	71	46
+component	src/App.svelte	320	203	71	46
 component	src/MessageWindow.svelte	126	92	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
@@ -6,7 +6,7 @@ component	src/components/Compose.svelte	1004	287	264	453
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
-component	src/components/FolderMenu.svelte	145	86	42	17
+component	src/components/FolderMenu.svelte	155	88	50	17
 component	src/components/FolderPicker.svelte	40	18	11	11
 component	src/components/FormatBar.svelte	433	267	80	86
 component	src/components/HintLine.svelte	134	43	29	62
@@ -19,7 +19,7 @@ component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	162	120	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	689	191	111	387
+component	src/components/MessageList.svelte	711	196	120	395
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
@@ -37,7 +37,7 @@ component	src/components/Select.svelte	117	45	30	42
 component	src/components/Sidebar.svelte	31	24	7	0
 component	src/components/SignaturePicker.svelte	122	31	31	60
 component	src/components/StuckCopy.svelte	121	53	18	50
-component	src/components/Tasks.svelte	333	85	99	149
+component	src/components/Tasks.svelte	338	85	104	149
 component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	253	102	42	109
 component	src/components/WindowControls.svelte	57	16	11	30
@@ -523,7 +523,13 @@ function	src/lib/background.svelte.ts::tellMissed	15
 function	src/lib/background.test.ts::started	6
 function	src/lib/banner.test.ts::run	1
 function	src/lib/banner.ts::foldBanner	13
-function	src/lib/commands.ts::coreCommands	114
+function	src/lib/clearFolder.svelte.ts::text	1
+function	src/lib/clearFolder.svelte.ts::left	19
+function	src/lib/clearFolder.svelte.ts::taskKey	3
+function	src/lib/clearFolder.svelte.ts::parseKey	5
+function	src/lib/clearFolder.test.ts::folder	11
+function	src/lib/clearFolder.test.ts::host	21
+function	src/lib/commands.ts::coreCommands	123
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
 function	src/lib/compose.test.ts::html	4

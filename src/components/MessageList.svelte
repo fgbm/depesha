@@ -4,7 +4,9 @@
   import Paperclip from "@lucide/svelte/icons/paperclip";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
+  import Eraser from "@lucide/svelte/icons/eraser";
   import { tick } from "svelte";
+  import { shortcuts } from "../lib/shortcuts.svelte";
   import { followFocus } from "../lib/listFocus";
   import { app } from "../lib/store.svelte";
   import { arrivals } from "../lib/arrivals.svelte";
@@ -183,6 +185,9 @@
     app.select(m.id);
   }
 
+  const clear = $derived(app.clearing.here());
+  const clearReason = $derived(clear ? app.clearing.reason(clear.folder) : null);
+
   // A new view starts at the top.
   $effect(() => {
     void app.view;
@@ -201,6 +206,15 @@
     <div class="title">
       <h2 title={count}>{title}</h2>
       {#if readOnlyHere}<span class="ro" title={t("list.readOnlyHint")}>{t("list.readOnly")}</span>{/if}
+      {#if clear}
+        <!-- «Clear» (#74): only in Trash, Spam and Drafts; the same command as the folder's menu and the palette. -->
+        <button
+          class="btn ghost small clear"
+          disabled={!!clearReason}
+          title={clearReason ?? shortcuts.titled(app.clearing.title(clear.role), "core.empty-folder")}
+          onclick={() => void app.clearing.begin(clear.account_id, clear.folder.name)}
+        ><Eraser size={14} /> {app.clearing.title(clear.role)} ({clear.folder.total})</button>
+      {/if}
       {#if app.listKey()}<ViewMenu />{/if}
     </div>
   </header>
@@ -379,6 +393,14 @@
   }
 
   /* "Only read" in the header of a folder known to be read-only (#42, frame 7А). */
+  .clear {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+
   .ro {
     flex: none;
     padding: 1px 7px;

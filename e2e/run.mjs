@@ -71,9 +71,10 @@ function helper(...args) {
   return execFileSync("python3", [join(root, "e2e/imap_helper.py"), ...args], { encoding: "utf-8" }).trim();
 }
 
-async function screenshot(name) {
-  // Toasts are transient; hide them for the picture without touching Svelte's DOM.
-  await d.exec("document.querySelector('.toasts')?.style.setProperty('visibility', 'hidden')").catch(() => {});
+async function screenshot(name, { toasts = false } = {}) {
+  // Toasts are transient; hide them for the picture without touching Svelte's DOM
+  // (`toasts: true` keeps them: the picture is about a toast).
+  if (!toasts) await d.exec("document.querySelector('.toasts')?.style.setProperty('visibility', 'hidden')").catch(() => {});
   const file = join(screens, `${String(++shot).padStart(2, "0")}-${name}.png`);
   writeFileSync(file, await d.screenshot());
   await d.exec("document.querySelector('.toasts')?.style.removeProperty('visibility')").catch(() => {});
@@ -2899,6 +2900,72 @@ try {
       60000,
     );
     await closeSettings();
+  });
+
+  await step("12.8", "«Очистить» в Корзине и Черновиках: кнопка в шапке, диалог с числом, отмена, задержка с «Отменить», стирание на сервере, черновики в Корзину (#74)", async () => {
+    const count = (folder) => Number(helper("count", folder, "Разбор"));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const clearButton = (text) =>
+      d.until(`кнопка «${text}»`, async () => ((await textOf(".list .title button.clear")).includes(text) ? d.find(".list .title button.clear") : null), 30000);
+    const dialog = () => d.until("диалог", async () => ((await d.findAll(".modal.confirm"))[0] ? true : null), 10000);
+    const toast = (text) => d.until(`тост «${text}»`, async () => (await textOf(".toasts")).includes(text) || null, 15000);
+    const sync = () => invoke("sync_now", {});
+
+    helper("many", "Trash", "7");
+    helper("many", "Drafts", "3");
+    await sync();
+    // Not in the inbox: there is no command there at all.
+    await d.button("Входящие");
+    if ((await d.findAll(".list .title button.clear")).length) throw new Error("в «Входящих» не должно быть кнопки «Очистить»");
+
+    // Trash: the button with the count, then the question with the number of letters.
+    await openFolder("Корзина");
+    const button = await clearButton("Очистить корзину (7)");
+    await screenshot("clear-button");
+    await d.click(button);
+    await dialog();
+    const text = await textOf(".modal.confirm");
+    if (!text.includes("Очистить корзину?") || !text.includes("7") || !text.includes("Отменить это нельзя")) throw new Error(`диалог: «${text}»`);
+    const focused = await d.exec("return document.activeElement?.innerText?.trim() ?? ''");
+    if (focused !== "Отмена") throw new Error(`фокус на «${focused}», а не на «Отмена»`);
+    await screenshot("clear-confirm");
+    await press("Escape");
+    await d.until("диалог закрыт", async () => (await d.findAll(".modal.confirm")).length === 0, 10000);
+    await wait(6500);
+    if (count("Trash") !== 7) throw new Error(`после отказа в Корзине ${count("Trash")} писем`);
+
+    // Confirmed, then cancelled during the delay: nothing is touched.
+    await d.click(await clearButton("Очистить корзину (7)"));
+    await dialog();
+    await d.click(await d.xpath("//div[contains(@class,'modal') and contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+    await toast("Очищаю корзину через");
+    await screenshot("clear-countdown", { toasts: true });
+    await d.click(await d.find(".toasts .toast .act"));
+    await wait(6500);
+    if (count("Trash") !== 7) throw new Error(`после отмены в задержке в Корзине ${count("Trash")} писем`);
+
+    // Confirmed and left alone: erased on the server, the list and the counter drop to zero.
+    await d.click(await clearButton("Очистить корзину (7)"));
+    await dialog();
+    await d.click(await d.xpath("//div[contains(@class,'modal') and contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+    await toast("Корзина очищена: 7");
+    await screenshot("clear-done", { toasts: true });
+    if (count("Trash") !== 0) throw new Error(`в Корзине осталось ${count("Trash")} писем`);
+    await d.until("кнопка отключена в пустой папке", async () => (await d.exec("return document.querySelector('.list .title button.clear')?.disabled ?? false")) || null, 20000);
+
+    // Drafts: from the keyboard; they go to the Trash and can be got back from there.
+    await openFolder("Черновики");
+    await clearButton("Очистить черновики (3)");
+    await press("Delete", { ctrlKey: true, shiftKey: true });
+    await dialog();
+    const ask = await textOf(".modal.confirm");
+    if (!ask.includes("Очистить черновики?") || !ask.includes("Корзину")) throw new Error(`диалог черновиков: «${ask}»`);
+    await screenshot("clear-drafts-confirm");
+    await d.click(await d.xpath("//div[contains(@class,'modal') and contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+    await toast("перенесены в Корзину: 3");
+    if (count("Drafts") !== 0) throw new Error(`в Черновиках осталось ${count("Drafts")}`);
+    if (count("Trash") !== 3) throw new Error(`в Корзине ${count("Trash")} вместо 3 перенесённых черновиков`);
+    await screenshot("clear-drafts-done", { toasts: true });
   });
 
   await screenshot("final");

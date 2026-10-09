@@ -621,7 +621,7 @@ export type BodyView = "text" | "html" | "markdown";
 /** Background work shown in the tasks window. */
 export interface Task {
   key: string;
-  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels" | "stuck-copy";
+  kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels" | "stuck-copy" | "empty";
   account_id?: string;
   label: string;
   done: number;
@@ -630,6 +630,14 @@ export interface Task {
   state: "running" | "failed";
   error?: CmdError;
   started: number;
+}
+
+/** How far the clearing of a folder got (#74). */
+export interface Emptied {
+  total: number;
+  done: number;
+  /** Stopped between two batches; the rest is still in the folder. */
+  stopped: boolean;
 }
 
 /** A copy of a sent letter the server refuses to keep in «Sent»; it waits for the user. */

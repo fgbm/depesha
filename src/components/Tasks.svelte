@@ -97,7 +97,10 @@
               <span class="spin"><RotateCw size={14} /></span>
               <span class="label">{task.label}</span>
               {#if task.account_id && app.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
-              {#if task.total > 0}<span class="muted small num">{task.done} / {task.total}</span>{/if}
+              {#if task.kind === "empty"}
+                {#if task.total > 0}<span class="muted small num">{t("clear.progress", { done: task.done, total: task.total })}</span>{/if}
+                <button class="btn ghost small-btn" onclick={() => api.taskStop(task.key).catch((e) => app.fail(e))}>{t("clear.stop")}</button>
+              {:else if task.total > 0}<span class="muted small num">{task.done} / {task.total}</span>{/if}
             </div>
             {#if task.total > 0}<div class="bar"><span style:width="{percent(task)}%"></span></div>{/if}
           </div>
@@ -126,6 +129,8 @@
                 <span class="spacer"></span>
                 {#if task.account_id && (task.kind === "sync" || task.kind === "prefetch")}
                   <button class="btn ghost small-btn" onclick={() => retry(task)}>{t("retry")}</button>
+                {:else if task.kind === "empty"}
+                  <button class="btn ghost small-btn" onclick={() => void app.clearing.retryTask(task)}>{t("retry")}</button>
                 {/if}
                 <button class="btn ghost icon" onclick={() => api.taskDismiss(task.key)} title={t("close")} aria-label={t("close")}><X size={14} /></button>
               </div>

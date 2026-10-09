@@ -15,6 +15,7 @@ import { peopleBook } from "./peopleBook.svelte";
 import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
+import { ClearFolder } from "./clearFolder.svelte";
 import type { AccountView, CachedDraft, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey, StuckCopy } from "./types";
 
 export type { View } from "./list.svelte";
@@ -38,6 +39,8 @@ export class AppStore {
   readonly actions: ActionRunner = new ActionRunner(this);
   readonly compose: ComposeManager = new ComposeManager(this);
   readonly reader: Reader = new Reader(this);
+  /** «Clear» for Trash, Spam and Drafts (#74). */
+  readonly clearing: ClearFolder = new ClearFolder(this);
 
   /**
    * The letter a separate message window shows (double click in the list); null in the

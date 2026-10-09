@@ -8,6 +8,7 @@
   import Activity from "@lucide/svelte/icons/activity";
   import Star from "@lucide/svelte/icons/star";
   import Info from "@lucide/svelte/icons/info";
+  import Eraser from "@lucide/svelte/icons/eraser";
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
@@ -16,6 +17,7 @@
   import FolderProps from "./prefs/FolderProps.svelte";
   import type { AccountView, FolderInfo } from "../lib/types";
   import Popover from "./Popover.svelte";
+  import Keys from "./Keys.svelte";
   import { untrack } from "svelte";
 
   /** The context menu of a folder, or of an account when `folder` is null. */
@@ -92,6 +94,14 @@
     <button class="mi" onclick={() => run(() => app.setView({ kind: "folder", account_id: account.id, folder: folder.name }))}><FolderOpen size={15} /> {t("folder.open")}</button>
     <button class="mi" onclick={sync}><RotateCw size={15} /> {t("folder.sync")}</button>
     <button class="mi" disabled={folder.unread === 0} onclick={markAllRead}><MailOpen size={15} /> {t("folder.markAllRead")}</button>
+    <!-- «Clear» (#74): the same command as the button above the list and the palette's, in Trash, Spam and Drafts only. -->
+    {@const clear = app.clearing.target(account.id, folder.name)}
+    {#if clear}
+      {@const why = app.clearing.reason(folder)}
+      <button class="mi" disabled={!!why} title={why ?? undefined} onclick={() => run(() => void app.clearing.begin(account.id, folder.name))}
+        ><Eraser size={15} /> {app.clearing.title(clear.role)}…<span class="hint"><Keys of="core.empty-folder" /></span></button
+      >
+    {/if}
     <hr />
     <!-- The same as the star in the folder's row: from the menu the favourite goes at once. -->
     {@const starred = favourites.has(account.id, folder.name)}

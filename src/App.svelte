@@ -105,6 +105,10 @@
     "core.forward": () => app.forwardOpened(),
     "core.archive": () => app.archive(),
     "core.delete": () => app.remove(),
+    "core.empty-folder": () => {
+      const here = app.clearing.here();
+      if (here) void app.clearing.begin(here.account_id, here.folder.name);
+    },
     "core.spam": () => app.spam(),
     "core.unread": () => app.toggleSeen(),
     "core.flag": () => app.toggleFlagged(),

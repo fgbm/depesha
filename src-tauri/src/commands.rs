@@ -1722,6 +1722,43 @@ pub fn task_dismiss(state: St<'_>, key: String) {
     state.task_dismiss(&key);
 }
 
+/// The «Stop» of a task that works in batches (the clearing of a folder, #74).
+#[tauri::command]
+pub fn task_stop(state: St<'_>, key: String) {
+    state.task_stop(&key);
+}
+
+/// How many messages Trash, Spam or Drafts hold on the server: the number «Clear» asks
+/// about, which the cache's window does not tell.
+#[tauri::command]
+pub async fn folder_total(state: St<'_>, account_id: String, folder: String) -> CmdResult<usize> {
+    crate::empty::role_of(&state, &account_id, &folder)?;
+    crate::empty::require_online(&state, &account_id)?;
+    match state.worker(&account_id)?.run(Work::FolderTotal(folder)).await? {
+        Output::Count(n) => Ok(n),
+        _ => Ok(0),
+    }
+}
+
+/// «Clear» (#74): Trash and Spam are wiped, Drafts go to Trash but for the ones open in a
+/// window (`keep_ids`). Asked after the confirmation and the delay; the work shows in the
+/// tasks window.
+#[tauri::command]
+pub async fn folder_empty(
+    state: St<'_>,
+    account_id: String,
+    folder: String,
+    keep_ids: Vec<i64>,
+) -> CmdResult<mail::Emptied> {
+    let role = crate::empty::role_of(&state, &account_id, &folder)?;
+    let trash = if role == FolderRole::Drafts {
+        Some(role_folder(&state, &account_id, FolderRole::Trash, pick("Trash", "Корзина")).await?)
+    } else {
+        None
+    };
+    crate::empty::run(&state, &account_id, &folder, role, trash, keep_ids).await
+}
+
 /// The copies of sent letters the server refuses for good and that wait for the user.
 #[tauri::command]
 pub fn stuck_copies(state: St<'_>) -> CmdResult<Vec<depesha_core::store::StuckCopy>> {

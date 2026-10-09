@@ -1063,6 +1063,19 @@ async fn not_yet_moved(conn: &mut Conn, from: &str, uids: &[u32], to: &str) -> R
     Ok(missing)
 }
 
+/// The folder's UIDVALIDITY and the UID of every message in it, asked of the server: the
+/// cache holds only a window of a big folder (#74).
+pub async fn folder_uids(conn: &mut Conn, folder: &str) -> Result<(u32, Vec<u32>)> {
+    let mailbox = conn.session.select(folder).await?;
+    let uids = uid_search(conn, "ALL").await?;
+    Ok((mailbox.uid_validity.unwrap_or(0), uids))
+}
+
+/// How many messages the folder holds on the server.
+pub async fn folder_total(conn: &mut Conn, folder: &str) -> Result<u32> {
+    Ok(conn.session.examine(folder).await?.exists)
+}
+
 /// Removes messages for good. Used for the trash folder itself.
 pub async fn delete_permanently(conn: &mut Conn, folder: &str, validity: Option<u32>, uids: &[u32]) -> Result<()> {
     if uids.is_empty() {

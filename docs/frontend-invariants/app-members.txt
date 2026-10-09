@@ -9,6 +9,7 @@ busy
 checkFolderProps
 checkUpdates
 choose
+clearing
 closeCompose
 compose
 composes

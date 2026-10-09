@@ -142,6 +142,10 @@ pub enum Work {
     },
     /// Reads the mailbox's quota again (the "Storage" section opened).
     Quota,
+    /// How many messages the folder holds on the server: the cache keeps a window of it.
+    FolderTotal(String),
+    /// Empties Trash, Junk or Drafts on the server (#74).
+    EmptyFolder(crate::empty::Request),
     /// Puts labels on messages, or takes them off, by their names.
     SetLabels {
         folder: String,
@@ -185,6 +189,8 @@ pub enum Output {
     Props(depesha_core::acl::FolderProps),
     /// The outcome of a label check on a test message (#42, frame 9).
     LabelCheck(depesha_core::acl::LabelCheck),
+    /// How far an emptying of a folder got.
+    Emptied(mail::Emptied),
 }
 
 type Reply = oneshot::Sender<Result<Output>>;
@@ -1346,7 +1352,7 @@ impl Ops {
 }
 
 /// `Error` is not `Clone`; the status needs a copy of what the caller also gets.
-fn clone_error(e: &Error) -> Error {
+pub(crate) fn clone_error(e: &Error) -> Error {
     match e {
         Error::Certificate(p) => Error::Certificate(p.clone()),
         Error::NoTls => Error::NoTls,
@@ -1490,6 +1496,8 @@ async fn perform(
             // The keywords changed on the server: the folder's own sync brings them back.
             Ok(Output::None)
         }
+        Work::FolderTotal(folder) => Ok(Output::Count(mail::folder_total(conn, store, id, folder).await?)),
+        Work::EmptyFolder(req) => crate::empty::perform(state, account, conn, req).await,
         Work::FolderProps(folder) => {
             let props = mail::folder_props(conn, store, id, folder).await?;
             Ok(Output::Props(props))
@@ -1738,7 +1746,13 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str, failed: &
 }
 
 /// Returns how many messages came new.
-async fn sync_one(state: &AppState, account: &Account, conn: &mut Conn, folder: &str, notify: bool) -> Result<usize> {
+pub(crate) async fn sync_one(
+    state: &AppState,
+    account: &Account,
+    conn: &mut Conn,
+    folder: &str,
+    notify: bool,
+) -> Result<usize> {
     let id = account.id.as_str();
     let (_, before) = state.store.folder_state(id, folder)?;
     let report = mail::sync_folder(conn, &state.store, id, folder, SyncOptions::default()).await?;

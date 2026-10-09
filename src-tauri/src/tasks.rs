@@ -23,6 +23,9 @@ pub struct Tasks {
     paused: Mutex<HashSet<String>>,
     /// Folder size counts under way, by account.
     counts: Mutex<Counts>,
+    /// Tasks the user asked to stop (the «Stop» of a folder clearing, #74), by key; the
+    /// work looks at it between its batches.
+    stops: Mutex<HashSet<String>>,
 }
 
 /// Folder size counts by account, each with its generation: the tail of a stopped count
@@ -78,7 +81,7 @@ impl Counts {
 #[derive(Debug, Clone, Serialize)]
 pub struct Task {
     pub key: String,
-    /// `sync`, `prefetch`, `older`, `search`, `send`, `sizes`.
+    /// `sync`, `prefetch`, `older`, `search`, `send`, `sizes`, `empty`.
     pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
@@ -106,6 +109,16 @@ pub struct AccountSync {
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Tasks {
+    /// Remembers a stop for a running task; a task that is not running (done, failed, or
+    /// never there) has nothing to stop, and the request must not outlive it.
+    fn request_stop(&self, key: &str) {
+        if lock(&self.list).get(key).is_some_and(|t| t.state == "running") {
+            lock(&self.stops).insert(key.to_owned());
+        }
+    }
 }
 
 impl AppState {
@@ -202,6 +215,20 @@ impl AppState {
         self.emit_tasks();
     }
 
+    /// The user pressed «Stop» on the task: its work ends after the batch it is in.
+    pub fn task_stop(&self, key: &str) {
+        self.tasks.request_stop(key);
+    }
+
+    pub fn task_stop_requested(&self, key: &str) -> bool {
+        lock(&self.tasks.stops).contains(key)
+    }
+
+    /// Forgets a stop request: before a run starts (a stale one must not cancel it) and when it ends.
+    pub fn task_stop_clear(&self, key: &str) {
+        lock(&self.tasks.stops).remove(key);
+    }
+
     /// How far a running task is: done and total.
     pub fn task_progress(&self, key: &str) -> Option<(u64, u64)> {
         lock(&self.tasks.list)
@@ -281,6 +308,29 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stop_only_reaches_a_running_task() {
+        let tasks = Tasks::default();
+        let running = |key: &str, state| Task {
+            key: key.into(),
+            kind: "empty",
+            account_id: Some("a".into()),
+            label: "x".into(),
+            done: 0,
+            total: 10,
+            state,
+            error: None,
+            started: 0,
+        };
+        lock(&tasks.list).insert("empty:a:Trash".into(), running("empty:a:Trash", "running"));
+        lock(&tasks.list).insert("empty:a:Spam".into(), running("empty:a:Spam", "failed"));
+        tasks.request_stop("empty:a:Trash");
+        tasks.request_stop("empty:a:Spam");
+        tasks.request_stop("empty:a:Drafts");
+        let stops = lock(&tasks.stops);
+        assert_eq!(stops.iter().collect::<Vec<_>>(), ["empty:a:Trash"]);
+    }
 
     #[tokio::test]
     async fn a_stopped_counts_tail_leaves_the_next_count_alone() {

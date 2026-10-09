@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CORE_KEYS } from "./keyCommands";
-import { resolve } from "./keymap";
+import { pressNames, resolve } from "./keymap";
 
 const all = CORE_KEYS.map((c) => ({ ...c, owner: "core" }));
 
@@ -48,6 +48,15 @@ describe("the core's commands and their keys", () => {
 
   it("shows Delete first for «Delete»: the palette and the menus say the same", () => {
     expect(CORE_KEYS.find((c) => c.id === "core.delete")?.keys).toEqual(["Delete", "#"]);
+  });
+
+  it("runs «Clear» on Ctrl+Shift+Delete, apart from Delete that takes the letters (#74)", () => {
+    expect(CORE_KEYS.find((c) => c.id === "core.empty-folder")?.keys).toEqual(["Mod+Shift+Delete"]);
+    const press = { key: "Delete", code: "Delete", shiftKey: true, ctrlKey: true, metaKey: false, altKey: false };
+    expect(pressNames(press)).toContain("Mod+Shift+Delete");
+    const names = pressNames({ ...press, shiftKey: false, ctrlKey: false });
+    expect(names).toContain("Delete");
+    expect(names).not.toContain("Mod+Shift+Delete");
   });
 
   it("leaves Ctrl+K to the palette and Ctrl+P to printing", () => {

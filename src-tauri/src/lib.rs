@@ -4,6 +4,7 @@ mod config;
 mod desktop_notify;
 mod drafts;
 mod drops;
+mod empty;
 mod error;
 mod extensions;
 mod followups;
@@ -308,6 +309,9 @@ pub fn run() {
             commands::offline_pause,
             commands::tasks_list,
             commands::task_dismiss,
+            commands::task_stop,
+            commands::folder_total,
+            commands::folder_empty,
             commands::stuck_copies,
             commands::sent_copy_retry,
             commands::sent_copy_save,

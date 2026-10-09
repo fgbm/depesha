@@ -33,7 +33,7 @@ pub struct CachedDraft {
 }
 
 /// The folder the local copies live in.
-fn dir(app: &AppHandle) -> CmdResult<PathBuf> {
+pub fn dir(app: &AppHandle) -> CmdResult<PathBuf> {
     Ok(app
         .path()
         .app_data_dir()
@@ -89,6 +89,15 @@ pub async fn draft_cache_drop(app: AppHandle, key: String) -> CmdResult<()> {
     Ok(())
 }
 
+/// Drops the local copies of these keys: their drafts left the Drafts folder with «Clear» (#74).
+pub async fn drop_all(app: &AppHandle, keys: &[String]) -> CmdResult<()> {
+    let dir = dir(app)?;
+    for key in keys {
+        let _ = tokio::fs::remove_file(dir.join(safe_key(key))).await;
+    }
+    Ok(())
+}
+
 /// Writes one draft under `dir`, in a file named after its key.
 async fn write(dir: &std::path::Path, entry: &CachedDraft) -> CmdResult<()> {
     tokio::fs::create_dir_all(dir).await?;
@@ -112,7 +121,7 @@ async fn write(dir: &std::path::Path, entry: &CachedDraft) -> CmdResult<()> {
 }
 
 /// Every draft under `dir`, oldest first; a file that does not parse is skipped.
-async fn read_all(dir: &std::path::Path) -> CmdResult<Vec<CachedDraft>> {
+pub async fn read_all(dir: &std::path::Path) -> CmdResult<Vec<CachedDraft>> {
     let mut out = Vec::new();
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
         return Ok(out);
