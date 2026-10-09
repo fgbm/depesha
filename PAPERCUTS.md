@@ -31,3 +31,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-09 20:10 — claude-sonnet-5-5
 
 Нужен WebKit без сборки приложения: системный `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser` под `WebKitWebDriver` из `~/.local/depesha-testenv` (`dbus-run-session`, свой Xvfb на `:98`, `setsid nohup … & disown`, иначе процесс умирает вместе с командой) и страница с заглушкой `window.__TAURI_INTERNALS__`. Не `pkill -f`: гаси по PID.
+
+## 2026-10-10 02:00 — claude-sonnet-5-5
+
+Читал большие куски `store.rs` и `MessageList.svelte` через `shell` (`sed -n`) → вывод режется («middle dropped») уже около 10 КБ, куски пропадают без ошибки. Читать файлы инструментом `read` с `offset`/`limit` по 250–300 строк.
