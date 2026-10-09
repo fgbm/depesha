@@ -2324,8 +2324,7 @@ try {
     // Back as it was, for the steps after this one.
     await d.click(await d.xpath("//div[contains(@class,'account-page')]//footer//button[normalize-space(.)='Отмена']"));
     if (me.label) await setInput(name, me.label);
-    else await d.clear(await d.find(name));
-    await d.exec("document.querySelector('.account-page .grid input').blur()");
+    else await d.exec("const i = document.querySelector('.account-page .grid input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();");
     await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
     await closeSettings();
   });
