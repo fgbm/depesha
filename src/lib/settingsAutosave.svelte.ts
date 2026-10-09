@@ -19,6 +19,8 @@ export type Mark = "saved" | "undone";
 
 interface Change {
   row: string;
+  /** The page the row stands on: Ctrl+Z takes back the changes of the page that is open, no other. */
+  page: string;
   /** The row's name, for the toast that tells it was taken back. */
   label: string;
   before: Record<string, unknown>;
@@ -36,48 +38,91 @@ export class SettingsAutosave {
   private stack: Change[] = [];
   private toastId: number | null = null;
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** The writes under way: a page that turns waits for them. */
+  private pending = new Set<Promise<unknown>>();
 
   constructor(private host: AutosaveHost) {}
 
   /**
    * Writes the patch if it changes anything. `what` is the toast: the row and the change in
-   * words («Reminders: 7 days → 14 days»); `label` is the row's name. Returns whether anything was written.
+   * words («Reminders: 7 days → 14 days»); `label` is the row's name; `page` is the page the row
+   * stands on. Returns whether anything was written.
    */
-  async commit(row: string, patch: Record<string, unknown>, what: string, label = row): Promise<boolean> {
+  async commit(row: string, patch: Record<string, unknown>, what: string, label = row, page = ""): Promise<boolean> {
     const saved = this.host.settings();
     const before: Record<string, unknown> = {};
-    let changed = false;
+    const changed: string[] = [];
     for (const key of Object.keys(patch)) {
       before[key] = saved[key];
-      if (!same(saved[key], patch[key])) changed = true;
+      if (!same(saved[key], patch[key])) changed.push(key);
     }
-    if (!changed) return false;
-    this.stack.push({ row, label, before });
-    await this.host.patch(patch);
-    // A write the backend refused leaves the window showing what is saved: nothing was saved, so
-    // there is nothing to say «saved» about and nothing to take back.
+    if (!changed.length) return false;
+    const entry: Change = { row, page, label, before };
+    this.stack.push(entry);
+    await this.track(this.host.patch(patch));
+    // A write the backend refused leaves the window showing what is saved: the keys are back at
+    // what they were. Nothing was saved, so there is nothing to say «saved» about and nothing to
+    // take back. A key that stands at some other value was written over by a later change, which
+    // is not a refusal: that one is judged by its own write.
     const now = this.host.settings();
-    if (!Object.keys(patch).every((key) => same(now[key], patch[key]))) {
-      this.stack.pop();
+    if (changed.every((key) => same(now[key], before[key]))) {
+      this.drop(entry);
       return false;
     }
     this.mark(row, "saved");
-    this.say(what, { label: t("settings.undo"), run: () => void this.undo() });
+    this.say(what, { label: t("settings.undo"), run: () => void this.undo(page) });
     return true;
   }
 
-  /** Takes the last change back; false when there is nothing to take back. */
-  async undo(): Promise<boolean> {
-    const change = this.stack.pop();
-    if (!change) return false;
-    await this.host.patch(change.before);
+  /** The editor of one page: its commits are that page's to take back. */
+  forPage(page: string): Pick<SettingsAutosave, "commit"> {
+    return { commit: (row, patch, what, label) => this.commit(row, patch, what, label, page) };
+  }
+
+  /** Takes the last change back (of the page, when it is named); false when there is nothing to take back. */
+  async undo(page?: string): Promise<boolean> {
+    const at = this.lastOf(page);
+    if (at < 0) return false;
+    const [change] = this.stack.splice(at, 1);
+    try {
+      await this.track(this.host.patch(change.before));
+    } catch {
+      // Not taken back: the change stands, and stays to be taken back again.
+    }
+    const now = this.host.settings();
+    if (!Object.keys(change.before).every((key) => same(now[key], change.before[key]))) {
+      this.stack.splice(Math.min(at, this.stack.length), 0, change);
+      return false;
+    }
     this.mark(change.row, "undone");
     this.say(t("settings.undone", { name: change.label }));
     return true;
   }
 
-  get canUndo(): boolean {
-    return this.stack.length > 0;
+  canUndo(page?: string): boolean {
+    return this.lastOf(page) >= 0;
+  }
+
+  /** Resolves when every write under way is done. */
+  async settled(): Promise<void> {
+    while (this.pending.size) await Promise.allSettled([...this.pending]);
+  }
+
+  private lastOf(page?: string): number {
+    for (let i = this.stack.length - 1; i >= 0; i--) if (page === undefined || this.stack[i].page === page) return i;
+    return -1;
+  }
+
+  private drop(entry: Change) {
+    const at = this.stack.indexOf(entry);
+    if (at >= 0) this.stack.splice(at, 1);
+  }
+
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.pending.add(p);
+    const done = () => this.pending.delete(p);
+    p.then(done, done);
+    return p;
   }
 
   private say(text: string, action?: { label: string; run: () => void }) {

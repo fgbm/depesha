@@ -99,8 +99,16 @@
     return (await (app.settingsLeave?.() ?? Promise.resolve(true))) !== false;
   }
 
+  /** A field being typed in keeps what is typed: it is left, and the writes under way are waited for. */
+  async function settle() {
+    const el = document.activeElement;
+    if (el instanceof HTMLElement && contentEl?.contains(el) && el.matches("input, textarea")) el.blur();
+    await auto.settled();
+  }
+
   async function turn(next: string): Promise<boolean> {
     if (next === current) return true;
+    await settle();
     if (!(await mayLeave())) return false;
     page = next;
     return true;
@@ -134,12 +142,27 @@
       focusMenu();
       return;
     }
-    // Ctrl+Z takes the last change back, unless the cursor is in a field whose own undo it is.
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z" && isRowPage(current)) {
-      if ((e.target as HTMLElement).matches("input, textarea, [contenteditable]") || !auto.canUndo) return;
-      e.preventDefault();
-      void auto.undo();
-    }
+    if (undoKey(e)) return;
+    tabOutKey(e);
+  }
+
+  /** Ctrl+Z takes back the last change of this page, unless the cursor is in a field whose own undo it is, or in a plugin's group, whose changes are not the page's. */
+  function undoKey(e: KeyboardEvent): boolean {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "z" || !isRowPage(current)) return false;
+    const el = e.target as HTMLElement;
+    if (el.matches("input, textarea, [contenteditable]") || el.closest("[data-g='plugin']") || !auto.canUndo(current)) return true;
+    e.preventDefault();
+    void auto.undo(current);
+    return true;
+  }
+
+  /** Tab past the last stop of the page goes to the menu, not out of the window: the foot is only a line of text. */
+  function tabOutKey(e: KeyboardEvent) {
+    if (e.key !== "Tab" || e.shiftKey || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey || !contentEl?.contains(e.target as Node)) return;
+    const stops = [...contentEl.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")].filter((x) => x.tabIndex >= 0 && !(x as HTMLInputElement).disabled);
+    if (stops.at(-1) !== e.target) return;
+    e.preventDefault();
+    focusMenu();
   }
 
   // Ctrl+F inside the window puts the cursor in the search box, as in any application.
@@ -201,7 +224,6 @@
           aria-label={t("settings.find")}
           onkeydown={onSearchKey}
         />
-        <kbd>Ctrl+F</kbd>
       </div>
       <div role="tablist" aria-orientation="vertical" tabindex="-1" onkeydown={onNavKey}>
         {#each MENU as g (g.pages[0])}
@@ -334,13 +356,6 @@
   .psearch .q::-webkit-search-cancel-button,
   .psearch .q::-webkit-search-decoration {
     appearance: none;
-  }
-
-  /* A small cap: the «Ctrl+F» and the placeholder «Find a setting» both fit the menu's width. */
-  .psearch kbd {
-    flex: none;
-    font-size: 9.5px;
-    padding: 0 2px;
   }
 
   [role="tablist"] {

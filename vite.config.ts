@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   plugins: [svelte()],
   // Plugins (plugins/) see the core only through this contract.
-  resolve: { alias: { "@depesha/plugin-api": fileURLToPath(new URL("./src/plugin-api/index.ts", import.meta.url)) } },
+  resolve: {
+    alias: { "@depesha/plugin-api": fileURLToPath(new URL("./src/plugin-api/index.ts", import.meta.url)) },
+    // A component test mounts into jsdom and needs the browser build of Svelte (`mount` is not on the server one).
+    conditions: process.env.VITEST ? ["browser"] : undefined,
+  },
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/target/**"] } },
   build: { target: "es2022", sourcemap: false },

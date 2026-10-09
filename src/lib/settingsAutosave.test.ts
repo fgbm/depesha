@@ -78,9 +78,9 @@ describe("a write the backend refuses", () => {
     const refused = new SettingsAutosave(host);
     expect(await refused.commit("attachments_dir", { attachments_dir: "/etc" }, "x")).toBe(false);
     expect(refused.marks.attachments_dir).toBeUndefined();
-    expect(refused.canUndo).toBe(false);
+    expect(refused.canUndo()).toBe(false);
     expect(state.toasts).toEqual([]);
-    expect(auto.canUndo).toBe(false);
+    expect(auto.canUndo()).toBe(false);
   });
 });
 
@@ -126,5 +126,79 @@ describe("taking the last change back", () => {
     await auto.commit("threads", { threads: false }, "x");
     await auto.undo();
     expect(await auto.undo()).toBe(false);
+  });
+});
+
+describe("writes that overlap", () => {
+  /** A store that shows the change at once, as the real one does, and answers the backend a while later. */
+  function slow() {
+    const state = { settings: { k: 1 } as Record<string, unknown>, toasts: [] as string[] };
+    const host: AutosaveHost = {
+      settings: () => state.settings,
+      patch: async (patch) => {
+        state.settings = { ...state.settings, ...patch };
+        await new Promise((r) => setTimeout(r, 50));
+      },
+      toast: (text) => state.toasts.push(text),
+      dismiss: () => {},
+    };
+    return { state, auto: new SettingsAutosave(host) };
+  }
+
+  it("keep each its own entry: taking back goes to the value before the last one", async () => {
+    const { state, auto } = slow();
+    const a = auto.commit("k", { k: 2 }, "a");
+    const b = auto.commit("k", { k: 3 }, "b");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await Promise.all([a, b])).toEqual([true, true]);
+    const back = auto.undo();
+    await vi.advanceTimersByTimeAsync(100);
+    await back;
+    expect(state.settings.k).toBe(2);
+  });
+
+  it("let a page that turns wait for them", async () => {
+    const { state, auto } = slow();
+    void auto.commit("k", { k: 2 }, "a");
+    let done = false;
+    void auto.settled().then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(done).toBe(true);
+    expect(state.settings.k).toBe(2);
+  });
+});
+
+describe("taking back by page", () => {
+  it("takes back only the changes of the page asked for", async () => {
+    const { state, auto } = fixture({ a: 1, b: 1 });
+    await auto.forPage("reading").commit("a", { a: 2 }, "a");
+    await auto.forPage("writing").commit("b", { b: 2 }, "b");
+    expect(auto.canUndo("reading")).toBe(true);
+    expect(await auto.undo("reading")).toBe(true);
+    expect(state.settings).toMatchObject({ a: 1, b: 2 });
+    expect(await auto.undo("reading")).toBe(false);
+    expect(auto.canUndo("writing")).toBe(true);
+  });
+
+  it("keeps the change in the stack when taking it back did not go through", async () => {
+    const state = { settings: { a: 1 } as Record<string, unknown> };
+    let refuse = false;
+    const auto = new SettingsAutosave({
+      settings: () => state.settings,
+      patch: async (patch) => {
+        if (!refuse) state.settings = { ...state.settings, ...patch };
+      },
+      toast: () => 0,
+      dismiss: () => {},
+    });
+    await auto.commit("a", { a: 2 }, "a");
+    refuse = true;
+    expect(await auto.undo()).toBe(false);
+    expect(auto.canUndo()).toBe(true);
+    refuse = false;
+    expect(await auto.undo()).toBe(true);
+    expect(state.settings.a).toBe(1);
   });
 });
