@@ -217,9 +217,10 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
                         }
                     }
                 }
-                // A letter going to wait or to the archive says so once it has moved ("parked",
-                // "archived-after-send"), in one toast.
-                let parking = crate::waiting::will_park(&item) || crate::waiting::will_archive(&item);
+                // A letter going to wait says so once it has moved ("parked"), in one toast. One
+                // going to the archive is "sent" at once; its move, queued behind the mailbox's
+                // loads, says "archived-after-send" in a toast of its own (#106).
+                let parking = crate::waiting::will_park(&item);
                 state.emit(
                     "sent",
                     json!({ "id": item.id, "subject": item.draft.subject, "parking": parking }),
@@ -272,7 +273,8 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
 }
 
 /// The letter answered or forwarded is marked, the wait for a reply starts; a plain "sent"
-/// toast follows when the letter was to wait but had nothing to move after all.
+/// toast follows when the letter was to wait but had nothing to move after all. A letter
+/// to be archived was announced as sent when it left.
 async fn finish_sent(
     state: &Arc<AppState>,
     account: &depesha_core::account::Account,
@@ -281,12 +283,7 @@ async fn finish_sent(
     letter_cached: bool,
 ) -> Result<(), CmdError> {
     let left = crate::waiting::after_sent(state, account, item, message_id, letter_cached).await?;
-    let went = if crate::waiting::will_archive(item) {
-        left.archiving
-    } else {
-        left.parks
-    };
-    if (crate::waiting::will_park(item) || crate::waiting::will_archive(item)) && !went {
+    if crate::waiting::will_park(item) && !left.parks {
         // Nothing to move after all (the letter left the inbox meanwhile): plain "sent".
         state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
     }

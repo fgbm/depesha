@@ -183,12 +183,12 @@ function parked(app: AppStore, p: Parked) {
   });
 }
 
-/** The answer left and took its letter to the archive. */
+/** The answer's letter has been taken to the archive; "sent" was said when the answer left. */
 function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) {
-  const text = t("toast.sentArchived", { subject: p.subject || t("noSubject") });
+  const text = t("toast.archivedAfterSend");
   const mine = { moved: [p.moved], text };
   app.actions.lastUndo = mine;
-  // The toast undoes its own move, not whatever the last action was by the time it is pressed.
+  // The toast undoes its own move, once, and only while nothing else (the "z" key) has undone it.
   app.toast(text, false, {
     label: t("undo"),
     run: () => {

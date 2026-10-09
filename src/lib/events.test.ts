@@ -67,3 +67,35 @@ describe("settings read again after a save made here (#91)", () => {
     expect(store.settings.threads).toBe(!old.threads);
   });
 });
+
+describe("toasts after an answer that archives its letter (#106)", () => {
+  const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["m"] };
+  async function setup() {
+    resetFakes();
+    api.undo.mockClear();
+    const toast = vi.fn();
+    const app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null as unknown }, toast, reload: vi.fn(), fail: vi.fn() };
+    await listenMain(app as unknown as AppStore);
+    return { app, toast };
+  }
+
+  it("says «sent» at once, and the move adds a toast of its own with «Undo»", async () => {
+    const { toast } = await setup();
+    emit("sent", { id: 1, subject: "Привет", parking: false });
+    await flush();
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast.mock.calls[0][0]).toContain("Привет");
+    emit("archived-after-send", { subject: "Привет", moved });
+    await flush();
+    expect(toast).toHaveBeenCalledTimes(2);
+    expect(toast.mock.calls[1][0]).toContain("archive");
+    expect(toast.mock.calls[1][2].label).toBeTruthy();
+  });
+
+  it("stays silent on a parking «sent»: the move says it", async () => {
+    const { toast } = await setup();
+    emit("sent", { id: 1, subject: "x", parking: true });
+    await flush();
+    expect(toast).not.toHaveBeenCalled();
+  });
+});

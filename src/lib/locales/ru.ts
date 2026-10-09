@@ -689,7 +689,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "toast.sendFailed": "Письмо не отправлено: {error}. Оно в «Исходящих».",
   "toast.sending": { one: "Отправляется… ещё {n} секунду можно отменить", few: "Отправляется… ещё {n} секунды можно отменить", many: "Отправляется… ещё {n} секунд можно отменить", other: "Отправляется… ещё {n} секунды можно отменить" },
   "toast.sent": "Отправлено: {subject}",
-  "toast.sentArchived": "Отправлено: {subject}. Письмо — в архиве",
+  "toast.archivedAfterSend": "Письмо — в архиве",
   "toast.sentParked": "Отправлено: {subject}. Письмо — в «Ждут ответа»",
   "undo": "Отменить",
   "update.available": "Доступна версия {version}",

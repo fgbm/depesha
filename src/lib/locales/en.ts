@@ -697,7 +697,7 @@ export const en = {
   "toast.sendFailed": "Not sent: {error}. The message is in the Outbox.",
   "toast.sending": { one: "Sending… {n} second to undo", other: "Sending… {n} seconds to undo" },
   "toast.sent": "Sent: {subject}",
-  "toast.sentArchived": "Sent: {subject}. The letter is in the archive",
+  "toast.archivedAfterSend": "The letter is in the archive",
   "toast.sentParked": "Sent: {subject}. The letter is in “Waiting for reply”",
   "undo": "Undo",
   "update.available": "Version {version} is available",
