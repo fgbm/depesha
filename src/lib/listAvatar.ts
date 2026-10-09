@@ -4,7 +4,13 @@
 // a sender the receiving server vouched for (DMARC): a recipient is never vouched for. Pure,
 // covered by listAvatar.test.ts.
 
-import type { Addr, MessageRow } from "./types";
+import type { Addr, FolderRole, MessageRow } from "./types";
+
+/** Mail in Spam and Trash asks the network for nothing, in the list and when opened (#108):
+ *  a logo fetched for a letter nobody wants would tell its sender that it was looked at. */
+export function mayAskLogo(role: FolderRole | null | undefined): boolean {
+  return role !== "junk" && role !== "trash";
+}
 
 export interface RowAvatar {
   addr: Addr | null;

@@ -24,7 +24,7 @@
   import { i18n, locale, t, tn } from "../lib/i18n.svelte";
   import { recentSearches } from "../lib/recentSearches.svelte";
   import { rowMarks } from "../lib/marks";
-  import { rowAvatar } from "../lib/listAvatar";
+  import { mayAskLogo, rowAvatar } from "../lib/listAvatar";
   import { labelChips, readOnly } from "../lib/labels";
   import { labels as labelsCtl } from "../lib/labels.svelte";
   import type { Addr, MessageRow } from "../lib/types";
@@ -133,12 +133,15 @@
 
   /** A round picture at the left of every row (#108); off, the rows are as they were. */
   const avatars = $derived(app.settings.list_avatars);
+  /** Chosen rows are the ones of an explicit choice of several (Ctrl or Shift click): a single
+   *  selection is only the letter that is open, which the cursor bar already marks (#108, 2.5 Б). */
+  const chosen = (id: number) => app.selected.size > 1 && app.selected.has(id);
   const myAddresses = $derived(new Set(app.accounts.map((a) => a.email.toLowerCase())));
   /** The pictured row's person and whether a company logo may stand by them (the setting for logos too). */
   function pictureOf(m: MessageRow) {
     const mine = isSentLike && (app.view.kind !== "plugin" || ["sent", "drafts"].includes(app.folder(m.account_id, m.folder)?.role ?? ""));
     const who = rowAvatar(m, mine, myAddresses);
-    return { addr: who.addr, brand: who.brand && app.settings.sender_logos };
+    return { addr: who.addr, brand: who.brand && app.settings.sender_logos && mayAskLogo(app.folder(m.account_id, m.folder)?.role) };
   }
 
   const MARK_ICON = { reply: Reply, reply_all: ReplyAll, forward: Forward };
@@ -275,7 +278,7 @@
         <div
           class="row"
           class:unread={!m.flags.seen}
-          class:selected={app.selected.has(m.id)}
+          class:selected={chosen(m.id)}
           class:opened={app.opened?.row.id === m.id}
           class:avatars
           class:flash={arrivals.flash === m.id}
@@ -292,7 +295,7 @@
         >
           <!-- Without the dot the unread state would live in the look alone: the name says it (#108). -->
           {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
-          {#if app.selected.has(m.id)}
+          {#if chosen(m.id)}
             <!-- A chosen row: a tick in the place of the picture, and the ground (#108, 2.5 Б). -->
             <span class="pick" class:round={avatars} aria-hidden="true"><Check size={avatars ? 18 : 10} strokeWidth={3} /></span>
           {:else if avatars}

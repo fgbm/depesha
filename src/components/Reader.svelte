@@ -16,6 +16,7 @@
   import Viewer from "./Viewer.svelte";
   import PluginBannerView from "./PluginBanner.svelte";
   import { avatarOf } from "../lib/avatars.svelte";
+  import { mayAskLogo } from "../lib/listAvatar";
   import ReaderHeader from "./reader/ReaderHeader.svelte";
   import ReaderToolbar from "./reader/ReaderToolbar.svelte";
   import ReaderBody from "./reader/ReaderBody.svelte";
@@ -33,7 +34,11 @@
   const msg = $derived(app.opened);
   /** The sender's photo from Exchange, or a brand logo when the message passed DMARC. */
   const picture = $derived(
-    msg ? avatarOf(msg.row.account_id, msg.view.summary.from?.email, msg.view.authenticated && app.settings.sender_logos) : null,
+    msg ? avatarOf(
+        msg.row.account_id,
+        msg.view.summary.from?.email,
+        msg.view.authenticated && app.settings.sender_logos && mayAskLogo(app.folder(msg.row.account_id, msg.row.folder)?.role),
+      ) : null,
   );
 
   /**

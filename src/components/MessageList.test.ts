@@ -85,31 +85,65 @@ describe("the pictures of the list (#108)", () => {
     expect(api.avatar).not.toHaveBeenCalled();
   });
 
-  it("puts a tick in the place of the circle of a chosen row, and does not leave the circle beside it", async () => {
-    const t = draw([row(1, "a@x.example"), row(2, "b@x.example")]);
-    app.selected = new Set([2]);
-    flushSync();
-    const rows = t.querySelectorAll(".row");
-    expect(rows[0].querySelector(".pic")).not.toBeNull();
-    expect(rows[1].querySelector(".pic")).toBeNull();
-    expect(rows[1].querySelector(".pick.round")).not.toBeNull();
-    expect(rows[1].getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("keeps the tick in the strip at the left of the text when the circles are off: the text does not move", () => {
-    const t = draw([row(1, "a@x.example")], { list_avatars: false });
-    app.selected = new Set([1]);
-    flushSync();
-    expect(t.querySelector(".row .pick")).not.toBeNull();
-    expect(t.querySelector(".row .pick.round")).toBeNull();
-  });
-
   it("makes the circle neither a control nor a stop of the keyboard", () => {
     const t = draw([row(1, "a@x.example")]);
     const pic = t.querySelector(".row .pic")!;
     expect(pic.querySelector("button, a, [tabindex], input")).toBeNull();
     expect(pic.querySelector("[aria-hidden='true']")).not.toBeNull();
     expect(t.querySelectorAll("[role='option']").length).toBe(1);
+  });
+});
+
+describe("chosen rows and the open letter (#108, 2.5 Б)", () => {
+  it("puts a tick in the place of the circle of the rows chosen together, and not of the one letter that is open", () => {
+    const t = draw([row(1, "a@x.example"), row(2, "b@x.example"), row(3, "c@x.example")]);
+    // A single selection is only the letter that is open: the circle stays, no ground, no tick.
+    app.selected = new Set([2]);
+    flushSync();
+    let rows = t.querySelectorAll(".row");
+    expect(rows[1].querySelector(".pic")).not.toBeNull();
+    expect(rows[1].querySelector(".pick")).toBeNull();
+    expect(rows[1].classList.contains("selected")).toBe(false);
+    // Two chosen: both have the tick and the ground, the third keeps its circle.
+    app.selected = new Set([1, 2]);
+    flushSync();
+    rows = t.querySelectorAll(".row");
+    for (const i of [0, 1]) {
+      expect(rows[i].querySelector(".pic")).toBeNull();
+      expect(rows[i].querySelector(".pick.round")).not.toBeNull();
+      expect(rows[i].classList.contains("selected")).toBe(true);
+    }
+    expect(rows[2].querySelector(".pic")).not.toBeNull();
+    expect(rows[2].classList.contains("selected")).toBe(false);
+  });
+
+  it("keeps the tick in the strip at the left of the text when the circles are off: the text does not move", () => {
+    const t = draw([row(1, "a@x.example"), row(2, "b@x.example")], { list_avatars: false });
+    app.selected = new Set([1, 2]);
+    flushSync();
+    expect(t.querySelectorAll(".row .pick").length).toBe(2);
+    expect(t.querySelector(".row .pick.round")).toBeNull();
+    expect(t.querySelector(".row")?.classList.contains("avatars")).toBe(false);
+  });
+});
+
+describe("the logos by folder (#108)", () => {
+  it("asks for no logo of a letter in Spam or in Trash, in the list (#108)", async () => {
+    app.mailboxes.folders = [
+      { account_id: "a", name: "Junk", role: "junk" },
+      { account_id: "a", name: "Trash", role: "trash" },
+      { account_id: "a", name: "INBOX", role: "inbox" },
+    ] as never;
+    draw([
+      row(1, "spam@junk.example", { dmarc: true, folder: "Junk" }),
+      row(2, "old@trash.example", { dmarc: true, folder: "Trash" }),
+      row(3, "ok@inbox.example", { dmarc: true, folder: "INBOX" }),
+    ]);
+    await tick();
+    expect(api.avatar).toHaveBeenCalledWith("a", "spam@junk.example", false);
+    expect(api.avatar).toHaveBeenCalledWith("a", "old@trash.example", false);
+    expect(api.avatar).toHaveBeenCalledWith("a", "ok@inbox.example", true);
+    app.mailboxes.folders = [];
   });
 });
 

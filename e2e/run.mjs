@@ -499,6 +499,50 @@ try {
     await d.type(box, "\uE00C");
   }, { retry: true });
 
+  await step("108.2", "выбор и курсор не путаются: открытое письмо с кругом и полосой, выбранные с галочкой (#108, 2.5 Б), снимки в обеих темах", async () => {
+    await d.button("Входящие");
+    await d.exec("document.querySelector('.viewport').scrollTop = 0");
+    const settings = await invoke("settings_get");
+    // Read mass letters far from the top: opening them changes no counter the later steps read.
+    const OPEN = 6;
+    const rowAt = (i) => `document.querySelectorAll('.list .row')[${i}]`;
+    const ctrlClick = (i) => d.exec(`${rowAt(i)}.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))`);
+    const state = (i) => d.exec(`const r = ${rowAt(i)}; return { pic: !!r.querySelector('.pic'), pick: !!r.querySelector('.pick'), selected: r.classList.contains('selected'), opened: r.classList.contains('opened') }`);
+    const theme = async (name) => {
+      await invoke("settings_set", { settings: { ...settings, theme: name, list_avatars: shotAvatars } });
+      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
+    };
+    let shotAvatars = true;
+    for (const avatars of [true, false]) {
+      shotAvatars = avatars;
+      const tag = avatars ? "" : "-plain";
+      await theme("paper");
+      // The letter that is open: the circle stays, the bar stands at the left, no ground, no tick.
+      await d.exec(`${rowAt(OPEN)}.click()`);
+      await d.until("opened row", async () => (await state(OPEN)).opened, 10000);
+      let s = await state(OPEN);
+      if (s.pick || s.selected) throw new Error(`открытое письмо показано как выбранное: ${JSON.stringify(s)}`);
+      if (avatars && !s.pic) throw new Error("у открытого письма пропал круг");
+      await screenshot(`row-cursor${tag}-paper`);
+      await theme("night");
+      await screenshot(`row-cursor${tag}-night`);
+      // Two chosen together: a tick and the ground on both; the open one keeps its bar too.
+      await ctrlClick(OPEN + 1);
+      await d.until("two chosen", async () => (await state(OPEN + 1)).selected, 10000);
+      for (const i of [OPEN, OPEN + 1]) {
+        s = await state(i);
+        if (!s.pick || !s.selected || s.pic) throw new Error(`строка ${i} не показана как выбранная: ${JSON.stringify(s)}`);
+      }
+      await screenshot(`row-chosen${tag}-night`);
+      await theme("paper");
+      await screenshot(`row-chosen${tag}-paper`);
+      // Back to one letter.
+      await d.exec(`${rowAt(OPEN + 2)}.click()`);
+      await d.until("one again", async () => !(await state(OPEN + 1)).selected, 10000);
+    }
+    await invoke("settings_set", { settings });
+  }, { retry: true });
+
   await step("4.6", "открытие ставит «прочитано» на сервере", async () => {
     await d.exec("document.querySelector('.viewport').scrollTop = 0");
     await openBySubject("Счёт за октябрь");

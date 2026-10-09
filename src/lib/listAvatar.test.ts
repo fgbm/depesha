@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { rowAvatar } from "./listAvatar";
+import { mayAskLogo, rowAvatar } from "./listAvatar";
 import type { Addr, MessageRow } from "./types";
 
 const a = (email: string): Addr => ({ name: null, email });
 const row = (over: Partial<MessageRow>): MessageRow =>
   ({ from: a("ozon@ozon.example"), to: [a("me@x"), a("kate@x")], thread_voices: [], dmarc: false, ...over }) as unknown as MessageRow;
 const mine = new Set(["me@x"]);
+
+describe("where a logo may be asked for (#108)", () => {
+  it("is nowhere in Spam and Trash", () => {
+    expect(mayAskLogo("junk")).toBe(false);
+    expect(mayAskLogo("trash")).toBe(false);
+    for (const role of ["inbox", "sent", "archive", "drafts", null, undefined] as const) expect(mayAskLogo(role)).toBe(true);
+  });
+});
 
 describe("whose picture a row wears (#108)", () => {
   it("is the sender's, with the verdict of the letter", () => {
