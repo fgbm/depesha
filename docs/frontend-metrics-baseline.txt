@@ -1,7 +1,7 @@
-component	src/App.svelte	320	203	71	46
+component	src/App.svelte	334	212	76	46
 component	src/MessageWindow.svelte	126	92	29	5
 component	src/components/Accounts.svelte	153	59	35	59
-component	src/components/AddressInput.svelte	230	94	41	95
+component	src/components/AddressInput.svelte	252	110	42	100
 component	src/components/Compose.svelte	1004	287	264	453
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
@@ -23,8 +23,8 @@ component	src/components/MessageList.svelte	711	196	120	395
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
-component	src/components/Popover.svelte	230	123	33	74
-component	src/components/Preferences.svelte	571	217	82	272
+component	src/components/Popover.svelte	232	125	33	74
+component	src/components/Preferences.svelte	577	225	80	272
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
@@ -60,12 +60,14 @@ component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	491	77	173	241
 component	src/components/account/WaitingField.svelte	83	18	28	37
+component	src/components/people/MergeDialog.svelte	244	65	93	86
+component	src/components/people/PeopleView.svelte	568	220	126	222
+component	src/components/people/PickPerson.svelte	128	54	23	51
 component	src/components/prefs/AccountsPanel.svelte	29	18	11	0
 component	src/components/prefs/FolderProps.svelte	415	19	179	217
 component	src/components/prefs/HintsList.svelte	84	32	23	29
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
 component	src/components/prefs/LayerMark.svelte	44	6	6	32
-component	src/components/prefs/PeoplePanel.svelte	555	112	119	324
 component	src/components/prefs/PluginsPanel.svelte	43	8	11	24
 component	src/components/prefs/RowControl.svelte	126	50	67	9
 component	src/components/prefs/SettingsPage.svelte	361	224	80	57
@@ -77,10 +79,10 @@ component	src/components/prefs/controls/Switch.svelte	52	8	6	38
 component	src/components/prefs/controls/ThemeTiles.svelte	106	16	12	78
 component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
 component	src/components/reader/Conversation.svelte	131	31	24	76
-component	src/components/reader/PersonCard.svelte	312	96	59	157
+component	src/components/reader/PersonCard.svelte	766	342	114	310
 component	src/components/reader/QuickReply.svelte	218	57	31	130
 component	src/components/reader/ReaderBody.svelte	183	104	43	36
-component	src/components/reader/ReaderHeader.svelte	330	79	60	191
+component	src/components/reader/ReaderHeader.svelte	340	89	60	191
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
 component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
@@ -93,7 +95,7 @@ component	src/components/sidebar/Problem.svelte	39	14	25	0
 component	src/components/sidebar/SidebarFolded.svelte	115	33	82	0
 component	src/components/sidebar/SidebarFull.svelte	111	36	75	0
 component	src/components/sidebar/SidebarTree.svelte	44	25	19	0
-component	src/components/sidebar/SmartSections.svelte	75	25	50	0
+component	src/components/sidebar/SmartSections.svelte	83	26	57	0
 component	src/components/sidebar/TasksButton.svelte	18	12	6	0
 component	src/components/viewer/CsvView.svelte	83	28	19	36
 component	src/components/viewer/DocView.svelte	108	51	19	38
@@ -105,7 +107,8 @@ component	src/components/viewer/TextView.svelte	54	24	8	22
 function	plugins/account-color/index.test.ts::fakeContext	5
 function	plugins/command-palette/Palette.svelte::configure	4
 function	plugins/command-palette/Palette.svelte::run	6
-function	plugins/command-palette/Palette.svelte::onKey	18
+function	plugins/command-palette/Palette.svelte::person	7
+function	plugins/command-palette/Palette.svelte::onKey	19
 function	plugins/command-palette/keys.test.ts::cmd	1
 function	plugins/command-palette/keys.ts::editTarget	3
 function	plugins/command-palette/rank.test.ts::cmd	1
@@ -263,9 +266,13 @@ function	src/components/Accounts.svelte::saveName	6
 function	src/components/Accounts.svelte::onRowKey	7
 function	src/components/Accounts.svelte::settings	3
 function	src/components/AddressInput.svelte::commit	13
-function	src/components/AddressInput.svelte::onInput	22
-function	src/components/AddressInput.svelte::pick	6
-function	src/components/AddressInput.svelte::onKey	19
+function	src/components/AddressInput.svelte::onInput	23
+function	src/components/AddressInput.svelte::offered	5
+function	src/components/AddressInput.svelte::pick	7
+function	src/components/AddressInput.svelte::onKey	23
+function	src/components/AddressInput.test.ts::show	7
+function	src/components/AddressInput.test.ts::key	6
+function	src/components/AddressInput.test.ts::type	8
 function	src/components/Compose.svelte::formatLabel	3
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Compose.svelte::name	2
@@ -336,14 +343,14 @@ function	src/components/Plugins.svelte::permission	7
 function	src/components/Popover.svelte::place	28
 function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
-function	src/components/Popover.svelte::onKey	23
-function	src/components/Preferences.svelte::openHit	6
+function	src/components/Popover.svelte::onKey	25
+function	src/components/Preferences.svelte::openHit	8
 function	src/components/Preferences.svelte::reveal	10
 function	src/components/Preferences.svelte::close	4
 function	src/components/Preferences.svelte::mayLeave	3
 function	src/components/Preferences.svelte::settle	5
 function	src/components/Preferences.svelte::turn	7
-function	src/components/Preferences.svelte::go	4
+function	src/components/Preferences.svelte::go	11
 function	src/components/Preferences.svelte::onKey	22
 function	src/components/Preferences.svelte::undoKey	12
 function	src/components/Preferences.svelte::tabOutKey	7
@@ -458,6 +465,32 @@ function	src/components/account/StorageSection.svelte::useOwn	4
 function	src/components/account/StorageSection.svelte::findLarge	5
 function	src/components/account/StorageSection.svelte::openTrash	6
 function	src/components/account/sections.ts::sectionsFor	3
+function	src/components/people/MergeDialog.svelte::close	4
+function	src/components/people/MergeDialog.svelte::go	3
+function	src/components/people/MergeDialog.svelte::onKey	17
+function	src/components/people/People.client.test.ts::person	8
+function	src/components/people/People.client.test.ts::olga	1
+function	src/components/people/People.client.test.ts::book	5
+function	src/components/people/People.client.test.ts::press	6
+function	src/components/people/People.client.test.ts::show	7
+function	src/components/people/PeopleView.svelte::select	3
+function	src/components/people/PeopleView.svelte::move	5
+function	src/components/people/PeopleView.svelte::toggleMark	6
+function	src/components/people/PeopleView.svelte::follow	4
+function	src/components/people/PeopleView.svelte::mergeMarked	5
+function	src/components/people/PeopleView.svelte::notSame	3
+function	src/components/people/PeopleView.svelte::intoCard	3
+function	src/components/people/PeopleView.svelte::listAction	13
+function	src/components/people/PeopleView.svelte::onListKey	8
+function	src/components/people/PeopleView.svelte::onSearchKey	12
+function	src/components/people/PeopleView.svelte::onPaneKey	6
+function	src/components/people/PeopleView.svelte::startAdd	7
+function	src/components/people/PeopleView.svelte::add	23
+function	src/components/people/PeopleView.svelte::onAddKey	11
+function	src/components/people/PeopleView.svelte::allMail	3
+function	src/components/people/PickPerson.svelte::close	4
+function	src/components/people/PickPerson.svelte::take	5
+function	src/components/people/PickPerson.svelte::onKey	16
 function	src/components/prefs/FolderProps.svelte::rightsLetters	16
 function	src/components/prefs/FolderProps.svelte::runCheck	9
 function	src/components/prefs/FolderProps.svelte::pos	8
@@ -468,12 +501,6 @@ function	src/components/prefs/KeysPanel.svelte::problemText	3
 function	src/components/prefs/KeysPanel.svelte::messageText	3
 function	src/components/prefs/KeysPanel.svelte::noteText	3
 function	src/components/prefs/KeysPanel.svelte::swapText	3
-function	src/components/prefs/PeoplePanel.svelte::load	11
-function	src/components/prefs/PeoplePanel.svelte::save	7
-function	src/components/prefs/PeoplePanel.svelte::edit	7
-function	src/components/prefs/PeoplePanel.svelte::addPerson	6
-function	src/components/prefs/PeoplePanel.svelte::setAddress	9
-function	src/components/prefs/PeoplePanel.svelte::forget	17
 function	src/components/prefs/RowControl.svelte::enter	8
 function	src/components/prefs/SettingsPage.client.test.ts::setup	22
 function	src/components/prefs/SettingsPage.client.test.ts::key	6
@@ -505,8 +532,27 @@ function	src/components/prefs/useKeyEditor.svelte.ts::useKeyEditor	3
 function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
 function	src/components/reader/PersonCard.svelte::setRule	8
+function	src/components/reader/PersonCard.svelte::cycle	4
 function	src/components/reader/PersonCard.svelte::write	4
 function	src/components/reader/PersonCard.svelte::copy	9
+function	src/components/reader/PersonCard.svelte::begin	6
+function	src/components/reader/PersonCard.svelte::focusIn	4
+function	src/components/reader/PersonCard.svelte::leave	5
+function	src/components/reader/PersonCard.svelte::commit	20
+function	src/components/reader/PersonCard.svelte::cancel	4
+function	src/components/reader/PersonCard.svelte::onEdit	11
+function	src/components/reader/PersonCard.svelte::addAddress	25
+function	src/components/reader/PersonCard.svelte::clash	6
+function	src/components/reader/PersonCard.svelte::mergeWithTaken	6
+function	src/components/reader/PersonCard.svelte::makePrimary	9
+function	src/components/reader/PersonCard.svelte::unlink	4
+function	src/components/reader/PersonCard.svelte::joinWith	5
+function	src/components/reader/PersonCard.svelte::pickOther	5
+function	src/components/reader/PersonCard.svelte::notSame	4
+function	src/components/reader/PersonCard.svelte::removePerson	16
+function	src/components/reader/PersonCard.svelte::rowKey	20
+function	src/components/reader/PersonCard.svelte::letterKey	16
+function	src/components/reader/PersonCard.svelte::onKey	10
 function	src/components/reader/QuickReply.svelte::grab	17
 function	src/components/reader/QuickReply.svelte::nudge	8
 function	src/components/reader/ReaderBody.svelte::setView	4
@@ -571,7 +617,7 @@ function	src/lib/clearFolder.svelte.ts::taskKey	3
 function	src/lib/clearFolder.svelte.ts::parseKey	5
 function	src/lib/clearFolder.test.ts::folder	11
 function	src/lib/clearFolder.test.ts::host	21
-function	src/lib/commands.ts::coreCommands	123
+function	src/lib/commands.ts::coreCommands	128
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
 function	src/lib/compose.test.ts::html	4
@@ -899,8 +945,11 @@ function	src/lib/office.ts::clean	3
 function	src/lib/office.ts::docxHtml	14
 function	src/lib/office.ts::sheetsHtml	19
 function	src/lib/people.test.ts::person	1
-function	src/lib/people.ts::blankPerson	3
+function	src/lib/people.ts::blankPerson	15
+function	src/lib/people.ts::addressesOf	3
+function	src/lib/people.ts::hasAddress	4
 function	src/lib/people.ts::findPerson	4
+function	src/lib/people.ts::allMailQuery	4
 function	src/lib/people.ts::strictestFormat	3
 function	src/lib/people.ts::sendFormatFor	3
 function	src/lib/people.ts::recipientParts	7
@@ -909,8 +958,22 @@ function	src/lib/people.ts::letterViewFor	4
 function	src/lib/people.ts::hasOwnRule	3
 function	src/lib/people.ts::formatMark	3
 function	src/lib/people.ts::senderEmail	3
-function	src/lib/people.ts::matchPerson	7
+function	src/lib/people.ts::matchPerson	9
 function	src/lib/people.ts::filterPeople	12
+function	src/lib/peopleBook.svelte.test.ts::two	8
+function	src/lib/peopleMerge.test.ts::person	7
+function	src/lib/peopleMerge.ts::nameKey	10
+function	src/lib/peopleMerge.ts::localPart	3
+function	src/lib/peopleMerge.ts::pairSubject	4
+function	src/lib/peopleMerge.ts::personKey	1
+function	src/lib/peopleMerge.ts::refusedPair	4
+function	src/lib/peopleMerge.ts::pairsOf	10
+function	src/lib/peopleMerge.ts::findDuplicates	19
+function	src/lib/peopleMerge.ts::duplicateIn	8
+function	src/lib/peopleMerge.ts::duplicateOf	3
+function	src/lib/peopleMerge.ts::planMerge	20
+function	src/lib/peopleMerge.ts::defaultChoice	9
+function	src/lib/peopleMerge.ts::mergeRequest	10
 function	src/lib/pictureInput.ts::picturesHtml	26
 function	src/lib/pictureInput.ts::picturesFromFiles	13
 function	src/lib/pictureInput.ts::picturesFromBlobs	6
@@ -1008,7 +1071,7 @@ function	src/lib/settingsEdit.test.ts::row	5
 function	src/lib/settingsEdit.ts::largeParts	4
 function	src/lib/settingsEdit.ts::largeToMb	3
 function	src/lib/settingsEdit.ts::dayName	1
-function	src/lib/settingsFields.ts::buildSettingsIndex	20
+function	src/lib/settingsFields.ts::buildSettingsIndex	21
 function	src/lib/settingsLayers.test.ts::person	1
 function	src/lib/settingsLayers.test.ts::account	1
 function	src/lib/settingsLayers.ts::exceptions	7
@@ -1115,7 +1178,7 @@ function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
 function	src/plugin-host/host.svelte.ts::sharedCounters	21
 function	src/plugin-host/host.svelte.ts::allCommands	3
-function	src/plugin-host/host.svelte.ts::context	70
+function	src/plugin-host/host.svelte.ts::context	79
 function	src/plugin-host/host.svelte.ts::rest#1	2
 function	src/plugin-host/host.svelte.ts::rest#2	2
 function	src/plugin-host/host.test.ts::run#1	1

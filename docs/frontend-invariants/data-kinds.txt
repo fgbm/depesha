@@ -1,5 +1,6 @@
 data-account
 data-action
+data-address
 data-command
 data-consent
 data-copy
@@ -11,13 +12,17 @@ data-folder
 data-g
 data-group
 data-item
+data-key
 data-kind
 data-label
 data-level
+data-no
+data-own
 data-page
 data-placeholder
 data-plugin
 data-problem
+data-r
 data-review
 data-row
 data-section
