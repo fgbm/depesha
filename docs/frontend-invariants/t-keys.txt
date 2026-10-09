@@ -2,6 +2,7 @@ account.add
 account.attention
 account.color
 account.connection
+account.connectionPending
 account.contents
 account.fix
 account.menu
@@ -79,6 +80,7 @@ app.name
 app.version
 arrivals.fresh
 arrivals.openFirst
+bg.noTray.keep
 bulk.selectAll
 bulk.selected
 cancel
@@ -544,7 +546,6 @@ settings.find
 settings.findNone
 settings.found
 settings.installed
-settings.layerAsGeneral
 settings.layerAsMailbox
 settings.layerOwnMark
 settings.layerReset
@@ -724,7 +725,6 @@ wizard.plainNote
 wizard.port
 wizard.remove
 wizard.saveSent
-wizard.saving
 wizard.security
 wizard.server
 wizard.signIn

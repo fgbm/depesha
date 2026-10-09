@@ -79,6 +79,7 @@ settingsPage
 settingsPerson
 settingsSection
 settingsTurn
+settingsUndo
 showCompose
 sort
 spam
