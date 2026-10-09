@@ -63,11 +63,23 @@ let failedInRow = 0;
 
 class Abort extends Error {}
 
+/** Steps that passed only on the second try: the summary lists them, they are not hidden. */
+const retried = [];
+
 /** `critical`: the steps after it cannot pass without it (the account is not set up). */
 async function step(criteria, name, fn, { critical = false } = {}) {
   const started = Date.now();
   try {
-    await fn();
+    try {
+      await fn();
+    } catch (first) {
+      // One restart of a failed step; failing twice is a failure.
+      console.log(`  ↻ [${criteria}] ${name}: перезапуск после «${first.message}»`);
+      await screenshot(`RETRY-${name.replace(/[^\p{L}\d]+/gu, "_")}`).catch(() => {});
+      await tidyUp();
+      await fn();
+      retried.push(name);
+    }
     failedInRow = 0;
     results.push({ criteria, name, ok: true, ms: Date.now() - started });
     console.log(`  ✓ [${criteria}] ${name} (${Date.now() - started} мс)`);
@@ -2916,6 +2928,7 @@ try {
 }
 
 const failed = results.filter((r) => !r.ok);
+if (retried.length) console.log(`\nПерезапущены и прошли со второй попытки (${retried.length}): ${retried.join("; ")}`);
 console.log(`\nИтог: ${results.length - failed.length} из ${results.length} шагов прошли.`);
 writeFileSync(join(screens, "results.json"), JSON.stringify(results, null, 2));
 process.exit(failed.length ? 1 : 0);
