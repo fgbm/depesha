@@ -340,52 +340,52 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <p class="cap">Общая раскладка (вариант А строки): подпись слева, контрол прижат вправо, высота строки не меньше 44 px, подсказка — под подписью мелким серым текстом. Отключённая строка: приглушена на 50 %, контрол не принимает фокус, зависимая строка стоит с отступом и линией слева. Сменить раскладку на Б (подпись и контрол в сетке) или В (контрол под подписью) — кнопки «Строка» в панели.</p>
 <div class="sheet theme" id="s-types"></div>
 
-<h3 class="q"><span class="n">1.1</span>Правило для «выбрать один из нескольких»</h3>
+<h3 class="q" data-q="1.1"><span class="n">1.1</span>Правило для «выбрать один из нескольких»</h3>
 <p class="lead">Три правила на одних и тех же строках. Образцы ниже — шесть реальных выборов: «Язык» (3 коротких), «Формат новых писем» (3 коротких), «При входе в систему» (3, но длиннее 40 знаков), «Уведомления» (3 длинных), «Показывать письма» (3 с описаниями), «Скачивать письма целиком» (5).</p>
 <div class="cols3">
-  <div><h3 class="v rec" style="margin-top:0"><span class="n">А</span><em>сегменты до 3 коротких, иначе список</em></h3><div class="box theme"><div id="z-rule-a" class="rz" data-rule="A" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
+  <div><h3 data-q="1.1" data-variant="А" class="v rec" style="margin-top:0"><span class="n">А</span><em>сегменты до 3 коротких, иначе список</em></h3><div class="box theme"><div id="z-rule-a" class="rz" data-rule="A" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
     <ul class="pc"><li><span class="plus">+</span> все варианты видны сразу, переключение <kbd>←</kbd>/<kbd>→</kbd> без открытия списка</li><li><span class="plus">+</span> описание только у выбранного варианта — не три абзаца</li><li><span class="minus">−</span> два вида контрола; граница «≤ 3 и ≤ 40 знаков суммарно» нужно помнить при добавлении настройки</li></ul></div>
-  <div><h3 class="v" style="margin-top:0"><span class="n">Б</span><em>всегда выпадающий список</em></h3><div class="box theme"><div id="z-rule-b" class="rz" data-rule="B" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
+  <div><h3 data-q="1.1" data-variant="Б" class="v" style="margin-top:0"><span class="n">Б</span><em>всегда выпадающий список</em></h3><div class="box theme"><div id="z-rule-b" class="rz" data-rule="B" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
     <ul class="pc"><li><span class="plus">+</span> один вид, никаких решений при добавлении настройки</li><li><span class="plus">+</span> строки одной высоты, ровный правый край</li><li><span class="minus">−</span> вариантов не видно, пока не откроешь; на «Язык» и «Формат» нужно два действия вместо одного</li></ul></div>
-  <div><h3 class="v" style="margin-top:0"><span class="n">В</span><em>кружки с описанием, когда нужно объяснить; иначе список</em></h3><div class="box theme"><div id="z-rule-c" class="rz" data-rule="C" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
+  <div><h3 data-q="1.1" data-variant="В" class="v" style="margin-top:0"><span class="n">В</span><em>кружки с описанием, когда нужно объяснить; иначе список</em></h3><div class="box theme"><div id="z-rule-c" class="rz" data-rule="C" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
     <ul class="pc"><li><span class="plus">+</span> объяснение каждого варианта видно сразу, без клика</li><li><span class="minus">−</span> кружки выбивают строку: она вдвое выше, остальные — в одну линию; страницы «рваные»</li><li><span class="minus">−</span> сегментов нет, «Язык» и «Формат» — списки</li></ul></div>
 </div>
 <p class="cap">Тема («Оформление») во всех правилах — плитки с образцом: «Бумага» и «Ночь» применяются сразу и возвращаются по «Отмена», как сейчас (вопрос 1.5).</p>
 
-<h3 class="q"><span class="n">1.2</span>Раскладка строки</h3>
+<h3 class="q" data-q="1.2"><span class="n">1.2</span>Раскладка строки</h3>
 <p class="lead">Одни и те же пять строк в трёх раскладках, ширина — как у страницы (до 680 px). В узком окне (&lt; 470 px) вариант А сам складывается в В — так же поведут себя узкие образцы выше.</p>
-<div class="vrow"><div><h3 class="v rec" style="margin-top:0"><span class="n">А</span><em>подпись слева, контрол справа</em></h3><div class="box theme"><div class="rz nq" data-lay="A" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> правый край ровный, подпись читается как предложение; выключатель рядом с подписью</li><li><span class="minus">−</span> левые края контролов гуляют (разная ширина)</li></ul></div>
-<div class="vrow"><div><h3 class="v" style="margin-top:0"><span class="n">Б</span><em>сетка: подпись 250 px, контрол слева</em></h3><div class="box theme"><div class="rz nq" data-lay="B" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> левый край контролов ровный, как в форме</li><li><span class="minus">−</span> между подписью и коротким контролом (выключатель) пустота; страница шире</li></ul></div>
-<div class="vrow"><div><h3 class="v" style="margin-top:0"><span class="n">В</span><em>контрол под подписью</em></h3><div class="box theme"><div class="rz nq" data-lay="C" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> ничего не ломается в узком окне</li><li><span class="minus">−</span> страницы вдвое длиннее, выключатели далеко от подписи</li></ul></div>
+<div class="vrow"><div><h3 data-q="1.2" data-variant="А" class="v rec" style="margin-top:0"><span class="n">А</span><em>подпись слева, контрол справа</em></h3><div class="box theme"><div class="rz nq" data-lay="A" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> правый край ровный, подпись читается как предложение; выключатель рядом с подписью</li><li><span class="minus">−</span> левые края контролов гуляют (разная ширина)</li></ul></div>
+<div class="vrow"><div><h3 data-q="1.2" data-variant="Б" class="v" style="margin-top:0"><span class="n">Б</span><em>сетка: подпись 250 px, контрол слева</em></h3><div class="box theme"><div class="rz nq" data-lay="B" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> левый край контролов ровный, как в форме</li><li><span class="minus">−</span> между подписью и коротким контролом (выключатель) пустота; страница шире</li></ul></div>
+<div class="vrow"><div><h3 data-q="1.2" data-variant="В" class="v" style="margin-top:0"><span class="n">В</span><em>контрол под подписью</em></h3><div class="box theme"><div class="rz nq" data-lay="C" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> ничего не ломается в узком окне</li><li><span class="minus">−</span> страницы вдвое длиннее, выключатели далеко от подписи</li></ul></div>
 
-<h3 class="q"><span class="n">1.3</span>Визуальная иерархия страницы</h3>
+<h3 class="q" data-q="1.3"><span class="n">1.3</span>Визуальная иерархия страницы</h3>
 <p class="lead">Одна и та же страница («Написание и отправка») в трёх оформлениях: заголовок группы, отступы, линии или карточки. Подсказки — по выбору в панели.</p>
 <div class="cols3">
-  <div><h3 class="v rec" style="margin-top:0"><span class="n">1</span><em>заголовок с линией, без карточек</em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="1" data-lay="A" data-page="write"></div></div>
+  <div><h3 data-q="1.3" data-variant="1" class="v rec" style="margin-top:0"><span class="n">1</span><em>заголовок с линией, без карточек</em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="1" data-lay="A" data-page="write"></div></div>
     <ul class="pc"><li><span class="plus">+</span> ближе всего к нынешнему окну и к остальному приложению (линии <code>--line</code>, без теней)</li><li><span class="plus">+</span> нет вложенных рамок: зависимая строка отступом, а не карточкой</li><li><span class="minus">−</span> группы различаются только заголовком</li></ul></div>
-  <div><h3 class="v" style="margin-top:0"><span class="n">2</span><em>карточки на <code>--paper-2</code></em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="2" data-lay="A" data-page="write"></div></div>
+  <div><h3 data-q="1.3" data-variant="2" class="v" style="margin-top:0"><span class="n">2</span><em>карточки на <code>--paper-2</code></em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="2" data-lay="A" data-page="write"></div></div>
     <ul class="pc"><li><span class="plus">+</span> группы видны с первого взгляда, длинные страницы листаются легче</li><li><span class="minus">−</span> рамки в рамках на страницах со списками (подписи, напоминания); карточки среди белого — ещё один стиль, которого в приложении нет</li></ul></div>
-  <div><h3 class="v" style="margin-top:0"><span class="n">3</span><em>открытый список: крупный заголовок, линии между строками</em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="3" data-lay="A" data-page="write"></div></div>
+  <div><h3 data-q="1.3" data-variant="3" class="v" style="margin-top:0"><span class="n">3</span><em>открытый список: крупный заголовок, линии между строками</em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="3" data-lay="A" data-page="write"></div></div>
     <ul class="pc"><li><span class="plus">+</span> воздух, заголовок группы читается как раздел</li><li><span class="minus">−</span> много линий; страница выше на ≈ 15 %</li></ul></div>
 </div>
 
-<h3 class="q"><span class="n">1.4</span>Политика подсказок</h3>
+<h3 class="q" data-q="1.4"><span class="n">1.4</span>Политика подсказок</h3>
 <p class="lead">Сейчас под каждой второй строкой мелкий серый абзац (29 подсказок на окно). Предлагаю три политики; переключайте «Подсказки» в панели и смотрите любую страницу. <b>Оставить</b> — подсказка, которую нельзя угадать из подписи (последствия, условия); <b>убрать</b> — то, что очевидно из подписи, единицы или соседней строки; <b>сократить</b> — оставить одну фразу. Полный перечень: таблица «Что с каждой подсказкой» ниже.</p>
 <ul class="pc"><li><b>А</b> — как сейчас (под каждой строкой, где она есть).</li><li><b>Б</b> — только нужные, под строкой мелким серым.</li><li><b>В</b> — только нужные, но за значком <b>?</b> у подписи (раскрывается по клику, <kbd>?</kbd> или <kbd>F1</kbd> на строке).</li></ul>
 
-<h3 class="q"><span class="n">1.5</span>Тема: плитки или обычный выбор</h3>
+<h3 class="q" data-q="1.5"><span class="n">1.5</span>Тема: плитки или обычный выбор</h3>
 <p class="lead">Плитки с образцом цвета (как сейчас) — исключение из правила 1.1: пять тем выбираются «глазами». Альтернатива — обычный список «Бумага, Ночь, Снег, Графит, Как в системе» без образцов, тема всё равно применяется сразу.</p>
 
-<h3 class="q"><span class="n">1.6</span>Отключённая строка</h3>
+<h3 class="q" data-q="1.6"><span class="n">1.6</span>Отключённая строка</h3>
 <p class="lead">Пример: «Предупреждать, когда ящик заполнен» выключено, «Пороги» зависит от него. Переключатель выше каждого образца живой.</p>
 <div class="cols3">
-  <div><h3 class="v rec" style="margin-top:0"><span class="n">А</span><em>приглушена на месте</em></h3><div class="box theme"><div class="rz" data-dm="a" data-ids="qw_a,ql_a"></div></div></div>
-  <div><h3 class="v" style="margin-top:0"><span class="n">Б</span><em>скрыта, пока не включено</em></h3><div class="box theme"><div class="rz" data-dm="b" data-ids="qw_b,ql_b"></div></div></div>
-  <div><h3 class="v" style="margin-top:0"><span class="n">В</span><em>приглушена и с причиной</em></h3><div class="box theme"><div class="rz" data-dm="c" data-ids="qw_c,ql_c"></div></div></div>
+  <div><h3 data-q="1.6" data-variant="А" class="v rec" style="margin-top:0"><span class="n">А</span><em>приглушена на месте</em></h3><div class="box theme"><div class="rz" data-dm="a" data-ids="qw_a,ql_a"></div></div></div>
+  <div><h3 data-q="1.6" data-variant="Б" class="v" style="margin-top:0"><span class="n">Б</span><em>скрыта, пока не включено</em></h3><div class="box theme"><div class="rz" data-dm="b" data-ids="qw_b,ql_b"></div></div></div>
+  <div><h3 data-q="1.6" data-variant="В" class="v" style="margin-top:0"><span class="n">В</span><em>приглушена и с причиной</em></h3><div class="box theme"><div class="rz" data-dm="c" data-ids="qw_c,ql_c"></div></div></div>
 </div>
 <ul class="pc"><li><b>А</b> <span class="plus">+</span> страница не «прыгает», клавиатура ходит по тем же строкам, поиск находит строку. <span class="minus">−</span> не сказано, что включит.</li><li><b>Б</b> <span class="plus">+</span> чище. <span class="minus">−</span> страница прыгает, строку нельзя найти, пока она скрыта.</li><li><b>В</b> <span class="plus">+</span> понятно, что делать. <span class="minus">−</span> текст причины на каждой зависимой строке (✎ «Включите «…»» — новая строка в каждой).</li></ul>
 
-<h3 class="q"><span class="n">1.7</span>Сохранение</h3>
+<h3 class="q" data-q="1.7"><span class="n">1.7</span>Сохранение</h3>
 <p class="lead">Сейчас «Сохранить/Отмена» внизу на 6 страницах; «Клавиши», «Люди», ящик и плагины сохраняют сами — ещё один разнобой. Панель «Сохранение» показывает оба варианта в окнах: <b>кнопки</b> (как сейчас, но подвал можно показывать только когда есть изменения) или <b>сразу</b> (каждое изменение применяется, внизу «Изменения применяются сразу»; тема, которую не хотят, возвращается кнопкой «Отменить» в тосте).</p>
 
 <h3 class="v"><span class="n">+</span>Что с каждой подсказкой <em>— по всему окну</em></h3>
@@ -427,17 +427,17 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <p class="lead">Три варианта — живые окна, собранные из тех же строк (экран 1) и подчиняющиеся панели сверху. У каждого — поиск <kbd>Ctrl+F</kbd> и ходьба по меню <kbd>↑</kbd>/<kbd>↓</kbd>, как сейчас. «Люди», «Клавиши», «Ящики», «Плагины» — страницы-таблицы, их содержимое здесь упрощено (в «Людях» и в ящике — на тех же строках).</p>
 <div class="ctx"><b>Куда я кладу спорное (во всех трёх вариантах — по-разному, см. таблицу «Где была → где стала»).</b> «Подсказки» → к системным (это переключатель программы, а список решений — про людей и форматы, но пользователь ищет его в «Системе»). «Порог крупного письма» → к месту в ящиках (он нужен запросу «Крупные…» и кнопке «Найти крупные письма»). «Напоминания» → к «Отложить» и «Ждут ответа»; «Шаблоны ответов» → к «Написанию». Так секция плагина оказывается рядом с родственной настройкой, с пометкой «плагин»; в «Плагинах» остаётся менеджер. Это требует, чтобы <code>settingsSection</code> принимал страницу назначения (вопрос 2.4).</div>
 
-<h3 class="v rec"><span class="n">А</span><em>по задачам: 9 пунктов (вместо ≈ 14)</em></h3>
+<h3 data-q="2.1" data-variant="А" class="v rec"><span class="n">А</span><em>по задачам: 9 пунктов (вместо ≈ 14)</em></h3>
 <p class="cap">Вид · Написание и отправка · Отложить и ждать · Уведомления и место · Система · Люди · Клавиши · Ящики (с пунктом на ящик) · Плагины.</p>
 <div class="win theme" id="w-a"></div>
 <ul class="pc"><li><span class="plus">+</span> названия страниц — задачи пользователя («что я хочу поменять»), а не устройство программы</li><li><span class="plus">+</span> тонкие страницы исчезли: «Офлайн», «Обновления», «Уведомления» и «Фон и запуск» слились в «Система» и «Уведомления и место»</li><li><span class="minus">−</span> «Система» самая толстая (фон, запуск, трей, офлайн, обновления, подсказки: 6 групп)</li></ul>
 
-<h3 class="v"><span class="n">Б</span><em>меньше разделов, длинные страницы с якорями: 6 пунктов</em></h3>
+<h3 data-q="2.1" data-variant="Б" class="v"><span class="n">Б</span><em>меньше разделов, длинные страницы с якорями: 6 пунктов</em></h3>
 <p class="cap">Программа · Почта (12 групп, якоря сверху) · Люди · Клавиши · Ящики · Плагины. Якоря — те же, что уже есть в оглавлении страницы ящика.</p>
 <div class="win theme" id="w-b"></div>
 <ul class="pc"><li><span class="plus">+</span> всего 6 пунктов, всё «про почту» в одном месте и находится прокруткой/якорем</li><li><span class="plus">+</span> один и тот же приём — якоря — работает и на странице ящика</li><li><span class="minus">−</span> «Почта» — страница на ≈ 3 экрана; клавиатурой до нижних групп долго (нужны якоря-клавиши, экран 4)</li></ul>
 
-<h3 class="v"><span class="n">В</span><em>моя: две оси «Почта» / «Программа» с заголовками в меню: 11 пунктов в 4 группах</em></h3>
+<h3 data-q="2.1" data-variant="В" class="v"><span class="n">В</span><em>моя: две оси «Почта» / «Программа» с заголовками в меню: 11 пунктов в 4 группах</em></h3>
 <p class="cap">ПОЧТА: Чтение и список · Написание · Отложить и ждать · Хранение. ПРОГРАММА: Вид и язык · Уведомления и значок · Запуск и обновления · Клавиши. ЛЮДИ И ЯЩИКИ: Люди · Ящики. Плагины. Идея: всё, что касается писем, — слева сверху; всё, что касается программы и системы, — ниже. «Хранение» собирает то, что про место: офлайн-копия, порог крупного письма, заполнение ящиков.</p>
 <div class="win theme" id="w-v"></div>
 <ul class="pc"><li><span class="plus">+</span> страницы ровные по толщине (4–6 групп), «Хранение» — понятное место для порога, офлайна и заполнения ящиков</li><li><span class="plus">+</span> меню похоже на нынешнее (есть заголовки групп «Ящики», «Плагины»)</li><li><span class="minus">−</span> 11 пунктов — почти как сейчас, выигрыш только в смысле названий; «Уведомления и значок» — тонкая страница (3 строки)</li></ul>
@@ -449,7 +449,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <div class="chain"><span><b>Вид чтения</b></span><b>переключатель над письмом</b><span class="ar">→</span><b>человек</b><span class="ar">→</span><b>ящик</b><span class="ar">→</span><b>общие настройки</b><span class="muted">— пусто значит «как следующий»</span></div>
 <p class="cap">Три панели каждого варианта связаны: смените формат в «Общих», и значения «как в общих» у ящика и человека поменяются. Исключения заданы так: ящик «Личный» — Markdown; Анна — обычный текст, Борис — Markdown. Панель «Слои» сверху применяет вариант ко всем окнам.</p>
 
-<h3 class="v"><span class="n">А</span><em>у общей настройки — строка «Своё у 2 людей, 1 ящика ›»; у ящика и человека всё как сейчас</em></h3>
+<h3 data-q="3.1" data-variant="А" class="v"><span class="n">А</span><em>у общей настройки — строка «Своё у 2 людей, 1 ящика ›»; у ящика и человека всё как сейчас</em></h3>
 <div class="cols3 theme" style="--x:0">
   <div class="box theme"><div class="bt">Общие · Написание</div><div class="rz" data-lay="C" data-layer="A" data-ids="compose_format,layer_format" data-hier="1" data-nogrp="1"></div><div class="bt" style="margin-top:12px">Общие · Чтение</div><div class="rz" data-lay="C" data-layer="A" data-ids="letter_view,layer_view" data-hier="1" data-nogrp="1"></div></div>
   <div class="box theme"><div class="bt">Ящик «Личный»</div><div class="rz" data-lay="C" data-layer="A" data-ids="af_home,av_home" data-hier="1" data-nogrp="1"></div></div>
@@ -457,7 +457,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 </div>
 <ul class="pc"><li><span class="plus">+</span> общая настройка сама говорит, что у неё есть исключения: из неё видно, <i>что менять в других местах</i></li><li><span class="plus">+</span> ящик и человек не меняются — код пока не трогаем</li><li><span class="minus">−</span> у самого ящика/человека не видно, своё значение или общее: «Как в общих (HTML)» лежит в списке</li></ul>
 
-<h3 class="v"><span class="n">Б</span><em>у ящика и человека — пометка «как в общих / своё» со сбросом; на общей — ничего</em></h3>
+<h3 data-q="3.1" data-variant="Б" class="v"><span class="n">Б</span><em>у ящика и человека — пометка «как в общих / своё» со сбросом; на общей — ничего</em></h3>
 <div class="cols3 theme">
   <div class="box theme"><div class="bt">Общие · Написание</div><div class="rz" data-lay="C" data-layer="B" data-ids="compose_format,layer_format" data-hier="1" data-nogrp="1"></div><div class="bt" style="margin-top:12px">Общие · Чтение</div><div class="rz" data-lay="C" data-layer="B" data-ids="letter_view,layer_view" data-hier="1" data-nogrp="1"></div></div>
   <div class="box theme"><div class="bt">Ящик «Личный»</div><div class="rz" data-lay="C" data-layer="B" data-ids="af_home,av_home" data-hier="1" data-nogrp="1"></div></div>
@@ -465,7 +465,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 </div>
 <ul class="pc"><li><span class="plus">+</span> там, где правишь, сразу видно «своё» или «как в общих»; сброс — одним кликом (или <kbd>Delete</kbd> на строке)</li><li><span class="minus">−</span> из общих не видно, что где-то перекрыто — забытое исключение найдёшь только обходом (в «Людях» есть фильтр «С особым форматом»)</li></ul>
 
-<h3 class="v rec"><span class="n">В</span><em>оба сразу (кнопка «Слои → А+Б» в панели)</em></h3>
+<h3 data-q="3.1" data-variant="В" class="v rec"><span class="n">В</span><em>оба сразу (кнопка «Слои → А+Б» в панели)</em></h3>
 <p class="cap">Строка «Своё у … ›» на общей настройке (нажмите — список исключений с переходом) <b>и</b> пометка со сбросом у ящика и человека. Стоит одной строки и одной пометки; закрывает слабые места обоих.</p>
 <div class="cols3 theme">
   <div class="box theme"><div class="bt">Общие · Написание</div><div class="rz" data-lay="C" data-layer="C" data-ids="compose_format,layer_format" data-hier="1" data-nogrp="1"></div><div class="bt" style="margin-top:12px">Общие · Чтение</div><div class="rz" data-lay="C" data-layer="C" data-ids="letter_view,layer_view" data-hier="1" data-nogrp="1"></div></div>
@@ -473,7 +473,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
   <div class="box theme"><div class="bt">Человек · Борис Громов</div><div class="rz" data-lay="C" data-layer="C" data-ids="pf_boris,pv_boris" data-hier="1" data-nogrp="1"></div></div>
 </div>
 
-<h3 class="q"><span class="n">3.2</span>Слово для «как в следующем слое»</h3>
+<h3 class="q" data-q="3.2"><span class="n">3.2</span>Слово для «как в следующем слое»</h3>
 <p class="lead">Сейчас три разных: «Как обычно» (человек), «Как в общих настройках ({формат})» (формат ящика), «Как в настройках ({вид})» (вид ящика). В макете: <b>А</b> — везде «Как в общих»; <b>Б</b> — везде «Как обычно»; <b>В</b> — по слою: у ящика «Как в общих», у человека «Как в ящике». В образцах выше — вариант В.</p>
 
 <!-- ================= ЭКРАН 4 ================= -->
@@ -502,7 +502,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <tr><td>Своё значение у ящика/человека</td><td><kbd>Delete</kbd></td><td>сбросить к «как в общих» (вариант Б слоёв)</td></tr>
 <tr><td>Подсказка за «?» (политика В)</td><td><kbd>?</kbd> или <kbd>F1</kbd></td><td>раскрыть/скрыть подсказку строки</td></tr>
 </table>
-<h3 class="q"><span class="n">4.4</span>Поиск <kbd>Ctrl</kbd>+<kbd>F</kbd>: что после перехода</h3>
+<h3 class="q" data-q="4.4"><span class="n">4.4</span>Поиск <kbd>Ctrl</kbd>+<kbd>F</kbd>: что после перехода</h3>
 <p class="lead">Сейчас поле вспыхивает рамкой на 1,5 с. В живых окнах — вариант А (вспышка <b>и</b> фокус на найденной строке): после <kbd>Enter</kbd> на результате сразу можно менять значение. Вариант Б — только вспышка, как сейчас.</p>
 
 <!-- ================= Где была → где стала ================= -->
@@ -558,28 +558,28 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <table>
 <tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
 <tr class="gh"><td colspan="4">Экран 1. Единый набор контролов</td></tr>
-<tr><td class="n">1.1</td><td>Правило для «выбрать один из нескольких»</td><td><b>А</b> сегменты до 3 коротких вариантов (≤ 40 знаков суммарно), иначе список<br><b>Б</b> всегда выпадающий список<br><b>В</b> кружки с описанием, когда варианты нужно объяснять, иначе список</td><td class="rec">А. Выбор из двух-трёх виден сразу и меняется <kbd>←</kbd>/<kbd>→</kbd>; описание показывается только у выбранного, поэтому кружки с абзацами не нужны. Граница «3 и 40 знаков» зафиксирована в одном месте — при добавлении настройки решение не придумывается заново.</td></tr>
-<tr><td class="n">1.2</td><td>Раскладка строки</td><td><b>А</b> подпись слева, контрол справа<br><b>Б</b> сетка: подпись 250 px, контрол слева<br><b>В</b> контрол под подписью</td><td class="rec">А. Читается как предложение, правый край ровный, пустоты нет; в узком окне (&lt; 640 px) само переходит в В.</td></tr>
-<tr><td class="n">1.3</td><td>Иерархия страницы</td><td><b>1</b> заголовок с линией, без карточек<br><b>2</b> карточки на <code>--paper-2</code><br><b>3</b> открытый список с крупным заголовком</td><td class="rec">1. Ближе всего к остальному приложению, без вложенных рамок; зависимые строки отступом, а не карточкой.</td></tr>
-<tr><td class="n">1.4</td><td>Политика подсказок</td><td><b>А</b> как сейчас<br><b>Б</b> только нужные, под строкой<br><b>В</b> только нужные, за значком «?»</td><td class="rec">Б. Из 29 подсказок 14 остаются как есть, 3 сокращаются, 3 становятся описанием выбранного варианта, 9 уходят или заменяются; нужные видны сразу; «?» (В) прячет и нужное, а скрытые подсказки не находит поиск глазами.</td></tr>
-<tr><td class="n">1.5</td><td>Тема</td><td><b>А</b> плитки с образцом (исключение из 1.1)<br><b>Б</b> обычный выбор по правилу 1.1</td><td class="rec">А. Тему выбирают глазами; пять вариантов с образцом — единственный выбор в окне, который нельзя описать словами.</td></tr>
-<tr><td class="n">1.6</td><td>Отключённая зависимая строка</td><td><b>А</b> приглушена на месте<br><b>Б</b> скрыта<br><b>В</b> приглушена и с причиной</td><td class="rec">А. Страница не прыгает, поиск и клавиатура находят строку. Причина видна по отступу под выключателем.</td></tr>
-<tr><td class="n">1.7</td><td>Сохранение</td><td><b>А</b> кнопки «Сохранить/Отмена», как сейчас (подвал только при изменениях)<br><b>Б</b> применять сразу везде, «Отменить» — в тосте<br><b>В</b> как сейчас, но без изменений</td><td class="rec">Б. «Люди», «Клавиши», ящик и плагины уже сохраняются сразу — теперь так будет везде, и не нужно вопроса «Сохранить изменения?» при уходе со страницы. Тема применяется сразу и без того. Это самое большое изменение поведения — если боитесь, А.</td></tr>
+<tr data-q="1.1" data-q-title="Правило для «выбрать один из нескольких»" data-variants="А,Б,В" data-recommended="А"><td class="n">1.1</td><td>Правило для «выбрать один из нескольких»</td><td><b>А</b> сегменты до 3 коротких вариантов (≤ 40 знаков суммарно), иначе список<br><b>Б</b> всегда выпадающий список<br><b>В</b> кружки с описанием, когда варианты нужно объяснять, иначе список</td><td class="rec">А. Выбор из двух-трёх виден сразу и меняется <kbd>←</kbd>/<kbd>→</kbd>; описание показывается только у выбранного, поэтому кружки с абзацами не нужны. Граница «3 и 40 знаков» зафиксирована в одном месте — при добавлении настройки решение не придумывается заново.</td></tr>
+<tr data-q="1.2" data-q-title="Раскладка строки" data-variants="А,Б,В" data-recommended="А"><td class="n">1.2</td><td>Раскладка строки</td><td><b>А</b> подпись слева, контрол справа<br><b>Б</b> сетка: подпись 250 px, контрол слева<br><b>В</b> контрол под подписью</td><td class="rec">А. Читается как предложение, правый край ровный, пустоты нет; в узком окне (&lt; 640 px) само переходит в В.</td></tr>
+<tr data-q="1.3" data-q-title="Иерархия страницы" data-variants="1,2,3" data-recommended="1"><td class="n">1.3</td><td>Иерархия страницы</td><td><b>1</b> заголовок с линией, без карточек<br><b>2</b> карточки на <code>--paper-2</code><br><b>3</b> открытый список с крупным заголовком</td><td class="rec">1. Ближе всего к остальному приложению, без вложенных рамок; зависимые строки отступом, а не карточкой.</td></tr>
+<tr data-q="1.4" data-q-title="Политика подсказок" data-variants="А,Б,В" data-recommended="Б"><td class="n">1.4</td><td>Политика подсказок</td><td><b>А</b> как сейчас<br><b>Б</b> только нужные, под строкой<br><b>В</b> только нужные, за значком «?»</td><td class="rec">Б. Из 29 подсказок 14 остаются как есть, 3 сокращаются, 3 становятся описанием выбранного варианта, 9 уходят или заменяются; нужные видны сразу; «?» (В) прячет и нужное, а скрытые подсказки не находит поиск глазами.</td></tr>
+<tr data-q="1.5" data-q-title="Тема" data-variants="А,Б" data-recommended="А"><td class="n">1.5</td><td>Тема</td><td><b>А</b> плитки с образцом (исключение из 1.1)<br><b>Б</b> обычный выбор по правилу 1.1</td><td class="rec">А. Тему выбирают глазами; пять вариантов с образцом — единственный выбор в окне, который нельзя описать словами.</td></tr>
+<tr data-q="1.6" data-q-title="Отключённая зависимая строка" data-variants="А,Б,В" data-recommended="А"><td class="n">1.6</td><td>Отключённая зависимая строка</td><td><b>А</b> приглушена на месте<br><b>Б</b> скрыта<br><b>В</b> приглушена и с причиной</td><td class="rec">А. Страница не прыгает, поиск и клавиатура находят строку. Причина видна по отступу под выключателем.</td></tr>
+<tr data-q="1.7" data-q-title="Сохранение" data-variants="А,Б,В" data-recommended="Б"><td class="n">1.7</td><td>Сохранение</td><td><b>А</b> кнопки «Сохранить/Отмена», как сейчас (подвал только при изменениях)<br><b>Б</b> применять сразу везде, «Отменить» — в тосте<br><b>В</b> как сейчас, но без изменений</td><td class="rec">Б. «Люди», «Клавиши», ящик и плагины уже сохраняются сразу — теперь так будет везде, и не нужно вопроса «Сохранить изменения?» при уходе со страницы. Тема применяется сразу и без того. Это самое большое изменение поведения — если боитесь, А.</td></tr>
 <tr class="gh"><td colspan="4">Экран 2. Раскладка разделов</td></tr>
-<tr><td class="n">2.1</td><td>Раскладка разделов</td><td><b>А</b> по задачам, 9 пунктов<br><b>Б</b> 6 пунктов, длинные страницы с якорями<br><b>В</b> «Почта / Программа», 11 пунктов</td><td class="rec">А. Каждый раздел — «что я хочу поменять»; страницы одной толщины, а длинные страницы Б ломают ходьбу клавишами.</td></tr>
-<tr><td class="n">2.2</td><td>Куда «Подсказки»</td><td><b>А</b> в «Систему» (к программным переключателям)<br><b>Б</b> в «Люди» (рядом с их решениями)<br><b>В</b> в «Написание»</td><td class="rec">А. Это переключатель программы; список решений — справочный, его ищут по слову «подсказки» (поиск найдёт).</td></tr>
-<tr><td class="n">2.3</td><td>Куда «Порог крупного письма»</td><td><b>А</b> рядом с заполнением ящиков<br><b>Б</b> в «Список» (вид)<br><b>В</b> рядом с офлайном</td><td class="rec">А. Порог нужен «Найти крупные письма» в хранилище ящика и запросам «Крупные…»: это про место.</td></tr>
-<tr><td class="n">2.4</td><td>Настройки встроенных плагинов («Напоминания», «Шаблоны ответов»)</td><td><b>А</b> группа в родственном разделе с пометкой «плагин»<br><b>Б</b> отдельно в «Плагинах», как сейчас<br><b>В</b> группа в разделе, а в «Плагинах» — ссылка на неё</td><td class="rec">А. «Напоминания» — это настройка «Ждут ответа» (она же рядом «Отложить»); искать её среди плагинов незачем. Потребует, чтобы <code>settingsSection</code> принимал целевую страницу; сторонние плагины без неё остаются в «Плагинах».</td></tr>
-<tr><td class="n">2.5</td><td>«После ответа» (папка «Ждут ответа» — настройка ящика)</td><td><b>А</b> остаётся на странице ящика, в «Отложить и ждать» — ссылка «Настроить у ящика ›»<br><b>Б</b> переезжает в «Отложить и ждать» с выбором ящика</td><td class="rec">А. Настройка принадлежит ящику (папка на его сервере), в общей странице нечего хранить; ссылка достаточна.</td></tr>
-<tr><td class="n">2.6</td><td>Ящики в меню</td><td><b>А</b> пункт «Ящики» и под ним пункт на каждый ящик, как сейчас<br><b>Б</b> один пункт «Ящики», ящики внутри страницы списком</td><td class="rec">Б (в макете: А — в окне 2.А, Б — в 2.Б и 2.В). При пяти ящиках меню А снова вырастает вдвое; на странице ящика уже есть оглавление.</td></tr>
+<tr data-q="2.1" data-q-title="Раскладка разделов" data-variants="А,Б,В" data-recommended="А"><td class="n">2.1</td><td>Раскладка разделов</td><td><b>А</b> по задачам, 9 пунктов<br><b>Б</b> 6 пунктов, длинные страницы с якорями<br><b>В</b> «Почта / Программа», 11 пунктов</td><td class="rec">А. Каждый раздел — «что я хочу поменять»; страницы одной толщины, а длинные страницы Б ломают ходьбу клавишами.</td></tr>
+<tr data-q="2.2" data-q-title="Куда «Подсказки»" data-variants="А,Б,В" data-recommended="А"><td class="n">2.2</td><td>Куда «Подсказки»</td><td><b>А</b> в «Систему» (к программным переключателям)<br><b>Б</b> в «Люди» (рядом с их решениями)<br><b>В</b> в «Написание»</td><td class="rec">А. Это переключатель программы; список решений — справочный, его ищут по слову «подсказки» (поиск найдёт).</td></tr>
+<tr data-q="2.3" data-q-title="Куда «Порог крупного письма»" data-variants="А,Б,В" data-recommended="А"><td class="n">2.3</td><td>Куда «Порог крупного письма»</td><td><b>А</b> рядом с заполнением ящиков<br><b>Б</b> в «Список» (вид)<br><b>В</b> рядом с офлайном</td><td class="rec">А. Порог нужен «Найти крупные письма» в хранилище ящика и запросам «Крупные…»: это про место.</td></tr>
+<tr data-q="2.4" data-q-title="Настройки встроенных плагинов («Напоминания», «Шаблоны ответов»)" data-variants="А,Б,В" data-recommended="А"><td class="n">2.4</td><td>Настройки встроенных плагинов («Напоминания», «Шаблоны ответов»)</td><td><b>А</b> группа в родственном разделе с пометкой «плагин»<br><b>Б</b> отдельно в «Плагинах», как сейчас<br><b>В</b> группа в разделе, а в «Плагинах» — ссылка на неё</td><td class="rec">А. «Напоминания» — это настройка «Ждут ответа» (она же рядом «Отложить»); искать её среди плагинов незачем. Потребует, чтобы <code>settingsSection</code> принимал целевую страницу; сторонние плагины без неё остаются в «Плагинах».</td></tr>
+<tr data-q="2.5" data-q-title="«После ответа» (папка «Ждут ответа» — настройка ящика)" data-variants="А,Б" data-recommended="А"><td class="n">2.5</td><td>«После ответа» (папка «Ждут ответа» — настройка ящика)</td><td><b>А</b> остаётся на странице ящика, в «Отложить и ждать» — ссылка «Настроить у ящика ›»<br><b>Б</b> переезжает в «Отложить и ждать» с выбором ящика</td><td class="rec">А. Настройка принадлежит ящику (папка на его сервере), в общей странице нечего хранить; ссылка достаточна.</td></tr>
+<tr data-q="2.6" data-q-title="Ящики в меню" data-variants="А,Б" data-recommended="Б"><td class="n">2.6</td><td>Ящики в меню</td><td><b>А</b> пункт «Ящики» и под ним пункт на каждый ящик, как сейчас<br><b>Б</b> один пункт «Ящики», ящики внутри страницы списком</td><td class="rec">Б (в макете: А — в окне 2.А, Б — в 2.Б и 2.В). При пяти ящиках меню А снова вырастает вдвое; на странице ящика уже есть оглавление.</td></tr>
 <tr class="gh"><td colspan="4">Экран 3. Слои</td></tr>
-<tr><td class="n">3.1</td><td>Как показать «общее → ящик → человек»</td><td><b>А</b> на общей настройке строка «Своё у 2 людей, 1 ящика ›»<br><b>Б</b> у ящика и человека пометка «как в общих / своё» со сбросом<br><b>В</b> оба сразу</td><td class="rec">В. Строка А говорит «исключения есть, вот они»; пометка Б говорит «здесь своё, сбросить?». Стоят одной строки и одной пометки, закрывают слабые места друг друга.</td></tr>
-<tr><td class="n">3.2</td><td>Слово «как в следующем слое»</td><td><b>А</b> везде «Как в общих»<br><b>Б</b> везде «Как обычно»<br><b>В</b> по слою: у ящика «Как в общих», у человека «Как в ящике»</td><td class="rec">В. Говорит ровно то, что делает код (человек → ящик → общие), а не три слова для одного.</td></tr>
+<tr data-q="3.1" data-q-title="Как показать «общее → ящик → человек»" data-variants="А,Б,В" data-recommended="В"><td class="n">3.1</td><td>Как показать «общее → ящик → человек»</td><td><b>А</b> на общей настройке строка «Своё у 2 людей, 1 ящика ›»<br><b>Б</b> у ящика и человека пометка «как в общих / своё» со сбросом<br><b>В</b> оба сразу</td><td class="rec">В. Строка А говорит «исключения есть, вот они»; пометка Б говорит «здесь своё, сбросить?». Стоят одной строки и одной пометки, закрывают слабые места друг друга.</td></tr>
+<tr data-q="3.2" data-q-title="Слово «как в следующем слое»" data-variants="А,Б,В" data-recommended="В"><td class="n">3.2</td><td>Слово «как в следующем слое»</td><td><b>А</b> везде «Как в общих»<br><b>Б</b> везде «Как обычно»<br><b>В</b> по слою: у ящика «Как в общих», у человека «Как в ящике»</td><td class="rec">В. Говорит ровно то, что делает код (человек → ящик → общие), а не три слова для одного.</td></tr>
 <tr class="gh"><td colspan="4">Экран 4. Клавиатура</td></tr>
-<tr><td class="n">4.1</td><td>Ходьба по строкам страницы</td><td><b>А</b> <kbd>Tab</kbd> по каждому контролу, как сейчас<br><b>Б</b> <kbd>↑</kbd>/<kbd>↓</kbd> по строкам (строка — одна остановка), <kbd>Tab</kbd> — к подвалу</td><td class="rec">Б. На странице в 20 строк <kbd>Tab</kbd> по каждому контролу — 30+ нажатий; ↑↓ уже в меню разделов, так же и в странице.</td></tr>
-<tr><td class="n">4.2</td><td>Смена значения без мыши</td><td><b>А</b> на строке: <kbd>←</kbd>/<kbd>→</kbd> меняют значение, <kbd>Enter</kbd> раскрывает/вводит<br><b>Б</b> <kbd>Enter</kbd> входит в контрол, внутри <kbd>↑</kbd>/<kbd>↓</kbd></td><td class="rec">А. Одно действие вместо трёх; для текстовых полей (число, время) <kbd>Enter</kbd> всё равно входит в поле.</td></tr>
-<tr><td class="n">4.3</td><td>Между меню и страницей</td><td><b>А</b> <kbd>→</kbd>/<kbd>Enter</kbd> из меню на страницу, <kbd>Alt</kbd>+<kbd>←</kbd> обратно, <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>/<kbd>PgDn</kbd> — смена раздела<br><b>Б</b> только <kbd>Tab</kbd>/<kbd>Shift</kbd>+<kbd>Tab</kbd></td><td class="rec">А. <kbd>Esc</kbd> уже занят (закрыть окно), <kbd>←</kbd> занят значениями; <kbd>Alt</kbd>+<kbd>←</kbd> — привычное «назад».</td></tr>
-<tr><td class="n">4.4</td><td>После перехода из <kbd>Ctrl</kbd>+<kbd>F</kbd></td><td><b>А</b> вспышка и фокус на строке<br><b>Б</b> только вспышка, как сейчас</td><td class="rec">А. Нашёл — сразу меняешь, без мыши.</td></tr>
+<tr data-q="4.1" data-q-title="Ходьба по строкам страницы" data-variants="А,Б" data-recommended="Б"><td class="n">4.1</td><td>Ходьба по строкам страницы</td><td><b>А</b> <kbd>Tab</kbd> по каждому контролу, как сейчас<br><b>Б</b> <kbd>↑</kbd>/<kbd>↓</kbd> по строкам (строка — одна остановка), <kbd>Tab</kbd> — к подвалу</td><td class="rec">Б. На странице в 20 строк <kbd>Tab</kbd> по каждому контролу — 30+ нажатий; ↑↓ уже в меню разделов, так же и в странице.</td></tr>
+<tr data-q="4.2" data-q-title="Смена значения без мыши" data-variants="А,Б" data-recommended="А"><td class="n">4.2</td><td>Смена значения без мыши</td><td><b>А</b> на строке: <kbd>←</kbd>/<kbd>→</kbd> меняют значение, <kbd>Enter</kbd> раскрывает/вводит<br><b>Б</b> <kbd>Enter</kbd> входит в контрол, внутри <kbd>↑</kbd>/<kbd>↓</kbd></td><td class="rec">А. Одно действие вместо трёх; для текстовых полей (число, время) <kbd>Enter</kbd> всё равно входит в поле.</td></tr>
+<tr data-q="4.3" data-q-title="Между меню и страницей" data-variants="А,Б" data-recommended="А"><td class="n">4.3</td><td>Между меню и страницей</td><td><b>А</b> <kbd>→</kbd>/<kbd>Enter</kbd> из меню на страницу, <kbd>Alt</kbd>+<kbd>←</kbd> обратно, <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>/<kbd>PgDn</kbd> — смена раздела<br><b>Б</b> только <kbd>Tab</kbd>/<kbd>Shift</kbd>+<kbd>Tab</kbd></td><td class="rec">А. <kbd>Esc</kbd> уже занят (закрыть окно), <kbd>←</kbd> занят значениями; <kbd>Alt</kbd>+<kbd>←</kbd> — привычное «назад».</td></tr>
+<tr data-q="4.4" data-q-title="После перехода из Ctrl+F" data-variants="А,Б" data-recommended="А"><td class="n">4.4</td><td>После перехода из <kbd>Ctrl</kbd>+<kbd>F</kbd></td><td><b>А</b> вспышка и фокус на строке<br><b>Б</b> только вспышка, как сейчас</td><td class="rec">А. Нашёл — сразу меняешь, без мыши.</td></tr>
 </table>
 </div>
 </div>
@@ -1258,5 +1258,640 @@ new Win($('#w-a'), LAYOUTS.a); new Win($('#w-b'), LAYOUTS.b); new Win($('#w-v'),
 renderAll();
 })();
 </script>
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var S = { a: {}, n: [], open: true };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; S.open = d.open !== false; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>Alt</kbd>+щелчок по макету — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  doc.addEventListener("click", function (e) {
+    if (!e.altKey || !e.target.closest || e.target.closest("[data-mk]")) return;
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Alt+щелчок по любому месту макета.")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы " + done + "/" + total + "  ` ";
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", layout);
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(layout, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
 </body>
 </html>
