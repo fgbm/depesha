@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Окно письма: место для текста (0.8.0, #103)</title>
+<style>
+/* ============================================================================
+   Макет к 0.8.0, заявка #103. Код приложения не тронут. Файл самодостаточный: без сети.
+   Токены темы «Бумага» — из src/app.css. Окно повторяет Compose.svelte:
+   заголовок, поля адресов, панель форматирования, текст, MarkdownPartsNote,
+   цитата (quote-bar), строка плагина «Убрать из входящих / напоминание»,
+   полоса вложений, нижняя панель. Данные вымышленные (@example.com).
+   Доли высоты считаются скриптом по настоящей вёрсткой: высота поля текста / высота окна.
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --ok: #2e7d4f; --warn: #b26a00; --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+body.night .theme {
+  --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #8f97a2; --line: #2c323b;
+  --hover: #222831; --selected: #2e3742; --link: #7fb0ec; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; }
+.doc { width: 1400px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.v { font-size: 16px; margin: 22px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+h3.v .n { background: #fff; border: 1px solid #b5ae9f; border-radius: 5px; padding: 0 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v em { font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 1040px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.pc { margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 1040px; }
+.plus { color: #2e7d4f; font-weight: 700; } .minus { color: #b3261e; font-weight: 700; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid #b5ae9f; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #faf7f1; color: #3c444e; white-space: nowrap; }
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 14px; align-items: center; background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 8px 14px; margin: 14px 0; font-size: 12.5px; }
+.ctl button, .tb button { font: inherit; font-size: 12px; color: #d5dde6; background: #263444; border: 1px solid #3a4a5e; border-radius: 5px; padding: 1px 9px; cursor: pointer; }
+.ctl button.on, .tb button.on { background: #e6dbc6; color: #1d232b; border-color: #e6dbc6; }
+.row3 { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.slot { flex: none; }
+.slot .tb { display: flex; gap: 4px; align-items: center; margin: 0 0 6px; font-size: 12px; color: #3c444e; flex-wrap: wrap; }
+.slot .tb button { color: #1d232b; background: #fff; border-color: #b5ae9f; }
+.slot .tb button.on { background: #1f2a37; color: #fff; border-color: #1f2a37; }
+.share { font-size: 12.5px; margin-top: 6px; color: #3c444e; }
+.share b { font-size: 15px; }
+.share.bad b { color: #b3261e; } .share.good b { color: #2e7d4f; }
+.stage { outline: none; position: relative; display: inline-block; vertical-align: top; }
+.stage:focus-within, .stage:focus { box-shadow: 0 0 0 3px color-mix(in srgb, #1f5fa8 55%, transparent); border-radius: 10px; }
+.thumbs { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.thumbs .tm { width: 262px; } .thumbs .tm .stage { zoom: .4; pointer-events: none; }
+.thumbs .cap { font-size: 12px; color: #3c444e; margin-top: 4px; }
+.flag { position: absolute; z-index: 5; right: 6px; font-size: 10.5px; background: #1f2a37; color: #fff; border-radius: 3px; padding: 0 5px; line-height: 16px; pointer-events: none; opacity: .88; }
+
+/* ---------- окно письма ---------- */
+.win { display: flex; flex-direction: column; background: var(--paper); border-radius: 10px; box-shadow: 0 8px 30px rgb(0 0 0 / 24%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; position: relative; font-size: 13px; color: var(--ink); font-family: var(--font); }
+.win header { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--paper-2); flex: none; }
+.win header .ttl { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.win header .hb { color: var(--muted); font-size: 14px; padding: 0 5px; }
+.panel { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.fields { flex: none; }
+.row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 3px 12px; border-bottom: 1px solid var(--line); position: relative; }
+.row.tall { min-height: 52px; }
+.row.slim { min-height: 30px; padding-top: 1px; padding-bottom: 1px; }
+.row .label { width: 46px; flex: none; color: var(--muted); font-size: 12px; }
+.row .val { flex: 1; min-width: 0; display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; overflow: hidden; }
+.row.tall .val { flex-wrap: wrap; }
+.row .ph { color: var(--muted); opacity: .6; }
+.row .two { display: flex; flex: 1; gap: 12px; min-width: 0; }
+.row .two > div { flex: 1; display: flex; gap: 6px; align-items: center; min-width: 0; }
+.row .two .label { width: auto; }
+.adr { background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px; padding: 0 8px; line-height: 20px; font-size: 12px; white-space: nowrap; }
+.lnk { color: var(--link); font-size: 12px; white-space: nowrap; cursor: pointer; background: none; border: 0; padding: 0 3px; font: inherit; font-size: 12px; }
+.lnk kbd { margin-left: 3px; }
+.mailbox { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 6px; padding: 0 7px; line-height: 20px; font-size: 12px; background: var(--paper); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #2e7d4f; display: inline-block; }
+.bar { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 10px; border-bottom: 1px solid var(--line); flex: none; color: var(--muted); }
+.bar b, .bar i, .bar u { width: 24px; text-align: center; font-style: normal; }
+.bar .sp { flex: 1; }
+.bar .tgl { font-size: 12px; border: 1px solid var(--line); border-radius: 5px; padding: 0 7px; line-height: 20px; color: var(--ink); background: var(--paper); cursor: pointer; }
+.bar .tgl.on { background: var(--selected); }
+.ta { flex: 1 1 0; min-height: var(--mint, 0px); padding: 10px 14px; line-height: 1.5; overflow: hidden; position: relative; }
+.ta .caret { display: inline-block; width: 1px; height: 14px; background: var(--ink); vertical-align: -2px; animation: bl 1s steps(2) infinite; }
+@keyframes bl { 50% { opacity: 0; } }
+.fixed { flex: none; }
+.note { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+.qbar { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); cursor: pointer; }
+.qbar .who { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qbar .act { color: var(--link); white-space: nowrap; }
+.qtext { max-height: 96px; overflow-y: auto; padding: 4px 14px 6px 28px; font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); line-height: 1.45; }
+.fu { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.fu .sep { color: var(--line); }
+.sel { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 6px; padding: 0 7px; line-height: 22px; background: var(--paper); font-size: 12px; cursor: pointer; }
+.sel.ac { outline: 2px solid color-mix(in srgb, var(--link) 60%, transparent); }
+.cb { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--muted); border-radius: 3px; text-align: center; line-height: 12px; font-size: 11px; vertical-align: -2px; margin-right: 6px; background: var(--paper); }
+.cb.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.state { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 12px; border-top: 1px solid var(--line); font-size: 12px; flex-wrap: nowrap; overflow: hidden; }
+.chipb { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 12px; padding: 0 9px; line-height: 20px; background: var(--paper-2); font-size: 12px; white-space: nowrap; cursor: pointer; color: var(--ink); }
+.chipb.dim { color: var(--muted); } .chipb.ac { outline: 2px solid color-mix(in srgb, var(--link) 60%, transparent); }
+.chipb.warn { background: color-mix(in srgb, var(--warn) 10%, var(--paper)); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+/* вложения */
+.atts { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px; border-top: 1px solid var(--line); flex: none; align-content: flex-start; }
+.atts.one { flex-wrap: nowrap; overflow: hidden; height: 36px; align-items: center; }
+.atts.scroll { max-height: 66px; overflow-y: auto; }
+.att { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 6px; padding: 0 3px 0 8px; line-height: 22px; font-size: 12px; background: var(--paper-2); white-space: nowrap; flex: none; max-width: 190px; }
+.att .nm { overflow: hidden; text-overflow: ellipsis; } .att .sz { color: var(--muted); }
+.att .x { color: var(--muted); padding: 0 4px; cursor: pointer; }
+.att.ac { outline: 2px solid var(--link); }
+.attmore { color: var(--link); font-size: 12px; background: none; border: 0; padding: 0 6px; cursor: pointer; flex: none; line-height: 22px; font-family: inherit; }
+.attmore.ac { outline: 2px solid var(--link); border-radius: 5px; }
+.foot { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--paper); flex: none; position: relative; }
+.btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 0 9px; line-height: 26px; font-size: 12.5px; cursor: pointer; color: var(--ink); font-family: inherit; white-space: nowrap; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ac { outline: 2px solid color-mix(in srgb, var(--link) 60%, transparent); }
+.foot .sp { flex: 1; }
+.foot .ind { display: flex; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.pop { position: absolute; z-index: 30; min-width: 220px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 24px rgb(0 0 0 / 22%); padding: 4px; font-size: 12.5px; max-height: 300px; overflow-y: auto; }
+.pop .mt { color: var(--muted); font-size: 11px; padding: 3px 8px; }
+.pop .mi { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px; cursor: pointer; }
+.pop .mi.cur { background: var(--selected); } .pop .mi:hover { background: var(--hover); }
+.pop .mi .tick { width: 14px; } .pop .mi .hint { margin-left: auto; color: var(--muted); font-size: 11px; padding-left: 14px; }
+.pop .mi.danger { color: var(--accent); }
+.pop .nt { font-size: 11.5px; color: var(--muted); padding: 4px 8px 5px; border-top: 1px solid var(--line); margin-top: 3px; max-width: 260px; line-height: 1.4; }
+.pop .sep { height: 1px; background: var(--line); margin: 3px 0; }
+.tag { position: absolute; z-index: 6; right: 4px; top: 2px; font-size: 10px; background: #b3261e; color: #fff; border-radius: 3px; padding: 0 4px; line-height: 14px; pointer-events: none; }
+.marks .fixed, .marks .row, .marks .bar, .marks .atts { outline: 1px dashed rgb(179 38 30 / 60%); outline-offset: -2px; }
+.marks .ta { outline: 1px solid rgb(46 125 79 / 70%); outline-offset: -2px; background: color-mix(in srgb, #2e7d4f 7%, var(--paper)); }
+
+/* вопросы и таблицы */
+table.k { border-collapse: collapse; width: 1040px; font-size: 13px; background: #faf7f1; border-radius: 8px; overflow: hidden; }
+table.k th, table.k td { border: 1px solid #ddd5c4; padding: 6px 10px; text-align: left; vertical-align: top; line-height: 1.45; }
+table.k th { background: #ece8e1; }
+.qs { background: #faf7f1; border-radius: 10px; padding: 8px 20px 18px; margin-top: 44px; width: 1180px; }
+.qs h2 { margin: 12px 0 8px; }
+.qs td:first-child { font-family: ui-monospace, Consolas, monospace; font-weight: 700; white-space: nowrap; }
+.qs table { width: 100%; }
+</style>
+</head>
+<body>
+<div class="doc">
+<h1>Депеша 0.8.0 — окно письма: место для текста</h1>
+<p class="lead">Заявка <b>#103</b>. Все окна ниже <b>живые</b>: щёлкните по окну (или Tab на него) и пробуйте клавиши из раздела «Клавиатура». Над окнами — переключатели (число вложений, ящики и т. д.). Красный пунктир на окне «Сейчас» помечает служебные полосы, зелёная заливка — поле текста; <b>доля высоты под текст</b> считается по настоящей вёрстке под каждым окном. Данные вымышленные.</p>
+<div class="ctl"><span>Тема</span><button data-theme="paper" class="on">Бумага</button><button data-theme="night">Ночь</button></div>
+
+<h2 class="screen">Как устроено сейчас (из кода)</h2>
+<div class="ctx">
+<b>Compose.svelte</b>: заголовок → «От» (<code>from-row</code>, поля плагинов слота <code>from</code>) → «Кому» → кнопка «Копия» в строке «Кому», пока <code>showCc=false</code>; после неё <b>обе</b> строки Копия и Скрытая сразу (<code>showCc</code> истинно, если в черновике есть Копия или Скрытая) → «Тема» → <code>FormatBar</code> («Разметка» — показать всю разметку в Markdown-редакторе, <code>markup</code>) → <code>body-area</code> → <code>MarkdownPartsNote</code> («Уйдёт тремя частями…», только для Markdown) → строка подсказки (HintLine, по случаю) → цитата <code>quote-bar</code> (только в ответе; «Показать цитату» раскрывает <code>quote-text</code>) → строки плагинов (followups: «Убрать письмо из входящих до ответа» + выбор напоминания) → полоса вложений <code>c.draft.attachments</code> (чипы с «×», <b>без потолка</b>, переносятся на новые строки) → нижняя панель: «Отправить ▾», «Файлы», кнопка формата («# Markdown», выпадающее меню <code>FORMATS</code>), «⋯» (сохранить, удалить), корзина.<br>
+«Разметка» и «# Markdown» — <b>разные</b> вещи: первая показывает синтаксис в редакторе, вторая выбирает формат письма (Текст / HTML / Markdown). Дублируется для глаза не функция, а слово «Markdown»: формат виден и в кнопке внизу, и в строке «Уйдёт тремя частями», и в подписи кнопки «Разметка».<br>
+Размер окна: <code>min(640px, 100vw−32)</code> × <code>min(640px, 100vh−56)</code>. Тексту не задана минимальная высота: поле — <code>flex:1; min-height:0</code>.
+</div>
+
+<h2 class="screen">Экран 0. «Сейчас» — 640×640, 0, 3 и 8 вложений</h2>
+<p class="lead">Переключатель над окном — число вложений; красным помечены служебные полосы. Три окна рядом — для сравнения сразу.</p>
+<div class="row3 theme" id="s0"></div>
+
+<h2 class="screen">Экран 1. Шапка адресов</h2>
+<p class="lead">Общее для всех вариантов: <b>Копия</b> не бывает двойной высоты — адреса идут в одну строку, лишние сворачиваются в «+N» (в «Сейчас» одиночный адрес даёт полосу 52 px). Пустые Копия и Скрытая свёрнуты; открываются ссылкой справа от «Кому» или клавишей. Если в черновике уже есть Копия или Скрытая — поле открыто сразу (как нынешнее <code>showCc</code>). Переключатели: <b>ящиков</b> 1 (ящик очевиден или выбран по контексту) или 3 (выбор нужен); <b>Копия</b>: пусто / 1 адрес.</p>
+<div class="row3 theme" id="s1"></div>
+<h3 class="v"><span class="n">1А</span>«Кому» + ссылки «Копия, Скрытая»; «От» — строка только когда ящиков больше одного <em>(строки: Кому, Копия и Скрытая раздельно — по одной, по клавише)</em></h3>
+<h3 class="v rec"><span class="n">1Б</span>«От» — в заголовке окна («Re: Смета · от anna@example.com ▾»), никогда не отдельная строка <em>(самое короткое; выбор ящика — клик или <kbd>Alt</kbd>+<kbd>M</kbd>)</em></h3>
+<h3 class="v"><span class="n">1В</span>Как 1А, но Копия и Скрытая, когда открыты обе, делят одну строку пополам <em>(на строку меньше, но половина ширины на поле)</em></h3>
+
+<h2 class="screen">Экран 2. Вложения</h2>
+<p class="lead">Тексту гарантирована минимальная высота (в макете 140 px; <code>--mint</code>): если полос слишком много, прокручивается вся панель окна, а не поле текста сжимается до нуля. Под каждым живым окном — миниатюры при 1, 3, 8 и 20 файлах с долей высоты под текст. Переключатель «Файлов» меняет живое окно.</p>
+<div class="theme" id="s2"></div>
+<h3 class="v"><span class="n">2А</span>Одна строка чипов + «+5 ещё ›» <em>(высота полосы всегда 36 px; хвост — в выпадающем списке)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> высота не зависит от числа файлов; все файлы видны в списке с «×»</li><li><span class="minus">−</span> часть файлов спрятана за вторым щелчком; при 20 файлах видно 2–3 имени</li></ul>
+<h3 class="v"><span class="n">2Б</span>Полоса с потолком 2 строки и своей прокруткой <em>(до 66 px)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> всё видно сразу при ≤ 6 файлах, без лишних щелчков</li><li><span class="minus">−</span> при 8+ файлах прокрутка внутри полосы; 66 px всё же отнимается всегда, когда вложения есть</li></ul>
+<h3 class="v rec"><span class="n">2В</span>Счётчик «📎 8» на кнопке «Файлы», список — выпадающее меню <em>(0 px под полосу: ничего не отнимается)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> высота текста не зависит от вложений вообще; та же кнопка и добавляет, и показывает; единообразно с меню «Формат ▾» и «Напоминание ▾»</li><li><span class="minus">−</span> имена вложений не видны, пока не открыт список (виден счётчик и общий размер)</li></ul>
+
+<h2 class="screen">Экран 3. Служебные строки и формат</h2>
+<p class="lead">Части письма («Уйдёт тремя частями…»), цитата, «Убрать из входящих» + напоминание, двойной формат. Во всех вариантах формат — <b>одно место</b>: кнопка «# Markdown ▾» внизу (в 3Г — слева на панели оформления). Меню формата: Текст / HTML / Markdown, пункт-переключатель «Показать разметку» (то, что сейчас называется «Разметка» на панели — только для Markdown) и пояснение «Уйдёт тремя частями…» внизу меню, а не отдельной строкой. Живое окно 640×640, 3 вложения (вид 2В), ответ с цитатой.</p>
+<div class="row3 theme" id="s3"></div>
+<h3 class="v rec"><span class="n">3А</span>Одна строка состояния у нижней панели: «↩ Цитата ›» · «☑ Из входящих до ответа» · «⏰ Без напоминания ▾» <em>(30 px вместо 26+30+34 = 90)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> всё на виду и меняется в один щелчок, как сейчас; минус 60 px</li><li><span class="minus">−</span> всё же одна полоса всегда; на узком окне строка не помещается (лишнее уходит в «⋯»)</li></ul>
+<h3 class="v"><span class="n">3Б</span>Всё в меню «⋯»; в нижней панели — только значки включённого <em>(0 px полос)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> максимум места тексту</li><li><span class="minus">−</span> цитату и «Убрать из входящих» не видно, пока не открыто меню; напоминание — два шага</li></ul>
+<h3 class="v"><span class="n">3В</span>Строка состояния только при отличии от умолчания <em>(в ответе цитата всегда отличается: «↩ Цитата ›»; остальное — когда включено)</em></h3>
+<ul class="pc"><li><span class="plus">+</span> в новом письме полосы нет совсем; видны только настроенные отклонения</li><li><span class="minus">−</span> включить «Убрать из входящих» и напоминание можно только через «⋯» — двойная схема (то в строке, то в меню)</li></ul>
+<h3 class="v"><span class="n">3Г</span>Тот же вид, что 3А, но кнопка формата — слева на панели оформления, в нижней её нет <em>(вопрос 3.2)</em></h3>
+
+<h2 class="screen">Экран 4. Сборка</h2>
+<p class="lead">Рекомендация: <b>1Б + 2В + 3А</b>. Сверху слева — «Сейчас» (для сравнения), рядом — «После». Ответ с цитатой (раскрыта по <kbd>Alt</kbd>+<kbd>Q</kbd>), 8 вложений. Окна живые; доля под текст — под каждым.</p>
+<div class="theme" id="s4"></div>
+
+<h2 class="screen">Клавиатура</h2>
+<p class="lead">Принципы: всё с клавиатуры; похожее устроено одинаково; без лишних пунктов. Единая схема: <kbd>Alt</kbd>+буква <b>открывает/раскрывает</b> нужное, внутри — <kbd>↑</kbd><kbd>↓</kbd> (или <kbd>←</kbd><kbd>→</kbd> по строке) — переход, <kbd>Enter</kbd> — выбрать, <kbd>Delete</kbd> — убрать, <kbd>Esc</kbd> — закрыть и вернуть фокус в текст. Сочетания условные: при реализации сверю с <code>keymap.ts</code> на конфликты. Попробуйте на любом окне выше.</p>
+<table class="k">
+<tr><th>Действие</th><th>Клавиши</th><th>Одинаково с…</th></tr>
+<tr><td>Показать/скрыть Копию, Скрытую</td><td><kbd>Alt</kbd>+<kbd>C</kbd>, <kbd>Alt</kbd>+<kbd>B</kbd> — раскрывает поле и ставит в него курсор; повторно (при пустом поле) — сворачивает</td><td>ссылки «Копия Alt+C» подписаны</td></tr>
+<tr><td>Выбрать ящик «От»</td><td><kbd>Alt</kbd>+<kbd>M</kbd> — меню ящиков</td><td>меню формата и напоминания</td></tr>
+<tr><td>Пройти по вложениям, удалить</td><td><kbd>Alt</kbd>+<kbd>A</kbd> — фокус на список; <kbd>↑</kbd><kbd>↓</kbd> — по файлам; <kbd>Delete</kbd> — убрать выбранный; <kbd>Esc</kbd> — назад в текст; <kbd>Enter</kbd> без списка — добавить файлы (кнопка «Файлы»)</td><td>как список писем: стрелки + Delete</td></tr>
+<tr><td>Раскрыть/скрыть цитату</td><td><kbd>Alt</kbd>+<kbd>Q</kbd></td><td>тот же щелчок по строке</td></tr>
+<tr><td>Формат письма</td><td><kbd>Alt</kbd>+<kbd>F</kbd> — меню; <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd>; пункт «Показать разметку» — там же</td><td>все выпадающие меню</td></tr>
+<tr><td>«Убрать из входящих до ответа»</td><td><kbd>Alt</kbd>+<kbd>I</kbd> — переключить</td><td>переключатель в строке и пункт в «⋯»</td></tr>
+<tr><td>Напоминание</td><td><kbd>Alt</kbd>+<kbd>R</kbd> — меню; <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd></td><td>меню формата</td></tr>
+<tr><td>Меню «⋯»</td><td><kbd>Alt</kbd>+<kbd>.</kbd></td><td>—</td></tr>
+</table>
+
+<div class="qs theme" style="color:#1d232b">
+<h2>Вопросы</h2>
+<table class="k">
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
+<tr><td>1.1</td><td>Где «От» (выбор ящика)</td><td>А. Отдельная строка, только если ящиков больше одного.<br>Б. Подпись в заголовке окна «от anna@example.com ▾», строки нет никогда.<br>В. Как А, но в одну строку с «Кому».</td><td><b>Б.</b> Ящик в 90% писем очевиден (по контексту), строка не нужна; цвет ящика (0.6.2) остаётся рядом с адресом в заголовке. Смена — клик или <kbd>Alt</kbd>+<kbd>M</kbd>.</td></tr>
+<tr><td>1.2</td><td>Как раскрывать Копию и Скрытую</td><td>А. Две ссылки справа от «Кому» + <kbd>Alt</kbd>+<kbd>C</kbd>/<kbd>B</kbd>.<br>Б. Одна ссылка «Копия/Скрытая», раскрывает оба поля.<br>В. Только клавиши, без ссылок.</td><td><b>А.</b> Скрытая нужна реже Копии: открывать оба поля ради одного — лишняя полоса. Ссылки подписаны клавишей, значит учатся сами.</td></tr>
+<tr><td>1.3</td><td>Копия и Скрытая, когда открыты обе</td><td>А. Две строки по 30 px.<br>Б. Одна строка пополам.</td><td><b>А.</b> Адресов в Копии обычно несколько, половинная ширина обрежет их; Скрытая открыта редко, потеря 30 px не страшна.</td></tr>
+<tr><td>2.1</td><td>Вложения</td><td>А. Одна строка чипов + «+N ещё ›».<br>Б. Полоса до 2 строк со своей прокруткой.<br>В. Счётчик «📎 8» на кнопке «Файлы» + выпадающий список.</td><td><b>В.</b> Высота текста не зависит от вложений вообще, список устроен как остальные меню. Если нужны видимые имена — А.</td></tr>
+<tr><td>2.2</td><td>Минимальная высота поля текста</td><td>А. 120 px.<br>Б. 160 px.<br>В. Доля окна (30%).</td><td><b>Б, 160 px</b> (около 7 строк). Ниже этого панель окна прокручивается вся, а не поле текста сжимается.</td></tr>
+<tr><td>3.1</td><td>Служебные строки (части, цитата, «Убрать из входящих», напоминание)</td><td>А. Одна строка состояния у нижней панели.<br>Б. Всё в «⋯», в панели только значки.<br>В. Строка только при отличии от умолчания, остальное в «⋯».</td><td><b>А.</b> Всё на виду и в один щелчок, как сейчас, но 30 px вместо 90. Б и В прячут действия за вторым шагом, а В к тому же делит управление между строкой и меню.</td></tr>
+<tr><td>3.2</td><td>Где единственное место формата</td><td>А. Кнопка «# Markdown ▾» в нижней панели.<br>Б. Та же кнопка слева на панели оформления.</td><td><b>А.</b> Рядом с «Отправить» — формат решает, как письмо уйдёт; панель оформления видна не при каждом формате (в тексте её нет).</td></tr>
+<tr><td>3.3</td><td>Пояснение «Уйдёт тремя частями…» и «Разметка»</td><td>А. Пояснение — в меню формата; «Показать разметку» — пункт того же меню.<br>Б. Пояснение показывать строкой один раз (до первой отправки в Markdown), «Разметка» оставить на панели.<br>В. Убрать пояснение совсем.</td><td><b>А.</b> Формат — одно место, а пояснение остаётся доступным там, где человек выбирает формат. Б возвращает вторую полосу.</td></tr>
+<tr><td>4.1</td><td>Сочетания клавиш Alt+C/B/M/A/Q/F/I/R/.</td><td>А. Принять схему «Alt+буква».<br>Б. Другие модификаторы (Ctrl+Shift).<br>В. Аккорды: <kbd>Ctrl</kbd>+<kbd>K</kbd>, затем буква.</td><td><b>А.</b> Ближе всего к подписанным ссылкам и подсказкам; точные коды сверю с <code>keymap.ts</code>, чтобы не сломать существующие.</td></tr>
+<tr><td>4.2</td><td>Какой вариант сборки делать</td><td>А. 1Б + 2В + 3А.<br>Б. 1А + 2А + 3А (видны имена вложений).<br>В. 1Б + 2В + 3В (максимум места).</td><td><b>А.</b> Лучшее соотношение места и привычности; доли высоты — в сборке выше.</td></tr>
+</table>
+</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var FILES = ["Смета_октябрь.xlsx","Договор_2026.pdf","Схема_склада.png","Акт_сверки.pdf","Прайс.csv","Фото_1.jpg","Фото_2.jpg","Заметки.txt","Отчёт_Q3.docx","Презентация.pptx","Реквизиты.pdf","План_работ.xlsx","Чертёж_А1.pdf","Скан_001.png","Скан_002.png","Список.txt","Приложение_1.pdf","Приложение_2.pdf","Архив.zip","Итог.docx"];
+  var SIZES = ["84 КБ","1,2 МБ","340 КБ","210 КБ","12 КБ","2,4 МБ","2,1 МБ","3 КБ","480 КБ","3,8 МБ","95 КБ","160 КБ","760 КБ","1,1 МБ","1,0 МБ","2 КБ","300 КБ","310 КБ","5,2 МБ","140 КБ"];
+  var FMT = [{ v: "plain", l: "Текст", i: "T" }, { v: "html", l: "HTML", i: "‹›" }, { v: "markdown", l: "Markdown", i: "#" }];
+  var REM = ["Без напоминания", "Через 3 дня", "Через неделю", "Завтра в 9:00"];
+  var BOXES = ["anna@example.com", "sales@example.com", "boris@example.org"];
+  var TEXT = "Добрый день, Пётр!<br>Смета и договор во вложении. Сроки по складу подтверждены, схема — в третьем файле.<br>Если нужно, подготовлю новый вариант с учётом ваших замечаний.<br><br>С уважением,<br>Анна";
+  var QUOTE = "Анна, добрый день! Пришлите, пожалуйста, смету и договор до пятницы. Нужно согласовать сроки по складу и подтвердить объём первой поставки.<br>Пётр";
+  var stages = {}; var seq = 0;
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  /* ---------- окно ---------- */
+  function win(S) {
+    var now = S.hdr === "now", newAtt = S.att !== "now";
+    var n = S.n, h = [];
+    var minT = (S.hdr === "now" && S.att === "now" && S.st === "now") ? 0 : 160;
+    var fmt = FMT.filter(function (f) { return f.v === S.fmt; })[0];
+    var title = "Re: Смета и договор";
+    var box = BOXES[S.boxSel];
+    if (S.hdr === "B") title += ' <span class="mailbox" data-act="pop:box" ' + (S.pop === "box" ? 'style="outline:2px solid var(--link)"' : '') + '><i class="dot"></i>от ' + esc(box) + ' ▾</span>';
+    h.push('<header><span class="ttl">' + title + '</span><span class="hb">–</span><span class="hb">▢</span><span class="hb">×</span></header>');
+    h.push('<div class="panel" style="--mint:' + minT + 'px">');
+    h.push('<div class="fields">');
+    /* От */
+    if (now) {
+      h.push('<div class="row"><span class="label">От</span><span class="val"><span class="mailbox"><i class="dot"></i>' + esc(box) + ' ▾</span></span></div>');
+    } else if (S.hdr !== "B" && S.boxes > 1) {
+      h.push('<div class="row slim"><span class="label">От</span><span class="val"><span class="mailbox' + (S.pop === "box" ? '" style="outline:2px solid var(--link)' : '') + '" data-act="pop:box"><i class="dot"></i>' + esc(box) + ' ▾</span></span></div>');
+    }
+    /* Кому */
+    var links = "";
+    if (!now) {
+      if (S.hdr === "B" && S.boxes > 1) { /* ящик уже в заголовке */ }
+      links = '<button class="lnk" data-act="cc">Копия<kbd>Alt+C</kbd></button><button class="lnk" data-act="bcc">Скрытая<kbd>Alt+B</kbd></button>';
+      if (S.cc) links = links.replace('data-act="cc">Копия', 'data-act="cc" style="opacity:.45">Копия');
+      if (S.bcc) links = links.replace('data-act="bcc">Скрытая', 'data-act="bcc" style="opacity:.45">Скрытая');
+    }
+    h.push('<div class="row' + (now ? '' : ' slim') + '"><span class="label">Кому</span><span class="val"><span class="adr">petr@example.com</span><span class="adr">olga@example.com</span></span>' + links + '</div>');
+    /* Копия / Скрытая */
+    var ccv = S.ccOne ? '<span class="adr">maria@example.com</span>' : '<span class="ph">адрес</span>';
+    if (now) {
+      h.push('<div class="row tall"><span class="label">Копия</span><span class="val">' + (S.ccOne ? '<span class="adr">maria@example.com</span>' : '<span class="ph">&nbsp;</span>') + '</span></div>');
+      h.push('<div class="row"><span class="label">Скрытая</span><span class="val"><span class="ph">&nbsp;</span></span></div>');
+    } else if (S.hdr === "C" && (S.cc || S.bcc || S.ccOne)) {
+      h.push('<div class="row slim"><span class="two">' +
+        '<div><span class="label">Копия</span>' + (S.ccOne || S.cc ? '<span class="adr">maria@example.com</span>' : '<span class="ph">адрес</span>') + '</div>' +
+        '<div><span class="label">Скрытая</span>' + (S.bcc ? '<span class="adr">' + (S.bccOk ? "ok@example.com" : "") + '</span><span class="ph">адрес<span class="caret"></span></span>' : '<span class="ph">—</span>') + '</div></span></div>');
+    } else {
+      if (S.ccOne || S.cc) h.push('<div class="row slim"><span class="label">Копия</span><span class="val"><span class="adr">maria@example.com</span>' + (S.cc && !S.ccOne ? '<span class="ph">адрес<span class="caret"></span></span>' : '') + '</span></div>');
+      if (S.bcc) h.push('<div class="row slim"><span class="label">Скрытая</span><span class="val"><span class="ph">адрес<span class="caret"></span></span></span></div>');
+    }
+    h.push('<div class="row' + (now ? '' : ' slim') + '"><span class="label">Тема</span><span class="val">Re: Смета и договор</span></div>');
+    h.push('</div>');
+    /* панель оформления */
+    h.push('<div class="bar fixed">' + (S.fp === "bar" ? fmtBtn(S, fmt) : '') + '<b>B</b><i><em>I</em></i><u>U</u><b>•≡</b><b>🔗</b><span class="sp"></span>' + (now ? '<span class="tgl' + (S.markup ? ' on' : '') + '" data-act="markup">Разметка</span>' : '') + '</div>');
+    /* текст */
+    h.push('<div class="ta">' + TEXT + '<span class="caret"></span></div>');
+    /* служебные строки */
+    var arch = S.arch, remN = S.rem;
+    if (S.fmt === "markdown" && now) h.push('<div class="note fixed">ⓘ Уйдёт тремя частями: текст, HTML и исходный Markdown</div>');
+    if (S.quote) {
+      if (now || S.qopen) {
+        if (now) {
+          h.push('<div class="qbar fixed" data-act="quote"><span>›</span><span class="who">9 окт 2026, petr@example.com пишет:</span><span class="act">' + (S.qopen ? "Скрыть цитату" : "Показать цитату") + '</span></div>');
+        }
+        if (S.qopen) h.push('<div class="qtext fixed">' + QUOTE + '</div>');
+      }
+    }
+    if (now) {
+      h.push('<div class="fu fixed"><span data-act="arch"><i class="cb' + (arch ? ' on' : '') + '">' + (arch ? "✓" : "") + '</i>Убрать письмо из входящих до ответа</span><span class="sep">|</span><span class="sel' + (S.pop === "rem" ? ' ac' : '') + '" data-act="pop:rem">⏰ ' + REM[remN] + ' ▾</span></div>');
+    } else if (S.st === "merge") {
+      h.push('<div class="state fixed">' + (S.quote ? '<span class="chipb' + (S.qopen ? '' : ' dim') + '" data-act="quote">↩ Цитата ' + (S.qopen ? "▾" : "›") + '</span>' : '') +
+        '<span class="chipb' + (arch ? '' : ' dim') + '" data-act="arch"><i class="cb' + (arch ? ' on' : '') + '" style="margin:0">' + (arch ? "✓" : "") + '</i> Из входящих до ответа</span>' +
+        '<span class="chipb' + (remN ? '' : ' dim') + (S.pop === "rem" ? ' ac' : '') + '" data-act="pop:rem">⏰ ' + REM[remN] + ' ▾</span></div>');
+    } else if (S.st === "diff") {
+      var chips = [];
+      if (S.quote) chips.push('<span class="chipb' + (S.qopen ? '' : ' dim') + '" data-act="quote">↩ Цитата ' + (S.qopen ? "▾" : "›") + '</span>');
+      if (arch) chips.push('<span class="chipb warn" data-act="arch">✓ Из входящих до ответа ×</span>');
+      if (remN) chips.push('<span class="chipb warn" data-act="pop:rem">⏰ ' + REM[remN] + ' ▾</span>');
+      if (chips.length) h.push('<div class="state fixed">' + chips.join("") + '</div>');
+    } else if (S.st === "menu") {
+      /* строки нет */
+    }
+    if (!now && S.qopen && S.quote) h.push('<div class="qtext fixed">' + QUOTE + '</div>');
+    /* вложения */
+    if (n && S.att !== "count") {
+      if (S.att === "now") {
+        h.push('<div class="atts fixed">' + FILES.slice(0, n).map(function (f, i) { return att(S, f, i); }).join("") + '</div>');
+      } else if (S.att === "scroll") {
+        h.push('<div class="atts scroll fixed" id="atts' + S.id + '">' + FILES.slice(0, n).map(function (f, i) { return att(S, f, i); }).join("") + '</div>');
+      } else if (S.att === "one") {
+        var vis = Math.min(n, 3), rest = n - vis;
+        h.push('<div class="atts one fixed">' + FILES.slice(0, vis).map(function (f, i) { return att(S, f, i); }).join("") + (rest > 0 ? '<button class="attmore' + (S.pop === "att" ? ' ac' : '') + '" data-act="pop:att">+' + rest + ' ещё ›</button>' : '') + '</div>');
+      }
+    }
+    h.push('</div>'); /* panel */
+    /* нижняя панель */
+    var total = n ? " · " + n : "";
+    var files = '<button class="btn' + (S.pop === "att" && S.att === "count" ? ' ac' : '') + '" data-act="' + (S.att === "count" && n ? "pop:att" : "files") + '">📎 ' + (S.att === "count" && n ? n + " " : "") + 'Файлы' + (S.att === "count" && n ? " ▾" : "") + '</button>';
+    var ind = "";
+    if (S.st === "menu") {
+      ind = '<span class="ind">' + (S.quote ? '<span class="chipb dim" data-act="quote">↩</span>' : '') + (arch ? '<span class="chipb warn" title="Из входящих до ответа">⤓</span>' : '') + (remN ? '<span class="chipb warn" title="' + REM[remN] + '">⏰</span>' : '') + '</span>';
+    }
+    h.push('<div class="foot fixed"><button class="btn primary" data-act="send">Отправить <span style="opacity:.8;font-size:11px">Ctrl+Enter</span> ▾</button>' + files +
+      '<span class="sp"></span>' + ind + (S.fp === "bar" ? '' : fmtBtn(S, fmt)) +
+      '<button class="btn ghost' + (S.pop === "more" ? ' ac' : '') + '" data-act="pop:more">⋯</button><button class="btn ghost">🗑</button>' + popup(S) + '</div>');
+    return h.join("");
+  }
+
+  function fmtBtn(S, fmt) {
+    if (S.hdr === "now") return '<button class="btn ghost" data-act="pop:fmt" title="Формат письма: ' + fmt.l + '">' + fmt.i + " " + fmt.l + '</button>';
+    return '<button class="btn ghost' + (S.pop === "fmt" ? " ac" : "") + '" data-act="pop:fmt" title="Формат письма: ' + fmt.l + '">' + fmt.i + " " + fmt.l + ' ▾</button>';
+  }
+  function att(S, f, i) {
+    return '<span class="att' + (S.af === i ? " ac" : "") + '"><span class="nm">' + esc(f) + '</span><span class="sz">' + SIZES[i] + '</span><span class="x" data-act="del:' + i + '">×</span></span>';
+  }
+
+  /* ---------- меню ---------- */
+  function items(S) {
+    var p = S.pop, it = [];
+    if (p === "fmt") {
+      it.push({ mt: "Формат письма" });
+      FMT.forEach(function (f) { it.push({ k: "fmt:" + f.v, t: f.l, tick: S.fmt === f.v }); });
+      if (S.fmt === "markdown" && S.hdr !== "now") { it.push({ sep: 1 }); it.push({ k: "markup", t: "Показать разметку", tick: S.markup }); it.push({ nt: "Уйдёт тремя частями: текст, HTML и исходный Markdown" }); }
+    } else if (p === "rem") {
+      it.push({ mt: "Напоминание, если не ответят" });
+      REM.forEach(function (r, i) { it.push({ k: "rem:" + i, t: r, tick: S.rem === i }); });
+    } else if (p === "box") {
+      it.push({ mt: "От" });
+      BOXES.slice(0, Math.max(S.boxes, 1)).forEach(function (b, i) { it.push({ k: "box:" + i, t: b, tick: S.boxSel === i }); });
+    } else if (p === "att") {
+      it.push({ mt: "Вложения: " + S.n + " · ↑↓ Delete" });
+      FILES.slice(0, S.n).forEach(function (f, i) { it.push({ k: "att:" + i, t: f, hint: SIZES[i] + "  ×" }); });
+      it.push({ sep: 1 }); it.push({ k: "files", t: "Добавить файлы…" });
+    } else if (p === "more") {
+      it.push({ k: "save", t: "Сохранить черновик", hint: "Ctrl+S" });
+      if (S.st === "menu" || S.st === "diff") {
+        it.push({ sep: 1 });
+        if (S.quote) it.push({ k: "quote", t: S.qopen ? "Скрыть цитату" : "Показать цитату", hint: "Alt+Q" });
+        it.push({ k: "arch", t: "Убрать из входящих до ответа", tick: S.arch, hint: "Alt+I" });
+        it.push({ k: "pop:rem", t: "Напоминание…", hint: "Alt+R" });
+        it.push({ sep: 1 });
+      }
+      it.push({ k: "discard", t: "Удалить черновик", cls: "danger" });
+    }
+    return it;
+  }
+  function popup(S) {
+    if (!S.pop) return "";
+    var pos = S.pop === "more" || S.pop === "fmt" ? "right:8px;bottom:48px" : (S.pop === "rem" ? "left:12px;bottom:" + (S.hdr === "now" ? "48px" : "48px") : (S.pop === "box" ? "right:10px;top:-" + 0 + "px;position:fixed" : "left:80px;bottom:48px"));
+    if (S.pop === "box") pos = "left:12px;top:-300px"; /* заменяется ниже */
+    var it = items(S), cur = 0, h = "";
+    it.forEach(function (x) {
+      if (x.mt) h += '<div class="mt">' + esc(x.mt) + '</div>';
+      else if (x.sep) h += '<div class="sep"></div>';
+      else if (x.nt) h += '<div class="nt">' + esc(x.nt) + '</div>';
+      else { h += '<div class="mi' + (cur === S.pi ? " cur" : "") + (x.cls ? " " + x.cls : "") + '" data-act="' + x.k + '"><span class="tick">' + (x.tick ? "✓" : "") + '</span>' + esc(x.t) + (x.hint ? '<span class="hint">' + esc(x.hint) + '</span>' : '') + '</div>'; cur++; }
+    });
+    var style = S.pop === "box" ? "left:12px;top:-1px;position:absolute" : pos;
+    return '<div class="pop" style="' + style + '" data-pop="1">' + h + '</div>';
+  }
+  function actionable(S) { return items(S).filter(function (x) { return x.k; }); }
+
+  /* ---------- состояние и отрисовка ---------- */
+  var DEF = { w: 640, h: 640, n: 0, hdr: "now", att: "now", st: "now", fp: "foot", quote: true, qopen: false, cc: false, bcc: false, ccOne: false, boxes: 1, boxSel: 0, fmt: "markdown", markup: false, arch: false, rem: 0, pop: null, pi: 0, af: -1 };
+  function mk(host, cfg, opts) {
+    var S = Object.assign({}, DEF, cfg); S.id = ++seq; S.host = host; S.opts = opts || {};
+    stages[S.id] = S; host.dataset.sid = S.id; host.setAttribute("tabindex", "0");
+    paint(S); return S;
+  }
+  function paint(S) {
+    var host = S.host;
+    host.innerHTML = '<div class="win' + (S.opts.marks ? " marks" : "") + '" style="width:' + S.w + 'px;height:' + S.h + 'px">' + win(S) + '</div>';
+    if (S.pop === "box") { var pp = host.querySelector(".pop"); var foot = host.querySelector(".foot"); if (pp && foot) { host.querySelector(".win").appendChild(pp); pp.style.cssText = "left:60px;top:" + (S.hdr === "B" ? 30 : 76) + "px"; } }
+    var w = host.querySelector(".win"), ta = host.querySelector(".ta");
+    var sh = host.parentNode.querySelector(".share");
+    if (sh && w && ta) {
+      var r = ta.getBoundingClientRect().height / w.getBoundingClientRect().height, pct = Math.round(r * 100);
+      var panel = host.querySelector(".panel"); var scroll = panel.scrollHeight > panel.clientHeight + 1;
+      sh.className = "share " + (pct < 30 ? "bad" : (pct >= 45 ? "good" : ""));
+      sh.innerHTML = "Под текст: <b>" + pct + "%</b> (" + Math.round(ta.getBoundingClientRect().height / (host.getBoundingClientRect().height / w.offsetHeight || 1)) + " из " + S.h + " px)" + (scroll ? " · панель окна прокручивается" : "");
+    }
+  }
+  function toolbar(S, spec) {
+    var el = S.host.parentNode.querySelector(".tb"); if (!el) return;
+    el.innerHTML = spec.map(function (g) {
+      return "<span>" + g.label + "</span>" + g.vals.map(function (v) { return '<button data-set="' + g.key + '" data-v="' + v[0] + '">' + v[1] + "</button>"; }).join("");
+    }).join(' <span style="width:8px"></span> ');
+    syncTb(S);
+  }
+  function syncTb(S) {
+    S.host.parentNode.querySelectorAll("[data-set]").forEach(function (b) {
+      var v = S[b.dataset.set]; b.classList.toggle("on", String(v) === b.dataset.v);
+    });
+  }
+  function slot(parent, cfg, spec, opts, caption) {
+    var s = document.createElement("div"); s.className = "slot";
+    s.innerHTML = (caption ? '<div style="font-weight:600;margin-bottom:4px">' + caption + '</div>' : '') + '<div class="tb"></div><div class="stage"></div><div class="share"></div>';
+    parent.appendChild(s);
+    var S = mk(s.querySelector(".stage"), cfg, opts);
+    if (spec) toolbar(S, spec);
+    return S;
+  }
+
+  /* ---------- действия ---------- */
+  function act(S, a) {
+    var m;
+    if (a === "cc") { S.cc = !S.cc; if (!S.cc) S.ccOne = false; }
+    else if (a === "bcc") S.bcc = !S.bcc;
+    else if (a === "quote") S.qopen = !S.qopen;
+    else if (a === "arch") S.arch = !S.arch;
+    else if (a === "markup") S.markup = !S.markup;
+    else if (a === "files") { S.pop = null; }
+    else if (a === "send" || a === "save" || a === "discard") S.pop = null;
+    else if ((m = /^pop:(.+)$/.exec(a))) { S.pop = S.pop === m[1] ? null : m[1]; S.pi = 0; if (S.pop === "att" && S.af >= 0) S.pi = S.af; }
+    else if ((m = /^fmt:(.+)$/.exec(a))) { S.fmt = m[1]; S.pop = null; }
+    else if ((m = /^rem:(\d)$/.exec(a))) { S.rem = +m[1]; S.pop = null; }
+    else if ((m = /^box:(\d)$/.exec(a))) { S.boxSel = +m[1]; S.pop = null; }
+    else if ((m = /^del:(\d+)$/.exec(a)) || (m = /^att:(\d+)$/.exec(a))) { if (a.indexOf("att:") === 0) { S.pi = +m[1]; return; } removeAtt(S, +m[1]); }
+    else if (a === "pop:rem") { S.pop = "rem"; }
+    paint(S); syncTb(S);
+  }
+  function removeAtt(S, i) {
+    if (S.n > 0) { FILES.splice(i, 1); SIZES.splice(i, 1); FILES.push("Доп_" + (++seq) + ".txt"); SIZES.push("1 КБ"); S.n--; if (S.af >= S.n) S.af = S.n - 1; if (S.pi >= S.n) S.pi = Math.max(0, S.n - 1); S.host.parentNode.parentNode.querySelectorAll(".stage").forEach(function (h) { var o = stages[h.dataset.sid]; if (o && o !== S && o.opts.sync === S.opts.sync && S.opts.sync) { } }); }
+  }
+
+  document.addEventListener("click", function (e) {
+    var host = e.target.closest(".stage"); if (!host || !host.dataset.sid) return;
+    var S = stages[host.dataset.sid]; host.focus({ preventScroll: true });
+    var t = e.target.closest("[data-act]");
+    if (t) { var a = t.dataset.act; if (a.indexOf("del:") === 0 && S.pop === "att") { } act(S, a); }
+    else if (S.pop && !e.target.closest(".pop")) { S.pop = null; paint(S); }
+  });
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-set]"); if (!b) return;
+    var S = stages[b.closest(".slot").querySelector(".stage").dataset.sid];
+    var v = b.dataset.v; S[b.dataset.set] = /^\d+$/.test(v) ? +v : (v === "true" ? true : (v === "false" ? false : v));
+    if (b.dataset.set === "ccOne" && S.ccOne) S.cc = false;
+    S.af = -1; paint(S); syncTb(S);
+  });
+  document.addEventListener("keydown", function (e) {
+    var host = e.target.closest && e.target.closest(".stage"); if (!host || !host.dataset.sid) return;
+    var S = stages[host.dataset.sid], k = e.code, done = true;
+    if (S.pop) {
+      var list = actionable(S);
+      if (k === "ArrowDown") S.pi = Math.min(list.length - 1, S.pi + 1);
+      else if (k === "ArrowUp") S.pi = Math.max(0, S.pi - 1);
+      else if (k === "Escape") S.pop = null;
+      else if (k === "Delete" && S.pop === "att") removeAtt(S, S.pi);
+      else if (k === "Enter" && list[S.pi]) { act(S, list[S.pi].k); return stop(e); }
+      else if (e.altKey && /^Key[CBMAQFIR]$|^Period$/.test(k)) { S.pop = null; done = false; }
+      else done = true;
+      if (done) { paint(S); return stop(e); }
+    }
+    if (S.af >= 0) {
+      if (k === "ArrowRight" || k === "ArrowDown") S.af = Math.min(S.n - 1, S.af + 1);
+      else if (k === "ArrowLeft" || k === "ArrowUp") S.af = Math.max(0, S.af - 1);
+      else if (k === "Delete" || k === "Backspace") removeAtt(S, S.af);
+      else if (k === "Escape") S.af = -1;
+      else if (!e.altKey) return;
+      else done = false;
+      if (done) { paint(S); var c = S.host.querySelector(".att.ac"); if (c && c.scrollIntoView) c.scrollIntoView({ block: "nearest" }); return stop(e); }
+    }
+    if (!e.altKey) return;
+    var now = S.hdr === "now";
+    if (k === "KeyC") act(S, "cc");
+    else if (k === "KeyB") act(S, "bcc");
+    else if (k === "KeyQ" && S.quote) act(S, "quote");
+    else if (k === "KeyI") act(S, "arch");
+    else if (k === "KeyF") { S.pop = "fmt"; S.pi = Math.max(0, FMT.map(function (f) { return f.v; }).indexOf(S.fmt)); paint(S); }
+    else if (k === "KeyR") { S.pop = "rem"; S.pi = S.rem; paint(S); }
+    else if (k === "KeyM" && !now) { S.pop = "box"; S.pi = S.boxSel; paint(S); }
+    else if (k === "Period") { S.pop = "more"; S.pi = 0; paint(S); }
+    else if (k === "KeyA" && S.n) {
+      if (S.att === "count" || S.att === "one") { S.pop = "att"; S.pi = 0; paint(S); }
+      else { S.af = 0; paint(S); }
+    } else return;
+    stop(e);
+  });
+  function stop(e) { e.preventDefault(); e.stopPropagation(); }
+
+  /* ---------- экраны ---------- */
+  var TB_N = [{ label: "Вложений", key: "n", vals: [[0, "0"], [3, "3"], [8, "8"]] }];
+  var s0 = document.getElementById("s0");
+  [0, 3, 8].forEach(function (n) { slot(s0, { n: n, ccOne: true, arch: true }, null, { marks: true }, "Сейчас · " + n + " вложений"); });
+  /* заголовок тулбара экрана 0 уже подписан; свой переключатель — у каждого окна */
+  document.querySelectorAll("#s0 .tb").forEach(function (t) { t.style.display = "none"; });
+
+  var s1 = document.getElementById("s1");
+  var TB_H = [{ label: "Ящиков", key: "boxes", vals: [[1, "1"], [3, "3"]] }, { label: "Копия", key: "ccOne", vals: [[false, "пусто"], [true, "1 адрес"]] }, { label: "Скрытая", key: "bcc", vals: [[false, "пусто"], [true, "открыть"]] }];
+  [["now", "Сейчас"], ["A", "1А"], ["B", "1Б (рекомендую)"], ["C", "1В"]].forEach(function (v) {
+    var cfg = { hdr: v[0], att: v[0] === "now" ? "now" : "count", st: v[0] === "now" ? "now" : "merge", ccOne: false, boxes: 1, w: 640, h: 360, n: 0, arch: false };
+    slot(s1, cfg, v[0] === "now" ? [{ label: "Копия", key: "ccOne", vals: [[false, "пусто"], [true, "1 адрес"]] }] : TB_H, {}, v[1]);
+  });
+
+  var s2 = document.getElementById("s2");
+  var TB_F = [{ label: "Файлов", key: "n", vals: [[1, "1"], [3, "3"], [8, "8"], [20, "20"]] }];
+  [["now", "Сейчас (для сравнения)"], ["one", "2А"], ["scroll", "2Б"], ["count", "2В (рекомендую)"]].forEach(function (v) {
+    var wrap = document.createElement("div"); wrap.style.marginBottom = "26px"; s2.appendChild(wrap);
+    var r = document.createElement("div"); r.className = "row3"; wrap.appendChild(r);
+    var cfg = { hdr: v[0] === "now" ? "now" : "B", att: v[0], st: v[0] === "now" ? "now" : "merge", n: 8, w: 640, h: 640, ccOne: v[0] === "now", arch: v[0] === "now" };
+    var S = slot(r, cfg, TB_F, {}, "Вариант: " + v[1]);
+    var th = document.createElement("div"); th.className = "thumbs"; th.style.maxWidth = "700px"; r.appendChild(th);
+    [1, 3, 8, 20].forEach(function (n) {
+      var tm = document.createElement("div"); tm.className = "tm";
+      tm.innerHTML = '<div class="stage"></div><div class="share"></div><div class="cap">' + n + ' ' + (n === 1 ? "файл" : (n < 5 ? "файла" : "файлов")) + '</div>';
+      th.appendChild(tm);
+      mk(tm.querySelector(".stage"), Object.assign({}, cfg, { n: n }), {});
+      var sh = tm.querySelector(".share"); sh.style.marginTop = "-2px";
+    });
+  });
+
+  var s3 = document.getElementById("s3");
+  [["now", "Сейчас"], ["merge", "3А (рекомендую)"], ["menu", "3Б"], ["diff", "3В"], ["merge-bar", "3Г"]].forEach(function (v) {
+    var st = v[0] === "merge-bar" ? "merge" : v[0];
+    var cfg = { hdr: v[0] === "now" ? "now" : "B", att: v[0] === "now" ? "now" : "count", st: st, fp: v[0] === "merge-bar" ? "bar" : "foot", n: 3, w: 640, h: 640, ccOne: v[0] === "now", arch: v[0] === "now" || v[0] === "merge" };
+    slot(s3, cfg, [{ label: "Цитата", key: "qopen", vals: [[false, "свёрнута"], [true, "раскрыта"]] }, { label: "Из входящих", key: "arch", vals: [[false, "нет"], [true, "да"]] }, { label: "Формат", key: "fmt", vals: [["plain", "Текст"], ["markdown", "Markdown"]] }], {}, v[1]);
+  });
+
+  var s4 = document.getElementById("s4");
+  [[640, 640], [900, 700]].forEach(function (sz) {
+    var wrap = document.createElement("div"); wrap.style.marginBottom = "30px"; s4.appendChild(wrap);
+    var h = document.createElement("h3"); h.className = "v"; h.innerHTML = '<span class="n">' + sz[0] + '×' + sz[1] + '</span>Сейчас → после (1Б + 2В + 3А), 8 вложений, цитата раскрыта'; wrap.appendChild(h);
+    var r = document.createElement("div"); r.className = "row3"; wrap.appendChild(r);
+    slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, ccOne: true, arch: true }, null, { marks: true }, "Сейчас").host.parentNode.querySelector(".tb").style.display = "none";
+    slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, hdr: "B", att: "count", st: "merge", boxes: 3, arch: true }, null, {}, "После").host.parentNode.querySelector(".tb").style.display = "none";
+  });
+
+  /* ---------- тема ---------- */
+  document.querySelectorAll("[data-theme]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.body.classList.toggle("night", b.dataset.theme === "night");
+      document.querySelectorAll("[data-theme]").forEach(function (x) { x.classList.toggle("on", x === b); });
+    });
+  });
+  document.querySelectorAll(".theme").forEach(function () {});
+  document.querySelectorAll("#s0,#s1,#s2,#s3,#s4").forEach(function (el) { el.classList.add("theme"); });
+  /* пересчёт долей после загрузки шрифтов и вёрстки */
+  window.addEventListener("load", function () { Object.keys(stages).forEach(function (id) { paint(stages[id]); }); });
+  window.__compose = { stages: stages };
+})();
+</script>
+</body>
+</html>
