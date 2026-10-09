@@ -1236,6 +1236,44 @@ async fn a_label_check_leaves_no_test_message_over_starttls() {
     );
 }
 
+/// #113: the marks of others that a plain `EXPUNGE` spares are cleared and set again in batches:
+/// the stand's command line is short, eight hundred scattered UIDs in one are refused.
+#[tokio::test]
+async fn many_foreign_deleted_marks_are_spared_in_batches() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = imap::connect(&server_at(31144).await, &user("sparedmany"))
+        .await
+        .expect("login over STARTTLS");
+    assert!(!conn.caps.uidplus, "the stand must not offer UIDPLUS");
+    conn.session.create("Many").await.unwrap();
+    // Every other letter is marked by another client: 800 UIDs that are not a range.
+    for n in 1..=1600 {
+        let flags = if n % 2 == 0 { "(\\Deleted)" } else { "" };
+        imap::append(&mut conn, "Many", &mail("many", n), flags).await.unwrap();
+    }
+    let validity = conn.session.select("Many").await.unwrap().uid_validity;
+    let all = imap::uid_search(&mut conn, "ALL").await.unwrap();
+    let foreign = imap::uid_search(&mut conn, "DELETED").await.unwrap();
+    assert_eq!((all.len(), foreign.len()), (1600, 800));
+    // Ours: the first unmarked letters.
+    let ours: Vec<u32> = all.iter().copied().filter(|u| !foreign.contains(u)).take(3).collect();
+
+    imap::delete_permanently(&mut conn, "Many", validity, &ours)
+        .await
+        .unwrap();
+
+    conn.session.select("Many").await.unwrap();
+    assert_eq!(imap::uid_search(&mut conn, "ALL").await.unwrap().len(), 1597);
+    assert_eq!(
+        imap::uid_search(&mut conn, "DELETED").await.unwrap(),
+        foreign,
+        "every foreign mark is back"
+    );
+    conn.session.logout().await.unwrap();
+}
+
 /// #113: a Dovecot whose capabilities lack UIDPLUS has no `UID EXPUNGE` for the client. The
 /// letters must still be wiped, and a letter another client marked `\Deleted` must stay.
 #[tokio::test]

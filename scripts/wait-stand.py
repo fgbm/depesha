@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Waits until the test stand serves, not merely listens: a real IMAP login on GreenMail
-(plain and TLS) and on Dovecot (STARTTLS and TLS). Dovecot opens its port before its TLS
+(plain and TLS) and on Dovecot (STARTTLS and TLS), also the one without UIDPLUS (STARTTLS, #113). Dovecot opens its port before its TLS
 handshake works; the tests that came first got EOF."""
 import imaplib
 import ssl
@@ -38,7 +38,14 @@ def dovecot_tls():
     c.logout()
 
 
-CHECKS = [greenmail_plain, greenmail_tls, dovecot_starttls, dovecot_tls]
+def dovecot_no_uidplus():
+    c = imaplib.IMAP4(HOST, 31144)
+    c.starttls(ssl_context=ctx)
+    c.login("alice", "secret")
+    c.logout()
+
+
+CHECKS = [greenmail_plain, greenmail_tls, dovecot_starttls, dovecot_tls, dovecot_no_uidplus]
 deadline = time.time() + 90
 pending = list(CHECKS)
 last = {}

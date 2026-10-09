@@ -1110,11 +1110,12 @@ async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
 /// Plain `EXPUNGE` that spares `kept`: their `\Deleted` is cleared first and set again
 /// afterwards, also when the `EXPUNGE` failed.
 async fn expunge_keeping(conn: &mut Conn, kept: &[u32]) -> Result<()> {
-    let spared = uid_set(kept);
-    if !kept.is_empty() {
+    // Many marks of others are cleared and set again in batches: a command line with a
+    // thousand UIDs is refused by some servers.
+    for chunk in kept.chunks(SPARED_BATCH) {
         let _: Vec<_> = conn
             .session
-            .uid_store(&spared, "-FLAGS.SILENT (\\Deleted)")
+            .uid_store(uid_set(chunk), "-FLAGS.SILENT (\\Deleted)")
             .await?
             .try_collect()
             .await?;
@@ -1123,16 +1124,19 @@ async fn expunge_keeping(conn: &mut Conn, kept: &[u32]) -> Result<()> {
         Ok(stream) => stream.try_collect().await.map_err(Into::into),
         Err(e) => Err(e.into()),
     };
-    if !kept.is_empty() {
+    for chunk in kept.chunks(SPARED_BATCH) {
         let _: Vec<_> = conn
             .session
-            .uid_store(&spared, "+FLAGS.SILENT (\\Deleted)")
+            .uid_store(uid_set(chunk), "+FLAGS.SILENT (\\Deleted)")
             .await?
             .try_collect()
             .await?;
     }
     expunged.map(drop)
 }
+
+/// UIDs of other clients' `\Deleted` marks cleared or set in one command.
+const SPARED_BATCH: usize = 500;
 
 /// `flags` as `(\Seen)` or `\Seen`; empty for none.
 pub async fn append(conn: &mut Conn, folder: &str, raw: &[u8], flags: &str) -> Result<()> {
