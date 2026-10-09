@@ -31,6 +31,13 @@ export function limitMb(gb: string): number {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 1024) : 0;
 }
 
+/** The own limit typed in GB as a whole text: a number or nothing; null for anything else («abc», «2,», «-1»). */
+export function parseLimit(gb: string): number | null {
+  const text = gb.replace(/\s/g, "");
+  if (!text) return 0;
+  return /^\d+([.,]\d+)?$/.test(text) ? limitMb(text) : null;
+}
+
 export function fingerprint(sha: string): string {
   return sha.toUpperCase().match(/.{1,2}/g)?.join(":") ?? sha;
 }
@@ -92,6 +99,24 @@ export class AccountForm {
    * its megabytes, since the text rounds them (1 MB reads «0»).
    */
   private limitShown = { text: "", mb: 0 };
+  /** The last limit that was a number, with its text: what a text not fit to be saved falls back to. */
+  private limitKept = { text: "", mb: 0 };
+  /** Why a field was not saved: the backend refused it, by the field's key (shown at the field). */
+  fieldErrors = $state<Record<string, string>>({});
+  /** Called when a check ends (saved or not): what was typed meanwhile can go. */
+  resume: (() => void) | null = null;
+  /** Called after the connection is written, before the page is left: what was typed meanwhile is written. */
+  afterConnection: (() => Promise<void>) | null = null;
+
+  /** The message when the limit as typed is not a number; null when it is fit to be saved. */
+  get limitError(): string | null {
+    return parseLimit(this.quotaLimitGb) === null ? t("storage.limitBad") : null;
+  }
+
+  /** Esc in the field: the last good limit comes back. */
+  revertLimit() {
+    this.quotaLimitGb = this.limitKept.text;
+  }
   source = $state("");
   notes = $state<string[]>([]);
   busy = $state(false);
@@ -156,26 +181,28 @@ export class AccountForm {
     return e ? connectionChanged(e, this.account(), this.password, this.grant) : this.dirty;
   }
 
-  /** Puts the fields that do not reach the server back as the saved mailbox has them (a change taken back). */
-  adopt(a: Account) {
-    this.label = a.label ?? "";
-    this.color = a.color ?? "";
-    this.name = a.display_name;
-    this.saveSent = a.save_sent_copy;
-    this.signatures = (a.signatures ?? []).map((s) => ({ ...s }));
-    this.defaultSignature = a.default_signature ?? null;
-    this.replySignature = a.reply_signature ?? null;
-    this.composeFormat = a.compose_format ?? "";
-    this.letterView = a.letter_view ?? "";
-    this.attachmentsDir = a.attachments_dir ?? "";
-    this.waiting = a.waiting ? { ...a.waiting } : { park: false, folder: "", stop_to_archive: false };
-    this.quotaWarn = a.quota_warn !== false;
-    this.showLimit(a.quota_limit_mb ?? 0);
+  /** Puts the fields that do not reach the server back as the saved mailbox has them (a change taken back); only the keys named, all without any. */
+  adopt(a: Account, keys?: string[]) {
+    const has = (k: string) => !keys || keys.includes(k);
+    if (has("label")) this.label = a.label ?? "";
+    if (has("color")) this.color = a.color ?? "";
+    if (has("display_name")) this.name = a.display_name;
+    if (has("save_sent_copy")) this.saveSent = a.save_sent_copy;
+    if (has("signatures")) this.signatures = (a.signatures ?? []).map((s) => ({ ...s }));
+    if (has("default_signature")) this.defaultSignature = a.default_signature ?? null;
+    if (has("reply_signature")) this.replySignature = a.reply_signature ?? null;
+    if (has("compose_format")) this.composeFormat = a.compose_format ?? "";
+    if (has("letter_view")) this.letterView = a.letter_view ?? "";
+    if (has("attachments_dir")) this.attachmentsDir = a.attachments_dir ?? "";
+    if (has("waiting")) this.waiting = a.waiting ? { ...a.waiting } : { park: false, folder: "", stop_to_archive: false };
+    if (has("quota_warn")) this.quotaWarn = a.quota_warn !== false;
+    if (has("quota_limit_mb")) this.showLimit(a.quota_limit_mb ?? 0);
   }
 
   private showLimit(mb: number) {
     this.quotaLimitGb = mb ? String(Math.round((mb / 1024) * 100) / 100).replace(".", ",") : "";
     this.limitShown = { text: this.quotaLimitGb, mb };
+    this.limitKept = { text: this.quotaLimitGb, mb };
   }
 
   /** The fields that reach the server back to the saved ones; nothing typed for the login is kept. */
@@ -352,6 +379,15 @@ export class AccountForm {
     }
   }
 
+  /** The own limit in MB: the shown one while the text is untouched (it rounds), the typed one when it is a number, else the last good one. */
+  private limitMb(): number {
+    if (this.quotaLimitGb === this.limitShown.text) return this.limitShown.mb;
+    const typed = parseLimit(this.quotaLimitGb);
+    if (typed === null) return this.limitKept.mb;
+    this.limitKept = { text: this.quotaLimitGb, mb: typed };
+    return typed;
+  }
+
   account(): Account {
     const acc: Account = {
       id: this.existing?.id ?? "",
@@ -368,7 +404,7 @@ export class AccountForm {
       reply_signature: this.replySignature,
       attachments_dir: this.attachmentsDir.trim(),
       quota_warn: this.quotaWarn,
-      quota_limit_mb: this.quotaLimitGb === this.limitShown.text ? this.limitShown.mb : limitMb(this.quotaLimitGb),
+      quota_limit_mb: this.limitMb(),
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;
     if (this.letterView) acc.letter_view = this.letterView;
@@ -405,6 +441,8 @@ export class AccountForm {
       await api.accountSave(acc, secret, this.grant);
       this.grant = null;
       await app.loadAccounts();
+      // What was typed meanwhile (the name, a signature) is not lost with the page.
+      if (this.afterConnection) await this.afterConnection();
       this.done();
       app.toast(existing ? t("wizard.saved") : t("wizard.added", { email: acc.email }));
       app.scheduleFolders();
@@ -422,6 +460,7 @@ export class AccountForm {
     } finally {
       this.busy = false;
       this.status = "";
+      this.resume?.();
     }
   }
 

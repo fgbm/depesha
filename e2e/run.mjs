@@ -2291,11 +2291,42 @@ try {
     await screenshot("settings-account-autosave", { toasts: true });
     // The button waits for the connection: it is dim until a server, a port or a login changes.
     if ((await d.findAll(".account-page footer .btn.primary:not([disabled])")).length) throw new Error("кнопка подключения горит без изменений подключения");
-    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    // The key is pressed on the control the pick left the focus on, not on the window.
+    await pressIn(".account-page .compose-format .trigger", "z", { ctrlKey: true });
     await d.until("format back", async () => ((await invoke("accounts"))[0].compose_format ?? "") === was, 20000);
     // Closing asks nothing: nothing of the connection is waiting.
     await closeSettings();
     if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие страницы ящика о чём-то спросило");
+  });
+
+  await step("7.26", "страница ящика: название, набранное во время проверки подключения, сохраняется; уход с несохранённым подключением спрашивает", async () => {
+    const me = (await invoke("accounts"))[0];
+    await openMailboxPage(me.id);
+    await d.click(await d.find(".account-page button.head"));
+    // A server nobody answers at: the check takes a while or fails at once, the end is the same.
+    const imapHost = ".account-page #account-connection fieldset:nth-of-type(1) .host input";
+    await setInput(imapHost, "192.0.2.1");
+    await d.until("button lit", async () => (await d.findAll(".account-page footer .btn.primary:not([disabled])")).length === 1);
+    await d.click(await d.find(".account-page footer .btn.primary"));
+    const name = ".account-page .grid input";
+    await setInput(name, "Проверка 7.26");
+    await d.type(await d.find(name), "\uE007");
+    // The check ends with its error: the connection is not saved, the name is.
+    await d.until("name saved", async () => (await invoke("accounts"))[0].label === "Проверка 7.26", 90000);
+    await d.until("check failed", async () => (await d.findAll(".account-page .outcome")).length === 1, 90000);
+    if ((await invoke("accounts"))[0].imap.host !== me.imap.host) throw new Error("подключение сохранилось без проверки");
+    // The connection is still changed and not saved: leaving asks, and «Вернуться» stays.
+    await d.click(await d.find(".prefs .tab[data-page='plugins']"));
+    await d.until("question", async () => (await d.findAll(".modal.confirm")).length === 1);
+    await d.click(await d.xpath("//div[contains(@class,'confirm')]//button[normalize-space(.)='Вернуться']"));
+    await d.until("question gone", async () => (await d.findAll(".modal.confirm")).length === 0);
+    if (!(await d.findAll(".prefs .account-page")).length) throw new Error("страница ящика закрылась после «Вернуться»");
+    // Back as it was, for the steps after this one.
+    await d.click(await d.xpath("//div[contains(@class,'account-page')]//footer//button[normalize-space(.)='Отмена']"));
+    await setInput(name, me.label ?? "");
+    await d.type(await d.find(name), "\uE007");
+    await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
+    await closeSettings();
   });
 
   await step("7.25", "фон без значка: согласие даётся действием строки, а не выбором", async () => {
@@ -2369,6 +2400,8 @@ try {
     if (!sizes.includes("Итого")) throw new Error("нет итога");
     // An own limit makes the folder sizes an estimate to compare with: the sidebar shows it.
     await setInput(".account-page input.own", "0,001");
+    // A text is saved when its field is left or Enter is pressed (#102, 1.7 Б).
+    await d.type(await d.find(".account-page input.own"), "\uE007");
     await d.until("limit saved", async () => (await invoke("accounts"))[0].quota_limit_mb === 1, 20000);
     await closeSettings();
     await d.until("quota line", async () => (await d.findAll(`nav.side .quota[data-account='${id}']`)).length === 1, 10000);
@@ -2379,7 +2412,7 @@ try {
     await d.click(await d.find(`nav.side .quota[data-account='${id}']`));
     await d.until("storage opened", async () => (await d.findAll(".prefs .account-page section[data-section='storage']")).length === 1);
     await setInput(".account-page input.own", "");
-    await d.exec("const i = document.querySelector('.account-page input.own'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
+    await d.exec("const i = document.querySelector('.account-page input.own'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();");
     await d.until("limit cleared", async () => !(await invoke("accounts"))[0].quota_limit_mb, 20000);
     await closeSettings();
     // Messages from the toasts this left (a full mailbox) go before the next steps.

@@ -244,3 +244,31 @@ describe("going to wait after an answer", () => {
     expect(again.dirty).toBe(false);
   });
 });
+
+describe("the own limit of a mailbox (#102)", () => {
+  it("does not take a limit that is not a number: it is lit and the last good one stays", () => {
+    const form = new AccountForm({ ...saved, quota_limit_mb: 4096 }, vi.fn());
+    expect(form.quotaLimitGb).toBe("4");
+    for (const bad of ["abc", "2,", "-1", "1,5,5"]) {
+      form.quotaLimitGb = bad;
+      expect(form.limitError, bad).not.toBeNull();
+      expect(form.account().quota_limit_mb, bad).toBe(4096);
+    }
+    form.revertLimit();
+    expect(form.quotaLimitGb).toBe("4");
+    expect(form.limitError).toBeNull();
+    form.quotaLimitGb = "2,5";
+    expect(form.account().quota_limit_mb).toBe(2560);
+    form.quotaLimitGb = "abc";
+    expect(form.account().quota_limit_mb).toBe(2560);
+  });
+
+  it("reads an empty limit, and a typed 0, as «by the server's quota»", () => {
+    const form = new AccountForm({ ...saved, quota_limit_mb: 4096 }, vi.fn());
+    form.quotaLimitGb = "";
+    expect(form.limitError).toBeNull();
+    expect(form.account().quota_limit_mb).toBe(0);
+    form.quotaLimitGb = "0";
+    expect(form.account().quota_limit_mb).toBe(0);
+  });
+});

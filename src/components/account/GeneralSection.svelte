@@ -3,6 +3,7 @@
   import type { SectionProps } from "./sections";
   import ColorField from "./ColorField.svelte";
   import AttachmentsDirField from "./AttachmentsDirField.svelte";
+  import FieldError from "./FieldError.svelte";
   import ConnectionBlock from "./ConnectionBlock.svelte";
 
   let { form, account }: SectionProps = $props();
@@ -19,8 +20,10 @@
   <label class="field"><span>{t("wizard.name")}</span><input class="input" bind:value={form.name} placeholder={t("wizard.namePlaceholder")} /></label>
   <label class="field wide"><span>{t("wizard.address")}</span><input class="input" value={form.email} disabled /></label>
 </div>
+<FieldError {form} keys={["label", "display_name", "color", "save_sent_copy"]} />
 <ColorField bind:value={form.color} />
 <AttachmentsDirField bind:value={form.attachmentsDir} />
+<FieldError {form} keys={["attachments_dir"]} />
 <ConnectionBlock {form} status={account.status} bind:open={connectionOpen} />
 
 <style>

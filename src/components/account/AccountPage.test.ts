@@ -40,6 +40,10 @@ function open(over: Partial<Account> = {}) {
     stored = a;
     return a;
   });
+  api.accountPatchOwn.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+    stored = { ...stored, ...patch } as Account;
+    return stored;
+  });
   target = document.createElement("div");
   document.body.append(target);
   view = mount(AccountPage, { target, props: { account: app.accounts[0], onDone: vi.fn() } });
@@ -59,6 +63,25 @@ afterEach(async () => {
 });
 
 describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
+  it("saves a text when its field is left, not while it is typed in", async () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      const input = target.querySelector<HTMLInputElement>("input[placeholder='jane@example.com']") ?? target.querySelectorAll<HTMLInputElement>(".grid input")[0];
+      input.focus();
+      input.value = "Home";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      flushSync();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(stored.label).toBe("Work");
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(200);
+      expect(stored.label).toBe("Home");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("has one button, for the connection, and it waits for a change of the connection", () => {
     open();
     const buttons = [...target.querySelectorAll<HTMLButtonElement>("footer .btn.primary")];
@@ -82,7 +105,7 @@ describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
       flushSync();
       document.querySelector<HTMLElement>(".pop [role=option][data-value=markdown]")!.click();
       flushSync();
-      await vi.advanceTimersByTimeAsync(800);
+      await vi.advanceTimersByTimeAsync(200);
       expect(stored.compose_format).toBe("markdown");
       expect(target.querySelector("footer .mark")?.textContent).toContain("Сохранено");
     } finally {

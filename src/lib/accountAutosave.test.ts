@@ -10,7 +10,7 @@ import { AccountForm } from "./accountForm.svelte";
 import { AccountAutosave } from "./accountAutosave.svelte";
 import { i18n } from "./i18n.svelte";
 import { app } from "./store.svelte";
-import { api, resetFakes } from "./testing";
+import { api, deferred, resetFakes } from "./testing";
 import type { Account, AccountView } from "./types";
 
 const base: Account = {
@@ -34,6 +34,13 @@ function backend(initial: Account) {
     stored = acc;
     return acc;
   });
+  api.accountPatchOwn.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+    // `account_patch_own`: only the fields named, an empty string for «none».
+    const next = { ...stored, ...patch } as Record<string, unknown>;
+    for (const k of ["compose_format", "letter_view", "default_signature", "reply_signature"]) if (next[k] === "") delete next[k];
+    stored = next as unknown as Account;
+    return stored;
+  });
   app.accounts = [{ ...stored, status: null } as AccountView];
   return () => stored;
 }
@@ -55,12 +62,14 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("a mailbox's page saves what is not the connection as it is changed (#102, 1.7 Б)", () => {
-  it("saves the format without a button, and says so at the row", async () => {
+  it("saves a pick at once, through the command that leaves the connection alone", async () => {
     const { form, own, stored } = open();
     form.composeFormat = "markdown";
     own.touch();
-    await vi.advanceTimersByTimeAsync(700);
+    await vi.advanceTimersByTimeAsync(100);
     expect(api.accountCheck).not.toHaveBeenCalled();
+    expect(api.accountSave).not.toHaveBeenCalled();
+    expect(api.accountPatchOwn).toHaveBeenCalledWith("a", { compose_format: "markdown" });
     expect(stored().compose_format).toBe("markdown");
     expect(own.auto.marks.account).toBe("saved");
   });
@@ -69,19 +78,21 @@ describe("a mailbox's page saves what is not the connection as it is changed (#1
     const { own } = open({ ...base, signatures: [{ id: "s", name: "W", html: "<p>x</p>", text: "x" }], quota_limit_mb: 1000 });
     own.touch();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(api.accountSave).not.toHaveBeenCalled();
+    expect(api.accountPatchOwn).not.toHaveBeenCalled();
   });
 
-  it("waits for the typing to pause: one write for a name typed in several letters", async () => {
+  it("saves a text when its field is left, not at a pause in the typing", async () => {
     const { form, own, stored } = open();
     for (const name of ["J", "Ja", "Jan"]) {
       form.name = name;
+      own.typed();
       own.touch();
-      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(2000);
     }
-    expect(api.accountSave).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(700);
-    expect(api.accountSave).toHaveBeenCalledTimes(1);
+    expect(api.accountPatchOwn).not.toHaveBeenCalled();
+    own.commit();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(api.accountPatchOwn).toHaveBeenCalledTimes(1);
     expect(stored().display_name).toBe("Jan");
   });
 
@@ -90,12 +101,47 @@ describe("a mailbox's page saves what is not the connection as it is changed (#1
     form.imap.host = "other.example.com";
     form.composeFormat = "html";
     own.touch();
-    await vi.advanceTimersByTimeAsync(700);
+    await vi.advanceTimersByTimeAsync(100);
     expect(stored().compose_format).toBe("html");
     expect(stored().imap.host).toBe("imap.example.com");
     expect(form.connectionDirty).toBe(true);
   });
 
+});
+
+describe("the connection's own button (#102)", () => {
+  it("keeps what is changed during a check of the connection and sends it after", async () => {
+    const { form, own, stored } = open();
+    const check = deferred<void>();
+    api.accountCheck.mockReturnValue(check.promise);
+    form.smtp.port = 25;
+    const saving = form.checkAndSave();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(form.busy).toBe(true);
+    form.label = "Home";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.accountPatchOwn).not.toHaveBeenCalled();
+    check.resolve();
+    await saving;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(stored().smtp.port).toBe(25);
+    expect(stored().label).toBe("Home");
+  });
+
+  it("sends a name typed during the check after the connection, before the page goes", async () => {
+    const { form, stored } = open();
+    const check = deferred<void>();
+    api.accountCheck.mockReturnValue(check.promise);
+    form.imap.port = 143;
+    const saving = form.checkAndSave();
+    await vi.advanceTimersByTimeAsync(0);
+    form.name = "Jane D";
+    check.resolve();
+    await saving;
+    expect(stored().imap.port).toBe(143);
+    expect(stored().display_name).toBe("Jane D");
+  });
 });
 
 describe("leaving and taking back (#102, 1.7 Б)", () => {
@@ -120,7 +166,7 @@ describe("leaving and taking back (#102, 1.7 Б)", () => {
     const { form, own, stored } = open();
     form.composeFormat = "markdown";
     own.touch();
-    await vi.advanceTimersByTimeAsync(700);
+    await vi.advanceTimersByTimeAsync(100);
     expect(await own.undo()).toBe(true);
     expect(stored().compose_format).toBeUndefined();
     expect(form.composeFormat).toBe("");
@@ -128,22 +174,25 @@ describe("leaving and taking back (#102, 1.7 Б)", () => {
     // The fields that came back are not a change to be saved again.
     own.touch();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(api.accountSave).toHaveBeenCalledTimes(2);
+    expect(api.accountPatchOwn).toHaveBeenCalledTimes(2);
   });
 
-  it("does not save again a value the backend wrote down in its own shape", async () => {
-    const { form, own } = open();
-    api.accountSave.mockImplementation(async (acc: Account) => {
-      app.accounts = [{ ...acc, attachments_dir: "/home/jane/Downloads", status: null } as AccountView];
-      return acc;
-    });
-    api.accounts.mockImplementation(async () => app.accounts);
-    form.attachmentsDir = "~/Downloads";
-    own.touch();
-    await vi.advanceTimersByTimeAsync(700);
-    own.touch();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(api.accountSave).toHaveBeenCalledTimes(1);
+  it("writes what is typed first, so the key takes back the change the user just made", async () => {
+    const { form, own, stored } = open();
+    form.label = "Home";
+    form.composeFormat = "html";
+    expect(await own.undo()).toBe(true);
+    expect(stored().compose_format).toBeUndefined();
+    expect(api.accountPatchOwn).toHaveBeenCalledTimes(2);
+  });
+
+  it("puts back only the fields of the change taken back: what is typed meanwhile stays", () => {
+    const { form } = open({ ...base, compose_format: "markdown" });
+    form.label = "Typed";
+    form.composeFormat = "html";
+    form.adopt({ ...base, compose_format: "markdown" } as Account, ["compose_format"]);
+    expect(form.composeFormat).toBe("markdown");
+    expect(form.label).toBe("Typed");
   });
 
   it("checks the login only by the connection's own button", async () => {
@@ -154,5 +203,32 @@ describe("leaving and taking back (#102, 1.7 Б)", () => {
     expect(form.connectionDirty).toBe(true);
     form.revertConnection();
     expect(form.connectionDirty).toBe(false);
+  });
+});
+
+describe("a field the backend refuses (#102)", () => {
+  it("is said at its own field, the rest is saved, and it is not sent again until it changes", async () => {
+    const { form, own } = open();
+    const write = api.accountPatchOwn.getMockImplementation()!;
+    api.accountPatchOwn.mockImplementation(async (id: string, patch: Record<string, unknown>) => {
+      if (patch.attachments_dir === "/etc") throw { kind: "io", message: "not a folder you picked" };
+      return write(id, patch);
+    });
+    form.attachmentsDir = "/etc";
+    form.composeFormat = "html";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(form.fieldErrors.attachments_dir).toBe("not a folder you picked");
+    expect(form.error).toBeNull();
+    const sent = api.accountPatchOwn.mock.calls.map((c) => Object.keys(c[1] as object));
+    expect(sent).toEqual([["attachments_dir", "compose_format"], ["attachments_dir"], ["compose_format"]]);
+    form.label = "Home";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(Object.keys(api.accountPatchOwn.mock.calls.at(-1)![1] as object)).toEqual(["label"]);
+    form.attachmentsDir = "/home/jane";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(form.fieldErrors.attachments_dir).toBeUndefined();
   });
 });

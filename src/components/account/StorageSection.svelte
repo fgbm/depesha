@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FieldError from "./FieldError.svelte";
   // The mailbox's room on the server, as the server reports it (QUOTA) or as counted from
   // its folders, with the mailbox's own limit for the warnings; and, apart, what its mail
   // takes on this computer, which is never shown as the server's.
@@ -163,6 +164,8 @@
       {t("storage.own")}
       <input
         class="input own"
+        class:bad={!!form.limitError}
+        aria-invalid={!!form.limitError}
         bind:this={ownInput}
         bind:value={form.quotaLimitGb}
         inputmode="decimal"
@@ -170,9 +173,18 @@
         disabled={!form.quotaWarn}
         onfocus={() => (ownMode = true)}
         aria-label={t("storage.own")}
+        onkeydown={(e) => {
+          // Esc puts the last good limit back and keeps the window.
+          if (e.key !== "Escape" || !form.limitError) return;
+          e.preventDefault();
+          e.stopPropagation();
+          form.revertLimit();
+        }}
       />
       {t("storage.gb")}
     </label>
+    {#if form.limitError}<p class="field-error" role="alert">{form.limitError}</p>{/if}
+    <FieldError {form} keys={["quota_warn", "quota_limit_mb"]} />
     <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.openSettings("storage")}>{t("storage.levelsLink")}</button></p>
   </div>
 </div>
@@ -236,6 +248,17 @@
 </div>
 
 <style>
+  .field-error {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--warn);
+  }
+
+  .own.bad {
+    border-color: var(--warn);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 25%, transparent);
+  }
+
   .room {
     display: flex;
     flex-direction: column;

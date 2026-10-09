@@ -58,7 +58,18 @@
     };
   });
 
-  // The fields that do not reach the server are saved when they change and the typing pauses.
+  /** A text field: saved when it is left or Enter is pressed. A list, a box or a colour is a pick: saved at once. */
+  const TEXT = "input:not([type=checkbox], [type=radio], [type=button], [type=color]), textarea, [contenteditable]";
+
+  function onInput(e: Event) {
+    if (e.target instanceof HTMLElement && e.target.matches(TEXT)) own.typed();
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter" && e.target instanceof HTMLInputElement && e.target.matches(TEXT)) own.commit();
+  }
+
+  // The fields that do not reach the server are saved when they change.
   $effect(() => {
     void JSON.stringify(ownOf(form.account()));
     untrack(() => own.touch());
@@ -77,7 +88,9 @@
   });
 </script>
 
-<div class="account-page" role="group" aria-label={account.email}>
+<!-- The events of the fields bubble here: the page decides when a text is committed. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="account-page" role="group" aria-label={account.email} oninput={onInput} onkeydown={onKeydown} onfocusout={() => own.commit()}>
   <nav class="toc" aria-label={t("account.contents")}>
     {#each sections as s, i (s.id)}
       {@const look = s.attention?.(account) ?? false}

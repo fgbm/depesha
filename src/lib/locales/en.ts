@@ -1084,6 +1084,7 @@ export const en = {
   "storage.byQuotaNone": "Limit by the server's quota — the server does not report one",
   "storage.own": "Own limit",
   "storage.gb": "GB",
+  "storage.limitBad": "A number of gigabytes is needed, like 4 or 2.5",
   "storage.ownHint": "Your limit is for warnings only; it does not change the quota on the server. If the server is nearer its limit, the warning follows the server. The levels are the same for every mailbox:",
   "storage.levelsLink": "Mailboxes filling up…",
   "storage.folders": "Folder sizes",

@@ -1075,6 +1075,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "storage.byQuotaNone": "Лимит по квоте сервера — сервер её не сообщает",
   "storage.own": "Свой лимит",
   "storage.gb": "ГБ",
+  "storage.limitBad": "Нужно число гигабайт, например 4 или 2,5",
   "storage.ownHint": "Свой лимит — только для предупреждений, квоту на сервере не меняет. Если сервер ближе к пределу, предупредим по серверу. Пороги — общие для всех ящиков:",
   "storage.levelsLink": "Заполнение ящиков…",
   "storage.folders": "Размер папок",
