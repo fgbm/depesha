@@ -352,8 +352,13 @@ pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Resu
             state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent yet: it will be filed later", "письмо отправлено, но копия в «Отправленные» пока не сохранена: её положат позже") }));
         }
         if let Err(e) = finish_sent(state, &account, item, copy.message_id.clone(), cached).await {
-            // Counted as a try: otherwise the copy and the finish are repeated every round.
-            settle_failed_finish(&state.store, copy, &outcome, &e, chrono::Utc::now().timestamp())?;
+            // Counted as a refusal: otherwise the copy and the finish are repeated for ever.
+            let settled = settle_failed_finish(&state.store, copy, &e, chrono::Utc::now().timestamp())?;
+            if settled == Settled::Held
+                && let Some(held) = state.store.sent_copies_stuck()?.into_iter().find(|c| c.id == copy.id)
+            {
+                stuck_task(state, &held);
+            }
             return Err(e);
         }
     }
@@ -469,25 +474,18 @@ fn restore_stuck_tasks(state: &AppState) {
     }
 }
 
-/// A finish of the sent letter that failed leaves its copy to try again later, with the
-/// attempt counted. The copy itself may have gone through: a repeat finds it on the server.
+/// A finish of the sent letter that failed leaves its copy to try again later. It counts like
+/// a refusal (30 min, 2 h, 6 h, then on hold with a task): a finish that fails for good
+/// must not upload and repeat itself forever. The copy itself may have gone through: a
+/// repeat finds it on the server.
 fn settle_failed_finish(
     store: &depesha_core::store::Store,
     copy: &SentCopy,
-    outcome: &Result<(), depesha_core::Error>,
     failure: &CmdError,
     now: i64,
-) -> Result<(), CmdError> {
-    match outcome {
-        Err(_) => settle_copy(store, copy, outcome, now)?,
-        Ok(()) => settle_copy(
-            store,
-            copy,
-            &Err(depesha_core::Error::Io(std::io::Error::other(failure.message.clone()))),
-            now,
-        )?,
-    };
-    Ok(())
+) -> Result<Settled, CmdError> {
+    let failed = Err(depesha_core::Error::CopyRefused(failure.message.clone()));
+    settle_copy(store, copy, &failed, now)
 }
 
 #[cfg(test)]
@@ -527,20 +525,39 @@ mod tests {
         store.sent_copies().unwrap().remove(0)
     }
 
-    /// A copy that went through but whose finish failed is not forgotten and not repeated at
-    /// once: the try is counted and the next one waits.
+    /// A copy that went through but whose finish keeps failing is not forgotten and not
+    /// repeated at once: the pause grows (30 min, 2 h, 6 h) and the third failure puts it on
+    /// hold, where it is no longer due.
     #[test]
-    fn a_failed_finish_counts_as_a_try() {
+    fn a_failing_finish_backs_off_and_is_held() {
         let store = Store::open_in_memory().unwrap();
-        let copy = sent(&store);
+        sent(&store);
         let now = 1_000;
         let failure = CmdError::new("other", "finish failed");
-        settle_failed_finish(&store, &copy, &Ok(()), &failure, now).unwrap();
+        for (n, (wait, expect)) in [
+            (1_800, Settled::Waiting),
+            (7_200, Settled::Waiting),
+            (21_600, Settled::Held),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let copy = store.sent_copies().unwrap().remove(0);
+            assert_eq!(copy.refusals, n as u32);
+            assert_eq!(settle_failed_finish(&store, &copy, &failure, now).unwrap(), expect);
+            assert_eq!(
+                store.sent_copies().unwrap()[0].next_attempt,
+                now + wait,
+                "failure {}",
+                n + 1
+            );
+        }
+        assert!(
+            store.sent_copies_due(i64::MAX).unwrap().is_empty(),
+            "no automatic retry on hold"
+        );
+        assert_eq!(store.sent_copies_stuck().unwrap().len(), 1);
         assert_eq!(store.sent_copies().unwrap().len(), 1, "the copy is kept");
-        assert!(store.sent_copies_due(now).unwrap().is_empty(), "not repeated at once");
-        let later = store.sent_copies_due(now + 3_600).unwrap();
-        assert_eq!(later.len(), 1);
-        assert_eq!(later[0].attempts, copy.attempts + 1);
     }
 
     /// An accounts file that cannot be read lists no mailboxes: the copies wait, none is dropped.
