@@ -39,7 +39,7 @@
   const s = $derived(app.settings);
   let noTray = $state(false);
   const ctx = $derived<RowContext>({ accounts: app.accounts, noTray });
-  const editor = new RowEditor({ settings: () => app.settings, ctx: () => ctx, auto: { commit: (...a) => auto.commit(...a) } });
+  const editor = new RowEditor({ settings: () => app.settings, ctx: () => ctx, auto: { commit: (...a) => auto.forPage(page.id).commit(...a) } });
 
   let box = $state<HTMLElement | null>(null);
   /** The row that has the stop of Tab; null until the page is entered: the first one. */
@@ -87,19 +87,21 @@
   // ---- The links of a row: a mailbox, or a place a layer differs in ----
 
   interface Item {
+    /** What tells it from the others: two mailboxes or two people may carry one name. */
+    key: string;
     label: string;
     open: () => void;
   }
 
   function items(spec: RowSpec): Item[] {
     if (spec.kind === "link") {
-      return app.accounts.map((a) => ({ label: accountLabel(a), open: () => go(`account:${a.id}`, { section: spec.section }) }));
+      return app.accounts.map((a) => ({ key: `account:${a.id}`, label: accountLabel(a), open: () => go(`account:${a.id}`, { section: spec.section }) }));
     }
     if (spec.kind !== "layer") return [];
     const ex = exc(spec.layer);
     return [
-      ...ex.accounts.map((a) => ({ label: accountLabel(a), open: () => go(`account:${a.id}`, { section: "letters" }) })),
-      ...ex.people.map((p) => ({ label: p.name || p.email, open: () => go("people", { person: p.email }) })),
+      ...ex.accounts.map((a) => ({ key: `account:${a.id}`, label: accountLabel(a), open: () => go(`account:${a.id}`, { section: "letters" }) })),
+      ...ex.people.map((p) => ({ key: `person:${p.email}`, label: p.name || p.email, open: () => go("people", { person: p.email }) })),
     ];
   }
 
@@ -149,7 +151,11 @@
   function enterRow(spec: RowSpec) {
     if (spec.kind === "link" || spec.kind === "layer") follow(spec);
     else if (spec.kind === "action") void app.checkUpdates();
-    else if (spec.kind === "days") void editor.toggleDay(spec, dayCursor ?? 1);
+    // The first press only puts the cursor on the first day: nothing is switched by a key that did not choose it.
+    else if (spec.kind === "days") {
+      if (dayCursor === null) dayCursor = 1;
+      else void editor.toggleDay(spec, dayCursor);
+    }
     else controls[spec.id]?.enter();
   }
 
@@ -174,9 +180,29 @@
     else if (act.type === "day" && spec.kind === "days") void editor.toggleDay(spec, act.n);
   }
 
-  /** Only the keys pressed on the row itself; inside a control they are the control's. */
+  /** Tab in a row that is open walks its controls; at the ends it goes on as it would. */
+  function tabInRow(e: KeyboardEvent): boolean {
+    if (e.ctrlKey || e.altKey || e.metaKey || !(e.target instanceof HTMLElement)) return false;
+    const row = e.target.closest<HTMLElement>(".rw[data-row]");
+    if (!row || row === e.target) return false;
+    const controls = [...row.querySelectorAll<HTMLElement>("input:not(:disabled), button:not(:disabled):not(.mi)")];
+    const next = controls[controls.indexOf(e.target) + (e.shiftKey ? -1 : 1)];
+    if (!next || !controls.includes(e.target)) return false;
+    e.preventDefault();
+    next.focus();
+    if (next instanceof HTMLInputElement) next.select();
+    return true;
+  }
+
+  /**
+   * The keys pressed on a row, or on a control in it after a click left the focus there; the
+   * text being typed in a field, and a list that is open, are theirs.
+   */
   function onKey(e: KeyboardEvent) {
-    const row = e.target instanceof HTMLElement && e.target.matches(".rw[data-row]") ? e.target : null;
+    if (e.key === "Tab") return void tabInRow(e);
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (!target || e.defaultPrevented || target.matches("input, textarea") || target.closest(".pop") || target.getAttribute("aria-expanded") === "true") return;
+    const row = target.closest<HTMLElement>(".rw[data-row]");
     const spec = specs.find((x) => x.id === row?.dataset.row);
     if (!row || !spec) return;
     const act = rowKeyAction(rowKind(spec), e);
@@ -216,7 +242,7 @@
             {spec.kind === "link" ? spec.text() : layerSummary(exc(spec.layer))} ›
           </button>
           <Popover bind:open={() => menuFor === spec.id, (v) => (menuFor = v ? spec.id : null)} align="left" role="menu">
-            {#each items(spec) as item (item.label)}
+            {#each items(spec) as item (item.key)}
               <button type="button" class="mi" role="menuitem" onclick={() => pickItem(item)}>{item.label}</button>
             {/each}
           </Popover>

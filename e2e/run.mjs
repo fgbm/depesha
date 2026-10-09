@@ -2200,6 +2200,9 @@ try {
     await d.until("threads saved", async () => (await saved()).threads === !was);
     await d.until("saved mark", async () => (await textOf(row("threads"))).includes("✓ Сохранено"));
     await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
+    // The click left the focus on the switch; the arrows still walk the rows from there (#102, 4.1).
+    await d.type(await d.find(`${row("threads")} .sw`), "\uE015");
+    await d.until("arrow after a click", async () => (await d.exec("return document.activeElement?.dataset?.row")) === "sender_logos");
     // Ctrl+Z takes the last change back.
     await pressIn(".modal.prefs", "z", { ctrlKey: true });
     await d.until("threads back", async () => (await saved()).threads === was);
@@ -2236,6 +2239,22 @@ try {
     await d.until("number saved", async () => (await saved()).image_max_px === 1200);
     await pressIn(".modal.prefs", "z", { ctrlKey: true });
     await d.until("number back", async () => (await saved()).image_max_px === width);
+
+    // Tab goes on inside an open row: the second threshold is reached from the keyboard (#102, 4.1).
+    await d.click(await d.find(".prefs .tab[data-page='storage']"));
+    await d.until("storage page", async () => (await textOf(".prefs .pane h2")) === "Хранение");
+    const levels = (await saved()).quota_levels;
+    const second = levels[1] === 98 ? 97 : 98;
+    await pressIn(row("quota_levels"), "Enter");
+    await d.until("first threshold open", async () => (await d.exec("return document.activeElement?.tagName")) === "INPUT");
+    await d.type(await d.find(`${row("quota_levels")} input`), "\uE004");
+    await d.until("second threshold has the focus", async () => (await d.exec("return document.activeElement === document.querySelectorAll(\"[data-row='quota_levels'] input\")[1]")) === true);
+    const secondField = (await d.findAll(`${row("quota_levels")} input`))[1];
+    await d.clear(secondField);
+    await d.type(secondField, `${second}\uE007`);
+    await d.until("second threshold saved", async () => (await saved()).quota_levels[1] === second);
+    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    await d.until("second threshold back", async () => (await saved()).quota_levels[1] === levels[1]);
 
     // The theme applies the moment its tile is clicked, and the page is photographed in both.
     await d.click(await d.find(".prefs .tab[data-page='look']"));

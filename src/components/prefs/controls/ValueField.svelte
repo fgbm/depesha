@@ -28,11 +28,21 @@
   let text = $state("");
   let bad = $state(false);
   let focused = false;
+  let seen: string | null = null;
 
   // What is saved shows when it changes, unless the field is being typed in: leaving the field
-  // does not put the saved value back over a typed one that was refused.
+  // does not put the saved value back over a typed one that was refused. A value that changed
+  // from outside (taken back, set elsewhere) clears the refusal that was about the old one.
   $effect.pre(() => {
     const saved = value;
+    const was = untrack(() => seen);
+    seen = saved;
+    if (was !== null && was !== saved) {
+      untrack(() => {
+        bad = false;
+        onerror(null);
+      });
+    }
     if (!untrack(() => focused)) text = saved;
   });
 
