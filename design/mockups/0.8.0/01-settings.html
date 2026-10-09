@@ -108,12 +108,14 @@ kbd { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 11
 @container (max-width: 470px) {
   .lay-a:not(.nq) .rw:not(.blk):not([data-t="toggle"]) { flex-direction: column; align-items: stretch; gap: 5px; }
   .lay-a:not(.nq) .rw:not(.blk):not([data-t="toggle"]) .c { justify-content: flex-start; max-width: none; }
+  .lay-b:not(.nq) .rw:not(.blk) { grid-template-columns: minmax(0, 1fr); gap: 5px; }
 }
 .cols3 > *, .cols2 > * { min-width: 0; }
 .rw:focus-visible { box-shadow: 0 0 0 2px var(--link); background: color-mix(in srgb, var(--link) 6%, transparent); }
 .rw.flash { box-shadow: 0 0 0 2px var(--accent); }
-.rw.dep { padding-left: 18px; }
-.rw.dep::before { content: ""; position: absolute; left: 4px; top: 8px; bottom: 8px; border-left: 2px solid var(--line); }
+/* полоса слева — одна на группу подряд идущих зависимых строк (.depg), а не у каждой строки: иначе рвётся на стыках */
+.depg { margin-left: 4px; border-left: 2px solid var(--line); }
+.rw.dep { padding-left: 14px; }
 .rw.dis { opacity: .5; }
 .rw.dis .lab .t { color: var(--muted); }
 .rw .why { font-size: 12px; color: var(--muted); }
@@ -139,13 +141,13 @@ kbd { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 11
 .h2 .grp > h4 { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 0 4px 6px; }
 .h2 .grp > .gd { padding: 0 4px 6px; margin-top: -4px; }
 .h2 .grp > .gb { background: var(--paper-2); border: 1px solid var(--line); border-radius: 10px; padding: 2px 14px; }
-.h2 .grp .rw + .rw { border-top: 1px solid var(--line); border-top-left-radius: 0; }
-.h2 .rw.dep::before { top: 0; bottom: 0; left: 0; }
+.h2 .grp .gb > .rw + .rw, .h2 .grp .gb > .depg + .rw, .h2 .grp .gb > .rw + .depg > .rw:first-child, .h2 .grp .depg > .rw + .rw { border-top: 1px solid var(--line); border-top-left-radius: 0; }
+.h2 .depg { margin-left: 0; }
 .h3 .grp { margin: 0 0 30px; }
 .h3 .grp > h4 { font-size: 17px; font-weight: 600; margin-bottom: 2px; }
 .h3 .grp > .gd { margin-bottom: 4px; }
 .h3 .grp .rw { border-bottom: 1px solid var(--line); border-radius: 0; }
-.h3 .grp .gb > .rw:last-child { border-bottom: none; }
+.h3 .grp .gb > .rw:last-child, .h3 .grp .gb > .depg:last-child > .rw:last-child { border-bottom: none; }
 
 /* контролы */
 .sw { width: 36px; height: 20px; border-radius: 10px; border: none; background: color-mix(in srgb, var(--muted) 45%, var(--paper)); position: relative; padding: 0; cursor: pointer; flex: none; transition: background .12s; }
@@ -301,16 +303,17 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <h1>Настройки: полная переделка (0.8.0, #102)</h1>
 <p class="lead">Макет <b>живой</b>: откройте файл локально и пробуйте — переключайте разделы, правьте значения, ходите по окну клавишами. Все подписи и настройки настоящие (из <code>ru.ts</code>, плагинов и кода окна), данные — вымышленные. Предложенные мной формулировки помечены <b>✎</b>. У каждого вопроса номер (1.1, 2.1…), у каждого варианта буква; в конце — блок «Вопросы», отвечать можно коротко: «1.1 А, 2.1 А…». Номера после публикации не меняются.</p>
 <p class="ctx"><b>Что нашёл в коде.</b> (1) Окно: левое меню (<code>--menu-width</code> 220 px), справа страница в колонке до <code>--column-max</code> 680 px, окно до <code>--prefs-max</code> 1280 px. Пункты меню сейчас: 8 разделов (Общие, Фон и запуск, Почта, Люди, Уведомления, Клавиши, Офлайн-доступ, Обновления), «Все ящики» и по пункту на ящик, «Все плагины» и по пункту на секцию плагина (сейчас две: «Напоминания», «Шаблоны ответов») — ≈ 14 пунктов. (2) «Сохранить/Отмена» общий на 6 страниц; «Клавиши», «Люди», страница ящика и плагины сохраняются сами. (3) Поиск по настройкам <kbd>Ctrl+F</kbd> ищет по описанию полей, а не по нарисованному окну — новые поля должны попасть в <code>settingsFields.ts</code>. (4) <b>Старшинство формата и вида.</b> Формат нового письма: человек (<code>sendFormatFor</code>) → ящик (<code>formatFor</code>) → общие настройки; если получателей несколько, берётся самый строгий формат из них (<code>strictestFormat</code>: обычный текст &lt; HTML &lt; Markdown). Вид чтения (<code>ViewRule</code>, «пусто — оставить следующему»): переключатель над письмом → человек → ящик → общие. (5) Из окна не настраивается порядок списков (<code>list_sort</code>, <code>view_sorts</code>) — он в меню вида списка, макет их не трогает.</p>
+<p class="ctx"><b>Решения оператора.</b> Записаны в <code>decisions.md</code>; панель переключателей ниже выставлена на них (1.1 А, 1.2 Б, 1.3 вариант 1, 1.4 Б, 3.1 В, 4.1 Б, сохранение «сразу»), окна на экранах 2 и 4 собраны по 2.В. <b>1.7 принят предварительно и ждёт подтверждения</b> — новый живой показ А / Б / В рядом в блоке 1.7. Правило полосы слева: стоящие подряд строки с полосой («Своё у…», пороги, зависимые строки) образуют одну непрерывную полосу.</p>
 <div class="toc"><a href="#s0">0. Сейчас</a><a href="#s1">1. Единый набор контролов</a><a href="#s2">2. Раскладка разделов</a><a href="#s3">3. Слои: общее → ящик → человек</a><a href="#s4">4. Клавиатура</a><a href="#map">Где была → где стала</a><a href="#qs">Вопросы</a></div>
 
 <div class="ctl" id="ctl">
   <div class="cg"><span>Выбор из нескольких</span><button data-k="choice" data-v="A" class="on">А</button><button data-k="choice" data-v="B">Б</button><button data-k="choice" data-v="C">В</button></div>
-  <div class="cg"><span>Строка</span><button data-k="lay" data-v="A" class="on">А</button><button data-k="lay" data-v="B">Б</button><button data-k="lay" data-v="C">В</button></div>
+  <div class="cg"><span>Строка</span><button data-k="lay" data-v="A">А</button><button data-k="lay" data-v="B" class="on">Б</button><button data-k="lay" data-v="C">В</button></div>
   <div class="cg"><span>Иерархия</span><button data-k="hier" data-v="1" class="on">1</button><button data-k="hier" data-v="2">2</button><button data-k="hier" data-v="3">3</button></div>
   <div class="cg"><span>Подсказки</span><button data-k="hints" data-v="A">как сейчас</button><button data-k="hints" data-v="B" class="on">только нужные</button><button data-k="hints" data-v="C">по «?»</button></div>
   <div class="cg"><span>Слои</span><button data-k="layer" data-v="A">А</button><button data-k="layer" data-v="B">Б</button><button data-k="layer" data-v="C" class="on">А+Б</button></div>
   <div class="cg"><span>Клавиши</span><button data-k="kbd" data-v="A">Tab по всем</button><button data-k="kbd" data-v="B" class="on">↑↓ по строкам</button></div>
-  <div class="cg"><span>Сохранение</span><button data-k="apply" data-v="btn" class="on">кнопки</button><button data-k="apply" data-v="live">сразу</button></div>
+  <div class="cg"><span>Сохранение</span><button data-k="apply" data-v="btn">кнопки</button><button data-k="apply" data-v="live" class="on">сразу</button></div>
   <div class="cg"><span>Тема</span><button data-k="theme" data-v="paper" class="on">Бумага</button><button data-k="theme" data-v="night">Ночь</button></div>
 </div>
 
@@ -386,7 +389,16 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <ul class="pc"><li><b>А</b> <span class="plus">+</span> страница не «прыгает», клавиатура ходит по тем же строкам, поиск находит строку. <span class="minus">−</span> не сказано, что включит.</li><li><b>Б</b> <span class="plus">+</span> чище. <span class="minus">−</span> страница прыгает, строку нельзя найти, пока она скрыта.</li><li><b>В</b> <span class="plus">+</span> понятно, что делать. <span class="minus">−</span> текст причины на каждой зависимой строке (✎ «Включите «…»» — новая строка в каждой).</li></ul>
 
 <h3 class="q" data-q="1.7"><span class="n">1.7</span>Сохранение</h3>
-<p class="lead">Сейчас «Сохранить/Отмена» внизу на 6 страницах; «Клавиши», «Люди», ящик и плагины сохраняют сами — ещё один разнобой. Панель «Сохранение» показывает оба варианта в окнах: <b>кнопки</b> (как сейчас, но подвал можно показывать только когда есть изменения) или <b>сразу</b> (каждое изменение применяется, внизу «Изменения применяются сразу»; тема, которую не хотят, возвращается кнопкой «Отменить» в тосте).</p>
+<p class="lead">Сейчас «Сохранить/Отмена» внизу на 6 страницах; «Клавиши», «Люди», ящик и плагины сохраняют сами — ещё один разнобой. Панель «Сохранение» переключает оба режима в окнах выше. <b>Ниже три маленьких окна на одних и тех же четырёх настройках</b> — переключатель, число, время, папка. Трогайте их по очереди и сравнивайте. Предварительный ответ оператора: Б; ждёт подтверждения после этого показа.</p>
+<div class="cols3">
+  <div><h3 data-q="1.7" data-variant="А" class="v wrap" style="margin-top:0"><span class="n">А</span><em>кнопки «Сохранить / Отмена»: черновик</em></h3><div class="theme"><div class="dm" data-mode="A"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> ничего не меняется, пока не нажали «Сохранить»; можно передумать целиком</li><li><span class="minus">−</span> легко забыть сохранить; при закрытии — вопрос; тему и язык видно только после сохранения, либо исключение</li></ul></div>
+  <div><h3 data-q="1.7" data-variant="Б" class="v wrap rec" style="margin-top:0"><span class="n">Б</span><em>сразу: «Сохранено» и отмена последнего изменения</em></h3><div class="theme"><div class="dm" data-mode="B"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> нечего забывать, как уже в «Людях», «Клавишах», ящике; нет вопроса при закрытии</li><li><span class="minus">−</span> ошибочное изменение уже применено — спасает отмена (тост или <kbd>Ctrl</kbd>+<kbd>Z</kbd>); неверный ввод не сохраняется и подсвечивается</li></ul></div>
+  <div><h3 data-q="1.7" data-variant="В" class="v wrap" style="margin-top:0"><span class="n">В</span><em>как сейчас: подвал всегда, без пометок</em></h3><div class="theme"><div class="dm" data-mode="C"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> ровно то, что есть сегодня, ничего учить заново</li><li><span class="minus">−</span> не видно, что изменено; кнопки всегда активны; разнобой с самосохраняющимися страницами остаётся</li></ul></div>
+</div>
+<ol class="dmtry"><li><b>Переключатель:</b> щёлкните «число непрочитанных». В А появится «изменено», в Б — «Сохранено» и тост «Отменить».</li><li><b>Число:</b> введите <code>99999</code> и нажмите <kbd>Enter</kbd> или уйдите из поля. В Б значение не сохранится, поле подсветится; <kbd>Esc</kbd> вернёт прежнее. Введите <code>1200</code> — сохранится.</li><li><b>Время:</b> введите <code>25:99</code>, затем <code>19:30</code>. В А «Сохранить» заблокирована, пока время неверно.</li><li><b>Папка:</b> «Выбрать…» перебирает папки по кругу (в приложении — системный диалог), «×» очищает до «Спрашивать каждый раз».</li><li><b>Закрытие:</b> нажмите «×» в заголовке окна с несохранёнными правками — в А и В спросит, в Б закроется сразу. <kbd>Ctrl</kbd>+<kbd>Z</kbd> в Б откатывает последнее изменение.</li></ol>
 
 <h3 class="v"><span class="n">+</span>Что с каждой подсказкой <em>— по всему окну</em></h3>
 <table class="dtable" id="t-hints">
@@ -478,7 +490,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 
 <!-- ================= ЭКРАН 4 ================= -->
 <h2 class="screen" id="s4">Экран 4. Клавиатура</h2>
-<p class="lead">Окно ниже — живое (раскладка 2.А). Кликните в него и пробуйте. Панель «Клавиши» сверху переключает 4.1: <b>Tab по всем</b> (как сейчас: Tab ходит по каждому полю) и <b>↑↓ по строкам</b> (строка — одна остановка).</p>
+<p class="lead">Окно ниже — живое (раскладка 2.В, выбранная оператором). Кликните в него и пробуйте. Панель «Клавиши» сверху переключает 4.1: <b>Tab по всем</b> (как сейчас: Tab ходит по каждому полю) и <b>↑↓ по строкам</b> (строка — одна остановка).</p>
 <div class="win theme" id="w-k"></div>
 <table class="dtable" style="margin-top:14px">
 <tr><th style="width:230px">Где / что</th><th style="width:250px">Клавиши</th><th>Что происходит</th></tr>
@@ -564,7 +576,7 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 <tr data-q="1.4" data-q-title="Политика подсказок" data-variants="А,Б,В" data-recommended="Б"><td class="n">1.4</td><td>Политика подсказок</td><td><b>А</b> как сейчас<br><b>Б</b> только нужные, под строкой<br><b>В</b> только нужные, за значком «?»</td><td class="rec">Б. Из 29 подсказок 14 остаются как есть, 3 сокращаются, 3 становятся описанием выбранного варианта, 9 уходят или заменяются; нужные видны сразу; «?» (В) прячет и нужное, а скрытые подсказки не находит поиск глазами.</td></tr>
 <tr data-q="1.5" data-q-title="Тема" data-variants="А,Б" data-recommended="А"><td class="n">1.5</td><td>Тема</td><td><b>А</b> плитки с образцом (исключение из 1.1)<br><b>Б</b> обычный выбор по правилу 1.1</td><td class="rec">А. Тему выбирают глазами; пять вариантов с образцом — единственный выбор в окне, который нельзя описать словами.</td></tr>
 <tr data-q="1.6" data-q-title="Отключённая зависимая строка" data-variants="А,Б,В" data-recommended="А"><td class="n">1.6</td><td>Отключённая зависимая строка</td><td><b>А</b> приглушена на месте<br><b>Б</b> скрыта<br><b>В</b> приглушена и с причиной</td><td class="rec">А. Страница не прыгает, поиск и клавиатура находят строку. Причина видна по отступу под выключателем.</td></tr>
-<tr data-q="1.7" data-q-title="Сохранение" data-variants="А,Б,В" data-recommended="Б"><td class="n">1.7</td><td>Сохранение</td><td><b>А</b> кнопки «Сохранить/Отмена», как сейчас (подвал только при изменениях)<br><b>Б</b> применять сразу везде, «Отменить» — в тосте<br><b>В</b> как сейчас, но без изменений</td><td class="rec">Б. «Люди», «Клавиши», ящик и плагины уже сохраняются сразу — теперь так будет везде, и не нужно вопроса «Сохранить изменения?» при уходе со страницы. Тема применяется сразу и без того. Это самое большое изменение поведения — если боитесь, А.</td></tr>
+<tr data-q="1.7" data-q-title="Сохранение" data-variants="А,Б,В" data-recommended="Б"><td class="n">1.7</td><td>Сохранение</td><td><b>А</b> кнопки «Сохранить/Отмена», как сейчас (подвал только при изменениях)<br><b>Б</b> применять сразу везде, «Отменить» — в тосте<br><b>В</b> как сейчас, без изменений в поведении: подвал всегда виден, кнопки всегда активны, правки не отмечены</td><td class="rec">Б. «Люди», «Клавиши», ящик и плагины уже сохраняются сразу — теперь так будет везде, и не нужно вопроса «Сохранить изменения?» при уходе со страницы. Тема применяется сразу и без того. Это самое большое изменение поведения — если боитесь, А. <b>Решение оператора: Б, предварительно</b> (замечание: «нет макета, непонятно») — поэтому в блоке 1.7 теперь живой показ А / Б / В; ждём подтверждения.</td></tr>
 <tr class="gh"><td colspan="4">Экран 2. Раскладка разделов</td></tr>
 <tr data-q="2.1" data-q-title="Раскладка разделов" data-variants="А,Б,В" data-recommended="А"><td class="n">2.1</td><td>Раскладка разделов</td><td><b>А</b> по задачам, 9 пунктов<br><b>Б</b> 6 пунктов, длинные страницы с якорями<br><b>В</b> «Почта / Программа», 11 пунктов</td><td class="rec">А. Каждый раздел — «что я хочу поменять»; страницы одной толщины, а длинные страницы Б ломают ходьбу клавишами.</td></tr>
 <tr data-q="2.2" data-q-title="Куда «Подсказки»" data-variants="А,Б,В" data-recommended="А"><td class="n">2.2</td><td>Куда «Подсказки»</td><td><b>А</b> в «Систему» (к программным переключателям)<br><b>Б</b> в «Люди» (рядом с их решениями)<br><b>В</b> в «Написание»</td><td class="rec">А. Это переключатель программы; список решений — справочный, его ищут по слову «подсказки» (поиск найдёт).</td></tr>
@@ -588,6 +600,38 @@ textarea.inp { width: 260px; height: 56px; resize: none; }
 body.snow .theme { --paper: #ffffff; --paper-2: #f5f6f8; --ink: #1b1f24; --muted: #687180; --line: #e3e6ea; --hover: #f0f2f5; --selected: #e3e8ef; --accent: #c4302b; --link: #1d5fbf; --side: #f3f4f6; }
 body.graphite .theme { --paper: #1c1c1e; --paper-2: #232325; --ink: #e6e6e6; --muted: #9a9aa0; --line: #2e2e31; --hover: #2a2a2d; --selected: #34343a; --accent: #d6463d; --link: #8ab4f8; --side: #26272b; color-scheme: dark; }
 .swatch.paper { --s: #1f2a37; --p: #faf7f1; } .swatch.night { --s: #11161c; --p: #171a1f; } .swatch.snow { --s: #f3f4f6; --p: #ffffff; } .swatch.graphite { --s: #26272b; --p: #1c1c1e; } .swatch.system { --s: #1f2a37; --p: linear-gradient(135deg, #faf7f1 50%, #171a1f 50%); }
+/* живой показ 1.7: три окна на одних настройках */
+.dm { position: relative; display: flex; flex-direction: column; background: var(--paper); border-radius: 8px; box-shadow: 0 2px 14px rgb(0 0 0 / 14%); overflow: hidden; font-size: 14px; min-height: 420px; }
+.dm .dmh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--paper-2); }
+.dm .dmh b { flex: 1; font-size: 13.5px; }
+.dm .dmx { font: inherit; border: none; background: none; color: var(--muted); cursor: pointer; border-radius: 5px; width: 24px; height: 24px; }
+.dm .dmx:hover { background: var(--hover); }
+.dm .dmb { flex: 1; padding: 6px 14px; }
+.dm .rw { flex-wrap: wrap; gap: 4px 12px; }
+.dm .rw .lab { flex: 1 1 150px; }
+.dm .rw .c { max-width: none; }
+.dm .fold .path { width: 140px; }
+.dm .dmst { margin-left: 8px; font-size: 11.5px; font-weight: 400; color: var(--ok); }
+.dm .dmst.dirty { color: var(--warn); }
+.dm .dmst.fail { color: var(--warn); }
+.dm .dmerr { flex-basis: 100%; font-size: 12px; color: var(--warn); }
+.dm .dmerr[hidden] { display: none; }
+.dm .rw.chg { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.dm .dmf { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); min-height: 52px; }
+.dm .dmf .sp { flex: 1; }
+.dm .dmtoast { position: absolute; left: 12px; right: 12px; bottom: 60px; background: #1f2a37; color: #e6e6e6; padding: 8px 12px; border-radius: 8px; font-size: 12.5px; display: flex; gap: 10px; align-items: center; box-shadow: 0 6px 20px rgb(0 0 0 / 30%); }
+.dm .dmtoast[hidden], .dm .dmdlg[hidden], .dm .dmclosed[hidden] { display: none; }
+.dm .dmtoast span { flex: 1; }
+.dm .dmtoast button { font: inherit; font-size: 12.5px; color: #8ab4f8; background: none; border: none; cursor: pointer; }
+.dm .dmdlg { position: absolute; inset: 0; background: rgb(0 0 0 / 35%); display: grid; place-items: center; }
+.dm .dmdlg > div { background: var(--paper); border-radius: 8px; padding: 14px 16px; width: 86%; box-shadow: 0 10px 28px rgb(0 0 0 / 30%); }
+.dm .dmdlg p { margin: 0 0 12px; }
+.dm .dmdlg .bt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.dm .dmclosed { flex: 1; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 20px; }
+.dm.closed .dmb, .dm.closed .dmf, .dm.closed .dmh { display: none; }
+h3.v.wrap { flex-wrap: wrap; }
+h3.v.wrap em { flex-basis: 100%; }
+.dmtry { margin: 10px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 980px; }
 .nw { font-size: 10px; color: var(--muted); vertical-align: super; margin-left: 2px; }
 @media (max-width: 1200px) { .doc { width: auto; margin: 0 16px; } }
 </style>
@@ -596,7 +640,7 @@ body.graphite .theme { --paper: #1c1c1e; --paper-2: #232325; --ink: #e6e6e6; --m
 'use strict';
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const S = { choice: 'A', lay: 'A', hier: '1', hints: 'B', layer: 'C', kbd: 'B', apply: 'btn' };
+const S = { choice: 'A', lay: 'B', hier: '1', hints: 'B', layer: 'C', kbd: 'B', apply: 'live' };
 const O = (v, l, d) => ({ v, l, d });
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const ACC = [{ id: 'work', name: 'Работа', email: 'ivan@firma.example' }, { id: 'home', name: 'Личный', email: 'ivan@mail.example' }];
@@ -774,7 +818,7 @@ const LAYOUTS = {
     { id: 'people', title: 'Люди', kind: 'people' }, { id: 'accounts', title: 'Ящики', kind: 'accounts' },
     { g: 'Плагины' }, { id: 'plugins', title: 'Все плагины', kind: 'plugins' }] },
 };
-LAYOUTS.k = Object.assign({}, LAYOUTS.a, { first: 'write' });
+LAYOUTS.k = Object.assign({}, LAYOUTS.v, { first: 'write' });
 
 /* ---------- слои ---------- */
 const effGen = (kind) => (kind === 'format' ? V.compose_format : V.letter_view);
@@ -891,8 +935,21 @@ function row(id, z) {
   }
   return `<div ${base.replace('%BLK%', '')}>${lab}<div class="c">${control(id, r, z, dis)}</div></div>`;
 }
+/* строки группы; подряд идущие зависимые строки (с полосой слева) — в одной обёртке .depg, чтобы полоса была непрерывной */
+function rowsHtml(ids, z) {
+  const out = [];
+  let run = [];
+  const flush = () => { if (run.length) out.push(`<div class="depg">${run.join('')}</div>`); run = []; };
+  ids.forEach((id) => {
+    const h = row(id, z);
+    if (!h) return;
+    if (/^<div class="rw[^"]*\bdep\b/.test(h)) run.push(h); else { flush(); out.push(h); }
+  });
+  flush();
+  return out.join('');
+}
 function grp(g, z) {
-  const rows = g.ids.map((id) => row(id, z)).join('');
+  const rows = rowsHtml(g.ids, z);
   if (!rows.trim()) return '';
   const desc = z.hints === 'A' && g.old ? g.old : g.desc;
   return `<section class="grp"${g.aid ? ` id="a-${g.aid}"` : ''} data-g="${esc(g.title)}"><h4>${esc(g.title)}${g.plugin ? '<span class="tagp">плагин</span>' : ''}</h4>${desc ? `<div class="gd">${esc(desc)}</div>` : ''}<div class="gb">${rows}</div></section>`;
@@ -1019,7 +1076,7 @@ class Win {
     const z = zopts(null); z.layer = S.layer;
     const list = PPL.map((p) => `<button class="pr${p.id === PSEL ? ' on' : ''}" data-a="psel" data-p="${p.id}"><span class="av" style="background:${p.c}">${p.ini}</span><span><span>${p.name}</span><span class="em">${p.email}</span></span></button>`).join('');
     const ids = ['pn_', 'pa_', 'pf_', 'pv_', 'pt_', 'ph_'].map((x) => x + PSEL);
-    return `<div class="people" style="max-width:none"><div class="pl"><div class="psearch" style="margin:0"><span style="width:12px;height:12px;border:1.5px solid currentColor;border-radius:50%;flex:none"></span><input placeholder="Найти человека ✎" tabindex="-1"></div><div class="chips"><span class="fchip on">Все</span><span class="fchip">С особым форматом</span><span class="fchip">Добавленные мной</span><span class="fchip">Скрытые</span></div><div>${list}</div></div><div class="pd"><div class="grp"><div class="gb">${ids.map((i) => row(i, z)).join('')}</div></div></div></div>`;
+    return `<div class="people" style="max-width:none"><div class="pl"><div class="psearch" style="margin:0"><span style="width:12px;height:12px;border:1.5px solid currentColor;border-radius:50%;flex:none"></span><input placeholder="Найти человека ✎" tabindex="-1"></div><div class="chips"><span class="fchip on">Все</span><span class="fchip">С особым форматом</span><span class="fchip">Добавленные мной</span><span class="fchip">Скрытые</span></div><div>${list}</div></div><div class="pd"><div class="grp"><div class="gb">${rowsHtml(ids, z)}</div></div></div></div>`;
   }
   keys() { return `<div class="rw" style="display:block"><div class="seg" style="margin-right:8px"><button aria-checked="true" role="radio">Все</button><button aria-checked="false" role="radio">Изменённые</button></div><input class="inp" style="width:230px" placeholder="Действие или клавиша" tabindex="-1"> <button class="btn small" tabindex="-1">Нажать</button> <button class="btn ghost small" tabindex="-1">Сбросить всё</button></div>${['Везде', 'Список и письмо', 'Окно письма', 'Другие команды'].map((t) => `<section class="grp"><h4>${t}</h4><div class="gb"><div class="rw" style="min-height:34px"><div class="lab"><div class="t muted">…команды группы и их клавиши — таблица без изменений (#46)</div></div></div></div></section>`).join('')}`; }
   accounts() { return `<section class="grp"><div class="gb">${ACC.map((a) => `<div class="rw" ${S.kbd === 'B' ? 'tabindex="-1" ' : ''}data-rid="acc-${a.id}" data-t="lnk"><div class="lab"><div class="t">${a.name}</div><div class="h">${a.email}</div></div><div class="c"><button class="lnk" data-a="nav" data-p="acc:${a.id}" data-main${ti()}>Настроить ›</button></div></div>`).join('')}</div></section><button class="btn" data-a="toast" data-msg="Откроется мастер добавления ящика"${ti()}>+ Добавить ящик</button>`; }
@@ -1117,7 +1174,7 @@ function zoneRender(el) {
   const z = zopts(el);
   el.className = 'rz lay-' + z.lay.toLowerCase() + ' h' + z.hier;
   let html = '';
-  if (el.dataset.ids) html = `<div class="grp"><div class="gb">${el.dataset.ids.split(',').map((id) => row(id, z)).join('')}</div></div>`;
+  if (el.dataset.ids) html = `<div class="grp"><div class="gb">${rowsHtml(el.dataset.ids.split(','), z)}</div></div>`;
   else if (el.dataset.page) html = PGROUPS[el.dataset.page].map((k) => grp(GRP[k], z)).join('');
   el.innerHTML = html;
   if (S.kbd === 'B') { const f = $('.rw', el); if (f) f.setAttribute('tabindex', '0'); }
@@ -1249,6 +1306,133 @@ function ctl(b) {
 }
 $('#mk-on').addEventListener('click', () => { $('#w-now').classList.add('marks'); $('#mk-on').style.cssText = 'background:#1f2a37;color:#fff;border-color:#1f2a37'; $('#mk-off').style.cssText = 'background:#fff;color:#1d232b;border-color:#b5ae9f'; });
 $('#mk-off').addEventListener('click', () => { $('#w-now').classList.remove('marks'); $('#mk-off').style.cssText = 'background:#1f2a37;color:#fff;border-color:#1f2a37'; $('#mk-on').style.cssText = 'background:#fff;color:#1d232b;border-color:#b5ae9f'; });
+
+/* ---------- живой показ 1.7: А (кнопки), Б (сразу), В (как сейчас) на одних настройках ---------- */
+const DEMO_DIRS = ['', '~/Загрузки', '~/Документы/Вложения', '/mnt/share/почта'];
+const DEMO_F = [
+  { k: 'tray', label: 'Показывать число непрочитанных на значке', t: 'tog', fmt: (v) => (v ? 'включено' : 'выключено') },
+  { k: 'img', label: 'Уменьшать большие картинки', t: 'num', unit: 'px', err: 'Целое число от 200 до 8000.', ok: (v) => /^\d{1,4}$/.test(v) && +v >= 200 && +v <= 8000, fmt: (v) => v + ' px' },
+  { k: 'eve', label: 'Начало вечера', t: 'time', err: 'Время вида 9:00 или 18:30.', ok: (v) => /^([01]?\d|2[0-3]):[0-5]\d$/.test(v), fmt: (v) => v },
+  { k: 'dir', label: 'Папка для вложений', t: 'dir', fmt: (v) => v || 'Спрашивать каждый раз' },
+];
+class Demo {
+  constructor(root) {
+    this.root = root; this.mode = root.dataset.mode; this.undo = []; this.timers = {};
+    this.init();
+    root.addEventListener('click', (e) => this.click(e));
+    root.addEventListener('input', (e) => this.input(e));
+    root.addEventListener('change', (e) => this.commitEl(e.target));
+    root.addEventListener('keydown', (e) => this.key(e));
+  }
+  init() {
+    this.saved = { tray: true, img: '1600', eve: '18:00', dir: '' };
+    this.cur = Object.assign({}, this.saved);
+    this.undo = [];
+    const ctl = (f) => {
+      if (f.t === 'tog') return `<button class="sw" role="switch" aria-checked="true" aria-label="${esc(f.label)}" data-d="tog"></button>`;
+      if (f.t === 'num') return `<input class="inp num" inputmode="numeric" aria-label="${esc(f.label)}" data-d="in"><span class="u">${f.unit}</span>`;
+      if (f.t === 'time') return `<input class="inp time" aria-label="${esc(f.label)}" data-d="in">`;
+      return `<div class="fold"><span class="path ph"></span><button class="btn small" data-d="pick">Выбрать…</button><button class="btn ghost small" data-d="clr" aria-label="Очистить">×</button></div>`;
+    };
+    this.root.classList.remove('closed');
+    this.root.innerHTML = `<div class="dmh"><b>Настройки · Значок и вложения</b><button class="dmx" data-d="close" aria-label="Закрыть окно">×</button></div>` +
+      `<div class="dmb">${DEMO_F.map((f) => `<div class="rw" data-k="${f.k}"><div class="lab"><div class="t">${esc(f.label)}<span class="dmst"></span></div><div class="dmerr" hidden>${f.err || ''}</div></div><div class="c">${ctl(f)}</div></div>`).join('')}</div>` +
+      `<div class="dmf"></div><div class="dmtoast" hidden></div>` +
+      `<div class="dmdlg" hidden><div><p>Сохранить изменения?</p><div class="bt"><button class="btn small" data-d="back">Вернуться</button><button class="btn small" data-d="drop">Не сохранять</button><button class="btn small primary" data-d="saveclose">Сохранить</button></div></div></div>` +
+      `<div class="dmclosed" hidden><div><p>Окно настроек закрыто.</p><button class="btn small" data-d="reopen">Открыть снова</button> <button class="btn small ghost" data-d="reset">Сбросить показ</button></div></div>`;
+    DEMO_F.forEach((f) => this.paintField(f.k));
+    this.paintAll();
+  }
+  F(k) { return DEMO_F.find((f) => f.k === k); }
+  rowOf(k) { return $(`.rw[data-k="${k}"]`, this.root); }
+  valid(k) { const f = this.F(k); return !f.ok || f.ok(String(this.cur[k]).trim()); }
+  dirtyKeys() { return DEMO_F.filter((f) => String(this.cur[f.k]).trim() !== String(this.saved[f.k])).map((f) => f.k); }
+  paintField(k) {
+    const rw = this.rowOf(k), f = this.F(k), v = this.cur[k];
+    if (f.t === 'tog') { const b = $('.sw', rw); b.setAttribute('aria-checked', String(!!v)); }
+    else if (f.t === 'dir') { const p = $('.path', rw); p.textContent = v || 'Спрашивать каждый раз'; p.classList.toggle('ph', !v); $('[data-d="clr"]', rw).style.visibility = v ? 'visible' : 'hidden'; }
+    else { const i = $('input', rw); if (i !== document.activeElement || i.value !== String(v)) i.value = v; }
+  }
+  mark(k, text, cls, ms) {
+    const s = $('.dmst', this.rowOf(k)); s.textContent = text; s.className = 'dmst' + (cls ? ' ' + cls : '');
+    clearTimeout(this.timers[k]); if (ms) this.timers[k] = setTimeout(() => { s.textContent = ''; s.className = 'dmst'; }, ms);
+  }
+  paintAll() {
+    const dirty = this.dirtyKeys(), bad = DEMO_F.filter((f) => !this.valid(f.k)).map((f) => f.k);
+    DEMO_F.forEach((f) => {
+      const rw = this.rowOf(f.k), isBad = bad.includes(f.k), isDirty = dirty.includes(f.k);
+      const inp = $('input', rw); if (inp) inp.classList.toggle('bad', isBad);
+      $('.dmerr', rw).hidden = !isBad;
+      if (this.mode === 'A') {
+        rw.classList.toggle('chg', isDirty);
+        if (isBad) this.mark(f.k, 'не сохранится', 'fail'); else if (isDirty) this.mark(f.k, '● изменено', 'dirty'); else if ($('.dmst', rw).classList.contains('dirty') || $('.dmst', rw).classList.contains('fail')) this.mark(f.k, '');
+      }
+    });
+    const foot = $('.dmf', this.root);
+    if (this.mode === 'B') foot.innerHTML = '<span>Изменения применяются сразу · <kbd>Ctrl</kbd>+<kbd>Z</kbd> — отменить последнее</span>';
+    else if (this.mode === 'A') foot.innerHTML = dirty.length ? `<span>Изменено: ${dirty.length}${bad.length ? ' · исправьте поле' : ''}</span><span class="sp"></span><button class="btn small ghost" data-d="cancel">Отмена</button><button class="btn small primary" data-d="save"${bad.length ? ' disabled' : ''}>Сохранить</button>` : '<span>Нет несохранённых изменений</span>';
+    else foot.innerHTML = '<span class="sp"></span><button class="btn small ghost" data-d="cancel">Отмена</button><button class="btn small primary" data-d="save">Сохранить</button>';
+  }
+  setCur(k, v) { this.cur[k] = v; this.paintField(k); if (this.mode === 'B') this.commit(k); else this.paintAll(); }
+  commitEl(el) { const rw = el.closest && el.closest('.rw[data-k]'); if (!rw || el.tagName !== 'INPUT') return; this.cur[rw.dataset.k] = el.value; if (this.mode === 'B') this.commit(rw.dataset.k); else this.paintAll(); }
+  input(e) {
+    const rw = e.target.closest('.rw[data-k]'); if (!rw) return;
+    this.cur[rw.dataset.k] = e.target.value;
+    if (this.mode !== 'B') this.paintAll();
+    else { const k = rw.dataset.k; e.target.classList.toggle('bad', !this.valid(k)); $('.dmerr', rw).hidden = this.valid(k); }
+  }
+  /* Б: применить одно изменение сразу */
+  commit(k) {
+    const f = this.F(k), rw = this.rowOf(k);
+    if (!this.valid(k)) { $('input', rw).classList.add('bad'); $('.dmerr', rw).hidden = false; this.mark(k, 'не сохранено', 'fail'); return; }
+    $('input', rw) && $('input', rw).classList.remove('bad'); $('.dmerr', rw).hidden = true;
+    const v = f.t === 'tog' || f.t === 'dir' ? this.cur[k] : String(this.cur[k]).trim();
+    if (v === this.saved[k]) { if ($('.dmst', rw).classList.contains('fail')) this.mark(k, ''); return; }
+    this.undo.push({ k, prev: this.saved[k] }); this.saved[k] = v; this.cur[k] = v; this.paintField(k);
+    this.mark(k, '✓ Сохранено', '', 2200);
+    this.toast(`${f.label}: ${f.fmt(this.undo[this.undo.length - 1].prev)} → ${f.fmt(v)}`, true);
+  }
+  undoLast() {
+    const u = this.undo.pop(); if (!u) return;
+    this.saved[u.k] = u.prev; this.cur[u.k] = u.prev; this.paintField(u.k); this.paintAll();
+    this.mark(u.k, '↶ Отменено', '', 2200); this.toast('Отменено: ' + this.F(u.k).label, false);
+  }
+  toast(msg, withUndo) {
+    const t = $('.dmtoast', this.root); t.hidden = false;
+    t.innerHTML = `<span>${esc(msg)}</span>${withUndo ? '<button data-d="undo">Отменить</button>' : ''}`;
+    clearTimeout(this.tt); this.tt = setTimeout(() => (t.hidden = true), 5000);
+  }
+  save() { if (DEMO_F.some((f) => !this.valid(f.k))) return false; DEMO_F.forEach((f) => { this.saved[f.k] = f.t === 'tog' || f.t === 'dir' ? this.cur[f.k] : String(this.cur[f.k]).trim(); this.cur[f.k] = this.saved[f.k]; this.paintField(f.k); }); this.paintAll(); this.toast('Сохранено', false); return true; }
+  cancel() { Object.assign(this.cur, this.saved); DEMO_F.forEach((f) => { this.paintField(f.k); const i = $('input', this.rowOf(f.k)); if (i) i.value = this.cur[f.k]; this.mark(f.k, ''); }); this.paintAll(); }
+  close() { this.root.classList.add('closed'); $('.dmdlg', this.root).hidden = true; $('.dmclosed', this.root).hidden = false; }
+  click(e) {
+    const el = e.target.closest('[data-d]'); if (!el) return;
+    const d = el.dataset.d, k = (el.closest('.rw[data-k]') || {}).dataset && el.closest('.rw[data-k]').dataset.k;
+    if (d === 'tog') this.setCur(k, !this.cur[k]);
+    else if (d === 'pick') this.setCur(k, DEMO_DIRS[(DEMO_DIRS.indexOf(this.cur[k]) + 1) % DEMO_DIRS.length]);
+    else if (d === 'clr') this.setCur(k, '');
+    else if (d === 'undo') { this.undoLast(); }
+    else if (d === 'save') this.save();
+    else if (d === 'cancel') this.cancel();
+    else if (d === 'close') { if (this.mode !== 'B' && this.dirtyKeys().length) $('.dmdlg', this.root).hidden = false; else this.close(); }
+    else if (d === 'back') $('.dmdlg', this.root).hidden = true;
+    else if (d === 'drop') { this.cancel(); this.close(); }
+    else if (d === 'saveclose') { if (this.save()) this.close(); else $('.dmdlg', this.root).hidden = true; }
+    else if (d === 'reopen') { this.root.classList.remove('closed'); $('.dmclosed', this.root).hidden = true; }
+    else if (d === 'reset') this.init();
+  }
+  key(e) {
+    const inp = e.target.tagName === 'INPUT' ? e.target : null, rw = inp && inp.closest('.rw[data-k]');
+    if (inp && rw && (e.key === 'Enter' || e.key === 'Escape')) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Enter') this.commitEl(inp);
+      else if (this.mode === 'B') { const k = rw.dataset.k; this.cur[k] = this.saved[k]; inp.value = this.saved[k]; this.paintAll(); this.mark(k, ''); }
+      return;
+    }
+    if (this.mode === 'B' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && (!inp || String(inp.value).trim() === String(this.saved[rw.dataset.k]))) { e.preventDefault(); e.stopPropagation(); this.undoLast(); }
+  }
+}
+$$('.dm').forEach((el) => new Demo(el));
 
 /* ---------- запуск ---------- */
 new OldWin($('#w-now'));
