@@ -404,6 +404,21 @@ describe("extension banners", () => {
   });
 });
 
+describe("the toast of a letter taken to Waiting for reply (#106)", () => {
+  it("keeps the undo of a later action when pressed", async () => {
+    const s = new AppStore();
+    await s.init();
+    emit("parked", { account_id: "a", key: "r@x", subject: "Счёт" });
+    const toast = s.toasts.at(-1)!;
+    const other = { moved: [], text: "другое" };
+    s.actions.lastUndo = other;
+    api.followupUnpark.mockResolvedValue(undefined);
+    toast.action!.run();
+    await flush();
+    expect(s.actions.lastUndo).toBe(other);
+  });
+});
+
 describe("an answer that takes its letter to the archive (#106)", () => {
   it("says so once the letter has moved, and offers the undo of «Archive»", async () => {
     const s = new AppStore();
@@ -417,6 +432,21 @@ describe("an answer that takes its letter to the archive (#106)", () => {
     expect(toast.text).toBe("Отправлено: Счёт. Письмо — в архиве");
     expect(toast.action?.label).toBe("Отменить");
     expect(s.actions.lastUndo).toEqual({ moved: [moved], text: toast.text });
+  });
+
+  it("undoes its own move even when another action has come since", async () => {
+    const s = new AppStore();
+    await s.init();
+    const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["q@x"] };
+    emit("archived-after-send", { subject: "Счёт", moved });
+    const toast = s.toasts.at(-1)!;
+    const other = { moved: [{ account_id: "a", from: "INBOX", to: "Trash", message_ids: ["z@x"] }], text: "другое" };
+    s.actions.lastUndo = other;
+    api.undo.mockResolvedValue(undefined);
+    toast.action!.run();
+    await flush();
+    expect(api.undo).toHaveBeenCalledWith([moved]);
+    expect(s.actions.lastUndo).toBe(other);
   });
 });
 

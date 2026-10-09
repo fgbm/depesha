@@ -171,11 +171,13 @@ interface BringFailed {
 function parked(app: AppStore, p: Parked) {
   const text = t("toast.sentParked", { subject: p.subject || t("noSubject") });
   const keep = () => api.followupUnpark(p.account_id, p.key);
-  app.actions.lastUndo = { moved: [], text, run: keep };
+  const mine = { moved: [], text, run: keep };
+  app.actions.lastUndo = mine;
   app.toast(text, false, {
     label: t("toast.keepInInbox"),
     run: () => {
-      app.actions.lastUndo = null;
+      // The toast stays a while: another action may have taken the undo since.
+      if (app.actions.lastUndo === mine) app.actions.lastUndo = null;
       keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
     },
   });
@@ -184,8 +186,17 @@ function parked(app: AppStore, p: Parked) {
 /** The answer left and took its letter to the archive. */
 function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) {
   const text = t("toast.sentArchived", { subject: p.subject || t("noSubject") });
-  app.actions.lastUndo = { moved: [p.moved], text };
-  app.toast(text, false, { label: t("undo"), run: () => app.undo() });
+  const mine = { moved: [p.moved], text };
+  app.actions.lastUndo = mine;
+  // The toast undoes its own move, not whatever the last action was by the time it is pressed.
+  app.toast(text, false, {
+    label: t("undo"),
+    run: () => {
+      if (app.actions.lastUndo === mine) app.actions.lastUndo = null;
+      api.undo([p.moved]).then(() => app.toast(t("done.undone")), (err) => app.fail(err, t("err.undo")));
+      void app.reload();
+    },
+  });
   app.reload();
 }
 
