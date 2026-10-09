@@ -3083,7 +3083,7 @@ try {
       await screenshot("narrow-letter");
       await press("Escape");
       await d.until("back to the list", async () => (await shown(".list")) && !(await shown(".reader")));
-      if ((await d.findAll(".row.selected")).length !== 1) throw new Error("выделение потерялось при возврате к списку");
+      if ((await d.findAll(".row.opened")).length !== 1) throw new Error("открытое письмо потеряло отметку при возврате к списку");
       await press("Enter");
       await d.until("the letter again", async () => await shown(".reader"));
       await d.click(await d.find(".reader .back"));
