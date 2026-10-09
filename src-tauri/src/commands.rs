@@ -3126,6 +3126,30 @@ pub fn drop_seen(window: tauri::WebviewWindow, count: usize) {
     tracing::debug!(label = window.label(), count, "the page heard of a drop");
 }
 
+/// What the page did with a drop (#79): `attached`, `no_compose` or `missed_zone`, with the
+/// pointer and the window in logical pixels. Numbers only, never file names.
+#[tauri::command]
+pub fn drop_outcome(
+    window: tauri::WebviewWindow,
+    outcome: String,
+    attached: usize,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    tracing::debug!(
+        label = window.label(),
+        outcome,
+        attached,
+        x,
+        y,
+        width,
+        height,
+        "the page dealt with a drop"
+    );
+}
+
 /// The user keeps a letter being written: a quit waiting for the window stops.
 #[tauri::command]
 pub fn quit_cancel(app: tauri::AppHandle) {

@@ -593,8 +593,12 @@ function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/drops.ts::heard	3
-function	src/lib/drops.ts::attach	5
-function	src/lib/drops.ts::watchDrops	21
+function	src/lib/drops.ts::zoneAt	5
+function	src/lib/drops.ts::outcome	7
+function	src/lib/drops.ts::zoneOrNull	7
+function	src/lib/drops.ts::attach	11
+function	src/lib/drops.ts::noCompose	4
+function	src/lib/drops.ts::watchDrops	17
 function	src/lib/drops.ts::listenDrops	7
 function	src/lib/events.ts::common	24
 function	src/lib/events.ts::applySettingsChanged	8

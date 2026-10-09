@@ -217,6 +217,8 @@ export const api = {
   quitCancel: () => call<void>("quit_cancel"),
   /** Says in the backend log that the page heard of a drop: the count only, never the names. */
   dropSeen: (count: number) => call<void>("drop_seen", { count }),
+  /** Says in the backend log what the page did with a drop: numbers only, never the names. */
+  dropOutcome: (o: { outcome: string; attached: number; x: number; y: number; width: number; height: number }) => call<void>("drop_outcome", o),
   /** Whether the system shows tray icons. */
   backgroundStatus: () => call<{ tray: "checking" | "present" | "absent" }>("background_status"),
   /** A toast click while the app was closed, kept until the window listens; null otherwise. */

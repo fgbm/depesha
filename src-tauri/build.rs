@@ -121,6 +121,7 @@ const COMMANDS: &[&str] = &[
     "compose_unsaved",
     "quit_cancel",
     "drop_seen",
+    "drop_outcome",
     "draft_cache_put",
     "draft_cache_list",
     "draft_cache_drop",

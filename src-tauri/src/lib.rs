@@ -356,6 +356,7 @@ pub fn run() {
             commands::compose_unsaved,
             commands::quit_cancel,
             commands::drop_seen,
+            commands::drop_outcome,
             drafts::draft_cache_put,
             drafts::draft_cache_list,
             drafts::draft_cache_drop,
