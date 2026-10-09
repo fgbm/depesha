@@ -36,7 +36,7 @@ component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	121	48	31	42
 component	src/components/Sidebar.svelte	31	24	7	0
 component	src/components/SignaturePicker.svelte	122	31	31	60
-component	src/components/StuckCopy.svelte	121	53	18	50
+component	src/components/StuckCopy.svelte	123	55	18	50
 component	src/components/Tasks.svelte	338	85	104	149
 component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	253	102	42	109
@@ -626,7 +626,7 @@ function	src/lib/drops.ts::heard	3
 function	src/lib/drops.ts::attach	5
 function	src/lib/drops.ts::watchDrops	21
 function	src/lib/drops.ts::listenDrops	7
-function	src/lib/events.ts::common	24
+function	src/lib/events.ts::common	26
 function	src/lib/events.ts::applySettingsChanged	8
 function	src/lib/events.ts::listenMain	62
 function	src/lib/events.ts::quitDrafts	14
