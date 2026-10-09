@@ -12,6 +12,7 @@ import Preferences from "./Preferences.svelte";
 import { app } from "../lib/store.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, settings } from "../lib/testing";
+import type { Account, AccountView } from "../lib/types";
 
 // jsdom has no CSS.escape; the window uses it to find a row by its id.
 (globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
@@ -19,9 +20,9 @@ import { api, settings } from "../lib/testing";
 let view: ReturnType<typeof mount> | null = null;
 let target: HTMLElement;
 
-function open(page: string) {
+function open(page: string, accounts: AccountView[] = []) {
   app.settings = settings();
-  app.accounts = [];
+  app.accounts = accounts;
   app.settingsPage = page;
   app.settingsOpen = true;
   target = document.createElement("div");
@@ -123,5 +124,24 @@ describe("the search field", () => {
     open("reading");
     expect(target.querySelector(".psearch kbd")).toBeNull();
     expect(target.querySelector(".psearch")?.textContent).not.toContain("Ctrl");
+  });
+});
+
+describe("Ctrl+Z on a mailbox's page (#102)", () => {
+  it("takes the colour back from the radio button the pick left the focus on", async () => {
+    let stored = { id: "a", label: "", color: "", display_name: "Jane", email: "j@x.test", username: "j", imap: { host: "i", port: 993, security: "tls" }, smtp: { host: "s", port: 465, security: "tls" }, save_sent_copy: true } as unknown as Account;
+    api.accounts.mockImplementation(async () => [{ ...stored, status: null } as AccountView]);
+    api.accountPatchOwn.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+      stored = { ...stored, ...patch } as Account;
+      return stored;
+    });
+    open("account:a", [{ ...stored, status: null } as AccountView]);
+    await vi.waitFor(() => expect(target.querySelector(".account-page")).not.toBeNull());
+    const swatch = target.querySelectorAll<HTMLInputElement>(".colors input[type=radio]")[1];
+    swatch.focus();
+    swatch.click();
+    await vi.waitFor(() => expect(stored.color).not.toBe(""));
+    expect(key(swatch, "z", { ctrlKey: true }).defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(stored.color).toBe(""));
   });
 });

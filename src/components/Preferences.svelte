@@ -124,6 +124,9 @@
     app.openSettings(next, opts.section ?? null);
   }
 
+  /** The fields that have an undo of their own. */
+  const TEXT_FIELD = "input:not([type=checkbox], [type=radio], [type=button], [type=color]), textarea, [contenteditable]";
+
   function onKey(e: KeyboardEvent) {
     // Esc clears the search first, closes the window second; a menu or a question on top goes before both.
     if (e.key === "Escape" && !app.confirmation && !document.querySelector(".pop")) {
@@ -156,7 +159,8 @@
     const mailbox = current.startsWith("account:") && current !== "account:new";
     if (!mailbox && !isRowPage(current)) return false;
     const el = e.target as HTMLElement;
-    if (el.matches("input, textarea, [contenteditable]") || el.closest("[data-g='plugin']")) return true;
+    // A box or a button has no undo of its own: the key takes back the change it made.
+    if (el.matches(TEXT_FIELD) || el.closest("[data-g='plugin']")) return true;
     if (mailbox ? !app.settingsUndo : !auto.canUndo(current)) return true;
     e.preventDefault();
     void (mailbox ? app.settingsUndo?.() : auto.undo(current));
