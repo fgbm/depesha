@@ -3105,6 +3105,12 @@ pub fn compose_unsaved(window: tauri::Window, unsaved: bool) {
     }
 }
 
+/// The page heard `files-dropped`: said in the log, with the count only (#79).
+#[tauri::command]
+pub fn drop_seen(window: tauri::WebviewWindow, count: usize) {
+    tracing::debug!(label = window.label(), count, "the page heard of a drop");
+}
+
 /// The user keeps a letter being written: a quit waiting for the window stops.
 #[tauri::command]
 pub fn quit_cancel(app: tauri::AppHandle) {

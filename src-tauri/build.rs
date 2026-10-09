@@ -120,6 +120,7 @@ const COMMANDS: &[&str] = &[
     "outbox_missed",
     "compose_unsaved",
     "quit_cancel",
+    "drop_seen",
     "draft_cache_put",
     "draft_cache_list",
     "draft_cache_drop",

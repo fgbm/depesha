@@ -133,6 +133,7 @@
     "allow-outbox-missed",
     "allow-compose-unsaved",
     "allow-quit-cancel",
+    "allow-drop-seen",
     "allow-draft-cache-put",
     "allow-draft-cache-list",
     "allow-draft-cache-drop"

@@ -215,6 +215,8 @@ export const api = {
   composeSaved: () => call<void>("compose_unsaved", { unsaved: false }),
   /** The user keeps the letter being written: a quit waiting for the window stops. */
   quitCancel: () => call<void>("quit_cancel"),
+  /** Says in the backend log that the page heard of a drop: the count only, never the names. */
+  dropSeen: (count: number) => call<void>("drop_seen", { count }),
   /** Whether the system shows tray icons. */
   backgroundStatus: () => call<{ tray: "checking" | "present" | "absent" }>("background_status"),
   /** A toast click while the app was closed, kept until the window listens; null otherwise. */

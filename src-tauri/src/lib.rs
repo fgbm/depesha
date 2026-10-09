@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod desktop_notify;
 mod drafts;
+mod drops;
 mod error;
 mod extensions;
 mod followups;
@@ -210,6 +211,9 @@ pub fn run() {
         // Closing the main window hides it or quits, as the settings say (#4); its page
         // keeps the mail rules and plugins running in the background.
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                drops::dropped("window", window, window.label(), paths, *position);
+            }
             if window.label() != "main" {
                 return;
             }
@@ -226,31 +230,12 @@ pub fn run() {
         })
         // Files dropped on a window were chosen by the user: they may be attached. Tauri
         // tells the page about the drop before this handler runs, so the page would ask for
-        // a file that is not allowed yet (#79). The page hears of the drop from here instead,
-        // once the files are allowed.
+        // a file that is not allowed yet (#79). The page hears of the drop from `drops`
+        // instead, once the files are allowed. A window's own content reports the drop as a
+        // window event, a webview inside a window as a webview event: both are heard.
         .on_webview_event(|webview, event| {
-            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event
-                && let Some(state) = webview.try_state::<Arc<AppState>>()
-            {
-                let mut allowed = Vec::new();
-                for path in paths {
-                    if path.is_file() {
-                        state.paths.allow(paths::Use::Attach, path.clone());
-                        allowed.push(path);
-                    } else {
-                        // The file name only: the folders of a path are personal data.
-                        tracing::warn!(
-                            file = %path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(),
-                            "a dropped path is not a file, it was not allowed to attach"
-                        );
-                    }
-                }
-                let _ = tauri::Emitter::emit_to(
-                    webview,
-                    tauri::EventTarget::webview(webview.label()),
-                    "files-dropped",
-                    serde_json::json!({ "paths": allowed, "position": position }),
-                );
+            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                drops::dropped("webview", webview, webview.label(), paths, *position);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -374,6 +359,7 @@ pub fn run() {
             commands::outbox_missed,
             commands::compose_unsaved,
             commands::quit_cancel,
+            commands::drop_seen,
             drafts::draft_cache_put,
             drafts::draft_cache_list,
             drafts::draft_cache_drop,

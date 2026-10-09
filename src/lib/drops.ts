@@ -4,6 +4,7 @@
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { api } from "./api";
 import type { DropZone } from "./images";
 import type { AppStore } from "./store.svelte";
 
@@ -12,12 +13,21 @@ interface FilesDropped {
   position: { x: number; y: number };
 }
 
+/** The backend log hears of the drop (a count, no names); a failing log is not worth a drop. */
+function heard(count: number) {
+  api.dropSeen(count).catch(() => {});
+}
+
+async function attach(app: AppStore, zoneAt: (pos: PhysicalPosition) => DropZone | null, drop: FilesDropped) {
+  const c = app.activeCompose();
+  if (!c) return;
+  await app.compose.dropFiles(c, drop.paths, zoneAt(new PhysicalPosition(drop.position.x, drop.position.y)));
+}
+
 export function listenDrops(app: AppStore, zoneAt: (pos: PhysicalPosition) => DropZone | null) {
   // The global `listen` hears events sent to any window; this one only those for ours.
-  return getCurrentWebview().listen<FilesDropped>("files-dropped", async (e) => {
-    const c = app.activeCompose();
-    if (!c) return;
-    const { paths, position } = e.payload;
-    await app.compose.dropFiles(c, paths, zoneAt(new PhysicalPosition(position.x, position.y)));
+  return getCurrentWebview().listen<FilesDropped>("files-dropped", (e) => {
+    heard(e.payload.paths.length);
+    return attach(app, zoneAt, e.payload);
   });
 }
