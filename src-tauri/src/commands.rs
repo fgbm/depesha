@@ -536,7 +536,12 @@ pub async fn message_open(
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     view.acts_on = message::trusted_acts_on(&raw, crate::install_secret::verify);
     if view.acts_on.is_none() {
-        view.acts_on = rebound_acts_on(&state.store, &row, view.summary.in_reply_to.as_deref())?;
+        view.acts_on = rebound_acts_on(
+            &state.store,
+            &row,
+            view.summary.in_reply_to.as_deref(),
+            message::draft_act(&raw),
+        )?;
     }
     view.authenticated = auth.dmarc;
     // Back from waiting with the reply: read now, the list no longer says so.
@@ -2561,12 +2566,14 @@ fn is_own_draft(
 /// The letter an answer draft is written to when its signed mark no longer checks (the
 /// install secret is gone after a reinstall, #78): a draft of this mailbox that Depesha wrote
 /// is bound again by its `In-Reply-To`, if that letter is in the cache. A forward is not:
-/// it carries the same header, and the subject is all that tells it from an answer. Only
-/// our own drafts count, so a letter from anywhere else cannot name what it answers.
+/// it carries the same header, and `act` (the draft's own `X-Depesha-Act`) tells it from an
+/// answer. A draft saved before that header is told by its subject prefix, as a last resort.
+/// Only our own drafts count, so a letter from anywhere else cannot name what it answers.
 fn rebound_acts_on(
     store: &depesha_core::store::Store,
     r: &MessageRow,
     in_reply_to: Option<&str>,
+    act: Option<smtp::Act>,
 ) -> CmdResult<Option<ActsOn>> {
     let Some(parent) = in_reply_to
         .map(|p| p.trim().trim_matches(['<', '>']))
@@ -2577,22 +2584,29 @@ fn rebound_acts_on(
     if !is_own_draft(store, &r.account_id, r, None)? {
         return Ok(None);
     }
-    let subject = r.subject.trim_start().to_lowercase();
-    let forwards = ["fwd", "fw", "пересл", "tr", "wg"];
-    if forwards.iter().any(|p| {
-        subject
-            .strip_prefix(p)
-            .is_some_and(|rest| rest.trim_start().starts_with(':'))
-    }) {
-        return Ok(None);
-    }
+    let act = match act {
+        Some(smtp::Act::Forward) => return Ok(None),
+        Some(act) => act,
+        None => {
+            let subject = r.subject.trim_start().to_lowercase();
+            let forwards = ["fwd", "fw", "пересл", "tr", "wg"];
+            if forwards.iter().any(|p| {
+                subject
+                    .strip_prefix(p)
+                    .is_some_and(|rest| rest.trim_start().starts_with(':'))
+            }) {
+                return Ok(None);
+            }
+            smtp::Act::Reply
+        }
+    };
     Ok(store
         .find_by_message_id_any(&r.account_id, parent, None)?
         .map(|(_, folder)| ActsOn {
             account_id: r.account_id.clone(),
             message_id: parent.to_owned(),
             folder,
-            act: smtp::Act::Reply,
+            act,
             waiting: false,
         }))
 }
@@ -2689,6 +2703,11 @@ pub async fn draft_save(
     if draft.format != BodyFormat::Plain {
         // Markdown looks like plain text in the letter: the draft says how it was written.
         let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
+        raw.splice(0..0, header.into_bytes());
+    }
+    if let Some(acts_on) = &draft.acts_on {
+        // The kind of the action stays readable when the signed mark below is lost (#100).
+        let header = format!("{}: {}\r\n", message::ACT_HEADER, acts_on.act.as_str());
         raw.splice(0..0, header.into_bytes());
     }
     if let Some(acts_on) = &draft.acts_on
@@ -3276,30 +3295,59 @@ mod tests {
         let answer = add("Drafts", 1, "<d1@depesha.local>", "Re: Вопрос");
         let forward = add("Drafts", 2, "<d2@depesha.local>", "Fwd: Вопрос");
         let foreign = add("Drafts", 3, "<d3@example.org>", "Re: Вопрос");
-        let bound = super::rebound_acts_on(&store, &answer, Some("<src@example.org>"))
-            .unwrap()
-            .unwrap();
+        // The user wiped the prefix of a forward, and typed "Fwd:" into an answer (#100).
+        let bare_forward = add("Drafts", 4, "<d4@depesha.local>", "Вопрос");
+        let typed_answer = add("Drafts", 5, "<d5@depesha.local>", "Fwd: Вопрос");
+        let bound = super::rebound_acts_on(
+            &store,
+            &answer,
+            Some("<src@example.org>"),
+            Some(depesha_core::smtp::Act::Reply),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(
             (bound.message_id.as_str(), bound.folder.as_str(), bound.act),
             ("src@example.org", "INBOX", depesha_core::smtp::Act::Reply)
         );
+        use depesha_core::smtp::Act;
+        assert!(
+            super::rebound_acts_on(&store, &bare_forward, Some("src@example.org"), Some(Act::Forward))
+                .unwrap()
+                .is_none(),
+            "a forward is told by its header, not by the subject"
+        );
+        let typed = super::rebound_acts_on(&store, &typed_answer, Some("src@example.org"), Some(Act::ReplyAll))
+            .unwrap()
+            .unwrap();
+        assert_eq!(typed.act, Act::ReplyAll);
         // A forward, a draft of another client, a letter missing from the cache: nothing to bind.
         assert!(
-            super::rebound_acts_on(&store, &forward, Some("src@example.org"))
+            super::rebound_acts_on(&store, &forward, Some("src@example.org"), None)
                 .unwrap()
                 .is_none()
         );
         assert!(
-            super::rebound_acts_on(&store, &foreign, Some("src@example.org"))
-                .unwrap()
-                .is_none()
+            super::rebound_acts_on(
+                &store,
+                &foreign,
+                Some("src@example.org"),
+                Some(depesha_core::smtp::Act::Reply)
+            )
+            .unwrap()
+            .is_none()
         );
         assert!(
-            super::rebound_acts_on(&store, &answer, Some("gone@example.org"))
-                .unwrap()
-                .is_none()
+            super::rebound_acts_on(
+                &store,
+                &answer,
+                Some("gone@example.org"),
+                Some(depesha_core::smtp::Act::Reply)
+            )
+            .unwrap()
+            .is_none()
         );
-        assert!(super::rebound_acts_on(&store, &answer, None).unwrap().is_none());
+        assert!(super::rebound_acts_on(&store, &answer, None, None).unwrap().is_none());
     }
 
     #[test]

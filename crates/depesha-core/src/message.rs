@@ -215,6 +215,12 @@ pub const FORMAT_HEADER: &str = "X-Depesha-Format";
 /// mark and the signature of this installation; a mark without a signature is not followed.
 pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
 
+/// What a saved draft does with the letter it is written from: `reply`, `reply_all` or
+/// `forward` (`Act`). It is not signed and names no letter: after a reinstall, when the
+/// signed mark no longer checks, it tells an answer from a forward without guessing by the
+/// subject, which the user may have rewritten (#100).
+pub const ACT_HEADER: &str = "X-Depesha-Act";
+
 /// The domain of a Message-ID Depesha puts on its own drafts, so a saved draft shows which
 /// client wrote it. It is not what makes the mark trusted: that is the signature (#71).
 pub const DRAFT_DOMAIN: &str = "depesha.local";
@@ -277,6 +283,12 @@ pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Opti
         return None;
     }
     decode_acts_on(payload)
+}
+
+/// What the draft says it does (`ACT_HEADER`); None for an old draft and for any other letter.
+pub fn draft_act(raw: &[u8]) -> Option<crate::smtp::Act> {
+    let msg = MessageParser::default().parse_headers(raw)?;
+    crate::smtp::Act::parse(raw_header(&msg, ACT_HEADER)?.trim())
 }
 
 /// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
@@ -1094,6 +1106,16 @@ JVBERi0xLjQK\r\n\
         let ok = |bytes: &[u8], sig: &str| sig == "sig" && bytes == value.as_bytes();
         assert_eq!(trusted_acts_on(raw.as_bytes(), ok), Some(acts));
         assert_eq!(trusted_acts_on(draft_with("", DRAFT_DOMAIN).as_bytes(), ok), None);
+    }
+
+    #[test]
+    fn a_draft_tells_the_kind_of_its_action_apart_from_the_subject() {
+        use crate::smtp::Act;
+        let with = |v: &str| draft_with(&format!("{ACT_HEADER}: {v}\r\n"), DRAFT_DOMAIN);
+        assert_eq!(draft_act(with("forward").as_bytes()), Some(Act::Forward));
+        assert_eq!(draft_act(with("reply_all").as_bytes()), Some(Act::ReplyAll));
+        assert_eq!(draft_act(with("sing").as_bytes()), None);
+        assert_eq!(draft_act(draft_with("", DRAFT_DOMAIN).as_bytes()), None);
     }
 
     #[test]
