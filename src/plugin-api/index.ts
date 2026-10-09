@@ -263,7 +263,7 @@ export interface PluginContext {
 
   /** Where a menu opened by a key hangs: under the selected row of the list, over it when there is no room below (#96). */
   anchor(): Anchor;
-  /** The user's day from Settings → General: when the day and the evening begin, the working days. Reactive. */
+  /** The user's day from Settings → Snooze and waiting: when the day and the evening begin, the working days. Reactive. */
   workTime(): WorkTime;
 
   /** Per-plugin settings, kept with the app settings. Reactive. */
@@ -305,8 +305,17 @@ export interface PluginContext {
     }): void;
     /** Warnings before sending; returning any stops sending until the user confirms. */
     sendCheck(check: (draft: ComposeDraft, accountEmail: string) => string[]): void;
-    /** A section in Settings. */
-    settingsSection(s: { title: () => string; component: Component<{ ctx: PluginContext }>; props: { ctx: PluginContext } }): void;
+    /**
+     * A group in Settings, marked as the plugin's. `page` is the page it stands on, next to the
+     * matter it is about: `reading`, `writing`, `later`, `storage`, `look`, `notify` or `start`.
+     * Without one (or with a page that is not there) it stands on the plugins' page.
+     */
+    settingsSection(s: {
+      title: () => string;
+      component: Component<{ ctx: PluginContext }>;
+      props: { ctx: PluginContext };
+      page?: string;
+    }): void;
     /** Rendered on top of the window, e.g. a command palette. */
     overlay(r: Rendered): void;
     /**

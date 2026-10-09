@@ -58,7 +58,7 @@ Extension points (`ctx.ui`), all in [`src/plugin-api/index.ts`](../src/plugin-ap
 | `listFilter` | a choice in the list's "View" menu that narrows its query (People / Newsletters); each list keeps its own |
 | `composeControl` | a control in the compose window; `slot: "send"` joins it to the Send button, `slot: "line"` makes it a quiet line above the buttons |
 | `sendCheck` | warnings before sending |
-| `settingsSection` | a section in Settings |
+| `settingsSection` | a group in Settings, marked «plugin»; `page` names the settings page it stands on (`reading`, `writing`, `later`, `storage`, `look`, `notify`, `start`), none puts it on the plugins' page |
 | `overlay` | a component on top of the window, in the main window and in a window of one letter |
 | `fileViewer` | a renderer of attachments in the viewer: a new format (by `extensions`, `mimes` or `match`), or a better one for a format the core shows (`priority` above 0). The component gets `file` (`ViewedFile`: `bytes()`, `text()`, `openLink()`, `fail()`) besides its `props`; the viewer's header, ←/→, Esc, Save and "Open in application" stay the same for every format |
 

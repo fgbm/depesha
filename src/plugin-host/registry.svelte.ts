@@ -25,6 +25,8 @@ export interface SettingsSection {
   title: () => string;
   component: Component<{ ctx: PluginContext }>;
   props: { ctx: PluginContext };
+  /** The settings page it stands on; none puts it on the plugins' page (#102, 2.4). */
+  page?: string;
 }
 
 interface Lists {

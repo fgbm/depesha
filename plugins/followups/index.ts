@@ -26,7 +26,7 @@ export default {
     // One line for the wait: the letter out of the inbox and the reminder; its details below.
     ctx.ui.composeControl({ component: WaitLine, props: { ctx }, slot: "line", order: 10 });
     ctx.ui.composeControl({ component: RemindLine, props: { ctx }, slot: "line", order: 11 });
-    ctx.ui.settingsSection({ title: () => ctx.t(S.settings), component: RemindSettings, props: { ctx } });
+    ctx.ui.settingsSection({ title: () => ctx.t(S.settings), component: RemindSettings, props: { ctx }, page: "later" });
     ctx.ui.rowTag((row) => rowTag(row, now(), ctx, ctx.mail.viewing("followups")));
     ctx.ui.overlay({ component: Repick, props: { ctx } });
 
