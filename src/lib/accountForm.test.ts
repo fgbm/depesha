@@ -56,6 +56,16 @@ describe("saving a mailbox's page", () => {
     expect(api.accountCheck).not.toHaveBeenCalled();
   });
 
+  it("keeps the own limit of a field not touched, though its text rounds it, and takes the typed one when it is", () => {
+    const form = new AccountForm({ ...saved, quota_limit_mb: 1 }, vi.fn());
+    expect(form.quotaLimitGb).toBe("0");
+    expect(form.account().quota_limit_mb).toBe(1);
+    form.quotaLimitGb = "";
+    expect(form.account().quota_limit_mb).toBe(0);
+    form.quotaLimitGb = "2";
+    expect(form.account().quota_limit_mb).toBe(2048);
+  });
+
   it("checks the login first when a server changed", async () => {
     const form = new AccountForm(saved, () => {});
     form.smtp.port = 587;

@@ -87,6 +87,11 @@ export class AccountForm {
   quotaWarn = $state(true);
   /** The own limit for the warnings in GB as typed; empty takes the server's quota. */
   quotaLimitGb = $state("");
+  /**
+   * The text the limit was shown as and the megabytes behind it: a field not touched keeps
+   * its megabytes, since the text rounds them (1 MB reads «0»).
+   */
+  private limitShown = { text: "", mb: 0 };
   source = $state("");
   notes = $state<string[]>([]);
   busy = $state(false);
@@ -131,7 +136,7 @@ export class AccountForm {
       this.attachmentsDir = e.attachments_dir ?? "";
       if (e.waiting) this.waiting = { ...e.waiting };
       this.quotaWarn = e.quota_warn !== false;
-      this.quotaLimitGb = e.quota_limit_mb ? String(Math.round((e.quota_limit_mb / 1024) * 100) / 100).replace(".", ",") : "";
+      this.showLimit(e.quota_limit_mb ?? 0);
     }
     this.initial = JSON.stringify(this.account());
     api.oauthProviders().then((p) => (this.providers = p)).catch(() => {});
@@ -165,7 +170,12 @@ export class AccountForm {
     this.attachmentsDir = a.attachments_dir ?? "";
     this.waiting = a.waiting ? { ...a.waiting } : { park: false, folder: "", stop_to_archive: false };
     this.quotaWarn = a.quota_warn !== false;
-    this.quotaLimitGb = a.quota_limit_mb ? String(Math.round((a.quota_limit_mb / 1024) * 100) / 100).replace(".", ",") : "";
+    this.showLimit(a.quota_limit_mb ?? 0);
+  }
+
+  private showLimit(mb: number) {
+    this.quotaLimitGb = mb ? String(Math.round((mb / 1024) * 100) / 100).replace(".", ",") : "";
+    this.limitShown = { text: this.quotaLimitGb, mb };
   }
 
   /** The fields that reach the server back to the saved ones; nothing typed for the login is kept. */
@@ -358,7 +368,7 @@ export class AccountForm {
       reply_signature: this.replySignature,
       attachments_dir: this.attachmentsDir.trim(),
       quota_warn: this.quotaWarn,
-      quota_limit_mb: limitMb(this.quotaLimitGb),
+      quota_limit_mb: this.quotaLimitGb === this.limitShown.text ? this.limitShown.mb : limitMb(this.quotaLimitGb),
     };
     if (this.composeFormat) acc.compose_format = this.composeFormat;
     if (this.letterView) acc.letter_view = this.letterView;
