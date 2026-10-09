@@ -1824,7 +1824,18 @@ try {
     if ((await d.findAll(".reader .letter-view")).length) throw new Error("переключатель у письма без Markdown");
     await openBySubject(subj);
     await d.until("markdown preferred", async () => (await modes()) === "HTML Markdown* Текст");
+    // The mailbox's own form comes before the setting (#105); the setting stays "markdown" here.
+    const [mailbox] = await invoke("accounts");
+    await invoke("account_save", { account: { ...mailbox, letter_view: "text" }, password: null, grant: null });
     await invoke("settings_set", { settings: { ...settings, letter_view: "sender" } });
+    // The window reads the mailboxes once: a reload shows the saved one.
+    await d.exec("location.reload()");
+    await d.button("Входящие");
+    await openBySubject(subj);
+    await d.until("mailbox view applied", async () => (await modes()) === "HTML Markdown Текст*");
+    await invoke("account_save", { account: { ...mailbox, letter_view: null }, password: null, grant: null });
+    await d.exec("location.reload()");
+    await d.button("Входящие");
   });
 
   await step("9.2", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {

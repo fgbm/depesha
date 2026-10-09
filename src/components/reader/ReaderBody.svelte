@@ -9,7 +9,7 @@
   import MailFrame from "../MailFrame.svelte";
   import { app } from "../../lib/store.svelte";
   import { MARKDOWN_CSS } from "../../lib/prose";
-  import { preferredView, switchViews } from "../../lib/letterView";
+  import { effectivePref, preferredView, switchViews } from "../../lib/letterView";
   import { linkify } from "../../lib/format";
   import { peopleBook } from "../../lib/peopleBook.svelte";
   import { blankPerson } from "../../lib/people";
@@ -61,12 +61,14 @@
       picked = null;
     }
   });
-  const switchable = $derived(switchViews(msg.view, app.settings.letter_view));
-  const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, app.settings.letter_view));
-
   /** The sender and their rule: what the «▾» of #44 sets, and what the hint is about (#69). */
   const from = $derived(msg.view.summary.from);
   const person = $derived(peopleBook.find(from?.email ?? ""));
+
+  /** The form asked for: the sender's rule, the mailbox's, the setting (#105). */
+  const pref = $derived(effectivePref(person?.view, app.account(msg.row.account_id)?.letter_view, app.settings.letter_view));
+  const switchable = $derived(switchViews(msg.view, pref));
+  const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, pref));
 
   /** The hint of the sender shown now, if any: the form was switched often enough (#69). */
   const hint = $derived(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preferredView, senderView, switchViews } from "./letterView";
+import { effectivePref, preferredView, senderView, switchViews } from "./letterView";
 import type { BodyView, MessageView } from "./types";
 
 type Forms = Pick<MessageView, "html" | "text" | "markdown" | "views">;
@@ -54,5 +54,30 @@ describe("the switch above a letter", () => {
 
   it("shows when the setting chose plain text over the sender's HTML: the way back", () => {
     expect(switchViews(letter(["text", "html"]), "text")).toEqual(["html", "text"]);
+  });
+});
+
+describe("what asks for the form (#105)", () => {
+  it("takes the sender's rule before the mailbox and the setting", () => {
+    expect(effectivePref("text", "markdown", "html")).toBe("text");
+  });
+
+  it("takes the mailbox before the setting", () => {
+    expect(effectivePref("", "markdown", "text")).toBe("markdown");
+    expect(effectivePref(undefined, "html", "sender")).toBe("html");
+  });
+
+  it("takes the setting when no rule is set", () => {
+    expect(effectivePref("", null, "text")).toBe("text");
+    expect(effectivePref(undefined, undefined, "sender")).toBe("sender");
+  });
+
+  it("lets the switch above the letter, picked by hand, win over all", () => {
+    // ReaderBody shows `picked` before `preferredView`: the pick is a form, not a rule.
+    const l = letter(["text", "markdown", "html"]);
+    const pref = effectivePref("text", "markdown", "html");
+    expect(preferredView(l, pref)).toBe("text");
+    const picked: BodyView | null = "markdown";
+    expect(picked ?? preferredView(l, pref)).toBe("markdown");
   });
 });

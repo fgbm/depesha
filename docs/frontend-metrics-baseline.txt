@@ -72,7 +72,7 @@ component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	312	96	59	157
 component	src/components/reader/QuickReply.svelte	218	57	31	130
-component	src/components/reader/ReaderBody.svelte	181	102	43	36
+component	src/components/reader/ReaderBody.svelte	183	104	43	36
 component	src/components/reader/ReaderHeader.svelte	330	79	60	191
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
 component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
@@ -743,6 +743,7 @@ function	src/lib/layout.test.ts::make	6
 function	src/lib/letterView.test.ts::letter	8
 function	src/lib/letterView.ts::hasView	6
 function	src/lib/letterView.ts::senderView	4
+function	src/lib/letterView.ts::effectivePref	3
 function	src/lib/letterView.ts::preferredView	4
 function	src/lib/letterView.ts::switchViews	5
 function	src/lib/list.svelte.ts::stale	59

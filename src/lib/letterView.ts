@@ -2,7 +2,7 @@
 // A letter offers them in `multipart/alternative`, the sender's favourite last; the
 // setting «Показывать письма» may prefer Markdown or plain text, and the switch above
 // the letter overrides both for as long as it is open.
-import type { BodyView, LetterViewPref, MessageView } from "./types";
+import type { BodyView, LetterViewPref, MessageView, ViewRule } from "./types";
 
 type Forms = Pick<MessageView, "html" | "text" | "markdown" | "views">;
 
@@ -21,6 +21,14 @@ export function hasView(view: Forms, form: BodyView): boolean {
 export function senderView(view: Forms): BodyView {
   const last = [...(view.views ?? [])].reverse().find((v) => hasView(view, v));
   return last ?? (view.html != null ? "html" : "text");
+}
+
+/**
+ * What asks for the form: the sender's rule, else the mailbox's, else the setting. An empty
+ * rule leaves it to the next one. The switch above the letter, picked by hand, comes before all.
+ */
+export function effectivePref(person: ViewRule | null | undefined, mailbox: ViewRule | null | undefined, setting: LetterViewPref): LetterViewPref {
+  return person || mailbox || setting;
 }
 
 /** The form the setting asks for, when the letter has it; the sender's otherwise. */
