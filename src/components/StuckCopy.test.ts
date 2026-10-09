@@ -48,7 +48,10 @@ describe("the task of a copy the server refuses (#88)", () => {
     };
     const { body } = render(StuckCopy, { props: { task: filed } });
     expect(body).toContain("Копия сохранена, но не удалось начать ожидание ответа");
-    expect(body).toContain("Копия уже лежит в «Отправленные»");
+    expect(body).toContain("Копия лежит в папке «Отправленные»");
+    expect(body).toContain("Депеша перестала пробовать");
+    expect(body).toContain("Нажмите «Повторить»");
+    expect(body).not.toContain("повторит");
     expect(body).not.toContain("сервер не принимает");
     expect(body).toContain("база занята");
   });
