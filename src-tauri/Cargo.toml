@@ -57,7 +57,9 @@ tauri-winrt-notification = "0.8.1"
 # cannot inject markup; `UI_Notifications` shows it and clears it on exit.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
-[dev-dependencies]
+# The mock runtime for the window tests of `drops`. Not on Windows: a test binary built with
+# it does not start there (CI: STATUS_ENTRYPOINT_NOT_FOUND).
+[target.'cfg(not(windows))'.dev-dependencies]
 tauri = { version = "2.12.1", features = ["test"] }
 
 [features]

@@ -90,9 +90,12 @@ mod tests {
         assert_eq!(rest, 1);
     }
 
+    #[cfg(not(windows))]
     use std::sync::Mutex;
+    #[cfg(not(windows))]
     use tauri::{Listener, WebviewUrl, WebviewWindowBuilder};
 
+    #[cfg(not(windows))]
     fn tmp_file(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("depesha-drops-{}-{name}", std::process::id()));
         std::fs::write(&path, b"x").unwrap();
@@ -101,6 +104,7 @@ mod tests {
 
     /// What a drop does in a mock app with windows `main` and `message-1`: the window
     /// event goes through the same function `lib.rs` hands to the builder.
+    #[cfg(not(windows))]
     #[test]
     fn a_drop_on_a_window_is_allowed_and_told_to_that_window_only() {
         let app = tauri::test::mock_builder()
@@ -145,6 +149,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_second_identical_drop_is_not_swallowed() {
         let app = tauri::test::mock_builder()
