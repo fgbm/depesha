@@ -1795,6 +1795,12 @@ try {
     await d.until("inbox again", async () => helper("count", "INBOX", subj) === "1", 20000);
   });
 
+  // The window read afresh; the click that follows must not land in the page being left.
+  const reloadWindow = async () => {
+    await d.exec("window.__before = true; location.reload()");
+    await d.until("window reloaded", async () => (await d.exec("return document.readyState === 'complete' && !window.__before && !!document.querySelector('button')")));
+  };
+
   await step("4.12", "письмо с Markdown-частью: переключатель «HTML · Markdown · Текст», задачи галочками, настройка «Показывать письма»", async () => {
     const subj = `Заметки ${stamp}`;
     helper("deliver-markdown", subj);
@@ -1829,12 +1835,12 @@ try {
     await invoke("account_save", { account: { ...mailbox, letter_view: "text" }, password: null, grant: null });
     await invoke("settings_set", { settings: { ...settings, letter_view: "sender" } });
     // The window reads the mailboxes once: a reload shows the saved one.
-    await d.exec("location.reload()");
+    await reloadWindow();
     await d.button("Входящие");
     await openBySubject(subj);
     await d.until("mailbox view applied", async () => (await modes()) === "HTML Markdown Текст*");
     await invoke("account_save", { account: { ...mailbox, letter_view: null }, password: null, grant: null });
-    await d.exec("location.reload()");
+    await reloadWindow();
     await d.button("Входящие");
   });
 
