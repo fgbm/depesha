@@ -84,6 +84,7 @@ const COMMANDS: &[&str] = &[
     "avatar",
     "accounts_arrange",
     "account_look",
+    "account_patch_own",
     "addresses",
     "people",
     "person_save",

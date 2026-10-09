@@ -97,6 +97,7 @@
     "allow-avatar",
     "allow-accounts-arrange",
     "allow-account-look",
+    "allow-account-patch-own",
     "allow-addresses",
     "allow-people",
     "allow-person-save",

@@ -186,6 +186,21 @@ impl AppState {
         Ok(())
     }
 
+    /// Changes one mailbox in place under the config lock and saves it. The mailbox's worker is
+    /// not touched: only fields the worker does not hold may be changed this way.
+    pub fn patch_account(&self, id: &str, change: impl FnOnce(&mut Account)) -> CmdResult<Account> {
+        let mut config = lock(&self.config);
+        let account = config
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| CmdError::new("not-found", tr!("account not found", "учётная запись не найдена")))?;
+        change(account);
+        let saved = account.clone();
+        config::save(&self.config_path, &config)?;
+        Ok(saved)
+    }
+
     /// Puts the mailboxes in this order; ones missing from `ids` keep their place after them.
     pub fn arrange_accounts(&self, ids: &[String]) -> CmdResult<()> {
         let mut config = lock(&self.config);

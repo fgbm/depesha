@@ -133,6 +133,108 @@ pub fn account_look(state: St<'_>, id: String, label: String, color: String) -> 
     state.save_account(account)
 }
 
+/// What a mailbox's page saves as it is changed: the fields that do not reach the server. A
+/// field left out is not touched; an empty string takes the setting's value (no own format,
+/// view or signature).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct OwnPatch {
+    pub label: Option<String>,
+    pub color: Option<String>,
+    pub display_name: Option<String>,
+    pub save_sent_copy: Option<bool>,
+    pub signatures: Option<Vec<account::Signature>>,
+    pub default_signature: Option<String>,
+    pub reply_signature: Option<String>,
+    pub attachments_dir: Option<String>,
+    pub compose_format: Option<String>,
+    pub letter_view: Option<String>,
+    pub waiting: Option<account::Waiting>,
+    pub quota_warn: Option<bool>,
+    pub quota_limit_mb: Option<u64>,
+}
+
+fn hex_color(color: &str) -> String {
+    let color = color.trim();
+    if color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()) {
+        color.to_ascii_lowercase()
+    } else {
+        String::new()
+    }
+}
+
+/// Puts the patch on the mailbox, keeping what the full save keeps: a default signature is one
+/// of the mailbox's, a name is never empty.
+fn apply_own(account: &mut Account, patch: OwnPatch) {
+    if let Some(v) = patch.label {
+        account.label = v.trim().to_owned();
+    }
+    if let Some(v) = patch.color {
+        account.color = hex_color(&v);
+    }
+    if let Some(v) = patch.display_name {
+        account.display_name = if v.trim().is_empty() {
+            account.email.clone()
+        } else {
+            v.trim().to_owned()
+        };
+    }
+    if let Some(v) = patch.save_sent_copy {
+        account.save_sent_copy = v;
+    }
+    if let Some(v) = patch.signatures {
+        account.signatures = v;
+    }
+    let some = |v: String| Some(v).filter(|v| !v.is_empty());
+    if let Some(v) = patch.default_signature {
+        account.default_signature = some(v);
+    }
+    if let Some(v) = patch.reply_signature {
+        account.reply_signature = some(v);
+    }
+    let has = |id: &Option<String>| account.signatures.iter().any(|s| id.as_deref() == Some(s.id.as_str()));
+    if !has(&account.default_signature) {
+        account.default_signature = None;
+    }
+    if !has(&account.reply_signature) {
+        account.reply_signature = None;
+    }
+    if let Some(v) = patch.attachments_dir {
+        account.attachments_dir = v.trim().to_owned();
+    }
+    if let Some(v) = patch.compose_format {
+        account.compose_format = match v.as_str() {
+            "plain" => Some(BodyFormat::Plain),
+            "html" => Some(BodyFormat::Html),
+            "markdown" => Some(BodyFormat::Markdown),
+            _ => None,
+        };
+    }
+    if let Some(v) = patch.letter_view {
+        account.letter_view = Some(v).filter(|v| ["html", "markdown", "text"].contains(&v.as_str()));
+    }
+    if let Some(v) = patch.waiting {
+        account.waiting = v;
+    }
+    if let Some(v) = patch.quota_warn {
+        account.quota_warn = v;
+    }
+    if let Some(v) = patch.quota_limit_mb {
+        account.quota_limit_mb = v;
+    }
+}
+
+/// Saves the fields of a mailbox's page that do not reach the server, and only them. The
+/// mailbox's worker keeps running as it is: the connection is neither restarted nor checked,
+/// so this is fit to be called with every change (a login changed is `account_save`'s).
+#[tauri::command(async)]
+pub fn account_patch_own(state: St<'_>, id: String, patch: OwnPatch) -> CmdResult<Account> {
+    if let Some(folder) = &patch.attachments_dir {
+        check_save_folder(&state, &state.account(&id)?.attachments_dir, folder)?;
+    }
+    state.patch_account(&id, |account| apply_own(account, patch))
+}
+
 #[tauri::command]
 pub async fn account_save(
     state: St<'_>,
@@ -3336,6 +3438,56 @@ pub fn quit_cancel(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    fn mailbox() -> Account {
+        serde_json::from_str(
+            r##"{"id":"a","display_name":"Jane","email":"j@x.test","username":"j","imap":{"host":"i","port":993,"security":"tls"},"smtp":{"host":"s","port":465,"security":"tls"},"save_sent_copy":true}"##,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_own_patch_changes_only_the_fields_it_names() {
+        let mut a = mailbox();
+        let before = a.clone();
+        let patch: OwnPatch =
+            serde_json::from_str(r#"{"label":" Work ","compose_format":"markdown","quota_limit_mb":0}"#).unwrap();
+        apply_own(&mut a, patch);
+        assert_eq!(a.label, "Work");
+        assert_eq!(a.compose_format, Some(BodyFormat::Markdown));
+        assert_eq!(
+            (&a.imap, &a.smtp, &a.username, &a.auth),
+            (&before.imap, &before.smtp, &before.username, &before.auth)
+        );
+        assert_eq!(a.display_name, before.display_name);
+    }
+
+    #[test]
+    fn an_empty_format_view_or_signature_means_none() {
+        let mut a = mailbox();
+        a.compose_format = Some(BodyFormat::Html);
+        a.letter_view = Some("text".into());
+        apply_own(
+            &mut a,
+            serde_json::from_str(r#"{"compose_format":"","letter_view":"","default_signature":"gone"}"#).unwrap(),
+        );
+        assert_eq!(
+            (a.compose_format, a.letter_view, a.default_signature),
+            (None, None, None)
+        );
+    }
+
+    #[test]
+    fn an_own_patch_keeps_the_mailboxs_worker_alone() {
+        // The command goes through `patch_account` (the config only); a worker is restarted by
+        // `set_worker`/`worker::spawn`, which this command must never call.
+        let src = include_str!("commands.rs");
+        let body = &src[src.find("pub fn account_patch_own").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(!body.contains("worker") && !body.contains("save_account"), "{body}");
+    }
+
     #[test]
     fn a_drop_outcome_is_one_of_three_words() {
         use super::DropOutcome;

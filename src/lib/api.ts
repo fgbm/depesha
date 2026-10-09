@@ -76,6 +76,8 @@ export const api = {
   detect: (email: string) => call<Detection>("detect", { email }),
   accountCheck: (account: Account, password: string | null, grant: string | null = null) =>
     call<void>("account_check", { account, password, grant }),
+  /** The fields of a mailbox's page that do not reach the server; the connection is not touched. */
+  accountPatchOwn: (id: string, patch: Record<string, unknown>) => call<Account>("account_patch_own", { id, patch }),
   accountSave: (account: Account, password: string | null, grant: string | null = null) =>
     call<Account>("account_save", { account, password, grant }),
   oauthProviders: () => call<OAuthProviderView[]>("oauth_providers"),
