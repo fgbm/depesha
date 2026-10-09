@@ -81,7 +81,7 @@
 
   function openSettings() {
     app.tasksOpen = false;
-    app.openSettings("offline");
+    app.openSettings("storage");
   }
 </script>
 

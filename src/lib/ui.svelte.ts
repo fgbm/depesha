@@ -61,10 +61,12 @@ export class UiController {
   tasksOpen = $state(false);
   /** One window for every setting: the app's, the mailboxes', the plugins'. */
   settingsOpen = $state(false);
-  /** The page it opens on: "general", "offline", "accounts", "account:<id>", "account:new", "plugins"… */
-  settingsPage = $state("general");
+  /** The page it opens on: "reading", "storage", "keys", "accounts", "account:<id>", "account:new", "plugins"… (the ids of before 0.8, such as "general", are read as their new pages). */
+  settingsPage = $state("reading");
   /** A section of a mailbox's page to open the settings at (`storage`), once. */
   settingsSection: string | null = null;
+  /** A person to open the page «People» at, once (from «Own at 2 people ›»; #104 sends it to the book). */
+  settingsPerson: string | null = null;
   /** A command to open the «Keys» page at (the palette's Alt+Enter), once. */
   settingsKeys: { id: string; title: string } | null = null;
   /** Counts `openSettings` calls: an already open settings window turns to the page asked for. */
@@ -130,7 +132,7 @@ export class UiController {
     }
   }
 
-  openSettings(page = "general", section: string | null = null) {
+  openSettings(page = "reading", section: string | null = null) {
     this.settingsPage = page;
     this.settingsSection = section;
     this.settingsTurn++;

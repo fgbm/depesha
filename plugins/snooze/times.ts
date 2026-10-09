@@ -1,4 +1,4 @@
-// The moments the «Snooze» menu offers, from the user's day (Settings → General). Local
+// The moments the «Snooze» menu offers, from the user's day (Settings → Snooze and waiting). Local
 // time, pure functions: `now` and the settings are arguments, so a test picks any day.
 
 import type { Clock, WorkTime } from "@depesha/plugin-api";

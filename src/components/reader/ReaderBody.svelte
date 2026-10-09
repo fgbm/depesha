@@ -120,7 +120,7 @@
     onNotNow={() => hints.notNow()}
     onNeverThis={() => hints.neverThis()}
     onNeverAnyone={() => hints.neverAnyone()}
-    onAll={() => app.openSettings("general")}
+    onAll={() => app.openSettings("look")}
     onUndo={() => setRule("")}
   />
 {/if}

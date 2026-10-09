@@ -1,239 +1,144 @@
 <script lang="ts">
-  import Settings2 from "@lucide/svelte/icons/settings-2";
-  import Mail from "@lucide/svelte/icons/mail";
-  import Bell from "@lucide/svelte/icons/bell";
-  import Keyboard from "@lucide/svelte/icons/keyboard";
-  import CloudOff from "@lucide/svelte/icons/cloud-off";
-  import Download from "@lucide/svelte/icons/download";
-  import Puzzle from "@lucide/svelte/icons/puzzle";
-  import Inbox from "@lucide/svelte/icons/inbox";
-  import Power from "@lucide/svelte/icons/power";
-  import Users from "@lucide/svelte/icons/users";
   import Search from "@lucide/svelte/icons/search";
-  import { tick, untrack, type Component } from "svelte";
+  import { tick, untrack } from "svelte";
   import { app } from "../lib/store.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
-  import { applyTheme } from "../lib/theme";
   import { accountLabel } from "../lib/format";
-  import { threshold } from "../lib/largeMail";
-  import { cleanWorkTime } from "../lib/workTime";
-  import { levels } from "../lib/quota";
+  import { MENU, PAGES, menuPages, pageIcon, pageSpec, pageTitle, resolvePage } from "../lib/settingsCatalog";
+  import { SettingsAutosave } from "../lib/settingsAutosave.svelte";
   import { buildSettingsIndex } from "../lib/settingsFields";
   import { searchSettings } from "../lib/settingsSearch";
-  import { ownFooter, pageChanged, pageKeys, resolveLeave, widePage } from "../lib/settingsWindow";
-  import type { Settings } from "../lib/types";
-  import GeneralPanel from "./prefs/GeneralPanel.svelte";
-  import MailPanel from "./prefs/MailPanel.svelte";
+  import { isRowPage, widePage } from "../lib/settingsWindow";
+  import SettingsPage from "./prefs/SettingsPage.svelte";
   import PeoplePanel from "./prefs/PeoplePanel.svelte";
-  import OfflinePanel from "./prefs/OfflinePanel.svelte";
-  import BackgroundPanel from "./prefs/BackgroundPanel.svelte";
   import AccountsPanel from "./prefs/AccountsPanel.svelte";
   import PluginsPanel from "./prefs/PluginsPanel.svelte";
   import KeysPanel from "./prefs/KeysPanel.svelte";
 
-  /** What the window edits: a copy of the settings, and the large-letter threshold as a number and its unit. */
-  function start(s: Settings) {
-    const mb = threshold(s.large_mb);
-    const inGb = mb >= 1024 && mb % 1024 === 0;
-    return { draft: structuredClone(s), unit: (inGb ? "gb" : "mb") as "mb" | "gb", value: inGb ? mb / 1024 : mb };
-  }
-
-  const first = start($state.snapshot(app.settings));
-  let draft = $state<Settings>(first.draft);
-  /** The large-letter threshold as typed: a number and its unit; saved in megabytes. */
-  let largeUnit = $state(first.unit);
-  let largeValue = $state(first.value);
-  /** The settings the window started from, to tell whether anything was changed in it. */
-  let base = JSON.stringify(first);
-
-  // Opened before the settings were read (Ctrl+, at startup), the window would save the
-  // defaults over them: it takes them when they come, unless something was changed already.
-  $effect(() => {
-    const next = start($state.snapshot(app.settings));
-    untrack(() => {
-      if (JSON.stringify({ draft: $state.snapshot(draft), unit: largeUnit, value: largeValue }) !== base) return;
-      base = JSON.stringify(next);
-      draft = next.draft;
-      largeUnit = next.unit;
-      largeValue = next.value;
-    });
+  /**
+   * Every setting in one window (#68, #102): the pages of the menu (two axes, «Mail» and
+   * «App»), the mailboxes and the plugins. The shell keeps the menu, the page title, the
+   * search and the line at the foot; a page of rows is SettingsPage, the rest draw themselves.
+   * Everything is saved at once, so the window has no «Save» and closes without a question.
+   */
+  const auto = new SettingsAutosave({
+    settings: () => $state.snapshot(app.settings) as unknown as Record<string, unknown>,
+    patch: (patch) => app.patchSettings(patch),
+    toast: (text, action) => app.toast(text, false, action),
+    dismiss: (id) => app.dismiss(id),
   });
 
-  /**
-   * Every setting in one window: the app's pages, the mailboxes (one page each),
-   * the plugins and a page per plugin section. The shell keeps the menu, the page
-   * title, the search and the footer; the pages themselves are the panels under `prefs/`.
-   */
-  const CORE: { id: string; title: () => string; icon: Component }[] = [
-    { id: "general", title: () => t("settings.page.general"), icon: Settings2 },
-    { id: "background", title: () => t("settings.page.background"), icon: Power },
-    { id: "mail", title: () => t("settings.page.mail"), icon: Mail },
-    { id: "people", title: () => t("people.title"), icon: Users },
-    { id: "notifications", title: () => t("settings.notifications"), icon: Bell },
-    { id: "keys", title: () => t("keys.title"), icon: Keyboard },
-    { id: "offline", title: () => t("settings.offline"), icon: CloudOff },
-    { id: "updates", title: () => t("settings.updates"), icon: Download },
-  ];
   const sections = $derived(registry.lists.settingsSections);
-  const pages = $derived([
-    ...CORE.map((p) => p.id),
-    "accounts",
-    ...app.accounts.map((a) => `account:${a.id}`),
-    "plugins",
-    ...sections.map((_, i) => `plugin:${i}`),
-  ]);
+  const pages = menuPages();
 
-  let page = $state(app.settingsPage);
-  // A link inside the settings (a mailbox's «Storage» to «Notifications») turns the page.
+  let page = $state(resolvePage(app.settingsPage));
+  // A link inside the settings (a mailbox's «Storage» to «Hints») turns the page.
   $effect(() => {
     void app.settingsTurn;
-    untrack(() => turn(app.settingsPage));
+    untrack(() => void turn(resolvePage(app.settingsPage)));
   });
-  // A page that went away (its plugin or mailbox) falls back to the first one.
-  const current = $derived(pages.includes(page) || page === "account:new" ? page : "general");
-  const pageAccount = $derived(
-    current.startsWith("account:") ? (app.accounts.find((a) => `account:${a.id}` === current) ?? null) : null,
-  );
-  const title = $derived(
-    CORE.find((p) => p.id === current)?.title() ??
-      (current === "accounts"
-        ? t("accounts.title")
-        : current === "plugins"
-          ? t("ext.title")
-          : current === "account:new"
-            ? t("cmd.addAccount")
-            : pageAccount
-              ? `${accountLabel(pageAccount)}`
-              : (sections[Number(current.slice(7))]?.item.title() ?? "")),
-  );
+  // A page that went away (its mailbox) falls back to the first one.
+  const pageAccount = $derived(page.startsWith("account:") ? (app.accounts.find((a) => `account:${a.id}` === page) ?? null) : null);
+  const current = $derived(pages.includes(page) || page === "account:new" || pageAccount ? page : pages[0]);
+  /** The menu entry that is lit: a mailbox's page belongs to «Mailboxes». */
+  const lit = $derived(current.startsWith("account:") ? "accounts" : current);
+  const spec = $derived(pageSpec(current));
+  const title = $derived(pageAccount ? accountLabel(pageAccount) : current === "account:new" ? t("cmd.addAccount") : pageTitle(current));
 
-  // A theme is easier to pick by seeing it: it applies at once and goes back on Cancel.
-  $effect(() => applyTheme(draft.theme));
+  /** The plugins' groups that stand on a page; those that name no page, or none that is there, stand on the plugins' page. */
+  const sectionsOn = (id: string) =>
+    sections.filter((s) => (id === "plugins" ? !PAGES.some((p) => p.id === s.item.page) : s.item.page === id));
 
-  // ---- The search over the settings (#68): it looks in the declared descriptions, not the
-  // drawn window, so a new page joins it by adding its fields to settingsFields.ts. ----
+  // ---- The search over the settings (#68): it looks in the declared catalog, not the drawn window. ----
   let query = $state("");
   let searchInput = $state<HTMLInputElement | null>(null);
   let contentEl = $state<HTMLElement | null>(null);
+  /** The row a hit opened the page at, lit a moment. */
+  let flash = $state<string | null>(null);
 
-  const coreTitle = (p: string) => CORE.find((c) => c.id === p)?.title() ?? t("settings.title");
   const index = $derived([
-    ...buildSettingsIndex(coreTitle, t),
-    { page: "accounts", group: t("accounts.title"), section: "", label: t("accounts.manageTitle"), anchor: null },
-    ...app.accounts.map((a) => ({ page: `account:${a.id}`, group: t("accounts.title"), section: "", label: accountLabel(a), anchor: null })),
-    { page: "plugins", group: t("settings.page.plugins"), section: "", label: t("ext.manageTitle"), anchor: null },
-    ...sections.map((s, i) => ({ page: `plugin:${i}`, group: t("settings.page.plugins"), section: "", label: s.item.title(), anchor: null })),
+    ...buildSettingsIndex(),
+    ...app.accounts.map((a) => ({ page: `account:${a.id}`, group: pageTitle("accounts"), section: "", label: accountLabel(a), anchor: null })),
+    ...sections.map((s) => {
+      const home = PAGES.some((p) => p.id === s.item.page) ? (s.item.page as string) : "plugins";
+      return { page: home, group: pageTitle(home), section: t("settings.pluginTag"), label: s.item.title(), anchor: null };
+    }),
   ]);
   const hits = $derived(query.trim() ? searchSettings(index, query) : []);
 
-  /** Opens a hit: the page it is on, then scrolls to the field and lights it a moment. */
+  /** Opens a hit: the page it is on, then the row, lit a moment and with the focus on it (#102, 4.4 А). */
   async function openHit(hit: { page: string; anchor: string | null }) {
-    if (!(await confirmLeave())) return;
     query = "";
-    page = hit.page;
+    await turn(hit.page);
     if (!hit.anchor) return;
+    await reveal(hit.anchor);
+  }
+
+  /** The row with this id on the open page; none for the first one. */
+  const rowEl = (id: string | null) => contentEl?.querySelector<HTMLElement>(id ? `.rw[data-row="${CSS.escape(id)}"]` : ".rw[data-row]") ?? null;
+
+  /** Scrolled to, lit a moment and given the focus: found, so the value can be changed from the keyboard (#102, 4.4 А). */
+  async function reveal(id: string) {
     await tick();
-    const el = contentEl?.querySelector<HTMLElement>(`[data-settings="${hit.anchor}"]`);
+    const el = rowEl(id);
     if (!el) return;
-    el.scrollIntoView({ block: "start" });
-    el.classList.add("flash");
-    setTimeout(() => el.classList.remove("flash"), 1500);
-  }
-
-  // ---- The current page's save (#68): «Save / Cancel» is the page's own, not the window's. ----
-  const hideFooter = $derived(ownFooter(current));
-  const dirty = $derived(
-    pageChanged(current, $state.snapshot(draft) as unknown as Record<string, unknown>, $state.snapshot(app.settings) as unknown as Record<string, unknown>) ||
-      (current === "general" && threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb) !== app.settings.large_mb),
-  );
-
-  /** Writes only the current page's own fields over what is saved; the rest is left as it is. */
-  async function savePage(p: string) {
-    const keys = pageKeys(p);
-    if (!keys) return;
-    const d = $state.snapshot(draft);
-    // A patch, not the whole settings from this window's memory: a save from elsewhere
-    // (the tray, another window) is not rolled back by a page's «Save».
-    const patch: Record<string, unknown> = {};
-    for (const k of keys) patch[k] = (d as unknown as Record<string, unknown>)[k];
-    if (p === "mail") patch.attachments_dir = String(patch.attachments_dir ?? "").trim();
-    if (p === "general") {
-      patch.large_mb = threshold(largeValue * (largeUnit === "gb" ? 1024 : 1), app.settings.large_mb);
-      Object.assign(patch, cleanWorkTime(d, app.settings));
-    }
-    if (p === "notifications") patch.quota_levels = levels(d.quota_levels).sort((a, b) => a - b) as [number, number];
-    await app.patchSettings(patch);
-  }
-
-  /** Puts the current page's fields back to what is saved, without touching the others. */
-  function revertPage(p: string) {
-    const keys = pageKeys(p);
-    if (!keys) return;
-    const saved = $state.snapshot(app.settings);
-    const d = structuredClone($state.snapshot(draft));
-    for (const k of keys) (d as unknown as Record<string, unknown>)[k] = (saved as unknown as Record<string, unknown>)[k];
-    draft = d;
-    if (p === "general") {
-      const mb = threshold(saved.large_mb);
-      const inGb = mb >= 1024 && mb % 1024 === 0;
-      largeUnit = inGb ? "gb" : "mb";
-      largeValue = inGb ? mb / 1024 : mb;
-    }
-  }
-
-  async function save() {
-    await savePage(current);
-    close();
-  }
-
-  function cancel() {
-    revertPage(current);
-    applyTheme(app.settings.theme);
-    close();
+    el.scrollIntoView({ block: "center" });
+    el.focus();
+    flash = id;
+    setTimeout(() => flash === id && (flash = null), 1500);
   }
 
   function close() {
     app.settingsOpen = false;
-    app.settingsPage = "general";
+    app.settingsPage = "reading";
   }
 
-  /**
-   * The page's say before it goes. A mailbox's page keeps its own (its check, its changes);
-   * an ordinary page with unsaved changes asks: save them, leave them, or stay.
-   */
-  async function confirmLeave(): Promise<boolean> {
-    if (!(await (app.settingsLeave?.() ?? Promise.resolve(true)))) return false;
-    if (!dirty) return true;
-    const { answer } = await app.choose({
-      title: t("settings.leaveTitle"),
-      text: t("settings.leaveText"),
-      okLabel: t("file.save"),
-      cancelLabel: t("account.leaveDiscard"),
-      altLabel: t("cancel"),
-    });
-    const what = resolveLeave(answer);
-    if (what === "stay") return false;
-    if (what === "save") await savePage(current);
-    else revertPage(current);
+  /** A mailbox's page keeps its own say before it goes (its check, its changes); the others ask nothing. */
+  async function mayLeave(): Promise<boolean> {
+    return (await (app.settingsLeave?.() ?? Promise.resolve(true))) !== false;
+  }
+
+  async function turn(next: string): Promise<boolean> {
+    if (next === current) return true;
+    if (!(await mayLeave())) return false;
+    page = next;
     return true;
   }
 
-  async function turn(next: string) {
-    if (next === current || !(await confirmLeave())) return;
-    page = next;
+  /** A mailbox's page finishing (saved, deleted) goes back to the list by itself: it has said its own, so the window asks nothing. */
+  const backToList = (p: string) => (page = p);
+
+  /** From a row: another page, a mailbox's at a section, or a person in the book. */
+  function go(next: string, opts: { section?: string; person?: string } = {}) {
+    if (opts.person) app.settingsPerson = opts.person;
+    app.openSettings(next, opts.section ?? null);
   }
 
   function onKey(e: KeyboardEvent) {
     // Esc clears the search first, closes the window second; a menu or a question on top goes before both.
     if (e.key === "Escape" && !app.confirmation && !document.querySelector(".pop")) {
-      if (query) {
-        e.preventDefault();
-        query = "";
-        return;
-      }
       e.preventDefault();
-      confirmLeave().then((ok) => ok && cancel());
+      if (query) query = "";
+      else mayLeave().then((ok) => ok && close());
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "PageDown" || e.key === "PageUp")) {
+      e.preventDefault();
+      const i = pages.indexOf(lit) + (e.key === "PageDown" ? 1 : -1);
+      turn(pages[(i + pages.length) % pages.length]).then(() => focusPage());
+      return;
+    }
+    if (e.altKey && e.key === "ArrowLeft") {
+      e.preventDefault();
+      focusMenu();
+      return;
+    }
+    // Ctrl+Z takes the last change back, unless the cursor is in a field whose own undo it is.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z" && isRowPage(current)) {
+      if ((e.target as HTMLElement).matches("input, textarea, [contenteditable]") || !auto.canUndo) return;
+      e.preventDefault();
+      void auto.undo();
     }
   }
 
@@ -246,13 +151,35 @@
     }
   }
 
-  /** ↑/↓ move between pages, as in any list of tabs. */
+  function focusMenu() {
+    document.querySelector<HTMLElement>(`.prefs .tab[data-page="${lit}"]`)?.focus();
+  }
+
+  /** From the menu into the page: the first row of a page of rows, else the first thing in it that takes the focus. */
+  async function focusPage() {
+    await tick();
+    (spec ? rowEl(null) : contentEl?.querySelector<HTMLElement>("input, button, select, [tabindex='0']"))?.focus();
+  }
+
+  /** ↑/↓ move between pages, as in any list of tabs; →/Enter go into the page. */
   function onNavKey(e: KeyboardEvent) {
+    if (e.key === "ArrowRight" || e.key === "Enter") {
+      e.preventDefault();
+      void focusPage();
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
-    const i = pages.indexOf(current) + (e.key === "ArrowDown" ? 1 : -1);
-    const list = e.currentTarget as HTMLElement;
-    turn(pages[(i + pages.length) % pages.length]).then(() => list.querySelector<HTMLElement>(`[data-page="${current}"]`)?.focus());
+    const i = pages.indexOf(lit) + (e.key === "ArrowDown" ? 1 : -1);
+    const next = pages[(i + pages.length) % pages.length];
+    turn(next).then(() => document.querySelector<HTMLElement>(`.prefs .tab[data-page="${next}"]`)?.focus());
+  }
+
+  function onSearchKey(e: KeyboardEvent) {
+    if (e.key === "ArrowDown" && query.trim()) {
+      e.preventDefault();
+      document.querySelector<HTMLElement>(".prefs .hit")?.focus();
+    }
   }
 </script>
 
@@ -272,28 +199,26 @@
           bind:value={query}
           placeholder={t("settings.find")}
           aria-label={t("settings.find")}
+          onkeydown={onSearchKey}
         />
         <kbd>Ctrl+F</kbd>
       </div>
       <div role="tablist" aria-orientation="vertical" tabindex="-1" onkeydown={onNavKey}>
-        {#snippet tab(id: string, label: string, Icon: Component | null, sub = false)}
-          <button class="tab" class:sub role="tab" data-page={id} aria-selected={current === id} tabindex={current === id ? 0 : -1} onclick={() => turn(id)}>
-            {#if Icon}<Icon size={16} />{/if}<span>{label}</span>
-          </button>
-        {/snippet}
-        {#each CORE as p (p.id)}{@render tab(p.id, p.title(), p.icon)}{/each}
-        <div class="group">{t("accounts.title")}</div>
-        {@render tab("accounts", t("accounts.manageTitle"), Inbox)}
-        {#each app.accounts as acc (acc.id)}{@render tab(`account:${acc.id}`, accountLabel(acc), null, true)}{/each}
-        <div class="group">{t("settings.page.plugins")}</div>
-        {@render tab("plugins", t("ext.manageTitle"), Puzzle)}
-        {#each sections as sec, i (sec)}{@render tab(`plugin:${i}`, sec.item.title(), null, true)}{/each}
+        {#each MENU as g (g.pages[0])}
+          <div class="group">{g.title()}</div>
+          {#each g.pages as id (id)}
+            {@const Icon = pageIcon(id)}
+            <button class="tab" role="tab" data-page={id} aria-selected={lit === id} tabindex={lit === id ? 0 : -1} onclick={() => turn(id)}>
+              {#if Icon}<Icon size={16} />{/if}<span>{pageTitle(id)}</span>
+            </button>
+          {/each}
+        {/each}
       </div>
     </nav>
 
     <div class="pane">
       {#if query.trim()}
-        <!-- The results stand in place of the page; a click opens the page at the field (#68, frame 4А). -->
+        <!-- The results stand in place of the page; a click opens the page at the row (#68, frame 4А). -->
         <header>
           <h2>{t("settings.find")}</h2>
           <span class="muted sub">{hits.length ? tn("settings.found", hits.length, { q: query.trim() }) : t("settings.findNone")}</span>
@@ -316,30 +241,22 @@
           {#if pageAccount}<span class="muted sub">{pageAccount.email}{pageAccount.ews ? " · Exchange" : ""}</span>{/if}
         </header>
         <div class="content" class:flush={current.startsWith("account:")} class:wide={widePage(current)} bind:this={contentEl} role="tabpanel" aria-label={title}>
-          {#if current === "general" || current === "updates"}
-            <GeneralPanel {current} {draft} bind:largeValue bind:largeUnit />
-          {:else if current === "mail" || current === "notifications"}
-            <MailPanel {current} {draft} onOpen={(p) => void turn(p)} />
+          {#if spec}
+            {#key spec.id}
+              <SettingsPage page={spec} {auto} sections={sectionsOn(spec.id)} {flash} {go} />
+            {/key}
+          {:else if current === "keys"}
+            <KeysPanel draft={app.settings} />
           {:else if current === "people"}
             <PeoplePanel />
-          {:else if current === "background"}
-            <BackgroundPanel {draft} />
-          {:else if current === "offline"}
-            <OfflinePanel {draft} />
-          {:else if current === "keys"}
-            <KeysPanel {draft} />
-          {:else if current === "accounts" || current === "account:new" || current.startsWith("account:")}
-            <AccountsPanel {current} {pageAccount} onOpen={(p) => (page = p)} />
+          {:else if current === "plugins"}
+            <PluginsPanel sections={sectionsOn("plugins")} />
           {:else}
-            <PluginsPanel {current} />
+            <AccountsPanel {current} {pageAccount} onOpen={backToList} />
           {/if}
         </div>
-        {#if !hideFooter}
-          <footer>
-            <span class="spacer"></span>
-            <button class="btn ghost" onclick={cancel}>{t("cancel")}</button>
-            <button class="btn primary" onclick={save}>{t("file.save")}</button>
-          </footer>
+        {#if isRowPage(current)}
+          <footer>{t("settings.applied")}</footer>
         {/if}
       {/if}
     </div>
@@ -463,11 +380,6 @@
     background: var(--hover);
   }
 
-  /* A mailbox or a plugin section: under its group's page, without an icon. */
-  .tab.sub {
-    padding-left: 36px;
-  }
-
   /* The open page: a quiet fill and the accent bar the sidebar uses. */
   .tab[aria-selected="true"] {
     background: var(--selected);
@@ -540,13 +452,6 @@
     max-width: none;
   }
 
-  /* The field a search opened the page at: lit a moment, as a list row in #63. */
-  .content :global([data-settings].flash) {
-    border-radius: 6px;
-    box-shadow: 0 0 0 2px var(--accent);
-    transition: box-shadow 0.3s;
-  }
-
   /* A mailbox's page scrolls inside and keeps its own buttons in sight. */
   .content.flush {
     padding: 0;
@@ -601,15 +506,12 @@
     font-size: 13.5px;
   }
 
+  /* No buttons: a change is saved at once (#102, 1.7), the line says so. */
   footer {
-    display: flex;
-    gap: 8px;
     padding: 10px 24px 14px;
     border-top: 1px solid var(--line);
-  }
-
-  .spacer {
-    flex: 1;
+    font-size: 12px;
+    color: var(--muted);
   }
 
   /* A narrow window: the pages become a row of tabs above the page. */

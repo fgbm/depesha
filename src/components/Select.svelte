@@ -11,6 +11,7 @@
     title,
     label,
     disabled = false,
+    tabindex,
     class: cls = "",
   }: {
     value: T;
@@ -20,6 +21,8 @@
     /** Accessible name when no <label> wraps the list. */
     label?: string;
     disabled?: boolean;
+    /** -1 takes the list out of the Tab order (a row of the settings is the one stop). */
+    tabindex?: number;
     class?: string;
   } = $props();
 
@@ -52,6 +55,7 @@
     class="input trigger"
     class:open
     {disabled}
+    {tabindex}
     {title}
     aria-label={label}
     aria-haspopup="listbox"

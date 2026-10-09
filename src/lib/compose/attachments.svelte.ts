@@ -22,7 +22,7 @@ export interface ComposeAttachHost {
   useCtrlV(): void;
   /** The clipboard holds no picture. */
   noneInClipboard(): void;
-  /** A picture in the text is shrunk to this many pixels on its long side (Settings → Mail). */
+  /** A picture in the text is shrunk to this many pixels on its long side (Settings → Writing). */
   imageMaxPx(): number;
   /** The title of the dialog that picks picture files. */
   pickTitle(): string;

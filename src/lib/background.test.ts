@@ -35,7 +35,7 @@ describe("closing the window, asked", () => {
     expect(q.okLabel).toBe("Keep in background");
     expect(q.cancelLabel).toBe("Quit");
     expect(q.check).toEqual({ label: "Remember my choice", checked: true });
-    expect(q.note).toBe("You can change it in Settings → Background and startup.");
+    expect(q.note).toBe("You can change it in Settings → Startup and updates.");
     q.resolve(true);
     await flush();
     expect(api.settingsPatch).toHaveBeenCalledWith({ close_action: "background" });

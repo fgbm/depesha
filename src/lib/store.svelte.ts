@@ -75,6 +75,8 @@ export class AppStore {
   set settingsPage(v) { this.ui.settingsPage = v; }
   get settingsSection() { return this.ui.settingsSection; }
   set settingsSection(v) { this.ui.settingsSection = v; }
+  get settingsPerson() { return this.ui.settingsPerson; }
+  set settingsPerson(v) { this.ui.settingsPerson = v; }
   get settingsKeys() { return this.ui.settingsKeys; }
   set settingsKeys(v) { this.ui.settingsKeys = v; }
   get settingsTurn() { return this.ui.settingsTurn; }
@@ -135,7 +137,7 @@ export class AppStore {
   dismiss(id: number) { this.ui.dismiss(id); }
   fail(e: unknown, prefix = "") { this.ui.fail(e, prefix); }
   track<T>(p: Promise<T>) { return this.ui.track(p); }
-  openSettings(page = "general", section: string | null = null) { this.ui.openSettings(page, section); }
+  openSettings(page = "reading", section: string | null = null) { this.ui.openSettings(page, section); }
   /** Opens Settings → «Keys» at a command, highlighting its row (the palette's Alt+Enter, #46). */
   editKeys(command: string, title: string) { this.ui.editKeys(command, title); }
   /** Opens a web link after confirming the real address with the user. */

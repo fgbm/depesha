@@ -451,7 +451,7 @@
         onNotNow={() => { line = null; void hints.notNow(); }}
         onNeverThis={() => { line = null; void hints.neverThis(); }}
         onNeverAnyone={() => { line = null; void hints.neverAnyone(); }}
-        onAll={() => app.openSettings("general")}
+        onAll={() => app.openSettings("look")}
         onUndo={() => void undoHint(line!)}
       />
     {/if}

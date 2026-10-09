@@ -12,6 +12,7 @@
   import { blankPerson, filterPeople, formatMark, matchPerson, type PeopleFilter, type Person } from "../../lib/people";
   import type { BodyFormat } from "../../lib/types";
   import Select from "../Select.svelte";
+  import LayerMark from "./LayerMark.svelte";
   import Search from "@lucide/svelte/icons/search";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import UserPlus from "@lucide/svelte/icons/user-plus";
@@ -48,6 +49,10 @@
     } catch (e) {
       app.fail(e);
     }
+    // «Own at 2 people ›» on a general setting opens the page at that person (until the book of #104).
+    const want = app.settingsPerson;
+    app.settingsPerson = null;
+    if (want && people.some((p) => p.email === want)) selected = want;
   }
 
   load();
@@ -184,16 +189,20 @@
       <div class="field" data-settings="people-send">
         <span class="fl">{t("people.sendFormat")}</span>
         <div class="stackcol">
-          <Select label={t("people.sendFormat")} value={person.send_format} onchange={(v) => edit({ send_format: v as BodyFormat | "" })} options={SEND} />
-          <p class="hint">{t("people.sendFormatNote")}</p>
+          <div class="withmark">
+            <Select label={t("people.sendFormat")} value={person.send_format} onchange={(v) => edit({ send_format: v as BodyFormat | "" })} options={SEND} />
+            <LayerMark own={!!person.send_format} word={t("settings.layerAsMailbox")} onreset={() => edit({ send_format: "" })} />
+          </div>
         </div>
       </div>
 
       <div class="field" data-settings="people-view">
         <span class="fl">{t("people.view")}</span>
         <div class="stackcol">
-          <Select label={t("people.view")} value={person.view} onchange={(v) => edit({ view: v as Person["view"] })} options={VIEW} />
-          <p class="hint">{t("people.viewNote")}</p>
+          <div class="withmark">
+            <Select label={t("people.view")} value={person.view} onchange={(v) => edit({ view: v as Person["view"] })} options={VIEW} />
+            <LayerMark own={!!person.view} word={t("settings.layerAsMailbox")} onreset={() => edit({ view: "" })} />
+          </div>
         </div>
       </div>
 
@@ -535,5 +544,12 @@
 
   .stackcol :global(.select) {
     width: 100%;
+  }
+
+  .withmark {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 </style>

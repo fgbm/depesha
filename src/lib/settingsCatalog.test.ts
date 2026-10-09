@@ -1,0 +1,120 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { i18n } from "./i18n.svelte";
+import { MENU, OWN_PAGES, PAGES, menuPages, pageSpec, pageTitle, resolvePage, type RowSpec } from "./settingsCatalog";
+import { choiceMode } from "./settingsRows";
+
+const rows = (): RowSpec[] => PAGES.flatMap((p) => p.groups.flatMap((g) => g.rows));
+
+beforeEach(() => {
+  i18n.lang = "ru";
+});
+
+describe("the menu (#102, 2.1 В)", () => {
+  it("has two axes, «Mail» and «App», then the mailboxes and the plugins", () => {
+    expect(MENU.map((g) => g.title())).toEqual(["Почта", "Программа", "Люди и ящики", "Плагины"]);
+    expect(MENU[0].pages).toEqual(["reading", "writing", "later", "storage"]);
+    expect(MENU[1].pages).toEqual(["look", "notify", "start", "keys"]);
+  });
+
+  it("has a page for each entry, and no mailbox of its own in the menu (2.6 Б)", () => {
+    for (const id of menuPages()) expect(pageSpec(id) ?? OWN_PAGES.find((p) => p.id === id), id).toBeDefined();
+    expect(menuPages().some((id) => id.startsWith("account:"))).toBe(false);
+  });
+
+  it("names the pages as the decision does", () => {
+    expect(menuPages().map(pageTitle)).toEqual([
+      "Чтение и список",
+      "Написание",
+      "Отложить и ждать",
+      "Хранение",
+      "Вид и язык",
+      "Уведомления и значок",
+      "Запуск и обновления",
+      "Клавиши",
+      "Люди",
+      "Ящики",
+      "Все плагины",
+    ]);
+  });
+
+  it("reads the page ids of before 0.8 as the pages that have the matter now", () => {
+    expect(resolvePage("general")).toBe("look");
+    expect(resolvePage("mail")).toBe("reading");
+    expect(resolvePage("notifications")).toBe("notify");
+    expect(resolvePage("background")).toBe("start");
+    expect(resolvePage("offline")).toBe("storage");
+    expect(resolvePage("updates")).toBe("start");
+    expect(resolvePage("keys")).toBe("keys");
+    expect(resolvePage("account:7")).toBe("account:7");
+  });
+});
+
+describe("the rows", () => {
+  it("have ids of their own, since the search and the e2e steps find a row by it", () => {
+    const ids = rows().map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keep every setting the pages of before 0.8 edited", () => {
+    // Settings → General, Updates, Mail, Notifications, Background and startup, Offline.
+    const was = [
+      "language", "theme", "hints", "day_start", "evening_start", "work_days", "updates",
+      "threads", "sender_logos", "compose_format", "image_max_px", "default_account_id", "letter_view", "attachments_dir", "undo_send_secs",
+      "notify", "quota_warn", "quota_levels", "quota_repeat",
+      "close_action", "autostart", "tray_count", "tray_always",
+      "offline", "offline_attachments", "large_mb",
+    ];
+    const keys = new Set(rows().flatMap((r) => ("key" in r ? [r.key as string] : [])));
+    for (const k of was) expect(keys, k).toContain(k);
+  });
+
+  it("put the consent to work with no tray icon along with the choice of the background, not in a row of its own", () => {
+    const close = rows().find((r) => r.id === "close_action");
+    expect(close?.kind === "choice" && close.extra?.("background", { accounts: [], noTray: true })).toEqual({ background_without_tray: true });
+    expect(rows().some((r) => "key" in r && r.key === "background_without_tray")).toBe(false);
+  });
+
+  it("leave a place in the hints for the note of #103 and in the list for #108", () => {
+    expect(pageSpec("look")?.groups.find((g) => g.id === "hints")?.rows.map((r) => r.id)).toContain("markdown_parts_note");
+    expect(pageSpec("reading")?.groups.find((g) => g.id === "list")?.rows.map((r) => r.id)).toContain("sender_logos");
+  });
+});
+
+describe("the choices are drawn by the one rule (#102, 1.1 А)", () => {
+  const modeOf = (id: string) => {
+    const r = rows().find((x) => x.id === id);
+    if (r?.kind !== "choice") throw new Error(id);
+    return choiceMode(r.options({ accounts: [], noTray: false }).map((o) => o.label()));
+  };
+
+  it("draws the short sets as segments", () => {
+    expect(modeOf("language")).toBe("seg");
+    expect(modeOf("compose_format")).toBe("seg");
+  });
+
+  it("draws the long or many as a list", () => {
+    for (const id of ["autostart", "notify", "letter_view", "offline", "close_action", "updates", "quota_repeat", "undo_send"]) expect(modeOf(id), id).toBe("drop");
+  });
+
+  it("gives no option the same value twice", () => {
+    for (const r of rows()) {
+      if (r.kind !== "choice") continue;
+      const v = r.options({ accounts: [], noTray: false }).map((o) => o.value);
+      expect(new Set(v).size).toBe(v.length);
+    }
+  });
+});
+
+describe("dependent rows (#102, 1.6 А)", () => {
+  const quota = () => pageSpec("storage")!.groups.find((g) => g.id === "space")!.rows;
+
+  it("stand in one run under the switch they depend on", () => {
+    expect(quota().map((r) => !!r.dep)).toEqual([false, true, true, true]);
+  });
+
+  it("are dimmed where they stand while the switch is off", () => {
+    const [, levels] = quota();
+    expect(levels.enabled?.({ quota_warn: false } as never)).toBe(false);
+    expect(levels.enabled?.({ quota_warn: true } as never)).toBe(true);
+  });
+});

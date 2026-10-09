@@ -177,7 +177,7 @@
           {#each NEW_OPERATORS[i18n.lang] as op (op)}<button class="op" tabindex="-1" onclick={() => addOperator(op)}>{op}</button>{/each}
         </div>
         <hr />
-        <button class="sg foot" tabindex="-1" onclick={() => { open = false; app.openSettings("general"); }}>
+        <button class="sg foot" tabindex="-1" onclick={() => { open = false; app.openSettings("storage"); }}>
           <Settings2 size={13} />
           <span>{t("suggest.threshold", { size: size(mb * 1024 * 1024, 0) })}</span>
         </button>

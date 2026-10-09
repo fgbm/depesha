@@ -1,5 +1,5 @@
 // The user's day for «Snooze» (#95): when the day and the evening begin and which weekdays
-// are working ones. Settings → General keeps them; plugins read them as a `WorkTime`.
+// are working ones. Settings → Snooze and waiting keeps them; plugins read them as a `WorkTime`.
 
 export interface Clock {
   h: number;

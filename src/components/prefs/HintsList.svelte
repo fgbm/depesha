@@ -1,15 +1,12 @@
 <script lang="ts">
-  // The section «Hints» of the page «General» (#69, frame 17А): what the app offered, what
-  // was answered, and the one switch that turns every suggestion off. The list is the
-  // decisions the backend keeps; «Ask them again» forgets them all.
+  // The decisions about the hints (#69, #102): what the app offered and what was answered.
+  // The switches are rows of the page «Look and language»; this is the list under them, and
+  // «Ask them again» forgets every decision.
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { api } from "../../lib/api";
   import { hints as runtime } from "../../lib/hints.svelte";
-  import type { Settings } from "../../lib/types";
   import type { HintState } from "../../lib/hints";
-
-  let { draft }: { draft: Settings } = $props();
 
   let states = $state<HintState[]>([]);
 
@@ -35,12 +32,6 @@
   }
 </script>
 
-<p class="hint top">{t("hints.note")}</p>
-<label class="option">
-  <input type="checkbox" bind:checked={draft.hints} />
-  <span class="text">{t("hints.enable")}</span>
-</label>
-
 {#if states.length}
   <div class="list">
     <div class="row head">
@@ -62,35 +53,13 @@
 {/if}
 
 <style>
-  .top {
-    margin-top: 0;
-  }
-
-  .option {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 5px 0;
-    cursor: pointer;
-  }
-
-  .option input {
-    margin-top: 2px;
-  }
-
-  .hint {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.45;
-    margin: 0 0 8px;
-  }
-
   .small {
+    margin: 0;
     font-size: 12px;
   }
 
   .list {
-    margin: 6px 0 10px;
+    margin: 0 0 10px;
   }
 
   .row {

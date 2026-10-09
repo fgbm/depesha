@@ -173,7 +173,7 @@
       />
       {t("storage.gb")}
     </label>
-    <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.openSettings("notifications")}>{t("storage.levelsLink")}</button></p>
+    <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.openSettings("storage")}>{t("storage.levelsLink")}</button></p>
   </div>
 </div>
 
@@ -232,7 +232,7 @@
 <div class="block local">
   <h4><HardDrive size={14} />{t("storage.local")}</h4>
   <div class="row"><span>{t("storage.cache")}</span><b>{gb(info?.cache_bytes ?? 0)}</b></div>
-  <p class="hint muted">{t("storage.cacheNote")} <button class="link" onclick={() => app.openSettings("offline")}>{t("storage.offlineLink")}</button></p>
+  <p class="hint muted">{t("storage.cacheNote")} <button class="link" onclick={() => app.openSettings("storage")}>{t("storage.offlineLink")}</button></p>
 </div>
 
 <style>

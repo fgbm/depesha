@@ -1,5 +1,6 @@
 <script lang="ts">
   import FolderPicker from "../FolderPicker.svelte";
+  import LayerMark from "../prefs/LayerMark.svelte";
   import { app } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
 
@@ -7,17 +8,22 @@
 </script>
 
 <div class="field"><span>{t("wizard.attachmentsDir")}</span>
-  <!-- The settings' folder is a hint, not the value: what is inherited stays visible as such. -->
-  <FolderPicker bind:value label={t("wizard.attachmentsDir")} placeholder={app.settings.attachments_dir || t("settings.askEveryTime")} />
-  <p class="muted small">{t("wizard.attachmentsDirInherit", { dir: app.settings.attachments_dir ? `: ${app.settings.attachments_dir}` : "" })}</p>
+  <!-- The settings' folder is what an empty value means: it shows as the placeholder, and the mark says so (#102, 3.1 В). -->
+  <div class="withmark">
+    <FolderPicker bind:value label={t("wizard.attachmentsDir")} placeholder={app.settings.attachments_dir || t("settings.askEveryTime")} />
+    <LayerMark own={!!value} word={t("settings.layerAsGeneral")} onreset={() => (value = "")} />
+  </div>
 </div>
 
 <style>
-  p {
-    margin: 0;
+  .withmark {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
-  .small {
-    font-size: 12px;
+  .withmark > :global(.folder) {
+    flex: 1;
+    min-width: 0;
   }
 </style>
