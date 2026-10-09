@@ -67,6 +67,9 @@ pub struct ParkJob {
     pub from: String,
     pub to: String,
     pub message_ids: Vec<String>,
+    /// The letter answered: the conversation to take in is found by it when the move comes,
+    /// as `message_ids` is empty until then.
+    pub anchor: String,
     pub subject: String,
     /// When the letters were to go in.
     pub since: i64,
@@ -320,7 +323,7 @@ impl Store {
     pub fn park_jobs(&self) -> Result<Vec<ParkJob>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT account_id, message_id, park, return_to, park_folder, parked, subject, park_since
+            "SELECT account_id, message_id, park, return_to, park_folder, parked, subject, park_since, anchor
              FROM followups WHERE park IN ('pending', 'back', 'undo') ORDER BY park_since, rowid",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -340,9 +343,21 @@ impl Store {
                 message_ids: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
                 subject: r.get(6)?,
                 since: r.get(7)?,
+                anchor: r.get(8)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The conversation a wait takes, found when its move comes (#109): where it sits and its
+    /// letters. Kept before the move starts, so that a wait closed meanwhile brings them back.
+    pub fn followup_park_plan(&self, account_id: &str, key: &str, park: &Parking) -> Result<()> {
+        self.conn().execute(
+            "UPDATE followups SET parked = ?3, return_to = ?4
+             WHERE account_id = ?1 AND message_id = ?2 AND park IN ('pending', 'done')",
+            params![account_id, bare(key), json_list(&park.chain), park.from],
+        )?;
+        Ok(())
     }
 
     /// The letters of the wait `key` are in `folder` now. A wait the user closed while the
@@ -704,6 +719,56 @@ mod tests {
         );
         let chain = store.inbox_chain("a", "INBOX", "q1@x").unwrap();
         assert_eq!(sorted(chain), ["fake@x", "q1@x"]);
+    }
+
+    /// An answer starts a wait without the letters (#109): they are found when the move comes,
+    /// and kept before it starts, so that a wait closed meanwhile brings them back to where
+    /// they were taken from (the inbox after an "Undo" of the archive, the archive otherwise).
+    #[test]
+    fn a_wait_finds_its_letters_when_the_move_comes() {
+        let store = mailbox();
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: Vec::new(),
+        };
+        assert!(
+            store
+                .followup_start(&answer("r@x", SENT, 0), Some("q@x"), Some(&park))
+                .unwrap()
+        );
+        let job = store.park_jobs().unwrap().remove(0);
+        assert_eq!(
+            (
+                job.kind,
+                job.from.as_str(),
+                job.anchor.as_str(),
+                job.message_ids.is_empty()
+            ),
+            (ParkKind::In, "INBOX", "q@x", true)
+        );
+        let found = Parking {
+            from: "Archive".into(),
+            chain: vec!["q@x".into(), "p@x".into()],
+        };
+        store.followup_park_plan("a", "r@x", &found).unwrap();
+        // The user stops waiting while the move runs: the letters go back where they were taken from.
+        store.followup_stop("a", "r@x", 5, None).unwrap();
+        store.followup_parked("a", "r@x", "Waiting").unwrap();
+        let back = store.park_jobs().unwrap().remove(0);
+        assert_eq!(
+            (
+                back.kind,
+                back.from.as_str(),
+                back.to.as_str(),
+                sorted(back.message_ids)
+            ),
+            (
+                ParkKind::Back,
+                "Waiting",
+                "Archive",
+                vec!["p@x".to_owned(), "q@x".to_owned()]
+            )
+        );
     }
 
     #[test]
