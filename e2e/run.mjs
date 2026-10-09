@@ -2323,8 +2323,9 @@ try {
     if (!(await d.findAll(".prefs .account-page")).length) throw new Error("страница ящика закрылась после «Вернуться»");
     // Back as it was, for the steps after this one.
     await d.click(await d.xpath("//div[contains(@class,'account-page')]//footer//button[normalize-space(.)='Отмена']"));
-    await setInput(name, me.label ?? "");
-    await d.type(await d.find(name), "\uE007");
+    if (me.label) await setInput(name, me.label);
+    else await d.clear(await d.find(name));
+    await d.exec("document.querySelector('.account-page .grid input').blur()");
     await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
     await closeSettings();
   });
