@@ -13,6 +13,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use roxmltree::{Document, Node};
 
 use crate::account::{Credentials, EwsConfig};
+use crate::avatar::Receiver;
 use crate::http::{Connection, Url};
 use crate::lang::pick;
 use crate::tr;
@@ -43,9 +44,16 @@ pub struct Session {
     /// The NTLM handshake was done on `conn`.
     conn_ready: bool,
     version: usize,
+    /// Whose `Authentication-Results` the headers it fetches are believed by (#108).
+    receiver: Receiver,
 }
 
 impl Session {
+    /// Names who received the mail this session fetches (#108).
+    pub fn set_receiver(&mut self, receiver: Receiver) {
+        self.receiver = receiver;
+    }
+
     async fn ensure_conn(&mut self) -> Result<()> {
         if self.conn.as_ref().is_none_or(Connection::is_closed) {
             self.conn = Some(Connection::open(&self.url, self.pinned.as_deref()).await?);
@@ -271,6 +279,7 @@ pub async fn connect(config: &EwsConfig, creds: &Credentials, email: &str) -> Re
         conn: None,
         conn_ready: false,
         version: 0,
+        receiver: Receiver::default(),
     };
     let text = session
         .call(r#"<m:GetFolder><m:FolderShape><t:BaseShape>IdOnly</t:BaseShape></m:FolderShape><m:FolderIds><t:DistinguishedFolderId Id="inbox"/></m:FolderIds></m:GetFolder>"#)

@@ -16,6 +16,7 @@ use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
 use crate::acl::{LabelCheck, Namespace, PermanentFlags, Rights};
+use crate::avatar::Receiver;
 pub use crate::query::Criterion;
 use crate::tr;
 use crate::watchdog::Watchdog;
@@ -108,6 +109,9 @@ pub struct Conn {
     /// Set while this connection idles (`wait_for_changes`): the silence watchdog lets
     /// the server stay quiet then, since nothing was asked of it.
     pub idling: Arc<AtomicBool>,
+    /// Whose `Authentication-Results` the headers it fetches are believed by (#108); set
+    /// by `mail::connect`, empty (never vouches) on a connection made without an account.
+    pub receiver: Receiver,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
@@ -147,6 +151,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         greeting,
         enabled: None,
         idling,
+        receiver: Receiver::default(),
     })
 }
 
@@ -1570,6 +1575,7 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
         greeting,
         enabled,
         idling,
+        receiver,
         ..
     } = conn;
     let mut handle = session.idle();
@@ -1603,6 +1609,7 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
             greeting,
             enabled,
             idling,
+            receiver,
         },
         outcome,
     ))

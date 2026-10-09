@@ -65,7 +65,7 @@ describe("the rows", () => {
     // Settings → General, Updates, Mail, Notifications, Background and startup, Offline.
     const was = [
       "language", "theme", "hints", "day_start", "evening_start", "work_days", "updates",
-      "threads", "sender_logos", "compose_format", "image_max_px", "default_account_id", "letter_view", "attachments_dir", "undo_send_secs",
+      "threads", "list_avatars", "sender_logos", "compose_format", "image_max_px", "default_account_id", "letter_view", "attachments_dir", "undo_send_secs",
       "notify", "quota_warn", "quota_levels", "quota_repeat",
       "close_action", "autostart", "tray_count", "tray_always",
       "offline", "offline_attachments", "large_mb",
@@ -87,9 +87,15 @@ describe("the rows", () => {
     expect(rows().some((r) => "key" in r && r.key === "background_without_tray")).toBe(false);
   });
 
-  it("leave a place in the hints for the note of #103 and in the list for #108", () => {
+  it("leave a place in the hints for the note of #103", () => {
     expect(pageSpec("look")?.groups.find((g) => g.id === "hints")?.rows.map((r) => r.id)).toContain("markdown_parts_note");
-    expect(pageSpec("reading")?.groups.find((g) => g.id === "list")?.rows.map((r) => r.id)).toContain("sender_logos");
+  });
+
+  it("put the avatars of the list beside the conversations and the logos right under them (#108)", () => {
+    const list = pageSpec("reading")?.groups.find((g) => g.id === "list")?.rows.map((r) => r.id);
+    expect(list).toEqual(["threads", "list_avatars", "sender_logos"]);
+    // The logos are the network, the avatars the look: neither hangs under the other.
+    for (const id of ["list_avatars", "sender_logos"]) expect(rows().find((r) => r.id === id)?.dep).toBeFalsy();
   });
 });
 

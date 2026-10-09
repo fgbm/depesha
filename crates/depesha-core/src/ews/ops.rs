@@ -7,6 +7,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use roxmltree::Node;
 
 use super::{Session, child, children, desc, escape, parse, responses, single, text};
+use crate::avatar::Receiver;
 use crate::imap::{FlagChange, Flags, Folder, FolderRole, IdleOutcome, is_non_mail};
 use crate::message::{self, Addr, Summary};
 use crate::query::SearchQuery;
@@ -581,6 +582,7 @@ struct Fetched {
 }
 
 async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
+    let receiver = s.receiver.clone();
     let mut out = Vec::with_capacity(ids.len());
     for chunk in ids.chunks(FETCH_BATCH) {
         let props = [
@@ -617,7 +619,7 @@ async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
                 Err(e) => return Err(e),
             };
             for it in items(resp) {
-                if let Some(f) = fetched(it) {
+                if let Some(f) = fetched(it, &receiver) {
                     out.push(f);
                 }
             }
@@ -626,7 +628,7 @@ async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
     Ok(out)
 }
 
-fn fetched(it: Node<'_, '_>) -> Option<Fetched> {
+fn fetched(it: Node<'_, '_>, receiver: &Receiver) -> Option<Fetched> {
     let id = item_id(it)?;
     let props = ext_props(it);
     let received = text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0);
@@ -635,7 +637,7 @@ fn fetched(it: Node<'_, '_>) -> Option<Fetched> {
         .filter(|h| h.contains(':'))
         .cloned()
         .unwrap_or_else(|| synth_headers(it));
-    let mut summary = message::parse_summary(headers.as_bytes());
+    let mut summary = message::parse_summary_for(headers.as_bytes(), receiver);
     // The item knows its attachments better than a header block does.
     summary.has_attachments = text(it, "HasAttachments") == Some("true");
     if summary.subject.is_empty() {

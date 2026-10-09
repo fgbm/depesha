@@ -5,11 +5,13 @@
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import Eraser from "@lucide/svelte/icons/eraser";
+  import Check from "@lucide/svelte/icons/check";
   import { tick } from "svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { followFocus } from "../lib/listFocus";
   import { app } from "../lib/store.svelte";
   import { arrivals } from "../lib/arrivals.svelte";
+  import Avatar from "./Avatar.svelte";
   import RowMenu from "./RowMenu.svelte";
   import Segments from "./Segments.svelte";
   import ViewMenu from "./ViewMenu.svelte";
@@ -22,6 +24,7 @@
   import { i18n, locale, t, tn } from "../lib/i18n.svelte";
   import { recentSearches } from "../lib/recentSearches.svelte";
   import { rowMarks } from "../lib/marks";
+  import { rowAvatar } from "../lib/listAvatar";
   import { labelChips, readOnly } from "../lib/labels";
   import { labels as labelsCtl } from "../lib/labels.svelte";
   import type { Addr, MessageRow } from "../lib/types";
@@ -126,6 +129,16 @@
     if (!app.selected.has(m.id)) app.select(m.id);
     if (!ids.length) ids = [m.id];
     menu = { at: { x: e.clientX, y: e.clientY }, ids };
+  }
+
+  /** A round picture at the left of every row (#108); off, the rows are as they were. */
+  const avatars = $derived(app.settings.list_avatars);
+  const myAddresses = $derived(new Set(app.accounts.map((a) => a.email.toLowerCase())));
+  /** The pictured row's person and whether a company logo may stand by them (the setting for logos too). */
+  function pictureOf(m: MessageRow) {
+    const mine = isSentLike && (app.view.kind !== "plugin" || ["sent", "drafts"].includes(app.folder(m.account_id, m.folder)?.role ?? ""));
+    const who = rowAvatar(m, mine, myAddresses);
+    return { addr: who.addr, brand: who.brand && app.settings.sender_logos };
   }
 
   const MARK_ICON = { reply: Reply, reply_all: ReplyAll, forward: Forward };
@@ -264,6 +277,7 @@
           class:unread={!m.flags.seen}
           class:selected={app.selected.has(m.id)}
           class:opened={app.opened?.row.id === m.id}
+          class:avatars
           class:flash={arrivals.flash === m.id}
           class:fresh={arrivals.isFresh(app.view, m.id)}
           style:top="{(start + i) * ROW}px"
@@ -276,6 +290,15 @@
           oncontextmenu={(e) => context(e, m)}
           onkeydown={(e) => rowKey(e, m)}
         >
+          <!-- Without the dot the unread state would live in the look alone: the name says it (#108). -->
+          {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
+          {#if app.selected.has(m.id)}
+            <!-- A chosen row: a tick in the place of the picture, and the ground (#108, 2.5 Б). -->
+            <span class="pick" class:round={avatars} aria-hidden="true"><Check size={avatars ? 18 : 10} strokeWidth={3} /></span>
+          {:else if avatars}
+            {@const pic = pictureOf(m)}
+            <span class="pic"><Avatar addr={pic.addr} accountId={m.account_id} brand={pic.brand} /></span>
+          {/if}
           <div class="line1">
             <span class="from">{who(m)}</span>
             {#if notes}
@@ -486,17 +509,69 @@
     outline: none;
   }
 
-  .row:focus-visible {
-    box-shadow: inset 2px 0 0 var(--accent);
-  }
-
   .row:hover {
     background: var(--hover);
   }
 
-  .row.selected,
-  .row.opened {
+  /* Chosen rows have the ground and a tick; the row that is open or has the keyboard (the
+     cursor) has only the bar, so a choice is never taken for the current letter (#108). The
+     bar stands right of the mailbox stripe, not on it. */
+  .row.selected {
     background: var(--selected);
+  }
+
+  .row.opened::before,
+  .row:focus-visible::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+
+  /* The picture (36 px, two lines tall) and the tick that takes its place. */
+  .row.avatars {
+    padding-left: 60px;
+  }
+
+  .pic,
+  .pick {
+    position: absolute;
+    left: 14px;
+    top: 13px;
+    display: flex;
+  }
+
+  .pick {
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  /* No pictures: the tick takes the strip at the left, the text does not move. */
+  .pick:not(.round) {
+    left: 6px;
+    top: 14px;
+    width: 10px;
+    height: 10px;
+    background: none;
+    color: var(--accent);
+  }
+
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   /* The row a notification led to: a frame that fades in a moment. */
@@ -515,17 +590,6 @@
     .row.flash {
       animation: none;
     }
-  }
-
-  .row.unread::before {
-    content: "";
-    position: absolute;
-    left: 5px;
-    top: 15px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
   }
 
   .line1,

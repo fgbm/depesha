@@ -1,7 +1,7 @@
 // What the settings window shows (#102): the pages of the menu, the groups on each and the
 // rows in a group, described as data. SettingsPage.svelte draws every row from its kind with
-// the one set of controls, the search reads the same list, and a page to come (avatars #108,
-// importance #72) is a few lines here: a row, in the group it belongs to. The row's key is
+// the one set of controls, the search reads the same list, and a page to come (importance #72)
+// is a few lines here: a row, in the group it belongs to. The row's key is
 // a field of `Settings`; its id is what the search scrolls to and the e2e steps look for.
 
 import type { Component } from "svelte";
@@ -165,12 +165,16 @@ const R = {
     also: () => [t("hints.forget"), t("hints.what"), t("hints.answer")],
   },
   threads: { id: "threads", kind: "toggle", key: "threads", label: () => t("settings.threads") },
+  // #108: two settings, one aim each. The first is the look of the list; the second is the
+  // network (a DNS lookup and a download from the company's site) and works in the letter too.
+  list_avatars: { id: "list_avatars", kind: "toggle", key: "list_avatars", label: () => t("settings.listAvatars") },
   sender_logos: {
     id: "sender_logos",
     kind: "toggle",
     key: "sender_logos",
     label: () => t("settings.senderLogos"),
     hint: () => t("settings.senderLogosNote"),
+    also: () => [t("settings.listAvatars")],
   },
   letter_view: {
     id: "letter_view",
@@ -396,8 +400,7 @@ export const PAGES: PageSpec[] = [
     title: () => t("settings.page.reading"),
     icon: BookOpen,
     groups: [
-      // #108 puts «Avatars in the list» into this group, above the logos.
-      group("list", () => t("settings.list"), [R.threads, R.sender_logos]),
+      group("list", () => t("settings.list"), [R.threads, R.list_avatars, R.sender_logos]),
       group("read", () => t("settings.reading"), [R.letter_view, R.layer_view]),
     ],
   },

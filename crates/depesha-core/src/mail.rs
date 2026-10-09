@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use crate::account::{Account, Credentials};
+use crate::avatar::Receiver;
 use crate::imap::{self, FlagChange, Folder, IdleOutcome};
 use crate::store::Store;
 use crate::sync::{self, FolderSync, SyncOptions};
@@ -15,9 +16,18 @@ pub enum Conn {
 }
 
 pub async fn connect(account: &Account, creds: &Credentials) -> Result<Conn> {
+    let receiver = Receiver::of(account);
     Ok(match &account.ews {
-        Some(cfg) => Conn::Ews(ews::connect(cfg, creds, &account.email).await?),
-        None => Conn::Imap(imap::connect(&account.imap, creds).await?),
+        Some(cfg) => {
+            let mut s = ews::connect(cfg, creds, &account.email).await?;
+            s.set_receiver(receiver);
+            Conn::Ews(s)
+        }
+        None => {
+            let mut c = imap::connect(&account.imap, creds).await?;
+            c.receiver = receiver;
+            Conn::Imap(c)
+        }
     })
 }
 

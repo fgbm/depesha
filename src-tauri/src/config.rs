@@ -27,6 +27,9 @@ pub struct Settings {
     pub dnd_until: i64,
     /// Group the list into conversations.
     pub threads: bool,
+    /// A round picture of the sender at the left of every row of the list (#108): a logo, a
+    /// photo or initials. Only the look of the list; the letter has its own always.
+    pub list_avatars: bool,
     pub templates: Vec<Template>,
     /// `auto` (default), `notify` or `off`, like OpenCode's `autoupdate`.
     pub updates: String,
@@ -55,7 +58,8 @@ pub struct Settings {
     /// Offline download takes messages with attachments too.
     pub offline_attachments: bool,
     /// Brand logos published with BIMI next to mail that passed DMARC: a DNS
-    /// lookup and a download from the brand's site, once a week per domain.
+    /// lookup and a download from the brand's site, once a week per domain, in the list
+    /// and in the letter. Off, no lookup is made anywhere (#108).
     pub sender_logos: bool,
     /// Where attachments are saved without asking; empty asks every time.
     /// A mailbox may have its own (`Account::attachments_dir`).
@@ -125,6 +129,7 @@ impl Default for Settings {
             notify: "people".into(),
             dnd_until: 0,
             threads: true,
+            list_avatars: true,
             templates: Vec::new(),
             updates: "auto".into(),
             language: "auto".into(),

@@ -76,6 +76,7 @@ const MIGRATIONS: &[Step] = &[
     v21_outbox_archive,
     sent_copies::v22_copy_filed,
     people::v23_persons_and_addresses,
+    v24_sender_verdict,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -445,6 +446,14 @@ fn v21_outbox_archive(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 24: whether the receiving server vouched for the sender with DMARC (#108), kept beside
+/// the letter so the list can show a brand logo without opening the letter. Letters cached
+/// before it say no until they are opened (`Store::note_verdict`).
+fn v24_sender_verdict(conn: &Connection) -> Result<()> {
+    add_column(conn, "messages", "dmarc", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
 /// Counts again the rows of `threads` that match `which`, `{0}` standing for the table.
 fn count_threads(which: &str) -> String {
     let rows = which.replace("{0}", "");
@@ -621,6 +630,21 @@ pub struct MessageRow {
     /// row, any letter of it.
     #[serde(default)]
     pub answer_came: bool,
+    /// The receiving server vouched for the sender with DMARC (#108): a brand logo may show.
+    #[serde(default)]
+    pub dmarc: bool,
+    /// Who wrote in the conversation with the verdict on each, the newest writer last
+    /// (#108: the avatar of a conversation is its last writer who is not me); empty when
+    /// the list is not grouped.
+    #[serde(default)]
+    pub thread_voices: Vec<Voice>,
+}
+
+/// A writer of a conversation and whether the receiving server vouched for them (#108).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Voice {
+    pub from: Addr,
+    pub dmarc: bool,
 }
 
 /// Largest message downloaded for offline reading with attachments, bytes. A product
@@ -914,7 +938,7 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
 
 /// A letter of a conversation for its row in a list: id, Message-ID, sender, a draft, back
 /// from waiting with the reply and not opened since.
-type Letter = (i64, Option<String>, Option<String>, bool, bool);
+type Letter = (i64, Option<String>, Option<String>, bool, bool, bool);
 
 /// Keys that are a column of the message itself.
 fn message_sort_column(by: SortField) -> Option<&'static str> {
@@ -1568,7 +1592,8 @@ impl Store {
             .prepare_cached(
                 "SELECT m.account_id, m.thread, m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts',
                     EXISTS (SELECT 1 FROM followups fu WHERE fu.park = 'returned' AND fu.noticed = 0
-                        AND fu.account_id = m.account_id AND (fu.anchor = m.message_id OR fu.answer_id = m.message_id))
+                        AND fu.account_id = m.account_id AND (fu.anchor = m.message_id OR fu.answer_id = m.message_id)),
+                    m.dmarc
                  FROM json_each(?1) k
                  CROSS JOIN messages m ON m.account_id = k.value ->> 0 AND m.thread = k.value ->> 1
                  JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
@@ -1584,6 +1609,7 @@ impl Store {
                         r.get::<_, Option<String>>(4)?,
                         r.get::<_, bool>(5)?,
                         r.get::<_, bool>(6)?,
+                        r.get::<_, bool>(7)?,
                     ),
                 ))
             })?
@@ -1595,10 +1621,11 @@ impl Store {
             let mut seen = HashSet::new();
             let (mut count, mut draft) = (0, false);
             let mut senders: Vec<Addr> = Vec::new();
+            let mut voices: Vec<Voice> = Vec::new();
             let found = letters
                 .remove(&(row.account_id.clone(), row.thread.clone()))
                 .unwrap_or_default();
-            for (id, mid, from, is_draft, came) in found {
+            for (id, mid, from, is_draft, came, dmarc) in found {
                 // Back from waiting with the reply, not opened since: the conversation says so.
                 row.answer_came |= came;
                 if is_draft {
@@ -1610,14 +1637,18 @@ impl Store {
                     continue;
                 }
                 count += 1;
-                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok())
-                    && !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email))
-                {
-                    senders.push(a);
+                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok()) {
+                    if !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email)) {
+                        senders.push(a.clone());
+                    }
+                    // Oldest first: a writer who wrote again moves to the end.
+                    voices.retain(|v| !v.from.email.eq_ignore_ascii_case(&a.email));
+                    voices.push(Voice { from: a, dmarc });
                 }
             }
             row.thread_count = count.max(1);
             row.thread_senders = senders;
+            row.thread_voices = voices;
             row.thread_draft = draft;
         }
         Ok(rows)
@@ -2366,6 +2397,16 @@ impl Store {
             .optional()?)
     }
 
+    /// What opening a letter learned about it (#108): letters cached before the column
+    /// had no verdict, and a re-sync does not bring headers of a letter already cached.
+    pub fn note_verdict(&self, id: i64, dmarc: bool) -> Result<()> {
+        self.conn().execute(
+            "UPDATE messages SET dmarc = ?2 WHERE id = ?1 AND dmarc != ?2",
+            params![id, dmarc],
+        )?;
+        Ok(())
+    }
+
     pub fn set_avatar(&self, key: &str, uri: Option<&str>, fetched: i64) -> Result<()> {
         self.conn().execute(
             "INSERT OR REPLACE INTO avatars (key, uri, fetched) VALUES (?1, ?2, ?3)",
@@ -2418,14 +2459,14 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
         .prepare_cached(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
                 to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all, keywords)
+                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all, keywords, dmarc)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24, ?25, ?26, ?27)
+                ?23, ?24, ?25, ?26, ?27, ?28)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft,
                 forwarded = excluded.forwarded, answered_all = excluded.answered_all,
-                keywords = excluded.keywords
+                keywords = excluded.keywords, dmarc = excluded.dmarc
              RETURNING id",
         )?
         .query_row(
@@ -2457,6 +2498,7 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
                 flags.forwarded,
                 flags.answered_all,
                 serde_json::to_string(&msg.keywords).unwrap_or_else(|_| "[]".into()),
+                summary.dmarc,
             ],
             |r| r.get(0),
         )?;
@@ -2787,8 +2829,9 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
         FROM outbox o WHERE o.account_id = m.account_id AND o.acts_on = m.message_id AND o.failed = 0
         ORDER BY o.id DESC LIMIT 1),
     EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.anchor = m.message_id
-        AND fu.park = 'returned' AND fu.noticed = 0)";
-const COLUMN_COUNT: usize = 29;
+        AND fu.park = 'returned' AND fu.noticed = 0),
+    m.dmarc";
+const COLUMN_COUNT: usize = 30;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
     Ok(Snooze {
@@ -2865,6 +2908,8 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         my_answer,
         outgoing,
         answer_came: r.get(28)?,
+        dmarc: r.get(29)?,
+        thread_voices: Vec::new(),
     })
 }
 
@@ -3499,6 +3544,41 @@ mod tests {
         assert_eq!(thread_of(&store, b), thread_of(&store, a));
         assert_ne!(thread_of(&store, c), thread_of(&store, a));
         assert_ne!(thread_of(&store, d), thread_of(&store, a));
+    }
+
+    #[test]
+    fn the_verdict_of_the_receiving_server_rides_with_the_letter() {
+        let store = mailbox();
+        let mut vouched = from_to(with_ids("Отпуск", 100, "a@x", None), "ozon@ozon.example", "me@x");
+        vouched.dmarc = true;
+        put(&store, "INBOX", 1, &vouched, true);
+        let reply = from_to(
+            with_ids("Re: Отпуск", 200, "b@x", Some("a@x")),
+            "me@x",
+            "ozon@ozon.example",
+        );
+        put(&store, "Sent", 1, &reply, true);
+        let other = put(&store, "INBOX", 2, &summary("Другое", 300), true);
+        let rows = store
+            .list(&ListQuery {
+                threads: true,
+                ..Default::default()
+            })
+            .unwrap();
+        let row = rows.iter().find(|r| r.subject == "Отпуск").unwrap();
+        // The newest writer stands last, and each keeps what the server said of them.
+        let voices: Vec<_> = row
+            .thread_voices
+            .iter()
+            .map(|v| (v.from.email.as_str(), v.dmarc))
+            .collect();
+        assert_eq!(voices, [("ozon@ozon.example", true), ("me@x", false)]);
+        assert!(!rows.iter().find(|r| r.subject == "Другое").unwrap().dmarc);
+
+        // A letter cached before the column learns it when opened.
+        assert!(!store.get(other).unwrap().unwrap().dmarc);
+        store.note_verdict(other, true).unwrap();
+        assert!(store.get(other).unwrap().unwrap().dmarc);
     }
 
     #[test]
@@ -4948,9 +5028,11 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap();
+        // Id, Message-ID, sender, a draft, the verdict.
+        type Found = (i64, Option<String>, Option<String>, bool, bool);
         let mut letters = conn
             .prepare(
-                "SELECT m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts'
+                "SELECT m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts', m.dmarc
                  FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
                  WHERE m.account_id = ?1 AND m.thread = ?2 AND COALESCE(f.role, '') NOT IN ('trash', 'junk')
                  ORDER BY m.date, m.id",
@@ -4960,14 +5042,15 @@ mod tests {
             let mut seen = HashSet::new();
             let (mut count, mut draft) = (0, false);
             let mut senders: Vec<Addr> = Vec::new();
-            let found: Vec<(i64, Option<String>, Option<String>, bool)> = letters
+            let mut voices: Vec<Voice> = Vec::new();
+            let found: Vec<Found> = letters
                 .query_map(params![row.account_id, row.thread], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
                 })
                 .unwrap()
                 .collect::<rusqlite::Result<_>>()
                 .unwrap();
-            for (id, mid, from, is_draft) in found {
+            for (id, mid, from, is_draft, dmarc) in found {
                 if is_draft {
                     draft = true;
                     continue;
@@ -4976,14 +5059,17 @@ mod tests {
                     continue;
                 }
                 count += 1;
-                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok())
-                    && !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email))
-                {
-                    senders.push(a);
+                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok()) {
+                    if !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email)) {
+                        senders.push(a.clone());
+                    }
+                    voices.retain(|v| !v.from.email.eq_ignore_ascii_case(&a.email));
+                    voices.push(Voice { from: a, dmarc });
                 }
             }
             row.thread_count = count.max(1);
             row.thread_senders = senders;
+            row.thread_voices = voices;
             row.thread_draft = draft;
         }
         rows

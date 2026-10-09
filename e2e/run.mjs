@@ -446,6 +446,36 @@ try {
     await rowBySubject("Массовое письмо 000", 5000);
   });
 
+  await step("108.1", "аватары в списке: круг в каждой строке, снимки в обеих темах, выключатель #108", async () => {
+    await d.button("Входящие");
+    await d.exec("document.querySelector('.viewport').scrollTop = 0");
+    const count = async (sel) => Number(await d.exec(`return document.querySelectorAll('${sel}').length`));
+    await d.until("a circle in every row", async () => {
+      const rows = await count(".list .row");
+      return rows > 0 && (await count(".list .row .pic")) === rows ? rows : null;
+    }, 15000);
+    // Initials: the stand's mail brings no DMARC verdict, so no logo is asked from the network.
+    const initials = await d.exec("return document.querySelector('.list .row .pic')?.textContent.trim()");
+    if (!initials) throw new Error("в круге нет инициалов");
+    if ((await count(".list .row .pic button, .list .row .pic a, .list .row .pic [tabindex]")) > 0) throw new Error("кружок получил фокус или стал ссылкой");
+    const settings = await invoke("settings_get");
+    const theme = async (name) => {
+      await invoke("settings_set", { settings: { ...settings, theme: name } });
+      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
+    };
+    // The same list in the light theme and in the dark one, then back: the run keeps its own.
+    await theme("paper");
+    await screenshot("list-avatars-paper");
+    await theme("night");
+    await screenshot("list-avatars-night");
+    await invoke("settings_set", { settings });
+    // Off, the list is as before the avatars: no circles, the text starts where it did.
+    await invoke("settings_set", { settings: { ...settings, list_avatars: false } });
+    await d.until("no circles", async () => (await count(".list .row .pic")) === 0 && (await count(".list .row.avatars")) === 0, 10000);
+    await invoke("settings_set", { settings: { ...settings, list_avatars: true } });
+    await d.until("circles back", async () => (await count(".list .row .pic")) > 0, 10000);
+  }, { retry: true });
+
   await step("4.6", "открытие ставит «прочитано» на сервере", async () => {
     await d.exec("document.querySelector('.viewport').scrollTop = 0");
     await openBySubject("Счёт за октябрь");
@@ -2383,7 +2413,7 @@ try {
     await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
     // The click left the focus on the switch; the arrows still walk the rows from there (#102, 4.1).
     await d.type(await d.find(`${row("threads")} .sw`), "\uE015");
-    await d.until("arrow after a click", async () => (await d.exec("return document.activeElement?.dataset?.row")) === "sender_logos");
+    await d.until("arrow after a click", async () => (await d.exec("return document.activeElement?.dataset?.row")) === "list_avatars");
     // Ctrl+Z takes the last change back.
     await pressIn(".modal.prefs", "z", { ctrlKey: true });
     await d.until("threads back", async () => (await saved()).threads === was);

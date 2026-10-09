@@ -42,6 +42,11 @@ pub struct Summary {
     /// Exchange's `Thread-Index`: links a conversation when `References` is missing.
     #[serde(default)]
     pub thread_index: Option<String>,
+    /// The receiving server checked DMARC and it passed for the From domain (#108): a
+    /// brand logo may stand next to the sender in the list. Only `parse_summary_for`
+    /// knows the receiver; a summary read without one never says yes.
+    #[serde(default)]
+    pub dmarc: bool,
 }
 
 /// Ways to leave a mailing list, from `List-Unsubscribe` (RFC 2369, RFC 8058).
@@ -300,6 +305,13 @@ pub fn parse_summary(raw: &[u8]) -> Summary {
         Some(msg) => summary_of(&msg),
         None => Summary::default(),
     }
+}
+
+/// The summary of the headers received by `receiver`, with its DMARC verdict (#108).
+pub fn parse_summary_for(raw: &[u8], receiver: &Receiver) -> Summary {
+    let mut summary = parse_summary(raw);
+    summary.dmarc = authenticity(raw, receiver).dmarc;
+    summary
 }
 
 pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
@@ -792,6 +804,7 @@ fn summary_of(msg: &Message<'_>) -> Summary {
         unsubscribe: raw_header(msg, "List-Unsubscribe")
             .and_then(|h| parse_unsubscribe(&h, raw_header(msg, "List-Unsubscribe-Post").as_deref())),
         thread_index: raw_header(msg, "Thread-Index"),
+        dmarc: false,
     }
 }
 
@@ -1030,6 +1043,14 @@ JVBERi0xLjQK\r\n\
         assert!(!dmarc(mail(String::new().as_str())));
         // The view alone knows no receiver: an attached letter is never authenticated.
         assert!(!parse_view(mail(own_pass).as_bytes(), false).unwrap().authenticated);
+    }
+
+    #[test]
+    fn a_summary_carries_the_verdict_of_its_receiver() {
+        let raw = "Authentication-Results: mx.example.net; dmarc=pass header.from=ozon.ru\r\nFrom: Ozon <news@ozon.ru>\r\nSubject: Hi\r\n\r\n";
+        assert!(parse_summary_for(raw.as_bytes(), &receiver("example.net")).dmarc);
+        assert!(!parse_summary_for(raw.as_bytes(), &receiver("example.org")).dmarc);
+        assert!(!parse_summary(raw.as_bytes()).dmarc, "no receiver, no verdict");
     }
 
     #[test]

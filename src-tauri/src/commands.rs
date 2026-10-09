@@ -646,6 +646,11 @@ pub async fn message_open(
         )?;
     }
     view.authenticated = auth.dmarc;
+    // The list shows a brand logo by this verdict (#108): a letter cached before it was kept
+    // learns it here.
+    if let Err(e) = state.store.note_verdict(row.id, auth.dmarc) {
+        tracing::warn!("the verdict of a letter was not kept: {e}");
+    }
     // Back from waiting with the reply: read now, the list no longer says so.
     if let Some(mid) = &row.message_id
         && state.store.followup_noticed(&row.account_id, mid)?

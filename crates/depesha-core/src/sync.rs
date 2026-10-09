@@ -300,7 +300,12 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .filter_map(|f| {
                 let flags = Flags::from_imap(f.flags());
                 let uid = f.uid.filter(|_| !flags.deleted)?;
-                Some((uid, flags, f, message::parse_summary(f.header().unwrap_or_default())))
+                Some((
+                    uid,
+                    flags,
+                    f,
+                    message::parse_summary_for(f.header().unwrap_or_default(), &conn.receiver),
+                ))
             })
             .collect();
         let msgs: Vec<NewMessage<'_>> = headers

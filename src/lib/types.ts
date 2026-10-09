@@ -317,6 +317,16 @@ export interface MessageRow {
   outgoing?: Outgoing | null;
   /** Back from waiting with the reply and not opened since (for a conversation: any letter of it). */
   answer_came?: boolean;
+  /** The receiving server vouched for the sender with DMARC: a company logo may stand by them (#108). */
+  dmarc?: boolean;
+  /** Who wrote in the conversation with that verdict on each, the newest last; empty when not grouped. */
+  thread_voices?: Voice[];
+}
+
+/** A writer of a conversation and whether the receiving server vouched for them (#108). */
+export interface Voice {
+  from: Addr;
+  dmarc: boolean;
 }
 
 /** Overdue is a waiting one past its deadline. */
@@ -547,6 +557,7 @@ export interface Settings {
   notify: "people" | "all" | "none";
   dnd_until: number;
   threads: boolean;
+  list_avatars: boolean;
   templates: Template[];
   updates: "auto" | "notify" | "off";
   language: "auto" | "en" | "ru";

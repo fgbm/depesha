@@ -144,7 +144,7 @@ describe("arrows after a click (#102, 4.1)", () => {
     sw.focus();
     const e = key(sw, "ArrowDown");
     expect(e.defaultPrevented).toBe(true);
-    expect((document.activeElement as HTMLElement).dataset.row).toBe("sender_logos");
+    expect((document.activeElement as HTMLElement).dataset.row).toBe("list_avatars");
   });
 
   it("leave the arrows of a field to the field", async () => {

@@ -23,6 +23,7 @@ export class SettingsController {
     notify: "people",
     dnd_until: 0,
     threads: true,
+    list_avatars: true,
     templates: [],
     updates: "auto",
     language: "auto",

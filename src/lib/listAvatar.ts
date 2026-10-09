@@ -1,0 +1,24 @@
+// Whose picture a row of the list wears (#108): in a folder of my own letters (Sent, Drafts)
+// the first recipient, like «To: …» in the row; in a conversation its last writer who is not
+// me («who answered is who matters»); otherwise the sender. A brand logo stands only next to
+// a sender the receiving server vouched for (DMARC): a recipient is never vouched for. Pure,
+// covered by listAvatar.test.ts.
+
+import type { Addr, MessageRow } from "./types";
+
+export interface RowAvatar {
+  addr: Addr | null;
+  /** The receiving server vouched for this address: a company logo may stand in the circle. */
+  brand: boolean;
+}
+
+/** `mine`: the addresses of my mailboxes, lower-cased; `sentLike`: the row lists my own letters. */
+export function rowAvatar(m: MessageRow, sentLike: boolean, mine: ReadonlySet<string>): RowAvatar {
+  if (sentLike) return { addr: m.to[0] ?? null, brand: false };
+  const voices = m.thread_voices ?? [];
+  if (voices.length > 1) {
+    const voice = [...voices].reverse().find((v) => !mine.has(v.from.email.toLowerCase())) ?? voices[voices.length - 1];
+    return { addr: voice.from, brand: voice.dmarc };
+  }
+  return { addr: m.from, brand: m.dmarc ?? false };
+}
