@@ -147,13 +147,19 @@
     tabOutKey(e);
   }
 
-  /** Ctrl+Z takes back the last change of this page, unless the cursor is in a field whose own undo it is, or in a plugin's group, whose changes are not the page's. */
+  /**
+   * Ctrl+Z takes back the last change of this page, unless the cursor is in a field whose own undo it is,
+   * or in a plugin's group, whose changes are not the page's. A mailbox's page keeps its own changes.
+   */
   function undoKey(e: KeyboardEvent): boolean {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "z" || !isRowPage(current)) return false;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "z") return false;
+    const mailbox = current.startsWith("account:") && current !== "account:new";
+    if (!mailbox && !isRowPage(current)) return false;
     const el = e.target as HTMLElement;
-    if (el.matches("input, textarea, [contenteditable]") || el.closest("[data-g='plugin']") || !auto.canUndo(current)) return true;
+    if (el.matches("input, textarea, [contenteditable]") || el.closest("[data-g='plugin']")) return true;
+    if (mailbox ? !app.settingsUndo : !auto.canUndo(current)) return true;
     e.preventDefault();
-    void auto.undo(current);
+    void (mailbox ? app.settingsUndo?.() : auto.undo(current));
     return true;
   }
 

@@ -2,7 +2,6 @@
   // The mailbox's own form of its letters, or the one from the settings, shown in brackets
   // for what it means now (#44, frame 15). Overridden by a person's own rule (#66).
   import Select from "../Select.svelte";
-  import LayerMark from "../prefs/LayerMark.svelte";
   import { app } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
   import type { ViewRule } from "../../lib/types";
@@ -14,7 +13,6 @@
 </script>
 
 <div class="field"><span>{t("settings.letterView")}</span>
-  <div class="withmark">
   <Select
     class="letter-view"
     label={t("settings.letterView")}
@@ -24,15 +22,4 @@
       ...(["html", "markdown", "text"] as const).map((v) => ({ value: v, label: t(`letterView.${v}`) })),
     ]}
   />
-  <LayerMark own={!!value} word={t("settings.layerAsGeneral")} onreset={() => (value = "")} />
-  </div>
 </div>
-
-<style>
-  .withmark {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-</style>

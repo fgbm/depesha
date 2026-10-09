@@ -12,6 +12,8 @@ export interface AutosaveHost {
   patch(patch: Record<string, unknown>): Promise<void>;
   toast(text: string, action?: { label: string; run: () => void }): number;
   dismiss(id: number): void;
+  /** A change was taken back: the page shows what is saved again. */
+  restored?(): void;
 }
 
 /** What a row shows about its last write. */
@@ -94,6 +96,7 @@ export class SettingsAutosave {
       this.stack.splice(Math.min(at, this.stack.length), 0, change);
       return false;
     }
+    this.host.restored?.();
     this.mark(change.row, "undone");
     this.say(t("settings.undone", { name: change.label }));
     return true;

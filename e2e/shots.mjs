@@ -264,8 +264,7 @@ try {
   await sleep(300);
   await shot("signatures");
   // Saved, so the default signature is there for good.
-  await d.click(await d.find(".account-page footer .btn.primary"));
-  await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
+  await d.until("saved", async () => (await invoke("accounts")).some((a) => a.signatures?.length === 2), 20000);
   await closeSettings();
 
   // 4. «Ждут ответа»: an active wait near its reminder, an overdue one.

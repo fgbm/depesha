@@ -142,10 +142,54 @@ export class AccountForm {
     return !!this.password || !!this.grant || JSON.stringify(this.account()) !== this.initial;
   }
 
-  /** Whether the form may go away: never during a check or a sign-in; with changes, if the user agrees to lose them. */
+  /** The page of a mailbox writes what does not reach the server by itself (accountAutosave); this waits for it. */
+  settle: (() => Promise<void>) | null = null;
+
+  /** Something that reaches the server was changed and waits for «Check and save»: the rest of a mailbox is saved as it is changed. */
+  get connectionDirty(): boolean {
+    const e = this.existing;
+    return e ? connectionChanged(e, this.account(), this.password, this.grant) : this.dirty;
+  }
+
+  /** Puts the fields that do not reach the server back as the saved mailbox has them (a change taken back). */
+  adopt(a: Account) {
+    this.label = a.label ?? "";
+    this.color = a.color ?? "";
+    this.name = a.display_name;
+    this.saveSent = a.save_sent_copy;
+    this.signatures = (a.signatures ?? []).map((s) => ({ ...s }));
+    this.defaultSignature = a.default_signature ?? null;
+    this.replySignature = a.reply_signature ?? null;
+    this.composeFormat = a.compose_format ?? "";
+    this.letterView = a.letter_view ?? "";
+    this.attachmentsDir = a.attachments_dir ?? "";
+    this.waiting = a.waiting ? { ...a.waiting } : { park: false, folder: "", stop_to_archive: false };
+    this.quotaWarn = a.quota_warn !== false;
+    this.quotaLimitGb = a.quota_limit_mb ? String(Math.round((a.quota_limit_mb / 1024) * 100) / 100).replace(".", ",") : "";
+  }
+
+  /** The fields that reach the server back to the saved ones; nothing typed for the login is kept. */
+  revertConnection() {
+    const e = this.existing;
+    if (!e) return;
+    this.mode = e.ews ? "ews" : e.auth?.kind === "oauth" ? "oauth" : "imap";
+    this.provider = e.auth?.kind === "oauth" ? e.auth.provider : null;
+    this.ewsUrl = e.ews?.url ?? "";
+    this.ewsCert = e.ews?.trusted_cert;
+    this.username = e.username;
+    this.imap = { ...e.imap };
+    this.smtp = { ...e.smtp };
+    this.password = "";
+    this.grant = null;
+    this.error = null;
+    this.errorProto = null;
+  }
+
+  /** Whether the form may go away: never during a check or a sign-in; with a connection changed and not saved, if the user agrees to lose it. */
   async mayLeave(): Promise<boolean> {
     if (this.busy) return false;
-    if (!this.dirty) return true;
+    if (this.settle) await this.settle();
+    if (!this.connectionDirty) return true;
     return app.confirm({ text: t("account.leaveConfirm"), okLabel: t("account.leaveDiscard"), cancelLabel: t("compose.goBack"), danger: true });
   }
 
@@ -335,6 +379,7 @@ export class AccountForm {
   }
 
   private async write(check: boolean) {
+    if (this.settle) await this.settle();
     const existing = this.existing;
     this.error = null;
     this.errorProto = null;

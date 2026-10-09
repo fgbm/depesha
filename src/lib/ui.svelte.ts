@@ -73,6 +73,8 @@ export class UiController {
   settingsTurn = $state(0);
   /** Asked before the open settings page is left: a mailbox's page with unsaved changes or a check under way. */
   settingsLeave: (() => Promise<boolean>) | null = null;
+  /** Takes back the last change of the open mailbox's page (Ctrl+Z); that page saves apart from the rows. */
+  settingsUndo: (() => Promise<boolean>) | null = null;
   /** Focuses the search box; set by the window that owns it. */
   focusSearch: () => void = () => {};
 

@@ -1,11 +1,13 @@
 <script lang="ts">
   // A mailbox's page in the settings window: one page of sections under a table of contents
-  // that stays in sight and marks the section being read, and the page's own buttons.
+  // that stays in sight and marks the section being read. What does not reach the server is saved
+  // as it is changed; the connection waits for the page's «Check and save».
   import { onMount, tick, untrack } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { rooms } from "../../lib/room.svelte";
   import { AccountForm } from "../../lib/accountForm.svelte";
+  import { AccountAutosave, ownOf } from "../../lib/accountAutosave.svelte";
   import { currentSection } from "../../lib/toc";
   import type { AccountView } from "../../lib/types";
   import { sectionsFor } from "./sections";
@@ -16,6 +18,8 @@
   // The page is opened for one mailbox: the settings window opens a new one for another.
   // svelte-ignore state_referenced_locally
   const form = new AccountForm(account, () => onDone());
+  // svelte-ignore state_referenced_locally
+  const own = new AccountAutosave(form, account.id);
   const sections = $derived(sectionsFor(account));
 
   let scroller = $state<HTMLElement>();
@@ -42,12 +46,22 @@
   onMount(() => {
     // What the server can do and its room, from the cache: the sections and the contents' dot read it.
     rooms.loadInfo(account.id);
-    // Unsaved changes and a check under way are asked about before the settings turn elsewhere.
+    // What is typed is written, and a connection changed and not checked is asked about, before the settings turn elsewhere.
     const leave = () => form.mayLeave();
+    const undo = () => own.undo();
     app.settingsLeave = leave;
+    app.settingsUndo = undo;
     return () => {
       if (app.settingsLeave === leave) app.settingsLeave = null;
+      if (app.settingsUndo === undo) app.settingsUndo = null;
+      void own.flush();
     };
+  });
+
+  // The fields that do not reach the server are saved when they change and the typing pauses.
+  $effect(() => {
+    void JSON.stringify(ownOf(form.account()));
+    untrack(() => own.touch());
   });
 
   // Opened for one of its sections (the quota line opens «Storage», a letter the signatures),
@@ -94,10 +108,16 @@
 
   <footer>
     <button class="btn ghost danger-text" onclick={() => form.remove()} disabled={form.busy}>{t("wizard.remove")}</button>
+    {#if own.auto.marks.account}
+      <span class="mark" class:undone={own.auto.marks.account === "undone"} role="status">{own.auto.marks.account === "saved" ? t("settings.saved") : t("settings.reverted")}</span>
+    {/if}
     <span class="spacer"></span>
-    <button class="btn ghost" onclick={() => onDone()} disabled={form.busy}>{t("cancel")}</button>
-    <button class="btn primary" onclick={() => form.save()} disabled={form.busy}>
-      {form.needsCheck ? (form.busy ? t("wizard.checkingShort") : t("wizard.checkAndSave")) : form.busy ? t("wizard.saving") : t("file.save")}
+    {#if form.connectionDirty}
+      <span class="muted pending">{t("account.connectionPending")}</span>
+      <button class="btn ghost" onclick={() => form.revertConnection()} disabled={form.busy}>{t("cancel")}</button>
+    {/if}
+    <button class="btn primary" onclick={() => form.checkAndSave()} disabled={form.busy || !form.connectionDirty}>
+      {form.busy ? t("wizard.checkingShort") : t("wizard.checkAndSave")}
     </button>
   </footer>
 </div>
@@ -218,6 +238,23 @@
 
   .spacer {
     flex: 1;
+  }
+
+  footer {
+    align-items: center;
+  }
+
+  .mark {
+    font-size: 12px;
+    color: var(--ok);
+  }
+
+  .mark.undone {
+    color: var(--muted);
+  }
+
+  .pending {
+    font-size: 12px;
   }
 
   @media (max-width: 640px) {

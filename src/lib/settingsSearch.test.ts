@@ -133,7 +133,7 @@ describe("several words are all required", () => {
 });
 
 describe("the index is declared, not read off the window", () => {
-  const rows = PAGES.flatMap((p) => p.groups.flatMap((g) => g.rows.filter((r) => r.kind !== "layer").map((r) => ({ page: p.id, id: r.id }))));
+  const rows = PAGES.flatMap((p) => p.groups.flatMap((g) => g.rows.filter((r) => r.kind !== "layer" && !r.visible).map((r) => ({ page: p.id, id: r.id }))));
 
   it("has an entry for every page of the menu and every row", () => {
     const built = index();

@@ -82,6 +82,8 @@ export class AppStore {
   get settingsTurn() { return this.ui.settingsTurn; }
   get settingsLeave() { return this.ui.settingsLeave; }
   set settingsLeave(v) { this.ui.settingsLeave = v; }
+  get settingsUndo() { return this.ui.settingsUndo; }
+  set settingsUndo(v) { this.ui.settingsUndo = v; }
   get focusSearch() { return this.ui.focusSearch; }
   set focusSearch(v) { this.ui.focusSearch = v; }
 

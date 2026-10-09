@@ -1225,13 +1225,15 @@ try {
     await d.click(await d.xpath("//div[contains(@class,'signatures')]//button[contains(., 'Свернуть')]"));
     const list = await textOf(".account-page .signatures");
     if (!/Рабочая\s*по умолчанию/.test(list) || !list.includes("Короткая")) throw new Error(`список подписей: ${list}`);
-    // Signatures are no part of the connection: saved without a login.
-    if ((await textOf(".account-page footer .btn.primary")).trim() !== "Сохранить") throw new Error("подпись просит проверки подключения");
-    await d.click(await d.find(".account-page footer .btn.primary"));
-    await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
-    // A mailbox's page lives in the settings window: saved, it goes back to the list of mailboxes.
-    if (!(await d.findAll(".prefs .accounts")).length) throw new Error("после сохранения нет списка ящиков");
+    // Signatures are no part of the connection: saved as they change, with no button and no login (#102, 1.7 Б).
+    await d.until("signatures saved", async () => {
+      const [saved] = await invoke("accounts");
+      return saved.signatures?.length === 2 && saved.default_signature === saved.signatures[0].id;
+    }, 20000);
+    await d.until("saved mark", async () => (await textOf(".account-page footer")).includes("Сохранено"));
+    if ((await d.findAll(".account-page footer .btn.primary:not([disabled])")).length) throw new Error("кнопка подключения горит, хотя подключение не менялось");
     await closeSettings();
+    if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие страницы ящика о чём-то спросило");
     const [acc] = await invoke("accounts");
     if (acc.signatures?.length !== 2 || acc.default_signature !== acc.signatures[0].id) throw new Error(JSON.stringify(acc.signatures));
     await d.button("Написать");
@@ -2275,6 +2277,26 @@ try {
     if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие окна настроек о чём-то спросило");
   });
 
+  await step("7.24", "страница ящика: формат сохраняется сразу, без кнопки; кнопка «Проверить и сохранить» — только для подключения", async () => {
+    const me = (await invoke("accounts"))[0];
+    await openMailboxPage(me.id);
+    await d.click(await d.find(".account-page .toc a[data-toc='letters']"));
+    const was = me.compose_format ?? "";
+    const pick = was === "markdown" ? "html" : "markdown";
+    // The format does not reach the server: it is saved as it is picked, with the row's «Saved» and the toast.
+    await setSelect(".account-page .compose-format", pick);
+    await d.until("format saved", async () => ((await invoke("accounts"))[0].compose_format ?? "") === pick, 20000);
+    await d.until("saved mark", async () => (await textOf(".account-page footer")).includes("Сохранено"));
+    await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
+    // The button waits for the connection: it is dim until a server, a port or a login changes.
+    if ((await d.findAll(".account-page footer .btn.primary:not([disabled])")).length) throw new Error("кнопка подключения горит без изменений подключения");
+    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    await d.until("format back", async () => ((await invoke("accounts"))[0].compose_format ?? "") === was, 20000);
+    // Closing asks nothing: nothing of the connection is waiting.
+    await closeSettings();
+    if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие страницы ящика о чём-то спросило");
+  });
+
   await step("11.1", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
     await openMailboxPage((await invoke("accounts"))[0].id);
     await d.click(await d.find(".account-page .toc a[data-toc='server']"));
@@ -2318,8 +2340,7 @@ try {
     if (!sizes.includes("Итого")) throw new Error("нет итога");
     // An own limit makes the folder sizes an estimate to compare with: the sidebar shows it.
     await setInput(".account-page input.own", "0,001");
-    await d.click(await d.find(".account-page footer .btn.primary"));
-    await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
+    await d.until("limit saved", async () => (await invoke("accounts"))[0].quota_limit_mb === 1, 20000);
     await closeSettings();
     await d.until("quota line", async () => (await d.findAll(`nav.side .quota[data-account='${id}']`)).length === 1, 10000);
     const line = await textOf(`nav.side .quota[data-account='${id}']`);
@@ -2330,8 +2351,7 @@ try {
     await d.until("storage opened", async () => (await d.findAll(".prefs .account-page section[data-section='storage']")).length === 1);
     await setInput(".account-page input.own", "");
     await d.exec("const i = document.querySelector('.account-page input.own'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
-    await d.click(await d.find(".account-page footer .btn.primary"));
-    await d.until("saved", async () => (await d.findAll(".account-page")).length === 0, 20000);
+    await d.until("limit cleared", async () => !(await invoke("accounts"))[0].quota_limit_mb, 20000);
     await closeSettings();
     // Messages from the toasts this left (a full mailbox) go before the next steps.
     for (const t of await d.findAll(".toast .close")) await d.click(t).catch(() => {});
@@ -2669,10 +2689,12 @@ try {
     await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[0]);
     await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
     await d.click(await d.find(".account-page .colors label[title='#d0658f']"));
-    await d.click(await d.find(".account-page footer .btn.primary"));
-    await d.until("back to the manager", async () => (await d.findAll(".prefs .accounts")).length === 1, 20000);
+    // The colour is no part of the connection: saved as it is picked, no button (#102, 1.7 Б).
     await d.until("dot coloured", async () =>
-      (await d.exec("return getComputedStyle(document.querySelector('nav.side .account .dot')).backgroundColor")) === "rgb(208, 101, 143)");
+      (await d.exec("return getComputedStyle(document.querySelector('nav.side .account .dot')).backgroundColor")) === "rgb(208, 101, 143)", 20000);
+    await d.click(await d.find(".prefs .tab[data-page='accounts']"));
+    await d.until("back to the manager", async () => (await d.findAll(".prefs .accounts")).length === 1, 20000);
+    if ((await d.findAll(".dialog, .confirm")).length) throw new Error("уход со страницы ящика о чём-то спросил");
     const input = (await d.findAll(".prefs .accounts .name"))[0];
     const label = await d.exec("return document.querySelector('.prefs .accounts .name').value");
     await d.clear(input);

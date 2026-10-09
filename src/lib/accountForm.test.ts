@@ -134,9 +134,9 @@ describe("leaving a mailbox's page", () => {
 
   it("asks before the changes are lost, and stays when told so", async () => {
     const form = new AccountForm(saved, () => {});
-    form.name = "Jane Doe";
+    form.smtp.port = 25;
     const left = form.mayLeave();
-    expect(app.confirmation?.text).toBe("The mailbox's page has unsaved changes. Leave without them?");
+    expect(app.confirmation?.text).toBe("The connection changes are not saved. Leave without them?");
     app.confirmation?.resolve(false);
     expect(await left).toBe(false);
   });
