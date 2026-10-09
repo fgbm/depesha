@@ -452,8 +452,6 @@ people.addressTaken
 people.addresses
 people.asUsual
 people.delete
-people.deleteText
-people.deleteTitle
 people.empty
 people.hidden
 people.hide

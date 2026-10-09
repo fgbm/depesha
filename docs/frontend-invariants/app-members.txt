@@ -42,6 +42,7 @@ move
 moveTo
 name
 newMessage
+offerUndo
 open
 openCompose
 openError

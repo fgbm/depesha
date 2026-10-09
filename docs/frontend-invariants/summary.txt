@@ -1,11 +1,11 @@
 # Снимок инвариантов фронтенда. Регенерация: scripts/frontend-invariants.sh --save
 components 106
-t_keys 777
-role_attrs 131
+t_keys 775
+role_attrs 130
 aria_attrs 253
-role_aria_attrs 384
+role_aria_attrs 383
 role_aria_kinds 25
 role_values 28
 aria_names 24
 data_kinds 35
-app_members 103
+app_members 104

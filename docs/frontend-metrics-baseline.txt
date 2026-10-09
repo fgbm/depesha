@@ -1,5 +1,5 @@
 component	src/App.svelte	334	212	76	46
-component	src/MessageWindow.svelte	126	92	29	5
+component	src/MessageWindow.svelte	136	98	33	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	252	110	42	100
 component	src/components/Compose.svelte	1004	287	264	453
@@ -30,7 +30,7 @@ component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
-component	src/components/RowMenu.svelte	155	96	52	7
+component	src/components/RowMenu.svelte	156	97	52	7
 component	src/components/SearchBox.svelte	343	133	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	121	48	31	42
@@ -61,7 +61,7 @@ component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	491	77	173	241
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/people/MergeDialog.svelte	244	65	93	86
-component	src/components/people/PeopleView.svelte	568	220	126	222
+component	src/components/people/PeopleView.svelte	578	230	126	222
 component	src/components/people/PickPerson.svelte	128	54	23	51
 component	src/components/prefs/AccountsPanel.svelte	29	18	11	0
 component	src/components/prefs/FolderProps.svelte	415	19	179	217
@@ -79,10 +79,10 @@ component	src/components/prefs/controls/Switch.svelte	52	8	6	38
 component	src/components/prefs/controls/ThemeTiles.svelte	106	16	12	78
 component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
 component	src/components/reader/Conversation.svelte	131	31	24	76
-component	src/components/reader/PersonCard.svelte	766	342	114	310
+component	src/components/reader/PersonCard.svelte	773	350	113	310
 component	src/components/reader/QuickReply.svelte	218	57	31	130
 component	src/components/reader/ReaderBody.svelte	183	104	43	36
-component	src/components/reader/ReaderHeader.svelte	340	89	60	191
+component	src/components/reader/ReaderHeader.svelte	341	90	60	191
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
 component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
@@ -259,7 +259,8 @@ function	src/App.svelte::refocusList	6
 function	src/App.svelte::labelTarget	4
 function	src/App.svelte::action	4
 function	src/App.svelte::onKey	55
-function	src/MessageWindow.svelte::onKey	27
+function	src/MessageWindow.svelte::onKey	30
+function	src/MessageWindow.test.ts::people	1
 function	src/components/Accounts.svelte::arrange	14
 function	src/components/Accounts.svelte::look	8
 function	src/components/Accounts.svelte::saveName	6
@@ -473,6 +474,7 @@ function	src/components/people/People.client.test.ts::olga	1
 function	src/components/people/People.client.test.ts::book	5
 function	src/components/people/People.client.test.ts::press	6
 function	src/components/people/People.client.test.ts::show	7
+function	src/components/people/People.client.test.ts::manual	1
 function	src/components/people/PeopleView.svelte::select	3
 function	src/components/people/PeopleView.svelte::move	5
 function	src/components/people/PeopleView.svelte::toggleMark	6
@@ -549,7 +551,7 @@ function	src/components/reader/PersonCard.svelte::unlink	4
 function	src/components/reader/PersonCard.svelte::joinWith	5
 function	src/components/reader/PersonCard.svelte::pickOther	5
 function	src/components/reader/PersonCard.svelte::notSame	4
-function	src/components/reader/PersonCard.svelte::removePerson	16
+function	src/components/reader/PersonCard.svelte::removePerson	21
 function	src/components/reader/PersonCard.svelte::rowKey	20
 function	src/components/reader/PersonCard.svelte::letterKey	16
 function	src/components/reader/PersonCard.svelte::onKey	10
