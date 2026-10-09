@@ -349,6 +349,43 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The archival after an answer took these letters to the archive (#109): a wait that
+    /// comes later takes their conversation from there, and only theirs. Kept for a month.
+    pub fn archived_mark(&self, account_id: &str, message_ids: &[String], now: i64) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM archived_by_answer WHERE at < ?1", [now - 30 * 86_400])?;
+        for id in message_ids {
+            tx.execute(
+                "INSERT OR REPLACE INTO archived_by_answer (account_id, message_id, at) VALUES (?1, ?2, ?3)",
+                params![account_id, bare(id), now],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The letters are out of the archive again ("Undo" of the archival): what the user puts
+    /// there later is his own.
+    pub fn archived_unmark(&self, account_id: &str, message_ids: &[String]) -> Result<()> {
+        let conn = self.conn();
+        for id in message_ids {
+            conn.execute(
+                "DELETE FROM archived_by_answer WHERE account_id = ?1 AND message_id = ?2",
+                params![account_id, bare(id)],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Whether an archival after an answer took the letter to the archive.
+    pub fn archived_marked(&self, account_id: &str, message_id: &str) -> Result<bool> {
+        Ok(self
+            .conn()
+            .prepare_cached("SELECT 1 FROM archived_by_answer WHERE account_id = ?1 AND message_id = ?2")?
+            .exists(params![account_id, bare(message_id)])?)
+    }
+
     /// The conversation a wait takes, found when its move comes (#109): where it sits and its
     /// letters. Kept before the move starts, so that a wait closed meanwhile brings them back.
     pub fn followup_park_plan(&self, account_id: &str, key: &str, park: &Parking) -> Result<()> {

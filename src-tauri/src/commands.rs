@@ -1417,6 +1417,8 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
         // Letters back where a wait parks them: the wait is parked again; snoozed ones wait
         // for their time again.
         if n > 0 {
+            // Back out of the archive: a wait no longer takes the conversation from there.
+            state.store.archived_unmark(&m.account_id, &m.message_ids)?;
             for s in &m.snoozed {
                 state.store.snooze_add(s)?;
             }

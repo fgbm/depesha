@@ -39,9 +39,19 @@ pub(super) fn v20_stuck_copies(conn: &Connection) -> Result<()> {
 }
 
 /// 22: a copy the server has taken whose local finish (the answered mark, the wait for a
-/// reply) failed is marked, so that its repeat does not upload the copy a second time.
+/// reply) failed is marked, so that its repeat does not upload the copy a second time; and
+/// the letters an archival after an answer took to the archive are marked, so that a wait
+/// finds their conversation there after a restart (`archived_mark`).
 pub(super) fn v22_copy_filed(conn: &Connection) -> Result<()> {
     add_column(conn, "sent_copies", "filed", "INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS archived_by_answer (
+            account_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            at         INTEGER NOT NULL,
+            PRIMARY KEY (account_id, message_id)
+        );",
+    )?;
     Ok(())
 }
 

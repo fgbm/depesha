@@ -28,11 +28,7 @@ fn refused() -> &'static Mutex<HashSet<(String, String)>> {
     REFUSED.get_or_init(Default::default)
 }
 
-/// How long an archival is remembered once it is over: a wait that comes later takes the
-/// conversation from the archive only if the archival of that very conversation took it.
-const ARCHIVED_KEPT: std::time::Duration = std::time::Duration::from_secs(3_600);
-
-/// Archivals of answered letters (#106), by mailbox and conversation. They run apart from the
+/// Archivals of answered letters under way (#106), by mailbox and conversation. They run apart from the
 /// outbox's round, so a wait must neither take a conversation before its archival is done (the
 /// move to the archive would take the letters out from under the move to the folder, #109) nor
 /// wait for any other archival of the mailbox.
@@ -44,10 +40,9 @@ struct Archived {
     account_id: String,
     /// The letter answered, whose conversation the archival takes.
     anchor: String,
-    /// The Message-IDs it moved; known once the move is done.
+    /// The Message-IDs it moved; known once the move is done. What it took stays marked in
+    /// the cache (`archived_mark`), this is only for the wait that comes while it runs.
     chain: Vec<String>,
-    running: bool,
-    ended: Option<std::time::Instant>,
 }
 
 fn archivals() -> &'static Archivals {
@@ -61,9 +56,7 @@ fn bare(id: &str) -> &str {
 
 impl Archivals {
     fn list(&self) -> std::sync::MutexGuard<'_, Vec<Archived>> {
-        let mut list = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        list.retain(|a| a.ended.is_none_or(|t| t.elapsed() < ARCHIVED_KEPT));
-        list
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// An archival of the conversation of `anchor` begins.
@@ -75,8 +68,6 @@ impl Archivals {
             account_id: account_id.to_owned(),
             anchor: bare(anchor).to_owned(),
             chain: Vec::new(),
-            running: true,
-            ended: None,
         });
         id
     }
@@ -90,12 +81,7 @@ impl Archivals {
 
     /// The archival `id` is over, however its task ended.
     fn end(&self, id: u64) {
-        let mut list = self.list();
-        if let Some(a) = list.iter_mut().find(|a| a.id == id) {
-            a.running = false;
-            a.ended = Some(std::time::Instant::now());
-        }
-        list.retain(|a| a.running || !a.chain.is_empty());
+        self.list().retain(|a| a.id != id);
     }
 
     /// Whether an archival under way takes the conversation of `anchor`, whose letters in
@@ -103,20 +89,11 @@ impl Archivals {
     fn busy_with(&self, account_id: &str, anchor: &str, inbox_chain: &[String]) -> bool {
         let anchor = bare(anchor);
         self.list().iter().any(|a| {
-            a.running
-                && a.account_id == account_id
+            a.account_id == account_id
                 && (a.anchor == anchor
                     || a.chain.iter().any(|m| m == anchor)
                     || inbox_chain.iter().any(|m| bare(m) == a.anchor))
         })
-    }
-
-    /// Whether an archival of an answer took the letter `anchor` to the archive.
-    fn took(&self, account_id: &str, anchor: &str) -> bool {
-        let anchor = bare(anchor);
-        self.list()
-            .iter()
-            .any(|a| a.account_id == account_id && a.chain.iter().any(|m| m == anchor))
     }
 }
 
@@ -169,7 +146,7 @@ fn find_parking(
             chain,
         }));
     }
-    let Some(archive) = archive.filter(|_| archivals.took(account_id, anchor)) else {
+    let Some(archive) = archive.filter(|_| store.archived_marked(account_id, anchor).unwrap_or(false)) else {
         return Ok(Found::Nothing);
     };
     let chain = store.inbox_chain(account_id, archive, anchor)?;
@@ -343,6 +320,12 @@ async fn archive_answered(
         }
         Ok(_) => {
             archivals().moved(archival, &chain);
+            if let Err(e) = state
+                .store
+                .archived_mark(&account.id, &chain, chrono::Utc::now().timestamp())
+            {
+                tracing::warn!(account = %account.id, "archive of the answered letter: not marked: {e}");
+            }
             state.emit("counters-changed", json!({}));
             state.emit(
                 "archived-after-send",
@@ -784,9 +767,8 @@ mod tests {
         letter(&store, "Archive", 7, "mine@x");
         assert_eq!(found(&store, &reg, "mine@x", true), Found::Nothing);
         // An archival of an answer took it: the wait takes it from the archive.
-        let id = reg.begin("a", "r@x");
-        reg.moved(id, &["r@x".to_owned()]);
-        reg.end(id);
+        // The mark is in the cache: a new, empty memory (after a restart, or an hour later) finds it.
+        store.archived_mark("a", &["r@x".to_owned()], 1).unwrap();
         letter(&store, "Archive", 8, "r@x");
         assert_eq!(found(&store, &reg, "r@x", true), take("Archive", &["r@x"]));
         assert_eq!(found(&store, &reg, "gone@x", true), Found::Nothing);
@@ -797,6 +779,21 @@ mod tests {
             find_parking(&store, &reg, "a", "INBOX", None, "r@x", true).unwrap(),
             take("INBOX", &["r@x"])
         );
+    }
+
+    /// "Undo" of the archival after an answer takes its mark off: what the user archives
+    /// himself afterwards is not taken by a wait.
+    #[test]
+    fn undoing_the_archival_takes_the_mark_off() {
+        let store = depesha_core::store::Store::open_in_memory().unwrap();
+        folders(&store);
+        let reg = Archivals::default();
+        store.archived_mark("a", &["<r@x>".to_owned()], 1).unwrap();
+        letter(&store, "Archive", 8, "r@x");
+        assert_eq!(found(&store, &reg, "r@x", true), take("Archive", &["r@x"]));
+        store.archived_unmark("a", &["r@x".to_owned()]).unwrap();
+        // The user archives it himself later: it stays.
+        assert_eq!(found(&store, &reg, "r@x", true), Found::Nothing);
     }
 
     /// A wait put off by the archival of its own conversation goes on once it is over, from
@@ -821,6 +818,7 @@ mod tests {
         letter(&store, "Archive", 5, "q@x");
         assert_eq!(found(&store, &reg, "q@x", true), Found::Later, "not over yet");
         reg.end(own);
+        store.archived_mark("a", &["q@x".to_owned()], 1).unwrap();
         assert_eq!(found(&store, &reg, "q@x", true), take("Archive", &["q@x"]));
         reg.end(other);
         reg.end(elsewhere);

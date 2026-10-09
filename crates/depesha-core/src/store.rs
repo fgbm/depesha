@@ -1998,6 +1998,7 @@ impl Store {
         tx.execute("DELETE FROM folder_props WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM namespaces WHERE account_id = ?1", [account_id])?;
         tx.execute("DELETE FROM local_seen WHERE account_id = ?1", [account_id])?;
+        tx.execute("DELETE FROM archived_by_answer WHERE account_id = ?1", [account_id])?;
         Self::forget_server(&tx, account_id)?;
         tx.execute(
             "DELETE FROM avatars WHERE substr(key, 1, length(?1) + 7) = 'photo:' || ?1 || ':'",
@@ -4420,6 +4421,7 @@ mod tests {
             store
                 .set_avatar(&format!("photo:{account}:boss@x"), Some("data:"), 1)
                 .unwrap();
+            store.archived_mark(account, &["q@x".to_owned()], 1).unwrap();
             store
                 .outbox_add(account, &Draft::default(), 1, 1, 0, &FollowupPlan::default())
                 .unwrap();
