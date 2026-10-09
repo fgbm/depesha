@@ -131,6 +131,22 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid #b5ae9f; bord
 .pop .mi.danger { color: var(--accent); }
 .pop .nt { font-size: 11.5px; color: var(--muted); padding: 4px 8px 5px; border-top: 1px solid var(--line); margin-top: 3px; max-width: 260px; line-height: 1.4; }
 .pop .sep { height: 1px; background: var(--line); margin: 3px 0; }
+/* меню напоминания: то же, что «Отложить» (#95) */
+.rempop { position: absolute; z-index: 30; left: 90px; bottom: 48px; }
+.pop.rm { position: relative; overflow: visible; max-height: none; min-width: 300px; }
+.rm .qline { display: flex; align-items: center; padding: 6px 8px; margin: -4px -4px 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.rm .qline .ph { color: var(--muted); }
+.rm .mi.off { color: var(--muted); cursor: default; opacity: .7; }
+.rm .mi kbd { display: inline-block; min-width: 16px; text-align: center; border: 1px solid var(--line); border-radius: 4px; font: 600 10.5px/15px inherit; color: var(--muted); margin-left: 8px; padding: 0 3px; background: var(--paper-2); }
+.rm .mi .arrow { margin-left: auto; color: var(--muted); }
+.rm .mi { position: relative; }
+.pop.sub { position: absolute; left: calc(100% + 4px); top: -5px; min-width: 210px; white-space: nowrap; }
+.rm .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 4px 4px 2px; text-align: center; }
+.rm .cal b { font-weight: 400; color: var(--muted); font-size: 11px; }
+.rm .cal i { font-style: normal; border-radius: 5px; line-height: 26px; cursor: pointer; }
+.rm .cal i:hover { background: var(--hover); } .rm .cal i.cur { background: var(--selected); } .rm .cal i.off { color: var(--muted); opacity: .45; cursor: default; }
+.rm .calh { display: flex; align-items: center; padding: 2px 8px 4px; font-weight: 600; }
+.rm .calh span.nv { margin-left: auto; cursor: pointer; padding: 0 6px; color: var(--link); }
 .tag { position: absolute; z-index: 6; right: 4px; top: 2px; font-size: 10px; background: #b3261e; color: #fff; border-radius: 3px; padding: 0 4px; line-height: 14px; pointer-events: none; }
 .marks .fixed, .marks .row, .marks .bar, .marks .atts { outline: 1px dashed rgb(179 38 30 / 60%); outline-offset: -2px; }
 .marks .ta { outline: 1px solid rgb(46 125 79 / 70%); outline-offset: -2px; background: color-mix(in srgb, #2e7d4f 7%, var(--paper)); }
@@ -182,7 +198,7 @@ table.k th { background: #ece8e1; }
 <h2 class="screen">Экран 3. Служебные строки и формат</h2>
 <p class="lead">Части письма («Уйдёт тремя частями…»), цитата, «Убрать из входящих» + напоминание, двойной формат. Во всех вариантах формат — <b>одно место</b>: кнопка «# Markdown ▾» внизу (в 3Г — слева на панели оформления). Меню формата: Текст / HTML / Markdown, пункт-переключатель «Показать разметку» (то, что сейчас называется «Разметка» на панели — только для Markdown) и пояснение «Уйдёт тремя частями…» внизу меню, а не отдельной строкой. Живое окно 640×640, 3 вложения (вид 2В), ответ с цитатой.</p>
 <div class="row3 theme" id="s3"></div>
-<h3 class="v rec"><span class="n">3А</span>Одна строка состояния у нижней панели: «↩ Цитата ›» · «☑ Из входящих до ответа» · «⏰ Без напоминания ▾» <em>(30 px вместо 26+30+34 = 90)</em></h3>
+<h3 class="v rec"><span class="n">3А</span>Одна строка состояния у нижней панели: «↩ Цитата ›» · «☑ Из входящих до ответа» · «⏰ Без напоминания ▾» или срок «⏰ пн, 12 окт, 9:00 ▾» — меню по щелчку / <kbd>Alt</kbd>+<kbd>R</kbd>, см. экран 5 <em>(30 px вместо 26+30+34 = 90)</em></h3>
 <ul class="pc"><li><span class="plus">+</span> всё на виду и меняется в один щелчок, как сейчас; минус 60 px</li><li><span class="minus">−</span> всё же одна полоса всегда; на узком окне строка не помещается (лишнее уходит в «⋯»)</li></ul>
 <h3 class="v"><span class="n">3Б</span>Всё в меню «⋯»; в нижней панели — только значки включённого <em>(0 px полос)</em></h3>
 <ul class="pc"><li><span class="plus">+</span> максимум места тексту</li><li><span class="minus">−</span> цитату и «Убрать из входящих» не видно, пока не открыто меню; напоминание — два шага</li></ul>
@@ -194,6 +210,12 @@ table.k th { background: #ece8e1; }
 <p class="lead">Рекомендация: <b>1Б + 2В + 3А</b>. Сверху слева — «Сейчас» (для сравнения), рядом — «После». Ответ с цитатой (раскрыта по <kbd>Alt</kbd>+<kbd>Q</kbd>), 8 вложений. Окна живые; доля под текст — под каждым.</p>
 <div class="theme" id="s4"></div>
 
+<h2 class="screen">Экран 5. Срок напоминания: то же меню, что «Отложить»</h2>
+<p class="lead">Решение оператора: срок задаётся <b>тем же меню, что «Отложить» (#95)</b> — строка ввода сверху (всегда в фокусе, понимает «пт 9:00», «завтра 18», «через 3 дня»), пункты с датами справа, буквы и цифры 1–7 (ISO-дни), «Рабочие дни ›» сбоку, календарь. Меню открывается <b>у строки состояния</b> (3А): щелчком по «⏰ …» или клавишей <kbd>Alt</kbd>+<kbd>R</kbd> (вопрос 4.3), срок после выбора виден в строке коротко: «⏰ пн, 12 окт, 9:00». Добавлено относительно «Отложить»: «Без напоминания» (<kbd>Б</kbd>) и «Настроить…». Часы макета остановлены на пт, 9 окт 2026, 14:30; Начало дня 9:00, Начало вечера 18:00, рабочие дни Пн–Пт — как в настройках «Общие» (0.7.2). Окна живые: щёлкните по окну и нажмите <kbd>Alt</kbd>+<kbd>R</kbd>; внутри — набирайте текст, <kbd>↑</kbd><kbd>↓</kbd>, <kbd>→</kbd>, <kbd>Enter</kbd>, <kbd>Esc</kbd>.</p>
+<div class="ctx"><b>Нынешние пункты</b> (<code>plugins/followups/RemindSelect.svelte</code>, <code>strings.ts</code>; строка — <code>WaitLine.svelte</code>): «Без напоминания» · «Напомнить через день без ответа» · «Напомнить через 3 дня без ответа» · «Напомнить через неделю без ответа» · <i>сохранённые варианты из настроек (в макете: «через 2 рабочих дня»)</i> · <i>свой срок, если задан в форме («Напомнить {дата} без ответа» или словесное описание)</i> · «Настроить…» (форма <code>DueForm</code>: через N часов/дней/рабочих дней, в день недели, за N дней до срока, повтор, «сохранить в список»). Отсчёт у них — <b>от отправки</b> (у отложенной отправки — от её времени).<br>
+<b>Как они ложатся в новое меню (вопрос 4.4, вариант А):</b> «через день / 3 дня / неделю» — вводом «через 3 дня»; сохранённые, «до срока» и повтор остаются за пунктом «Настроить…» (та же форма). «Без напоминания» — отдельный пункт внизу. Выбранный из меню срок — абсолютная дата, а не «через N от отправки»: если письмо уйдёт позже, срок не сдвигается.</div>
+<div class="row3 theme" id="s5"></div>
+
 <h2 class="screen">Клавиатура</h2>
 <p class="lead">Принципы: всё с клавиатуры; похожее устроено одинаково; без лишних пунктов. Единая схема: <kbd>Alt</kbd>+буква <b>открывает/раскрывает</b> нужное, внутри — <kbd>↑</kbd><kbd>↓</kbd> (или <kbd>←</kbd><kbd>→</kbd> по строке) — переход, <kbd>Enter</kbd> — выбрать, <kbd>Delete</kbd> — убрать, <kbd>Esc</kbd> — закрыть и вернуть фокус в текст. Сочетания условные: при реализации сверю с <code>keymap.ts</code> на конфликты. Попробуйте на любом окне выше.</p>
 <table class="k">
@@ -204,11 +226,15 @@ table.k th { background: #ece8e1; }
 <tr><td>Раскрыть/скрыть цитату</td><td><kbd>Alt</kbd>+<kbd>Q</kbd></td><td>тот же щелчок по строке</td></tr>
 <tr><td>Формат письма</td><td><kbd>Alt</kbd>+<kbd>F</kbd> — меню; <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd>; пункт «Показать разметку» — там же</td><td>все выпадающие меню</td></tr>
 <tr><td>«Убрать из входящих до ответа»</td><td><kbd>Alt</kbd>+<kbd>I</kbd> — переключить</td><td>переключатель в строке и пункт в «⋯»</td></tr>
-<tr><td>Напоминание</td><td><kbd>Alt</kbd>+<kbd>R</kbd> — меню; <kbd>↑</kbd><kbd>↓</kbd>, <kbd>Enter</kbd></td><td>меню формата</td></tr>
+<tr><td>Срок напоминания</td><td><kbd>Alt</kbd>+<kbd>R</kbd> — меню «как Отложить» (вопрос 4.3); внутри: текст в строке, буква пункта (В З Э Н М Д К Б), цифры 1–7, <kbd>↑</kbd><kbd>↓</kbd>, <kbd>→</kbd> в «Рабочие дни ›», <kbd>Enter</kbd>, <kbd>Esc</kbd></td><td>меню «Отложить» (#95), клавиша <kbd>h</kbd></td></tr>
 <tr><td>Меню «⋯»</td><td><kbd>Alt</kbd>+<kbd>.</kbd></td><td>—</td></tr>
 </table>
 
 <div class="qs theme" style="color:#1d232b">
+<h2>Решено</h2>
+<ul>
+<li>Срок напоминания задаётся тем же меню, что «Отложить» (#95).</li>
+</ul>
 <h2>Вопросы</h2>
 <table class="k">
 <tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
@@ -222,6 +248,8 @@ table.k th { background: #ece8e1; }
 <tr><td>3.3</td><td>Пояснение «Уйдёт тремя частями…» и «Разметка»</td><td>А. Пояснение — в меню формата; «Показать разметку» — пункт того же меню.<br>Б. Пояснение показывать строкой один раз (до первой отправки в Markdown), «Разметка» оставить на панели.<br>В. Убрать пояснение совсем.</td><td><b>А.</b> Формат — одно место, а пояснение остаётся доступным там, где человек выбирает формат. Б возвращает вторую полосу.</td></tr>
 <tr><td>4.1</td><td>Сочетания клавиш Alt+C/B/M/A/Q/F/I/R/.</td><td>А. Принять схему «Alt+буква».<br>Б. Другие модификаторы (Ctrl+Shift).<br>В. Аккорды: <kbd>Ctrl</kbd>+<kbd>K</kbd>, затем буква.</td><td><b>А.</b> Ближе всего к подписанным ссылкам и подсказкам; точные коды сверю с <code>keymap.ts</code>, чтобы не сломать существующие.</td></tr>
 <tr><td>4.2</td><td>Какой вариант сборки делать</td><td>А. 1Б + 2В + 3А.<br>Б. 1А + 2А + 3А (видны имена вложений).<br>В. 1Б + 2В + 3В (максимум места).</td><td><b>А.</b> Лучшее соотношение места и привычности; доли высоты — в сборке выше.</td></tr>
+<tr><td>4.3</td><td>Клавиша открытия меню напоминания в окне письма</td><td>А. <kbd>Alt</kbd>+<kbd>R</kbd> (как в таблице «Клавиатура»).<br>Б. <kbd>Alt</kbd>+<kbd>H</kbd> — как <kbd>h</kbd> у «Отложить».<br>В. Отдельной клавиши нет, только щелчок по «⏰…».</td><td><b>А.</b> В окне письма голые буквы печатают текст, поэтому нужна Alt-комбинация; <kbd>R</kbd> (Remind) уже занята в схеме 4.1 и не конфликтует; внутри меню буквы те же, что у «Отложить», так что руки учатся один раз. Б заставит перепутать <kbd>h</kbd> в списке (отложить письмо) и <kbd>Alt</kbd>+<kbd>H</kbd> в окне (напомнить); В нарушает «всё с клавиатуры».</td></tr>
+<tr><td>4.4</td><td>Что стало с прежними пунктами (через день / 3 дня / неделю, сохранённые, «Настроить…»)</td><td>А. В меню — семь пунктов «Отложить» + «Без напоминания» + «Настроить…»; «через 3 дня» — вводом; сохранённые, «до срока», повтор — в «Настроить…».<br>Б. Те же и ниже блок «Через…» с тремя прежними и сохранёнными вариантами.<br>В. Меню «Отложить» целиком заменяет список; «Настроить…» уходит в «⋯».</td><td><b>А.</b> Меню остаётся таким же, как у «Отложить» (одна привычка); относительный срок «от отправки» вводится словами. Б удлиняет меню до 14+ пунктов, В прячет повтор и «до срока» за вторым шагом.</td></tr>
 </table>
 </div>
 </div>
@@ -232,7 +260,110 @@ table.k th { background: #ece8e1; }
   var FILES = ["Смета_октябрь.xlsx","Договор_2026.pdf","Схема_склада.png","Акт_сверки.pdf","Прайс.csv","Фото_1.jpg","Фото_2.jpg","Заметки.txt","Отчёт_Q3.docx","Презентация.pptx","Реквизиты.pdf","План_работ.xlsx","Чертёж_А1.pdf","Скан_001.png","Скан_002.png","Список.txt","Приложение_1.pdf","Приложение_2.pdf","Архив.zip","Итог.docx"];
   var SIZES = ["84 КБ","1,2 МБ","340 КБ","210 КБ","12 КБ","2,4 МБ","2,1 МБ","3 КБ","480 КБ","3,8 МБ","95 КБ","160 КБ","760 КБ","1,1 МБ","1,0 МБ","2 КБ","300 КБ","310 КБ","5,2 МБ","140 КБ"];
   var FMT = [{ v: "plain", l: "Текст", i: "T" }, { v: "html", l: "HTML", i: "‹›" }, { v: "markdown", l: "Markdown", i: "#" }];
-  var REM = ["Без напоминания", "Через 3 дня", "Через неделю", "Завтра в 9:00"];
+  /* нынешний выпадающий список «Напомнить, если не ответят» (plugins/followups/RemindSelect.svelte, strings.ts): три стандартных, сохранённые из настроек, «Настроить…» */
+  var REM = ["Без напоминания", "Напомнить через день без ответа", "Напомнить через 3 дня без ответа", "Напомнить через неделю без ответа", "Напомнить через 2 рабочих дня без ответа"];
+  /* часы макета остановлены на пт, 9 окт 2026, 14:30; Начало дня 9:00, Начало вечера 18:00, рабочие дни Пн–Пт */
+  var NOW = new Date(2026, 9, 9, 14, 30);
+  var WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"], MON = ["янв", "февр", "мар", "апр", "мая", "июн", "июл", "авг", "сент", "окт", "нояб", "дек"];
+  var MONF = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+  var LET = [["eve", "KeyD", "В"], ["tom", "KeyP", "З"], ["wk", "Quote", "Э"], ["nw", "KeyY", "Н"], ["nm", "KeyV", "М"], ["days", "KeyL", "Д"], ["cal", "KeyR", "К"], ["none", "Comma", "Б"]];
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function dayAt(d, add, hh, mm) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + add, hh, mm); }
+  function fmtDay(d) { return WD[d.getDay()] + ", " + d.getDate() + " " + MON[d.getMonth()]; }
+  function fmtAt(d) { return fmtDay(d) + ", " + d.getHours() + ":" + pad(d.getMinutes()); }
+  function nextWd(wd) { return dayAt(NOW, ((wd - NOW.getDay() + 7) % 7) || 7, 9, 0); }
+  function firstWorkday(y, m) { var d = new Date(y, m, 1, 9, 0); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return d; }
+  /* строка ввода: «пт 9:00», «завтра 18», «через 3 дня», «через 2 часа», «9:30» */
+  function parseQ(q) {
+    q = q.trim().toLowerCase(); if (!q) return null;
+    var m = /^через (\d+) (час|часа|часов|дн|день|дня|дней|недел[юиь])/.exec(q);
+    if (m) { var n = +m[1], u = m[2]; return u.indexOf("час") === 0 ? new Date(NOW.getTime() + n * 3600000) : dayAt(NOW, n * (u.indexOf("недел") === 0 ? 7 : 1), 9, 0); }
+    m = /^(завтра|пн|вт|ср|чт|пт|сб|вс)?\s*(?:(\d{1,2})(?::(\d\d))?)?$/.exec(q);
+    if (!m || (!m[1] && !m[2])) return null;
+    var hh = m[2] ? +m[2] : 9, mi = m[3] ? +m[3] : 0; if (hh > 23 || mi > 59) return null;
+    if (m[1] === "завтра") return dayAt(NOW, 1, hh, mi);
+    if (m[1]) { var d = nextWd(WD.indexOf(m[1])); d.setHours(hh, mi); return d; }
+    var t = dayAt(NOW, 0, hh, mi); return t > NOW ? t : dayAt(NOW, 1, hh, mi);
+  }
+  function remRows(S) {
+    var rows = [], p = S.rhot ? null : parseQ(S.rq), eve = dayAt(NOW, 0, 18, 0), K = {};
+    LET.forEach(function (l) { K[l[0]] = l; });
+    function it(id, t, at, extra) { var o = { id: id, t: t, at: at, key: K[id] ? K[id][2] : "", hint: at ? fmtDay(at) : "" }; for (var x in extra) o[x] = extra[x]; return o; }
+    if (p) rows.push({ id: "parsed", t: fmtAt(p), at: p, hint: "от вас", key: "↵" });
+    rows.push(it("eve", "Вечером", eve, eve > NOW ? {} : { off: 1, hint: "уже наступил" }));
+    rows.push(it("tom", "Завтра", dayAt(NOW, 1, 9, 0)));
+    rows.push(it("wk", "Эти выходные", nextWd(6)));
+    rows.push(it("nw", "Следующая неделя", nextWd(1)));
+    rows.push(it("nm", "Следующий месяц", firstWorkday(NOW.getFullYear(), NOW.getMonth() + 1)));
+    rows.push(it("days", "Рабочие дни", null, { sub: 1 }));
+    rows.push(it("cal", "Выбрать дату и время…", null));
+    rows.push({ sep: 1 });
+    rows.push(it("none", "Без напоминания", null, { tick: S.remAt == null }));
+    rows.push({ id: "cfg", t: "Настроить…", key: "", hint: "" });
+    return rows;
+  }
+  function remCursor(S) { var rows = remRows(S); S.rc = (!S.rhot && parseQ(S.rq)) ? 0 : (S.rq ? -1 : rows.map(function (r) { return r.id; }).indexOf("tom")); }
+  function openRem(S) { S.rq = ""; S.rhot = false; S.rsub = false; S.rcal = false; S.rmo = 0; S.rsc = 0; remCursor(S); }
+  function remPick(S, id) {
+    var r = remRows(S).filter(function (x) { return x.id === id; })[0]; if (!r || r.off) return;
+    if (r.sub) { S.rsub = true; S.rsc = 0; return; }
+    if (id === "cal") { S.rcal = true; S.rmo = 0; return; }
+    if (id === "none") S.remAt = null; else if (r.at) S.remAt = fmtAt(r.at);
+    S.pop = null;
+  }
+  function remPopup(S) {
+    var rows = remRows(S), h = '<div class="pop rm">';
+    if (S.rcal) {
+      var f = new Date(NOW.getFullYear(), NOW.getMonth() + S.rmo, 1), lead = (f.getDay() + 6) % 7, days = new Date(f.getFullYear(), f.getMonth() + 1, 0).getDate();
+      h += '<div class="calh">' + MONF[f.getMonth()] + ' ' + f.getFullYear() + (S.rmo ? '<span class="nv" data-act="rmm:-1">‹</span>' : '') + '<span class="nv" ' + (S.rmo ? '' : 'style="margin-left:auto" ') + 'data-act="rmm:1">›</span></div><div class="cal">';
+      ["пн", "вт", "ср", "чт", "пт", "сб", "вс"].forEach(function (w) { h += '<b>' + w + '</b>'; });
+      for (var i = 0; i < lead; i++) h += '<b></b>';
+      for (var d = 1; d <= days; d++) { var dt = new Date(f.getFullYear(), f.getMonth(), d, 9, 0), past = dt < dayAt(NOW, 0, 0, 0); h += '<i class="' + (past ? 'off' : '') + '"' + (past ? '' : ' data-act="rmc:' + dt.getTime() + '"') + '>' + d + '</i>'; }
+      h += '</div><div class="nt">Время — «Начало дня», 9:00; другое — вводом «пт 15:30». <b>Esc</b> — назад в меню</div></div>';
+      return '<div class="rempop" data-pop="1">' + h + '</div>';
+    }
+    h += '<div class="qline">' + (S.rq ? esc(S.rq) + '<span class="caret"></span>' : '<span class="caret"></span><span class="ph">Когда напомнить: «пт 9:00», «через 3 дня»</span>') + '</div>';
+    rows.forEach(function (r, i) {
+      if (r.sep) { h += '<div class="sep"></div>'; return; }
+      var cls = 'mi' + (i === S.rc ? ' cur' : '') + (r.off ? ' off' : '');
+      h += '<div class="' + cls + '"' + (r.off ? '' : ' data-act="rm:' + r.id + '"') + '><span class="tick">' + (r.tick ? "✓" : "") + '</span>' + esc(r.t) +
+        (r.sub ? '<span class="arrow">›</span>' : (r.hint ? '<span class="hint">' + esc(r.hint) + '</span>' : '')) + (r.key ? '<kbd>' + esc(r.key) + '</kbd>' : '');
+      if (r.sub && S.rsub) {
+        h += '<div class="pop sub">';
+        [1, 2, 3, 4, 5].forEach(function (wd) { var d = nextWd(wd); h += '<div class="mi' + (S.rsc === wd - 1 ? ' cur' : '') + '" data-act="rmd:' + wd + '"><span class="tick"></span>' + ["", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница"][wd] + '<span class="hint">' + fmtDay(d) + '</span><kbd>' + wd + '</kbd></div>'; });
+        h += '</div>';
+      }
+      h += '</div>';
+    });
+    return '<div class="rempop" data-pop="1">' + h + '</div></div>';
+  }
+  /* клавиши меню напоминания: возвращает true, если клавиша съедена */
+  function remKey(S, e) {
+    var k = e.code, rows = remRows(S), sel = [];
+    rows.forEach(function (r, i) { if (r.id && !r.off) sel.push(i); });
+    if (S.rcal) { if (k === "Escape") S.rcal = false; return true; }
+    if (k === "Escape") { if (S.rsub) S.rsub = false; else if (S.rq) { S.rq = ""; remCursor(S); } else S.pop = null; return true; }
+    if (k === "ArrowDown" || k === "ArrowUp") {
+      var st = k === "ArrowDown" ? 1 : -1;
+      if (S.rsub) S.rsc = (S.rsc + st + 5) % 5;
+      else { var at = sel.indexOf(S.rc); S.rc = sel[at < 0 ? (st > 0 ? 0 : sel.length - 1) : (at + st + sel.length) % sel.length]; }
+      return true;
+    }
+    if (k === "ArrowRight") { if (rows[S.rc] && rows[S.rc].sub) { S.rsub = true; S.rsc = 0; } return true; }
+    if (k === "ArrowLeft") { S.rsub = false; return true; }
+    if (k === "Enter") { if (S.rsub) { S.remAt = fmtAt(nextWd(S.rsc + 1)); S.pop = null; } else if (rows[S.rc]) remPick(S, rows[S.rc].id); return true; }
+    if (k === "Backspace") { S.rq = S.rq.slice(0, -1); S.rsub = false; S.rhot = false; remCursor(S); return true; }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (!S.rq) {
+        var dg = /^[1-7]$/.test(e.key) ? +e.key : 0;
+        if (dg && dg <= 5) { S.rq = e.key; S.rhot = true; S.rsub = true; S.rsc = dg - 1; return true; }
+        var l = LET.filter(function (x) { return x[1] === k; })[0];
+        if (l) { S.rq = e.key; S.rhot = true; S.rc = rows.map(function (r) { return r.id; }).indexOf(l[0]); return true; }
+      }
+      S.rhot = false; S.rq += e.key; S.rsub = false; remCursor(S); return true;
+    }
+    return true;
+  }
   var BOXES = ["anna@example.com", "sales@example.com", "boris@example.org"];
   var TEXT = "Добрый день, Пётр!<br>Смета и договор во вложении. Сроки по складу подтверждены, схема — в третьем файле.<br>Если нужно, подготовлю новый вариант с учётом ваших замечаний.<br><br>С уважением,<br>Анна";
   var QUOTE = "Анна, добрый день! Пришлите, пожалуйста, смету и договор до пятницы. Нужно согласовать сроки по складу и подтвердить объём первой поставки.<br>Пётр";
@@ -287,27 +418,24 @@ table.k th { background: #ece8e1; }
     /* текст */
     h.push('<div class="ta">' + TEXT + '<span class="caret"></span></div>');
     /* служебные строки */
-    var arch = S.arch, remN = S.rem;
+    var arch = S.arch, remN = S.rem, remOn = S.remAt != null, remTx = remOn ? S.remAt : "Без напоминания";
     if (S.fmt === "markdown" && now) h.push('<div class="note fixed">ⓘ Уйдёт тремя частями: текст, HTML и исходный Markdown</div>');
-    if (S.quote) {
-      if (now || S.qopen) {
-        if (now) {
-          h.push('<div class="qbar fixed" data-act="quote"><span>›</span><span class="who">9 окт 2026, petr@example.com пишет:</span><span class="act">' + (S.qopen ? "Скрыть цитату" : "Показать цитату") + '</span></div>');
-        }
-        if (S.qopen) h.push('<div class="qtext fixed">' + QUOTE + '</div>');
-      }
+    /* цитата: в «Сейчас» — полоса и текст сразу под ней; в вариантах — текст ниже строки состояния (ниже, один раз) */
+    if (S.quote && now) {
+      h.push('<div class="qbar fixed" data-act="quote"><span>›</span><span class="who">9 окт 2026, petr@example.com пишет:</span><span class="act">' + (S.qopen ? "Скрыть цитату" : "Показать цитату") + '</span></div>');
+      if (S.qopen) h.push('<div class="qtext fixed">' + QUOTE + '</div>');
     }
     if (now) {
       h.push('<div class="fu fixed"><span data-act="arch"><i class="cb' + (arch ? ' on' : '') + '">' + (arch ? "✓" : "") + '</i>Убрать письмо из входящих до ответа</span><span class="sep">|</span><span class="sel' + (S.pop === "rem" ? ' ac' : '') + '" data-act="pop:rem">⏰ ' + REM[remN] + ' ▾</span></div>');
     } else if (S.st === "merge") {
       h.push('<div class="state fixed">' + (S.quote ? '<span class="chipb' + (S.qopen ? '' : ' dim') + '" data-act="quote">↩ Цитата ' + (S.qopen ? "▾" : "›") + '</span>' : '') +
         '<span class="chipb' + (arch ? '' : ' dim') + '" data-act="arch"><i class="cb' + (arch ? ' on' : '') + '" style="margin:0">' + (arch ? "✓" : "") + '</i> Из входящих до ответа</span>' +
-        '<span class="chipb' + (remN ? '' : ' dim') + (S.pop === "rem" ? ' ac' : '') + '" data-act="pop:rem">⏰ ' + REM[remN] + ' ▾</span></div>');
+        '<span class="chipb' + (remOn ? '' : ' dim') + (S.pop === "rem" ? ' ac' : '') + '" data-act="pop:rem">⏰ ' + remTx + ' ▾</span></div>');
     } else if (S.st === "diff") {
       var chips = [];
       if (S.quote) chips.push('<span class="chipb' + (S.qopen ? '' : ' dim') + '" data-act="quote">↩ Цитата ' + (S.qopen ? "▾" : "›") + '</span>');
       if (arch) chips.push('<span class="chipb warn" data-act="arch">✓ Из входящих до ответа ×</span>');
-      if (remN) chips.push('<span class="chipb warn" data-act="pop:rem">⏰ ' + REM[remN] + ' ▾</span>');
+      if (remOn) chips.push('<span class="chipb warn" data-act="pop:rem">⏰ ' + remTx + ' ▾</span>');
       if (chips.length) h.push('<div class="state fixed">' + chips.join("") + '</div>');
     } else if (S.st === "menu") {
       /* строки нет */
@@ -330,7 +458,7 @@ table.k th { background: #ece8e1; }
     var files = '<button class="btn' + (S.pop === "att" && S.att === "count" ? ' ac' : '') + '" data-act="' + (S.att === "count" && n ? "pop:att" : "files") + '">📎 ' + (S.att === "count" && n ? n + " " : "") + 'Файлы' + (S.att === "count" && n ? " ▾" : "") + '</button>';
     var ind = "";
     if (S.st === "menu") {
-      ind = '<span class="ind">' + (S.quote ? '<span class="chipb dim" data-act="quote">↩</span>' : '') + (arch ? '<span class="chipb warn" title="Из входящих до ответа">⤓</span>' : '') + (remN ? '<span class="chipb warn" title="' + REM[remN] + '">⏰</span>' : '') + '</span>';
+      ind = '<span class="ind">' + (S.quote ? '<span class="chipb dim" data-act="quote">↩</span>' : '') + (arch ? '<span class="chipb warn" title="Из входящих до ответа">⤓</span>' : '') + (remOn ? '<span class="chipb warn" title="' + remTx + '">⏰</span>' : '') + '</span>';
     }
     h.push('<div class="foot fixed"><button class="btn primary" data-act="send">Отправить <span style="opacity:.8;font-size:11px">Ctrl+Enter</span> ▾</button>' + files +
       '<span class="sp"></span>' + ind + (S.fp === "bar" ? '' : fmtBtn(S, fmt)) +
@@ -354,8 +482,9 @@ table.k th { background: #ece8e1; }
       FMT.forEach(function (f) { it.push({ k: "fmt:" + f.v, t: f.l, tick: S.fmt === f.v }); });
       if (S.fmt === "markdown" && S.hdr !== "now") { it.push({ sep: 1 }); it.push({ k: "markup", t: "Показать разметку", tick: S.markup }); it.push({ nt: "Уйдёт тремя частями: текст, HTML и исходный Markdown" }); }
     } else if (p === "rem") {
-      it.push({ mt: "Напоминание, если не ответят" });
+      it.push({ mt: "Напомнить, если не ответят" });
       REM.forEach(function (r, i) { it.push({ k: "rem:" + i, t: r, tick: S.rem === i }); });
+      it.push({ k: "remcfg", t: "Настроить…" });
     } else if (p === "box") {
       it.push({ mt: "От" });
       BOXES.slice(0, Math.max(S.boxes, 1)).forEach(function (b, i) { it.push({ k: "box:" + i, t: b, tick: S.boxSel === i }); });
@@ -378,6 +507,7 @@ table.k th { background: #ece8e1; }
   }
   function popup(S) {
     if (!S.pop) return "";
+    if (S.pop === "rem" && S.hdr !== "now") return remPopup(S);
     var pos = S.pop === "more" || S.pop === "fmt" ? "right:8px;bottom:48px" : (S.pop === "rem" ? "left:12px;bottom:" + (S.hdr === "now" ? "48px" : "48px") : (S.pop === "box" ? "right:10px;top:-" + 0 + "px;position:fixed" : "left:80px;bottom:48px"));
     if (S.pop === "box") pos = "left:12px;top:-300px"; /* заменяется ниже */
     var it = items(S), cur = 0, h = "";
@@ -393,10 +523,10 @@ table.k th { background: #ece8e1; }
   function actionable(S) { return items(S).filter(function (x) { return x.k; }); }
 
   /* ---------- состояние и отрисовка ---------- */
-  var DEF = { w: 640, h: 640, n: 0, hdr: "now", att: "now", st: "now", fp: "foot", quote: true, qopen: false, cc: false, bcc: false, ccOne: false, boxes: 1, boxSel: 0, fmt: "markdown", markup: false, arch: false, rem: 0, pop: null, pi: 0, af: -1 };
+  var DEF = { w: 640, h: 640, n: 0, hdr: "now", att: "now", st: "now", fp: "foot", quote: true, qopen: false, cc: false, bcc: false, ccOne: false, boxes: 1, boxSel: 0, fmt: "markdown", markup: false, arch: false, rem: 0, remAt: null, rq: "", rc: 0, rhot: false, rsub: false, rsc: 0, rcal: false, rmo: 0, pop: null, pi: 0, af: -1 };
   function mk(host, cfg, opts) {
     var S = Object.assign({}, DEF, cfg); S.id = ++seq; S.host = host; S.opts = opts || {};
-    stages[S.id] = S; host.dataset.sid = S.id; host.setAttribute("tabindex", "0");
+    stages[S.id] = S; if (S.pop === "rem") { openRem(S); if (cfg.rq) { S.rq = cfg.rq; S.rhot = cfg.rq.length === 1; remCursor(S); } if (cfg.rsub) S.rsub = true; if (cfg.rcal) S.rcal = true; } host.dataset.sid = S.id; host.setAttribute("tabindex", "0");
     paint(S); return S;
   }
   function paint(S) {
@@ -443,7 +573,12 @@ table.k th { background: #ece8e1; }
     else if (a === "markup") S.markup = !S.markup;
     else if (a === "files") { S.pop = null; }
     else if (a === "send" || a === "save" || a === "discard") S.pop = null;
-    else if ((m = /^pop:(.+)$/.exec(a))) { S.pop = S.pop === m[1] ? null : m[1]; S.pi = 0; if (S.pop === "att" && S.af >= 0) S.pi = S.af; }
+    else if ((m = /^pop:(.+)$/.exec(a))) { S.pop = S.pop === m[1] ? null : m[1]; S.pi = 0; if (S.pop === "att" && S.af >= 0) S.pi = S.af; if (S.pop === "rem") openRem(S); }
+    else if (a === "remcfg") S.pop = null;
+    else if ((m = /^rm:(.+)$/.exec(a))) remPick(S, m[1]);
+    else if ((m = /^rmd:(\d)$/.exec(a))) { S.remAt = fmtAt(nextWd(+m[1])); S.pop = null; }
+    else if ((m = /^rmc:(\d+)$/.exec(a))) { S.remAt = fmtAt(new Date(+m[1])); S.pop = null; }
+    else if ((m = /^rmm:(-?1)$/.exec(a))) S.rmo = Math.max(0, Math.min(3, S.rmo + +m[1]));
     else if ((m = /^fmt:(.+)$/.exec(a))) { S.fmt = m[1]; S.pop = null; }
     else if ((m = /^rem:(\d)$/.exec(a))) { S.rem = +m[1]; S.pop = null; }
     else if ((m = /^box:(\d)$/.exec(a))) { S.boxSel = +m[1]; S.pop = null; }
@@ -472,6 +607,10 @@ table.k th { background: #ece8e1; }
   document.addEventListener("keydown", function (e) {
     var host = e.target.closest && e.target.closest(".stage"); if (!host || !host.dataset.sid) return;
     var S = stages[host.dataset.sid], k = e.code, done = true;
+    if (S.pop === "rem" && S.hdr !== "now" && !(e.altKey && /^Key[CBMAQFI]$|^Period$/.test(k))) {
+      if (e.altKey && k === "KeyR") S.pop = null; else if (e.altKey || e.ctrlKey || e.metaKey) return; else remKey(S, e);
+      paint(S); return stop(e);
+    }
     if (S.pop) {
       var list = actionable(S);
       if (k === "ArrowDown") S.pi = Math.min(list.length - 1, S.pi + 1);
@@ -499,7 +638,7 @@ table.k th { background: #ece8e1; }
     else if (k === "KeyQ" && S.quote) act(S, "quote");
     else if (k === "KeyI") act(S, "arch");
     else if (k === "KeyF") { S.pop = "fmt"; S.pi = Math.max(0, FMT.map(function (f) { return f.v; }).indexOf(S.fmt)); paint(S); }
-    else if (k === "KeyR") { S.pop = "rem"; S.pi = S.rem; paint(S); }
+    else if (k === "KeyR") { S.pop = "rem"; S.pi = S.rem; openRem(S); paint(S); }
     else if (k === "KeyM" && !now) { S.pop = "box"; S.pi = S.boxSel; paint(S); }
     else if (k === "Period") { S.pop = "more"; S.pi = 0; paint(S); }
     else if (k === "KeyA" && S.n) {
@@ -544,7 +683,7 @@ table.k th { background: #ece8e1; }
   var s3 = document.getElementById("s3");
   [["now", "Сейчас"], ["merge", "3А (рекомендую)"], ["menu", "3Б"], ["diff", "3В"], ["merge-bar", "3Г"]].forEach(function (v) {
     var st = v[0] === "merge-bar" ? "merge" : v[0];
-    var cfg = { hdr: v[0] === "now" ? "now" : "B", att: v[0] === "now" ? "now" : "count", st: st, fp: v[0] === "merge-bar" ? "bar" : "foot", n: 3, w: 640, h: 640, ccOne: v[0] === "now", arch: v[0] === "now" || v[0] === "merge" };
+    var cfg = { hdr: v[0] === "now" ? "now" : "B", att: v[0] === "now" ? "now" : "count", st: st, fp: v[0] === "merge-bar" ? "bar" : "foot", n: 3, w: 640, h: 640, ccOne: v[0] === "now", arch: v[0] === "now" || v[0] === "merge", remAt: v[0] === "now" ? null : "пн, 12 окт, 9:00" };
     slot(s3, cfg, [{ label: "Цитата", key: "qopen", vals: [[false, "свёрнута"], [true, "раскрыта"]] }, { label: "Из входящих", key: "arch", vals: [[false, "нет"], [true, "да"]] }, { label: "Формат", key: "fmt", vals: [["plain", "Текст"], ["markdown", "Markdown"]] }], {}, v[1]);
   });
 
@@ -554,8 +693,17 @@ table.k th { background: #ece8e1; }
     var h = document.createElement("h3"); h.className = "v"; h.innerHTML = '<span class="n">' + sz[0] + '×' + sz[1] + '</span>Сейчас → после (1Б + 2В + 3А), 8 вложений, цитата раскрыта'; wrap.appendChild(h);
     var r = document.createElement("div"); r.className = "row3"; wrap.appendChild(r);
     slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, ccOne: true, arch: true }, null, { marks: true }, "Сейчас").host.parentNode.querySelector(".tb").style.display = "none";
-    slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, hdr: "B", att: "count", st: "merge", boxes: 3, arch: true }, null, {}, "После").host.parentNode.querySelector(".tb").style.display = "none";
+    slot(r, { w: sz[0], h: sz[1], n: 8, qopen: true, hdr: "B", att: "count", st: "merge", boxes: 3, arch: true, remAt: "пн, 12 окт, 9:00" }, null, {}, "После").host.parentNode.querySelector(".tb").style.display = "none";
   });
+
+  var s5 = document.getElementById("s5");
+  [["Сейчас: выпадающий список (щелчок по «⏰ Без напоминания ▾» или Alt+R)", { hdr: "now", att: "now", st: "now", ccOne: true, arch: true, pop: "rem", h: 460 }],
+   ["После (3А): меню открыто, строка пуста — подсвечено «Завтра»", { hdr: "B", att: "count", st: "merge", n: 3, arch: true, pop: "rem", h: 560 }],
+   ["После: введено «пт 9» — сверху строка-разбор; Enter ставит срок", { hdr: "B", att: "count", st: "merge", n: 3, arch: true, pop: "rem", rq: "пт 9", h: 560 }],
+   ["После: клавиша «5» (или «Д», затем →) открывает «Рабочие дни ›» на пятнице", { hdr: "B", att: "count", st: "merge", n: 3, arch: true, pop: "rem", rq: "5", rsub: true, h: 560 }],
+   ["После: «Выбрать дату и время…» — календарь", { hdr: "B", att: "count", st: "merge", n: 3, arch: true, pop: "rem", rcal: true, h: 560 }],
+   ["После: срок выбран, меню закрыто — в строке «⏰ пн, 12 окт, 9:00»", { hdr: "B", att: "count", st: "merge", n: 3, arch: true, remAt: "пн, 12 окт, 9:00", h: 560 }]
+  ].forEach(function (v) { slot(s5, Object.assign({ w: 640 }, v[1]), null, {}, v[0]).host.parentNode.querySelector(".tb").style.display = "none"; });
 
   /* ---------- тема ---------- */
   document.querySelectorAll("[data-theme]").forEach(function (b) {
@@ -565,7 +713,7 @@ table.k th { background: #ece8e1; }
     });
   });
   document.querySelectorAll(".theme").forEach(function () {});
-  document.querySelectorAll("#s0,#s1,#s2,#s3,#s4").forEach(function (el) { el.classList.add("theme"); });
+  document.querySelectorAll("#s0,#s1,#s2,#s3,#s4,#s5").forEach(function (el) { el.classList.add("theme"); });
   /* пересчёт долей после загрузки шрифтов и вёрстки */
   window.addEventListener("load", function () { Object.keys(stages).forEach(function (id) { paint(stages[id]); }); });
   window.__compose = { stages: stages };
