@@ -154,8 +154,8 @@ export class ComposeManager {
     this.dragging = { zones: offersZones(paths.map(baseName), c.draft.format ?? "plain"), zone: null };
   }
 
-  /** Files dropped on the window: pictures into the text on its zone, the rest attached. */
-  async dropFiles(c: ComposeWindow, paths: string[], zone: DropZone | null) {
+  /** Files dropped on the window: pictures into the text on its zone, the rest attached. Returns how many went into the text. */
+  async dropFiles(c: ComposeWindow, paths: string[], zone: DropZone | null): Promise<number> {
     this.dragging = null;
     const plan = dropPlan(paths.map(baseName), c.draft.format ?? "plain", zone);
     const inline = paths.filter((p) => plan.inline.includes(baseName(p)));
@@ -167,7 +167,9 @@ export class ComposeManager {
         this.host.fail(err);
       }
     }
-    if (inline.length) await this.pictureTargets.get(c.id)?.(inline);
+    if (!inline.length) return 0;
+    await this.pictureTargets.get(c.id)?.(inline);
+    return inline.length;
   }
 
   /** How a new letter from the mailbox is written. */

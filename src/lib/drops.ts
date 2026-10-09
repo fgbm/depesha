@@ -31,11 +31,17 @@ export function zoneAt(pos: PhysicalPosition, scale: number): DropZone | null {
 }
 
 /** What became of a drop; the backend log gets it, numbers only (the pointer and the window in logical pixels). */
-function outcome(kind: "attached" | "no_compose" | "missed_zone", attached: number, pos: PhysicalPosition) {
+function outcome(
+  kind: "attached" | "no_compose" | "missed_zone",
+  attached: number,
+  inline: number,
+  zone: DropZone | null,
+  pos: PhysicalPosition,
+) {
   const scale = window.devicePixelRatio || 1;
   const { x, y } = pos.toLogical(scale);
   api
-    .dropOutcome({ outcome: kind, attached, x, y, width: window.innerWidth, height: window.innerHeight })
+    .dropOutcome({ outcome: kind, attached, inline, zone: zone ?? "none", x, y, width: window.innerWidth, height: window.innerHeight })
     .catch(() => {});
 }
 
@@ -55,14 +61,14 @@ async function attach(app: AppStore, zoneAt: (pos: PhysicalPosition) => DropZone
   const zones = !!app.compose.dragging?.zones;
   const zone = zoneOrNull(zoneAt, pos);
   const before = c.draft.attachments.length;
-  await app.compose.dropFiles(c, drop.paths, zone);
+  const inline = (await app.compose.dropFiles(c, drop.paths, zone)) ?? 0;
   // A miss in a letter that offers zones still attaches the files, as plain attachments.
-  outcome(zones && !zone ? "missed_zone" : "attached", c.draft.attachments.length - before, pos);
+  outcome(zones && !zone ? "missed_zone" : "attached", c.draft.attachments.length - before, inline, zone, pos);
 }
 
 /** A drop with nowhere to go is told, not dropped in silence. */
 function noCompose(app: AppStore, drop: FilesDropped, pos: PhysicalPosition) {
-  outcome("no_compose", 0, pos);
+  outcome("no_compose", 0, 0, null, pos);
   if (drop.paths.length) app.toast(t("drop.nowhere"));
 }
 
