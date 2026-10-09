@@ -230,6 +230,28 @@ jobs:
             e2e/screens
             e2e/logs
 
+  # Printing a letter's sheet on macOS (#70): the sheet is printed into a PDF through the code the
+  # app prints with, and the header's text is looked for in the file. Not on pull requests: a macOS
+  # runner is slow; it runs on pushes to main and release/**, and by hand (`gh workflow run ci.yml`).
+  mac-print:
+    name: Print a sheet (macOS)
+    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !inputs.windows_only
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # tauri's build script wants the built frontend.
+      - run: npm run build
+      - run: brew install poppler
+      - run: cargo test -p depesha --test mac_print -- --nocapture
+
   build:
     if: ${{ !inputs.windows_only }}
     name: Build ${{ matrix.os }}

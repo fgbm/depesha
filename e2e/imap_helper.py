@@ -152,6 +152,22 @@ def markdown(subject):
     ).encode()
 
 
+def overlay(subject):
+    """An HTML letter that places its text at the top of the page: on a printed sheet it must not cover the header (#70)."""
+    html = (
+        '<div style="position:absolute;top:0;left:0;right:0;background:#fee;font-size:20px">ПОДДЕЛЬНАЯ ШАПКА От: boss@example.org</div>'
+        '<div style="position:fixed;top:0;left:0;background:#fee">ЗАКРЕПЛЁННАЯ ПОДДЕЛКА</div>'
+        "<p>Обычный текст письма.</p>"
+    )
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    return (
+        f"From: Mallory <mallory@example.org>\r\nTo: {ME}\r\nSubject: {subj}\r\n"
+        f"Date: {email.utils.formatdate(time.time(), localtime=True)}\r\nMessage-ID: <ov-{abs(hash(subject))}@example.org>\r\n"
+        "MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + base64.encodebytes(html.encode()).decode().replace("\n", "\r\n")
+    ).encode()
+
+
 def seed():
     c = conn()
     # GreenMail's hierarchy delimiter is ".".
@@ -331,6 +347,12 @@ def main():
         # The two headers Outlook writes for «High importance» (#72).
         c = conn()
         append(c, "INBOX", msg(sys.argv[2], "Прочитайте первым.", sender="Пётр Сидоров <petr@example.org>", extra="Importance: High\r\nX-Priority: 1 (Highest)\r\n"))
+        c.logout()
+        print("ok")
+        return
+    if cmd == "deliver-overlay":
+        c = conn()
+        append(c, "INBOX", overlay(sys.argv[2]))
         c.logout()
         print("ok")
         return

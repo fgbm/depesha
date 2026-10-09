@@ -12,6 +12,9 @@ mod install_secret;
 mod label_strip;
 mod outbox;
 mod paths;
+#[cfg(target_os = "macos")]
+pub mod print_mac;
+mod print_sheet;
 mod scheduler;
 mod secrets;
 mod server;
@@ -408,6 +411,7 @@ pub fn run() {
             commands::outbox_missed,
             commands::compose_unsaved,
             commands::quit_cancel,
+            commands::print_sheet,
             commands::drop_seen,
             commands::drop_outcome,
             // A drop made up for the e2e run (WebDriver cannot drag a file in).

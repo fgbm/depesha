@@ -241,6 +241,8 @@ export const api = {
   composeSaved: () => call<void>("compose_unsaved", { unsaved: false }),
   /** The user keeps the letter being written: a quit waiting for the window stops. */
   quitCancel: () => call<void>("quit_cancel"),
+  /** The sheet of a letter into the system print panel; macOS only (print.ts). */
+  printSheet: (html: string) => call<void>("print_sheet", { html }),
   /** Says in the backend log that the page heard of a drop: the count only, never the names. */
   dropSeen: (count: number) => call<void>("drop_seen", { count }),
   /** Says in the backend log what the page did with a drop: numbers only, never the names. */

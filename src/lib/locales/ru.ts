@@ -453,7 +453,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "keys.layout": "Буквы работают на любой раскладке:",
   "keys.layoutExample": "— это и «у» на русской.",
   "keys.group.everywhere": "Везде",
-  "keys.group.everywhereNote": "в главном окне; Ctrl+K и Ctrl+P — и в окне письма",
+  "keys.group.everywhereNote": "в главном окне; палитра и печать — и в окне письма",
   "keys.group.list": "Список и письмо",
   "keys.group.listNote": "в главном окне, когда фокус не в поле ввода",
   "keys.group.compose": "Окно письма",

@@ -461,7 +461,7 @@ export const en = {
   "keys.layout": "Letters are keys in their place: they work on any layout.",
   "keys.layoutExample": "",
   "keys.group.everywhere": "Everywhere",
-  "keys.group.everywhereNote": "in the main window; Ctrl+K in the letter window too",
+  "keys.group.everywhereNote": "in the main window; the palette and printing in the letter window too",
   "keys.group.list": "List and letter",
   "keys.group.listNote": "in the main window, when no text field has the focus",
   "keys.group.compose": "Letter window",

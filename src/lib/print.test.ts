@@ -8,6 +8,7 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { printHtml, printKey, printOpened, printRow, rememberForm } from "./print";
+import { shortcuts } from "./shortcuts.svelte";
 import { app } from "./store.svelte";
 import { api, flush, resetFakes } from "./testing";
 import type { OpenedMessage } from "./types";
@@ -132,6 +133,72 @@ describe("Ctrl+P", () => {
       const e = key(init);
       expect(printKey(e)).toBe(false);
       expect(e.defaultPrevented).toBe(false);
+    }
+  });
+});
+
+describe("the print key on each system", () => {
+  const cmd = (init: KeyboardEventInit) => key({ key: "p", code: "KeyP", ...init });
+
+  it("on macOS is Cmd+P: it prints, and the browser's own is cancelled", async () => {
+    app.reader.opened = message(7);
+    const e = cmd({ metaKey: true });
+    expect(printKey(e, false, true)).toBe(true);
+    expect(e.defaultPrevented).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames()).toHaveLength(1);
+  });
+
+  it("on macOS leaves Ctrl+P to the text field: no print, no cancel", () => {
+    app.reader.opened = message(7);
+    const e = cmd({ ctrlKey: true });
+    expect(printKey(e, false, true)).toBe(true);
+    expect(e.defaultPrevented).toBe(false);
+    expect(frames()).toHaveLength(0);
+  });
+
+  it("elsewhere is Ctrl+P", () => {
+    const e = cmd({ ctrlKey: true });
+    expect(printKey(e, true, false)).toBe(true);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("cancels the browser's print even when the key of «Print» is another", async () => {
+    shortcuts.use(() => ({ custom: { "core.print": ["Mod+Alt+x"] }, dismissed: [] }));
+    try {
+      app.reader.opened = message(7);
+      const own = cmd({ ctrlKey: true });
+      expect(printKey(own, false, false)).toBe(true);
+      expect(own.defaultPrevented).toBe(true);
+      expect(frames()).toHaveLength(0);
+      const set = key({ key: "x", code: "KeyX", ctrlKey: true, altKey: true });
+      expect(printKey(set, false, false)).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(frames()).toHaveLength(1);
+    } finally {
+      shortcuts.use(() => undefined);
+    }
+  });
+
+  it("cancels the browser's print but lets another command that took the key run", () => {
+    shortcuts.use(() => ({ custom: { "core.print": [], "core.flag": ["Mod+p"] }, dismissed: [] }));
+    try {
+      const e = cmd({ ctrlKey: true });
+      expect(printKey(e, false, false)).toBe(false);
+      expect(e.defaultPrevented).toBe(true);
+    } finally {
+      shortcuts.use(() => undefined);
+    }
+  });
+
+  it("on macOS the sheet goes to the backend, not to a frame", async () => {
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+    try {
+      await printHtml("<p>лист</p>");
+      expect(api.printSheet).toHaveBeenCalledWith("<p>лист</p>");
+      expect(frames()).toHaveLength(0);
+    } finally {
+      Object.defineProperty(navigator, "platform", { value: "", configurable: true });
     }
   });
 });

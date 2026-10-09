@@ -102,6 +102,38 @@ export class Driver {
     });
   }
 
+  /** A key with modifiers held, as real key events: `mods` are WebDriver key codes ("\uE009" is Ctrl). */
+  async chord(mods, key) {
+    await this.req("POST", this.s("/actions"), {
+      actions: [
+        {
+          type: "key",
+          id: "kbd",
+          actions: [...mods, key].map((value) => ({ type: "keyDown", value })).concat([key, ...[...mods].reverse()].map((value) => ({ type: "keyUp", value }))),
+        },
+      ],
+    });
+  }
+
+  /** A real click `dx`, `dy` pixels from the middle of an element, which is how WebDriver measures offsets. */
+  async clickAt(el, dx, dy) {
+    await this.reveal(el);
+    await this.req("POST", this.s("/actions"), {
+      actions: [
+        {
+          type: "pointer",
+          id: "mouse",
+          parameters: { pointerType: "mouse" },
+          actions: [
+            { type: "pointerMove", duration: 50, origin: { [ELEMENT]: el }, x: Math.round(dx), y: Math.round(dy) },
+            { type: "pointerDown", button: 0 },
+            { type: "pointerUp", button: 0 },
+          ],
+        },
+      ],
+    });
+  }
+
   async exec(script, ...args) {
     return this.req("POST", this.s("/execute/sync"), { script, args });
   }

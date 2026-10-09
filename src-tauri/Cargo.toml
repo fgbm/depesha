@@ -49,6 +49,12 @@ tray-icon = { version = "0.25", default-features = false, features = ["ksni"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 notify-rust = "4.18.1"
+# Printing a letter's sheet (#70): `window.print()` does nothing in the WKWebView, so the sheet is
+# printed from a web view of its own through AppKit. Already in the tree with tauri and wry.
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSPrintInfo", "NSPrintOperation", "NSWindow", "NSView", "NSResponder", "NSApplication"] }
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL", "NSGeometry", "NSDictionary", "NSObject", "NSValue", "NSRunLoop", "NSDate"] }
+objc2-web-kit = { version = "0.3.2", features = ["WKWebView", "WKWebViewConfiguration", "objc2-app-kit"] }
 
 [target.'cfg(windows)'.dependencies]
 # Toasts with a click back into the app, and clearing them on exit.
@@ -61,6 +67,11 @@ windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
 # it does not start there (CI: STATUS_ENTRYPOINT_NOT_FOUND).
 [target.'cfg(not(windows))'.dev-dependencies]
 tauri = { version = "2.12.1", features = ["test"] }
+
+# Has its own main: AppKit wants the main thread (see the file). Empty on other systems.
+[[test]]
+name = "mac_print"
+harness = false
 
 [features]
 # Test builds for e2e/run.mjs: files under the folders in DEPESHA_E2E_ROOT count as

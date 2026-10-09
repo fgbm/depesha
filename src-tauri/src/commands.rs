@@ -3611,6 +3611,13 @@ pub fn quit_cancel(app: tauri::AppHandle) {
     crate::background::quit_cancelled(&app);
 }
 
+/// The sheet of a letter, printed through the system's panel (#70). Only macOS asks for it:
+/// there a frame in the page cannot print itself.
+#[tauri::command]
+pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResult<()> {
+    crate::print_sheet::print(&window, html).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

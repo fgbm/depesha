@@ -133,6 +133,7 @@ const COMMANDS: &[&str] = &[
     "outbox_missed",
     "compose_unsaved",
     "quit_cancel",
+    "print_sheet",
     "drop_seen",
     "drop_outcome",
     "e2e_drop",

@@ -2118,7 +2118,11 @@ try {
             w.__hooked = true;
             const frame = this;
             w.print = () => window.__prints.push({ html: frame.contentDocument.documentElement.outerHTML, text: frame.contentDocument.body.innerText,
-              main: frame.contentDocument.querySelector('main')?.innerHTML ?? '', width: frame.getBoundingClientRect().width, hidden: getComputedStyle(frame).display === 'none' });
+              main: frame.contentDocument.querySelector('main')?.innerHTML ?? '',
+              // How many boxes of the body sit over the header: a letter's own placing must not reach it.
+              overHeader: (() => { const d = frame.contentDocument, h = d.querySelector('header').getBoundingClientRect();
+                return [...d.querySelectorAll('main *')].filter((el) => { const r = el.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0 && r.top < h.bottom && r.bottom > h.top && r.left < h.right && r.right > h.left; }).length; })(), width: frame.getBoundingClientRect().width, hidden: getComputedStyle(frame).display === 'none' });
           }
           return w;
         } });`);
@@ -2154,6 +2158,7 @@ try {
     if (p.html.includes("img-src data: https: http:") !== onScreen) throw new Error(`внешние картинки: на экране ${onScreen}, в листе ${!onScreen}`);
     if (!onScreen) expectNot("лист HTML-письма", p.html, "tracker.example");
     if (p.html.split("</header>")[0].includes("<img")) throw new Error("в шапке листа картинка (логотип)");
+    if (p.overHeader) throw new Error(`тело письма лежит поверх шапки листа: ${p.overHeader}`);
     if (p.hidden || p.width < 700) throw new Error(`кадр печати не уложен на лист: ${JSON.stringify({ hidden: p.hidden, width: p.width })}`);
     if ((await d.findAll("iframe.print-frame")).length !== 1) throw new Error("кадров печати не один");
 
@@ -2237,6 +2242,45 @@ try {
       await d.req("POST", d.s("/window"), { handle: main });
     }
     await d.button("Входящие");
+
+    // 7. A key pressed with the focus inside the letter's own frame reaches the app: the palette and the print.
+    await openBySubject("HTML-письмо с картинками");
+    const inFrame = async () => {
+      const frame = await d.find(".reader iframe");
+      const r = await d.exec("const b = document.querySelector('.reader iframe').getBoundingClientRect(); return [b.width, b.height]");
+      // The lower right corner: the letter's text and links are up and to the left.
+      await d.clickAt(frame, Math.round(r[0] / 2) - 12, Math.round(r[1] / 2) - 12);
+      if ((await d.exec("return document.activeElement?.tagName")) !== "IFRAME") throw new Error("фокус не в кадре письма");
+    };
+    // What the window and the frame's document hear, to tell where a key is lost.
+    await d.exec(`window.__keys = [];
+      const log = (where) => (e) => window.__keys.push([where, e.key, e.code, e.ctrlKey, e.isTrusted, e.target.tagName || 'doc']);
+      window.addEventListener('keydown', log('window'), true);
+      const doc = document.querySelector('.reader iframe').contentDocument;
+      doc.addEventListener('keydown', log('frame'), true);`);
+    await inFrame();
+    await d.chord(["\uE009"], "k");
+    await d.until("palette from the letter's frame", async () => (await d.findAll(".palette")).length === 1).catch(async (e) => {
+      throw new Error(`${e.message}; клавиши: ${JSON.stringify(await d.exec("return window.__keys"))}; фокус: ${await d.exec("return document.activeElement?.tagName")}`);
+    });
+    await d.pressKey("\uE00C");
+    await d.until("palette closed", async () => (await d.findAll(".palette")).length === 0);
+    const before = await count();
+    await inFrame();
+    await d.chord(["\uE009"], "p");
+    p = await sheet(before + 1, "frame-key");
+    expectIn("лист по Ctrl+P из кадра письма", p.html, "<h1>HTML-письмо с картинками</h1>");
+
+    // 8. A letter that places its text at the top of the page does not cover the header of the sheet.
+    const forged = `Подделка шапки ${stamp}`;
+    helper("deliver-overlay", forged);
+    await d.button("Входящие");
+    await openBySubject(forged);
+    await ctrlP();
+    p = await sheet(before + 2, "overlay");
+    expectIn("лист письма-подделки", p.main, "ПОДДЕЛЬНАЯ ШАПКА", "position:absolute");
+    expectIn("лист письма-подделки", p.html, `<h1>${forged}</h1>`, "<dd>Mallory &lt;mallory@example.org&gt;</dd>");
+    if (p.overHeader) throw new Error(`письмо легло поверх шапки листа: ${p.overHeader} блоков`);
   });
 
   await step("9.2", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {

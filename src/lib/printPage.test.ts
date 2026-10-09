@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { letterOf, printPage, type PrintLabels, type PrintLetter } from "./printPage";
 import type { OpenedMessage } from "./types";
@@ -97,6 +98,19 @@ describe("the printed page of a letter", () => {
   });
 });
 
+describe("the page keeps a letter off the header", () => {
+  it("holds the body in a box of its own, so its absolute or fixed text cannot cover the header", () => {
+    const page = printPage(letter({ body: '<div style="position:absolute;top:0">Подделка</div>' }), labels);
+    expect(page).toContain("main{contain:paint;position:relative;overflow:hidden}");
+    // The header comes before the box and outside it.
+    expect(page.indexOf("</header>")).toBeLessThan(page.indexOf("<main>"));
+  });
+
+  it("switches DNS prefetch off, as the reading frame does", () => {
+    expect(printPage(letter(), labels)).toContain('<meta http-equiv="x-dns-prefetch-control" content="off">');
+  });
+});
+
 describe("the letter taken from the opened message", () => {
   it("prints the HTML form as HTML", () => {
     const l = letterOf(opened(), "html", false, "дата");
@@ -135,5 +149,26 @@ describe("the letter taken from the opened message", () => {
   it("carries the pictures' permission from the screen", () => {
     expect(letterOf(opened(), "html", true, "дата").allowRemote).toBe(true);
     expect(letterOf(opened(), "html", false, "дата").allowRemote).toBe(false);
+  });
+});
+
+// The sheet the macOS test (src-tauri/tests/mac_print.rs) prints into a PDF: the same page the
+// app builds, kept in a file so that the Rust test needs no Node. Regenerate: UPDATE_SHEET=1 npx vitest run printPage.
+describe("the sheet of the macOS print test", () => {
+  const file = new URL("../../src-tauri/tests/fixtures/sheet.html", import.meta.url);
+  const sheet = printPage(
+    letter({
+      subject: "Invoice 42: Счёт на оплату",
+      from: { name: "Anna Petrova", email: "anna@example.com" },
+      cc: [{ name: null, email: "boss@example.com" }],
+      files: ["invoice-42.pdf"],
+      body: "<h2>Payment due</h2><p>Hello, the invoice is attached. Здравствуйте, счёт во вложении.</p>",
+    }),
+    labels,
+  );
+
+  it("is the page the app builds now", () => {
+    if (process.env.UPDATE_SHEET) writeFileSync(file, sheet);
+    expect(readFileSync(file, "utf-8")).toBe(sheet);
   });
 });

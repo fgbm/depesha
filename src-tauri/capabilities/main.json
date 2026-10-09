@@ -146,6 +146,7 @@
     "allow-outbox-missed",
     "allow-compose-unsaved",
     "allow-quit-cancel",
+    "allow-print-sheet",
     "allow-drop-seen",
     "allow-drop-outcome",
     "allow-e2e-drop",

@@ -58,6 +58,8 @@ export function letterOf(msg: OpenedMessage, form: BodyView, allowRemote: boolea
 
 const list = (people: Addr[]) => people.map((a) => esc(addrFull(a))).join(", ");
 
+// The body is held in its own box (`main`): a letter's `position:absolute` or `fixed` text is
+// placed against it and clipped by it, so it cannot be laid over the header (a forged «From:»).
 // Always light, on white: a dark theme is for the screen. The Content-Security-Policy is the
 // reading frame's (MailFrame.svelte): no scripts, pictures from the network only when allowed.
 const CSS = `@page{margin:16mm}
@@ -74,7 +76,8 @@ img{max-width:100%;height:auto}
 table{max-width:100%}
 pre{white-space:pre-wrap}
 blockquote{margin:0 0 0 4px;padding-left:12px;border-left:3px solid #bbb;color:#444}
-a{color:inherit;text-decoration:underline}`;
+a{color:inherit;text-decoration:underline}
+main{contain:paint;position:relative;overflow:hidden}`;
 
 const MARKDOWN_TABLES = `:root{--md-line:#bbb;--md-head:#eee}
 table{border-collapse:collapse}
@@ -92,6 +95,7 @@ export function printPage(l: PrintLetter, labels: PrintLabels): string {
     l.files.length ? row(labels.attachments, l.files.map(esc).join(", ")) : "",
   ].join("\n");
   return `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="x-dns-prefetch-control" content="off">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${l.allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:">
 <title>${subject}</title>
 <style>
