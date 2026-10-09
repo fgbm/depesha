@@ -247,6 +247,23 @@ async function closeSettings() {
   await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
 }
 
+/** What has the focus in the settings, for the message of a step that waited for a row to get it. */
+const focusInfo = () =>
+  d.exec(
+    "const a = document.activeElement; return { active: a ? `${a.tagName}.${a.className} ${a.dataset?.row ?? ''}` : null, hasFocus: document.hasFocus(), page: document.querySelector('.prefs .pane h2')?.textContent, rows: [...document.querySelectorAll('.prefs [data-row]')].map((r) => r.dataset.row).join(',') };",
+  );
+
+/** The page of one mailbox: the «Mailboxes» page of the settings lists them, in the order of `accounts` (#102, 2.6 Б). */
+async function openMailboxPage(id) {
+  await press(",", { ctrlKey: true });
+  await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
+  await d.click(await d.find(".prefs .tab[data-page='accounts']"));
+  await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
+  const at = Math.max(0, (await invoke("accounts")).findIndex((a) => a.id === id));
+  await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[at]);
+  await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+}
+
 async function sidebarText() {
   return d.exec("return document.querySelector('nav.side').innerText");
 }
@@ -490,19 +507,22 @@ try {
     const dir = join(profile, "Вложения");
     const setDir = async (value) => {
       await press(",", { ctrlKey: true });
-      await d.click(await d.until("mail page", () => d.find(".prefs .tab[data-page='mail']")));
-      await d.until("folder field", () => d.find(".prefs .folder input"));
+      await d.click(await d.until("writing page", () => d.find(".prefs .tab[data-page='writing']")));
+      const row = ".prefs [data-row='attachments_dir']";
+      const shown = () => d.exec(`return document.querySelector("${row} .path").title`);
+      await d.until("folder field", () => d.find(`${row} .folder`));
       // Picked in the dialog: the field is not typed into.
       if (value) {
         await pickFolder(value);
-        await d.click(await d.find(".prefs .folder .btn:not(.icon)"));
-        await d.until("folder picked", async () => (await d.exec("return document.querySelector('.prefs .folder input').value")) === value);
+        await d.click(await d.find(`${row} .folder .btn:not(.ghost)`));
+        await d.until("folder picked", async () => (await shown()) === value);
       } else {
-        const clear = await d.findAll(".prefs .folder .btn.icon");
+        const clear = await d.findAll(`${row} .folder .btn.ghost`);
         if (clear.length) await d.click(clear[0]);
+        await d.until("folder cleared", async () => (await shown()) === "");
       }
-      await d.click(await d.find(".prefs footer .btn.primary"));
-      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+      // Saved the moment it was picked: the window closes with nothing to confirm.
+      await closeSettings();
     };
     await setDir(dir);
     await d.button("Входящие");
@@ -1078,9 +1098,11 @@ try {
     // The threshold is a setting; 1 MB here, so the ready query finds the letter.
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await setInput(".prefs input.large", "1");
-    await d.click(await d.find(".prefs footer .btn.primary"));
-    await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+    await d.click(await d.find(".prefs .tab[data-page='storage']"));
+    await setInput(".prefs [data-row='large_mb'] input", "1");
+    await d.type(await d.find(".prefs [data-row='large_mb'] input"), "\uE007");
+    await d.until("threshold saved", async () => (await invoke("settings_get")).large_mb === 1);
+    await closeSettings();
 
     // A ready query from the suggestions of the empty search box.
     const box = await d.find(".list .search input");
@@ -2058,17 +2080,16 @@ try {
     await d.type(await d.find(".palette .q"), "настройки");
     await d.type(await d.find(".palette .q"), "\uE007");
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await screenshot("settings-general");
-    await d.click(await d.find(".prefs .tab[data-page='mail']"));
-    await d.until("mail page", async () => (await textOf(".prefs .pane h2")) === "Почта");
-    await screenshot("settings-mail");
-    // A plugin's settings are a page of their own, under "Plugins".
-    await d.click(await d.xpath("//div[contains(@class,'prefs')]//button[contains(@class,'tab')][contains(., 'Шаблоны ответов')]"));
+    await screenshot("settings-reading");
+    await d.click(await d.find(".prefs .tab[data-page='writing']"));
+    await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
+    await screenshot("settings-writing");
+    // The templates are a group of the plugin on the page they belong to, marked «плагин» (#102, 2.4).
     await d.button("Добавить шаблон");
     await setInput(".prefs .tpl input", "Получил");
     await setInput(".prefs .tpl textarea", "Спасибо, получил.");
-    await d.click(await d.find(".prefs footer .btn.primary"));
-    await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+    // The plugin saves what was typed as the window closes.
+    await closeSettings();
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
     await d.button("Шаблоны");
@@ -2089,10 +2110,15 @@ try {
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
     const tabs = await textOf(".prefs .pages");
-    for (const want of ["Общие", "Все ящики", "carol@local.test", "Все плагины"]) {
+    for (const want of ["Чтение и список", "Написание", "Ящики", "Все плагины"]) {
       if (!tabs.includes(want)) throw new Error(`нет раздела «${want}»: ${tabs}`);
     }
-    await d.click(await d.find(".prefs .tab[data-page^='account:']"));
+    // One entry for the mailboxes; they stand on its page, not in the menu (#102, 2.6 Б).
+    if ((await d.findAll(".prefs .tab[data-page^='account:']")).length) throw new Error("ящики снова пунктами меню");
+    await d.click(await d.find(".prefs .tab[data-page='accounts']"));
+    await d.until("manager", async () => (await d.findAll(".prefs .accounts")).length === 1);
+    if (!(await textOf(".prefs .accounts")).includes("carol@local.test")) throw new Error("на странице «Ящики» нет ящика");
+    await d.click((await d.findAll(".prefs .accounts .acc > .btn.icon"))[0]);
     await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
     await d.click(await d.find(".prefs .tab[data-page='plugins']"));
     await d.until("plugins page", async () => (await d.findAll(".prefs .plugins")).length === 1);
@@ -2121,19 +2147,96 @@ try {
     if (!found.includes("Формат новых писем")) throw new Error(`по «markdown» не нашёлся «Формат новых писем»: ${found}`);
     // A click opens the page and scrolls to the field (#68, frame 4А).
     await d.click(await d.xpath("//div[contains(@class,'prefs')]//button[contains(@class,'hit')][.//span[contains(@class,'lbl') and contains(., 'Формат новых писем')]]"));
-    await d.until("mail page", async () => (await textOf(".prefs .pane h2")) === "Почта");
-    await d.until("field in view", async () =>
-      await d.exec("const el = document.querySelector('.prefs [data-settings=\"mail-new\"]'); if (!el) return false; const r = el.getBoundingClientRect(); const c = document.querySelector('.prefs .content').getBoundingClientRect(); return r.top >= c.top - 4 && r.top < c.bottom;"),
-    );
+    await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
+    // The row is in view and has the focus: found, so the value can be changed from the keyboard (#102, 4.4 А).
+    await d
+      .until("field in view", async () =>
+        await d.exec("const el = document.querySelector('.prefs [data-settings=\"compose_format\"]'); if (!el || document.activeElement !== el) return false; const r = el.getBoundingClientRect(); const c = document.querySelector('.prefs .content').getBoundingClientRect(); return r.top >= c.top - 4 && r.top < c.bottom;"),
+      )
+      .catch(async (e) => {
+        throw new Error(`${e.message}: ${JSON.stringify(await focusInfo())}`);
+      });
     await screenshot("settings-search");
     await closeSettings();
   }, { retry: true });
 
-  await step("11.1", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
+  await step("7.23", "настройки: всё сохраняется сразу, «Отменить» и Ctrl+Z, неверное значение не сохраняется, тема в обеих темах", async () => {
+    const saved = () => invoke("settings_get");
+    const theme = () => d.exec("return document.documentElement.dataset.theme ?? ''");
+    const row = (id) => `.prefs [data-row='${id}']`;
+    const tile = (name) =>
+      d.xpath(`//div[contains(@class,'prefs')]//div[@data-row='theme']//button[@role='radio'][normalize-space(.)='${name}']`);
     await press(",", { ctrlKey: true });
     await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await d.click(await d.find(".prefs .tab[data-page^='account:']"));
-    await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+    await d.click(await d.find(".prefs .tab[data-page='reading']"));
+    await d.until("reading page", async () => (await textOf(".prefs .pane h2")) === "Чтение и список");
+    // Nothing waits to be saved: no «Save» and no «Cancel» anywhere in the window.
+    if ((await d.findAll(".prefs footer .btn")).length) throw new Error("в окне настроек остались кнопки «Сохранить» и «Отмена»");
+
+    // A switch is saved the moment it is clicked; its row says so, a toast offers to take it back.
+    const was = (await saved()).threads;
+    await d.click(await d.find(`${row("threads")} .sw`));
+    await d.until("threads saved", async () => (await saved()).threads === !was);
+    await d.until("saved mark", async () => (await textOf(row("threads"))).includes("✓ Сохранено"));
+    await d.until("undo toast", async () => (await textOf(".toasts")).includes("Отменить"));
+    // Ctrl+Z takes the last change back.
+    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    await d.until("threads back", async () => (await saved()).threads === was);
+
+    // The keyboard: the menu → the page, the arrows change a value, Ctrl+Z takes it back.
+    await d.click(await d.find(".prefs .tab[data-page='writing']"));
+    await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
+    await d.exec("document.querySelector(\".prefs .tab[data-page='writing']\").focus()");
+    await pressIn(".prefs .tab[data-page='writing']", "ArrowRight");
+    await d
+      .until("first row has the focus", async () => (await d.exec("return document.activeElement?.dataset?.row")) === "compose_format")
+      .catch(async (e) => {
+        throw new Error(`${e.message}: ${JSON.stringify(await focusInfo())}`);
+      });
+    const format = (await saved()).compose_format;
+    await pressIn(row("compose_format"), format === "markdown" ? "ArrowLeft" : "ArrowRight");
+    await d.until("format stepped", async () => (await saved()).compose_format !== format);
+    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    await d.until("format back", async () => (await saved()).compose_format === format);
+
+    // A number out of its limits is lit and not saved; Esc puts the saved one back and keeps the window.
+    const px = `${row("image_max_px")} input`;
+    const width = (await saved()).image_max_px;
+    await setInput(px, "99999");
+    await d.type(await d.find(px), "\uE007");
+    await d.until("field lit", async () => (await d.findAll(`${px}.bad`)).length === 1);
+    if ((await saved()).image_max_px !== width) throw new Error("неверное число сохранилось");
+    await d.type(await d.find(px), "\uE00C");
+    await d.until("saved value back", async () => (await d.exec(`return document.querySelector("${px}").value`)) === String(width));
+    if (!(await d.findAll(".prefs")).length) throw new Error("Esc в поле закрыл окно");
+    // A right one is saved on Enter.
+    await setInput(px, "1200");
+    await d.type(await d.find(px), "\uE007");
+    await d.until("number saved", async () => (await saved()).image_max_px === 1200);
+    await pressIn(".modal.prefs", "z", { ctrlKey: true });
+    await d.until("number back", async () => (await saved()).image_max_px === width);
+
+    // The theme applies the moment its tile is clicked, and the page is photographed in both.
+    await d.click(await d.find(".prefs .tab[data-page='look']"));
+    await d.until("look page", async () => (await textOf(".prefs .pane h2")) === "Вид и язык");
+    const was_theme = (await saved()).theme;
+    await d.click(await tile("Бумага"));
+    await d.until("light theme", async () => (await theme()) === "paper");
+    await screenshot("settings-look-paper");
+    await d.click(await tile("Ночь"));
+    await d.until("dark theme", async () => (await theme()) === "night");
+    await screenshot("settings-look-night");
+    const back = { system: "Как в системе", paper: "Бумага", night: "Ночь", snow: "Снег", graphite: "Графит" }[was_theme];
+    await d.click(await tile(back));
+    await d.until("theme as it was", async () => (await saved()).theme === was_theme);
+
+    // Closing asks nothing.
+    await closeSettings();
+    if ((await d.findAll(".dialog, .confirm")).length) throw new Error("закрытие окна настроек о чём-то спросило");
+  });
+
+  await step("11.1", "«Сервер»: возможности по данным входа, группы, технические подробности, «Проверить снова»", async () => {
+    await openMailboxPage((await invoke("accounts"))[0].id);
     await d.click(await d.find(".account-page .toc a[data-toc='server']"));
     // What the login found is in the cache: the table shows without asking the server.
     await d.until("features", async () => (await d.findAll(".account-page tr[data-feature='idle']")).length === 1, 15000);
@@ -2161,10 +2264,7 @@ try {
 
   await step("11.2", "«Хранилище»: квота или «не сообщает», локальный кэш отдельно, размер папок фоном, строка в сайдбаре", async () => {
     const id = (await invoke("accounts"))[0].id;
-    await press(",", { ctrlKey: true });
-    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await d.click(await d.find(`.prefs .tab[data-page='account:${id}']`));
-    await d.until("mailbox page", async () => (await d.findAll(".prefs .account-page")).length === 1);
+    await openMailboxPage(id);
     await d.click(await d.find(".account-page .toc a[data-toc='storage']"));
     const storage = await textOf(".account-page section[data-section='storage']");
     if (!/Занято|Сервер не сообщает квоту/.test(storage)) throw new Error(`ни квоты, ни «не сообщает»: ${storage.slice(0, 300)}`);
@@ -2204,9 +2304,11 @@ try {
       await d.type(await d.find(".palette .q"), search);
       await d.type(await d.find(".palette .q"), "\uE007");
       await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-      await d.click(await d.find(`.prefs input[name][value="${value}"], .prefs input[type=radio][value="${value}"]`));
-      await d.click(await d.find(".prefs footer .btn.primary"));
-      await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+      await d.click(await d.find(".prefs .tab[data-page='look']"));
+      // The language is a few short options, so segments (#102, 1.1 А); saved the moment one is clicked.
+      await d.click(await d.xpath(`//div[contains(@class,'prefs')]//div[@data-row='language']//button[@role='radio'][normalize-space(.)='${value === "en" ? "English" : "Русский"}']`));
+      await d.until("language saved", async () => (await invoke("settings_get")).language === value);
+      await closeSettings();
     };
     await d.button("Входящие");
     await setLanguage("настройк", "en");
@@ -2765,10 +2867,7 @@ try {
     // Opening the mailbox page hands the sidebar the namespaces (#42): the folder leaves the
     // account's own tree and moves under the «Общие» heading.
     const sharedId = (await invoke("accounts")).find((a) => a.email === "shared@local.test").id;
-    await press(",", { ctrlKey: true });
-    await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-    await d.click(await d.find(`.prefs .tab[data-page='account:${sharedId}']`));
-    await d.until("mailbox page", async () => (await d.findAll(".account-page")).length === 1);
+    await openMailboxPage(sharedId);
     await closeSettings();
     await d.until("shared group", async () => (await sidebarText()).includes("Общие"), 30000);
     await d.until("folder in the shared group", async () =>

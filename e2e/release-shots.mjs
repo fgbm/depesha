@@ -193,8 +193,8 @@ try {
   // 01. Settings: "Фон и запуск".
   await press(",", { ctrlKey: true });
   await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-  await d.click(await d.find(".prefs .tab[data-page='background']"));
-  await d.until("background page", async () => (await d.findAll(".prefs [data-settings='bg-close']")).length === 1);
+  await d.click(await d.find(".prefs .tab[data-page='start']"));
+  await d.until("background page", async () => (await d.findAll(".prefs [data-settings='close_action']")).length === 1);
   await sleep(300);
   await shot("01-background");
 
