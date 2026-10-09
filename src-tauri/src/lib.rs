@@ -474,5 +474,10 @@ mod tests {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");
         }
+        // A reply written in a letter's own window takes dropped files (#79, #107): the drop
+        // asks for the file's name and size, and for a picture dropped into the text.
+        for needed in ["file_info", "inline_image", "pick_files", "drop_seen", "drop_outcome"] {
+            assert!(message.contains(needed), "a letter's window may not call {needed}");
+        }
     }
 }

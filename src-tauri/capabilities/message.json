@@ -69,6 +69,7 @@
     "allow-extension-storage-set",
     "allow-plugin-settings-set",
     "allow-inline-image",
+    "allow-file-info",
     "allow-pick-files",
     "allow-pick-folder",
     "allow-pick-save-file",
