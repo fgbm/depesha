@@ -29,7 +29,7 @@ export function buildSettingsIndex(): SearchEntry[] {
   for (const page of PAGES) {
     for (const g of page.groups) {
       for (const row of g.rows) {
-        if (row.kind === "layer") continue;
+        if (row.kind === "layer" || row.visible) continue;
         const words = [...(row.also?.() ?? []), ...(row.kind === "choice" ? row.options(NONE).map((o) => o.label()) : [])];
         out.push({ page: page.id, group: page.title(), section: g.title(), label: row.label(), synonyms: words.join(" "), anchor: row.id });
       }

@@ -43,6 +43,8 @@ interface Base {
   hint?: (s: Settings, c: RowContext) => string | null;
   /** A line in the colour of warning, for a value that works against its purpose. */
   warn?: (s: Settings, c: RowContext) => string | null;
+  /** The row is on the page only while this holds (a question that comes up from another row's value). */
+  visible?: (s: Settings, c: RowContext) => boolean;
   /** The row stands under a switch above it: its place at the left is one strip with its neighbours. */
   dep?: boolean;
   /** The row can be changed; false dims it where it stands (#102, 1.6 А). */
@@ -76,8 +78,8 @@ export type RowSpec = Base &
     | { kind: "theme"; key: "theme" }
     | { kind: "numunit"; key: "large_mb" }
     | { kind: "pair"; key: "quota_levels" }
-    /** A button with a status line: «Check now». */
-    | { kind: "action"; run: "update-check" }
+    /** A button with a status line: «Check now», or the consent that comes up from another row's value. */
+    | { kind: "action"; run: "update-check" | "tray-consent" }
     /** The way to a place that has the setting: «Set at the mailbox ›». */
     | { kind: "link"; to: "mailboxes"; section: string; text: () => string }
     /** «Own at 2 people, 1 mailbox ›»: where the layers below the general value differ from it. */
@@ -334,10 +336,17 @@ const R = {
       { value: "quit", label: () => t("bg.onClose.quit") },
       { value: "ask", label: () => t("bg.onClose.ask") },
     ],
-    // Chosen here, with the warning in sight, the background with no icon is agreed to.
-    extra: (v, c) => (v === "background" && c.noTray ? { background_without_tray: true } : {}),
     hint: () => t("bg.quitHint"),
-    warn: (_s, c) => (c.noTray ? t("bg.noTrayWarn") : null),
+  },
+  // The background with no icon to come back by is a thing to agree to, not a side effect of the choice above (#102).
+  tray_consent: {
+    id: "tray_consent",
+    kind: "action",
+    run: "tray-consent",
+    label: () => t("bg.noTray.row"),
+    warn: () => t("bg.noTrayWarn"),
+    dep: true,
+    visible: (s, c) => c.noTray && s.close_action === "background" && !s.background_without_tray,
   },
   autostart: {
     id: "autostart",
@@ -436,7 +445,7 @@ export const PAGES: PageSpec[] = [
     title: () => t("settings.page.start"),
     icon: Power,
     groups: [
-      group("bg", () => t("settings.page.background"), [R.close_action, R.autostart]),
+      group("bg", () => t("settings.page.background"), [R.close_action, R.tray_consent, R.autostart]),
       group("updates", () => t("settings.updates"), [R.updates, R.update_status]),
     ],
   },

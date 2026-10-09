@@ -3,7 +3,7 @@
   // plugins' groups that stand on the page, and the keyboard of the page. A row is one stop:
   // ↑/↓ walk the rows, ← / → change the value, Enter opens or enters it. Every change is
   // saved at once through the editor; the page keeps no draft and asks nothing on leaving.
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api } from "../../lib/api";
   import { app } from "../../lib/store.svelte";
   import { peopleBook } from "../../lib/peopleBook.svelte";
@@ -56,8 +56,9 @@
 
   const exc = (layer: "format" | "view") => exceptions(layer, peopleBook.list, app.accounts);
 
-  /** A layer row is drawn only where some mailbox or person differs from the general value. */
+  /** A layer row is drawn only where some mailbox or person differs from the general value; a question only while it is asked. */
   function shown(spec: RowSpec): boolean {
+    if (spec.visible && !spec.visible(s, ctx)) return false;
     return spec.kind !== "layer" || exceptionCount(exc(spec.layer)) > 0;
   }
 
@@ -129,17 +130,27 @@
     return lines.join(" ") || null;
   });
 
+  const isUpdate = (spec: RowSpec) => spec.kind === "action" && spec.run === "update-check";
+
   const labelOf = (spec: RowSpec) =>
-    spec.kind === "action" ? t("settings.installed", { version: app.update?.current ?? "—" }) : spec.kind === "layer" ? layerSummary(exc(spec.layer)) : spec.label();
+    isUpdate(spec) ? t("settings.installed", { version: app.update?.current ?? "—" }) : spec.kind === "layer" ? layerSummary(exc(spec.layer)) : spec.label();
 
   function hintOf(spec: RowSpec): string | null {
-    if (spec.kind === "action") return updateHint;
+    if (isUpdate(spec)) return updateHint;
     return spec.hint?.(s, ctx) ?? null;
   }
 
   function warnOf(spec: RowSpec): string | null {
-    if (spec.kind === "action") return app.update?.state === "error" ? (app.update.error ?? null) : null;
+    if (isUpdate(spec)) return app.update?.state === "error" ? (app.update.error ?? null) : null;
     return spec.warn?.(s, ctx) ?? null;
+  }
+
+  /** The button of an action row, and what it does. */
+  function runAction(spec: RowSpec) {
+    if (spec.kind !== "action") return;
+    if (spec.run === "update-check") void app.checkUpdates();
+    // The row goes away once agreed to: the hand stays where it was, on the choice above.
+    else void editor.grantTray(spec).then(tick).then(() => leave("close_action"));
   }
 
   // ---- The keys of a row ----
@@ -150,7 +161,7 @@
 
   function enterRow(spec: RowSpec) {
     if (spec.kind === "link" || spec.kind === "layer") follow(spec);
-    else if (spec.kind === "action") void app.checkUpdates();
+    else if (spec.kind === "action") runAction(spec);
     // The first press only puts the cursor on the first day: nothing is switched by a key that did not choose it.
     else if (spec.kind === "days") {
       if (dayCursor === null) dayCursor = 1;
@@ -235,7 +246,11 @@
       {#if spec.kind === "block"}
         <HintsList />
       {:else if spec.kind === "action"}
-        <button type="button" class="btn" tabindex="-1" disabled={app.update?.state === "checking"} onclick={() => app.checkUpdates()}>{t("settings.checkNow")}</button>
+        {#if spec.run === "update-check"}
+          <button type="button" class="btn" tabindex="-1" disabled={app.update?.state === "checking"} onclick={() => runAction(spec)}>{t("settings.checkNow")}</button>
+        {:else}
+          <button type="button" class="btn" tabindex="-1" onclick={() => runAction(spec)}>{t("bg.noTray.keep")}</button>
+        {/if}
       {:else if spec.kind === "link" || spec.kind === "layer"}
         <div class="menu">
           <button type="button" class="lnk" tabindex="-1" disabled={!isEnabled(spec, s)} onclick={() => follow(spec)}>

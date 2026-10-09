@@ -139,16 +139,16 @@ describe("a choice", () => {
     expect(e.chosen(row("default_account", "choice"))).toBe("");
   });
 
-  it("agrees to the background with no tray icon along with choosing the background there", async () => {
+  it("does not agree to the background with no tray icon by choosing the background: only the choice is written", async () => {
     const { e, state } = editor({ close_action: "ask" }, { noTray: true });
     await e.choose(row("close_action", "choice"), "background");
-    expect(state.commits[0].patch).toEqual({ close_action: "background", background_without_tray: true });
+    expect(state.commits[0].patch).toEqual({ close_action: "background" });
   });
 
-  it("does not agree to it when the system has the tray", async () => {
-    const { e, state } = editor({ close_action: "ask" });
-    await e.choose(row("close_action", "choice"), "background");
-    expect(state.commits[0].patch).toEqual({ close_action: "background" });
+  it("writes the consent when it is given in its own row, and only then", async () => {
+    const { e, state } = editor({ close_action: "background" }, { noTray: true });
+    await e.grantTray(row("tray_consent", "action"));
+    expect(state.commits[0].patch).toEqual({ background_without_tray: true });
   });
 
   it("describes the chosen option only", () => {

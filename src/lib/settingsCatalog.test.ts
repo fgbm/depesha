@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Settings } from "./types";
 import { i18n } from "./i18n.svelte";
 import { MENU, OWN_PAGES, PAGES, menuPages, pageSpec, pageTitle, resolvePage, type RowSpec } from "./settingsCatalog";
 import { choiceMode } from "./settingsRows";
@@ -68,9 +69,16 @@ describe("the rows", () => {
     for (const k of was) expect(keys, k).toContain(k);
   });
 
-  it("put the consent to work with no tray icon along with the choice of the background, not in a row of its own", () => {
+  it("do not give the consent to work with no tray icon along with the choice of the background: it is asked for in a row of its own", () => {
     const close = rows().find((r) => r.id === "close_action");
-    expect(close?.kind === "choice" && close.extra?.("background", { accounts: [], noTray: true })).toEqual({ background_without_tray: true });
+    expect(close?.kind === "choice" && close.extra).toBeFalsy();
+    const ask = rows().find((r) => r.id === "tray_consent");
+    const ctx = { accounts: [], noTray: true };
+    const on = { close_action: "background", background_without_tray: false } as Settings;
+    expect(ask?.visible?.(on, ctx)).toBe(true);
+    expect(ask?.visible?.(on, { ...ctx, noTray: false })).toBe(false);
+    expect(ask?.visible?.({ ...on, close_action: "ask" }, ctx)).toBe(false);
+    expect(ask?.visible?.({ ...on, background_without_tray: true }, ctx)).toBe(false);
     expect(rows().some((r) => "key" in r && r.key === "background_without_tray")).toBe(false);
   });
 

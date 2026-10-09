@@ -32,7 +32,7 @@ describe("a page of rows (#102)", () => {
       const html = page(spec.id);
       for (const g of spec.groups) expect(html, `${spec.id}: ${g.id}`).toContain(g.title());
       for (const row of spec.groups.flatMap((g) => g.rows)) {
-        if (row.kind === "layer") continue;
+        if (row.kind === "layer" || row.visible) continue;
         expect(html, `${spec.id}: ${row.id}`).toContain(`data-settings="${row.id}"`);
       }
     }

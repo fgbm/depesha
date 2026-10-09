@@ -151,6 +151,11 @@ export class RowEditor {
     await this.write(spec, { attachments_dir: path }, "attachments_dir", path);
   }
 
+  /** The consent to work in the background with no icon in the tray: given by the one who is asked, here. */
+  async grantTray(spec: Spec<"action">): Promise<void> {
+    await this.host.auto.commit(spec.id, { background_without_tray: true }, t("bg.noTray.kept"), spec.label());
+  }
+
   /** ← / → on a row that steps through values. The cursor of the weekdays is the page's. */
   async step(spec: RowSpec, dir: 1 | -1, big: boolean): Promise<void> {
     const s = this.s;

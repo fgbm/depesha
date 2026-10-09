@@ -169,3 +169,29 @@ describe("a refused value (#102)", () => {
     expect(page.row("large_mb").textContent).not.toContain("Нужно число");
   });
 });
+
+describe("the background with no tray icon (#102)", () => {
+  it("is not agreed to by choosing it: the row asks, and the consent is the answer", async () => {
+    api.backgroundStatus.mockResolvedValue({ tray: "absent" });
+    page = setup("start", { close_action: "ask" });
+    await vi.waitFor(() => expect(page!.row("close_action")).not.toBeNull());
+    page.row("close_action").querySelector<HTMLElement>("[role=radio]:nth-child(1)")?.click();
+    app.settings = { ...app.settings, close_action: "background" };
+    await vi.waitFor(() => expect(page!.row("tray_consent")).not.toBeNull());
+    expect(page.patches).toEqual([]);
+    const ask = page.row("tray_consent");
+    expect(ask.textContent).toContain("Значка в трее нет");
+    ask.focus();
+    key(ask, "Enter");
+    await vi.waitFor(() => expect(page!.patches).toEqual([{ background_without_tray: true }]));
+    await vi.waitFor(() => expect(page!.row("tray_consent")).toBeNull());
+    await vi.waitFor(() => expect((document.activeElement as HTMLElement).dataset.row).toBe("close_action"));
+  });
+
+  it("asks nothing where there is a tray icon, or the background is not chosen", async () => {
+    api.backgroundStatus.mockResolvedValue({ tray: "present" });
+    page = setup("start", { close_action: "background" });
+    await tick();
+    expect(page.row("tray_consent")).toBeNull();
+  });
+});
