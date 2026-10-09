@@ -153,8 +153,10 @@ jobs:
           } catch {
             # No build of this exact version: the latest release of its major one.
             $major = $version.Split('.')[0]
-            $latest = (Invoke-WebRequest "https://msedgedriver.microsoft.com/LATEST_RELEASE_${major}_WINDOWS").Content
-            $latest = ($latest -replace "[^0-9.]", "").Trim()
+            # The file is UTF-16 with a BOM: read the bytes, not the decoded text.
+            $raw = (Invoke-WebRequest "https://msedgedriver.microsoft.com/LATEST_RELEASE_${major}_WINDOWS").RawContentStream.ToArray()
+            $latest = [Text.Encoding]::Unicode.GetString($raw).TrimStart([char]0xFEFF).Trim()
+            if ($latest -notmatch '^\d+(\.\d+)+$') { throw "LATEST_RELEASE_${major}_WINDOWS is not a version: '$latest'" }
             Write-Host "no msedgedriver $version ($($_.Exception.Message)); taking $latest, the latest of $major"
             Invoke-WebRequest "https://msedgedriver.microsoft.com/$latest/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
           }

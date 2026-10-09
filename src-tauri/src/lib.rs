@@ -31,10 +31,6 @@ use tokio::sync::Notify;
 
 use crate::state::AppState;
 
-/// The app's context. A test build on Windows hands WebView2 the arguments msedgedriver asks
-/// for in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (the remote debugging port): WebView2 takes
-/// the arguments the window sets itself and drops the variable, so without this the driver
-/// finds no `DevToolsActivePort` and the session is never created.
 /// Test builds on Windows only: the arguments for WebView2 that a run asks for. WebView2 takes
 /// the ones a window sets itself and drops the variable, so every window, those of the config
 /// and the letters' own (`message_window`), has to set them: a window with other arguments
@@ -52,6 +48,10 @@ pub(crate) fn e2e_browser_args() -> Option<String> {
     })
 }
 
+/// The app's context. A test build on Windows hands WebView2 the arguments msedgedriver asks
+/// for in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (the remote debugging port): WebView2 takes
+/// the arguments the window sets itself and drops the variable, so without this the driver
+/// finds no `DevToolsActivePort` and the session is never created.
 #[cfg(not(all(feature = "e2e", windows)))]
 fn context() -> tauri::Context {
     tauri::generate_context!()
