@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, "release/**"]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -11,6 +12,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Анонимные загрузки с Docker Hub ограничены; образы стенда берём через зеркало Google
+  IMAGE_PREFIX: mirror.gcr.io/
 
 jobs:
   check:

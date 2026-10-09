@@ -6,7 +6,7 @@
 name: depesha
 services:
   greenmail:
-    image: greenmail/standalone:latest
+    image: ${IMAGE_PREFIX:-}greenmail/standalone:latest
     environment:
       GREENMAIL_OPTS: >-
         -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
@@ -24,7 +24,7 @@ services:
   # The ACL plugin and a read-only "shared/" namespace are added for #42; see
   # docker/dovecot-acl.conf. The "seed" service fills that namespace before it starts.
   dovecot:
-    image: dovecot/dovecot:latest
+    image: ${IMAGE_PREFIX:-}dovecot/dovecot:latest
     environment:
       USER_PASSWORD: "{PLAIN}secret"
     depends_on:
@@ -39,7 +39,7 @@ services:
   # The same Dovecot without UIDPLUS in its capabilities (#113): a plain EXPUNGE is the
   # only way to wipe messages there. STARTTLS on 31144, same login as above.
   dovecot-no-uidplus:
-    image: dovecot/dovecot:latest
+    image: ${IMAGE_PREFIX:-}dovecot/dovecot:latest
     environment:
       USER_PASSWORD: "{PLAIN}secret"
     volumes:
@@ -50,7 +50,7 @@ services:
   # busybox one: a ReadOnly folder whose dovecot-acl grants `anyone` lookup and read.
   # Runs to completion on every `up` (idempotent: mkdir -p, files written again).
   seed:
-    image: busybox:latest
+    image: ${IMAGE_PREFIX:-}busybox:latest
     volumes:
       - ./docker/dovecot-seed.sh:/seed.sh:ro
       - dovecot-shared:/shared
