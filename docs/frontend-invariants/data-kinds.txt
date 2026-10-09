@@ -8,6 +8,7 @@ data-drop-zone
 data-ext
 data-feature
 data-folder
+data-g
 data-group
 data-item
 data-kind
@@ -18,6 +19,7 @@ data-placeholder
 data-plugin
 data-problem
 data-review
+data-row
 data-section
 data-section-labels
 data-settings

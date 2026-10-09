@@ -1,10 +1,12 @@
 alert
 alertdialog
+checkbox
 combobox
 dialog
 group
 img
 listbox
+menu
 menuitem
 menuitemradio
 meter
@@ -17,6 +19,7 @@ radiogroup
 region
 separator
 status
+switch
 tab
 tablist
 tabpanel

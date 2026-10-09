@@ -76,6 +76,7 @@ settingsKeys
 settingsLeave
 settingsOpen
 settingsPage
+settingsPerson
 settingsSection
 settingsTurn
 showCompose

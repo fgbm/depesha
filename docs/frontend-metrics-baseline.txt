@@ -24,7 +24,7 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	230	123	33	74
-component	src/components/Preferences.svelte	643	256	93	294
+component	src/components/Preferences.svelte	545	183	83	279
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	331	131	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
@@ -33,7 +33,7 @@ component	src/components/RichEditor.svelte	525	304	48	173
 component	src/components/RowMenu.svelte	155	96	52	7
 component	src/components/SearchBox.svelte	343	133	68	142
 component	src/components/Segments.svelte	49	6	11	32
-component	src/components/Select.svelte	117	45	30	42
+component	src/components/Select.svelte	121	48	31	42
 component	src/components/Sidebar.svelte	31	24	7	0
 component	src/components/SignaturePicker.svelte	122	31	31	60
 component	src/components/StuckCopy.svelte	121	53	18	50
@@ -43,32 +43,38 @@ component	src/components/Viewer.svelte	253	102	42	109
 component	src/components/WindowControls.svelte	57	16	11	30
 component	src/components/Wizard.svelte	233	27	92	114
 component	src/components/account/AccountPage.svelte	236	63	42	131
-component	src/components/account/AttachmentsDirField.svelte	23	6	9	8
+component	src/components/account/AttachmentsDirField.svelte	29	7	11	11
 component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	65	7	16	42
 component	src/components/account/ConnectionBlock.svelte	117	14	17	86
 component	src/components/account/ConnectionFields.svelte	189	10	60	119
 component	src/components/account/FoldersTable.svelte	186	53	34	99
-component	src/components/account/FormatField.svelte	22	9	13	0
+component	src/components/account/FormatField.svelte	35	10	18	7
 component	src/components/account/GeneralSection.svelte	42	14	12	16
 component	src/components/account/LabelsSection.svelte	308	99	94	115
-component	src/components/account/LetterViewField.svelte	25	12	13	0
+component	src/components/account/LetterViewField.svelte	38	13	18	7
 component	src/components/account/LettersSection.svelte	16	10	6	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
 component	src/components/account/StorageSection.svelte	468	76	162	230
 component	src/components/account/WaitingField.svelte	83	18	28	37
-component	src/components/prefs/AccountsPanel.svelte	53	22	22	9
-component	src/components/prefs/BackgroundPanel.svelte	135	21	47	67
+component	src/components/prefs/AccountsPanel.svelte	29	18	11	0
 component	src/components/prefs/FolderProps.svelte	415	19	179	217
-component	src/components/prefs/GeneralPanel.svelte	321	40	96	185
-component	src/components/prefs/HintsSection.svelte	115	35	29	51
+component	src/components/prefs/HintsList.svelte	84	32	23	29
 component	src/components/prefs/KeysPanel.svelte	678	72	164	442
-component	src/components/prefs/MailPanel.svelte	230	17	128	85
-component	src/components/prefs/OfflinePanel.svelte	80	7	25	48
-component	src/components/prefs/PeoplePanel.svelte	539	107	115	317
-component	src/components/prefs/PluginsPanel.svelte	32	9	14	9
+component	src/components/prefs/LayerMark.svelte	44	6	6	32
+component	src/components/prefs/PeoplePanel.svelte	555	112	119	324
+component	src/components/prefs/PluginsPanel.svelte	43	8	11	24
+component	src/components/prefs/RowControl.svelte	126	50	67	9
+component	src/components/prefs/SettingsPage.svelte	319	186	76	57
+component	src/components/prefs/SettingsRow.svelte	168	47	32	89
+component	src/components/prefs/controls/DaysField.svelte	71	20	18	33
+component	src/components/prefs/controls/FolderField.svelte	56	23	11	22
+component	src/components/prefs/controls/SegChoice.svelte	61	15	9	37
+component	src/components/prefs/controls/Switch.svelte	52	8	6	38
+component	src/components/prefs/controls/ThemeTiles.svelte	106	16	12	78
+component	src/components/prefs/controls/ValueField.svelte	104	70	24	10
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	312	96	59	157
 component	src/components/reader/QuickReply.svelte	218	57	31	130
@@ -330,18 +336,18 @@ function	src/components/Popover.svelte::place	28
 function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
 function	src/components/Popover.svelte::onKey	23
-function	src/components/Preferences.svelte::start	5
-function	src/components/Preferences.svelte::openHit	12
-function	src/components/Preferences.svelte::savePage	16
-function	src/components/Preferences.svelte::revertPage	14
-function	src/components/Preferences.svelte::save	4
-function	src/components/Preferences.svelte::cancel	5
+function	src/components/Preferences.svelte::openHit	6
+function	src/components/Preferences.svelte::reveal	9
 function	src/components/Preferences.svelte::close	4
-function	src/components/Preferences.svelte::confirmLeave	16
-function	src/components/Preferences.svelte::turn	4
-function	src/components/Preferences.svelte::onKey	12
+function	src/components/Preferences.svelte::mayLeave	3
+function	src/components/Preferences.svelte::turn	6
+function	src/components/Preferences.svelte::go	4
+function	src/components/Preferences.svelte::onKey	26
 function	src/components/Preferences.svelte::onWindowKey	7
-function	src/components/Preferences.svelte::onNavKey	7
+function	src/components/Preferences.svelte::focusMenu	3
+function	src/components/Preferences.svelte::focusPage	4
+function	src/components/Preferences.svelte::onNavKey	12
+function	src/components/Preferences.svelte::onSearchKey	6
 function	src/components/QuotaLine.svelte::open	4
 function	src/components/Reader.svelte::bannerAction	4
 function	src/components/Reader.svelte::trustSender	6
@@ -446,23 +452,41 @@ function	src/components/account/sections.ts::sectionsFor	3
 function	src/components/prefs/FolderProps.svelte::rightsLetters	16
 function	src/components/prefs/FolderProps.svelte::runCheck	9
 function	src/components/prefs/FolderProps.svelte::pos	8
-function	src/components/prefs/GeneralPanel.svelte::weekday	4
-function	src/components/prefs/GeneralPanel.svelte::toggleDay	3
-function	src/components/prefs/GeneralPanel.svelte::choose	4
-function	src/components/prefs/HintsSection.svelte::load	7
-function	src/components/prefs/HintsSection.svelte::clear	10
+function	src/components/prefs/HintsList.svelte::load	7
+function	src/components/prefs/HintsList.svelte::clear	10
 function	src/components/prefs/KeysPanel.svelte::pluginName	4
 function	src/components/prefs/KeysPanel.svelte::problemText	3
 function	src/components/prefs/KeysPanel.svelte::messageText	3
 function	src/components/prefs/KeysPanel.svelte::noteText	3
 function	src/components/prefs/KeysPanel.svelte::swapText	3
-function	src/components/prefs/MailPanel.svelte::choose	4
-function	src/components/prefs/PeoplePanel.svelte::load	7
+function	src/components/prefs/PeoplePanel.svelte::load	11
 function	src/components/prefs/PeoplePanel.svelte::save	7
 function	src/components/prefs/PeoplePanel.svelte::edit	7
 function	src/components/prefs/PeoplePanel.svelte::addPerson	6
 function	src/components/prefs/PeoplePanel.svelte::setAddress	9
 function	src/components/prefs/PeoplePanel.svelte::forget	17
+function	src/components/prefs/RowControl.svelte::enter	8
+function	src/components/prefs/SettingsPage.svelte::shown	3
+function	src/components/prefs/SettingsPage.svelte::onFocusIn	4
+function	src/components/prefs/SettingsPage.svelte::leave	3
+function	src/components/prefs/SettingsPage.svelte::onError	3
+function	src/components/prefs/SettingsPage.svelte::items	11
+function	src/components/prefs/SettingsPage.svelte::follow	5
+function	src/components/prefs/SettingsPage.svelte::pickItem	4
+function	src/components/prefs/SettingsPage.svelte::labelOf	2
+function	src/components/prefs/SettingsPage.svelte::hintOf	4
+function	src/components/prefs/SettingsPage.svelte::warnOf	4
+function	src/components/prefs/SettingsPage.svelte::stepDay	3
+function	src/components/prefs/SettingsPage.svelte::enterRow	6
+function	src/components/prefs/SettingsPage.svelte::perform	9
+function	src/components/prefs/SettingsPage.svelte::change	10
+function	src/components/prefs/SettingsPage.svelte::onKey	9
+function	src/components/prefs/SettingsPage.test.ts::page	5
+function	src/components/prefs/controls/DaysField.svelte::weekday	4
+function	src/components/prefs/controls/FolderField.svelte::pick	8
+function	src/components/prefs/controls/ValueField.svelte::commit	11
+function	src/components/prefs/controls/ValueField.svelte::revert	5
+function	src/components/prefs/controls/ValueField.svelte::onKey	14
 function	src/components/prefs/useKeyEditor.svelte.ts::useKeyEditor	3
 function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
@@ -945,19 +969,46 @@ function	src/lib/serverFeatures.ts::labelsRow	21
 function	src/lib/serverFeatures.ts::needsAttention	4
 function	src/lib/serverFeatures.ts::summary	9
 function	src/lib/serverFeatures.ts::report	9
-function	src/lib/settingsFields.ts::buildSettingsIndex	18
-function	src/lib/settingsSearch.test.ts::index	3
+function	src/lib/settingsAutosave.test.ts::fixture	18
+function	src/lib/settingsCatalog.test.ts::modeOf	5
+function	src/lib/settingsCatalog.ts::rowKind	3
+function	src/lib/settingsCatalog.ts::FORMATS	1
+function	src/lib/settingsCatalog.ts::letterViews	2
+function	src/lib/settingsCatalog.ts::group	1
+function	src/lib/settingsCatalog.ts::resolvePage	3
+function	src/lib/settingsCatalog.ts::menuPages	3
+function	src/lib/settingsCatalog.ts::pageSpec	3
+function	src/lib/settingsCatalog.ts::pageTitle	3
+function	src/lib/settingsCatalog.ts::pageIcon	3
+function	src/lib/settingsCatalog.ts::isEnabled	3
+function	src/lib/settingsEdit.test.ts::editor	15
+function	src/lib/settingsEdit.test.ts::row	5
+function	src/lib/settingsEdit.ts::largeParts	4
+function	src/lib/settingsEdit.ts::largeToMb	3
+function	src/lib/settingsEdit.ts::dayName	1
+function	src/lib/settingsFields.ts::buildSettingsIndex	17
+function	src/lib/settingsLayers.test.ts::person	1
+function	src/lib/settingsLayers.test.ts::account	1
+function	src/lib/settingsLayers.ts::exceptions	7
+function	src/lib/settingsLayers.ts::exceptionCount	3
+function	src/lib/settingsLayers.ts::layerSummary	6
+function	src/lib/settingsRows.test.ts::r	1
+function	src/lib/settingsRows.ts::choiceMode	4
+function	src/lib/settingsRows.ts::parseWhole	6
+function	src/lib/settingsRows.ts::stepWhole	4
+function	src/lib/settingsRows.ts::stepClock	6
+function	src/lib/settingsRows.ts::stepChoice	5
+function	src/lib/settingsRows.ts::sideAction	7
+function	src/lib/settingsRows.ts::rowKeyAction	19
+function	src/lib/settingsRows.ts::moveCursor	6
+function	src/lib/settingsRows.ts::dependentRuns	10
+function	src/lib/settingsSearch.test.ts::index	4
 function	src/lib/settingsSearch.ts::words	6
 function	src/lib/settingsSearch.ts::matchesText	5
 function	src/lib/settingsSearch.ts::searchSettings	20
 function	src/lib/settingsWindow.test.ts::num	1
-function	src/lib/settingsWindow.test.ts::fieldsOf	7
-function	src/lib/settingsWindow.ts::traits	3
-function	src/lib/settingsWindow.ts::ownFooter	3
 function	src/lib/settingsWindow.ts::widePage	3
-function	src/lib/settingsWindow.ts::pageKeys	3
-function	src/lib/settingsWindow.ts::pageChanged	5
-function	src/lib/settingsWindow.ts::resolveLeave	3
+function	src/lib/settingsWindow.ts::isRowPage	3
 function	src/lib/shortcuts.svelte.ts::other	8
 function	src/lib/shortcuts.test.ts::press	3
 function	src/lib/shortcuts.test.ts::snooze	2
@@ -1013,7 +1064,7 @@ function	src/lib/stuckCopies.ts::stuckId	4
 function	src/lib/stuckCopies.ts::copyFileName	9
 function	src/lib/syntax.test.ts::runs	3
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	39
+function	src/lib/testing.ts::settings	40
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3

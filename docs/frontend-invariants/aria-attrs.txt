@@ -4,9 +4,11 @@ aria-busy
 aria-checked
 aria-controls
 aria-current
+aria-disabled
 aria-expanded
 aria-haspopup
 aria-hidden
+aria-invalid
 aria-label
 aria-labelledby
 aria-live
