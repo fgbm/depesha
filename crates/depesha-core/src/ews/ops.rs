@@ -1588,6 +1588,9 @@ pub fn aqs(q: &SearchQuery) -> String {
     if q.unread {
         parts.push("isread:false".into());
     }
+    if q.important {
+        parts.push("importance:high".into());
+    }
     let day = |t: i64| {
         Utc.timestamp_opt(t, 0)
             .single()
@@ -1634,6 +1637,9 @@ pub fn restriction(q: &SearchQuery) -> Option<String> {
     if q.unread {
         parts.push(compare("IsEqualTo", "message:IsRead", "false".into()));
     }
+    if q.important {
+        parts.push(compare("IsEqualTo", "item:Importance", "High".into()));
+    }
     match parts.len() {
         0 => None,
         1 => parts.pop(),
@@ -1664,11 +1670,14 @@ pub async fn search_server(
     let ids: Vec<String> = found.iter().map(|i| i.id.clone()).collect();
     let (fresh, uids) = low_uids(store, account_id, folder, &ids)?;
     add_items(s, store, account_id, folder, &fresh).await?;
+    // Found by importance: high, whatever the cache knew (a letter cached before it was read).
+    if q.important {
+        store.mark_important(account_id, folder, &uids)?;
+    }
     let mut rows = Vec::with_capacity(uids.len());
     for uid in uids {
         if let Some(row) = store.find_by_uid(account_id, folder, uid)?
             && (!q.has_attachment || row.has_attachments)
-            && (!q.important || row.importance == Importance::High)
             && q.fits_size(row.size.into())
         {
             rows.push(row.id);

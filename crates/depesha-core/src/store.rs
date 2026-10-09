@@ -456,26 +456,10 @@ fn v24_sender_verdict(conn: &Connection) -> Result<()> {
 }
 
 /// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high.
-/// Letters whose bytes are cached already say it from their headers; the others learn it
-/// when opened or downloaded (`Store::note_importance`, `Store::save_body`), as the headers
-/// of a cached letter are not fetched again.
+/// Only the column: reading the headers of the letters already cached is `Store::backfill_importance`,
+/// run in small batches after the start, not here, where it would hold the window back.
 fn v25_importance(conn: &Connection) -> Result<()> {
     add_column(conn, "messages", "importance", "INTEGER NOT NULL DEFAULT 0")?;
-    let mut found = Vec::new();
-    {
-        let mut stmt = conn.prepare("SELECT message_id, substr(raw, 1, 65536) FROM bodies")?;
-        let mut rows = stmt.query([])?;
-        while let Some(r) = rows.next()? {
-            let importance = crate::message::parse_summary(&r.get::<_, Vec<u8>>(1)?).importance;
-            if importance != crate::message::Importance::Normal {
-                found.push((r.get::<_, i64>(0)?, importance.to_db()));
-            }
-        }
-    }
-    let mut set = conn.prepare("UPDATE messages SET importance = ?2 WHERE id = ?1")?;
-    for (id, importance) in found {
-        set.execute(params![id, importance])?;
-    }
     Ok(())
 }
 
@@ -2447,12 +2431,83 @@ impl Store {
         Ok(())
     }
 
-    /// What opening a letter learned about its importance (#72).
+    /// One batch of reading the importance from the cached letters' headers (#72): the
+    /// letters whose bytes are cached before the column existed. The place it stopped at and
+    /// the end are kept (`backfills`), so a restart goes on and a finished one is not redone.
+    /// Returns true when there is nothing left.
+    pub fn backfill_importance(&self, batch: u32) -> Result<bool> {
+        let conn = self.conn();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS backfills (
+                name   TEXT PRIMARY KEY,
+                cursor INTEGER NOT NULL DEFAULT 0,
+                done   INTEGER NOT NULL DEFAULT 0
+            )",
+        )?;
+        let (cursor, done): (i64, bool) = conn
+            .query_row(
+                "SELECT cursor, done FROM backfills WHERE name = 'importance'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .unwrap_or((0, false));
+        if done {
+            return Ok(true);
+        }
+        let found: Vec<(i64, Vec<u8>)> = conn
+            .prepare(
+                "SELECT message_id, substr(raw, 1, 65536) FROM bodies WHERE message_id > ?1
+                 ORDER BY message_id LIMIT ?2",
+            )?
+            .query_map(params![cursor, batch], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let last = found.last().map(|f| f.0);
+        for (id, head) in &found {
+            let importance = crate::message::parse_summary(head).importance;
+            if importance != Importance::Normal {
+                conn.execute(
+                    "UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance = 0",
+                    params![id, importance.to_db()],
+                )?;
+            }
+        }
+        let finished = found.len() < batch as usize;
+        conn.execute(
+            "INSERT OR REPLACE INTO backfills (name, cursor, done) VALUES ('importance', ?1, ?2)",
+            params![last.unwrap_or(cursor), finished],
+        )?;
+        Ok(finished)
+    }
+
+    /// What opening a letter learned about its importance (#72). A letter whose MIME says
+    /// nothing keeps what the cache knows: Exchange tells its importance by a property the
+    /// MIME of an opened letter may not carry.
     pub fn note_importance(&self, id: i64, importance: Importance) -> Result<()> {
+        if importance == Importance::Normal {
+            return Ok(());
+        }
         self.conn().execute(
             "UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance != ?2",
             params![id, importance.to_db()],
         )?;
+        Ok(())
+    }
+
+    /// Letters the server found by their importance (`is:important`) are high, whatever
+    /// the cache knew: a letter cached before the importance was read is not lost (#72).
+    pub fn mark_important(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        {
+            let mut set = tx.prepare(
+                "UPDATE messages SET importance = 1 WHERE account_id = ?1 AND folder = ?2 AND uid = ?3 AND importance != 1",
+            )?;
+            for uid in uids {
+                set.execute(params![account_id, folder, uid])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -3671,35 +3726,65 @@ mod tests {
             .unwrap();
         store.save_body(plain.id, raw, "Hi").unwrap();
         assert_eq!(store.get(plain.id).unwrap().unwrap().importance, Importance::High);
+        // A letter whose MIME says nothing does not take the importance away (EWS keeps it as a property).
         store.note_importance(urgent_id, Importance::Normal).unwrap();
-        assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::Normal);
+        assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::High);
+        store.note_importance(urgent_id, Importance::Low).unwrap();
+        assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::Low);
     }
 
-    /// Letters whose bytes are cached say their importance the moment the column appears.
+    /// The step only adds the column: the headers of the letters cached before it are read
+    /// afterwards, in batches, once.
     #[test]
-    fn the_importance_step_reads_the_cached_headers() {
+    fn the_importance_of_cached_letters_is_read_in_batches_after_the_start_and_once() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mail.sqlite");
-        let id = {
+        let ids: Vec<i64> = {
             let store = Store::open(&path).unwrap();
             store
                 .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
                 .unwrap();
-            let id = put(&store, "INBOX", 1, &summary("Срочно", 100), false);
-            let conn = store.conn();
-            conn.execute(
-                "INSERT INTO bodies (message_id, raw) VALUES (?1, ?2)",
-                params![id, b"X-Priority: 1 (Highest)\r\nSubject: x\r\n\r\nHi".to_vec()],
-            )
-            .unwrap();
+            let mut ids = Vec::new();
+            for (uid, header) in [
+                (1u32, "X-Priority: 1 (Highest)"),
+                (2, "Subject: calm"),
+                (3, "Importance: High"),
+                (4, "Importance: Low"),
+            ] {
+                let id = put(&store, "INBOX", uid, &summary("Письмо", 100 + i64::from(uid)), false);
+                store
+                    .conn()
+                    .execute(
+                        "INSERT INTO bodies (message_id, raw) VALUES (?1, ?2)",
+                        params![id, format!("{header}\r\nSubject: x\r\n\r\nHi").into_bytes()],
+                    )
+                    .unwrap();
+                ids.push(id);
+            }
             // The cache as it was before the step.
+            let conn = store.conn();
             conn.execute_batch("ALTER TABLE messages DROP COLUMN importance")
                 .unwrap();
             conn.pragma_update(None, "user_version", 24).unwrap();
-            id
+            ids
         };
         let store = Store::open(&path).unwrap();
-        assert_eq!(store.get(id).unwrap().unwrap().importance, Importance::High);
+        let of = |i: usize| store.get(ids[i]).unwrap().unwrap().importance;
+        // The start reads nothing: the window is not held back.
+        assert_eq!(of(0), Importance::Normal);
+        // Two letters a batch: the first batch is not the end.
+        assert!(!store.backfill_importance(2).unwrap());
+        assert_eq!((of(0), of(2)), (Importance::High, Importance::Normal));
+        assert!(!store.backfill_importance(2).unwrap());
+        assert_eq!((of(2), of(3)), (Importance::High, Importance::Low));
+        assert!(store.backfill_importance(2).unwrap());
+        assert_eq!(of(1), Importance::Normal);
+        // Done is recorded: a later call (a restart) reads nothing again, even a changed letter.
+        store.note_importance(ids[0], Importance::Low).unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert!(store.backfill_importance(2).unwrap());
+        assert_eq!(store.get(ids[0]).unwrap().unwrap().importance, Importance::Low);
     }
 
     #[test]

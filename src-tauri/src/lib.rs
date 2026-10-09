@@ -243,6 +243,7 @@ pub fn run() {
                 label_strip::resume_all(&state);
                 tauri::async_runtime::spawn(scheduler::run(state.clone()));
                 tauri::async_runtime::spawn(updater::run(state.clone()));
+                tauri::async_runtime::spawn(read_importance_of_cached(state.clone()));
                 outbox::run(state).await;
             });
             Ok(())
@@ -444,6 +445,26 @@ pub fn run() {
                 updater::apply_staged(&state);
             }
         });
+}
+
+/// Reads the importance (#72) of the letters cached before it was kept, a small batch at a
+/// time with a pause between, so the window and the sync are not held back. The end is
+/// recorded in the cache: the next start finds it done and returns at once.
+async fn read_importance_of_cached(state: std::sync::Arc<state::AppState>) {
+    const BATCH: u32 = 200;
+    loop {
+        let st = state.clone();
+        let done = tauri::async_runtime::spawn_blocking(move || st.store.backfill_importance(BATCH)).await;
+        match done {
+            Ok(Ok(true)) => return,
+            Ok(Ok(false)) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+            Ok(Err(e)) => {
+                tracing::warn!("reading the importance of cached letters stopped: {e}");
+                return;
+            }
+            Err(_) => return,
+        }
+    }
 }
 
 #[cfg(test)]

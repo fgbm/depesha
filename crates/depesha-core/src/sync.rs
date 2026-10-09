@@ -351,11 +351,19 @@ pub async fn search_server(
     let known: HashSet<u32> = store.known_uids(account_id, folder)?.into_iter().collect();
     let missing: Vec<u32> = uids.iter().copied().filter(|u| !known.contains(u)).collect();
     fetch_headers(conn, store, account_id, folder, &missing).await?;
+    found_rows(store, account_id, folder, &q, &uids)
+}
+
+/// The cached rows of the UIDs the server found, newest first. What it found by importance
+/// is high whatever the cache knew: a letter cached before importance was read stays found.
+fn found_rows(store: &Store, account_id: &str, folder: &str, q: &SearchQuery, uids: &[u32]) -> Result<Vec<i64>> {
+    if q.important {
+        store.mark_important(account_id, folder, uids)?;
+    }
     let mut ids = Vec::with_capacity(uids.len());
     for uid in uids.iter().rev() {
         if let Some(row) = store.find_by_uid(account_id, folder, *uid)?
             && (!q.has_attachment || row.has_attachments)
-            && (!q.important || row.importance == message::Importance::High)
         {
             ids.push(row.id);
         }
@@ -377,6 +385,47 @@ pub async fn load_body(conn: &mut Conn, store: &Store, id: i64) -> Result<Vec<u8
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cached_letter_the_server_found_by_importance_is_in_the_results() {
+        use crate::imap::FolderRole;
+        use crate::store::NewMessage;
+        let store = Store::open_in_memory().unwrap();
+        store
+            .replace_folders(
+                "a",
+                &[Folder {
+                    name: "INBOX".into(),
+                    display_name: "INBOX".into(),
+                    delimiter: Some("/".into()),
+                    role: Some(FolderRole::Inbox),
+                    selectable: true,
+                    hidden: false,
+                }],
+            )
+            .unwrap();
+        let summary = message::Summary {
+            subject: "Старое срочное".into(),
+            ..Default::default()
+        };
+        let msg = NewMessage {
+            uid: 7,
+            summary: &summary,
+            fallback_date: 1,
+            size: 1,
+            flags: Flags::default(),
+            keywords: Vec::new(),
+        };
+        let id = store.insert_message("a", "INBOX", &msg).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().importance, message::Importance::Normal);
+        let q = SearchQuery::parse("is:important");
+        // The cache says normal, the server found it by its headers: it is in the results, high from now on.
+        assert_eq!(found_rows(&store, "a", "INBOX", &q, &[7]).unwrap(), [id]);
+        assert_eq!(store.get(id).unwrap().unwrap().importance, message::Importance::High);
+        // An ordinary search leaves the cache alone.
+        let ordinary = SearchQuery::parse("срочное");
+        assert_eq!(found_rows(&store, "a", "INBOX", &ordinary, &[7]).unwrap(), [id]);
+    }
 
     fn mark(modseq: u64, exists: u32, uid_next: u32) -> ModSeqMark {
         ModSeqMark {

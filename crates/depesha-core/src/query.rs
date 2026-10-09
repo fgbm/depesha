@@ -16,7 +16,7 @@ pub struct SearchQuery {
     pub has_attachment: bool,
     pub unread: bool,
     pub flagged: bool,
-    /// `is:important`: letters marked high (#72). IMAP has no key for it: applied to the results locally.
+    /// `is:important`: letters marked high (#72). The server finds them by their headers.
     pub important: bool,
     /// Unix time bounds: `after` inclusive, `before` exclusive (start of the given day).
     pub after: Option<i64>,
@@ -253,6 +253,12 @@ impl Criterion {
     }
 }
 
+/// The keys that find a letter marked high: the headers that say it (RFC 3501 `HEADER`
+/// looks for a substring without regard to case), as one `OR` tree. «1» and «2» of
+/// `X-Priority` are the high ones; `1 (Highest)` and `2 (High)` carry them first.
+const IMPORTANT_KEYS: &str = "OR HEADER Importance high OR HEADER X-Priority 1 OR HEADER X-Priority 2 \
+     HEADER X-MSMail-Priority high";
+
 /// The query as IMAP SEARCH keys (RFC 3501 6.4.4). `has:attachment` has no
 /// IMAP equivalent and is applied to the results locally. SINCE and BEFORE look at
 /// INTERNALDATE, close to the Date the cache filters by.
@@ -276,6 +282,9 @@ pub fn imap_criteria(q: &SearchQuery) -> Vec<Criterion> {
     }
     if q.flagged {
         out.push(Criterion::flag("FLAGGED"));
+    }
+    if q.important {
+        out.push(Criterion::flag(IMPORTANT_KEYS));
     }
     if let Some(t) = q.after {
         out.push(Criterion {
@@ -465,8 +474,11 @@ mod tests {
             assert!(q.important, "{text}");
             assert!(q.words.is_empty(), "{text}");
         }
-        // No IMAP key says it: the results are filtered by the cache after the fetch.
-        assert!(imap_criteria(&SearchQuery::parse("is:important")).is_empty());
+        // The server is asked by the headers; what it finds is marked in the cache (sync.rs).
+        let keys = imap_criteria(&SearchQuery::parse("is:important"));
+        assert_eq!(keys.len(), 1);
+        assert!(keys[0].key.contains("HEADER Importance high") && keys[0].key.contains("X-Priority 2"));
+        assert!(keys[0].value.is_none());
         assert!(!SearchQuery::parse("is:flagged").important);
     }
 
