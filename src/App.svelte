@@ -4,6 +4,7 @@
   import type { PhysicalPosition } from "@tauri-apps/api/dpi";
   import type { DropZone } from "./lib/images";
   import { app } from "./lib/store.svelte";
+  import { listenDrops } from "./lib/drops";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
@@ -100,10 +101,12 @@
       if (p.type === "enter") app.compose.dragEnter(c, p.paths);
       else if (p.type === "over" && app.compose.dragging) app.compose.dragging.zone = zoneAt(p.position);
       else if (p.type === "leave") app.compose.dragging = null;
-      else if (p.type === "drop") await app.compose.dropFiles(c, p.paths, zoneAt(p.position));
+      // A drop comes from `listenDrops`: the backend allows the files first (#79).
     });
+    const unlistenDrops = listenDrops(app, zoneAt);
     return () => {
       unlisten.then((f) => f());
+      unlistenDrops.then((f) => f());
     };
   });
 

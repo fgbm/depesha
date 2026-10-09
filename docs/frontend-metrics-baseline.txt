@@ -1,4 +1,4 @@
-component	src/App.svelte	334	217	71	46
+component	src/App.svelte	337	220	71	46
 component	src/MessageWindow.svelte	120	86	29	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	230	94	41	95
@@ -36,6 +36,7 @@ component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	117	45	30	42
 component	src/components/Sidebar.svelte	31	24	7	0
 component	src/components/SignaturePicker.svelte	122	31	31	60
+component	src/components/StuckCopy.svelte	121	53	18	50
 component	src/components/Tasks.svelte	333	85	99	149
 component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	253	102	42	109
@@ -387,6 +388,9 @@ function	src/components/SearchBox.svelte::addOperator	6
 function	src/components/Select.svelte::pick	7
 function	src/components/Select.svelte::onKey	7
 function	src/components/SignaturePicker.svelte::pick	4
+function	src/components/StuckCopy.svelte::retry	14
+function	src/components/StuckCopy.svelte::save	11
+function	src/components/StuckCopy.svelte::drop	8
 function	src/components/Tasks.svelte::loadOverview	3
 function	src/components/Tasks.svelte::percent	3
 function	src/components/Tasks.svelte::accountName	4
@@ -587,6 +591,7 @@ function	src/lib/consent.ts::consentItems	7
 function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
 function	src/lib/debounce.ts::debounce	21
+function	src/lib/drops.ts::listenDrops	8
 function	src/lib/events.ts::common	24
 function	src/lib/events.ts::applySettingsChanged	8
 function	src/lib/events.ts::listenMain	60
@@ -988,6 +993,11 @@ function	src/lib/store.test.ts::noAnimation	5
 function	src/lib/store.test.ts::caret	21
 function	src/lib/store.test.ts::walk	9
 function	src/lib/store.test.ts::started	6
+function	src/lib/stuckCopies.test.ts::task	10
+function	src/lib/stuckCopies.ts::stuckTasks	3
+function	src/lib/stuckCopies.ts::stuckOf	3
+function	src/lib/stuckCopies.ts::stuckId	4
+function	src/lib/stuckCopies.ts::copyFileName	9
 function	src/lib/syntax.test.ts::runs	3
 function	src/lib/testing.ts::emit	5
 function	src/lib/testing.ts::settings	39

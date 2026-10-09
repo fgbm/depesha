@@ -55,12 +55,40 @@ impl Paths {
             return Ok(path);
         }
         // The file name only: the folders of a path are personal data.
+        let (same_name, same_spelling) = self.lookalikes(to, &path);
         tracing::warn!(
             ?to,
             file = %path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(),
+            same_name,
+            same_spelling,
             "a path was refused: it was not chosen for this use"
         );
         Err(not_chosen(to))
+    }
+
+    /// For the log of a refusal: how many allowed paths of this use have the same file name,
+    /// and whether one of them differs from the asked path only in spelling.
+    /// Counts only, the folders of a path are personal data.
+    fn lookalikes(&self, to: Use, path: &Path) -> (usize, bool) {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase());
+        // Only the spelling folded away: case, `/` for `\`, the `\\?\` prefix.
+        let loose = |p: &Path| {
+            p.to_string_lossy()
+                .replace('/', "\\")
+                .replace("\\\\?\\", "")
+                .to_lowercase()
+        };
+        let asked = loose(path);
+        let granted = self.lock();
+        let mut same_name = 0;
+        let mut spelled = false;
+        for (_, other) in granted.iter().filter(|(u, _)| *u == to) {
+            if other.file_name().map(|n| n.to_string_lossy().to_lowercase()) == name {
+                same_name += 1;
+                spelled |= loose(other) == asked && other != &key(path);
+            }
+        }
+        (same_name, spelled)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashSet<(Use, PathBuf)>> {
@@ -173,6 +201,26 @@ mod tests {
         assert!(paths.check(Use::SaveFolder, &doc).is_err());
         assert!(paths.check(Use::Attach, &abs("home/me/.ssh/id_ed25519")).is_err());
         assert!(paths.check(Use::Attach, &abs("home/me/report.pdf/../.bashrc")).is_err());
+    }
+
+    #[test]
+    fn a_refusal_counts_allowed_paths_of_the_same_name() {
+        let paths = Paths::default();
+        paths.allow(Use::Attach, PathBuf::from(abs("home/me/report.pdf")));
+        paths.allow(Use::Attach, PathBuf::from(abs("home/other/Report.pdf")));
+        paths.allow(Use::SaveFile, PathBuf::from(abs("home/me/report.pdf")));
+        let asked = PathBuf::from(abs("tmp/report.pdf"));
+        assert_eq!(paths.lookalikes(Use::Attach, &asked), (2, false));
+        assert_eq!(
+            paths.lookalikes(Use::Attach, &PathBuf::from(abs("home/me/notes.pdf"))),
+            (0, false)
+        );
+        assert_eq!(paths.lookalikes(Use::Plugin, &asked), (0, false));
+        if !cfg!(windows) {
+            // The same path in another case is a different key here: the log tells it apart.
+            let cased = PathBuf::from(abs("home/me/REPORT.pdf"));
+            assert_eq!(paths.lookalikes(Use::Attach, &cased), (2, true));
+        }
     }
 
     #[test]
