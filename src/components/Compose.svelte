@@ -298,7 +298,7 @@
 
 <!-- The short card of a person (#66, frame 13): opened by a click on a chip of an address. -->
 {#snippet personCard(email: string)}
-  <PersonCard short {email} name={peopleBook.find(email)?.name ?? ""} onAllMail={() => app.setView({ kind: "search", text: `from:${email}` })} />
+  <PersonCard short {email} name={peopleBook.find(email)?.name ?? ""} onAllMail={() => app.setView({ kind: "search", text: peopleBook.allMail(email) })} />
 {/snippet}
 
 {#if c.mode === "max"}

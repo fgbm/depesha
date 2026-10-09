@@ -11,15 +11,14 @@
   import { t, tn } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { api } from "../../lib/api";
-  import { tick, untrack } from "svelte";
+  import { tick } from "svelte";
   import { avatarColor, initials, listDate, parseAddr } from "../../lib/format";
   import { pressName } from "../../lib/keymap";
-  import { blankPerson, type Person } from "../../lib/people";
+  import { allMailQuery, blankPerson, type Person } from "../../lib/people";
   import { duplicateIn } from "../../lib/peopleMerge";
   import { peopleBook } from "../../lib/peopleBook.svelte";
   import { peopleOps } from "../../lib/peopleOps.svelte";
   import type { BodyFormat, MessageRow, ViewRule } from "../../lib/types";
-  import Mail from "@lucide/svelte/icons/mail";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import Check from "@lucide/svelte/icons/check";
@@ -82,14 +81,18 @@
   ];
   const labelOf = <T extends string>(list: { value: T; label: string }[], v: T) => list.find((o) => o.value === v)?.label ?? "";
 
-  // The letters of this sender, read once when the card opens; the card is made anew for
-  // another address, so the read does not follow the prop. The short card does not read them.
-  untrack(() => {
+  // The latest letters of this person, from any of their addresses; read again when the
+  // addresses change (a merge, an address added). The short card does not read them.
+  const mailQuery = $derived(allMailQuery(person ?? blankPerson(email)));
+  $effect(() => {
     if (short) return;
+    const query = mailQuery;
+    let current = true;
     api
-      .search(`from:${email}`)
-      .then((rows) => (recent = rows.slice(0, 4)))
-      .catch(() => (recent = []));
+      .search(query)
+      .then((rows) => current && (recent = rows.slice(0, 4)))
+      .catch(() => current && (recent = []));
+    return () => (current = false);
   });
 
   /** A change in the card is a record: the one kept, or a new one for the address. */
@@ -270,16 +273,21 @@
 
   async function removePerson() {
     if (!person) return;
+    // With an address in the correspondence the person stays and only the mark comes off: the question says which.
+    const kept = person.emails.some((a) => a.uses > 0);
+    const who = person.name || person.email;
     const { answer } = await app.choose({
-      title: t("people.deleteTitle", { name: person.name || person.email }),
-      text: t("people.deleteText"),
-      okLabel: t("people.delete"),
+      title: t(kept ? "people.unmarkTitle" : "people.deleteTitle", { name: who }),
+      text: t(kept ? "people.unmarkText" : "people.deleteText"),
+      okLabel: t(kept ? "people.unmark" : "people.delete"),
       cancelLabel: t("cancel"),
     });
     if (!answer) return;
     try {
-      await peopleBook.forget(person.email);
-      onGone?.();
+      const done = await peopleBook.forget(person.email);
+      if (!done.removed && !done.unmarked) return;
+      app.offerUndo(t(done.removed ? "people.removed" : "people.unmarked", { name: who }), () => peopleBook.restore(done.undo));
+      if (done.removed) onGone?.();
     } catch (e) {
       app.fail(e);
     }
@@ -352,7 +360,7 @@
       {:else}
         <button class="nm line" role="menuitem" data-r="name" onclick={() => begin("name")} title={t("people.rename")}>{shownName}</button>
       {/if}
-      <div class="nt">{#if shownName !== email}{email}{/if}{#if uses} · {tn("people.letters", uses)}{/if}</div>
+      <div class="nt">{[shownName !== email ? email : "", uses ? tn("people.letters", uses) : ""].filter(Boolean).join(" · ")}</div>
     </div>
   </div>
 
@@ -444,12 +452,11 @@
       {#if !recent.length}<p class="muted small">{t("person.none")}</p>{/if}
     </div>
 
-    <div class="pc-foot">
-      <button class="link" role="menuitem" data-r="write2" onclick={write}><Mail size={13} /> {t("person.write")}</button>
-      {#if inBook && person?.manual}
+    {#if inBook && person?.manual}
+      <div class="pc-foot">
         <button class="link danger" role="menuitem" data-r="delete" onclick={removePerson}><Trash2 size={13} /> {t("people.delete")}</button>
-      {/if}
-    </div>
+      </div>
+    {/if}
   {/if}
 </div>
 

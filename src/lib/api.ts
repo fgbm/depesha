@@ -42,7 +42,7 @@ import type {
   LabelCheck,
   LabelCount,
 } from "./types";
-import type { Added, Merge, Merged, Person, Snapshot, Split, Suggestion } from "./people";
+import type { Added, Forgotten, Merge, Merged, Person, Snapshot, Split, Suggestion } from "./people";
 import type { HintCount, HintState } from "./hints";
 import type { NotificationOpen } from "./arrivals.svelte";
 
@@ -188,8 +188,8 @@ export const api = {
   personSplit: (email: string) => call<Split | null>("person_split", { email }),
   /** Puts back what a merge or a split changed. */
   personRestore: (undo: Snapshot) => call<void>("person_restore", { undo }),
-  /** Removes a person added by hand; one from the correspondence cannot go. */
-  personForget: (email: string) => call<boolean>("person_forget", { email }),
+  /** Removes a person added by hand; one with an address in the correspondence only loses the mark. */
+  personForget: (email: string) => call<Forgotten>("person_forget", { email }),
   /** The decisions about the suggestions (#69). */
   hints: () => call<HintState[]>("hints"),
   hintSave: (hint: HintState) => call<void>("hint_save", { hint }),

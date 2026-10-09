@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { peopleBook } from "../lib/peopleBook.svelte";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import Forward from "@lucide/svelte/icons/forward";
@@ -92,7 +93,7 @@
 
   function fromSender() {
     const email = single?.from?.email;
-    if (email) run(() => app.setView({ kind: "search", text: `from:${email}` }));
+    if (email) run(() => app.setView({ kind: "search", text: peopleBook.allMail(email) }));
   }
 </script>
 

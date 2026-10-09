@@ -166,7 +166,7 @@ describe("the people moved to the main window (#104)", () => {
     const book = vi.spyOn(app, "openPeople").mockResolvedValue();
     open("reading");
     const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
-    field.value = "писать ему";
+    field.value = "формат писем";
     field.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
     const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Люди"))!;

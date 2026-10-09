@@ -70,6 +70,13 @@ export interface Split {
   undo: Snapshot;
 }
 
+/** The answer to forgetting a person: gone whole, or only unmarked «added by hand» (an address in the correspondence keeps them), and the way back. */
+export interface Forgotten {
+  removed: boolean;
+  unmarked: boolean;
+  undo: Snapshot;
+}
+
 /** The answer to adding an address: the person, or — when the address is another's — that person. */
 export interface Added {
   person: Person | null;

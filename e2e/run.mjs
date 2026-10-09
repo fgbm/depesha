@@ -1964,7 +1964,7 @@ try {
     await d.until("person card", async () => (await d.findAll(".pcard")).length === 1);
     // The card holds the rules of #44: the format to write in and the form to show.
     const card = await textOf(".pcard");
-    if (!card.includes("Писать ему") || !card.includes("Все письма")) throw new Error(`карточка: ${card.slice(0, 200)}`);
+    if (!card.includes("Формат писем") || !card.includes("Все письма")) throw new Error(`карточка: ${card.slice(0, 200)}`);
     // The first button is «All mail» and stands in focus; Enter runs what a click used to.
     const focused = await d.exec("return document.activeElement?.innerText?.trim() ?? ''");
     if (focused !== "Все письма") throw new Error(`в фокусе «${focused}», а не «Все письма»`);

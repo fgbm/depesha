@@ -112,6 +112,10 @@ pub struct Snapshot {
     pub created: Vec<i64>,
     /// Decisions about «the same person» the operation wrote: they go too.
     pub hints: Vec<String>,
+    /// Addresses of the correspondence without a record that the operation joined to a person:
+    /// they are the snapshot's too, though no row of theirs is in it.
+    #[serde(default)]
+    pub loose: Vec<String>,
 }
 
 /// The outcome of a merge: the joint person and the way back.
@@ -136,6 +140,15 @@ pub struct Split {
 pub struct Added {
     pub person: Option<Person>,
     pub owner: Option<Person>,
+}
+
+/// The outcome of forgetting a person: gone whole, or only unmarked (see `forget_person`), and
+/// the way back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Forgotten {
+    pub removed: bool,
+    pub unmarked: bool,
+    pub undo: Snapshot,
 }
 
 /// A person for address completion: the primary address to insert, and all of the person's
@@ -251,7 +264,9 @@ pub(super) fn v23_persons_and_addresses(conn: &Connection) -> Result<()> {
     }
     conn.execute_batch(
         "CREATE TABLE persons (
-             id          INTEGER PRIMARY KEY,
+             -- AUTOINCREMENT: the key of a person that went (merged away, forgotten) is never given
+             -- to another, so the snapshot of an undo cannot meet a stranger under its key.
+             id          INTEGER PRIMARY KEY AUTOINCREMENT,
              name        TEXT NOT NULL DEFAULT '',
              send_format TEXT NOT NULL DEFAULT '',
              view        TEXT NOT NULL DEFAULT '',
@@ -275,7 +290,7 @@ pub(super) fn v23_persons_and_addresses(conn: &Connection) -> Result<()> {
     )?;
     let old: Vec<(String, PersonRow)> = {
         let mut stmt = conn.prepare(
-            "SELECT email, name, send_format, view, note, hidden, manual, via, saved FROM people ORDER BY email",
+            "SELECT email, name, send_format, view, note, hidden, manual, via, saved FROM people ORDER BY saved DESC, email",
         )?;
         stmt.query_map([], |r| {
             Ok((
@@ -297,7 +312,7 @@ pub(super) fn v23_persons_and_addresses(conn: &Connection) -> Result<()> {
     };
     for (email, p) in old {
         let key = email.trim().to_lowercase();
-        // Two old rows differing only in case would be one address: the first stands.
+        // Two old rows differing only in case would be one address: the one saved last stands.
         let taken: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM person_addresses WHERE key = ?1)",
             [&key],
@@ -527,6 +542,50 @@ fn load(conn: &Connection, id: i64) -> Result<Option<Person>> {
     Ok(Some(p))
 }
 
+/// Reads several people at once: their rows, their addresses and what the letters hold of
+/// those, in three queries whatever their number.
+fn load_many(conn: &Connection, ids: &[i64]) -> Result<HashMap<i64, Person>> {
+    let mut out: HashMap<i64, Person> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let marks = vec!["?"; ids.len()].join(",");
+    {
+        let mut stmt = conn.prepare(&format!("SELECT {PERSON_COLUMNS} FROM persons WHERE id IN ({marks})"))?;
+        for p in stmt.query_map(rusqlite::params_from_iter(ids), person_from)? {
+            let p = p?;
+            out.insert(p.id, p);
+        }
+    }
+    let mut rows: HashMap<i64, Vec<AddressRow>> = HashMap::new();
+    {
+        let mut stmt = conn.prepare(&format!(
+            "SELECT key, email, person_id, is_primary, ord FROM person_addresses
+             WHERE person_id IN ({marks}) ORDER BY person_id, is_primary DESC, ord, key"
+        ))?;
+        let all = stmt.query_map(rusqlite::params_from_iter(ids), |r| {
+            Ok(AddressRow {
+                key: r.get(0)?,
+                email: r.get(1)?,
+                person_id: r.get(2)?,
+                primary: r.get(3)?,
+                ord: r.get(4)?,
+            })
+        })?;
+        for a in all {
+            let a = a?;
+            rows.entry(a.person_id).or_default().push(a);
+        }
+    }
+    let keys: Vec<String> = rows.values().flatten().map(|a| a.key.clone()).collect();
+    let mail = mail_index(conn, Some(&keys))?;
+    for (id, p) in &mut out {
+        p.emails = addresses_with_mail(rows.remove(id).unwrap_or_default(), &mail);
+        finish(p);
+    }
+    Ok(out)
+}
+
 /// The record of an address, made when there is none: a person of that one address with no
 /// rule yet.
 fn ensure(conn: &Connection, email: &str) -> Result<i64> {
@@ -703,16 +762,46 @@ impl Store {
         Ok(saved)
     }
 
-    /// Removes a record, hiding the person from the book. Only one added by hand can go: one
-    /// that came from the correspondence would return with the next letter, so it stays, and
-    /// the person is hidden instead. All their addresses go with them. Says whether anything
-    /// was removed.
-    pub fn forget_person(&self, email: &str) -> Result<bool> {
-        let conn = self.conn();
-        let Some(id) = owner(&conn, &key_of(email))? else {
-            return Ok(false);
+    /// Removes a person added by hand (#104). One whose addresses are all unknown to the
+    /// correspondence goes whole, with their addresses. One with an address that is in the
+    /// correspondence would return with the next letter and keep the rules of that address, so
+    /// it stays and only the mark «added by hand» comes off. Anyone not added by hand stays as
+    /// they are. The snapshot restores what was done.
+    pub fn forget_person(&self, email: &str) -> Result<Forgotten> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let none = Forgotten::default();
+        let Some(id) = owner(&tx, &key_of(email))? else {
+            return Ok(none);
         };
-        Ok(conn.execute("DELETE FROM persons WHERE id = ?1 AND manual = 1", [id])? > 0)
+        let rows = person_rows(&tx, &[id])?;
+        if !rows.first().is_some_and(|p| p.manual) {
+            return Ok(none);
+        }
+        let undo = Snapshot {
+            persons: rows,
+            addresses: address_rows(&tx, id)?,
+            ..Default::default()
+        };
+        let mut heard = false;
+        for a in &undo.addresses {
+            heard |= tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM addresses WHERE fold(email) = ?1)",
+                [&a.key],
+                |r| r.get::<_, bool>(0),
+            )?;
+        }
+        if heard {
+            tx.execute("UPDATE persons SET manual = 0 WHERE id = ?1", [id])?;
+        } else {
+            tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(Forgotten {
+            removed: !heard,
+            unmarked: heard,
+            undo,
+        })
     }
 
     /// Adds an address to the person who has `to` among theirs (made a person if it was an
@@ -725,13 +814,17 @@ impl Store {
         if !key.contains('@') || key.contains(char::is_whitespace) {
             return Err(Error::NotFound);
         }
+        // Another person's address is refused before anything is made: no empty record for `to`.
+        if let Some(other) = owner(&tx, &key)?
+            && owner(&tx, &key_of(to))? != Some(other)
+        {
+            return Ok(Added {
+                person: None,
+                owner: load(&tx, other)?,
+            });
+        }
         let id = ensure(&tx, to)?;
         match owner(&tx, &key)? {
-            Some(other) if other != id => {
-                let owner = load(&tx, other)?;
-                tx.commit()?;
-                return Ok(Added { person: None, owner });
-            }
             Some(_) => {}
             None => {
                 let ord: i64 = tx.query_row(
@@ -822,6 +915,11 @@ impl Store {
                 .concat(),
             ..Default::default()
         };
+        undo.loose = parts
+            .iter()
+            .filter(|p| p.id.is_none())
+            .map(|p| p.rows[0].key.clone())
+            .collect();
         let keep = match involved.first() {
             Some(&id) => id,
             None => {
@@ -870,12 +968,22 @@ impl Store {
                 },
             )?;
         }
+        // The name the letters give, or an address standing for a name, is not the user's own: it is
+        // not kept, so the person goes on showing what their letters say.
+        let keys: Vec<String> = all.iter().map(|a| a.key.clone()).collect();
+        let joint = addresses_with_mail(all.clone(), &mail_index(&tx, Some(&keys))?);
+        let wanted = key_of(&req.name);
+        let name = if req.name == letters_name(&joint) || keys.contains(&wanted) {
+            ""
+        } else {
+            req.name.as_str()
+        };
         tx.execute(
             "UPDATE persons SET name = ?2, send_format = ?3, view = ?4, note = ?5, hidden = ?6,
                  manual = ?7, via = ?8 WHERE id = ?1",
             params![
                 keep,
-                req.name,
+                name,
                 req.send_format,
                 req.view,
                 notes.join("\n\n"),
@@ -890,7 +998,7 @@ impl Store {
     }
 
     /// Lets an address leave its person and become one of its own (#104): the name from the
-    /// letters, the rules (format, form, hiding) copied, no note. The pair is remembered as
+    /// letters, the rules (format, form, hiding) copied, no note and no mark of the hint that set a rule. The pair is remembered as
     /// two people, so it is not offered as a duplicate. None when the person has only that
     /// address. The snapshot restores it.
     pub fn person_split(&self, email: &str) -> Result<Option<Split>> {
@@ -910,12 +1018,7 @@ impl Store {
             ..Default::default()
         };
         let origin = &undo.persons[0];
-        let (send_format, view, hidden, via) = (
-            origin.send_format.clone(),
-            origin.view.clone(),
-            origin.hidden,
-            origin.via.clone(),
-        );
+        let (send_format, view, hidden) = (origin.send_format.clone(), origin.view.clone(), origin.hidden);
         let leaving = rows.iter().find(|a| a.key == key).cloned().unwrap_or_default();
         tx.execute("DELETE FROM person_addresses WHERE key = ?1", [&key])?;
         // The primary address left: the next in order takes its place.
@@ -925,8 +1028,8 @@ impl Store {
             tx.execute("UPDATE person_addresses SET is_primary = 1 WHERE key = ?1", [&next.key])?;
         }
         tx.execute(
-            "INSERT INTO persons (send_format, view, hidden, via) VALUES (?1, ?2, ?3, ?4)",
-            params![send_format, view, hidden, via],
+            "INSERT INTO persons (send_format, view, hidden) VALUES (?1, ?2, ?3)",
+            params![send_format, view, hidden],
         )?;
         let fresh = tx.last_insert_rowid();
         undo.created.push(fresh);
@@ -962,27 +1065,67 @@ impl Store {
         Ok(Some(Split { person, origin, undo }))
     }
 
-    /// Puts back what a merge or a split changed, exactly as the snapshot holds it.
+    /// Puts back what a merge, a split or a forgetting changed, as the snapshot holds it. A record
+    /// that is not the snapshot's — one that holds an address the snapshot does not know — is not
+    /// touched: the snapshot's addresses leave it, and a person of the snapshot whose key it
+    /// took is put back under a key of its own.
     pub fn person_restore(&self, undo: &Snapshot) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
+        let known: std::collections::HashSet<&str> = undo
+            .addresses
+            .iter()
+            .map(|a| a.key.as_str())
+            .chain(undo.loose.iter().map(String::as_str))
+            .collect();
         let mut affected: Vec<i64> = undo.persons.iter().map(|p| p.id).collect();
         affected.extend(&undo.created);
-        // Addresses that joined an affected person since are not the snapshot's: they go back
-        // to the correspondence alone along with the rest.
         for id in &affected {
-            tx.execute("DELETE FROM person_addresses WHERE person_id = ?1", [id])?;
+            let theirs: Vec<AddressRow> = address_rows(&tx, *id)?;
+            if theirs.iter().all(|a| known.contains(a.key.as_str())) {
+                tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
+            } else {
+                for a in theirs.iter().filter(|a| known.contains(a.key.as_str())) {
+                    tx.execute("DELETE FROM person_addresses WHERE key = ?1", [&a.key])?;
+                }
+            }
         }
-        for id in &affected {
-            tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
-        }
+        let mut placed: HashMap<i64, i64> = HashMap::new();
         for p in &undo.persons {
-            insert_person_row(&tx, p)?;
+            let taken: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM persons WHERE id = ?1)", [p.id], |r| {
+                r.get(0)
+            })?;
+            if taken {
+                tx.execute(
+                    "INSERT INTO persons (name, send_format, view, note, hidden, manual, via, saved)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        p.name,
+                        p.send_format,
+                        p.view,
+                        p.note,
+                        p.hidden,
+                        p.manual,
+                        p.via,
+                        p.saved
+                    ],
+                )?;
+                placed.insert(p.id, tx.last_insert_rowid());
+            } else {
+                insert_person_row(&tx, p)?;
+                placed.insert(p.id, p.id);
+            }
         }
         for a in &undo.addresses {
             // An address another person took meanwhile stays theirs.
             if owner(&tx, &a.key)?.is_none() {
-                insert_address(&tx, a)?;
+                insert_address(
+                    &tx,
+                    &AddressRow {
+                        person_id: placed.get(&a.person_id).copied().unwrap_or(a.person_id),
+                        ..a.clone()
+                    },
+                )?;
             }
         }
         for subject in &undo.hints {
@@ -997,30 +1140,59 @@ impl Store {
 
     /// People for address completion (#104): who matches what was typed, as a person with
     /// the primary address to insert and the others to choose. A hidden person is not
-    /// offered by any of their addresses. Most written to first.
+    /// offered by any of their addresses. Most written to first. Read from the reading
+    /// connection, and in a fixed number of queries however many people match: one for the
+    /// owners of the candidates, one for the people, one for their addresses, one for what
+    /// the letters hold of them.
     pub fn suggest_addresses(&self, prefix: &str, limit: u32) -> Result<Vec<Suggestion>> {
         let found = self.known_addresses(prefix, limit.saturating_mul(6).max(40))?;
-        let conn = self.conn();
+        let conn = self.read();
+        let marks = |n: usize| vec!["?"; n].join(",");
+        let keys: Vec<String> = found.iter().map(|a| key_of(&a.email)).collect();
+        let mut owners: HashMap<String, i64> = HashMap::new();
+        if !keys.is_empty() {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT key, person_id FROM person_addresses WHERE key IN ({})",
+                marks(keys.len())
+            ))?;
+            for row in stmt.query_map(rusqlite::params_from_iter(&keys), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })? {
+                let (key, id) = row?;
+                owners.insert(key, id);
+            }
+        }
+        // A person known by a name the user gave them is found by it too.
+        let needle = prefix.trim().to_lowercase();
+        let named: Vec<i64> = if needle.is_empty() {
+            Vec::new()
+        } else {
+            let mut stmt =
+                conn.prepare("SELECT id FROM persons WHERE name != '' AND fold(name) LIKE '%' || ?1 || '%' LIMIT 50")?;
+            stmt.query_map([&needle], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let mut ids: Vec<i64> = owners.values().copied().chain(named.iter().copied()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let people = load_many(&conn, &ids)?;
+
         let mut out: Vec<Suggestion> = Vec::new();
         let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
-        let mut push_person = |conn: &Connection, id: i64, out: &mut Vec<Suggestion>| -> Result<()> {
-            if !seen.insert(id) {
-                return Ok(());
-            }
-            let Some(p) = load(conn, id)? else { return Ok(()) };
-            if p.hidden {
-                return Ok(());
+        let mut offer = |id: i64, out: &mut Vec<Suggestion>| {
+            let Some(p) = people.get(&id) else { return };
+            if !seen.insert(id) || p.hidden {
+                return;
             }
             out.push(Suggestion {
                 email: p.email.clone(),
                 name: Some(p.name.clone()).filter(|n| !n.is_empty()),
                 emails: p.emails.iter().map(|a| a.email.clone()).collect(),
             });
-            Ok(())
         };
-        for a in found {
-            match owner(&conn, &key_of(&a.email))? {
-                Some(id) => push_person(&conn, id, &mut out)?,
+        for (a, key) in found.into_iter().zip(&keys) {
+            match owners.get(key) {
+                Some(&id) => offer(id, &mut out),
                 None => out.push(Suggestion {
                     emails: vec![a.email.clone()],
                     email: a.email,
@@ -1028,18 +1200,8 @@ impl Store {
                 }),
             }
         }
-        // A person known by a name the user gave them is found by it too.
-        let needle = prefix.trim().to_lowercase();
-        if !needle.is_empty() {
-            let named: Vec<i64> = {
-                let mut stmt =
-                    conn.prepare("SELECT id FROM persons WHERE name != '' AND fold(name) LIKE '%' || ?1 || '%'")?;
-                stmt.query_map([&needle], |r| r.get(0))?
-                    .collect::<rusqlite::Result<_>>()?
-            };
-            for id in named {
-                push_person(&conn, id, &mut out)?;
-            }
+        for id in named {
+            offer(id, &mut out);
         }
         out.truncate(limit as usize);
         Ok(out)
@@ -1243,7 +1405,7 @@ mod tests {
             .save_person(&person("ivan@example.org", |p| p.send_format = "plain".into()))
             .unwrap();
         // From the correspondence: the record cannot be removed, only hidden.
-        assert!(!store.forget_person("ivan@example.org").unwrap());
+        assert!(!store.forget_person("ivan@example.org").unwrap().removed);
         assert!(store.person("ivan@example.org").unwrap().is_some());
         // Added by hand: it goes.
         store
@@ -1252,7 +1414,7 @@ mod tests {
                 p.name = "Новый".into();
             }))
             .unwrap();
-        assert!(store.forget_person("new@example.org").unwrap());
+        assert!(store.forget_person("new@example.org").unwrap().removed);
         assert!(store.person("new@example.org").unwrap().is_none());
     }
 
@@ -1352,9 +1514,9 @@ mod tests {
         assert!(olga.emails[0].primary);
         assert_eq!(olga.uses, 31, "the letters are still counted");
 
-        // The two rows that differed only in case were one address: the first stands.
+        // The two rows that differed only in case were one address: the one saved last stands.
         let new = store.person("new@example.org").unwrap().unwrap();
-        assert_eq!((new.name.as_str(), new.view.as_str()), ("Дубль", ""));
+        assert_eq!((new.name.as_str(), new.view.as_str()), ("Новый", "text"));
         let book = store.people("").unwrap();
         assert_eq!(book.len(), 3, "olga, new, and the address of the letters alone");
         assert!(
@@ -1633,6 +1795,7 @@ mod tests {
                 p.view = "text".into();
                 p.hidden = true;
                 p.note = "Два ящика".into();
+                p.via = "hint:send-format".into();
             }))
             .unwrap();
         let before = store.people("").unwrap();
@@ -1651,6 +1814,7 @@ mod tests {
             ("plain", "text", true, ""),
             "the rules are copied, the note is not"
         );
+        assert_eq!(gone.via, "", "the mark of the hint that set the rule is not copied");
         assert_eq!(stays.emails.len(), 1);
         assert_eq!(stays.note, "Два ящика");
         assert_eq!(store.people("").unwrap().len(), 2);
@@ -1753,10 +1917,164 @@ mod tests {
             }))
             .unwrap();
         store.person_add_address("new@example.org", "new2@example.org").unwrap();
-        assert!(store.forget_person("NEW2@example.org").unwrap());
+        assert!(store.forget_person("NEW2@example.org").unwrap().removed);
         assert!(store.person("new@example.org").unwrap().is_none());
         assert!(store.person("new2@example.org").unwrap().is_none());
         assert_eq!(count(&store.conn(), "SELECT COUNT(*) FROM person_addresses"), 0);
+    }
+
+    /// The key of a person merged away is not given to a record made afterwards, and an undo does
+    /// not meet a stranger under it: the new record stays.
+    #[test]
+    fn an_undo_leaves_a_record_made_after_the_merge_alone() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Б".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        let fresh = store
+            .save_person(&person("c@example.org", |p| p.note = "Новый".into()))
+            .unwrap();
+        assert!(
+            !merged.undo.persons.iter().any(|p| p.id == fresh.id),
+            "a new key, not the merged-away one"
+        );
+        store.person_restore(&merged.undo).unwrap();
+        assert_eq!(store.person("c@example.org").unwrap().unwrap().note, "Новый");
+        assert_eq!(store.person("b@example.org").unwrap().unwrap().note, "Б");
+        assert_eq!(store.people("").unwrap().len(), 3);
+    }
+
+    /// Even if a stranger holds a key of the snapshot, it is not deleted: the person comes back under another.
+    #[test]
+    fn an_undo_does_not_delete_a_stranger_under_a_key_of_the_snapshot() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        let b = store
+            .save_person(&person("b@example.org", |p| p.note = "Б".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        {
+            let conn = store.conn();
+            conn.execute("INSERT INTO persons (id, note) VALUES (?1, 'чужой')", [b.id])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO person_addresses (key, email, person_id, is_primary, ord) VALUES ('x@x', 'x@x', ?1, 1, 0)",
+                [b.id],
+            )
+            .unwrap();
+        }
+        store.person_restore(&merged.undo).unwrap();
+        assert_eq!(store.person("x@x").unwrap().unwrap().note, "чужой");
+        assert_eq!(store.person("b@example.org").unwrap().unwrap().note, "Б");
+        assert_ne!(store.person("b@example.org").unwrap().unwrap().id, b.id);
+        assert_eq!(store.person("a@example.org").unwrap().unwrap().note, "А");
+    }
+
+    #[test]
+    fn forgetting_a_merged_person_keeps_the_rules_of_an_address_from_the_letters_and_can_be_undone() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("heard@example.org", "Слышанный"), true);
+        store
+            .save_person(&person("heard@example.org", |p| p.send_format = "plain".into()))
+            .unwrap();
+        store
+            .save_person(&person("mine@example.org", |p| p.manual = true))
+            .unwrap();
+        store
+            .person_merge(&merge(
+                &["mine@example.org", "heard@example.org"],
+                "Он",
+                "mine@example.org",
+                |m| {
+                    m.send_format = "plain".into();
+                },
+            ))
+            .unwrap()
+            .unwrap();
+        let before = store.people("").unwrap();
+        let gone = store.forget_person("mine@example.org").unwrap();
+        assert!(!gone.removed && gone.unmarked);
+        let kept = store.person("heard@example.org").unwrap().unwrap();
+        assert_eq!(
+            kept.send_format, "plain",
+            "the rule of the address from the letters is whole"
+        );
+        assert!(!kept.manual);
+        assert_eq!(kept.emails.len(), 2);
+        store.person_restore(&gone.undo).unwrap();
+        assert_eq!(store.people("").unwrap(), before);
+
+        // A person none of whose addresses the letters know goes whole, and comes back.
+        store
+            .save_person(&person("lone@example.org", |p| p.manual = true))
+            .unwrap();
+        let lone = store.forget_person("lone@example.org").unwrap();
+        assert!(lone.removed && !lone.unmarked);
+        assert!(store.person("lone@example.org").unwrap().is_none());
+        store.person_restore(&lone.undo).unwrap();
+        assert!(store.person("lone@example.org").unwrap().is_some());
+    }
+
+    #[test]
+    fn a_merge_does_not_keep_the_name_of_the_letters_or_an_address_as_the_users_own() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("a@example.org", "Анна"), true);
+        put(&store, "INBOX", 2, &wrote("b@example.org", "Anna K."), true);
+        let m = |name: &str| merge(&["a@example.org", "b@example.org"], name, "a@example.org", |_| {});
+        let raw = |store: &Store| -> String {
+            store
+                .conn()
+                .query_row("SELECT name FROM persons", [], |r| r.get(0))
+                .unwrap()
+        };
+        let merged = store.person_merge(&m("Анна")).unwrap().unwrap();
+        assert_eq!(raw(&store), "", "the letters' name is not frozen");
+        store.person_restore(&merged.undo).unwrap();
+        store.person_merge(&m("B@example.org")).unwrap().unwrap();
+        assert_eq!(raw(&store), "", "an address is not a name");
+        let p = store.person("a@example.org").unwrap().unwrap();
+        assert_eq!(p.name, "Анна");
+        // A name of the user's own is kept.
+        store
+            .person_restore(&store.person_split("b@example.org").unwrap().unwrap().undo)
+            .unwrap();
+    }
+
+    #[test]
+    fn an_address_that_is_another_persons_makes_no_record_for_the_one_asking() {
+        let store = mailbox();
+        store.save_person(&person("olga@example.org", |_| {})).unwrap();
+        let clash = store
+            .person_add_address("virtual@example.org", "olga@example.org")
+            .unwrap();
+        assert!(clash.owner.is_some() && clash.person.is_none());
+        assert!(
+            store.person("virtual@example.org").unwrap().is_none(),
+            "no empty record was left behind"
+        );
+        assert_eq!(count(&store.conn(), "SELECT COUNT(*) FROM persons"), 1);
     }
 
     #[test]

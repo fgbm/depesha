@@ -351,3 +351,103 @@ describe("the merge dialog", () => {
     expect(api.personMerge).not.toHaveBeenCalled();
   });
 });
+
+describe("the letters of a person with two addresses (#104 review)", () => {
+  it("are all the letters of both addresses: «Last letters» and the search ask for every address", async () => {
+    await book([olga()]);
+    api.search.mockResolvedValue([]);
+    show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {} });
+    await tick();
+    expect(api.search).toHaveBeenCalledWith("from:olga@example.org|o.smirnova@example.com");
+    expect(peopleBook.allMail("O.Smirnova@example.com")).toBe("from:olga@example.org|o.smirnova@example.com");
+    expect(peopleBook.allMail("stranger@example.org")).toBe("from:stranger@example.org");
+  });
+
+  it("are read again when an address joins the person", async () => {
+    const lone = person("Ольга", ["olga@example.org"]);
+    await book([lone]);
+    show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {} });
+    await tick();
+    expect(api.search).toHaveBeenLastCalledWith("from:olga@example.org");
+    await book([olga()]);
+    await vi.waitFor(() => expect(api.search).toHaveBeenLastCalledWith("from:olga@example.org|o.smirnova@example.com"));
+  });
+});
+
+describe("the card is neutral and has one «Write»", () => {
+  it("names the rules plainly and prints no key", async () => {
+    await book([olga()]);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    expect(root.textContent).toContain("Формат писем");
+    expect(root.textContent).toContain("Показывать письма");
+    expect(root.textContent).not.toContain("Писать ему");
+    expect(root.querySelectorAll(".pc-acts button, .pc-foot button")).toHaveLength(2 + 0);
+    expect([...root.querySelectorAll("[title], [aria-label]")].map((e) => `${e.getAttribute("title")} ${e.getAttribute("aria-label")}`).join(" ")).not.toMatch(/\((P|U)\)/);
+    expect(root.textContent?.match(/Написать/g)).toHaveLength(1);
+  });
+
+  it("puts a single space round the dot of the head line", async () => {
+    await book([olga()]);
+    const root = show(PersonCard, { email: "olga@example.org", name: "", onAllMail: () => {}, inBook: true });
+    expect(root.querySelector(".nt")?.textContent).toBe("olga@example.org · 6 писем");
+  });
+});
+
+describe("removing a person added by hand", () => {
+  const manual = () => person("Вручную", ["mine@example.org", "heard@example.org"], { manual: true });
+
+  it("says the person stays when an address is in the letters, and offers to take it back", async () => {
+    await book([manual()]);
+    api.personForget.mockResolvedValue({ removed: false, unmarked: true, undo: { persons: [] } });
+    const asked: { title?: string; text: string }[] = [];
+    const choose = vi.spyOn(app, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
+    const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
+    rowOf(root, "delete").click();
+    await vi.waitFor(() => expect(app.lastUndo?.text).toContain("снята пометка"));
+    expect(asked[0].text).toContain("останется в книге");
+    await app.undo();
+    expect(api.personRestore).toHaveBeenCalledWith({ persons: [] });
+    choose.mockRestore();
+  });
+
+  it("says everything goes when no address is in the letters", async () => {
+    const lone = person("Вручную", ["mine@example.org"], { manual: true, emails: [{ email: "mine@example.org", primary: true, uses: 0, name: "" }] });
+    await book([lone]);
+    api.personForget.mockResolvedValue({ removed: true, unmarked: false, undo: { persons: [] } });
+    const asked: { text: string }[] = [];
+    const choose = vi.spyOn(app, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
+    const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
+    rowOf(root, "delete").click();
+    await vi.waitFor(() => expect(app.lastUndo?.text).toContain("Удалено"));
+    expect(asked[0].text).toContain("будут удалены");
+    choose.mockRestore();
+  });
+});
+
+describe("the list after a merge", () => {
+  it("gets the focus back once the merge is done", async () => {
+    const a = person("Ольга Смирнова", ["olga@example.org"]);
+    const b = person("Смирнова Ольга", ["o.smirnova@example.net"]);
+    await book([a, b]);
+    api.personMerge.mockResolvedValue({ person: a, undo: {} });
+    const root = show(PeopleView);
+    const list = root.querySelector<HTMLElement>("[role=listbox]")!;
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    peopleOps.merge([a, b]);
+    await peopleOps.confirm();
+    await vi.waitFor(() => expect(document.activeElement).toBe(list));
+  });
+
+  it("does not offer a pair when the other person is filtered out", async () => {
+    const a = person("Ольга Смирнова", ["olga@example.org"], { send_format: "plain" });
+    const b = person("Смирнова Ольга", ["o.smirnova@example.net"]);
+    await book([a, b]);
+    const root = show(PeopleView);
+    expect(root.querySelector(".banner")).not.toBeNull();
+    [...root.querySelectorAll<HTMLButtonElement>(".fchip")].find((c) => c.textContent === "С особым форматом")!.click();
+    flushSync();
+    expect(root.querySelector(".banner")).toBeNull();
+  });
+});

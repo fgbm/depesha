@@ -24,8 +24,8 @@ mod marks;
 pub use marks::{Done, Mark, Outgoing, marks_of};
 mod people;
 pub use people::{
-    Added, AddressRow, HintCount, HintState, Merge, Merged, Person, PersonAddress, PersonRow, SAME_PERSON, Snapshot,
-    Split, Suggestion,
+    Added, AddressRow, Forgotten, HintCount, HintState, Merge, Merged, Person, PersonAddress, PersonRow, SAME_PERSON,
+    Snapshot, Split, Suggestion,
 };
 mod sent_copies;
 pub use sent_copies::{NewSentCopy, SentCopy, StuckCopy};
@@ -2378,7 +2378,7 @@ impl Store {
     /// Reads the table of addresses the cache keeps: as long as the number of people,
     /// not of messages.
     pub fn known_addresses(&self, prefix: &str, limit: u32) -> Result<Vec<Addr>> {
-        let conn = self.conn();
+        let conn = self.read();
         let mut stmt = conn.prepare_cached(
             "SELECT email, MAX(NULLIF(name, '')) FROM addresses
              WHERE fold(email) LIKE ?1 || '%' ESCAPE '\\' OR fold(name) LIKE '%' || ?1 || '%' ESCAPE '\\'

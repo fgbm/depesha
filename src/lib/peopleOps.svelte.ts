@@ -3,6 +3,7 @@
 // are held here and drawn by App.svelte; the doing is the book's. A merge or a split can be
 // taken back for ten seconds with the toast's button or "z" (the decision 3.6 А); later the
 // way back is a split by hand.
+import { tick } from "svelte";
 import { app } from "./store.svelte";
 import { t, tn } from "./i18n.svelte";
 import type { Person, Split } from "./people";
@@ -21,6 +22,8 @@ class PeopleOps {
   dialog = $state<MergeDialog | null>(null);
   /** The person a second one is being chosen for; null when no choice is open. */
   picking = $state<Person | null>(null);
+  /** Told when a merge is done, whichever way: the book gives its list the focus back. */
+  done: (() => void) | null = null;
 
   /** Opens the merge dialog for these people. It is always shown: nothing joins without it (3.7 А). */
   merge(people: Person[], after?: (merged: Person) => void) {
@@ -41,8 +44,19 @@ class PeopleOps {
     if (!open) return;
     this.dialog = null;
     try {
-      const merged = await peopleBook.merge(open.plan, open.choice);
+      const merged = await this.join(open);
       if (!merged) return;
+      open.after?.(merged);
+    } finally {
+      await tick();
+      this.done?.();
+    }
+  }
+
+  private async join(open: MergeDialog): Promise<Person | null> {
+    try {
+      const merged = await peopleBook.merge(open.plan, open.choice);
+      if (!merged) return null;
       const { person } = merged;
       app.offerUndo(
         tn("people.merged", person.emails.length, { name: person.name || person.email }),
@@ -50,9 +64,10 @@ class PeopleOps {
           await peopleBook.restore(merged.undo);
         },
       );
-      open.after?.(person);
+      return person;
     } catch (e) {
       app.fail(e);
+      return null;
     }
   }
 

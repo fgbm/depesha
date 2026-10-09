@@ -332,6 +332,32 @@ fn large_cache() {
     });
     assert_eq!(found.len(), 8);
 
+    // People for completion (#104): some of the matches are people with two addresses, some hidden;
+    // the number of queries does not grow with them, so the time stays that of the plain list.
+    let wide = store.known_addresses("s", 40).unwrap();
+    for pair in wide.chunks(2).take(10) {
+        if let [a, b] = pair {
+            store.person_add_address(&a.email, &b.email).unwrap();
+        }
+    }
+    for a in wide.iter().skip(20).take(5) {
+        store
+            .save_person(&depesha_core::store::Person {
+                email: a.email.clone(),
+                hidden: true,
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    let (suggest_one, found) = time(&store, "suggest_addresses, 1 letter", &mut longest, || {
+        store.suggest_addresses("s", 8).unwrap()
+    });
+    assert_eq!(found.len(), 8);
+    let (suggest_three, found) = time(&store, "suggest_addresses, 3 letters", &mut longest, || {
+        store.suggest_addresses("кол", 8).unwrap()
+    });
+    assert!(!found.is_empty());
+
     store.followups_resolve().unwrap();
     // Conversations of two letters end with mine: nobody answered them either.
     let unanswered = WAITING + (0..30usize).filter(|c| c.is_multiple_of(9)).count();
@@ -401,6 +427,8 @@ fn large_cache() {
     for (name, t) in [
         ("known_addresses, 1 letter", one),
         ("known_addresses, 3 letters", three),
+        ("suggest_addresses, 1 letter", suggest_one),
+        ("suggest_addresses, 3 letters", suggest_three),
         ("followups_resolve", resolve),
         ("offline_progress", progress),
         ("bodies_missing", missing),

@@ -43,7 +43,7 @@ describe("finding a setting by name", () => {
   });
 
   it("finds the fields of a person's card, though the card is in the main window now and a hit leads there (#104)", () => {
-    const send = searchSettings(index(), "писать ему").find((h) => h.anchor === "people-send");
+    const send = searchSettings(index(), "формат писем").find((h) => h.anchor === "people-send");
     expect(send).toBeDefined();
     expect(send!.page).toBe("people");
     const all = index().filter((e) => e.page === "people").map((e) => e.anchor);

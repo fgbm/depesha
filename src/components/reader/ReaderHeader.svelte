@@ -16,6 +16,7 @@
   import Recipients from "../Recipients.svelte";
   import Popover from "../Popover.svelte";
   import PersonCard from "./PersonCard.svelte";
+  import { peopleBook } from "../../lib/peopleBook.svelte";
   import type { AccountView, OpenedMessage } from "../../lib/types";
   import { untrack, type Snippet } from "svelte";
   import type { AttachmentInfo } from "../../lib/types";
@@ -71,7 +72,7 @@
   /** Every letter of this sender, wherever it lies. */
   function fromSender() {
     card = false;
-    if (from?.email) app.setView({ kind: "search", text: `from:${from.email}` });
+    if (from?.email) app.setView({ kind: "search", text: peopleBook.allMail(from.email) });
   }
 
   /** The card of the sender (#66): what a click on the name opens now; «All mail» in it

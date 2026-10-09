@@ -5,7 +5,7 @@
 // the primary, a merge, a split — are made by the backend and read back whole.
 import { emit } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { findPerson, hasAddress, type Added, type Merged, type Person, type Snapshot, type Split } from "./people";
+import { allMailQuery, blankPerson, findPerson, type Added, type Forgotten, type Merged, type Person, type Snapshot, type Split } from "./people";
 import { findDuplicates, mergeRequest, pairSubject, SAME_PERSON, type MergeChoice, type MergePlan } from "./peopleMerge";
 import type { HintState } from "./hints";
 
@@ -79,11 +79,19 @@ export class PeopleBook {
     return saved;
   }
 
-  /** Forgets a person added by hand. */
-  async forget(email: string) {
-    if (!(await api.personForget(email))) return;
-    this.list = this.list.filter((p) => !hasAddress(p, email));
-    this.announce();
+  /**
+   * Forgets a person added by hand: whole, or — when an address of theirs is in the
+   * correspondence — only the mark, their rules kept. The answer carries the way back.
+   */
+  async forget(email: string): Promise<Forgotten> {
+    const done = await api.personForget(email);
+    if (done.removed || done.unmarked) await this.settle();
+    return done;
+  }
+
+  /** The search for every letter of the person, from any of their addresses (a person not in the book: the address). */
+  allMail(email: string): string {
+    return allMailQuery(this.find(email) ?? blankPerson(email));
   }
 
   /** Adds an address to a person. An address that is another person's is not moved: that person is returned for a merge. */

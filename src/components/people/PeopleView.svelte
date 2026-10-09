@@ -39,7 +39,11 @@
   const shown = $derived(filterPeople(peopleBook.list.filter((p) => matchPerson(p, query)), filter));
   const current = $derived(peopleBook.find(cursor) ?? null);
   const at = $derived(current ? shown.findIndex((p) => personKey(p) === personKey(current)) : -1);
-  const suggested = $derived(peopleBook.duplicates[0] ?? null);
+  // The suggestion stands only when both people are in the list as it is filtered now.
+  const suggested = $derived.by(() => {
+    const keys = new Set(shown.map(personKey));
+    return peopleBook.duplicates.find((d) => keys.has(personKey(d.a)) && keys.has(personKey(d.b))) ?? null;
+  });
   const markedPeople = $derived(shown.filter((p) => marked.has(personKey(p))));
 
   // Where the book was asked to open: a person and a filter, once; a book already open turns to it.
@@ -69,6 +73,12 @@
     untrack(() => {
       if ([...marked].some((k) => !keys.has(k))) marked = new Set([...marked].filter((k) => keys.has(k)));
     });
+  });
+
+  // A merge done gives the focus back to the list, from the dialog and from the choice of the second person.
+  $effect(() => {
+    peopleOps.done = () => listEl?.focus();
+    return () => (peopleOps.done = null);
   });
 
   // «/» in the main window reaches the search of the book while it is shown.

@@ -15,6 +15,9 @@
   import LabelPicker from "./components/LabelPicker.svelte";
   import WindowControls from "./components/WindowControls.svelte";
   import Confirm from "./components/Confirm.svelte";
+  import MergeDialog from "./components/people/MergeDialog.svelte";
+  import PickPerson from "./components/people/PickPerson.svelte";
+  import { peopleOps } from "./lib/peopleOps.svelte";
   import { host } from "./plugin-host/host.svelte";
   import { registry } from "./plugin-host/registry.svelte";
 
@@ -80,6 +83,9 @@
       "core.unread": () => app.toggleSeen(),
       "core.flag": () => app.toggleFlagged(),
       "core.labels": () => opened && app.labels.openPick([opened.row.id]),
+      // The card of the sender, and the way back from a merge made in its card (#104).
+      "core.sender-card": () => app.openSenderCard(),
+      "core.undo": () => app.undo(),
     };
     // Nothing being written: Esc closes the window, as a viewer of one letter.
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
@@ -111,6 +117,10 @@
 {#each registry.lists.overlays as o (o)}
   <o.item.component {...o.item.props ?? {}} />
 {/each}
+
+<!-- The card of the sender joins people here as in the main window: the same dialogs. -->
+{#if peopleOps.dialog}<MergeDialog />{/if}
+{#if peopleOps.picking}<PickPerson />{/if}
 
 {#if app.confirmation}
   {#key app.confirmation}<Confirm q={app.confirmation} />{/key}

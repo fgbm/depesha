@@ -13,7 +13,6 @@
     none: { en: "No such command", ru: "Нет такой команды" },
     edit: { en: "Alt+Enter — edit the key", ru: "Alt+Enter — изменить клавишу" },
     people: { en: "People", ru: "Люди" },
-    personTip: { en: "Enter — the card, Ctrl+Enter — all mail", ru: "Enter — карточка, Ctrl+Enter — все письма" },
   };
 
   /** Opens Settings → «Keys», at this command when there is one (Alt+Enter, #46). */
@@ -99,7 +98,7 @@
           <div class="group muted">{ctx.t(S.people)}</div>
           {#each people as p, j (p.email)}
             {@const i = shown.length + j}
-            <button class="item" class:active={i === active} role="option" aria-selected={i === active} title={ctx.t(S.personTip)} onpointermove={() => (active = i)} onclick={(e) => person(i, e.ctrlKey || e.metaKey)}>
+            <button class="item" class:active={i === active} role="option" aria-selected={i === active} onpointermove={() => (active = i)} onclick={(e) => person(i, e.ctrlKey || e.metaKey)}>
               <span>{p.name}</span>
               <span class="hint">{p.email}{p.emails.length > 1 ? ` +${p.emails.length - 1}` : ""}</span>
 

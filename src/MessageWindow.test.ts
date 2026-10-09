@@ -1,0 +1,75 @@
+// @vitest-environment jsdom
+// The window of one letter joins people as the main window does (#104 review): its card opens
+// the same dialogs, and the sender's card and the way back from a merge have their keys here too.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/api/event", () => import("./lib/testing").then((m) => m.eventModule));
+// The window's own controls ask the window many things; every one is answered with nothing, a listener with its off switch.
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () =>
+    new Proxy({}, { get: (_, name: string) => async () => (name.startsWith("on") ? () => {} : false) }),
+}));
+vi.mock("@tauri-apps/api/app", () => import("./lib/testing").then((m) => m.appModule));
+vi.mock("./lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("./lib/testing")).api }));
+
+// The reader, the dock and the window's buttons are not what is tried here: a component that draws nothing stands for each.
+vi.mock("./components/Reader.svelte", () => ({ default: () => {} }));
+vi.mock("./components/Dock.svelte", () => ({ default: () => {} }));
+vi.mock("./components/WindowControls.svelte", () => ({ default: () => {} }));
+vi.mock("@tauri-apps/api/webview", () => import("./lib/testing").then((m) => m.webviewModule));
+
+import { flushSync, mount, unmount } from "svelte";
+import MessageWindow from "./MessageWindow.svelte";
+import { app } from "./lib/store.svelte";
+import { i18n } from "./lib/i18n.svelte";
+import { blankPerson } from "./lib/people";
+import { peopleOps } from "./lib/peopleOps.svelte";
+import { api, settings } from "./lib/testing";
+
+(globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
+
+let view: ReturnType<typeof mount> | null = null;
+
+beforeEach(() => {
+  i18n.lang = "ru";
+  app.settings = settings();
+  api.settings.mockResolvedValue(settings());
+  api.language.mockResolvedValue("ru");
+  api.people.mockResolvedValue([]);
+  api.hints.mockResolvedValue([]);
+  const target = document.createElement("div");
+  document.body.append(target);
+  view = mount(MessageWindow, { target, props: { id: 1 } });
+  flushSync();
+});
+
+afterEach(() => {
+  peopleOps.cancel();
+  peopleOps.stopPicking();
+  if (view) unmount(view);
+  view = null;
+  document.body.innerHTML = "";
+});
+
+const people = () => [blankPerson("a@example.org"), blankPerson("b@example.org")].map((p, i) => ({ ...p, id: i + 1, name: i ? "Б" : "А" }));
+
+describe("the window of one letter", () => {
+  it("shows the merge dialog and the choice of the second person", async () => {
+    peopleOps.merge(people());
+    await vi.waitFor(() => expect(document.querySelector(".merge")).not.toBeNull());
+    expect(document.querySelector(".merge")).not.toBeNull();
+    peopleOps.cancel();
+    peopleOps.pick(people()[0]);
+    await vi.waitFor(() => expect(document.querySelector(".pick")).not.toBeNull());
+  });
+
+  it("opens the sender's card on its key and takes a merge back on Z", async () => {
+    const before = app.senderCard;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", code: "KeyP", bubbles: true, cancelable: true }));
+    expect(app.senderCard).toBe(before + 1);
+    const undo = vi.spyOn(app, "undo").mockResolvedValue();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", bubbles: true, cancelable: true }));
+    expect(undo).toHaveBeenCalled();
+    undo.mockRestore();
+  });
+});

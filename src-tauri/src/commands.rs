@@ -13,8 +13,8 @@ use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{
-    Added, FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, Merge, Merged, MessageRow, OutboxItem, Person,
-    SearchTotals, Snapshot, Snooze, SortKey, Split, Suggestion,
+    Added, FolderInfo, FollowupPlan, Forgotten, HintCount, HintState, ListQuery, Merge, Merged, MessageRow, OutboxItem,
+    Person, SearchTotals, Snapshot, Snooze, SortKey, Split, Suggestion,
 };
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -2188,9 +2188,10 @@ pub fn person_restore(state: St<'_>, undo: Snapshot) -> CmdResult<()> {
     Ok(state.store.person_restore(&undo)?)
 }
 
-/// Removes a person added by hand; one seen only in the correspondence cannot go (#66).
+/// Removes a person added by hand; one with an address in the correspondence only loses the
+/// mark, and keeps their rules (#66, #104). The snapshot restores it.
 #[tauri::command(async)]
-pub fn person_forget(state: St<'_>, email: String) -> CmdResult<bool> {
+pub fn person_forget(state: St<'_>, email: String) -> CmdResult<Forgotten> {
     Ok(state.store.forget_person(&email)?)
 }
 
