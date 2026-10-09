@@ -21,7 +21,8 @@
   function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
 
   // ---------- состояние ----------
-  var S = { a: {}, n: [], open: true };
+  var PANEL_W = 372, NARROW = 1100; // уже NARROW панель лежит поверх страницы и по умолчанию свёрнута
+  var S = { a: {}, n: [], open: innerWidth >= NARROW };
   var mem = null;
   function load() {
     var raw = null;
@@ -29,7 +30,7 @@
     if (!raw) return;
     try {
       var d = JSON.parse(raw);
-      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; S.open = d.open !== false; }
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; if (typeof d.open === "boolean") S.open = d.open; }
     } catch (e) { /* битые данные игнорируем */ }
   }
   function save() {
@@ -191,12 +192,16 @@
     var head = h("div", { class: "mk-head" });
     head.appendChild(h("b", {}, "Ответы"));
     head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var pinBtn = h("button", { type: "button", title: "Поставить заметку: следующий щелчок по макету (клавиша N)" }, "📌 Заметка");
+    pinBtn.addEventListener("click", function () { setNoting(!noting); });
+    noteBtn = pinBtn;
+    head.appendChild(pinBtn);
     var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
     close.addEventListener("click", function () { setOpen(false); });
     head.appendChild(close);
     panel.appendChild(head);
     var hint = h("div", { class: "mk-hint" });
-    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>Alt</kbd>+щелчок по макету — заметка";
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>N</kbd> или «📌 Заметка», затем щелчок по макету (или <kbd>Alt</kbd>+щелчок) — заметка";
     panel.appendChild(hint);
     var sc = h("div", { class: "mk-scroll" });
     listEl = h("div", { class: "mk-list" });
@@ -240,12 +245,42 @@
     panel.hidden = !v;
     tab.hidden = v;
     doc.documentElement.classList.toggle("mk-open", v);
+    shiftFixed();
     save();
     layout();
     if (v && focus !== false) {
       var it = lastItem || (Q[0] && Q[0].item);
       if (it) it.focus({ preventScroll: false });
     } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  // Элементы макета с position:fixed и right в px (верхние панели переключателей) сдвигаются вместе со страницей.
+  // Макеты шире свободного места (.doc: 1180 и 1400 px): содержимое масштабируется (zoom у детей body), чтобы правый край не уходил под панель.
+  var shifted = [], zoomed = [];
+  function shiftFixed() {
+    var on = S.open && innerWidth >= NARROW, z = 1;
+    shifted.forEach(function (s) { s.el.style.right = s.orig; });
+    shifted = [];
+    zoomed.forEach(function (el) { el.style.zoom = ""; });
+    zoomed = [];
+    if (!on) return;
+    var free = innerWidth - PANEL_W, need = doc.documentElement.scrollWidth;
+    if (need > free) {
+      z = Math.max(0.5, free / need);
+      Array.prototype.slice.call(doc.body.children).forEach(function (el) {
+        if (el.hasAttribute("data-mk") || /^(SCRIPT|STYLE)$/.test(el.tagName)) return;
+        el.style.zoom = String(z); zoomed.push(el);
+      });
+      layout();
+    }
+    $$("body *").forEach(function (el) {
+      if (el.closest("[data-mk]")) return;
+      var cs = getComputedStyle(el);
+      if (cs.position !== "fixed") return;
+      var r = parseFloat(cs.right);
+      if (isNaN(r) || r > 100) return; // только прижатые к правому краю
+      shifted.push({ el: el, orig: el.style.right });
+      el.style.right = (r + PANEL_W / z) + "px";
+    });
   }
   function go(el) {
     if (!el) return;
@@ -278,6 +313,10 @@
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
       return;
     }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyN" || e.key === "n" || e.key === "т")) {
+      e.preventDefault(); setNoting(!noting); return;
+    }
+    if (e.key === "Escape" && noting) { e.preventDefault(); setNoting(false); return; }
     var it = t.closest && t.closest(".mk-item");
     if (!it) return;
     var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
@@ -396,8 +435,19 @@
     pop.style.left = x + "px"; pop.style.top = y + "px";
     ta.focus();
   }
+  var noting = false, noteBtn = null;
+  function setNoting(v) {
+    noting = v;
+    doc.documentElement.classList.toggle("mk-noting", v);
+    if (noteBtn) noteBtn.setAttribute("aria-pressed", v ? "true" : "false");
+    if (v) toast("Щелкните по макету, чтобы поставить заметку · Esc — отмена");
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (noting && e.key === "Escape" && !(pop && pop.contains(e.target))) { e.preventDefault(); e.stopPropagation(); setNoting(false); }
+  }, true);
   doc.addEventListener("click", function (e) {
-    if (!e.altKey || !e.target.closest || e.target.closest("[data-mk]")) return;
+    if ((!e.altKey && !noting) || !e.target.closest || e.target.closest("[data-mk]")) return;
+    setNoting(false);
     e.preventDefault(); e.stopPropagation();
     var el = e.target, d = describe(el);
     openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
@@ -408,7 +458,7 @@
     notesEl.textContent = "";
     var pins = $$(".mk-pin");
     pins.forEach(function (p) { p.remove(); });
-    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Alt+щелчок по любому месту макета.")); }
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Кнопка «📌 Заметка» или N, затем щелчок по макету (или Alt+щелчок).")); }
     S.n.forEach(function (n, i) {
       var row = h("div", { class: "mk-note" });
       var num = h("a", { title: "Показать на макете" }, String(i + 1));
@@ -464,7 +514,7 @@
       if (!q.closed) { total++; if (ok) done++; }
     });
     countEl.textContent = "отвечено " + done + " из " + total;
-    tab.textContent = "Ответы " + done + "/" + total + "  ` ";
+    tab.textContent = "Ответы · " + done + "/" + total;
     sumEl.value = summary();
   }
 
@@ -532,9 +582,9 @@
     renderNotes();
     refresh();
     setOpen(S.open, false);
-    addEventListener("resize", layout);
+    addEventListener("resize", function () { layout(); shiftFixed(); });
     addEventListener("load", layout);
-    doc.addEventListener("click", function () { setTimeout(layout, 200); });
+    doc.addEventListener("click", function () { setTimeout(function () { layout(); shiftFixed(); }, 200); });
   }
   if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
 })();
