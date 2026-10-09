@@ -135,12 +135,15 @@ export class Driver {
     throw new Error(`timeout waiting for ${what}${lastErr ? `: ${lastErr.message}` : ""}`);
   }
 
-  /** Clicks a button by its visible text. */
+  /** Clicks a button by its visible text. Find and click are retried together: the page may
+   *  re-render between them, and the found element is gone («stale element reference»). */
   async button(label, timeoutMs = 10000) {
-    const el = await this.until(`button "${label}"`, () =>
-      this.xpath(`//button[contains(normalize-space(.), ${JSON.stringify(label)})]`),
-    timeoutMs);
-    await this.click(el);
+    await this.until(`button "${label}"`, async () => {
+      const el = await this.xpath(`//button[contains(normalize-space(.), ${JSON.stringify(label)})]`);
+      if (!el) return false;
+      await this.click(el);
+      return true;
+    }, timeoutMs);
   }
 
   /** WebKitWebDriver does not scroll nested scroll containers (modals) by itself. */
