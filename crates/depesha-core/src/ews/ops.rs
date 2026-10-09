@@ -9,7 +9,7 @@ use roxmltree::Node;
 use super::{Session, child, children, desc, escape, parse, responses, single, text};
 use crate::avatar::Receiver;
 use crate::imap::{FlagChange, Flags, Folder, FolderRole, IdleOutcome, is_non_mail};
-use crate::message::{self, Addr, Summary};
+use crate::message::{self, Addr, Importance, Summary};
 use crate::query::SearchQuery;
 use crate::store::{NewMessage, Store};
 use crate::sync::{FolderSync, SyncOptions};
@@ -599,6 +599,7 @@ async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
             "message:InternetMessageId",
             "message:References",
             "item:Categories",
+            "item:Importance",
         ];
         let body = format!(
             "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}</t:AdditionalProperties></m:ItemShape><m:ItemIds>{}</m:ItemIds></m:GetItem>",
@@ -640,6 +641,13 @@ fn fetched(it: Node<'_, '_>, receiver: &Receiver) -> Option<Fetched> {
     let mut summary = message::parse_summary_for(headers.as_bytes(), receiver);
     // The item knows its attachments better than a header block does.
     summary.has_attachments = text(it, "HasAttachments") == Some("true");
+    // Exchange's own word, the only one a sent letter or a draft has (#72); the headers
+    // still say it when the item does not.
+    if let Some(importance) = text(it, "Importance").map(Importance::from_word)
+        && importance != Importance::Normal
+    {
+        summary.importance = importance;
+    }
     if summary.subject.is_empty() {
         summary.subject = text(it, "Subject").unwrap_or_default().to_owned();
     }
@@ -1660,6 +1668,7 @@ pub async fn search_server(
     for uid in uids {
         if let Some(row) = store.find_by_uid(account_id, folder, uid)?
             && (!q.has_attachment || row.has_attachments)
+            && (!q.important || row.importance == Importance::High)
             && q.fits_size(row.size.into())
         {
             rows.push(row.id);
@@ -1759,6 +1768,28 @@ mod tests {
             (tag(PR_MESSAGE_FLAGS), "1".to_owned()),
             (tag(PR_LAST_VERB), v.to_owned()),
         ]))
+    }
+
+    #[test]
+    fn the_importance_of_an_item_comes_from_its_property_and_else_from_its_headers() {
+        let item = |extra: &str| {
+            format!(
+                r#"<Message xmlns="http://schemas.microsoft.com/exchange/services/2006/types"><ItemId Id="AAA" ChangeKey="x"/><Subject>Hi</Subject>{extra}<DateTimeReceived>2026-10-01T10:00:00Z</DateTimeReceived><Size>10</Size><HasAttachments>false</HasAttachments></Message>"#
+            )
+        };
+        let of = |extra: &str| {
+            let xml = item(extra);
+            let doc = roxmltree::Document::parse(&xml).unwrap();
+            fetched(doc.root_element(), &Receiver::default())
+                .unwrap()
+                .summary
+                .importance
+        };
+        // A sent letter has no transport headers: the property is all there is.
+        assert_eq!(of("<Importance>High</Importance>"), Importance::High);
+        assert_eq!(of("<Importance>Normal</Importance>"), Importance::Normal);
+        assert_eq!(of("<Importance>Low</Importance>"), Importance::Low);
+        assert_eq!(of(""), Importance::Normal);
     }
 
     #[test]

@@ -16,7 +16,7 @@ use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
 use crate::imap::Io;
-use crate::message::Addr;
+use crate::message::{Addr, Importance};
 use crate::tr;
 use crate::{Error, Result, tls};
 
@@ -127,6 +127,52 @@ pub struct Draft {
     /// The letter this one answers or forwards; none for a new one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acts_on: Option<ActsOn>,
+    /// The sender asks to read the letter first (#72): `Importance: high` and `X-Priority: 1`.
+    /// The window offers high only; a normal letter says nothing.
+    #[serde(default, skip_serializing_if = "is_normal")]
+    pub importance: Importance,
+}
+
+fn is_normal(i: &Importance) -> bool {
+    *i == Importance::Normal
+}
+
+/// `Importance: high` (RFC 2156) and `X-Priority: 1 (Highest)`, the pair Outlook writes.
+fn importance_headers(
+    builder: lettre::message::MessageBuilder,
+    importance: Importance,
+) -> lettre::message::MessageBuilder {
+    use lettre::message::header::{Header, HeaderName, HeaderValue};
+
+    macro_rules! plain_header {
+        ($type:ident, $name:literal) => {
+            #[derive(Clone)]
+            struct $type(String);
+            impl Header for $type {
+                fn name() -> HeaderName {
+                    HeaderName::new_from_ascii_str($name)
+                }
+                fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                    Ok(Self(s.to_owned()))
+                }
+                fn display(&self) -> HeaderValue {
+                    HeaderValue::new(Self::name(), self.0.clone())
+                }
+            }
+        };
+    }
+    plain_header!(ImportanceHeader, "Importance");
+    plain_header!(PriorityHeader, "X-Priority");
+
+    match importance {
+        Importance::High => builder
+            .header(ImportanceHeader("high".into()))
+            .header(PriorityHeader("1 (Highest)".into())),
+        Importance::Low => builder
+            .header(ImportanceHeader("low".into()))
+            .header(PriorityHeader("5 (Lowest)".into())),
+        Importance::Normal => builder,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +246,7 @@ pub fn build(draft: &Draft) -> Result<Message> {
         .subject(draft.subject.clone())
         .message_id(Some(message_id))
         .date_now();
+    builder = importance_headers(builder, draft.importance);
     for a in &draft.to {
         builder = builder.to(mailbox(a)?);
     }
@@ -1065,6 +1112,30 @@ mod tests {
             format,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_letter_asked_to_be_read_first_says_so_in_the_pair_outlook_writes() {
+        let raw_of = |importance| {
+            let draft = Draft {
+                importance,
+                ..letter(BodyFormat::Plain, "Срочно", None)
+            };
+            String::from_utf8(build(&draft).unwrap().formatted()).unwrap()
+        };
+        let high = raw_of(Importance::High);
+        assert!(high.contains("Importance: high"), "{high}");
+        assert!(high.contains("X-Priority: 1 (Highest)"), "{high}");
+        // What goes out is read back as high, and a plain letter carries neither header.
+        assert_eq!(
+            crate::message::parse_summary(high.as_bytes()).importance,
+            Importance::High
+        );
+        let plain = raw_of(Importance::Normal);
+        assert!(
+            !plain.contains("Importance:") && !plain.contains("X-Priority:"),
+            "{plain}"
+        );
     }
 
     fn content_types(raw: &str) -> Vec<String> {

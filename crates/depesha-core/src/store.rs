@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Result;
 use crate::imap::{FlagChange, Flags, Folder, FolderRole};
-use crate::message::{Addr, Summary, Unsubscribe};
+use crate::message::{Addr, Importance, Summary, Unsubscribe};
 use crate::query::SearchQuery;
 use crate::smtp::Draft;
 
@@ -77,6 +77,7 @@ const MIGRATIONS: &[Step] = &[
     sent_copies::v22_copy_filed,
     people::v23_persons_and_addresses,
     v24_sender_verdict,
+    v25_importance,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -454,6 +455,30 @@ fn v24_sender_verdict(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high.
+/// Letters whose bytes are cached already say it from their headers; the others learn it
+/// when opened or downloaded (`Store::note_importance`, `Store::save_body`), as the headers
+/// of a cached letter are not fetched again.
+fn v25_importance(conn: &Connection) -> Result<()> {
+    add_column(conn, "messages", "importance", "INTEGER NOT NULL DEFAULT 0")?;
+    let mut found = Vec::new();
+    {
+        let mut stmt = conn.prepare("SELECT message_id, substr(raw, 1, 65536) FROM bodies")?;
+        let mut rows = stmt.query([])?;
+        while let Some(r) = rows.next()? {
+            let importance = crate::message::parse_summary(&r.get::<_, Vec<u8>>(1)?).importance;
+            if importance != crate::message::Importance::Normal {
+                found.push((r.get::<_, i64>(0)?, importance.to_db()));
+            }
+        }
+    }
+    let mut set = conn.prepare("UPDATE messages SET importance = ?2 WHERE id = ?1")?;
+    for (id, importance) in found {
+        set.execute(params![id, importance])?;
+    }
+    Ok(())
+}
+
 /// Counts again the rows of `threads` that match `which`, `{0}` standing for the table.
 fn count_threads(which: &str) -> String {
     let rows = which.replace("{0}", "");
@@ -633,6 +658,9 @@ pub struct MessageRow {
     /// The receiving server vouched for the sender with DMARC (#108): a brand logo may show.
     #[serde(default)]
     pub dmarc: bool,
+    /// How much the sender wants it read first (#72); only the high one is shown.
+    #[serde(default)]
+    pub importance: Importance,
     /// Who wrote in the conversation with the verdict on each, the newest writer last
     /// (#108: the avatar of a conversation is its last writer who is not me); empty when
     /// the list is not grouped.
@@ -850,6 +878,9 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
     }
     if q.flagged {
         push(&mut cond, " AND m.flagged = 1");
+    }
+    if q.important {
+        push(&mut cond, " AND m.importance = 1");
     }
     if let Some(t) = q.after {
         args.push(t.into());
@@ -1861,6 +1892,15 @@ impl Store {
             params![id, raw],
         )?;
         tx.execute("UPDATE search SET body = ?2 WHERE rowid = ?1", params![id, text])?;
+        // The headers came with the letter: a letter cached before the importance was kept
+        // says it now (#72).
+        let importance = crate::message::parse_summary(raw).importance;
+        if importance != Importance::Normal {
+            tx.execute(
+                "UPDATE messages SET importance = ?2 WHERE id = ?1",
+                params![id, importance.to_db()],
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -2407,6 +2447,15 @@ impl Store {
         Ok(())
     }
 
+    /// What opening a letter learned about its importance (#72).
+    pub fn note_importance(&self, id: i64, importance: Importance) -> Result<()> {
+        self.conn().execute(
+            "UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance != ?2",
+            params![id, importance.to_db()],
+        )?;
+        Ok(())
+    }
+
     pub fn set_avatar(&self, key: &str, uri: Option<&str>, fetched: i64) -> Result<()> {
         self.conn().execute(
             "INSERT OR REPLACE INTO avatars (key, uri, fetched) VALUES (?1, ?2, ?3)",
@@ -2459,14 +2508,15 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
         .prepare_cached(
             "INSERT INTO messages (account_id, folder, uid, message_id, in_reply_to, refs, subject, from_addr,
                 to_addrs, cc_addrs, reply_to, date, size, seen, answered, flagged, draft, has_attachments,
-                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all, keywords, dmarc)
+                thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all, keywords, dmarc, importance)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-                ?23, ?24, ?25, ?26, ?27, ?28)
+                ?23, ?24, ?25, ?26, ?27, ?28, ?29)
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft,
                 forwarded = excluded.forwarded, answered_all = excluded.answered_all,
-                keywords = excluded.keywords, dmarc = excluded.dmarc
+                keywords = excluded.keywords, dmarc = excluded.dmarc,
+                importance = excluded.importance
              RETURNING id",
         )?
         .query_row(
@@ -2499,6 +2549,7 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
                 flags.answered_all,
                 serde_json::to_string(&msg.keywords).unwrap_or_else(|_| "[]".into()),
                 summary.dmarc,
+                summary.importance.to_db(),
             ],
             |r| r.get(0),
         )?;
@@ -2830,8 +2881,8 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
         ORDER BY o.id DESC LIMIT 1),
     EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.anchor = m.message_id
         AND fu.park = 'returned' AND fu.noticed = 0),
-    m.dmarc";
-const COLUMN_COUNT: usize = 30;
+    m.dmarc, m.importance";
+const COLUMN_COUNT: usize = 31;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
     Ok(Snooze {
@@ -2909,6 +2960,7 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         outgoing,
         answer_came: r.get(28)?,
         dmarc: r.get(29)?,
+        importance: Importance::from_db(r.get(30)?),
         thread_voices: Vec::new(),
     })
 }
@@ -3579,6 +3631,75 @@ mod tests {
         assert!(!store.get(other).unwrap().unwrap().dmarc);
         store.note_verdict(other, true).unwrap();
         assert!(store.get(other).unwrap().unwrap().dmarc);
+    }
+
+    #[test]
+    fn importance_rides_with_the_letter_and_is_searched_for_by_is_important() {
+        let store = mailbox();
+        let mut urgent = summary("Срочно", 100);
+        urgent.importance = Importance::High;
+        let mut calm = summary("Не к спеху", 200);
+        calm.importance = Importance::Low;
+        let urgent_id = put(&store, "INBOX", 1, &urgent, false);
+        put(&store, "INBOX", 2, &calm, false);
+        put(&store, "INBOX", 3, &summary("Обычное", 300), false);
+        let rows = store.list(&ListQuery::default()).unwrap();
+        let of = |subject: &str| rows.iter().find(|r| r.subject == subject).unwrap().importance;
+        assert_eq!(of("Срочно"), Importance::High);
+        // The low one is kept too: showing it later needs no new migration (#72, 3.1 А).
+        assert_eq!(of("Не к спеху"), Importance::Low);
+        assert_eq!(of("Обычное"), Importance::Normal);
+
+        let found = |text: &str| -> Vec<String> {
+            store
+                .search(text, None, 50, &[])
+                .unwrap()
+                .into_iter()
+                .map(|r| r.subject)
+                .collect()
+        };
+        assert_eq!(found("is:important"), ["Срочно"]);
+        assert_eq!(found("это:важное"), ["Срочно"]);
+
+        // The headers of a letter whose bytes arrive later say it for the rows cached before.
+        let raw = b"Importance: High\r\nFrom: a@x\r\nSubject: Plain\r\n\r\nHi";
+        let plain = store
+            .list(&ListQuery::default())
+            .unwrap()
+            .into_iter()
+            .find(|r| r.subject == "Обычное")
+            .unwrap();
+        store.save_body(plain.id, raw, "Hi").unwrap();
+        assert_eq!(store.get(plain.id).unwrap().unwrap().importance, Importance::High);
+        store.note_importance(urgent_id, Importance::Normal).unwrap();
+        assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::Normal);
+    }
+
+    /// Letters whose bytes are cached say their importance the moment the column appears.
+    #[test]
+    fn the_importance_step_reads_the_cached_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        let id = {
+            let store = Store::open(&path).unwrap();
+            store
+                .replace_folders("a", &[folder("INBOX", Some(FolderRole::Inbox))])
+                .unwrap();
+            let id = put(&store, "INBOX", 1, &summary("Срочно", 100), false);
+            let conn = store.conn();
+            conn.execute(
+                "INSERT INTO bodies (message_id, raw) VALUES (?1, ?2)",
+                params![id, b"X-Priority: 1 (Highest)\r\nSubject: x\r\n\r\nHi".to_vec()],
+            )
+            .unwrap();
+            // The cache as it was before the step.
+            conn.execute_batch("ALTER TABLE messages DROP COLUMN importance")
+                .unwrap();
+            conn.pragma_update(None, "user_version", 24).unwrap();
+            id
+        };
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.get(id).unwrap().unwrap().importance, Importance::High);
     }
 
     #[test]

@@ -21,6 +21,45 @@ pub struct Addr {
     pub email: String,
 }
 
+/// How much the sender wants the letter read first (#72). Only the high one is shown; the
+/// low one is kept in the cache, so it can be shown later without a new migration.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Importance {
+    Low,
+    #[default]
+    Normal,
+    High,
+}
+
+impl Importance {
+    /// The cache keeps it as -1, 0 or 1.
+    pub fn to_db(self) -> i64 {
+        match self {
+            Self::Low => -1,
+            Self::Normal => 0,
+            Self::High => 1,
+        }
+    }
+
+    pub fn from_db(n: i64) -> Self {
+        match n {
+            1.. => Self::High,
+            0 => Self::Normal,
+            _ => Self::Low,
+        }
+    }
+
+    /// Exchange's `Importance` property: `High`, `Normal` or `Low`.
+    pub fn from_word(word: &str) -> Self {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "high" | "urgent" => Self::High,
+            "low" | "non-urgent" => Self::Low,
+            _ => Self::Normal,
+        }
+    }
+}
+
 /// Header fields kept in the local cache for message lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
@@ -47,6 +86,9 @@ pub struct Summary {
     /// knows the receiver; a summary read without one never says yes.
     #[serde(default)]
     pub dmarc: bool,
+    /// `Importance`, `X-Priority`, `X-MSMail-Priority` or `Priority` of the letter (#72).
+    #[serde(default)]
+    pub importance: Importance,
 }
 
 /// Ways to leave a mailing list, from `List-Unsubscribe` (RFC 2369, RFC 8058).
@@ -805,7 +847,30 @@ fn summary_of(msg: &Message<'_>) -> Summary {
             .and_then(|h| parse_unsubscribe(&h, raw_header(msg, "List-Unsubscribe-Post").as_deref())),
         thread_index: raw_header(msg, "Thread-Index"),
         dmarc: false,
+        importance: importance_of(msg),
     }
+}
+
+/// What the headers say about importance (#72): the first of `Importance`, `X-Priority`
+/// (1–2 high, 4–5 low), `X-MSMail-Priority` and `Priority` (`urgent`, `non-urgent`) that
+/// says high or low decides; one that says normal does not stand in the way of the next.
+fn importance_of(msg: &Message<'_>) -> Importance {
+    let says = |name: &str| raw_header(msg, name);
+    let priority = |v: String| match v.trim_start().chars().next() {
+        Some('1' | '2') => Importance::High,
+        Some('4' | '5') => Importance::Low,
+        _ => Importance::Normal,
+    };
+    [
+        says("Importance").map(|v| Importance::from_word(&v)),
+        says("X-Priority").map(priority),
+        says("X-MSMail-Priority").map(|v| Importance::from_word(&v)),
+        says("Priority").map(|v| Importance::from_word(&v)),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|i| *i != Importance::Normal)
+    .unwrap_or_default()
 }
 
 /// A display name as it should be shown: the paired quotes some mail programs wrap the whole
@@ -1043,6 +1108,28 @@ JVBERi0xLjQK\r\n\
         assert!(!dmarc(mail(String::new().as_str())));
         // The view alone knows no receiver: an attached letter is never authenticated.
         assert!(!parse_view(mail(own_pass).as_bytes(), false).unwrap().authenticated);
+    }
+
+    #[test]
+    fn importance_is_read_from_the_headers_that_say_it() {
+        let of =
+            |headers: &str| parse_summary(format!("{headers}From: a@x\r\nSubject: Hi\r\n\r\n").as_bytes()).importance;
+        assert_eq!(of(""), Importance::Normal);
+        assert_eq!(of("Importance: High\r\n"), Importance::High);
+        assert_eq!(of("Importance: low\r\n"), Importance::Low);
+        assert_eq!(of("X-Priority: 1 (Highest)\r\n"), Importance::High);
+        assert_eq!(of("X-Priority: 2\r\n"), Importance::High);
+        assert_eq!(of("X-Priority: 3 (Normal)\r\n"), Importance::Normal);
+        assert_eq!(of("X-Priority: 4\r\n"), Importance::Low);
+        assert_eq!(of("X-Priority: 5 (Lowest)\r\n"), Importance::Low);
+        assert_eq!(of("X-MSMail-Priority: High\r\n"), Importance::High);
+        assert_eq!(of("Priority: urgent\r\n"), Importance::High);
+        assert_eq!(of("Priority: non-urgent\r\n"), Importance::Low);
+        // Outlook says it twice; a «normal» one does not hide the next that says more.
+        assert_eq!(of("Importance: Normal\r\nX-Priority: 1\r\n"), Importance::High);
+        assert_eq!(of("X-Priority: garbage\r\nImportance: high\r\n"), Importance::High);
+        assert_eq!(Importance::from_db(Importance::High.to_db()), Importance::High);
+        assert_eq!(Importance::from_db(Importance::Low.to_db()), Importance::Low);
     }
 
     #[test]

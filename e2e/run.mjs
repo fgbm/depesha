@@ -476,6 +476,29 @@ try {
     await d.until("circles back", async () => (await count(".list .row .pic")) > 0, 10000);
   }, { retry: true });
 
+  await step("72.1", "важность: «!» в строке списка, строка в шапке письма, поиск «это:важное» (#72)", async () => {
+    const subj = `Важное ${stamp}`;
+    helper("deliver-important", subj);
+    await d.button("Входящие");
+    await rowBySubject(subj, 60000);
+    const bang = () => d.exec(`return [...document.querySelectorAll('.list .row')].find(r => r.innerText.includes(arguments[0]))?.querySelector('.imp')?.innerText.trim() ?? ''`, subj);
+    await d.until("a bang in the row", async () => (await bang()) === "!", 15000);
+    await screenshot("importance-list");
+    await openBySubject(subj);
+    await d.until("the line in the header", async () => (await textOf(".reader")).includes("Отправитель отметил как важное"), 15000);
+    await screenshot("importance-reader");
+    // An ordinary letter beside it has neither.
+    if ((await d.exec(`return [...document.querySelectorAll('.list .row')].filter(r => r.querySelector('.imp')).length`)) !== 1) throw new Error("«!» не только у важного письма");
+    const box = await d.find(".list .search input");
+    await d.clear(box);
+    await d.type(box, "это:важное");
+    await d.until("search view", async () => (await textOf(".list h2")).trim() === "Поиск");
+    await rowBySubject(subj, 15000);
+    const found = await d.exec(`return document.querySelectorAll('.list .row').length`);
+    if (found < 1) throw new Error("поиск «это:важное» ничего не нашёл");
+    await d.type(box, "\uE00C");
+  }, { retry: true });
+
   await step("4.6", "открытие ставит «прочитано» на сервере", async () => {
     await d.exec("document.querySelector('.viewport').scrollTop = 0");
     await openBySubject("Счёт за октябрь");

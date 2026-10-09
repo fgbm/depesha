@@ -355,6 +355,7 @@ pub async fn search_server(
     for uid in uids.iter().rev() {
         if let Some(row) = store.find_by_uid(account_id, folder, *uid)?
             && (!q.has_attachment || row.has_attachments)
+            && (!q.important || row.importance == message::Importance::High)
         {
             ids.push(row.id);
         }

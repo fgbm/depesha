@@ -18,6 +18,10 @@
   --side-alert: #ff8a80;
   --ok: #2e7d4f;
   --warn: #b26a00;
+  /* «Marked important» (#72): the amber of --warn is 3.1–4.0:1 on the grounds of the light
+     themes, so the light ones take a deeper shade (4.7–6.4:1) and the dark ones --side-warn
+     (5.6–9:1). Red is taken by the flag, the cursor and «Send». */
+  --imp: #8a5200;
   --radius: 8px;
   /* The expanded letter is up to --win-max wide; the settings window (#68) has its own,
      wider limit in --prefs-max (0.7.1: 1280 px, the two columns of «People» did not fit).
@@ -47,6 +51,7 @@
     --link: #7fb0ec;
     --side: #11161c;
     --side-2: #1a222b;
+    --imp: #e3a63c;
     color-scheme: dark;
   }
 }
@@ -62,6 +67,7 @@
   --link: #7fb0ec;
   --side: #11161c;
   --side-2: #1a222b;
+  --imp: #e3a63c;
   color-scheme: dark;
 }
 
@@ -98,6 +104,7 @@
   --side-2: #313237;
   --side-ink: #dcdde0;
   --side-muted: #8e9096;
+  --imp: #e3a63c;
   color-scheme: dark;
 }
 

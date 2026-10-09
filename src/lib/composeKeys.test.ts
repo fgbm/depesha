@@ -26,6 +26,13 @@ describe("keys of the composition window", () => {
     expect(composeAction(press("e", "KeyE", { ctrl: true }))).toBe("code");
   });
 
+  it("switches «High importance» on Alt+P, on the Russian layout too, and not on P alone (#72)", () => {
+    expect(composeAction(press("p", "KeyP", { alt: true }))).toBe("importance");
+    expect(composeAction(press("з", "KeyP", { alt: true }))).toBe("importance");
+    expect(composeAction(press("p", "KeyP"))).toBeNull();
+    expect(keyLabel("importance")).toBe("Alt+P");
+  });
+
   it("works on the Russian layout by the physical key", () => {
     expect(composeAction(press("д", "KeyL", { ctrl: true }))).toBe("link");
     expect(composeAction(press("З", "KeyP", { ctrl: true, shift: true }))).toBe("preview");

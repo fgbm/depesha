@@ -171,6 +171,12 @@ export class ComposeSending {
     void this.host.autosave.save();
   }
 
+  /** «High importance» (#72, 4.1 А): the letter asks to be read first. The other levels are not offered. */
+  toggleImportance() {
+    const { draft } = this.host.win;
+    draft.importance = draft.importance === "high" ? "normal" : "high";
+  }
+
   toggleMax() {
     if (this.host.win.mode === "max") this.host.win.mode = "open";
     else this.host.showCompose(this.host.win.id, "max");
@@ -191,6 +197,9 @@ export class ComposeSending {
     } else if (action === "save") {
       e.preventDefault();
       this.saveDraft();
+    } else if (action === "importance") {
+      e.preventDefault();
+      this.toggleImportance();
     } else if (action === "link" && format.format !== "plain") {
       e.preventDefault();
       format.bar?.startLink();

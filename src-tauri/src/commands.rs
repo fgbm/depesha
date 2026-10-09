@@ -651,6 +651,10 @@ pub async fn message_open(
     if let Err(e) = state.store.note_verdict(row.id, auth.dmarc) {
         tracing::warn!("the verdict of a letter was not kept: {e}");
     }
+    // The same for the importance (#72): the headers of a cached letter are not fetched again.
+    if let Err(e) = state.store.note_importance(row.id, view.summary.importance) {
+        tracing::warn!("the importance of a letter was not kept: {e}");
+    }
     // Back from waiting with the reply: read now, the list no longer says so.
     if let Some(mid) = &row.message_id
         && state.store.followup_noticed(&row.account_id, mid)?
@@ -2649,6 +2653,9 @@ pub struct ComposeDraft {
     /// The letter this one answers or forwards.
     #[serde(default)]
     acts_on: Option<ActsOn>,
+    /// Asked to be read first (#72).
+    #[serde(default)]
+    importance: depesha_core::message::Importance,
 }
 
 async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
@@ -2720,6 +2727,7 @@ async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
         references: d.references,
         attachments,
         acts_on: d.acts_on,
+        importance: d.importance,
     })
 }
 

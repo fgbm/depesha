@@ -113,6 +113,33 @@ describe("the pictures of the list (#108)", () => {
   });
 });
 
+describe("the mark of a letter asked to be read first (#72)", () => {
+  it("stands before the other marks of a high letter only, also with the avatars off", () => {
+    for (const over of [{}, { list_avatars: false }]) {
+      const t = draw([
+        row(1, "a@imp.example", { importance: "high", flags: { seen: true, answered: false, flagged: true, draft: false, deleted: false, forwarded: false, answered_all: false }, has_attachments: true }),
+        row(2, "b@imp.example", { importance: "normal" }),
+        row(3, "c@imp.example", { importance: "low" }),
+      ], over);
+      const [high, normal, low] = [...t.querySelectorAll<HTMLElement>(".row")];
+      const bang = high.querySelector<HTMLElement>(".imp")!;
+      expect(bang.textContent).toBe("!");
+      expect(bang.getAttribute("aria-label")).toBe("Высокая важность");
+      // The first of the marks: before the flag and the paperclip, which come before the date.
+      const order = [...high.querySelectorAll(".line1 > *")];
+      expect(order.indexOf(bang)).toBeLessThan(order.indexOf(high.querySelector(".flag")!));
+      expect(order.indexOf(bang)).toBeLessThan(order.indexOf(high.querySelector(".clip")!));
+      expect(order.indexOf(bang)).toBeLessThan(order.indexOf(high.querySelector(".date")!));
+      // Low is kept in the cache and not shown (3.1 А).
+      expect(normal.querySelector(".imp")).toBeNull();
+      expect(low.querySelector(".imp")).toBeNull();
+      unmount(view!);
+      view = null;
+      document.body.innerHTML = "";
+    }
+  });
+});
+
 describe("the unread state without the dot (#108)", () => {
   it("is part of the name of an unread row and absent from the name of a read one", () => {
     const unseen = { seen: false, answered: false, flagged: false, draft: false, deleted: false, forwarded: false, answered_all: false };

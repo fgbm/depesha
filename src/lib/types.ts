@@ -321,7 +321,11 @@ export interface MessageRow {
   dmarc?: boolean;
   /** Who wrote in the conversation with that verdict on each, the newest last; empty when not grouped. */
   thread_voices?: Voice[];
+  /** How much the sender wants it read first (#72); only «high» is shown. */
+  importance?: Importance;
 }
+
+export type Importance = "low" | "normal" | "high";
 
 /** A writer of a conversation and whether the receiving server vouched for them (#108). */
 export interface Voice {
@@ -398,6 +402,7 @@ export interface Summary {
   has_attachments: boolean;
   bulk: boolean;
   unsubscribe: Unsubscribe | null;
+  importance?: Importance;
 }
 
 export interface AttachmentInfo {
@@ -505,6 +510,8 @@ export interface ComposeDraft {
   send_at?: number | null;
   /** The letter this one answers or forwards; absent for a new one. */
   acts_on?: ActsOn | null;
+  /** «High» asks to be read first (#72); absent is normal. */
+  importance?: Importance;
 }
 
 /** A draft kept locally as a fallback if the app crashes before the server copy (#71). */

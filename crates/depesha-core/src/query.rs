@@ -1,5 +1,5 @@
 //! Search operators, the same for the local cache and IMAP SEARCH:
-//! `from:` `to:` `subject:` `has:attachment` `is:unread` `is:flagged`
+//! `from:` `to:` `subject:` `has:attachment` `is:unread` `is:flagged` `is:important`
 //! `before:` `after:` `in:` (`in:Work/*` with subfolders), size `larger:25M` `smaller:`, age `older:2y` `newer:30d`,
 //! a calendar year `year:2024` and a mailbox `account:`, with Russian synonyms.
 //! Everything else is free text.
@@ -16,6 +16,8 @@ pub struct SearchQuery {
     pub has_attachment: bool,
     pub unread: bool,
     pub flagged: bool,
+    /// `is:important`: letters marked high (#72). IMAP has no key for it: applied to the results locally.
+    pub important: bool,
     /// Unix time bounds: `after` inclusive, `before` exclusive (start of the given day).
     pub after: Option<i64>,
     pub before: Option<i64>,
@@ -72,6 +74,7 @@ impl SearchQuery {
                 "is" | "это" => match value.to_lowercase().as_str() {
                     "unread" | "непрочитанное" | "непрочитанные" => q.unread = true,
                     "flagged" | "starred" | "флаг" | "сфлагом" => q.flagged = true,
+                    "important" | "важное" | "важные" => q.important = true,
                     _ => q.words.push(token),
                 },
                 "before" | "до" => match day_start(&value) {
@@ -453,6 +456,18 @@ mod tests {
         assert_eq!(imap_criteria(&SearchQuery::parse("from:a@x")).len(), 1);
         assert_eq!(alternatives("a@x"), ["a@x"]);
         assert_eq!(alternatives("a@x||b@x|"), ["a@x", "b@x"]);
+    }
+
+    #[test]
+    fn important_is_an_operator_in_both_languages_and_stays_off_the_server() {
+        for text in ["is:important", "это:важное", "Это:Важные"] {
+            let q = SearchQuery::parse(text);
+            assert!(q.important, "{text}");
+            assert!(q.words.is_empty(), "{text}");
+        }
+        // No IMAP key says it: the results are filtered by the cache after the fetch.
+        assert!(imap_criteria(&SearchQuery::parse("is:important")).is_empty());
+        assert!(!SearchQuery::parse("is:flagged").important);
     }
 
     #[test]

@@ -68,6 +68,8 @@
   /** What was done with the letter, in words, under its recipients (#55). */
   const marks = $derived(headerMarks(msg.row.marks));
   const MARK_ICON = { reply: Reply, reply_all: ReplyAll, forward: Forward };
+  /** The sender asked to read it first (#72, 2.1 Б): the first of the marks, in amber. */
+  const important = $derived((msg.view.summary.importance ?? msg.row.importance) === "high");
 
   /** Every letter of this sender, wherever it lies. */
   function fromSender() {
@@ -112,8 +114,9 @@
         {@render headerActions?.()}
       </div>
       {#key msg.row.id}<Recipients to={msg.view.summary.to} cc={msg.view.summary.cc} showTo={!onlyToMe} />{/key}
-      {#if marks.length}
+      {#if marks.length || important}
         <div class="marks muted">
+          {#if important}<span class="important"><b aria-hidden="true">!</b> {t("reader.important")}</span>{/if}
           {#each marks as mark (mark.act)}
             {@const Icon = MARK_ICON[mark.act]}
             {@const answer = mark.answer ? msg.row.my_answer : null}
@@ -223,6 +226,15 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+  }
+
+  .marks .important {
+    color: var(--imp);
+  }
+
+  .marks .important b {
+    font-weight: 800;
+    font-size: 13px;
   }
 
   .marks .link {

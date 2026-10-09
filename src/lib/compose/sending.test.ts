@@ -56,6 +56,28 @@ describe("the context of a compose window", () => {
   });
 });
 
+describe("the importance of a letter (#72)", () => {
+  it("is switched on and off between high and normal, and a new letter is normal", () => {
+    const w = win("a");
+    const sending = new ComposeSending(host(w, {}));
+    expect(w.draft.importance ?? "normal").toBe("normal");
+    sending.toggleImportance();
+    expect(w.draft.importance).toBe("high");
+    sending.toggleImportance();
+    expect(w.draft.importance).toBe("normal");
+  });
+
+  it("is switched by Alt+P in the window", () => {
+    const w = win("a");
+    const sending = new ComposeSending(host(w, {}));
+    let prevented = false;
+    const e = { key: "p", code: "KeyP", altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, preventDefault: () => (prevented = true) };
+    sending.onKey(e as unknown as KeyboardEvent);
+    expect(prevented).toBe(true);
+    expect(w.draft.importance).toBe("high");
+  });
+});
+
 describe("the box «out of the inbox» of an answer (#106)", () => {
   it("with «Без напоминания» asks to archive and makes no wait", () => {
     const plan = withArchive(null, true);

@@ -256,7 +256,7 @@
           {t("search.nothing")}
           <div class="ops">
             {t("search.refine")}
-            {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "после:2026-09-01", "год:2025", "старше:1г", "больше:25М", "в:Работа/*", "ящик:"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "after:2026-09-01", "year:2025", "older:1y", "larger:25M", "in:Work/*", "account:"]) as op (op)}<code>{op}</code>{" "}{/each}
+            {#each (i18n.lang === "ru" ? ["от:", "кому:", "тема:", "есть:вложение", "is:unread", "это:важное", "после:2026-09-01", "год:2025", "старше:1г", "больше:25М", "в:Работа/*", "ящик:"] : ["from:", "to:", "subject:", "has:attachment", "is:unread", "is:important", "after:2026-09-01", "year:2025", "older:1y", "larger:25M", "in:Work/*", "account:"]) as op (op)}<code>{op}</code>{" "}{/each}
           </div>
         {:else if pluginView}
           {pluginView.empty()}
@@ -308,6 +308,8 @@
             {/if}
             {#if m.thread_count > 1}<span class="count" title={t("list.inThread")}>{m.thread_count}</span>{/if}
             {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
+            <!-- Asked to be read first (#72): the first of the marks before the date, in amber. -->
+            {#if m.importance === "high"}<span class="imp" title={t("list.important")} aria-label={t("list.important")} role="img">!</span>{/if}
             {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
             {#if m.has_attachments}<span class="clip" title={t("list.hasFiles")}><Paperclip size={13} /></span>{/if}
             <!-- What was done with it: last before the date, like the clip (#55). -->
@@ -662,6 +664,13 @@
   .flag {
     color: var(--accent);
     display: inline-flex;
+  }
+
+  .imp {
+    color: var(--imp);
+    font-weight: 800;
+    font-size: 14px;
+    line-height: 1;
   }
 
   .clip,

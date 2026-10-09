@@ -43,6 +43,7 @@ describe("the core's commands and their keys", () => {
       "compose.underline": ["Mod+u"],
       "compose.link": ["Mod+l"],
       "compose.preview": ["Mod+Shift+p"],
+      "compose.importance": ["Alt+p"],
     });
   });
 

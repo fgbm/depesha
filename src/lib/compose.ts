@@ -195,6 +195,8 @@ export function fromDraft(msg: OpenedMessage, me: Addr): ComposeDraft {
     acts_on: msg.view.acts_on ?? null,
     // A time already past is no schedule: the letter waited as a draft.
     send_at: msg.view.send_at && msg.view.send_at * 1000 > Date.now() ? msg.view.send_at : null,
+    // A draft marked important stays so when it is opened again (#72).
+    importance: msg.view.summary.importance ?? "normal",
   };
 }
 

@@ -59,6 +59,8 @@ export const CORE_KEYS: CoreKey[] = [
   row("compose.underline", "compose.format.underline", ["Mod+u"], "compose"),
   row("compose.link", "compose.format.link", ["Mod+l"], "compose"),
   row("compose.preview", "keys.cmd.preview", ["Mod+Shift+p"], "compose"),
+  // «High importance» (#72, 4.1 А): a switch of the letter. Alt+P is taken by nothing else in the window.
+  row("compose.importance", "compose.importance", ["Alt+p"], "compose"),
   // Markdown only: they work when the letter is written in Markdown (frame 16 В of the mockup).
   row("compose.heading1", "compose.format.heading1", ["Mod+1"], "compose"),
   row("compose.heading2", "compose.format.heading2", ["Mod+2"], "compose"),

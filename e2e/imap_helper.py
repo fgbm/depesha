@@ -327,6 +327,13 @@ def main():
         c.logout()
         print("ok")
         return
+    if cmd == "deliver-important":
+        # The two headers Outlook writes for «High importance» (#72).
+        c = conn()
+        append(c, "INBOX", msg(sys.argv[2], "Прочитайте первым.", sender="Пётр Сидоров <petr@example.org>", extra="Importance: High\r\nX-Priority: 1 (Highest)\r\n"))
+        c.logout()
+        print("ok")
+        return
     if cmd == "deliver-markdown":
         c = conn()
         append(c, "INBOX", markdown(sys.argv[2]))

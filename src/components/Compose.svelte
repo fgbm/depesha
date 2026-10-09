@@ -215,6 +215,8 @@
     close: () => sending.close(),
     discard: () => sending.discard(),
     saveDraft: () => sending.saveDraft(),
+    get important() { return c.draft.importance === "high"; },
+    toggleImportance: () => sending.toggleImportance(),
     get menuOpen() { return menuOpen; },
     set menuOpen(v: boolean) { menuOpen = v; },
     get moreOpen() { return moreOpen; },
@@ -509,6 +511,14 @@
           <button class="btn ghost icon" onclick={() => (m.options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
         </span>
       {/if}
+      {#if m.important}
+        <!-- The state of the letter, as the schedule above: a chip that takes it off (#72, 4.1 А). -->
+        <span class="scheduled important">
+          <span class="bang" aria-hidden="true">!</span>
+          {t("compose.importance")}
+          <button class="btn ghost icon" onclick={m.toggleImportance} title={t("compose.importance.off")} aria-label={t("compose.importance.off")}><X size={13} /></button>
+        </span>
+      {/if}
       <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
       {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       <span class="spacer"></span>
@@ -539,6 +549,9 @@
       <span class="anchor">
         <button class="btn ghost icon" onclick={() => (m.moreOpen = !m.moreOpen)} disabled={m.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={m.moreOpen}><Ellipsis size={15} /></button>
         <Popover bind:open={m.moreOpen}>
+          <button class="mi" role="menuitemcheckbox" aria-checked={m.important} onclick={() => { m.moreOpen = false; m.toggleImportance(); }}>
+            <span class="tick">{#if m.important}<Check size={14} />{/if}</span>{t("compose.importance")}<span class="hint">{keyLabel("importance")}</span>
+          </button>
           <button class="mi" onclick={() => { m.moreOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}<span class="hint">{keyLabel("save")}</span></button>
           <button class="mi danger-text" onclick={() => { m.moreOpen = false; m.discard(); }}>{t("compose.discardDraft")}</button>
         </Popover>
@@ -1000,5 +1013,14 @@
     color: var(--accent);
     font-size: 13px;
     white-space: nowrap;
+  }
+
+  /* Amber, not red: red is the flag, the cursor and «Send» (#72). */
+  .scheduled.important {
+    color: var(--imp);
+  }
+
+  .bang {
+    font-weight: 800;
   }
 </style>
