@@ -23,7 +23,10 @@ mod labels;
 mod marks;
 pub use marks::{Done, Mark, Outgoing, marks_of};
 mod people;
-pub use people::{HintCount, HintState, Person};
+pub use people::{
+    Added, AddressRow, HintCount, HintState, Merge, Merged, Person, PersonAddress, PersonRow, SAME_PERSON, Snapshot,
+    Split, Suggestion,
+};
 mod sent_copies;
 pub use sent_copies::{NewSentCopy, SentCopy, StuckCopy};
 mod server;
@@ -72,6 +75,7 @@ const MIGRATIONS: &[Step] = &[
     sent_copies::v20_stuck_copies,
     v21_outbox_archive,
     sent_copies::v22_copy_filed,
+    people::v23_persons_and_addresses,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -770,7 +774,7 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
         return None;
     }
     let mut terms: Vec<String> = Vec::new();
-    let mut column = |col: Option<&str>, value: &str| {
+    let column = |terms: &mut Vec<String>, col: Option<&str>, value: &str| {
         for w in value.split_whitespace() {
             let w = w.replace('"', "");
             if w.is_empty() {
@@ -782,10 +786,29 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
             });
         }
     };
-    q.words.iter().for_each(|w| column(None, w));
-    q.from.iter().for_each(|w| column(Some("sender"), w));
-    q.to.iter().for_each(|w| column(Some("recipients"), w));
-    q.subject.iter().for_each(|w| column(Some("subject"), w));
+    q.words.iter().for_each(|w| column(&mut terms, None, w));
+    for w in &q.from {
+        // `from:a|b` is a letter from either: each alternative's words together, the
+        // alternatives apart (FTS5: AND binds tighter than OR).
+        let alts = crate::query::alternatives(w);
+        if alts.len() < 2 {
+            column(&mut terms, Some("sender"), w);
+            continue;
+        }
+        let groups: Vec<String> = alts
+            .iter()
+            .filter_map(|alt| {
+                let mut own = Vec::new();
+                column(&mut own, Some("sender"), alt);
+                (!own.is_empty()).then(|| own.join(" AND "))
+            })
+            .collect();
+        if !groups.is_empty() {
+            terms.push(format!("({})", groups.join(" OR ")));
+        }
+    }
+    q.to.iter().for_each(|w| column(&mut terms, Some("recipients"), w));
+    q.subject.iter().for_each(|w| column(&mut terms, Some("subject"), w));
 
     let mut cond = String::from("(?1 IS NULL OR m.account_id = ?1)");
     let mut args: Vec<rusqlite::types::Value> = vec![account_id.map(str::to_owned).into()];
@@ -880,7 +903,7 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
             words: false,
         });
     }
-    args.push(terms.join(" ").into());
+    args.push(terms.join(" AND ").into());
     Some(SearchSql {
         from: "search s JOIN messages m ON m.id = s.rowid JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder",
         cond: format!("search MATCH ?{} AND {cond}", args.len()),
@@ -3576,6 +3599,47 @@ mod tests {
         assert_eq!(subjects("счёт"), ["Счёт на оплату"]);
         assert_eq!(subjects("счёт in:корзина"), ["Счёт старый"]);
         assert_eq!(subjects("after:1970-01-01 before:1970-01-02").len(), 2);
+    }
+
+    /// `from:a|b` finds the letters of a person with two addresses, and only theirs (#104).
+    #[test]
+    fn search_from_either_of_several_addresses() {
+        let store = mailbox();
+        let from = |email: &str, name: &str| {
+            Some(Addr {
+                name: Some(name.into()),
+                email: email.into(),
+            })
+        };
+        let mut a = with_ids("Re: зал на пятницу", 100, "a@x", None);
+        a.from = from("olga@example.org", "Ольга");
+        put(&store, "INBOX", 1, &a, true);
+        let mut b = with_ids("Личное: отпуск", 200, "b@x", None);
+        b.from = from("o.smirnova@example.com", "Смирнова Ольга");
+        put(&store, "INBOX", 2, &b, true);
+        let mut c = with_ids("Смета на октябрь", 300, "c@x", None);
+        c.from = from("ivan@example.org", "Иван");
+        put(&store, "INBOX", 3, &c, true);
+        let found = |q: &str| -> Vec<String> {
+            let mut s: Vec<String> = store
+                .search(q, None, 0, &[])
+                .unwrap()
+                .into_iter()
+                .map(|m| m.subject)
+                .collect();
+            s.sort();
+            s
+        };
+        assert_eq!(found("from:olga@example.org"), ["Re: зал на пятницу"]);
+        assert_eq!(
+            found("from:olga@example.org|o.smirnova@example.com"),
+            ["Re: зал на пятницу", "Личное: отпуск"],
+            "both addresses, not the stranger"
+        );
+        assert_eq!(
+            found("from:olga@example.org|o.smirnova@example.com отпуск"),
+            ["Личное: отпуск"]
+        );
     }
 
     #[test]

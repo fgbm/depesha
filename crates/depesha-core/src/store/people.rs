@@ -1,25 +1,49 @@
-//! The address book and the rules of a person (#66, #44), and the state of the suggestions
-//! (#69). The book is built on the table of addresses the cache keeps for completion: every
-//! address of the correspondence is in it, and a person's own row holds what the user
-//! decided about them — the name to show, the format to write in, the form to show their
-//! letters, a note, and whether completion hides the address. One person is one address in
-//! 0.7; joining several addresses into one person is a task of its own. The suggestions
-//! keep one row per hint and subject: accepted, refused for this person or for everyone,
-//! «not now», or shown and left unanswered. Nothing here is tied to a mailbox: a rule about
-//! a person follows them wherever their letters arrive.
+//! The address book and the rules of a person (#66, #44, #104), and the state of the
+//! suggestions (#69). A person is a record with one or more addresses: the name to show, the
+//! format to write in, the form to show their letters, a note, and whether completion hides
+//! them. The addresses of the correspondence the cache keeps for completion are the book's
+//! base: one without a record is a person of that one address (`id` 0) until the user decides
+//! something about it. Several addresses join into one person by a merge, which hands back a
+//! snapshot that restores everything as it was; an address leaves a person by a split. The
+//! suggestions keep one row per hint and subject: accepted, refused for this person or for
+//! everyone, «not now», or shown and left unanswered. Nothing here is tied to a mailbox: a
+//! rule about a person follows them wherever their letters arrive.
+
+use std::collections::HashMap;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::Store;
-use crate::Result;
 use crate::message::clean_name;
+use crate::{Error, Result};
+
+/// One address of a person.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PersonAddress {
+    pub email: String,
+    /// The one shown in the list and offered first in completion; exactly one per person.
+    pub primary: bool,
+    /// Letters carrying the address, both ways; read from the cache, not kept here.
+    pub uses: i64,
+    /// The name the letters give this address; empty when they give none. Kept apart from
+    /// the person's own name: it is what an address gets back when it leaves the person.
+    pub name: String,
+}
 
 /// A person of the address book, as the page lists them. The record's own fields stand over
 /// what the correspondence says; `uses` comes from the letters, not from the record.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Person {
+    /// The record's key; 0 for an address seen only in the correspondence, which has no
+    /// record yet.
+    pub id: i64,
+    /// The primary address.
     pub email: String,
+    /// Every address, the primary one first.
+    pub emails: Vec<PersonAddress>,
     /// The name shown and offered in completion: the user's own over the letters' spelling.
     pub name: String,
     /// Which format letters to them are written in; empty follows the mailbox (`html`,
@@ -37,9 +61,90 @@ pub struct Person {
     pub via: String,
     /// When the user last saved the record, Unix time; 0 for one without a record.
     pub saved: i64,
-    /// Letters carrying the address, both ways; read from the cache, not kept here.
-    #[serde(default)]
+    /// Letters carrying any of the addresses; read from the cache, not kept here.
     pub uses: i64,
+}
+
+/// What a merge asks for: the people to join (any one address of each), and what the dialog
+/// settled — the name to keep, the primary address and the rules.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Merge {
+    pub emails: Vec<String>,
+    pub name: String,
+    pub primary: String,
+    pub send_format: String,
+    pub view: String,
+    pub hidden: bool,
+}
+
+/// One row of `persons`, kept in a snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonRow {
+    pub id: i64,
+    pub name: String,
+    pub send_format: String,
+    pub view: String,
+    pub note: String,
+    pub hidden: bool,
+    pub manual: bool,
+    pub via: String,
+    pub saved: i64,
+}
+
+/// One row of `person_addresses`, kept in a snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddressRow {
+    pub key: String,
+    pub email: String,
+    pub person_id: i64,
+    pub primary: bool,
+    pub ord: i64,
+}
+
+/// Everything a merge or a split touched, as it was before: handing it back to `restore`
+/// puts the people, their rules, notes and the order of their addresses back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub persons: Vec<PersonRow>,
+    pub addresses: Vec<AddressRow>,
+    /// Records the operation created: they go on a restore.
+    pub created: Vec<i64>,
+    /// Decisions about «the same person» the operation wrote: they go too.
+    pub hints: Vec<String>,
+}
+
+/// The outcome of a merge: the joint person and the way back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Merged {
+    pub person: Person,
+    pub undo: Snapshot,
+}
+
+/// The outcome of a split: the address as a person of its own, the person it left, and the
+/// way back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Split {
+    pub person: Person,
+    pub origin: Person,
+    pub undo: Snapshot,
+}
+
+/// The outcome of adding an address to a person: the person, or — when the address is
+/// already another person's — that person, and nothing is added.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Added {
+    pub person: Option<Person>,
+    pub owner: Option<Person>,
+}
+
+/// A person for address completion: the primary address to insert, and all of the person's
+/// addresses to choose from (the primary one first).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Suggestion {
+    pub email: String,
+    pub name: Option<String>,
+    pub emails: Vec<String>,
 }
 
 /// What was decided about one suggestion and one subject (#69). `subject` is the address the
@@ -72,6 +177,9 @@ pub struct HintCount {
     #[serde(default)]
     pub at: i64,
 }
+
+/// The hint that remembers two people are not one (#104): a refusal per pair of addresses.
+pub const SAME_PERSON: &str = "same-person";
 
 /// 13: the address book and the suggestions of 0.7. Both are new tables beside the cache's
 /// own, so no old row moves: the addresses completion already keeps are the book's base, and
@@ -124,22 +232,102 @@ pub(super) fn v14_hint_counts(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// The columns of a person row, in the order the queries below return them.
-const PERSON_COLUMNS: &str = "email, name, send_format, view, note, hidden, manual, via, saved";
+/// 23: a person with several addresses (#104). A person gets a key of their own and their
+/// addresses hang on it; each old row of `people` — one address and its rules — becomes one
+/// person with that one address as the primary, every field carried over, so no rule is
+/// lost. The old table is kept under another name for a release, so the rules stay readable
+/// if the step must be looked at again; nothing reads it. The step touches nothing else, and
+/// uses no function of the connection, as the others before it.
+pub(super) fn v23_persons_and_addresses(conn: &Connection) -> Result<()> {
+    // A cache set back to an earlier number by hand (the tests of other steps do) already
+    // has the tables, and its old book is gone: nothing to carry over twice.
+    let done: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'persons')",
+        [],
+        |r| r.get(0),
+    )?;
+    if done {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "CREATE TABLE persons (
+             id          INTEGER PRIMARY KEY,
+             name        TEXT NOT NULL DEFAULT '',
+             send_format TEXT NOT NULL DEFAULT '',
+             view        TEXT NOT NULL DEFAULT '',
+             note        TEXT NOT NULL DEFAULT '',
+             hidden      INTEGER NOT NULL DEFAULT 0,
+             manual      INTEGER NOT NULL DEFAULT 0,
+             via         TEXT NOT NULL DEFAULT '',
+             saved       INTEGER NOT NULL DEFAULT 0
+         );
 
-fn person_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Person> {
-    Ok(Person {
-        email: r.get(0)?,
-        name: r.get(1)?,
-        send_format: r.get(2)?,
-        view: r.get(3)?,
-        note: r.get(4)?,
-        hidden: r.get(5)?,
-        manual: r.get(6)?,
-        via: r.get(7)?,
-        saved: r.get(8)?,
-        uses: 0,
-    })
+         -- An address belongs to at most one person: `key` is the address without its case.
+         CREATE TABLE person_addresses (
+             key        TEXT PRIMARY KEY,
+             email      TEXT NOT NULL,
+             person_id  INTEGER NOT NULL REFERENCES persons (id) ON DELETE CASCADE,
+             is_primary INTEGER NOT NULL DEFAULT 0,
+             ord        INTEGER NOT NULL DEFAULT 0
+         ) WITHOUT ROWID;
+         CREATE UNIQUE INDEX person_one_primary ON person_addresses (person_id) WHERE is_primary = 1;
+         CREATE INDEX person_addresses_by_person ON person_addresses (person_id, ord);",
+    )?;
+    let old: Vec<(String, PersonRow)> = {
+        let mut stmt = conn.prepare(
+            "SELECT email, name, send_format, view, note, hidden, manual, via, saved FROM people ORDER BY email",
+        )?;
+        stmt.query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                PersonRow {
+                    id: 0,
+                    name: r.get(1)?,
+                    send_format: r.get(2)?,
+                    view: r.get(3)?,
+                    note: r.get(4)?,
+                    hidden: r.get(5)?,
+                    manual: r.get(6)?,
+                    via: r.get(7)?,
+                    saved: r.get(8)?,
+                },
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?
+    };
+    for (email, p) in old {
+        let key = email.trim().to_lowercase();
+        // Two old rows differing only in case would be one address: the first stands.
+        let taken: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM person_addresses WHERE key = ?1)",
+            [&key],
+            |r| r.get(0),
+        )?;
+        if key.is_empty() || taken {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO persons (name, send_format, view, note, hidden, manual, via, saved)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                p.name,
+                p.send_format,
+                p.view,
+                p.note,
+                p.hidden,
+                p.manual,
+                p.via,
+                p.saved
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO person_addresses (key, email, person_id, is_primary, ord) VALUES (?1, ?2, ?3, 1, 0)",
+            params![key, email, id],
+        )?;
+    }
+    conn.execute_batch("ALTER TABLE people RENAME TO people_v22;")?;
+    Ok(())
 }
 
 fn hint_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<HintState> {
@@ -154,48 +342,291 @@ fn hint_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<HintState> {
     })
 }
 
+/// The address without its case: the key an address is told apart by.
+fn key_of(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
+/// A letter-name of an address as the book shows it: cleaned of its quotes.
+type MailIndex = HashMap<String, (String, String, i64)>;
+
+/// What the letters hold, by address key: the spelling, the name (cleaned of the quotes its
+/// mail program wrapped it in) and the count of letters. With `keys`, only those addresses.
+fn mail_index(conn: &Connection, keys: Option<&[String]>) -> Result<MailIndex> {
+    let mut sql =
+        String::from("SELECT fold(email), MAX(email), COALESCE(MAX(NULLIF(name, '')), ''), SUM(uses) FROM addresses");
+    if let Some(keys) = keys {
+        if keys.is_empty() {
+            return Ok(MailIndex::new());
+        }
+        sql.push_str(&format!(" WHERE fold(email) IN ({})", vec!["?"; keys.len()].join(",")));
+    }
+    sql.push_str(" GROUP BY fold(email)");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(keys.unwrap_or(&[]).iter()), |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            (
+                r.get::<_, String>(1)?,
+                clean_name(&r.get::<_, String>(2)?),
+                r.get::<_, i64>(3)?,
+            ),
+        ))
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn person_from(r: &rusqlite::Row<'_>) -> rusqlite::Result<Person> {
+    Ok(Person {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        send_format: r.get(2)?,
+        view: r.get(3)?,
+        note: r.get(4)?,
+        hidden: r.get(5)?,
+        manual: r.get(6)?,
+        via: r.get(7)?,
+        saved: r.get(8)?,
+        ..Default::default()
+    })
+}
+
+const PERSON_COLUMNS: &str = "id, name, send_format, view, note, hidden, manual, via, saved";
+
+/// The addresses of a person as the book lists them: the primary first, the rest as they
+/// were added, each with its letters and its name from them.
+fn addresses_with_mail(rows: Vec<AddressRow>, mail: &MailIndex) -> Vec<PersonAddress> {
+    rows.into_iter()
+        .map(|a| {
+            let (name, uses) = mail.get(&a.key).map(|(_, n, u)| (n.clone(), *u)).unwrap_or_default();
+            PersonAddress {
+                email: a.email,
+                primary: a.primary,
+                uses,
+                name,
+            }
+        })
+        .collect()
+}
+
+/// Fills in what the cache says of a person: the primary address, the count of letters, and
+/// the name — the user's own, else the first the letters give.
+fn finish(p: &mut Person) {
+    p.email = p.emails.first().map(|a| a.email.clone()).unwrap_or_default();
+    p.uses = p.emails.iter().map(|a| a.uses).sum();
+    if p.name.is_empty() {
+        p.name = letters_name(&p.emails);
+    }
+}
+
+/// The name the letters give a person: the primary address's, else the next that has one.
+fn letters_name(emails: &[PersonAddress]) -> String {
+    emails
+        .iter()
+        .map(|a| a.name.clone())
+        .find(|n| !n.is_empty())
+        .unwrap_or_default()
+}
+
+fn owner(conn: &Connection, key: &str) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row("SELECT person_id FROM person_addresses WHERE key = ?1", [key], |r| {
+            r.get(0)
+        })
+        .optional()?)
+}
+
+fn address_rows(conn: &Connection, id: i64) -> Result<Vec<AddressRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, email, person_id, is_primary, ord FROM person_addresses
+         WHERE person_id = ?1 ORDER BY is_primary DESC, ord, key",
+    )?;
+    Ok(stmt
+        .query_map([id], |r| {
+            Ok(AddressRow {
+                key: r.get(0)?,
+                email: r.get(1)?,
+                person_id: r.get(2)?,
+                primary: r.get(3)?,
+                ord: r.get(4)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+fn person_rows(conn: &Connection, ids: &[i64]) -> Result<Vec<PersonRow>> {
+    let mut out = Vec::new();
+    for id in ids {
+        out.extend(
+            conn.query_row(
+                &format!("SELECT {PERSON_COLUMNS} FROM persons WHERE id = ?1"),
+                [id],
+                |r| {
+                    Ok(PersonRow {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        send_format: r.get(2)?,
+                        view: r.get(3)?,
+                        note: r.get(4)?,
+                        hidden: r.get(5)?,
+                        manual: r.get(6)?,
+                        via: r.get(7)?,
+                        saved: r.get(8)?,
+                    })
+                },
+            )
+            .optional()?,
+        );
+    }
+    Ok(out)
+}
+
+fn insert_address(conn: &Connection, a: &AddressRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO person_addresses (key, email, person_id, is_primary, ord) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![a.key, a.email, a.person_id, a.primary, a.ord],
+    )?;
+    Ok(())
+}
+
+fn insert_person_row(conn: &Connection, p: &PersonRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO persons (id, name, send_format, view, note, hidden, manual, via, saved)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            p.id,
+            p.name,
+            p.send_format,
+            p.view,
+            p.note,
+            p.hidden,
+            p.manual,
+            p.via,
+            p.saved
+        ],
+    )?;
+    Ok(())
+}
+
+/// Reads one person with their addresses and letters; none when the key is gone.
+fn load(conn: &Connection, id: i64) -> Result<Option<Person>> {
+    let Some(mut p) = conn
+        .query_row(
+            &format!("SELECT {PERSON_COLUMNS} FROM persons WHERE id = ?1"),
+            [id],
+            person_from,
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let rows = address_rows(conn, id)?;
+    let keys: Vec<String> = rows.iter().map(|a| a.key.clone()).collect();
+    p.emails = addresses_with_mail(rows, &mail_index(conn, Some(&keys))?);
+    finish(&mut p);
+    Ok(Some(p))
+}
+
+/// The record of an address, made when there is none: a person of that one address with no
+/// rule yet.
+fn ensure(conn: &Connection, email: &str) -> Result<i64> {
+    let key = key_of(email);
+    if let Some(id) = owner(conn, &key)? {
+        return Ok(id);
+    }
+    conn.execute("INSERT INTO persons DEFAULT VALUES", [])?;
+    let id = conn.last_insert_rowid();
+    let spelled = spelling(conn, &key, email)?;
+    insert_address(
+        conn,
+        &AddressRow {
+            key,
+            email: spelled,
+            person_id: id,
+            primary: true,
+            ord: 0,
+        },
+    )?;
+    Ok(id)
+}
+
+/// How an address is written: as the letters spell it, else as it was given.
+fn spelling(conn: &Connection, key: &str, given: &str) -> Result<String> {
+    let seen: Option<String> = conn
+        .query_row("SELECT MAX(email) FROM addresses WHERE fold(email) = ?1", [key], |r| {
+            r.get(0)
+        })
+        .optional()?
+        .flatten();
+    Ok(seen.unwrap_or_else(|| given.trim().to_owned()))
+}
+
+/// The pair of keys a decision «the same person» is kept under.
+fn pair_subject(a: &str, b: &str) -> String {
+    let (a, b) = (key_of(a), key_of(b));
+    if a <= b { format!("{a}|{b}") } else { format!("{b}|{a}") }
+}
+
 impl Store {
-    /// The address book: every address of the correspondence with what was decided about it,
-    /// and a row for every address added by hand. `query` keeps the ones whose name, address
-    /// or note holds it. Sorted by the name shown, so the list reads as people, not addresses.
+    /// The address book: every person with a record, and every address of the correspondence
+    /// without one as a person of that address. `query` keeps the ones whose name, an
+    /// address or note holds it. Sorted by the name shown, so the list reads as people.
     pub fn people(&self, query: &str) -> Result<Vec<Person>> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "WITH mail AS (
-                 SELECT fold(email) AS k, MAX(email) AS email, MAX(NULLIF(name, '')) AS name,
-                     SUM(uses) AS uses
-                 FROM addresses GROUP BY fold(email)
-             )
-             SELECT COALESCE(p.email, m.email),
-                 CASE WHEN p.name IS NOT NULL AND p.name != '' THEN p.name ELSE COALESCE(m.name, '') END,
-                 COALESCE(p.send_format, ''), COALESCE(p.view, ''), COALESCE(p.note, ''),
-                 COALESCE(p.hidden, 0), COALESCE(p.manual, 0), COALESCE(p.via, ''), COALESCE(p.saved, 0),
-                 COALESCE(m.uses, 0)
-             FROM mail m LEFT JOIN people p ON fold(p.email) = m.k
-             UNION ALL
-             SELECT p.email, p.name, p.send_format, p.view, p.note, p.hidden, p.manual, p.via, p.saved, 0
-             FROM people p WHERE fold(p.email) NOT IN (SELECT k FROM mail)",
-        )?;
-        let mut people: Vec<Person> = stmt
-            .query_map([], |r| {
-                let mut p = person_row(r)?;
-                p.uses = r.get(9)?;
-                Ok(p)
-            })?
-            .collect::<rusqlite::Result<_>>()?;
-        // Names accumulated before the quotes were stripped are cleaned on the way out, so the
-        // list shows people, not their mail programs' punctuation. A name the user typed
-        // themselves (`manual`) is shown as it is, quotes and all.
-        for p in &mut people {
-            if !p.manual {
-                p.name = clean_name(&p.name);
+        let mail = mail_index(&conn, None)?;
+        let mut by_person: HashMap<i64, Vec<AddressRow>> = HashMap::new();
+        let mut owned: std::collections::HashSet<String> = std::collections::HashSet::new();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT key, email, person_id, is_primary, ord FROM person_addresses
+                 ORDER BY person_id, is_primary DESC, ord, key",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(AddressRow {
+                    key: r.get(0)?,
+                    email: r.get(1)?,
+                    person_id: r.get(2)?,
+                    primary: r.get(3)?,
+                    ord: r.get(4)?,
+                })
+            })?;
+            for row in rows {
+                let row = row?;
+                owned.insert(row.key.clone());
+                by_person.entry(row.person_id).or_default().push(row);
             }
+        }
+        let mut people: Vec<Person> = {
+            let mut stmt = conn.prepare(&format!("SELECT {PERSON_COLUMNS} FROM persons"))?;
+            stmt.query_map([], person_from)?.collect::<rusqlite::Result<_>>()?
+        };
+        for p in &mut people {
+            p.emails = addresses_with_mail(by_person.remove(&p.id).unwrap_or_default(), &mail);
+            finish(p);
+        }
+        people.retain(|p| !p.emails.is_empty());
+        // The addresses of the correspondence nobody has decided about: one person each.
+        for (key, (email, name, uses)) in &mail {
+            if owned.contains(key) {
+                continue;
+            }
+            let mut p = Person {
+                emails: vec![PersonAddress {
+                    email: email.clone(),
+                    primary: true,
+                    uses: *uses,
+                    name: name.clone(),
+                }],
+                ..Default::default()
+            };
+            finish(&mut p);
+            people.push(p);
         }
         let q = query.trim().to_lowercase();
         if !q.is_empty() {
             people.retain(|p| {
                 p.name.to_lowercase().contains(&q)
-                    || p.email.to_lowercase().contains(&q)
+                    || p.emails.iter().any(|a| a.email.to_lowercase().contains(&q))
                     || p.note.to_lowercase().contains(&q)
             });
         }
@@ -210,37 +641,54 @@ impl Store {
         Ok(people)
     }
 
-    /// The record kept about one address, or none: the addresses of the correspondence
-    /// without a rule are not records, so this tells a rule from their absence.
+    /// The record kept about one address (whichever of the person's it is), or none: the
+    /// addresses of the correspondence without a rule are not records, so this tells a rule
+    /// from their absence.
     pub fn person(&self, email: &str) -> Result<Option<Person>> {
-        Ok(self
-            .conn()
-            .query_row(
-                &format!("SELECT {PERSON_COLUMNS} FROM people WHERE fold(email) = fold(?1)"),
-                [email],
-                person_row,
-            )
-            .optional()?)
+        let conn = self.conn();
+        match owner(&conn, &key_of(email))? {
+            Some(id) => load(&conn, id),
+            None => Ok(None),
+        }
     }
 
-    /// Saves a person's record. One row per address, whatever its case: another spelling of
-    /// the same address is replaced, not added beside it.
-    pub fn save_person(&self, p: &Person) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "DELETE FROM people WHERE fold(email) = fold(?1) AND email != ?1",
-            [&p.email],
-        )?;
-        conn.execute(
-            "INSERT INTO people (email, name, send_format, view, note, hidden, manual, via, saved)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT (email) DO UPDATE SET
-                 name = excluded.name, send_format = excluded.send_format, view = excluded.view,
-                 note = excluded.note, hidden = excluded.hidden, manual = excluded.manual,
-                 via = excluded.via, saved = excluded.saved",
+    /// Saves a person's record: the fields of the person, not their addresses (those change
+    /// by `person_add_address`, `person_set_primary`, merges and splits). A record without a
+    /// key is looked for by its address, and made when the address has none. A name that is
+    /// only what the letters say is not kept as the user's own, so a rule set on a person
+    /// does not freeze the name the letters give them. Returns the record as it is now.
+    pub fn save_person(&self, p: &Person) -> Result<Person> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let live: Option<i64> = if p.id != 0 {
+            tx.query_row("SELECT id FROM persons WHERE id = ?1", [p.id], |r| r.get(0))
+                .optional()?
+        } else {
+            None
+        };
+        let id = match live {
+            Some(id) => id,
+            None => {
+                if key_of(&p.email).is_empty() {
+                    return Err(Error::NotFound);
+                }
+                ensure(&tx, &p.email)?
+            }
+        };
+        let rows = address_rows(&tx, id)?;
+        let keys: Vec<String> = rows.iter().map(|a| a.key.clone()).collect();
+        let emails = addresses_with_mail(rows, &mail_index(&tx, Some(&keys))?);
+        let name = if p.name == letters_name(&emails) {
+            ""
+        } else {
+            p.name.as_str()
+        };
+        tx.execute(
+            "UPDATE persons SET name = ?2, send_format = ?3, view = ?4, note = ?5, hidden = ?6,
+                 manual = ?7, via = ?8, saved = ?9 WHERE id = ?1",
             params![
-                p.email,
-                p.name,
+                id,
+                name,
                 p.send_format,
                 p.view,
                 p.note,
@@ -250,17 +698,351 @@ impl Store {
                 p.saved
             ],
         )?;
+        let saved = load(&tx, id)?.ok_or(Error::NotFound)?;
+        tx.commit()?;
+        Ok(saved)
+    }
+
+    /// Removes a record, hiding the person from the book. Only one added by hand can go: one
+    /// that came from the correspondence would return with the next letter, so it stays, and
+    /// the person is hidden instead. All their addresses go with them. Says whether anything
+    /// was removed.
+    pub fn forget_person(&self, email: &str) -> Result<bool> {
+        let conn = self.conn();
+        let Some(id) = owner(&conn, &key_of(email))? else {
+            return Ok(false);
+        };
+        Ok(conn.execute("DELETE FROM persons WHERE id = ?1 AND manual = 1", [id])? > 0)
+    }
+
+    /// Adds an address to the person who has `to` among theirs (made a person if it was an
+    /// address of the correspondence alone). An address that is already another person's is
+    /// not moved: that person comes back as `owner`, for the caller to offer a merge.
+    pub fn person_add_address(&self, to: &str, email: &str) -> Result<Added> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let key = key_of(email);
+        if !key.contains('@') || key.contains(char::is_whitespace) {
+            return Err(Error::NotFound);
+        }
+        let id = ensure(&tx, to)?;
+        match owner(&tx, &key)? {
+            Some(other) if other != id => {
+                let owner = load(&tx, other)?;
+                tx.commit()?;
+                return Ok(Added { person: None, owner });
+            }
+            Some(_) => {}
+            None => {
+                let ord: i64 = tx.query_row(
+                    "SELECT COALESCE(MAX(ord), 0) + 1 FROM person_addresses WHERE person_id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )?;
+                let spelled = spelling(&tx, &key, email)?;
+                insert_address(
+                    &tx,
+                    &AddressRow {
+                        key,
+                        email: spelled,
+                        person_id: id,
+                        primary: false,
+                        ord,
+                    },
+                )?;
+            }
+        }
+        let person = load(&tx, id)?;
+        tx.commit()?;
+        Ok(Added { person, owner: None })
+    }
+
+    /// Makes an address the primary one of its person. None when it is not one of a
+    /// person's with a record (a lone address of the correspondence is its own primary).
+    pub fn person_set_primary(&self, email: &str) -> Result<Option<Person>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let key = key_of(email);
+        let Some(id) = owner(&tx, &key)? else {
+            return Ok(None);
+        };
+        tx.execute("UPDATE person_addresses SET is_primary = 0 WHERE person_id = ?1", [id])?;
+        tx.execute("UPDATE person_addresses SET is_primary = 1 WHERE key = ?1", [&key])?;
+        let person = load(&tx, id)?;
+        tx.commit()?;
+        Ok(person)
+    }
+
+    /// Joins people into one (#104). Each of `emails` names a person by any of their
+    /// addresses; the first with a record is kept and the others, with the addresses of the
+    /// correspondence alone, are folded into it. The name, primary address and rules are
+    /// what the dialog settled; the notes are joined by an empty line, in the order given.
+    /// None when fewer than two people were named. The snapshot restores it all.
+    pub fn person_merge(&self, req: &Merge) -> Result<Option<Merged>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        // The people named, once each: their record when they have one, else the lone address.
+        struct Part {
+            id: Option<i64>,
+            rows: Vec<AddressRow>,
+        }
+        let mut parts: Vec<Part> = Vec::new();
+        for email in &req.emails {
+            let key = key_of(email);
+            if key.is_empty() {
+                continue;
+            }
+            match owner(&tx, &key)? {
+                Some(id) if parts.iter().any(|p| p.id == Some(id)) => {}
+                Some(id) => parts.push(Part {
+                    id: Some(id),
+                    rows: address_rows(&tx, id)?,
+                }),
+                None if parts.iter().any(|p| p.id.is_none() && p.rows[0].key == key) => {}
+                None => parts.push(Part {
+                    id: None,
+                    rows: vec![AddressRow {
+                        email: spelling(&tx, &key, email)?,
+                        key,
+                        ..Default::default()
+                    }],
+                }),
+            }
+        }
+        if parts.len() < 2 {
+            return Ok(None);
+        }
+        let involved: Vec<i64> = parts.iter().filter_map(|p| p.id).collect();
+        let mut undo = Snapshot {
+            persons: person_rows(&tx, &involved)?,
+            addresses: involved
+                .iter()
+                .map(|&id| address_rows(&tx, id))
+                .collect::<Result<Vec<_>>>()?
+                .concat(),
+            ..Default::default()
+        };
+        let keep = match involved.first() {
+            Some(&id) => id,
+            None => {
+                tx.execute("INSERT INTO persons DEFAULT VALUES", [])?;
+                let id = tx.last_insert_rowid();
+                undo.created.push(id);
+                id
+            }
+        };
+        // The notes, the origin and the «added by hand» mark of everyone named are kept.
+        let mut notes: Vec<String> = Vec::new();
+        let (mut manual, mut via) = (false, String::new());
+        for row in &undo.persons {
+            let note = row.note.trim();
+            if !note.is_empty() && !notes.iter().any(|n| n == note) {
+                notes.push(note.to_owned());
+            }
+            manual |= row.manual;
+            if via.is_empty() {
+                via = row.via.clone();
+            }
+        }
+        // The addresses in order: the primary the dialog chose first, then the rest as they
+        // stood, person after person.
+        let primary = key_of(&req.primary);
+        let mut all: Vec<AddressRow> = parts.iter().flat_map(|p| p.rows.iter().cloned()).collect();
+        if let Some(at) = all.iter().position(|a| a.key == primary) {
+            let first = all.remove(at);
+            all.insert(0, first);
+        }
+        for id in &involved {
+            tx.execute("DELETE FROM person_addresses WHERE person_id = ?1", [id])?;
+        }
+        for id in involved.iter().filter(|&&id| id != keep) {
+            tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
+        }
+        for (i, a) in all.iter().enumerate() {
+            insert_address(
+                &tx,
+                &AddressRow {
+                    key: a.key.clone(),
+                    email: a.email.clone(),
+                    person_id: keep,
+                    primary: i == 0,
+                    ord: i as i64,
+                },
+            )?;
+        }
+        tx.execute(
+            "UPDATE persons SET name = ?2, send_format = ?3, view = ?4, note = ?5, hidden = ?6,
+                 manual = ?7, via = ?8 WHERE id = ?1",
+            params![
+                keep,
+                req.name,
+                req.send_format,
+                req.view,
+                notes.join("\n\n"),
+                req.hidden,
+                manual,
+                via
+            ],
+        )?;
+        let person = load(&tx, keep)?.ok_or(Error::NotFound)?;
+        tx.commit()?;
+        Ok(Some(Merged { person, undo }))
+    }
+
+    /// Lets an address leave its person and become one of its own (#104): the name from the
+    /// letters, the rules (format, form, hiding) copied, no note. The pair is remembered as
+    /// two people, so it is not offered as a duplicate. None when the person has only that
+    /// address. The snapshot restores it.
+    pub fn person_split(&self, email: &str) -> Result<Option<Split>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let key = key_of(email);
+        let Some(id) = owner(&tx, &key)? else {
+            return Ok(None);
+        };
+        let rows = address_rows(&tx, id)?;
+        if rows.len() < 2 || !rows.iter().any(|a| a.key == key) {
+            return Ok(None);
+        }
+        let mut undo = Snapshot {
+            persons: person_rows(&tx, &[id])?,
+            addresses: rows.clone(),
+            ..Default::default()
+        };
+        let origin = &undo.persons[0];
+        let (send_format, view, hidden, via) = (
+            origin.send_format.clone(),
+            origin.view.clone(),
+            origin.hidden,
+            origin.via.clone(),
+        );
+        let leaving = rows.iter().find(|a| a.key == key).cloned().unwrap_or_default();
+        tx.execute("DELETE FROM person_addresses WHERE key = ?1", [&key])?;
+        // The primary address left: the next in order takes its place.
+        if leaving.primary
+            && let Some(next) = rows.iter().find(|a| a.key != key)
+        {
+            tx.execute("UPDATE person_addresses SET is_primary = 1 WHERE key = ?1", [&next.key])?;
+        }
+        tx.execute(
+            "INSERT INTO persons (send_format, view, hidden, via) VALUES (?1, ?2, ?3, ?4)",
+            params![send_format, view, hidden, via],
+        )?;
+        let fresh = tx.last_insert_rowid();
+        undo.created.push(fresh);
+        insert_address(
+            &tx,
+            &AddressRow {
+                person_id: fresh,
+                primary: true,
+                ord: 0,
+                ..leaving
+            },
+        )?;
+        // The leaving address and the one that stays first are two people, not duplicates.
+        let stays = address_rows(&tx, id)?;
+        if let Some(first) = stays.first() {
+            let subject = pair_subject(&key, &first.key);
+            let had: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM hints WHERE id = ?1 AND subject = ?2)",
+                params![SAME_PERSON, subject],
+                |r| r.get(0),
+            )?;
+            if !had {
+                tx.execute(
+                    "INSERT INTO hints (id, subject, decision, refusals, decided) VALUES (?1, ?2, 'never', 1, 0)",
+                    params![SAME_PERSON, subject],
+                )?;
+                undo.hints.push(subject);
+            }
+        }
+        let person = load(&tx, fresh)?.ok_or(Error::NotFound)?;
+        let origin = load(&tx, id)?.ok_or(Error::NotFound)?;
+        tx.commit()?;
+        Ok(Some(Split { person, origin, undo }))
+    }
+
+    /// Puts back what a merge or a split changed, exactly as the snapshot holds it.
+    pub fn person_restore(&self, undo: &Snapshot) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut affected: Vec<i64> = undo.persons.iter().map(|p| p.id).collect();
+        affected.extend(&undo.created);
+        // Addresses that joined an affected person since are not the snapshot's: they go back
+        // to the correspondence alone along with the rest.
+        for id in &affected {
+            tx.execute("DELETE FROM person_addresses WHERE person_id = ?1", [id])?;
+        }
+        for id in &affected {
+            tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
+        }
+        for p in &undo.persons {
+            insert_person_row(&tx, p)?;
+        }
+        for a in &undo.addresses {
+            // An address another person took meanwhile stays theirs.
+            if owner(&tx, &a.key)?.is_none() {
+                insert_address(&tx, a)?;
+            }
+        }
+        for subject in &undo.hints {
+            tx.execute(
+                "DELETE FROM hints WHERE id = ?1 AND subject = ?2",
+                params![SAME_PERSON, subject],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
-    /// Removes a record, hiding the address from the book. Only one added by hand can go: one
-    /// that came from the correspondence would return with the next letter, so it stays, and
-    /// the address is hidden instead. Says whether anything was removed.
-    pub fn forget_person(&self, email: &str) -> Result<bool> {
-        Ok(self.conn().execute(
-            "DELETE FROM people WHERE fold(email) = fold(?1) AND manual = 1",
-            [email],
-        )? > 0)
+    /// People for address completion (#104): who matches what was typed, as a person with
+    /// the primary address to insert and the others to choose. A hidden person is not
+    /// offered by any of their addresses. Most written to first.
+    pub fn suggest_addresses(&self, prefix: &str, limit: u32) -> Result<Vec<Suggestion>> {
+        let found = self.known_addresses(prefix, limit.saturating_mul(6).max(40))?;
+        let conn = self.conn();
+        let mut out: Vec<Suggestion> = Vec::new();
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        let mut push_person = |conn: &Connection, id: i64, out: &mut Vec<Suggestion>| -> Result<()> {
+            if !seen.insert(id) {
+                return Ok(());
+            }
+            let Some(p) = load(conn, id)? else { return Ok(()) };
+            if p.hidden {
+                return Ok(());
+            }
+            out.push(Suggestion {
+                email: p.email.clone(),
+                name: Some(p.name.clone()).filter(|n| !n.is_empty()),
+                emails: p.emails.iter().map(|a| a.email.clone()).collect(),
+            });
+            Ok(())
+        };
+        for a in found {
+            match owner(&conn, &key_of(&a.email))? {
+                Some(id) => push_person(&conn, id, &mut out)?,
+                None => out.push(Suggestion {
+                    emails: vec![a.email.clone()],
+                    email: a.email,
+                    name: a.name,
+                }),
+            }
+        }
+        // A person known by a name the user gave them is found by it too.
+        let needle = prefix.trim().to_lowercase();
+        if !needle.is_empty() {
+            let named: Vec<i64> = {
+                let mut stmt =
+                    conn.prepare("SELECT id FROM persons WHERE name != '' AND fold(name) LIKE '%' || ?1 || '%'")?;
+                stmt.query_map([&needle], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?
+            };
+            for id in named {
+                push_person(&conn, id, &mut out)?;
+            }
+        }
+        out.truncate(limit as usize);
+        Ok(out)
     }
 
     /// Every decision about the suggestions, in a settled order.
@@ -405,7 +1187,8 @@ mod tests {
         assert!(back.manual && back.saved == 500);
         let shown = store.people("зал").unwrap();
         assert_eq!(shown.len(), 1, "the note is searched");
-        assert_eq!(shown[0].email, "ivan@example.org");
+        // The address stays spelled the way the letters spell it.
+        assert_eq!(shown[0].email, "Ivan@Example.org");
         assert!(shown[0].uses >= 1, "the rule does not lose the counted letters");
 
         // Hiding keeps the record, and the address stays in the book.
@@ -516,6 +1299,464 @@ mod tests {
                 .name,
             "Иван \"Ваня\" Петров"
         );
+    }
+
+    fn merge(emails: &[&str], name: &str, primary: &str, fields: impl FnOnce(&mut Merge)) -> Merge {
+        let mut m = Merge {
+            emails: emails.iter().map(|e| (*e).to_owned()).collect(),
+            name: name.into(),
+            primary: primary.into(),
+            ..Default::default()
+        };
+        fields(&mut m);
+        m
+    }
+
+    /// Two people of the old book, one of them an address added by hand, and a letter from
+    /// each: the book of a cache left by 0.7.
+    fn book_of_0_7(path: &std::path::Path) {
+        let mut conn = Connection::open(path).unwrap();
+        super::super::register_fold(&conn).unwrap();
+        super::super::migrate(&mut conn, &super::super::MIGRATIONS[..22]).unwrap();
+        assert_eq!(super::super::user_version(&conn).unwrap(), 22);
+        conn.execute_batch(
+            "INSERT INTO addresses (email, name, uses) VALUES ('olga@example.org', 'Ольга', 31), ('o.smirnova@example.com', 'Смирнова Ольга', 9);
+             INSERT INTO people (email, name, send_format, view, note, hidden, manual, via, saved)
+             VALUES ('olga@example.org', 'Ольга Смирнова', 'plain', 'markdown', 'Заказывает залы', 1, 0, 'hint:send-format', 700),
+                    ('New@Example.org', 'Новый', '', 'text', '', 0, 1, '', 800),
+                    ('NEW@example.org', 'Дубль', '', '', '', 0, 0, '', 0);
+             INSERT INTO hints (id, subject, decision, refusals) VALUES ('send-format', 'olga@example.org', 'never', 1);",
+        )
+        .unwrap();
+    }
+
+    /// Step 23: every old row becomes a person with that one address as the primary, every
+    /// field carried over; the hints stay as they were and the old table is kept aside.
+    #[test]
+    fn the_old_book_becomes_people_with_one_address_each_without_losing_a_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        book_of_0_7(&path);
+        let store = Store::open(&path).unwrap();
+
+        let olga = store.person("OLGA@example.org").unwrap().expect("the rule survived");
+        assert_eq!(olga.name, "Ольга Смирнова");
+        assert_eq!(
+            (olga.send_format.as_str(), olga.view.as_str(), olga.note.as_str()),
+            ("plain", "markdown", "Заказывает залы")
+        );
+        assert!(olga.hidden && !olga.manual);
+        assert_eq!((olga.via.as_str(), olga.saved), ("hint:send-format", 700));
+        assert_eq!(olga.email, "olga@example.org");
+        assert_eq!(olga.emails.len(), 1);
+        assert!(olga.emails[0].primary);
+        assert_eq!(olga.uses, 31, "the letters are still counted");
+
+        // The two rows that differed only in case were one address: the first stands.
+        let new = store.person("new@example.org").unwrap().unwrap();
+        assert_eq!((new.name.as_str(), new.view.as_str()), ("Дубль", ""));
+        let book = store.people("").unwrap();
+        assert_eq!(book.len(), 3, "olga, new, and the address of the letters alone");
+        assert!(
+            book.iter()
+                .any(|p| p.email == "o.smirnova@example.com" && p.id == 0 && p.name == "Смирнова Ольга")
+        );
+
+        let conn = store.conn();
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM people_v22"),
+            3,
+            "the old table is kept"
+        );
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM hints"), 1);
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM person_addresses WHERE is_primary = 1"),
+            count(&conn, "SELECT COUNT(*) FROM persons")
+        );
+        assert_eq!(
+            super::super::user_version(&conn).unwrap(),
+            super::super::MIGRATIONS.len() as i64
+        );
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_person_keeps_several_addresses_with_one_primary() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("olga@example.org", "Ольга Смирнова"), true);
+        put(
+            &store,
+            "INBOX",
+            2,
+            &wrote("o.smirnova@example.com", "Смирнова Ольга"),
+            true,
+        );
+        put(
+            &store,
+            "INBOX",
+            3,
+            &wrote("o.smirnova@example.com", "Смирнова Ольга"),
+            true,
+        );
+
+        // A lone address becomes a person by getting a second one; the first stays primary.
+        let added = store
+            .person_add_address("olga@example.org", "O.Smirnova@Example.com")
+            .unwrap();
+        assert!(added.owner.is_none());
+        let olga = added.person.unwrap();
+        assert_ne!(olga.id, 0);
+        assert_eq!(
+            olga.emails
+                .iter()
+                .map(|a| (a.email.as_str(), a.primary))
+                .collect::<Vec<_>>(),
+            [("olga@example.org", true), ("o.smirnova@example.com", false)],
+            "the spelling of the letters, the primary first"
+        );
+        assert_eq!(olga.uses, 3, "the letters of both addresses count");
+        assert_eq!(olga.name, "Ольга Смирнова");
+        assert_eq!(
+            olga.emails[1].name, "Смирнова Ольга",
+            "an address keeps the name of its letters"
+        );
+        assert_eq!(store.people("").unwrap().len(), 1, "one person, not two");
+        assert_eq!(store.person("o.smirnova@example.com").unwrap().unwrap().id, olga.id);
+
+        let moved = store.person_set_primary("o.smirnova@example.com").unwrap().unwrap();
+        assert_eq!(moved.email, "o.smirnova@example.com");
+        assert_eq!(moved.emails.iter().filter(|a| a.primary).count(), 1);
+        assert_eq!(moved.emails[0].email, "o.smirnova@example.com");
+
+        // An address cannot belong to two people: the owner is named, nothing moves.
+        let ivan = store
+            .save_person(&person("ivan@example.org", |p| p.name = "Иван".into()))
+            .unwrap();
+        let clash = store
+            .person_add_address("ivan@example.org", "olga@example.org")
+            .unwrap();
+        assert!(clash.person.is_none());
+        assert_eq!(clash.owner.unwrap().id, olga.id);
+        assert_eq!(store.person("ivan@example.org").unwrap().unwrap().emails.len(), 1);
+        assert_eq!(ivan.emails.len(), 1);
+        // Adding what a person has already changes nothing.
+        let again = store
+            .person_add_address("ivan@example.org", "IVAN@example.org")
+            .unwrap();
+        assert_eq!(again.person.unwrap().emails.len(), 1);
+        assert!(store.person_add_address("ivan@example.org", "not an address").is_err());
+    }
+
+    #[test]
+    fn a_rule_set_on_a_person_does_not_freeze_the_name_of_the_letters() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("olga@example.org", "Ольга"), true);
+        // The card hands back the name it was shown with the rule it changed.
+        let mut shown = store.people("").unwrap().remove(0);
+        assert_eq!(shown.name, "Ольга");
+        shown.send_format = "plain".into();
+        let saved = store.save_person(&shown).unwrap();
+        assert_eq!((saved.name.as_str(), saved.send_format.as_str()), ("Ольга", "plain"));
+        let raw: String = store
+            .conn()
+            .query_row("SELECT name FROM persons WHERE id = ?1", [saved.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(raw, "", "no name of the user's own was written");
+        // A name the user wrote stands over the letters; clearing it returns the letters'.
+        let mut own = saved.clone();
+        own.name = "Оля".into();
+        assert_eq!(store.save_person(&own).unwrap().name, "Оля");
+        own.name = String::new();
+        assert_eq!(store.save_person(&own).unwrap().name, "Ольга");
+    }
+
+    /// Two people with rules of their own join into one and come back exactly as they were.
+    #[test]
+    fn merging_joins_addresses_notes_and_rules_and_the_snapshot_restores_everything() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("olga@example.org", "Ольга Смирнова"), true);
+        put(
+            &store,
+            "INBOX",
+            2,
+            &wrote("o.smirnova@example.com", "Смирнова Ольга"),
+            true,
+        );
+        put(&store, "INBOX", 3, &wrote("alone@example.net", "Одна"), true);
+        store
+            .save_person(&person("olga@example.org", |p| {
+                p.send_format = "plain".into();
+                p.note = "Заказывает залы".into();
+                p.manual = true;
+            }))
+            .unwrap();
+        store
+            .save_person(&person("o.smirnova@example.com", |p| {
+                p.send_format = "markdown".into();
+                p.view = "markdown".into();
+                p.note = "Личная почта".into();
+                p.hidden = true;
+            }))
+            .unwrap();
+        let before = store.people("").unwrap();
+        let rows_before = rows_of(&store.conn(), "SELECT * FROM persons ORDER BY id");
+        let addresses_before = rows_of(&store.conn(), "SELECT * FROM person_addresses ORDER BY key");
+
+        let merged = store
+            .person_merge(&merge(
+                &[
+                    "olga@example.org",
+                    "O.SMIRNOVA@example.com",
+                    "alone@example.net",
+                    "olga@EXAMPLE.org",
+                ],
+                "Ольга Смирнова",
+                "o.smirnova@example.com",
+                |m| {
+                    m.send_format = "plain".into();
+                    m.view = "markdown".into();
+                    m.hidden = true;
+                },
+            ))
+            .unwrap()
+            .unwrap();
+        let p = &merged.person;
+        assert_eq!(p.name, "Ольга Смирнова");
+        assert_eq!(
+            p.emails
+                .iter()
+                .map(|a| (a.email.as_str(), a.primary))
+                .collect::<Vec<_>>(),
+            [
+                ("o.smirnova@example.com", true),
+                ("olga@example.org", false),
+                ("alone@example.net", false)
+            ],
+            "the chosen primary first, then the rest in the order given"
+        );
+        assert_eq!(
+            p.note, "Заказывает залы\n\nЛичная почта",
+            "notes are joined by an empty line"
+        );
+        assert_eq!(
+            (p.send_format.as_str(), p.view.as_str(), p.hidden),
+            ("plain", "markdown", true)
+        );
+        assert!(p.manual, "added by hand stays so if any of them was");
+        let after = store.people("").unwrap();
+        assert_eq!(after.len(), 1, "three became one");
+        assert_eq!(after[0].uses, 3);
+        assert_eq!(merged.undo.persons.len(), 2);
+
+        store.person_restore(&merged.undo).unwrap();
+        assert_eq!(store.people("").unwrap(), before, "the book is as it was");
+        assert_eq!(rows_of(&store.conn(), "SELECT * FROM persons ORDER BY id"), rows_before);
+        assert_eq!(
+            rows_of(&store.conn(), "SELECT * FROM person_addresses ORDER BY key"),
+            addresses_before
+        );
+    }
+
+    fn rows_of(conn: &Connection, sql: &str) -> Vec<String> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let n = stmt.column_count();
+        stmt.query_map([], |r| {
+            Ok((0..n)
+                .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+                .collect::<Vec<_>>()
+                .join(", "))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+    }
+
+    #[test]
+    fn merging_one_person_or_unknown_ones_does_nothing_and_lone_addresses_make_a_new_record() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("a@example.org", "А"), true);
+        put(&store, "INBOX", 2, &wrote("b@example.org", "Б"), true);
+        assert!(
+            store
+                .person_merge(&merge(
+                    &["a@example.org", "A@example.org"],
+                    "А",
+                    "a@example.org",
+                    |_| {}
+                ))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .person_merge(&merge(&["a@example.org"], "А", "a@example.org", |_| {}))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(store.people("").unwrap().len(), 2);
+        // Two lone addresses of the correspondence: a record is made, and the snapshot removes it.
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "b@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        assert_eq!(merged.undo.created.len(), 1);
+        assert_eq!(store.people("").unwrap().len(), 1);
+        store.person_restore(&merged.undo).unwrap();
+        assert_eq!(store.people("").unwrap().len(), 2);
+        assert_eq!(
+            count(&store.conn(), "SELECT COUNT(*) FROM persons"),
+            0,
+            "no record is left behind"
+        );
+    }
+
+    #[test]
+    fn splitting_gives_the_address_the_rules_but_not_the_note_and_remembers_it_is_not_a_duplicate() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("olga@example.org", "Ольга Смирнова"), true);
+        put(&store, "INBOX", 2, &wrote("maria@example.com", "Maria O."), true);
+        store
+            .person_add_address("olga@example.org", "maria@example.com")
+            .unwrap();
+        store
+            .save_person(&person("olga@example.org", |p| {
+                p.name = "Ольга".into();
+                p.send_format = "plain".into();
+                p.view = "text".into();
+                p.hidden = true;
+                p.note = "Два ящика".into();
+            }))
+            .unwrap();
+        let before = store.people("").unwrap();
+
+        let split = store.person_split("MARIA@example.com").unwrap().unwrap();
+        let (gone, stays) = (&split.person, &split.origin);
+        assert_eq!(gone.email, "maria@example.com");
+        assert_eq!(gone.name, "Maria O.", "the name comes from the letters");
+        assert_eq!(
+            (
+                gone.send_format.as_str(),
+                gone.view.as_str(),
+                gone.hidden,
+                gone.note.as_str()
+            ),
+            ("plain", "text", true, ""),
+            "the rules are copied, the note is not"
+        );
+        assert_eq!(stays.emails.len(), 1);
+        assert_eq!(stays.note, "Два ящика");
+        assert_eq!(store.people("").unwrap().len(), 2);
+        let refusal = store.hints().unwrap();
+        assert_eq!(refusal.len(), 1);
+        assert_eq!(
+            (refusal[0].id.as_str(), refusal[0].subject.as_str()),
+            (SAME_PERSON, "maria@example.com|olga@example.org")
+        );
+
+        // The primary leaving hands it to the next address.
+        store.person_add_address("olga@example.org", "o2@example.org").unwrap();
+        let s2 = store.person_split("olga@example.org").unwrap().unwrap();
+        assert_eq!(s2.origin.email, "o2@example.org");
+        assert!(s2.origin.emails[0].primary);
+
+        // A person of one address has nothing to split.
+        assert!(store.person_split("maria@example.com").unwrap().is_none());
+        store.person_restore(&s2.undo).unwrap();
+        store.person_restore(&split.undo).unwrap();
+        assert!(
+            store.hints().unwrap().is_empty(),
+            "the refusal written by the split goes with it"
+        );
+        assert_eq!(
+            store.person("maria@example.com").unwrap().unwrap().id,
+            store.person("olga@example.org").unwrap().unwrap().id
+        );
+        let _ = before;
+    }
+
+    #[test]
+    fn suggestions_group_the_addresses_of_a_person_and_never_offer_a_hidden_one() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("olga@example.org", "Ольга Смирнова"), true);
+        put(
+            &store,
+            "INBOX",
+            2,
+            &wrote("o.smirnova@example.com", "Смирнова Ольга"),
+            true,
+        );
+        put(
+            &store,
+            "INBOX",
+            3,
+            &wrote("o.smirnova@example.com", "Смирнова Ольга"),
+            true,
+        );
+        put(
+            &store,
+            "INBOX",
+            4,
+            &wrote("booking@example.com", "Бюро путешествий"),
+            true,
+        );
+        store
+            .person_add_address("olga@example.org", "o.smirnova@example.com")
+            .unwrap();
+
+        let found = store.suggest_addresses("смирн", 8).unwrap();
+        assert_eq!(found.len(), 1, "two addresses, one person");
+        assert_eq!(found[0].email, "olga@example.org", "the primary is the one to insert");
+        assert_eq!(found[0].emails, ["olga@example.org", "o.smirnova@example.com"]);
+        assert_eq!(found[0].name.as_deref(), Some("Ольга Смирнова"));
+
+        // Typing a part of the second address finds the same person.
+        let by_other = store.suggest_addresses("o.smir", 8).unwrap();
+        assert_eq!(by_other.len(), 1);
+        assert_eq!(by_other[0].email, "olga@example.org");
+
+        // Hiding the person hides every address; the others are still offered.
+        store
+            .save_person(&person("olga@example.org", |p| p.hidden = true))
+            .unwrap();
+        assert!(store.suggest_addresses("смирн", 8).unwrap().is_empty());
+        assert!(store.suggest_addresses("o.smir", 8).unwrap().is_empty());
+        assert_eq!(
+            store.suggest_addresses("бюро", 8).unwrap()[0].email,
+            "booking@example.com"
+        );
+
+        // A name the user gave finds the person by it, though no letter spells it so.
+        store
+            .save_person(&person("booking@example.com", |p| p.name = "Турагентство".into()))
+            .unwrap();
+        assert_eq!(
+            store.suggest_addresses("тураг", 8).unwrap()[0].email,
+            "booking@example.com"
+        );
+    }
+
+    #[test]
+    fn forgetting_a_person_added_by_hand_takes_all_their_addresses() {
+        let store = mailbox();
+        store
+            .save_person(&person("new@example.org", |p| {
+                p.manual = true;
+                p.name = "Новый".into();
+            }))
+            .unwrap();
+        store.person_add_address("new@example.org", "new2@example.org").unwrap();
+        assert!(store.forget_person("NEW2@example.org").unwrap());
+        assert!(store.person("new@example.org").unwrap().is_none());
+        assert!(store.person("new2@example.org").unwrap().is_none());
+        assert_eq!(count(&store.conn(), "SELECT COUNT(*) FROM person_addresses"), 0);
     }
 
     #[test]

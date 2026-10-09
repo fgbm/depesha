@@ -32,6 +32,13 @@ pub struct SearchQuery {
     pub label: Vec<String>,
 }
 
+/// The alternatives of one `from:` value: `from:a@x|b@y` is a letter from either (an address
+/// book person with several addresses, #104). A value without `|` is its own single one.
+pub fn alternatives(value: &str) -> Vec<&str> {
+    let alts: Vec<&str> = value.split('|').map(str::trim).filter(|a| !a.is_empty()).collect();
+    if alts.is_empty() { vec![value] } else { alts }
+}
+
 impl SearchQuery {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
@@ -249,7 +256,16 @@ impl Criterion {
 pub fn imap_criteria(q: &SearchQuery) -> Vec<Criterion> {
     let mut out = Vec::new();
     out.extend(q.words.iter().map(|w| Criterion::new("TEXT", w.clone())));
-    out.extend(q.from.iter().map(|w| Criterion::new("FROM", w.clone())));
+    for w in &q.from {
+        // «Either of these»: OR takes two keys, so three alternatives nest as OR a OR b c.
+        let alts = alternatives(w);
+        for (i, alt) in alts.iter().enumerate() {
+            if i + 1 < alts.len() {
+                out.push(Criterion::flag("OR"));
+            }
+            out.push(Criterion::new("FROM", *alt));
+        }
+    }
     out.extend(q.to.iter().map(|w| Criterion::new("TO", w.clone())));
     out.extend(q.subject.iter().map(|w| Criterion::new("SUBJECT", w.clone())));
     if q.unread {
@@ -412,6 +428,31 @@ mod tests {
         let q = SearchQuery::parse("ящик:work larger:25M");
         assert_eq!(q.account.as_deref(), Some("work"));
         assert!(q.words.is_empty());
+    }
+
+    #[test]
+    fn from_with_bars_is_a_letter_from_either() {
+        let q = SearchQuery::parse("from:olga@example.org|o.smirnova@example.com");
+        assert_eq!(q.from, ["olga@example.org|o.smirnova@example.com"]);
+        let keys: Vec<_> = imap_criteria(&q)
+            .into_iter()
+            .map(|c| (c.key, c.value.unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                ("OR", String::new()),
+                ("FROM", "olga@example.org".to_owned()),
+                ("FROM", "o.smirnova@example.com".to_owned())
+            ]
+        );
+        let three = SearchQuery::parse("from:a@x|b@x|c@x");
+        let keys: Vec<_> = imap_criteria(&three).iter().map(|c| c.key).collect();
+        assert_eq!(keys, ["OR", "FROM", "OR", "FROM", "FROM"]);
+        // One address stays one key.
+        assert_eq!(imap_criteria(&SearchQuery::parse("from:a@x")).len(), 1);
+        assert_eq!(alternatives("a@x"), ["a@x"]);
+        assert_eq!(alternatives("a@x||b@x|"), ["a@x", "b@x"]);
     }
 
     #[test]

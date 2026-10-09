@@ -13,8 +13,8 @@ use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
 use depesha_core::store::{
-    FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, MessageRow, OutboxItem, Person, SearchTotals, Snooze,
-    SortKey,
+    Added, FolderInfo, FollowupPlan, HintCount, HintState, ListQuery, Merge, Merged, MessageRow, OutboxItem, Person,
+    SearchTotals, Snapshot, Snooze, SortKey, Split, Suggestion,
 };
 use depesha_core::unsubscribe::Way;
 use depesha_core::{Error, avatar, mail, oauth};
@@ -2136,9 +2136,11 @@ pub fn trust_sender(state: St<'_>, email: String) -> CmdResult<()> {
     Ok(state.store.trust_sender(&email)?)
 }
 
+/// Address completion (#104): people, each with the primary address to insert and the others
+/// to choose; a hidden person is not offered by any address.
 #[tauri::command(async)]
-pub fn addresses(state: St<'_>, prefix: String) -> CmdResult<Vec<Addr>> {
-    Ok(state.store.known_addresses(&prefix, 8)?)
+pub fn addresses(state: St<'_>, prefix: String) -> CmdResult<Vec<Suggestion>> {
+    Ok(state.store.suggest_addresses(&prefix, 8)?)
 }
 
 /// The address book (#66): every address of the correspondence with what was decided about
@@ -2149,10 +2151,41 @@ pub fn people(state: St<'_>, query: String) -> CmdResult<Vec<Person>> {
 }
 
 /// Saves a person's record: their name, the format to write in, the form to show, a note
-/// and whether completion hides the address (#66, #44).
+/// and whether completion hides them (#66, #44). Returns the record as it is kept.
 #[tauri::command(async)]
-pub fn person_save(state: St<'_>, person: Person) -> CmdResult<()> {
+pub fn person_save(state: St<'_>, person: Person) -> CmdResult<Person> {
     Ok(state.store.save_person(&person)?)
+}
+
+/// Adds an address to the person who has `to` among theirs; one that is another person's is
+/// not moved, that person is named for a merge (#104).
+#[tauri::command(async)]
+pub fn person_add_address(state: St<'_>, to: String, email: String) -> CmdResult<Added> {
+    Ok(state.store.person_add_address(&to, &email)?)
+}
+
+/// Makes an address the primary one of its person (#104).
+#[tauri::command(async)]
+pub fn person_set_primary(state: St<'_>, email: String) -> CmdResult<Option<Person>> {
+    Ok(state.store.person_set_primary(&email)?)
+}
+
+/// Joins people into one; the snapshot restores them (#104).
+#[tauri::command(async)]
+pub fn person_merge(state: St<'_>, merge: Merge) -> CmdResult<Option<Merged>> {
+    Ok(state.store.person_merge(&merge)?)
+}
+
+/// Lets an address leave its person and become one of its own (#104).
+#[tauri::command(async)]
+pub fn person_split(state: St<'_>, email: String) -> CmdResult<Option<Split>> {
+    Ok(state.store.person_split(&email)?)
+}
+
+/// Puts back what a merge or a split changed (#104).
+#[tauri::command(async)]
+pub fn person_restore(state: St<'_>, undo: Snapshot) -> CmdResult<()> {
+    Ok(state.store.person_restore(&undo)?)
 }
 
 /// Removes a person added by hand; one seen only in the correspondence cannot go (#66).

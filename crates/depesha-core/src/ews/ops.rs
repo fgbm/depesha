@@ -1557,7 +1557,17 @@ pub async fn send(s: &mut Session, message: &lettre::Message) -> Result<Vec<u8>>
 pub fn aqs(q: &SearchQuery) -> String {
     let quote = |v: &str| format!("\"{}\"", v.replace('"', ""));
     let mut parts: Vec<String> = q.words.iter().map(|w| quote(w)).collect();
-    parts.extend(q.from.iter().map(|v| format!("from:{}", quote(v))));
+    parts.extend(q.from.iter().map(|v| {
+        let alts: Vec<String> = crate::query::alternatives(v)
+            .iter()
+            .map(|a| format!("from:{}", quote(a)))
+            .collect();
+        if alts.len() > 1 {
+            format!("({})", alts.join(" OR "))
+        } else {
+            alts.concat()
+        }
+    }));
     parts.extend(q.to.iter().map(|v| format!("to:{}", quote(v))));
     parts.extend(q.subject.iter().map(|v| format!("subject:{}", quote(v))));
     // Exchange stores a label as a category of the same name: search by it as such.

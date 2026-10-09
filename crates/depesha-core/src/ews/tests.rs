@@ -112,6 +112,15 @@ fn search_query_becomes_aqs() {
 }
 
 #[test]
+fn from_either_address_becomes_an_or_in_aqs() {
+    let q = crate::query::SearchQuery::parse("from:olga@example.org|o.smirnova@example.com");
+    assert_eq!(
+        aqs(&q),
+        "(from:\"olga@example.org\" OR from:\"o.smirnova@example.com\")"
+    );
+}
+
+#[test]
 fn a_search_without_words_is_a_restriction() {
     use super::restriction;
     let q = crate::query::SearchQuery::parse("larger:25M есть:вложение");
