@@ -8,6 +8,7 @@ use depesha_core::query::{self, SearchQuery};
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::{self, SyncOptions};
 use depesha_core::{Error, mail, utf7};
+use futures::TryStreamExt;
 
 fn enabled() -> bool {
     std::env::var("DEPESHA_IT").is_ok_and(|v| v == "1")
@@ -21,7 +22,11 @@ fn user(test: &str) -> Credentials {
 
 /// STARTTLS server config with Dovecot's self-signed certificate pinned.
 async fn server() -> ServerConfig {
-    let mut s = ServerConfig::new("localhost", 31143, Security::StartTls);
+    server_at(31143).await
+}
+
+async fn server_at(port: u16) -> ServerConfig {
+    let mut s = ServerConfig::new("localhost", port, Security::StartTls);
     match imap::connect(&s, &user("probe")).await {
         Err(Error::Certificate(p)) => s.trusted_cert = Some(p.sha256),
         Ok(_) => {}
@@ -1227,4 +1232,58 @@ async fn a_label_check_leaves_no_test_message_over_starttls() {
             .unwrap()
             .contains(&keyword)
     );
+}
+
+/// #113: a Dovecot whose capabilities lack UIDPLUS has no `UID EXPUNGE` for the client. The
+/// letters must still be wiped, and a letter another client marked `\Deleted` must stay.
+#[tokio::test]
+async fn permanent_delete_without_uidplus_wipes_ours_and_spares_foreign_marks() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = imap::connect(&server_at(31144).await, &user("nouidplus"))
+        .await
+        .expect("login over STARTTLS");
+    assert!(!conn.caps.uidplus, "the stand must not offer UIDPLUS");
+    conn.session.create("Trash").await.unwrap();
+    for n in 1..=4 {
+        imap::append(&mut conn, "Trash", &mail("x", n), "").await.unwrap();
+    }
+    conn.session.select("Trash").await.unwrap();
+    let all = imap::uid_search(&mut conn, "ALL").await.unwrap();
+    assert_eq!(all.len(), 4);
+    // Another client has marked the last letter deleted and not expunged yet.
+    let _: Vec<_> = conn
+        .session
+        .uid_store(all[3].to_string(), "+FLAGS.SILENT (\\Deleted)")
+        .await
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
+    let validity = conn.session.select("Trash").await.unwrap().uid_validity;
+
+    imap::delete_permanently(&mut conn, "Trash", validity, &all[..2])
+        .await
+        .unwrap();
+
+    conn.session.select("Trash").await.unwrap();
+    assert_eq!(
+        imap::uid_search(&mut conn, "ALL").await.unwrap(),
+        all[2..],
+        "ours are gone, the rest stays"
+    );
+    assert_eq!(
+        imap::uid_search(&mut conn, "DELETED").await.unwrap(),
+        vec![all[3]],
+        "the foreign mark is back on its letter and the other one is unmarked"
+    );
+
+    // Nothing foreign: the whole folder is wiped.
+    imap::delete_permanently(&mut conn, "Trash", validity, &all[2..])
+        .await
+        .unwrap();
+    conn.session.select("Trash").await.unwrap();
+    assert!(imap::uid_search(&mut conn, "ALL").await.unwrap().is_empty());
+    conn.session.logout().await.unwrap();
 }

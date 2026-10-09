@@ -36,6 +36,16 @@ services:
     ports:
       - "127.0.0.1:31143:31143"
       - "127.0.0.1:31993:31993"
+  # The same Dovecot without UIDPLUS in its capabilities (#113): a plain EXPUNGE is the
+  # only way to wipe messages there. STARTTLS on 31144, same login as above.
+  dovecot-no-uidplus:
+    image: dovecot/dovecot:latest
+    environment:
+      USER_PASSWORD: "{PLAIN}secret"
+    volumes:
+      - ./docker/dovecot-no-uidplus.conf:/etc/dovecot/conf.d/zz-no-uidplus.conf:ro
+    ports:
+      - "127.0.0.1:31144:31143"
   # The dovecot image has no shell tools, so the shared namespace is seeded from a
   # busybox one: a ReadOnly folder whose dovecot-acl grants `anyone` lookup and read.
   # Runs to completion on every `up` (idempotent: mkdir -p, files written again).

@@ -1000,8 +1000,8 @@ pub async fn fetch_raw_many(conn: &mut Conn, folder: &str, uids: &[u32]) -> Resu
 }
 
 /// Moves messages. Without MOVE (RFC 6851): COPY, then \Deleted, then
-/// UID EXPUNGE. Without UIDPLUS the originals keep \Deleted: a plain EXPUNGE
-/// would also wipe messages another client marked deleted.
+/// UID EXPUNGE. Without UIDPLUS: a plain EXPUNGE that spares what another client marked
+/// deleted (see `remove`).
 pub async fn move_messages(conn: &mut Conn, from: &str, validity: Option<u32>, uids: &[u32], to: &str) -> Result<()> {
     if uids.is_empty() {
         return Ok(());
@@ -1072,7 +1072,15 @@ pub async fn delete_permanently(conn: &mut Conn, folder: &str, validity: Option<
     remove(conn, &uid_set(uids)).await
 }
 
+/// Marks the messages `\Deleted` and wipes them. Without UIDPLUS there is no `UID EXPUNGE`,
+/// and a plain `EXPUNGE` would also wipe what another client marked deleted: those
+/// messages lose the mark for the moment of the `EXPUNGE` and get it back after.
 async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
+    let foreign = if conn.caps.uidplus {
+        Vec::new()
+    } else {
+        uid_search(conn, &format!("DELETED NOT UID {set}")).await?
+    };
     let _: Vec<_> = conn
         .session
         .uid_store(set, "+FLAGS.SILENT (\\Deleted)")
@@ -1081,8 +1089,36 @@ async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
         .await?;
     if conn.caps.uidplus {
         let _: Vec<_> = conn.session.uid_expunge(set).await?.try_collect().await?;
+        return Ok(());
     }
-    Ok(())
+    expunge_keeping(conn, &foreign).await
+}
+
+/// Plain `EXPUNGE` that spares `kept`: their `\Deleted` is cleared first and set again
+/// afterwards, also when the `EXPUNGE` failed.
+async fn expunge_keeping(conn: &mut Conn, kept: &[u32]) -> Result<()> {
+    let spared = uid_set(kept);
+    if !kept.is_empty() {
+        let _: Vec<_> = conn
+            .session
+            .uid_store(&spared, "-FLAGS.SILENT (\\Deleted)")
+            .await?
+            .try_collect()
+            .await?;
+    }
+    let expunged: Result<Vec<_>> = match conn.session.expunge().await {
+        Ok(stream) => stream.try_collect().await.map_err(Into::into),
+        Err(e) => Err(e.into()),
+    };
+    if !kept.is_empty() {
+        let _: Vec<_> = conn
+            .session
+            .uid_store(&spared, "+FLAGS.SILENT (\\Deleted)")
+            .await?
+            .try_collect()
+            .await?;
+    }
+    expunged.map(drop)
 }
 
 /// `flags` as `(\Seen)` or `\Seen`; empty for none.
@@ -1196,8 +1232,8 @@ async fn find_matching(conn: &mut Conn, folder: &str, message_id: &str, size: Op
         .filter(|f| f.uid.is_some_and(|u| uids.contains(&u)))
         .filter(|f| size.is_none_or(|n| f.size == Some(n)))
         .filter(|f| f.header().and_then(message_id_of).as_deref() == Some(id))
-        // A server without UIDPLUS keeps a moved original marked \Deleted: it is gone,
-        // and moving it again would copy it a second time.
+        // A moved original still marked \Deleted is gone, and moving it again would
+        // copy it a second time.
         .filter(|f| !f.flags().any(|flag| matches!(flag, Flag::Deleted)))
         .filter_map(|f| f.uid)
         .collect())
