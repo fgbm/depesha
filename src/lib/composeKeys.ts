@@ -7,7 +7,7 @@ import { keyText } from "./keymap";
 import type { KeyPress } from "./keymap";
 import { shortcuts } from "./shortcuts.svelte";
 
-export type ComposeAction = "send" | "fold" | "save" | "bold" | "italic" | "underline" | "link" | "preview" | "importance" | "heading1" | "heading2" | "heading3" | "code";
+export type ComposeAction = "send" | "fold" | "save" | "bold" | "italic" | "underline" | "link" | "preview" | "importance" | "heading1" | "heading2" | "heading3" | "code" | "cc" | "bcc" | "from" | "files" | "quote" | "format" | "park" | "remind" | "more";
 
 /** The action of the composition window this press stands for, if any. */
 export function composeAction(e: KeyPress): ComposeAction | null {

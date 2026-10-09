@@ -210,3 +210,38 @@ describe("the mouse", () => {
     expect(lit(menu)).toBe("evening");
   });
 });
+
+describe("the reminder's menu: the same one with two more rows (#103, 4.4 А)", () => {
+  const reminder = (none: boolean, lang: Lang = "ru") =>
+    new SnoozeMenu(() => ({ now: thursday, work: DEFAULT_WORK_TIME, lang, say: (key) => key, extras: { none, noneLabel: "Без напоминания", setupLabel: "Настроить…" } }));
+
+  it("adds «No reminder» and «Set up…» under the seven items, and the snooze menu has neither", () => {
+    expect(reminder(true).rows.map((r) => r.id)).toEqual(["evening", "tomorrow", "weekend", "nextWeek", "nextMonth", "days", "custom", "none", "setup"]);
+    expect(open().rows.some((r) => r.id === "none" || r.id === "setup")).toBe(false);
+  });
+
+  it("ticks «No reminder» while none is chosen", () => {
+    expect(reminder(true).rows.find((r) => r.id === "none")?.tick).toBe(true);
+    expect(reminder(false).rows.find((r) => r.id === "none")?.tick).toBe(false);
+  });
+
+  it("does «No reminder» by its letter (Б, or O in English) and «Set up…» by Enter", () => {
+    const ru = reminder(false);
+    type(ru, "Comma", "б");
+    expect(lit(ru)).toBe("none");
+    expect(ru.key(press("Enter"))?.type).toBe("none");
+    const en = reminder(false, "en");
+    type(en, "KeyO", "o");
+    expect(en.key(press("Enter"))?.type).toBe("none");
+    const setup = reminder(false);
+    setup.cur = setup.rowIndex("setup");
+    expect(setup.key(press("Enter"))?.type).toBe("setup");
+  });
+
+  it("takes the letter of «No reminder» as plain text in the snooze menu, lighting nothing", () => {
+    const menu = open();
+    type(menu, "Comma", "б");
+    expect(menu.hot).toBe(false);
+    expect(lit(menu)).toBe(null);
+  });
+});

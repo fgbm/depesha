@@ -13,7 +13,6 @@
   import ImageIcon from "@lucide/svelte/icons/image";
   import RemoveFormatting from "@lucide/svelte/icons/remove-formatting";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
-  import CodeXml from "@lucide/svelte/icons/code-xml";
   import Heading from "@lucide/svelte/icons/heading";
   import Code from "@lucide/svelte/icons/code";
   import Table from "@lucide/svelte/icons/table";
@@ -31,7 +30,6 @@
     width,
     rich,
     field,
-    markup = $bindable(false),
     onpicturefile,
     onpictureclipboard,
   }: {
@@ -41,8 +39,6 @@
     rich: RichEditor | null;
     /** The Markdown editor; the plain field of a plain letter has no buttons. */
     field: MarkdownField | HTMLTextAreaElement | null;
-    /** Every mark of the Markdown shown at once. */
-    markup?: boolean;
     onpicturefile: () => void;
     onpictureclipboard: () => void;
   } = $props();
@@ -321,12 +317,6 @@
       </Popover>
     </span>
   {/if}
-  {#if !html}
-    <span class="spacer"></span>
-    <button class="tb markup" class:on={markup} aria-pressed={markup} title={`${t("compose.markdown.markupHint")} (${keyLabel("preview")})`} onmousedown={(e) => e.preventDefault()} onclick={() => (markup = !markup)}>
-      <CodeXml size={15} />{#if width >= 360}<span>{t("compose.markdown.markup")}</span>{/if}
-    </button>
-  {/if}
   {#if linking}
     <span class="link-form">
       <input
@@ -385,10 +375,6 @@
     color: var(--accent);
   }
 
-  .spacer {
-    flex: 1;
-  }
-
   .tb {
     height: 28px;
     min-width: 28px;
@@ -400,11 +386,6 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-  }
-
-  .tb.markup {
-    padding: 0 8px;
-    font-size: 13px;
   }
 
   .tb:hover {

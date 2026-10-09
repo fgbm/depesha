@@ -41,7 +41,13 @@ export interface ComposeSendHost {
   confirmClose(): Promise<boolean>;
   /** Asks before discarding the draft; true when the user agreed. */
   confirmDiscard(): Promise<boolean>;
+  /** The Alt keys of the window (#103): open or switch the part of the letter the key stands for. */
+  openPart(part: WindowPart): void;
 }
+
+/** What the window's own Alt keys open: the fields, the menus and the strips of the letter. */
+export type WindowPart = "cc" | "bcc" | "from" | "files" | "quote" | "format" | "more";
+const PARTS: ReadonlySet<string> = new Set<WindowPart>(["cc", "bcc", "from", "files", "quote", "format", "more"]);
 
 /** A save that would hold a close is waited for this long, then let go (#71). */
 const CLOSE_SAVE_MS = 4000;
@@ -67,6 +73,17 @@ export class ComposeSending {
 
   /** One send at a time: Ctrl+Enter pressed again while the checks run must not queue twice. */
   private sending = false;
+
+  /** The Alt keys that belong to a plugin's control (the wait line): it hands over what they do. */
+  private pluginKeys = new Map<"park" | "remind", () => void>();
+
+  /** A plugin's control answers the key of its action; returns the way to stop answering. */
+  onAction(action: "park" | "remind", run: () => void): () => void {
+    this.pluginKeys.set(action, run);
+    return () => {
+      if (this.pluginKeys.get(action) === run) this.pluginKeys.delete(action);
+    };
+  }
 
   constructor(private host: ComposeSendHost) {
     this.options = makeOptions(host, this);
@@ -202,22 +219,34 @@ export class ComposeSending {
     } else if (action === "importance") {
       e.preventDefault();
       this.toggleImportance();
+    } else if (action && PARTS.has(action)) {
+      e.preventDefault();
+      this.host.openPart(action as WindowPart);
+    } else if (action === "park" || action === "remind") {
+      // Only when the wait line has the control: a letter that cannot wait lets the key go.
+      const run = this.pluginKeys.get(action);
+      if (run) {
+        e.preventDefault();
+        run();
+      }
     } else if (action === "link" && format.format !== "plain") {
       e.preventDefault();
       format.bar?.startLink();
     } else if (action === "preview" && format.format === "markdown") {
       e.preventDefault();
       format.markup = !format.markup;
-    } else if ((action === "bold" || action === "italic" || action === "underline") && format.format === "markdown") {
-      // The HTML editor does these itself; in Markdown they type the markup.
+    } else if (action && format.format === "markdown" && this.markdownKey(action)) {
       e.preventDefault();
-      format.bar?.run(action);
-    } else if (format.format === "markdown" && (action === "heading1" || action === "heading2" || action === "heading3" || action === "code")) {
-      // The Markdown-only commands of the «⋯» row, on their keys (#45, frame 16 В).
-      e.preventDefault();
-      if (action === "code") format.bar?.run("code");
-      else format.bar?.heading(Number(action.slice(-1)));
     }
+  }
+
+  /** The keys that type markup: bold, italic, underline (the HTML editor does these itself), headings and code (#45, frame 16 В). */
+  private markdownKey(action: string): boolean {
+    const bar = this.host.format.bar;
+    if (action === "bold" || action === "italic" || action === "underline" || action === "code") bar?.run(action);
+    else if (action.startsWith("heading")) bar?.heading(Number(action.slice(-1)));
+    else return false;
+    return true;
   }
 }
 
@@ -282,6 +311,7 @@ function makeContext(host: ComposeSendHost, me: ComposeSending): ComposeContext 
     accountColor: () => host.accountColor(host.win.account_id),
     insertText: (text: string) => host.format.insertText(text),
     options: me.options,
+    onAction: (action, run) => me.onAction(action, run),
     send: (at) => void me.send(at ?? null),
   };
 }

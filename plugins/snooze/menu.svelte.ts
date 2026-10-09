@@ -2,16 +2,16 @@
 // in focus (decision 3.1 В): a letter or a digit lights the item it stands for and goes into
 // the line, Enter does what is lit, and more typing makes the line a text to read («завтра 18»).
 
-import type { Lang, WorkTime } from "@depesha/plugin-api";
+import type { Lang, WhenExtras as Extras, WorkTime } from "@depesha/plugin-api";
 import { parseWhen, type Parsed } from "./parse";
 import { fmtDay, fmtWhen } from "./format";
 import { slots, workdaySlots, type SlotId, type WorkdaySlot } from "./times";
 
-export type RowId = SlotId | "days" | "custom" | "parsed";
+export type RowId = SlotId | "days" | "custom" | "parsed" | "none" | "setup";
 
 export interface Row {
   id: RowId;
-  kind: "item" | "sub" | "custom";
+  kind: "item" | "sub" | "custom" | "extra";
   label: string;
   /** The date on the right, or why the item is off. */
   hint: string;
@@ -19,6 +19,8 @@ export interface Row {
   key: string;
   off: boolean;
   at: Date | null;
+  /** The choice made now, ticked (the reminder's «No reminder»). */
+  tick?: boolean;
 }
 
 /** What the menu needs from outside: the clock, the user's day and the words. */
@@ -28,6 +30,8 @@ export interface MenuEnv {
   lang: Lang;
   /** The words of an item or a hint, by `strings.ts` key. */
   say(key: string): string;
+  /** Set by the reminder's menu; the snooze menu has none. */
+  extras?: Extras;
 }
 
 /** The part of a keydown the menu reads. */
@@ -43,7 +47,14 @@ export interface KeyInfo {
 }
 
 /** What a key did to the menu, for the one that draws it. `null`: the key is not the menu's, the line takes it. */
-export type Outcome = { type: "stay" } | { type: "pick"; at: Date } | { type: "custom" } | { type: "back" } | { type: "close" };
+export type Outcome =
+  | { type: "stay" }
+  | { type: "pick"; at: Date }
+  | { type: "custom" }
+  | { type: "none" }
+  | { type: "setup" }
+  | { type: "back" }
+  | { type: "close" };
 
 const STAY: Outcome = { type: "stay" };
 
@@ -60,6 +71,7 @@ const LETTERS: Record<Lang, Record<string, { code: string; shown: string }>> = {
     nextMonth: { code: "KeyV", shown: "М" },
     days: { code: "KeyL", shown: "Д" },
     custom: { code: "KeyR", shown: "К" },
+    none: { code: "Comma", shown: "Б" },
   },
   en: {
     evening: { code: "KeyE", shown: "E" },
@@ -69,6 +81,7 @@ const LETTERS: Record<Lang, Record<string, { code: string; shown: string }>> = {
     nextMonth: { code: "KeyM", shown: "M" },
     days: { code: "KeyD", shown: "D" },
     custom: { code: "KeyC", shown: "C" },
+    none: { code: "KeyO", shown: "O" },
   },
 };
 
@@ -120,7 +133,7 @@ export class SnoozeMenu {
   get items(): Row[] {
     const { now, work, lang, say } = this.env();
     const keys = LETTERS[lang];
-    const row = (id: Exclude<RowId, "parsed">, rest: Partial<Row>): Row => ({
+    const row = (id: Exclude<RowId, "parsed" | "none" | "setup">, rest: Partial<Row>): Row => ({
       id,
       kind: "item",
       label: say(id),
@@ -140,6 +153,11 @@ export class SnoozeMenu {
     const none = work.days.length === 0;
     list.push(row("days", { kind: "sub", off: none, hint: none ? say("noneChosen") : "1–7" }));
     list.push(row("custom", { kind: "custom" }));
+    const { extras } = this.env();
+    if (extras) {
+      list.push({ id: "none", kind: "extra", label: extras.noneLabel, hint: "", key: keys.none.shown, off: false, at: null, tick: extras.none });
+      list.push({ id: "setup", kind: "extra", label: extras.setupLabel, hint: "", key: "", off: false, at: null });
+    }
     return list;
   }
 
@@ -196,6 +214,7 @@ export class SnoozeMenu {
       return STAY;
     }
     if (row.kind === "custom") return { type: "custom" };
+    if (row.kind === "extra") return { type: row.id === "none" ? "none" : "setup" };
     return row.at ? { type: "pick", at: row.at } : STAY;
   }
 
@@ -254,10 +273,11 @@ export class SnoozeMenu {
     }
     const letters = LETTERS[this.env().lang];
     const id = Object.keys(letters).find((k) => letters[k].code === code);
-    if (!id) return;
+    const index = id ? this.rowIndex(id as RowId) : -1;
+    // A letter the menu has no row for (the reminder's «No reminder» in the snooze menu) is just typed.
+    if (index < 0) return;
     this.pending = true;
     this.subOpen = false;
-    const index = this.rowIndex(id as RowId);
     this.cur = this.rows[index]?.off ? -1 : index;
   }
 

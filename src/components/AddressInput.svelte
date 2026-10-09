@@ -12,12 +12,15 @@
     value = $bindable(),
     autofocus = false,
     card,
+    trailing,
   }: {
     label: string;
     value: Addr[];
     autofocus?: boolean;
     /** The person's card, opened by a click on the chip of an address (#66, frame 13). */
     card?: Snippet<[string]>;
+    /** What stands at the end of the row: the links to «Cc» and «Bcc» beside «To» (#103). */
+    trailing?: Snippet;
   } = $props();
 
   let text = $state("");
@@ -30,6 +33,16 @@
   /** Which chip's card is open, by its address. */
   let cardAt = $state<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The caret goes to the field: Alt+C and Alt+B open a field and stand in it. */
+  export function focus() {
+    input?.focus();
+  }
+
+  /** Something is typed and not yet a chip: a field with it is not folded by its key. */
+  export function hasText(): boolean {
+    return text.trim() !== "";
+  }
 
   /** Turns typed text into chips; returns false when something could not be parsed. */
   export function commit(): boolean {
@@ -147,6 +160,7 @@
       </div>
     {/if}
   </div>
+  {@render trailing?.()}
 </div>
 
 <style>

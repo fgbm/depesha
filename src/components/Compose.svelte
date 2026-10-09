@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Paperclip from "@lucide/svelte/icons/paperclip";
@@ -16,6 +16,7 @@
   import AlignLeft from "@lucide/svelte/icons/align-left";
   import Clock from "@lucide/svelte/icons/clock";
   import ImageIcon from "@lucide/svelte/icons/image";
+  import CornerUpLeft from "@lucide/svelte/icons/corner-up-left";
   import { app, type ComposeWindow } from "../lib/store.svelte";
   import { SIGNATURE_CLASS } from "../lib/richtext";
   import { signatureShown } from "../lib/signatures";
@@ -36,7 +37,6 @@
   import { hints } from "../lib/hints.svelte";
   import type { Hint } from "../lib/hints";
   import AddressInput from "./AddressInput.svelte";
-  import Select from "./Select.svelte";
   import Popover from "./Popover.svelte";
   import { keyLabel } from "../lib/composeKeys";
   import { shortcuts } from "../lib/shortcuts.svelte";
@@ -44,13 +44,17 @@
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
   import { ComposeAttachments } from "../lib/compose/attachments.svelte";
+  import { FULL_STRIP_ROWS, MIN_BODY_PX, mailboxName, visibleChips } from "../lib/compose/layout";
+  import type { WindowPart } from "../lib/compose/sending.svelte";
 
   let { c }: { c: ComposeWindow } = $props();
   // The window's own state, which the markup binds; the letter's logic lives in
   // src/lib/compose/ (format, attachments, autosave, sending). A window keeps its
   // composition for life (keyed by id in App.svelte).
   let error = $state("");
-  let showCc = $state(untrack(() => c.draft.cc.length > 0 || c.draft.bcc.length > 0));
+  // Cc and Bcc are folded while empty; a draft that has them shows them (#103, 1.2 А, 1.3 А).
+  let showCc = $state(untrack(() => c.draft.cc.length > 0));
+  let showBcc = $state(untrack(() => c.draft.bcc.length > 0));
   let toInput = $state<AddressInput | null>(null);
   let ccInput = $state<AddressInput | null>(null);
   let bccInput = $state<AddressInput | null>(null);
@@ -59,6 +63,9 @@
   /** The format button's menu; the draft's actions keep their own "⋯" beside it. */
   let menuOpen = $state(false);
   let moreOpen = $state(false);
+  /** The «From» menu of the title and the attachments' list (#103). */
+  let fromOpen = $state(false);
+  let filesOpen = $state(false);
 
   /** The format as the button's label shows it. */
   function formatLabel(format: BodyFormat): string {
@@ -134,6 +141,7 @@
     draftSaved: () => t("compose.draftSaved"),
     confirmClose: () => app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }),
     confirmDiscard: () => app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true }),
+    openPart: (part) => void openPart(part),
   });
 
   const files = new ComposeAttachments({
@@ -163,6 +171,8 @@
     get error() { return error; },
     get showCc() { return showCc; },
     set showCc(v: boolean) { showCc = v; },
+    get showBcc() { return showBcc; },
+    set showBcc(v: boolean) { showBcc = v; },
     get toInput() { return toInput; },
     set toInput(v: AddressInput | null) { toInput = v; },
     get ccInput() { return ccInput; },
@@ -221,6 +231,10 @@
     set menuOpen(v: boolean) { menuOpen = v; },
     get moreOpen() { return moreOpen; },
     set moreOpen(v: boolean) { moreOpen = v; },
+    get fromOpen() { return fromOpen; },
+    set fromOpen(v: boolean) { fromOpen = v; },
+    get filesOpen() { return filesOpen; },
+    set filesOpen(v: boolean) { filesOpen = v; },
     minimize: () => sending.minimize(),
     toggleMax: () => sending.toggleMax(),
     send: (at: number | null = null, force = false) => sending.send(at, force),
@@ -237,6 +251,70 @@
   ];
 
   peopleBook.load();
+
+  /** The window's Alt keys (#103, 4.1 А): open the field or the menu, or close it again. */
+  async function openPart(part: WindowPart) {
+    if (c.mode === "min") return;
+    if (part === "cc" || part === "bcc") {
+      const cc = part === "cc";
+      const shown = cc ? showCc : showBcc;
+      const list = cc ? c.draft.cc : c.draft.bcc;
+      // An empty open field folds again; one with addresses just takes the caret.
+      if (shown && list.length === 0 && !(cc ? ccInput : bccInput)?.hasText()) {
+        if (cc) showCc = false;
+        else showBcc = false;
+        return;
+      }
+      if (cc) showCc = true;
+      else showBcc = true;
+      await tick();
+      (cc ? ccInput : bccInput)?.focus();
+    } else if (part === "from") {
+      if (app.accounts.length > 1) fromOpen = !fromOpen;
+    } else if (part === "files") {
+      if (c.draft.attachments.length) filesOpen = !filesOpen;
+      else void files.attach();
+    } else if (part === "quote") {
+      if (fmt.format !== "html" && fmt.quote) fmt.quoteOpen = !fmt.quoteOpen;
+    } else if (part === "format") {
+      if (!sending.busy) menuOpen = !menuOpen;
+    } else if (!sending.busy) {
+      moreOpen = !moreOpen;
+    }
+  }
+
+  const fromAccount = $derived(app.account(c.account_id));
+  const fromFull = $derived(fromAccount ? (fromAccount.display_name ? `${fromAccount.display_name} <${fromAccount.email}>` : fromAccount.email) : "");
+  const hasQuote = $derived(fmt.format !== "html" && !!fmt.quote);
+  /** Whether a plugin has a control for the line of state (the wait's box and reminder). */
+  const hasState = $derived(sending.controls.some((x) => x.slot === "line"));
+
+  /** The chips of the one-line strip; at full screen all of them, in up to two rows. */
+  const chips = $derived(c.mode === "max" ? c.draft.attachments.length : visibleChips(width, c.draft.attachments.length));
+
+  /** Takes a file off the letter from the list; the focus stays in the list, on its neighbour. */
+  function dropFile(i: number) {
+    c.draft.attachments.splice(i, 1);
+    if (!c.draft.attachments.length) {
+      filesOpen = false;
+      return;
+    }
+    requestAnimationFrame(() => {
+      const rows = document.querySelectorAll<HTMLElement>(`[data-compose="${c.id}"] [data-att]`);
+      rows[Math.min(i, rows.length - 1)]?.focus();
+    });
+  }
+
+  function onFileKey(e: KeyboardEvent, i: number) {
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    e.preventDefault();
+    dropFile(i);
+  }
+
+  /** The format menu's note is closed for good; Settings → Hints brings it back (#103, 3.3 А). */
+  function closePartsNote() {
+    void app.patchSettings({ markdown_parts_note: false });
+  }
 
   // The hint line of #69 (frame 14А): a hint about a recipient of this letter stays while
   // the letter is written; it goes when the recipient does or the first words are typed.
@@ -310,17 +388,54 @@
   class="compose"
   class:min={c.mode === "min"}
   class:max={c.mode === "max"}
+  data-compose={c.id}
+  style:--min-body="{MIN_BODY_PX}px"
   bind:clientWidth={m.width}
   role="dialog"
   aria-label={c.draft.subject.trim() || t("compose.newMessage")}
   tabindex="-1"
   onkeydown={m.onKey}
 >
+  <!-- The mailbox is in the title (#103, 1.1 Б): there is no «From» row. A plugin that names the
+       mailbox colour puts it on this bar through `--row-tint` (account-color). -->
   <header>
-    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold")}>
+    {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
+    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.draft.subject.trim() || (c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold"))}>
       {c.draft.subject.trim() || t("compose.newMessage")}
     </button>
-    {#if c.mode !== "min"}<span class="saved" aria-live="polite">{m.savingNow ? t("compose.saving") : m.savedText}</span>{/if}
+    {#if c.mode !== "min"}
+      <span class="saved" aria-live="polite">{m.savingNow ? t("compose.saving") : m.savedText}</span>
+      {#if fromAccount}
+        <span class="anchor mailbox-anchor">
+          {#if app.accounts.length > 1}
+            <button
+              class="mailbox"
+              onclick={() => (m.fromOpen = !m.fromOpen)}
+              title={shortcuts.titled(t("compose.mailbox.change", { name: fromFull }), "compose.from")}
+              aria-label={t("compose.mailbox.change", { name: fromFull })}
+              aria-haspopup="menu"
+              aria-expanded={m.fromOpen}
+            >
+              <i class="dot" style:background={app.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span><ChevronDown size={12} />
+            </button>
+            <Popover bind:open={m.fromOpen}>
+              <div class="mt">{t("compose.fwd.from")}</div>
+              {#each app.accounts as a (a.id)}
+                <button class="mi" role="menuitemradio" aria-checked={a.id === c.account_id} data-value={a.id} onclick={() => { m.fromOpen = false; m.setAccount(a.id); }}>
+                  <span class="tick">{#if a.id === c.account_id}<Check size={14} />{/if}</span>
+                  <i class="dot" style:background={app.accountColor(a.id)}></i>
+                  {(a.label?.trim() ? `${accountLabel(a)} — ` : "") + (a.display_name ? `${a.display_name} <${a.email}>` : a.email)}
+                </button>
+              {/each}
+            </Popover>
+          {:else}
+            <span class="mailbox fixed" title={t("compose.mailbox.is", { name: fromFull })}>
+              <i class="dot" style:background={app.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span>
+            </span>
+          {/if}
+        </span>
+      {/if}
+    {/if}
     <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? t("compose.restore") : shortcuts.titled(t("compose.minimize"), "compose.fold")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
       <Minus size={15} />
     </button>
@@ -331,159 +446,171 @@
   </header>
 
   <div class="panel" hidden={c.mode === "min"}>
-    <div class="fields">
-      <div class="row from-row">
-        <span class="label">{t("compose.fwd.from")}</span>
-        {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
-        <Select
-          class="from"
-          label={t("compose.fwd.from")}
-          value={c.account_id}
-          options={app.accounts.map((a) => ({
-            value: a.id,
-            label: (a.label?.trim() ? `${accountLabel(a)} — ` : "") + (a.display_name ? `${a.display_name} <${a.email}>` : a.email),
-          }))}
-          onchange={m.setAccount}
-        />
-        {#if !m.showCc}<button class="btn ghost small" onclick={() => (m.showCc = true)}>{t("compose.fwd.cc")}</button>{/if}
+    <!-- The text keeps its least height (160 px): a window too low for the strips scrolls here. -->
+    <div class="scroll">
+      <div class="fields">
+        <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} card={personCard}>
+          {#snippet trailing()}
+            {#if !m.showCc}<button class="lnk" onclick={() => void openPart("cc")}>{t("compose.fwd.cc")}</button>{/if}
+            {#if !m.showBcc}<button class="lnk" onclick={() => void openPart("bcc")}>{t("compose.bcc")}</button>{/if}
+          {/snippet}
+        </AddressInput>
+        {#if m.showCc}
+          <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={m.ccInput} card={personCard} />
+        {/if}
+        {#if m.showBcc}
+          <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={m.bccInput} card={personCard} />
+        {/if}
+        <div class="row">
+          <span class="label">{t("compose.fwd.subject")}</span>
+          <input class="subject" bind:value={c.draft.subject} />
+        </div>
       </div>
-      <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} card={personCard} />
-      {#if m.showCc}
-        <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={m.ccInput} card={personCard} />
-        <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={m.bccInput} card={personCard} />
+
+      {#if m.format !== "plain"}
+        <FormatBar
+          bind:this={m.bar}
+          format={m.format}
+          width={m.width}
+          rich={m.rich}
+          field={m.body}
+          onpicturefile={m.pictureFromFile}
+          onpictureclipboard={m.pictureFromClipboard}
+        />
       {/if}
-      <div class="row">
-        <span class="label">{t("compose.fwd.subject")}</span>
-        <input class="subject" bind:value={c.draft.subject} />
-      </div>
-    </div>
 
-    {#if m.format !== "plain"}
-      <FormatBar
-        bind:this={m.bar}
-        format={m.format}
-        width={m.width}
-        rich={m.rich}
-        field={m.body}
-        bind:markup={m.markup}
-        onpicturefile={m.pictureFromFile}
-        onpictureclipboard={m.pictureFromClipboard}
-      />
-    {/if}
-
-    <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
-      {#if m.format === "html"}
-        <RichEditor
-          bind:this={m.rich}
-          bind:html={m.htmlBody}
-          class="body"
-          label={t("compose.body")}
-          placeholder={t("compose.bodyPlaceholder")}
-          onselection={() => m.bar?.refresh()}
-          onpictures={m.pastedPictures}
-          locked={SIGNATURE_CLASS}
-          lockedBar={m.signature ? signatureChip : undefined}
-          readonly={m.switching}
-        />
-      {:else}
-        {#if m.format === "markdown"}
-          <MarkdownEditor
-            bind:field={() => (m.body && "apply" in m.body ? m.body : null), (v) => (m.body = v)}
-            bind:value={m.head}
-            markup={m.markup}
-            readonly={m.switching}
+      <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
+        {#if m.format === "html"}
+          <RichEditor
+            bind:this={m.rich}
+            bind:html={m.htmlBody}
+            class="body"
             label={t("compose.body")}
-            placeholder={t("compose.markdownPlaceholder")}
-            onfocus={m.onBodyFocus}
+            placeholder={t("compose.bodyPlaceholder")}
             onselection={() => m.bar?.refresh()}
             onpictures={m.pastedPictures}
+            locked={SIGNATURE_CLASS}
+            lockedBar={m.signature ? signatureChip : undefined}
+            readonly={m.switching}
           />
         {:else}
-          <textarea
-            bind:this={m.body}
-            bind:value={m.head}
-            onfocus={m.onBodyFocus}
-            readonly={m.switching}
-            spellcheck="true"
-            aria-label={t("compose.body")}
-            placeholder={t("compose.bodyPlaceholder")}
-          ></textarea>
+          {#if m.format === "markdown"}
+            <MarkdownEditor
+              bind:field={() => (m.body && "apply" in m.body ? m.body : null), (v) => (m.body = v)}
+              bind:value={m.head}
+              markup={m.markup}
+              readonly={m.switching}
+              label={t("compose.body")}
+              placeholder={t("compose.markdownPlaceholder")}
+              onfocus={m.onBodyFocus}
+              onselection={() => m.bar?.refresh()}
+              onpictures={m.pastedPictures}
+            />
+          {:else}
+            <textarea
+              bind:this={m.body}
+              bind:value={m.head}
+              onfocus={m.onBodyFocus}
+              readonly={m.switching}
+              spellcheck="true"
+              aria-label={t("compose.body")}
+              placeholder={t("compose.bodyPlaceholder")}
+            ></textarea>
+          {/if}
+          {#if m.signature}
+            {@const shown = m.signatureView}
+            <!-- The signature under the text, shown, not edited: formatted in an HTML or
+                 Markdown letter (frame 13 of #45), its text under "-- " in a plain one. -->
+            <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
+              {#if shown && "html" in shown}
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -- the user's own signature -->
+                <div class="sig-html">{@html cleanRemoteHtml(shown.html)}</div>
+              {:else}
+                <div class="sig-text">{(shown && shown.text) || t("compose.signature.noText")}</div>
+              {/if}
+              <div class="sig-bar">{@render signatureChip()}</div>
+            </div>
+          {/if}
         {/if}
-        {#if m.signature}
-          {@const shown = m.signatureView}
-          <!-- The signature under the text, shown, not edited: formatted in an HTML or
-               Markdown letter (frame 13 of #45), its text under "-- " in a plain one. -->
-          <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
-            {#if shown && "html" in shown}
-              <!-- eslint-disable-next-line svelte/no-at-html-tags -- the user's own signature -->
-              <div class="sig-html">{@html cleanRemoteHtml(shown.html)}</div>
-            {:else}
-              <div class="sig-text">{(shown && shown.text) || t("compose.signature.noText")}</div>
-            {/if}
-            <div class="sig-bar">{@render signatureChip()}</div>
+        {#if !m.signature && m.signatures.length}
+          <div class="sig-none">
+            <SignaturePicker variant="line" signatures={m.signatures} current={null} onpick={m.putSignature} onsettings={m.signatureSettings} />
           </div>
         {/if}
+        {#if m.zones}
+          <div class="zones">
+            <div class="zone inline" class:hover={app.compose.dragging?.zone === "inline"} data-drop-zone="inline">
+              <ImageIcon size={22} />
+              <b>{t("compose.drop.inline")}</b>
+              <span>{t("compose.drop.inlineNote")}</span>
+            </div>
+            <div class="zone attach" class:hover={app.compose.dragging?.zone === "attach"} data-drop-zone="attach">
+              <Paperclip size={22} />
+              <b>{t("compose.drop.attach")}</b>
+              <span>{t("compose.drop.attachNote")}</span>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      {#if line}
+        <HintLine
+          hint={line}
+          onAccept={acceptHint}
+          onNotNow={() => { line = null; void hints.notNow(); }}
+          onNeverThis={() => { line = null; void hints.neverThis(); }}
+          onNeverAnyone={() => { line = null; void hints.neverAnyone(); }}
+          onAll={() => app.openSettings("look")}
+          onUndo={() => void undoHint(line!)}
+        />
       {/if}
-      {#if !m.signature && m.signatures.length}
-        <div class="sig-none">
-          <SignaturePicker variant="line" signatures={m.signatures} current={null} onpick={m.putSignature} onsettings={m.signatureSettings} />
+
+      <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} empty={!fmt.hasOwnText} quote={fmt.hasHtmlQuote} onFormat={(f) => void fmt.ruleFormat(f)} onBack={(f) => fmt.ruleReturn(f)} />
+
+      <!-- One line of state (#103, 3.1 А): the quote, then the wait's box and the reminder of the plugin. -->
+      {#if hasQuote || hasState}
+        <div class="state" role="group" aria-label={t("compose.state")}>
+          {#if hasQuote}
+            <button class="chip-btn quote-chip" class:on={m.quoteOpen} onclick={() => (m.quoteOpen = !m.quoteOpen)} aria-expanded={m.quoteOpen} title={m.quoteHeader}>
+              <CornerUpLeft size={13} />{t("compose.quote")}{#if m.quoteOpen}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
+            </button>
+          {/if}
+          {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
         </div>
       {/if}
-      {#if m.zones}
-        <div class="zones">
-          <div class="zone inline" class:hover={app.compose.dragging?.zone === "inline"} data-drop-zone="inline">
-            <ImageIcon size={22} />
-            <b>{t("compose.drop.inline")}</b>
-            <span>{t("compose.drop.inlineNote")}</span>
-          </div>
-          <div class="zone attach" class:hover={app.compose.dragging?.zone === "attach"} data-drop-zone="attach">
-            <Paperclip size={22} />
-            <b>{t("compose.drop.attach")}</b>
-            <span>{t("compose.drop.attachNote")}</span>
-          </div>
+      {#if hasQuote && m.quoteOpen}
+        <textarea class="quote-text" bind:value={m.quote} readonly={m.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
+      {/if}
+
+      {#if c.draft.attachments.length || m.textPictures}
+        <div class="files" class:full={c.mode === "max"} style:--rows={FULL_STRIP_ROWS}>
+          {#each c.draft.attachments.slice(0, chips) as a, i (i)}
+            <span class="file" title={`${a.name} · ${size(a.size)}`}><Paperclip size={12} /><span class="fname">{a.name}</span> <span class="muted">{size(a.size)}</span>
+              <button onclick={() => c.draft.attachments.splice(i, 1)} aria-label={t("remove")}>×</button></span>
+          {/each}
+          <span class="anchor">
+            {#if c.draft.attachments.length > chips}
+              <button class="more" onclick={() => (m.filesOpen = !m.filesOpen)} aria-haspopup="menu" aria-expanded={m.filesOpen}>
+                {t("compose.attach.more", { n: c.draft.attachments.length - chips })} ›
+              </button>
+            {/if}
+            <Popover bind:open={m.filesOpen} align="left">
+              <div class="mt">{t("compose.attach.list", { n: c.draft.attachments.length })}</div>
+              {#each c.draft.attachments as a, i (i)}
+                <button class="mi" role="menuitem" data-att={i} onkeydown={(e) => onFileKey(e, i)} onclick={() => dropFile(i)} title={t("remove")}>
+                  <span class="fname">{a.name}</span><span class="hint">{size(a.size)} ×</span>
+                </button>
+              {/each}
+              <hr />
+              <button class="mi" role="menuitem" onclick={() => { m.filesOpen = false; m.attach(); }}>{t("compose.attach.add")}</button>
+            </Popover>
+          </span>
+          <span class="muted total" class:danger-text={m.total > 25 * 1024 * 1024}>
+            {t("compose.total", { size: size(m.total) })}{m.total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
+          </span>
         </div>
       {/if}
     </div>
-    {#if m.format === "markdown"}<MarkdownPartsNote />{/if}
-
-    {#if line}
-      <HintLine
-        hint={line}
-        onAccept={acceptHint}
-        onNotNow={() => { line = null; void hints.notNow(); }}
-        onNeverThis={() => { line = null; void hints.neverThis(); }}
-        onNeverAnyone={() => { line = null; void hints.neverAnyone(); }}
-        onAll={() => app.openSettings("look")}
-        onUndo={() => void undoHint(line!)}
-      />
-    {/if}
-
-    <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} empty={!fmt.hasOwnText} quote={fmt.hasHtmlQuote} onFormat={(f) => void fmt.ruleFormat(f)} onBack={(f) => fmt.ruleReturn(f)} />
-
-    {#if m.format !== "html" && m.quote}
-      <div class="quote" class:open={m.quoteOpen}>
-        <button class="quote-bar" onclick={() => (m.quoteOpen = !m.quoteOpen)} aria-expanded={m.quoteOpen}>
-          {#if m.quoteOpen}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-          <span class="quote-who">{m.quoteHeader}</span>
-          <span class="quote-act">{m.quoteOpen ? t("compose.quoteHide") : t("compose.quoteShow")}</span>
-        </button>
-        {#if m.quoteOpen}
-          <textarea class="quote-text" bind:value={m.quote} readonly={m.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
-        {/if}
-      </div>
-    {/if}
-
-    {#if c.draft.attachments.length || m.textPictures}
-      <div class="files">
-        {#each c.draft.attachments as a, i (i)}
-          <span class="file"><Paperclip size={12} /> {a.name} <span class="muted">{size(a.size)}</span>
-            <button onclick={() => c.draft.attachments.splice(i, 1)} aria-label={t("remove")}>×</button></span>
-        {/each}
-        <span class="muted total" class:danger-text={m.total > 25 * 1024 * 1024}>
-          {t("compose.total", { size: size(m.total) })}{m.total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
-        </span>
-      </div>
-    {/if}
 
     {#if m.error}<div class="error danger-text selectable">{m.error}</div>{/if}
 
@@ -498,7 +625,6 @@
       </div>
     {/if}
 
-    {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
     <footer>
       <span class="split-btn anchor">
         <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")}{#if keyLabel("send")} <kbd>{keyLabel("send")}</kbd>{/if}</button>
@@ -522,8 +648,8 @@
       <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
       {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
       <span class="spacer"></span>
-      <!-- The format of this letter: a button beside "⋯" whose label says the current one
-           (frame 6 Б of the 0.7 mockup). In a narrow window only its icon shows. -->
+      <!-- The format of this letter, the only place it is shown (#103, 3.2 А): a button whose
+           label says the current one. In a narrow window only its icon shows. -->
       <span class="anchor">
         <button
           class="btn ghost fmt"
@@ -536,6 +662,7 @@
         >
           {@render formatIcon(m.format)}
           {#if m.width >= 460}<span>{formatLabel(m.format)}</span>{/if}
+          <ChevronDown size={12} />
         </button>
         <Popover bind:open={m.menuOpen}>
           <div class="mt">{t("compose.format.title")}</div>
@@ -544,6 +671,13 @@
               <span class="tick">{#if m.format === f.value}<Check size={14} />{/if}</span>{f.label()}
             </button>
           {/each}
+          {#if m.format === "markdown"}
+            <hr />
+            <button class="mi" role="menuitemcheckbox" aria-checked={m.markup} onclick={() => { m.menuOpen = false; m.markup = !m.markup; }}>
+              <span class="tick">{#if m.markup}<Check size={14} />{/if}</span>{t("compose.markdown.showMarkup")}
+            </button>
+            {#if app.settings.markdown_parts_note}<MarkdownPartsNote onclose={closePartsNote} />{/if}
+          {/if}
         </Popover>
       </span>
       <span class="anchor">
@@ -604,13 +738,29 @@
     display: none;
   }
 
+  /* Everything above the buttons scrolls together; the buttons stay (#103, 2.2 Б). */
+  .scroll {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  /* Nothing but the text gives way: a low window scrolls instead of squeezing the strips. */
+  .scroll > :global(:not(.body-area)) {
+    flex-shrink: 0;
+  }
+
   /* The dark bar of Gmail's composer: folded windows are told apart by it. */
   header {
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 4px 6px 4px 4px;
-    background: var(--side);
+    /* A plugin names the mailbox colour in `--row-tint` on this bar (account-color); 14% of it
+       over the bar. Without one the variable falls back to the bar's own colour: no change. */
+    background: color-mix(in srgb, var(--row-tint, var(--side)) 14%, var(--side));
     color: var(--side-ink);
     flex: none;
   }
@@ -630,10 +780,58 @@
     white-space: nowrap;
   }
 
+  /* The mailbox of the letter: a label that keeps its size while the subject is cut with «…». */
+  .mailbox-anchor {
+    flex: none;
+    margin-right: 4px;
+  }
+
+  .mailbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 180px;
+    border: 1px solid color-mix(in srgb, var(--side-ink) 25%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--side-ink) 8%, transparent);
+    color: var(--side-ink);
+    padding: 2px 7px;
+    font: inherit;
+    font-size: 12px;
+    line-height: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .mailbox.fixed {
+    cursor: default;
+  }
+
+  .mailbox:hover:not(.fixed),
+  .mailbox:focus-visible {
+    background: color-mix(in srgb, var(--side-ink) 16%, transparent);
+  }
+
+  .mb-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dot {
+    display: inline-block;
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+
+  /* The quiet text of the bar is the bar's own ink at 80%: over a mailbox tint (14%) it keeps
+     6:1 in every theme, which `--side-muted` does not. */
   .hb {
     border: none;
     background: none;
-    color: var(--side-muted);
+    color: color-mix(in srgb, var(--side-ink) 80%, transparent);
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -651,7 +849,7 @@
   .saved {
     font-size: 12px;
     white-space: nowrap;
-    color: var(--side-muted);
+    color: color-mix(in srgb, var(--side-ink) 80%, transparent);
     padding: 0 6px;
   }
 
@@ -672,62 +870,6 @@
     padding: 4px 0;
   }
 
-  /* The «From» row anchors the mailbox tint: `position: relative` makes it the containing
-     block for the layer below, and `isolation` keeps that layer over the row's background
-     but behind its content. Without `z-index: 1` the row's own stacking context would paint
-     before `.body-area` and bury the Select's dropdown — a `position: fixed` descendant of
-     this row. */
-  .row.from-row {
-    position: relative;
-    isolation: isolate;
-    z-index: 1;
-  }
-
-  /* A plugin names the mailbox colour in `--row-tint` on this row (account-color does, in
-     its FromTint). The core draws the surface, because only the core knows how far the row
-     is inset by `.fields`. `var(--row-tint, transparent)`: with no plugin the variable is
-     unset and the layer mixes transparent into transparent — a no-op, so the row stays
-     exactly as before, to the last bit.
-
-     The layer bleeds over the field's padding — 4px up to the header, 18px to each edge of
-     the window — so the tint runs flush with the compose window instead of stopping at the
-     fields' borders. 14% is the plugin's chosen strength: it reads from across the room while
-     a resting row stays well below a selected one. */
-  .row.from-row::before {
-    content: "";
-    position: absolute;
-    inset: -4px -18px 0;
-    z-index: -1;
-    pointer-events: none;
-    background: color-mix(in srgb, var(--row-tint, transparent) 14%, transparent);
-  }
-
-  .label {
-    width: 64px;
-    color: var(--muted);
-    flex: none;
-  }
-
-  .row :global(.from) {
-    flex: 1;
-  }
-
-  .row :global(.from .trigger) {
-    border-color: transparent;
-    padding-left: 0;
-  }
-
-  /* The address field fills with the tint too, so no paper box is left in the middle of a
-     full-width tint. Same colour as the layer: 14% of the mailbox colour over paper — the
-     paper fallback keeps the field exactly `--paper` when no plugin sets `--row-tint`. */
-  .row.from-row :global(.from .trigger) {
-    background: color-mix(in srgb, var(--row-tint, var(--paper)) 14%, var(--paper));
-  }
-
-  .row :global(.from .trigger:focus) {
-    box-shadow: none;
-  }
-
   .subject {
     flex: 1;
     border: none;
@@ -735,10 +877,6 @@
     background: transparent;
     padding: 6px 2px;
     font-weight: 600;
-  }
-
-  .small {
-    font-size: 12px;
   }
 
   textarea {
@@ -753,53 +891,47 @@
     user-select: text;
   }
 
-  /* The quote of a reply: one line until asked for. */
-  .quote {
-    border-top: 1px solid var(--line);
-    background: var(--paper);
+  /* One line of state (#103, 3.1 А): the quote, the wait's box, the reminder. */
+  .state {
     display: flex;
-    flex-direction: column;
-  }
-
-  .quote.open {
-    flex: 1;
-    min-height: 0;
-  }
-
-  .quote-bar {
-    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    padding: 7px 18px;
-    border: none;
-    background: none;
+    gap: 2px 14px;
+    flex: none;
+    min-height: 30px;
+    padding: 2px 18px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
     color: var(--muted);
+  }
+
+  .chip-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    padding: 3px 4px;
     font: inherit;
-    font-size: 13px;
-    text-align: left;
+    color: var(--muted);
     cursor: pointer;
   }
 
-  .quote-bar:hover .quote-act,
-  .quote-bar:focus-visible .quote-act {
-    text-decoration: underline;
+  .chip-btn:hover,
+  .chip-btn:focus-visible,
+  .chip-btn.on {
+    background: var(--hover);
+    color: var(--ink);
   }
 
-  .quote-who {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .quote-act {
-    color: var(--accent);
-    white-space: nowrap;
-  }
-
+  /* The quote opens under the line, at a fixed height: the text above it keeps its room. */
   .quote-text {
-    padding-top: 4px;
+    flex: none;
+    height: 96px;
+    padding: 4px 18px 6px 32px;
+    border-top: 1px dashed var(--line);
+    font-size: 12.5px;
     color: var(--muted);
   }
 
@@ -812,8 +944,8 @@
 
   .body-area {
     position: relative;
-    flex: 1;
-    min-height: 0;
+    flex: 1 0 var(--min-body, 160px);
+    min-height: var(--min-body, 160px);
     display: flex;
     flex-direction: column;
   }
@@ -871,11 +1003,14 @@
   /* The field grows with its text; the area scrolls the letter and its signature together. */
   .body-area.signed {
     overflow-y: auto;
+    /* The text keeps its 160 px and the signature shows a few lines under it. */
+    flex-basis: calc(var(--min-body, 160px) + 72px);
+    min-height: calc(var(--min-body, 160px) + 72px);
   }
 
   .body-area.signed textarea {
     flex: none;
-    min-height: calc(5 * 1.55em + 28px);
+    min-height: var(--min-body, 160px);
     overflow: hidden;
   }
 
@@ -887,7 +1022,7 @@
 
   .body-area.signed :global(.md-editor) {
     flex: none;
-    min-height: calc(5 * 1.55em + 28px);
+    min-height: var(--min-body, 160px);
   }
 
   /* Files dragged over an HTML letter: into the text, or attached. */
@@ -925,20 +1060,45 @@
     background: color-mix(in srgb, var(--accent) 10%, var(--paper));
   }
 
+  /* The strip of attachments: one line and «+N more» (#103, 2.1 А); at full screen up to
+     two rows with its own scroll (2.1 Б). */
   .files {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 8px 18px;
-    border-top: 1px solid var(--line);
+    flex: none;
     align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 4px 18px;
+    border-top: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .files.full {
+    flex-wrap: wrap;
+    max-height: calc(var(--rows) * 30px + 8px);
+    overflow-y: auto;
   }
 
   .file {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 180px;
     background: var(--hover);
     border-radius: 6px;
     padding: 3px 4px 3px 8px;
     font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .file :global(svg) {
+    flex: none;
+  }
+
+  .fname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .file button {
@@ -947,8 +1107,45 @@
     color: var(--muted);
   }
 
+  .more {
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .more:hover,
+  .more:focus-visible {
+    text-decoration: underline;
+  }
+
   .total {
+    margin-left: auto;
+    padding-left: 8px;
     font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* «Cc» and «Bcc» beside «To»: quiet links, the keys not printed (#103, 1.2 А). */
+  .lnk {
+    flex: none;
+    align-self: center;
+    border: none;
+    background: none;
+    padding: 0 3px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .lnk:hover,
+  .lnk:focus-visible {
+    text-decoration: underline;
   }
 
   .error {
@@ -957,6 +1154,7 @@
 
   footer {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 8px;
     padding: 10px 18px 14px;

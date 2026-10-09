@@ -13,6 +13,7 @@ export { default as Select } from "../components/Select.svelte";
 /** A key as menus and the palette show it, `e у`: `key="Mod+k"`, or `of` a command's key. */
 export { default as Keys } from "../components/Keys.svelte";
 export { fromLocalInput, sendLaterPresets, toLocalInput, when, type Preset } from "../lib/later";
+export { closeWhenMenu, openWhenMenu, whenMenu, type WhenExtras, type WhenMenuRequest } from "../lib/whenMenu.svelte";
 export { keyAnchor, placeMenu, placeSide, type Anchor, type Placed } from "../lib/anchor";
 export { DEFAULT_WORK_TIME, formatClock, parseClock, type Clock, type WorkTime } from "../lib/workTime";
 export { addrName, listDate, matches, roleLabel, size } from "../lib/format";
@@ -195,7 +196,7 @@ export interface ComposeContext {
   accountEmail(): string;
   /** The mailbox the letter is written from, as chosen in "From". */
   accountId(): string;
-  /** The colour that marks that mailbox: a plugin may tint the "From" field with it. */
+  /** The colour that marks that mailbox: a plugin may tint the window's title with it. */
   accountColor(): string;
   /** Inserts at the caret. */
   insertText(text: string): void;
@@ -206,6 +207,11 @@ export interface ComposeContext {
    */
   /** `park`: the answer takes its letter out of the inbox, to the archive (a chosen wait takes it to "Waiting for reply" instead); null: as the mailbox says. */
   options: { at: number | null; followupDays: number | null; followupSecs: number | null; followup: FollowupPlan | null; park: boolean | null };
+  /**
+   * The window's Alt keys that a plugin's control answers: `park` (Alt+I, the box "out of the
+   * inbox") and `remind` (Alt+R, the reminder's menu). Returns the way to stop answering.
+   */
+  onAction(action: "park" | "remind", run: () => void): () => void;
   /** Sends now, or at `at`, after the checks. */
   send(at?: number | null): void;
 }
@@ -311,7 +317,7 @@ export interface PluginContext {
       order?: number;
       /**
        * `send`: joined to the Send button; `footer` (default): after the core's buttons;
-       * `line`: a quiet line above them; `from`: in the "From" row, beside the mailbox list.
+       * `line`: a quiet line above them; `from`: in the window's title bar, beside the mailbox label.
        */
       slot?: "send" | "footer" | "line" | "from";
     }): void;

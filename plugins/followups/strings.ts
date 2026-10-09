@@ -29,6 +29,10 @@ export const S = {
   remind3: { en: "Remind in 3 days without a reply", ru: "Напомнить через 3 дня без ответа" },
   remind7: { en: "Remind in a week without a reply", ru: "Напомнить через неделю без ответа" },
   custom: { en: "Custom…", ru: "Настроить…" },
+  // The reminder takes the Snooze menu (#103): the line, the calendar's button and the saved choices.
+  remindPlaceholder: { en: "When to remind: “Fri 9:00”, “in 3 days”", ru: "Когда напомнить: «пт 9:00», «через 3 дня»" },
+  remindPick: { en: "Remind", ru: "Напомнить" },
+  savedChoices: { en: "Saved", ru: "Сохранённые" },
   customTitle: { en: "Remind me if nobody replies", ru: "Напомнить, если не ответят" },
   untilDate: { en: "Remind {when} without a reply", ru: "Напомнить {when} без ответа" },
   lineWhen: { en: "I will remind you {when}", ru: "Напомню {when}" },
@@ -82,15 +86,15 @@ export const S = {
   later: { en: "Remind tomorrow", ru: "Напомнить завтра" },
   repick: { en: "Set a new date", ru: "Назначить новый срок" },
   stop: { en: "Stop waiting", ru: "Не ждать" },
-  // A letter waiting in the folder (#59).
-  comesBack: { en: "The letter comes back to the inbox when they reply.", ru: "Письмо вернётся во «Входящие», когда ответят." },
-  unpark: { en: "Back to the inbox", ru: "Вернуть во входящие" },
-  remindMe: { en: "Remind me…", ru: "Напомнить…" },
   // The toast after it (#98), as "Bring back now" has one: what it did and how to take it back.
   stopped: { en: "No longer waiting for a reply: {what}", ru: "Не ждём ответа: {what}" },
   stoppedMany: { en: { one: "{n} message", other: "{n} messages" }, ru: { one: "{n} письмо", few: "{n} письма", other: "{n} писем" } },
   undo: { en: "Undo", ru: "Отменить" },
   resumeFailed: { en: "Could not take it back: the wait has ended another way", ru: "Не удалось вернуть: ожидание уже закончилось иначе" },
+  // A letter waiting in the folder (#59).
+  comesBack: { en: "The letter comes back to the inbox when they reply.", ru: "Письмо вернётся во «Входящие», когда ответят." },
+  unpark: { en: "Back to the inbox", ru: "Вернуть во входящие" },
+  remindMe: { en: "Remind me…", ru: "Напомнить…" },
   openAnswer: { en: "Open the reply", ru: "Открыть ответ" },
   waitAgain: { en: "Wait for a reply again", ru: "Снова ждать ответа" },
   history: { en: "Reminder history", ru: "История напоминаний" },

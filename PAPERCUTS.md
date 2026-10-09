@@ -35,3 +35,10 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-10 02:00 — claude-sonnet-5-5
 
 Читал большие куски `store.rs` и `MessageList.svelte` через `shell` (`sed -n`) → вывод режется («middle dropped») уже около 10 КБ, куски пропадают без ошибки. Читать файлы инструментом `read` с `offset`/`limit` по 250–300 строк.
+## 2026-10-09 23:12 — claude-sonnet-5-5
+
+Читал большие файлы и вывод `grep`/`sed` через `shell` → вывод режется до ~1000 знаков с «output id», середина теряется. Файлы читать инструментом `read` (отдаёт целиком), в `shell` — узкие `grep -n`/`sed -n` с `cut -c1-200`.
+
+## 2026-10-09 23:12 — claude-sonnet-5-5
+
+В e2e клавиша окна письма с Alt: `press()` шлёт keydown на `window`, а обработчик ключей окна письма висит на самом диалоге → Alt-клавиши не доходят. Слать через `pressIn(<элемент внутри .compose>, key, { altKey: true, code })` (хелпер `altKey` в `e2e/run.mjs`); `code` нужен, раскладка берётся по физической клавише.

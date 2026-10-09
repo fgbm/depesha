@@ -89,6 +89,38 @@ describe("the importance of a letter (#72)", () => {
   });
 });
 
+describe("the Alt keys of the window (#103)", () => {
+  const alt = (key: string, code: string) => ({ key, code, ctrlKey: false, shiftKey: false, altKey: true, metaKey: false, preventDefault: () => {} }) as unknown as KeyboardEvent;
+
+  it("opens the part of the letter its key stands for", () => {
+    const opened: string[] = [];
+    const sending = new ComposeSending({ ...host(win("a"), {}), openPart: (p: string) => opened.push(p) } as unknown as ComposeSendHost);
+    sending.onKey(alt("c", "KeyC"));
+    sending.onKey(alt("m", "KeyM"));
+    sending.onKey(alt("f", "KeyF"));
+    sending.onKey(alt(".", "Period"));
+    expect(opened).toEqual(["cc", "from", "format", "more"]);
+  });
+
+  it("hands «out of the inbox» and the reminder to the plugin that has them, and lets the key go without one", () => {
+    const sending = new ComposeSending({ ...host(win("a"), {}), openPart: () => {} } as unknown as ComposeSendHost);
+    let prevented = 0;
+    const press = (key: string, code: string) => sending.onKey({ ...alt(key, code), preventDefault: () => prevented++ } as KeyboardEvent);
+    press("r", "KeyR");
+    expect(prevented).toBe(0);
+    const ran: string[] = [];
+    const stop = sending.composeCtx.onAction("remind", () => ran.push("remind"));
+    sending.composeCtx.onAction("park", () => ran.push("park"));
+    press("r", "KeyR");
+    press("i", "KeyI");
+    expect(ran).toEqual(["remind", "park"]);
+    expect(prevented).toBe(2);
+    stop();
+    press("r", "KeyR");
+    expect(ran).toEqual(["remind", "park"]);
+  });
+});
+
 describe("the box «out of the inbox» of an answer (#106)", () => {
   it("with «Без напоминания» asks to archive and makes no wait", () => {
     const plan = withArchive(null, true);

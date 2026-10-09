@@ -66,3 +66,20 @@ describe("the core's commands and their keys", () => {
     expect(keys).not.toContain("Mod+p");
   });
 });
+
+describe("the keys of the letter's window (#103)", () => {
+  it("gives the letter's window the Alt+letter keys (#103, 4.1 А, 4.3 А)", () => {
+    const keys = Object.fromEntries(CORE_KEYS.filter((c) => c.id.startsWith("compose.")).map((c) => [c.id, c.keys]));
+    expect(keys).toMatchObject({
+      "compose.cc": ["Alt+c"],
+      "compose.bcc": ["Alt+b"],
+      "compose.from": ["Alt+m"],
+      "compose.files": ["Alt+a"],
+      "compose.quote": ["Alt+q"],
+      "compose.format": ["Alt+f"],
+      "compose.park": ["Alt+i"],
+      "compose.remind": ["Alt+r"],
+      "compose.more": ["Alt+."],
+    });
+  });
+});

@@ -66,4 +66,14 @@ export const CORE_KEYS: CoreKey[] = [
   row("compose.heading2", "compose.format.heading2", ["Mod+2"], "compose"),
   row("compose.heading3", "compose.format.heading3", ["Mod+3"], "compose"),
   row("compose.code", "compose.format.code", ["Mod+e"], "compose"),
+  // #103, 4.1 А: Alt+letter opens or switches what the letter has; the keys are not printed in the window.
+  row("compose.cc", "keys.cmd.composeCc", ["Alt+c"], "compose"),
+  row("compose.bcc", "keys.cmd.composeBcc", ["Alt+b"], "compose"),
+  row("compose.from", "keys.cmd.composeFrom", ["Alt+m"], "compose"),
+  row("compose.files", "keys.cmd.composeFiles", ["Alt+a"], "compose"),
+  row("compose.quote", "keys.cmd.composeQuote", ["Alt+q"], "compose"),
+  row("compose.format", "keys.cmd.composeFormat", ["Alt+f"], "compose"),
+  row("compose.park", "keys.cmd.composePark", ["Alt+i"], "compose"),
+  row("compose.remind", "keys.cmd.composeRemind", ["Alt+r"], "compose"),
+  row("compose.more", "keys.cmd.composeMore", ["Alt+."], "compose"),
 ];

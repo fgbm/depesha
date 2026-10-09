@@ -1,24 +1,50 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { placeMenu, placeSide, type Anchor, type PluginContext } from "@depesha/plugin-api";
-  import { snoozeMail } from "./actions";
+  import { placeMenu, placeSide, type Anchor, type PluginContext, type WhenExtras } from "@depesha/plugin-api";
   import { fmtWhen } from "./format";
   import { SnoozeMenu, type KeyInfo, type MenuEnv, type Outcome } from "./menu.svelte";
   import { Picker } from "./picker.svelte";
-  import { closeSnooze } from "./state.svelte";
   import { S } from "./strings";
   import { sameDay } from "./times";
 
-  let { ctx, ids, anchor }: { ctx: PluginContext; ids: number[]; anchor: Anchor } = $props();
+  // The menu is the snooze menu's, and the reminder's of a letter in writing (#103) borrows it: whoever
+  // opens it says what a chosen moment does (`onpick`), how to go away (`onclose`) and, for the
+  // reminder, the two rows more (`extras`) with the words of the line and of the calendar's button.
+  let {
+    ctx,
+    ids = [],
+    anchor,
+    onpick,
+    onclose,
+    extras,
+    texts,
+    onnone,
+    onsetup,
+  }: {
+    ctx: PluginContext;
+    /** The messages the moment is for (the snooze menu); none for the reminder's. */
+    ids?: number[];
+    anchor: Anchor;
+    /** The moment chosen, in unix seconds. */
+    onpick: (at: number, ids: number[]) => void;
+    onclose: () => void;
+    extras?: WhenExtras;
+    texts?: { placeholder: string; title: string; pick: string };
+    onnone?: () => void;
+    onsetup?: () => void;
+  } = $props();
 
-  // One menu lives for one opening: what it was opened for is read once.
-  const target = untrack(() => ({ ids, anchor }));
+  // One menu lives for one opening: what it was opened for is read once. The props are getters of
+  // the opener's state, which is cleared the moment the menu closes, a step before its choice is
+  // handed over: the choice must not read them again.
+  const target = untrack(() => ({ ids, anchor, extras, texts, onpick, onclose, onnone, onsetup }));
   const now = new Date();
   const env = (): MenuEnv => ({
     now,
     work: ctx.workTime(),
     lang: ctx.lang(),
     say: (key) => ctx.t(S[key as keyof typeof S] as { en: string; ru: string }, {}),
+    extras: target.extras,
   });
 
   const menu = new SnoozeMenu(env);
@@ -90,11 +116,17 @@
 
   function apply(out: Outcome) {
     if (out.type === "pick") {
-      closeSnooze();
-      void snoozeMail(ctx, Math.floor(out.at.getTime() / 1000), target.ids);
+      target.onclose();
+      target.onpick(Math.floor(out.at.getTime() / 1000), target.ids);
     } else if (out.type === "custom") picker = new Picker(env);
-    else if (out.type === "back") picker = null;
-    else if (out.type === "close") closeSnooze();
+    else if (out.type === "none") {
+      target.onclose();
+      target.onnone?.();
+    } else if (out.type === "setup") {
+      target.onclose();
+      target.onsetup?.();
+    } else if (out.type === "back") picker = null;
+    else if (out.type === "close") target.onclose();
   }
 
   // Capture: the menu takes every key before the app's own keys (j, k, h…) see it.
@@ -128,7 +160,7 @@
   function outside(e: PointerEvent) {
     const t = e.target as Element | null;
     // The button that opened the menu closes it by itself.
-    if (t && !root?.contains(t) && !t.closest("[data-snooze-button]")) closeSnooze();
+    if (t && !root?.contains(t) && !t.closest("[data-snooze-button]")) target.onclose();
   }
 
   const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
@@ -157,12 +189,12 @@
           bind:this={input}
           value={menu.q}
           oninput={(e) => menu.setQuery(e.currentTarget.value)}
-          placeholder={ctx.t(S.placeholder)}
+          placeholder={target.texts?.placeholder ?? ctx.t(S.placeholder)}
           role="combobox"
           aria-expanded="true"
           aria-controls="snooze-list"
           aria-activedescendant={menu.cur >= 0 ? `snooze-r${menu.cur}` : undefined}
-          aria-label={ctx.t(S.menuTitle)}
+          aria-label={target.texts?.title ?? ctx.t(S.menuTitle)}
           autocomplete="off"
           spellcheck="false"
         />
@@ -186,12 +218,13 @@
             onmousemove={() => menu.hover(i)}
             onclick={() => apply(menu.click(i))}
           >
+            {#if target.extras}<span class="tick">{#if r.tick}✓{/if}</span>{/if}
             <span class="lab">{r.label}</span>
             {#if r.hint}<span class="hint">{r.hint}</span>{/if}
-            <kbd>{r.key}</kbd>
+            {#if r.key}<kbd>{r.key}</kbd>{/if}
             {#if r.kind === "sub"}<span class="chev">›</span>{/if}
           </button>
-          {#if r.id === "parsed"}<hr />{/if}
+          {#if r.id === "parsed" || (r.id === "custom" && target.extras)}<hr />{/if}
         {/each}
       </div>
       <div class="foot">
@@ -292,7 +325,7 @@
           bind:this={okButton}
           disabled={!!t.error}
           tabindex="-1"
-          onclick={() => picker && apply(picker.confirm())}>{ctx.t(S.action)} <kbd>↵</kbd></button
+          onclick={() => picker && apply(picker.confirm())}>{target.texts?.pick ?? ctx.t(S.action)} <kbd>↵</kbd></button
         >
       </div>
       <div class="pk">{ctx.t(S.calKeys)}</div>
@@ -335,6 +368,12 @@
     border: none;
     border-top: 1px solid var(--line);
     margin: 4px 2px;
+  }
+
+  .tick {
+    width: 14px;
+    flex: none;
+    color: var(--accent);
   }
 
   .mi {

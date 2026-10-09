@@ -73,13 +73,14 @@
 {/if}
 
 <style>
-  /* Under the line of the wait (WaitLine), its continuation: quiet, no rule of its own. */
+  /* After the chips of the wait (WaitLine), on a line of its own: quiet, no rule. */
   .remind-line {
     display: flex;
+    flex: 1 0 100%;
     align-items: center;
     flex-wrap: wrap;
     gap: 5px;
-    padding: 0 18px 6px;
+    padding: 0 0 4px;
     font-size: 12px;
     color: var(--muted);
   }

@@ -15,7 +15,7 @@ describe("the mailbox colour of the From field", () => {
     expect(plugin.manifest.defaultOff).toBe(true);
   });
 
-  it("adds exactly one control to the From row", () => {
+  it("adds exactly one control to the title bar, in the from slot", () => {
     const { ctx, controls } = fakeContext();
     plugin.activate(ctx);
     expect(controls).toHaveLength(1);

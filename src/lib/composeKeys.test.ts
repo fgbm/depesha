@@ -33,6 +33,24 @@ describe("keys of the composition window", () => {
     expect(keyLabel("importance")).toBe("Alt+P");
   });
 
+  it("opens what the letter has on Alt+letter (#103, 4.1 А)", () => {
+    const alt = (key: string, code: string) => composeAction(press(key, code, { alt: true }));
+    expect(alt("c", "KeyC")).toBe("cc");
+    expect(alt("b", "KeyB")).toBe("bcc");
+    expect(alt("m", "KeyM")).toBe("from");
+    expect(alt("a", "KeyA")).toBe("files");
+    expect(alt("q", "KeyQ")).toBe("quote");
+    expect(alt("f", "KeyF")).toBe("format");
+    expect(alt("i", "KeyI")).toBe("park");
+    expect(alt("r", "KeyR")).toBe("remind");
+    expect(alt(".", "Period")).toBe("more");
+    // The same keys on the Russian layout, by the place of the key.
+    expect(alt("с", "KeyC")).toBe("cc");
+    expect(alt("ю", "Period")).toBe("more");
+    // A letter without Alt is typed into the text.
+    expect(composeAction(press("c", "KeyC"))).toBeNull();
+  });
+
   it("works on the Russian layout by the physical key", () => {
     expect(composeAction(press("д", "KeyL", { ctrl: true }))).toBe("link");
     expect(composeAction(press("З", "KeyP", { ctrl: true, shift: true }))).toBe("preview");
