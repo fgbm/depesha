@@ -1128,7 +1128,7 @@ export const en = {
   "bg.onClose.quit": "Quit Depesha",
   "bg.onClose.ask": "Ask every time",
   "bg.quitHint": "You can always quit: «Quit» in the icon's menu or Ctrl+Q.",
-  "bg.noTrayWarn": "There is no tray icon — Depesha will work unseen: a hidden window opens when Depesha is started again. Until you agree, it asks when the window is closed.",
+  "bg.noTrayWarn": "Depesha will work unseen: a hidden window opens when Depesha is started again. Until you agree, it asks when the window is closed.",
   "bg.noTray.row": "No tray icon",
   "bg.noTray.keep": "Keep it so",
   "bg.noTray.kept": "Background with no icon: agreed",
