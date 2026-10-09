@@ -139,6 +139,8 @@ compose.fwd.from
 compose.fwd.subject
 compose.fwd.to
 compose.goBack
+compose.importance
+compose.importance.off
 compose.markdown.markup
 compose.markdown.markupHint
 compose.markdown.note
@@ -410,6 +412,7 @@ letterView.text
 letterView.title
 list.draft
 list.hasFiles
+list.important
 list.inThread
 list.me
 list.noRecipients
@@ -418,6 +421,7 @@ list.readOnly
 list.readOnlyHint
 list.size
 list.to
+list.unreadSr
 loading
 mark.open
 mark.openTitle
@@ -522,6 +526,7 @@ reader.choose
 reader.downloading
 reader.foldRecipients
 reader.fromSender
+reader.important
 reader.loading
 reader.message
 reader.moreRecipients
