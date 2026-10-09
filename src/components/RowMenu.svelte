@@ -14,7 +14,9 @@
   import UserSearch from "@lucide/svelte/icons/user-search";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import AppWindow from "@lucide/svelte/icons/app-window";
+  import Printer from "@lucide/svelte/icons/printer";
   import { app } from "../lib/store.svelte";
+  import { printRow } from "../lib/print";
   import { t } from "../lib/i18n.svelte";
   import { registry } from "../plugin-host/registry.svelte";
   import type { RowAction } from "../plugin-api";
@@ -104,6 +106,9 @@
     <button class="mi" onclick={() => withOpened(() => app.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint"><Keys of="core.forward" /></span></button>
     <button class="mi" onclick={() => single && run(() => app.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>
     <hr />
+  {/if}
+  {#if single}
+    <button class="mi" onclick={() => run(() => printRow(single.id))}><Printer size={15} /> {t("act.print")}<span class="hint"><Keys of="core.print" /></span></button>
   {/if}
   <button class="mi" onclick={() => run(() => app.flag("seen", anyUnread, ids))}>
     {#if anyUnread}<MailOpen size={15} /> {t("act.markRead")}{:else}<Mail size={15} /> {t("act.markUnread")}{/if}<span class="hint"><Keys of="core.unread" /></span>

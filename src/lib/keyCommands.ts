@@ -29,6 +29,8 @@ export const CORE_KEYS: CoreKey[] = [
   row("core.sync", "cmd.sync", [], "everywhere"),
   // The address book (#104): no key by default, the user gives one on this page or in the palette.
   row("core.people", "cmd.people", [], "everywhere"),
+  // Prints the open letter (#70). From text fields too: the browser's own Ctrl+P would print the whole interface.
+  row("core.print", "act.print", ["Mod+p"], "everywhere"),
   // The list and the letter.
   row("core.next", "nav.next", ["j", "ArrowDown"], "list"),
   row("core.prev", "nav.prev", ["k", "ArrowUp"], "list"),

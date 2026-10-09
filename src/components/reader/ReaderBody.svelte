@@ -14,6 +14,7 @@
   import { peopleBook } from "../../lib/peopleBook.svelte";
   import { blankPerson } from "../../lib/people";
   import { hints } from "../../lib/hints.svelte";
+  import { rememberForm } from "../../lib/print";
   import type { BodyView, OpenedMessage, ViewRule } from "../../lib/types";
 
   let {
@@ -69,6 +70,9 @@
   const pref = $derived(effectivePref(person?.view, app.account(msg.row.account_id)?.letter_view, app.settings.letter_view));
   const switchable = $derived(switchViews(msg.view, pref));
   const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, pref));
+
+  // Printing takes the form that is on screen (#70).
+  $effect(() => rememberForm(msg.row.id, shown));
 
   /** The hint of the sender shown now, if any: the form was switched often enough (#69). */
   const hint = $derived(

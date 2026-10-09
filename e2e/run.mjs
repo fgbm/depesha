@@ -2105,6 +2105,140 @@ try {
     await d.button("Входящие");
   });
 
+  await step("4.15", "печать письма (#70): Ctrl+P, палитра, «Ещё», меню строки и окно письма печатают отдельный лист — шапку и тело в виде на экране, не интерфейс", async () => {
+    // The system's print dialog cannot be driven: the frame's print() is replaced, and what the
+    // frame holds at that moment is what would be printed. The sheets are kept for the pictures.
+    const intercept = () =>
+      d.exec(`if (window.__prints) return;
+        window.__prints = [];
+        const get = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow').get;
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', { configurable: true, get() {
+          const w = get.call(this);
+          if (w && this.classList.contains('print-frame') && !w.__hooked) {
+            w.__hooked = true;
+            const frame = this;
+            w.print = () => window.__prints.push({ html: frame.contentDocument.documentElement.outerHTML, text: frame.contentDocument.body.innerText,
+              main: frame.contentDocument.querySelector('main')?.innerHTML ?? '', width: frame.getBoundingClientRect().width, hidden: getComputedStyle(frame).display === 'none' });
+          }
+          return w;
+        } });`);
+    const count = () => d.exec("return window.__prints.length");
+    const lastPrint = () => d.exec("return window.__prints.at(-1)");
+    const sheet = async (n, name) => {
+      await d.until(`print ${n}`, async () => (await count()) === n, 20000);
+      const p = await lastPrint();
+      writeFileSync(join(screens, `print-${name}.html`), p.html);
+      return p;
+    };
+    // The key as the window gets it; true when the browser's own Ctrl+P was stopped.
+    const ctrlP = (target = "window") =>
+      d.exec(`const e = new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true, cancelable: true });
+        (arguments[0] === 'window' ? window : document.querySelector(arguments[0])).dispatchEvent(e); return e.defaultPrevented;`, target);
+    const expectIn = (what, text, ...parts) => {
+      for (const part of parts) if (!text.includes(part)) throw new Error(`${what}: нет «${part}»`);
+    };
+    const expectNot = (what, text, ...parts) => {
+      for (const part of parts) if (text.includes(part)) throw new Error(`${what}: есть «${part}»`);
+    };
+
+    // 1. An HTML letter with a file: Ctrl+P on the open letter.
+    await d.button("Входящие");
+    await openBySubject("HTML-письмо с картинками");
+    await intercept();
+    if (!(await ctrlP())) throw new Error("Ctrl+P не отнят у браузера: он напечатал бы весь интерфейс");
+    let p = await sheet(1, "html");
+    expectIn("лист HTML-письма", p.html, "<h1>HTML-письмо с картинками</h1>", "<dt>От</dt><dd>Рассылка &lt;news@example.org&gt;</dd>", "<dt>Кому</dt>", "<dt>Дата</dt>", "<dt>Вложения</dt><dd>report.pdf</dd>", "Новости", "data:image/png");
+    expectNot("лист HTML-письма", p.html, "<script>", "onclick", "class=\"reader\"", "<nav");
+    // Remote pictures print as the screen shows them: this sender may be trusted by now (4.4).
+    const onScreen = await d.exec("return /img-src data: https: http:/.test(document.querySelector('.reader iframe').srcdoc)");
+    if (p.html.includes("img-src data: https: http:") !== onScreen) throw new Error(`внешние картинки: на экране ${onScreen}, в листе ${!onScreen}`);
+    if (!onScreen) expectNot("лист HTML-письма", p.html, "tracker.example");
+    if (p.html.split("</header>")[0].includes("<img")) throw new Error("в шапке листа картинка (логотип)");
+    if (p.hidden || p.width < 700) throw new Error(`кадр печати не уложен на лист: ${JSON.stringify({ hidden: p.hidden, width: p.width })}`);
+    if ((await d.findAll("iframe.print-frame")).length !== 1) throw new Error("кадров печати не один");
+
+    // 2. The form on screen: Markdown, then text. A letter in the thread prints alone.
+    const subj = `Заметки ${stamp}`;
+    await openBySubject(subj);
+    await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Markdown']"));
+    await d.until("markdown drawn", () => d.exec("return !!document.querySelector('.reader iframe')?.contentDocument?.querySelector('h1')"));
+    await ctrlP();
+    p = await sheet(2, "markdown");
+    expectIn("лист Markdown", p.html, `<h1>${subj}</h1>`, "<table", "type=\"checkbox\"", "border-collapse:collapse");
+    if (!p.main.includes("<h1")) throw new Error("в теле листа нет заголовка Markdown");
+    await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Текст']"));
+    await d.until("text drawn", async () => (await d.findAll(".reader .plain")).length === 1);
+    await ctrlP();
+    p = await sheet(3, "text");
+    expectIn("лист текста", p.main, "class=\"plain\"");
+    expectNot("лист текста", p.main, "<h1", "<table");
+
+    // 3. «More», the palette.
+    await d.click(await d.find(".reader .toolbar [aria-label='Ещё']"));
+    await d.click(await d.until("print item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(@class,'mi')][contains(., 'Печать')]")));
+    p = await sheet(4, "more-menu");
+    expectIn("лист из меню «Ещё»", p.html, `<h1>${subj}</h1>`);
+    await press("k", { ctrlKey: true });
+    await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
+    await d.type(await d.find(".palette .q"), "печать");
+    await d.until("palette lists print", async () => (await textOf(".palette")).includes("Печать"));
+    await d.type(await d.find(".palette .q"), "");
+    p = await sheet(5, "palette");
+    expectIn("лист из палитры", p.html, `<h1>${subj}</h1>`);
+
+    // 4. The context menu of a row prints that letter.
+    const other = "Счёт за октябрь";
+    await rowBySubject(other);
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+       const r = row.getBoundingClientRect();
+       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 40, clientY: r.top + 20 }));`,
+      other,
+    );
+    await d.until("row menu", async () => (await textOf(".pop")).includes("Печать"));
+    await d.click(await d.xpath("//div[contains(@class,'pop')]//button[contains(@class,'mi')][contains(., 'Печать')]"));
+    p = await sheet(6, "row-menu");
+    expectIn("лист из меню строки", p.html, `<h1>${other}</h1>`);
+    // The right click selects the row, as it always did, so the reader shows it by now; the sheet is its own.
+    if ((await d.findAll("iframe.print-frame")).length !== 1) throw new Error("кадров печати не один");
+
+    // 5. In a composition the key is still the app's, and prints nothing.
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    if (!(await ctrlP(".compose textarea"))) throw new Error("в письме, которое пишут, Ctrl+P достался браузеру");
+    await new Promise((r) => setTimeout(r, 400));
+    if ((await count()) !== 6) throw new Error("Ctrl+P в написании письма напечатал лист");
+    await d.click(await d.find(".compose header button:last-child"));
+    await composeClosed();
+
+    // 6. The letter's own window: the same function.
+    const title = "Документы на проверку";
+    const main = await d.req("GET", d.s("/window"));
+    await openFolder("Работа");
+    await rowBySubject(title);
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+       row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));`,
+      title,
+    );
+    const handles = () => d.req("GET", d.s("/window/handles"));
+    await d.until("second window", async () => (await handles()).length === 2, 15000);
+    const own = (await handles()).find((h) => h !== main);
+    await d.req("POST", d.s("/window"), { handle: own });
+    try {
+      await d.until("letter in its window", async () => (await textOf(".reader h1")).includes(title), 20000);
+      await intercept();
+      if (!(await ctrlP())) throw new Error("в окне письма Ctrl+P достался браузеру");
+      p = await sheet(1, "window");
+      expectIn("лист из окна письма", p.html, `<h1>${title}</h1>`, "<dt>Вложения</dt>", "contract.pdf");
+      await press("Escape");
+      await d.until("window closed", async () => (await handles()).length === 1, 20000);
+    } finally {
+      await d.req("POST", d.s("/window"), { handle: main });
+    }
+    await d.button("Входящие");
+  });
+
   await step("9.2", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
     const subj = `Карточка ${stamp}`;
     helper("deliver", subj);

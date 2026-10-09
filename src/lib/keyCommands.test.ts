@@ -60,10 +60,12 @@ describe("the core's commands and their keys", () => {
     expect(names).not.toContain("Mod+Shift+Delete");
   });
 
-  it("leaves Ctrl+K to the palette and Ctrl+P to printing", () => {
+  it("leaves Ctrl+K to the palette, and gives Ctrl+P to printing the open letter (#70)", () => {
     const keys = CORE_KEYS.flatMap((c) => c.keys);
     expect(keys).not.toContain("Mod+k");
-    expect(keys).not.toContain("Mod+p");
+    expect(CORE_KEYS.filter((c) => c.keys.includes("Mod+p")).map((c) => c.id)).toEqual(["core.print"]);
+    // From text fields too: the browser's own Ctrl+P would print the whole interface.
+    expect(CORE_KEYS.find((c) => c.id === "core.print")?.group).toBe("everywhere");
   });
 });
 

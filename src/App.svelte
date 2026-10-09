@@ -7,6 +7,7 @@
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
   import { pressName } from "./lib/keymap";
+  import { printKey } from "./lib/print";
   import { quitApp } from "./lib/background.svelte";
   import { layout } from "./lib/layout.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -148,6 +149,8 @@
       quitApp();
       return;
     }
+    // The print key is ours before anything else: the browser would print the whole interface.
+    if (printKey(e, !!app.wizard || app.settingsOpen || app.tasksOpen || !!(e.target as HTMLElement | null)?.closest?.(".compose"))) return;
     if (app.wizard) return;
     // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
     // Only Ctrl+K reaches the app from there: the palette opens from anywhere.

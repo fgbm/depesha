@@ -10,6 +10,7 @@ import { accountLabel, roleLabel } from "./format";
 import { t } from "./i18n.svelte";
 import { readyQueries } from "./largeMail";
 import { recentSearches } from "./recentSearches.svelte";
+import { printOpened } from "./print";
 import { PRESETS, RELEVANCE, reversed } from "./sort";
 import { app, type View } from "./store.svelte";
 
@@ -27,6 +28,7 @@ export function coreCommands(): Command[] {
       { id: "core.reply", title: () => t("act.reply"), run: () => app.replyTo(false) },
       { id: "core.reply-all", title: () => t("cmd.replyAll"), run: () => app.replyTo(true) },
       { id: "core.forward", title: () => t("act.forward"), run: () => app.forwardOpened() },
+      { id: "core.print", title: () => t("act.print"), run: printOpened },
     );
   }
   if (target.length) {

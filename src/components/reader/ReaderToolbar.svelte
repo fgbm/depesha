@@ -12,6 +12,7 @@
   import Folder from "@lucide/svelte/icons/folder";
   import Tag from "@lucide/svelte/icons/tag";
   import AppWindow from "@lucide/svelte/icons/app-window";
+  import Printer from "@lucide/svelte/icons/printer";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Puzzle from "@lucide/svelte/icons/puzzle";
   import Popover from "../Popover.svelte";
@@ -19,6 +20,7 @@
   import { layout } from "../../lib/layout.svelte";
   import { app } from "../../lib/store.svelte";
   import { fromDraft } from "../../lib/compose";
+  import { printOpened } from "../../lib/print";
   import { t } from "../../lib/i18n.svelte";
   import { shortcuts } from "../../lib/shortcuts.svelte";
   import { extensions } from "../../lib/extensions.svelte";
@@ -94,6 +96,7 @@
       {#if app.windowOf === null && !isDraft}
         <button class="mi" onclick={() => { moreOpen = false; app.openWindow(msg.row); }}><AppWindow size={15} /> {t("act.newWindow")}</button>
       {/if}
+      <button class="mi" onclick={() => { moreOpen = false; printOpened(); }}><Printer size={15} /> {t("act.print")}<span class="hint"><Keys of="core.print" /></span></button>
       <hr />
       <button class="mi" onclick={() => { moreOpen = false; app.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
       {#each messageCommands as c (c.ext.id + c.id)}

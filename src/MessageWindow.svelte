@@ -9,6 +9,7 @@
   import { watchDrops } from "./lib/drops";
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
+  import { printKey } from "./lib/print";
   import Reader from "./components/Reader.svelte";
   import Dock from "./components/Dock.svelte";
   import Popover from "./components/Popover.svelte";
@@ -67,8 +68,10 @@
   });
 
   function onKey(e: KeyboardEvent) {
-    if (app.confirmation) return;
     const target = e.target as HTMLElement | null;
+    // Ctrl+P prints this letter, whatever has the focus; the browser's own would print the interface.
+    if (printKey(e, !!app.confirmation || !!target?.closest?.(".compose"))) return;
+    if (app.confirmation) return;
     if (target?.closest?.(".compose")) return;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
     const opened = app.opened;
