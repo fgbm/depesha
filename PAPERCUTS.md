@@ -15,3 +15,19 @@
 ## 2026-10-09 03:00 — claude-opus-5-5
 
 `scripts/check.sh` в свежем worktree со своим `CARGO_TARGET_DIR` → e2e не находит `target/debug/depesha` и нет `node_modules`. Нужны `npm ci` и `DEPESHA_APP=$CARGO_TARGET_DIR/debug/depesha`.
+
+## 2026-10-09 20:10 — claude-sonnet-5-5
+
+Вывод `shell` длиннее ~2,4 тыс. знаков обрезается в середине («output cut… call output_slice»), и нужные строки `grep`/`sed` теряются → читай файлы инструментом `read`, а команды сужай (`cut -c1-160 | head`) и пиши в файл.
+
+## 2026-10-09 20:10 — claude-sonnet-5-5
+
+Playwright MCP (`browser_take_screenshot`, `filename`) пишет только в `/home/vch/Projects/depesha/.playwright-mcp`, а `/tmp` и worktree отклоняет («outside allowed roots») → для снимков из worktree указывай абсолютный путь в этой папке и читай картинку оттуда.
+
+## 2026-10-09 20:10 — claude-sonnet-5-5
+
+`bind:this` на компонент с `export function` внутри `{#key}` и `{#if}`: фокус и подсветка строки по найденной настройке в e2e (WebKit, настоящее приложение) не срабатывали, а в Chromium и в MiniBrowser работали → не держать ссылку на экземпляр компонента ради DOM-действия, искать элемент по `data-*` в родителе и передавать подсветку пропом.
+
+## 2026-10-09 20:10 — claude-sonnet-5-5
+
+Нужен WebKit без сборки приложения: системный `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser` под `WebKitWebDriver` из `~/.local/depesha-testenv` (`dbus-run-session`, свой Xvfb на `:98`, `setsid nohup … & disown`, иначе процесс умирает вместе с командой) и страница с заглушкой `window.__TAURI_INTERNALS__`. Не `pkill -f`: гаси по PID.
