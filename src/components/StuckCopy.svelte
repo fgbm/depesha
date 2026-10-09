@@ -61,7 +61,7 @@
     <span class="label">{task.label}</span>
     {#if acc && app.accounts.length > 1}<span class="muted small">{accountLabel(acc)}</span>{/if}
   </div>
-  <p class="small text">{t(filed ? "stuck.textFiled" : "stuck.text")}</p>
+  <p class="small text">{#if filed}{t("stuck.textFiled")}{:else}{t("stuck.text")}{/if}</p>
   {#if task.error?.message}<div class="reason small selectable">{task.error.message}</div>{/if}
   <div class="actions">
     <button class="btn ghost small-btn" disabled={busy} onclick={retry}>{t("retry")}</button>
