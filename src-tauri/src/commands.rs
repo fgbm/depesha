@@ -3430,6 +3430,36 @@ pub fn drop_outcome(
     );
 }
 
+/// Test builds only (`e2e`): WebDriver cannot drag a file from the desktop, so this makes the
+/// window report a drag the way the system does. `phase`: `enter` (the page offers its drop
+/// zones), `leave` (it takes them back), or `drop`, which goes through `drops::window_event`
+/// as a real drop does. `x`, `y`: physical pixels of the window.
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase: String) -> CmdResult<()> {
+    use tauri::Emitter;
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+    let position = tauri::PhysicalPosition::new(x, y);
+    let told = |event: &str, payload: serde_json::Value| {
+        window
+            .emit_to(tauri::EventTarget::webview(window.label()), event, payload)
+            .map_err(|e| CmdError::new("other", e.to_string()))
+    };
+    match phase.as_str() {
+        "enter" => told(
+            "tauri://drag-enter",
+            serde_json::json!({ "paths": paths, "position": position }),
+        )?,
+        "leave" => told("tauri://drag-leave", serde_json::Value::Null)?,
+        "drop" => {
+            let event = tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position });
+            crate::drops::window_event(&window, &event, crate::drops::allow_in_state(&window));
+        }
+        other => return Err(CmdError::new("bad-request", format!("e2e_drop: unknown phase {other}"))),
+    }
+    Ok(())
+}
+
 /// The user keeps a letter being written: a quit waiting for the window stops.
 #[tauri::command]
 pub fn quit_cancel(app: tauri::AppHandle) {

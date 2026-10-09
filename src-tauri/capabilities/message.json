@@ -70,6 +70,7 @@
     "allow-extension-storage-set",
     "allow-plugin-settings-set",
     "allow-inline-image",
+    "allow-file-info",
     "allow-pick-files",
     "allow-pick-folder",
     "allow-pick-save-file",
@@ -77,6 +78,7 @@
     "allow-quit-cancel",
     "allow-drop-seen",
     "allow-drop-outcome",
+    "allow-e2e-drop",
     "allow-draft-cache-put",
     "allow-draft-cache-drop"
   ]

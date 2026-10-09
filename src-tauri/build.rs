@@ -128,6 +128,7 @@ const COMMANDS: &[&str] = &[
     "quit_cancel",
     "drop_seen",
     "drop_outcome",
+    "e2e_drop",
     "draft_cache_put",
     "draft_cache_list",
     "draft_cache_drop",

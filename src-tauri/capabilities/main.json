@@ -141,6 +141,7 @@
     "allow-quit-cancel",
     "allow-drop-seen",
     "allow-drop-outcome",
+    "allow-e2e-drop",
     "allow-draft-cache-put",
     "allow-draft-cache-list",
     "allow-draft-cache-drop"

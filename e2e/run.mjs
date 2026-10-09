@@ -18,6 +18,7 @@ import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
+import { dropFixtures, dropOn, dropSteps } from "./drop-steps.mjs";
 
 if (!process.env.DEPESHA_STAND_LOCKED) {
   const lock = process.env.DEPESHA_STAND_LOCK ?? join(process.env.XDG_RUNTIME_DIR ?? "/tmp", "depesha-e2e.lock");
@@ -685,6 +686,66 @@ try {
     await press("z");
     await d.until("back in its folder", async () => helper("count", "Работа", subj) === "1", 20000);
   });
+
+  // A drop on a reply (#79): the backend makes the window report a drop of real files, the rest is the real path.
+  const drops = dropFixtures();
+  /** The reply is in the form of the letter it answers: the drop zones come with an HTML one, so the reply is switched to it. */
+  const toHtml = async () => {
+    await d.until("reply compose", async () => (await d.findAll(".compose")).length === 1, 20000);
+    if ((await d.findAll(".compose .rich")).length === 0) {
+      await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+      await d.click(await d.until("HTML", () => d.xpath("//div[contains(@class,'pop')]//*[@role='menuitemradio'][contains(., 'HTML')]")));
+    }
+    await d.until("rich reply", async () => (await d.findAll(".compose .rich")).length === 1, 20000);
+  };
+  const discardCompose = async () => {
+    await d.click(await d.until("discard", () => d.find(".compose [aria-label='Удалить черновик']").catch(() => null)));
+    if ((await d.findAll(".confirm")).length) await d.click(await d.xpath("//div[contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+    await d.until("compose gone", async () => (await d.findAll(".compose")).length === 0, 15000);
+  };
+  await dropSteps({
+    d,
+    step,
+    refused,
+    fix: drops,
+    openCompose: async () => {
+      await d.button("Входящие");
+      await openBySubject("HTML-письмо с картинками");
+      await d.click(await d.until("reply", () => d.xpath("//div[contains(@class,'acts')]//button[contains(., 'Ответить')]")));
+      await toHtml();
+    },
+    closeCompose: discardCompose,
+  });
+
+  await step("2.9", "бросок в ответ в отдельном окне письма (message-*)", async () => {
+    const subj = "HTML-письмо с картинками";
+    const main = await d.req("GET", d.s("/window"));
+    await d.button("Входящие");
+    await rowBySubject(subj);
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+       row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));`,
+      subj,
+    );
+    const handles = () => d.req("GET", d.s("/window/handles"));
+    await d.until("second window", async () => (await handles()).length === 2, 15000);
+    const other = (await handles()).find((h) => h !== main);
+    await d.req("POST", d.s("/window"), { handle: other });
+    try {
+      await d.until("letter in its window", async () => (await textOf(".reader h1")).includes(subj), 20000);
+      await d.click(await d.until("reply", () => d.xpath("//div[contains(@class,'acts')]//button[contains(., 'Ответить')]")));
+      await toHtml();
+      await dropOn(d, [drops.pdf, drops.png], { zone: "attach" });
+      await d.until("attachments", async () => (await d.findAll(".compose .files .file")).length === 2, 10000);
+      await discardCompose();
+      // Esc closes the window of a letter with nothing being written; «Готово» would archive the letter on the server.
+      await press("Escape");
+      await d.until("window closed", async () => (await handles()).length === 1, 20000);
+    } finally {
+      await d.req("POST", d.s("/window"), { handle: main });
+    }
+  });
+  drops.clean();
 
   await step("7.3", "клавиатура: j/k по списку, c — новое письмо, Esc — закрыть", async () => {
     await d.button("Входящие");

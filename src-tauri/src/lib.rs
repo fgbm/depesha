@@ -31,6 +31,34 @@ use tokio::sync::Notify;
 
 use crate::state::AppState;
 
+/// The app's context. A test build on Windows hands WebView2 the arguments msedgedriver asks
+/// for in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (the remote debugging port): WebView2 takes
+/// the arguments the window sets itself and drops the variable, so without this the driver
+/// finds no `DevToolsActivePort` and the session is never created.
+#[cfg(not(all(feature = "e2e", windows)))]
+fn context() -> tauri::Context {
+    tauri::generate_context!()
+}
+
+#[cfg(all(feature = "e2e", windows))]
+fn context() -> tauri::Context {
+    let mut context = tauri::generate_context!();
+    // `DEPESHA_E2E_WEBVIEW_ARGS`: the run's own, e.g. `--force-device-scale-factor=2`.
+    let extra = ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "DEPESHA_E2E_WEBVIEW_ARGS"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !extra.trim().is_empty() {
+        for window in &mut context.config_mut().app.windows {
+            window.additional_browser_args = Some(format!(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required {extra}"
+            ));
+        }
+    }
+    context
+}
+
 fn init_logging(dir: &std::path::Path) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::EnvFilter;
     let appender = tracing_appender::rolling::Builder::new()
@@ -365,11 +393,14 @@ pub fn run() {
             commands::quit_cancel,
             commands::drop_seen,
             commands::drop_outcome,
+            // A drop made up for the e2e run (WebDriver cannot drag a file in).
+            #[cfg(feature = "e2e")]
+            commands::e2e_drop,
             drafts::draft_cache_put,
             drafts::draft_cache_list,
             drafts::draft_cache_drop,
         ])
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("error while running Depesha")
         .run(|app, event| {
             // The main window gone (the cache refused to open) takes the app with it.
@@ -485,6 +516,11 @@ mod tests {
         ] {
             assert!(commands.contains(denied), "{denied} is not a command");
             assert!(!message.contains(denied), "a letter's window may call {denied}");
+        }
+        // A reply written in a letter's own window takes dropped files (#79, #107): the drop
+        // asks for the file's name and size, and for a picture dropped into the text.
+        for needed in ["file_info", "inline_image", "pick_files", "drop_seen", "drop_outcome"] {
+            assert!(message.contains(needed), "a letter's window may not call {needed}");
         }
     }
 }

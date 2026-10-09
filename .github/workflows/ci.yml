@@ -4,7 +4,13 @@ on:
   push:
     branches: [main, "release/**"]
   pull_request:
+  # A branch is tried before it is merged: gh workflow run ci.yml --ref <branch> -f windows_only=true
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Only the drop steps on Windows
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,6 +23,7 @@ env:
 
 jobs:
   check:
+    if: ${{ !inputs.windows_only }}
     name: Lint and unit tests (Linux)
     runs-on: ubuntu-24.04
     steps:
@@ -46,6 +53,7 @@ jobs:
       - run: cargo test -p depesha --lib
 
   integration:
+    if: ${{ !inputs.windows_only }}
     name: Integration (GreenMail, Dovecot)
     runs-on: ubuntu-24.04
     steps:
@@ -58,6 +66,7 @@ jobs:
       - run: DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
 
   e2e:
+    if: ${{ !inputs.windows_only }}
     name: End-to-end GUI (Linux, Xvfb)
     runs-on: ubuntu-24.04
     steps:
@@ -92,7 +101,78 @@ jobs:
           name: e2e-screens
           path: e2e/screens
 
+  # Files dropped on a letter being written (#79) on a real Windows: the backend makes the
+  # window report a drop of real files (`e2e_drop`), the rest of the path is the real one.
+  # No mail server here (no Docker on the runner): the mailbox is saved and never logged in to.
+  # `scale` 2 asks WebView2 for a device pixel ratio of 2, as on a 200 % screen.
+  e2e-windows:
+    name: Drop on Windows (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: scale 1, scale: 1 }
+          # The browser's own scale: the page sees a ratio of 2 on a screen that is at 100 %.
+          - { name: scale 2 of the browser, scale: 2 }
+          # The system's scale, as on a real screen: the most the runner's display driver allows (175 % at 1920x1080).
+          - { name: scale of the system, system: 250 }
+    runs-on: windows-latest
+    env:
+      DEPESHA_LOG: debug,depesha_lib=debug,depesha_core=debug
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo install tauri-driver --locked
+      # The system's own scaling (the page's `devicePixelRatio` follows it), which a runner has
+      # to be told: its screen is 1024x768 at 100 %. Never fails the job; the run says what it got.
+      - name: Screen at the system scale
+        if: matrix.system
+        shell: powershell
+        continue-on-error: true
+        run: e2e\windows-display.ps1 -Percent ${{ matrix.system }}
+      - name: msedgedriver of the WebView2 version on the runner
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $version = (Get-ItemProperty $key).pv
+          Write-Host "WebView2 $version"
+          New-Item -ItemType Directory -Force driver | Out-Null
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile driver\edgedriver.zip
+          Expand-Archive driver\edgedriver.zip -DestinationPath driver -Force
+          & driver\msedgedriver.exe --version
+      - run: npx tauri build --debug --no-bundle --features e2e
+      - name: Drop steps
+        shell: pwsh
+        env:
+          NATIVE_DRIVER: ${{ github.workspace }}\driver\msedgedriver.exe
+          E2E_EXPECT_DPR: ${{ matrix.scale }}
+          E2E_MIN_DPR: ${{ matrix.system && '1.25' || '' }}
+        run: |
+          if ('${{ matrix.scale }}' -notin '', '1') { $env:DEPESHA_E2E_WEBVIEW_ARGS = '--force-device-scale-factor=${{ matrix.scale }}' }
+          node e2e/drops.mjs
+      - name: Log of the app
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force e2e\logs | Out-Null
+          Copy-Item "$env:APPDATA\ru.depesha.mail\logs\*" e2e\logs -ErrorAction SilentlyContinue
+          Copy-Item "$env:LOCALAPPDATA\ru.depesha.mail\logs\*" e2e\logs -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-windows-${{ strategy.job-index }}
+          path: |
+            e2e/screens
+            e2e/logs
+
   build:
+    if: ${{ !inputs.windows_only }}
     name: Build ${{ matrix.os }}
     strategy:
       fail-fast: false
