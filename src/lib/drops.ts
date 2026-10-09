@@ -2,7 +2,7 @@
 // has allowed the files, so the page asked for them too early (#79). The backend allows
 // them first and then says `files-dropped`; that is the one drop the page acts on.
 
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import type { DropZone } from "./images";
 import type { AppStore } from "./store.svelte";
@@ -13,7 +13,8 @@ interface FilesDropped {
 }
 
 export function listenDrops(app: AppStore, zoneAt: (pos: PhysicalPosition) => DropZone | null) {
-  return listen<FilesDropped>("files-dropped", async (e) => {
+  // The global `listen` hears events sent to any window; this one only those for ours.
+  return getCurrentWebview().listen<FilesDropped>("files-dropped", async (e) => {
     const c = app.activeCompose();
     if (!c) return;
     const { paths, position } = e.payload;

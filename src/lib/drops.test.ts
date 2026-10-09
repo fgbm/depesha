@@ -2,9 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
+vi.mock("@tauri-apps/api/webview", () => import("./testing").then((m) => m.webviewModule));
 
 import { listenDrops } from "./drops";
-import { emit, flush } from "./testing";
+import { emit, eventModule, flush, webviewListen } from "./testing";
 import type { AppStore } from "./store.svelte";
 
 describe("files dropped on the window", () => {
@@ -28,5 +29,12 @@ describe("files dropped on the window", () => {
     emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
     await flush();
     expect(dropFiles).not.toHaveBeenCalled();
+  });
+
+  it("listen on the current webview, not on every window", async () => {
+    const app = { activeCompose: () => null, compose: {} } as unknown as AppStore;
+    await listenDrops(app, () => null);
+    expect(webviewListen).toHaveBeenCalledWith("files-dropped", expect.any(Function));
+    expect(eventModule.listen).not.toHaveBeenCalled();
   });
 });

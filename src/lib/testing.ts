@@ -28,6 +28,13 @@ export const eventModule = {
   emitTo: vi.fn(async () => {}),
 };
 
+/** Listeners of the current webview: they hear only what is sent to it, unlike the global `listen`. */
+export const webviewListen = vi.fn(async (name: string, h: Handler) => {
+  handlers.set(name, h);
+  return () => {};
+});
+export const webviewModule = { getCurrentWebview: () => ({ listen: webviewListen }) };
+
 export const win = { close: vi.fn(async () => {}), setFocus: vi.fn(async () => {}) };
 export const windowModule = { getCurrentWindow: () => win };
 export const appModule = { getVersion: vi.fn(async () => "0.0.0") };
@@ -82,7 +89,7 @@ export const settings = (): Settings => ({
 /** Answers of an empty mailbox; tests change what they look at. */
 export function resetFakes() {
   for (const m of Object.values(api)) (m as Mock).mockReset();
-  for (const m of [...Object.values(eventModule), ...Object.values(win)]) m.mockReset();
+  for (const m of [...Object.values(eventModule), ...Object.values(win), webviewListen]) m.mockReset();
   handlers.clear();
   api.accounts.mockResolvedValue([]);
   api.folders.mockResolvedValue([]);
