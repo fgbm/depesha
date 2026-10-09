@@ -1,0 +1,1262 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройки: полная переделка (0.8.0, #102)</title>
+<style>
+/* ============================================================================
+   Макет к 0.8.0 (#102). Код приложения не тронут. Файл самодостаточный: без сети.
+   Переменные темы — из src/app.css (Бумага и Ночь); размеры окна — --prefs-max,
+   --menu-width, --column-max оттуда же. Подписи — из src/lib/locales/ru.ts и плагинов.
+   Данные (ящики, люди, шаблоны) вымышленные.
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --side: #1f2a37; --side-2: #263444; --side-ink: #d5dde6; --side-muted: #8c99a8; --side-warn: #e3a63c;
+  --ok: #2e7d4f; --warn: #b26a00; --radius: 8px;
+  --prefs-max: 1280px; --menu-width: 220px; --column-max: 680px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+body.night .theme {
+  --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #8f97a2; --line: #2c323b;
+  --hover: #222831; --selected: #2e3742; --link: #7fb0ec; --side: #11161c; --side-2: #1a222b;
+  --accent: #d6463d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+.doc { width: 1180px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 48px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.q { font-size: 16px; margin: 30px 0 4px; }
+h3.q .n, h3.v .n { display: inline-block; background: #1f2a37; color: #fff; border-radius: 5px; padding: 0 8px; margin-right: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+h3.v { font-size: 17px; margin: 30px 0 4px; display: flex; align-items: baseline; gap: 8px; }
+h3.v .n { background: #fff; color: #1d232b; border: 1px solid #b5ae9f; }
+h3.v em { font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 980px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.ctx b, .lead b { color: #1d232b; }
+.pc { margin: 8px 0 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 980px; }
+.pc li { margin: 2px 0; }
+.plus { color: #2e7d4f; font-weight: 700; }
+.minus { color: #b3261e; font-weight: 700; }
+.cap { font-size: 12.5px; color: #5a626c; margin: 4px 0 0; line-height: 1.45; max-width: 980px; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+kbd { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 11px; border: 1px solid #c9c1b0; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #faf7f1; color: #5a626c; white-space: nowrap; }
+.theme kbd { border-color: var(--line); background: var(--paper); color: var(--muted); }
+.toc { font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; }
+.toc a { color: #1f5fa8; }
+
+/* --- панель управления макетом --- */
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 6px 16px; align-items: center; flex-wrap: wrap; background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 8px 14px; margin: 14px 0; font-size: 12.5px; box-shadow: 0 4px 14px rgb(0 0 0 / 25%); }
+.ctl .cg { display: flex; gap: 3px; align-items: center; }
+.ctl .cg > span { color: #8c99a8; margin-right: 3px; }
+.ctl button { font: inherit; font-size: 12px; color: #d5dde6; background: #263444; border: 1px solid #3a4a5e; border-radius: 5px; padding: 1px 8px; cursor: pointer; }
+.ctl button.on { background: #e6dbc6; color: #1d232b; border-color: #e6dbc6; }
+
+/* --- окно настроек (SettingsWindow / Preferences.svelte) --- */
+.win { display: flex; width: 100%; height: 640px; background: var(--paper); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 14px rgb(0 0 0 / 16%); font-size: 14px; position: relative; }
+.win .nav { flex: none; width: var(--menu-width); display: flex; flex-direction: column; gap: 2px; padding: 16px 10px; background: var(--paper-2); border-right: 1px solid var(--line); overflow-y: auto; }
+.win .nav h3 { margin: 0 8px 12px; font-size: 15px; }
+.psearch { display: flex; align-items: center; gap: 6px; height: 30px; margin: 0 0 10px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--muted); }
+.psearch:focus-within, .psearch.on { border-color: var(--accent); color: var(--ink); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+.psearch input { flex: 1; min-width: 0; border: none; background: none; color: var(--ink); font: inherit; font-size: 13px; outline: none; }
+.psearch kbd { flex: none; font-size: 9.5px; padding: 0 2px; }
+.tab { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: none; border-radius: 6px; background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.tab .ico { flex: none; width: 14px; height: 14px; border: 1.5px solid var(--muted); border-radius: 4px; }
+.tab:hover { background: var(--hover); }
+.tab.sub { padding-left: 36px; }
+.tab[aria-selected="true"] { background: var(--selected); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tab .cnt { margin-left: auto; font-size: 11px; color: var(--muted); }
+.ngroup { margin: 14px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.pane > header { display: flex; align-items: baseline; gap: 10px; padding: 18px 24px 6px; }
+.pane > header h2 { margin: 0; font-size: 18px; }
+.pane > header .sub { font-size: 12px; color: var(--muted); }
+.pane .content { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 24px 18px; position: relative; }
+.pane .content .col { max-width: var(--column-max); }
+.pane footer { display: flex; gap: 8px; padding: 10px 24px 14px; border-top: 1px solid var(--line); align-items: center; font-size: 12px; color: var(--muted); }
+.pane footer .sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 4px 12px; white-space: nowrap; cursor: pointer; }
+.btn:hover { background: var(--hover); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { font-size: 12px; padding: 2px 8px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible, .seg button:focus-visible, .day:focus-visible, .sw:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+.muted { color: var(--muted); }
+.anch { position: sticky; top: -4px; z-index: 5; display: flex; flex-wrap: wrap; gap: 4px 4px; padding: 8px 0 8px; margin: 0 0 4px; background: var(--paper); border-bottom: 1px solid var(--line); }
+.anch a { font-size: 12.5px; padding: 2px 9px; border-radius: 12px; color: var(--ink); background: var(--paper-2); border: 1px solid var(--line); cursor: pointer; text-decoration: none; }
+.anch a:hover { background: var(--hover); }
+
+/* --- строки (единый набор) --- */
+.rw { display: flex; align-items: center; gap: 16px; padding: 9px 0; min-height: 44px; outline: none; border-radius: 6px; position: relative; }
+.rw .lab { flex: 1; min-width: 0; }
+.rw .lab .t { line-height: 1.35; }
+.rw .lab .h { margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.rw .lab .h.warn { color: var(--warn); }
+.rw .lab .h.hot { color: var(--accent); }
+.rw .c { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 62%; }
+.rz { container-type: inline-size; }
+@container (max-width: 470px) {
+  .lay-a:not(.nq) .rw:not(.blk):not([data-t="toggle"]) { flex-direction: column; align-items: stretch; gap: 5px; }
+  .lay-a:not(.nq) .rw:not(.blk):not([data-t="toggle"]) .c { justify-content: flex-start; max-width: none; }
+}
+.cols3 > *, .cols2 > * { min-width: 0; }
+.rw:focus-visible { box-shadow: 0 0 0 2px var(--link); background: color-mix(in srgb, var(--link) 6%, transparent); }
+.rw.flash { box-shadow: 0 0 0 2px var(--accent); }
+.rw.dep { padding-left: 18px; }
+.rw.dep::before { content: ""; position: absolute; left: 4px; top: 8px; bottom: 8px; border-left: 2px solid var(--line); }
+.rw.dis { opacity: .5; }
+.rw.dis .lab .t { color: var(--muted); }
+.rw .why { font-size: 12px; color: var(--muted); }
+.rw.blk { flex-direction: column; align-items: stretch; gap: 8px; }
+.rw .tipb { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font-size: 10.5px; cursor: pointer; background: var(--paper); vertical-align: 1px; padding: 0; font-family: inherit; }
+.rw .tipb:hover { background: var(--hover); }
+/* раскладка строки: Б — сетка, В — подпись над контролом */
+.lay-b .rw:not(.blk) { display: grid; grid-template-columns: 250px 1fr; gap: 16px; align-items: start; }
+.lay-b .rw:not(.blk) .c { justify-content: flex-start; flex-wrap: wrap; }
+.lay-c .rw:not(.blk) { flex-direction: column; align-items: stretch; gap: 5px; }
+.lay-c .rw:not(.blk) .c { justify-content: flex-start; flex-wrap: wrap; }
+.lay-c .rw .lab .h { margin-top: 0; }
+.lay-c .rw .lab { order: 0; }
+
+/* иерархия: 1 — линия под заголовком, 2 — карточки, 3 — открытый список */
+.grp { margin: 0 0 4px; }
+.grp > h4 { margin: 0; }
+.grp .gd { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.tagp { font-size: 10.5px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 8px; vertical-align: 1px; background: var(--paper); }
+.h1 .grp { margin: 0 0 22px; }
+.h1 .grp > h4 { font-size: 15px; font-weight: 600; padding: 4px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.h2 .grp { margin: 0 0 18px; }
+.h2 .grp > h4 { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 0 4px 6px; }
+.h2 .grp > .gd { padding: 0 4px 6px; margin-top: -4px; }
+.h2 .grp > .gb { background: var(--paper-2); border: 1px solid var(--line); border-radius: 10px; padding: 2px 14px; }
+.h2 .grp .rw + .rw { border-top: 1px solid var(--line); border-top-left-radius: 0; }
+.h2 .rw.dep::before { top: 0; bottom: 0; left: 0; }
+.h3 .grp { margin: 0 0 30px; }
+.h3 .grp > h4 { font-size: 17px; font-weight: 600; margin-bottom: 2px; }
+.h3 .grp > .gd { margin-bottom: 4px; }
+.h3 .grp .rw { border-bottom: 1px solid var(--line); border-radius: 0; }
+.h3 .grp .gb > .rw:last-child { border-bottom: none; }
+
+/* контролы */
+.sw { width: 36px; height: 20px; border-radius: 10px; border: none; background: color-mix(in srgb, var(--muted) 45%, var(--paper)); position: relative; padding: 0; cursor: pointer; flex: none; transition: background .12s; }
+.sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .12s; box-shadow: 0 1px 2px rgb(0 0 0 / 30%); }
+.sw[aria-checked="true"] { background: var(--link); }
+.sw[aria-checked="true"]::after { left: 18px; }
+.sw:disabled { cursor: default; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--paper); }
+.seg button { font: inherit; font-size: 13px; color: var(--ink); background: none; border: none; border-left: 1px solid var(--line); padding: 4px 12px; cursor: pointer; white-space: nowrap; }
+.seg button:first-child { border-left: none; }
+.seg button:hover { background: var(--hover); }
+.seg button[aria-checked="true"] { background: var(--selected); font-weight: 600; }
+.seg button:disabled { cursor: default; }
+.sel, .inp { font: inherit; font-size: 13px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; outline: none; }
+.sel { padding-right: 4px; max-width: 320px; }
+.sel:focus, .inp:focus { border-color: var(--link); box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 25%, transparent); }
+.sel.inh { color: var(--muted); }
+.inp.num { width: 70px; text-align: right; }
+.inp.time { width: 76px; text-align: center; font-variant-numeric: tabular-nums; }
+.inp.bad { border-color: var(--warn); }
+.inp.txt { width: 260px; }
+.inp:disabled, .sel:disabled { opacity: .7; }
+.u { color: var(--muted); font-size: 13px; }
+.fold { display: flex; align-items: center; gap: 6px; }
+.fold .path { width: 230px; font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold .path.ph { color: var(--muted); }
+.days { display: flex; gap: 4px; }
+.day { width: 34px; height: 28px; font: inherit; font-size: 12.5px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--muted); cursor: pointer; padding: 0; }
+.day[aria-checked="true"] { background: var(--selected); color: var(--ink); border-color: color-mix(in srgb, var(--link) 50%, var(--line)); font-weight: 600; }
+.day.cur { box-shadow: 0 0 0 2px var(--link); }
+.lnk { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 13px; background: none; border: none; color: var(--link); cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+.lnk:hover { background: var(--hover); }
+.chip { font-size: 11px; border-radius: 4px; padding: 0 5px; line-height: 16px; background: var(--paper-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.own { color: var(--ink); border-color: color-mix(in srgb, var(--link) 45%, var(--line)); background: color-mix(in srgb, var(--link) 9%, var(--paper)); }
+.rad { display: flex; flex-direction: column; gap: 2px; }
+.rad label { display: flex; gap: 10px; align-items: flex-start; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.rad label:hover { background: var(--hover); }
+.rad .dot { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--muted); margin-top: 2px; position: relative; }
+.rad label[aria-checked="true"] .dot { border-color: var(--link); }
+.rad label[aria-checked="true"] .dot::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--link); }
+.rad .d { display: block; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.themes { display: flex; flex-wrap: wrap; gap: 8px; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px; border: 1px solid transparent; border-radius: 8px; font: inherit; font-size: 12px; background: none; color: var(--ink); cursor: pointer; }
+.tile:hover { background: var(--hover); }
+.tile[aria-checked="true"] { border-color: var(--accent); }
+.tile:focus-visible { outline: 2px solid var(--link); }
+.swatch { display: flex; width: 64px; height: 40px; border-radius: 6px; overflow: hidden; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.swatch i { width: 35%; background: var(--s); } .swatch b { flex: 1; background: var(--p); }
+.colors { display: flex; gap: 6px; }
+.cdot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; background: var(--c); cursor: pointer; padding: 0; }
+.cdot[aria-checked="true"] { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--c); }
+.card { border: 1px solid var(--line); border-radius: 7px; padding: 8px; margin: 6px 0; display: flex; flex-direction: column; gap: 6px; background: var(--paper); }
+.card .line { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0; }
+.tbl th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+.tbl td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line); }
+.warnbox { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 6px; font-size: 12.5px; line-height: 1.45; color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--paper)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); margin: 4px 0; }
+
+/* поиск */
+.hit { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: var(--column-max); padding: 8px 10px; border: none; border-radius: 6px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.hit:hover, .hit:focus-visible { background: var(--hover); }
+.hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hit .g { font-size: 12px; color: var(--muted); } .hit .l { font-size: 13.5px; }
+
+/* меню-всплывашка */
+.pop { position: absolute; z-index: 80; min-width: 240px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgb(0 0 0 / 18%); padding: 4px; font-size: 13.5px; outline: none; }
+.pop .mi { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 5px; white-space: nowrap; cursor: pointer; }
+.pop .mi .hint { margin-left: auto; color: var(--muted); font-size: 12px; }
+.pop .mi:hover, .pop .mi.cur { background: var(--hover); }
+.pop .mi.cur { background: var(--selected); }
+.pop .mt { padding: 6px 10px 2px; font-size: 12px; color: var(--muted); }
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: #1f2a37; color: #e6e6e6; padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 100; box-shadow: 0 6px 20px rgb(0 0 0 / 30%); }
+
+/* люди (список + редактор) */
+.people { display: flex; gap: 20px; height: 100%; }
+.pl { width: 250px; flex: none; display: flex; flex-direction: column; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fchip { font: inherit; font-size: 12px; padding: 1px 9px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); cursor: pointer; }
+.fchip.on { background: var(--selected); font-weight: 600; }
+.pr { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 6px; border: none; background: none; font: inherit; text-align: left; color: var(--ink); cursor: pointer; width: 100%; }
+.pr:hover { background: var(--hover); } .pr.on { background: var(--selected); }
+.av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 600; flex: none; }
+.pr .em { display: block; font-size: 11.5px; color: var(--muted); }
+.pd { flex: 1; min-width: 0; }
+textarea.inp { width: 260px; height: 56px; resize: none; }
+
+/* --- «Сейчас» --- */
+.now { display: flex; gap: 22px; align-items: flex-start; }
+.now .probs { flex: none; width: 280px; font-size: 13px; line-height: 1.5; }
+.now .probs ol { margin: 0; padding-left: 22px; } .now .probs li { margin: 0 0 7px; }
+.now .winwrap { flex: 1; min-width: 0; }
+.mk { display: none; position: absolute; z-index: 20; min-width: 17px; height: 17px; border-radius: 9px; background: #d4231a; color: #fff; font: 700 10.5px/17px ui-monospace, Consolas, monospace; text-align: center; padding: 0 4px; box-shadow: 0 0 0 2px #fff; font-style: normal; }
+.marks .mk { display: inline-block; }
+.old .c-radio { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; position: relative; }
+.old .c-radio .rd { flex: none; width: 13px; height: 13px; border-radius: 50%; border: 1px solid #767676; margin-top: 3px; position: relative; background: #fff; }
+.old .c-radio.on .rd::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: #1f5fa8; }
+.old .c-radio .tx { display: flex; flex-direction: column; gap: 2px; line-height: 1.4; }
+.old .note, .old .hintp { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.old .hintp { margin: 8px 0 0; }
+.old section { padding: 14px 0; border-bottom: 1px solid var(--line); position: relative; }
+.old section:last-child { border-bottom: none; }
+.old section h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.old .inline { display: flex; align-items: center; gap: 10px; padding: 4px 0; position: relative; }
+.old .chk { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; position: relative; }
+.old .chk .bx { flex: none; width: 13px; height: 13px; border: 1px solid #767676; border-radius: 3px; margin-top: 3px; background: #fff; position: relative; }
+.old .chk.on .bx { background: #1f5fa8; border-color: #1f5fa8; }
+.old .chk.on .bx::after { content: ""; position: absolute; left: 3px; top: 0; width: 3px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.old .sel { padding: 4px 6px; }
+.old .inp.num { width: 72px; display: inline-block; }
+.old .dayl { display: flex; align-items: center; gap: 4px; margin-right: 8px; }
+.old .dayl .bx { width: 13px; height: 13px; border: 1px solid #767676; border-radius: 3px; background: #fff; display: inline-block; }
+.old .dayl.on .bx { background: #1f5fa8; border-color: #1f5fa8; }
+.old .lbl120 { min-width: 120px; }
+.old .peoplelink { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); font-size: 13px; position: relative; }
+
+/* --- листы образцов (экран 1) --- */
+.sheet { background: var(--paper); border-radius: 8px; padding: 6px 22px; box-shadow: 0 2px 14px rgb(0 0 0 / 14%); font-size: 14px; }
+.spec { display: grid; grid-template-columns: 190px 1fr; gap: 0 22px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.spec:last-child { border-bottom: none; }
+.spec .nm { font-weight: 600; font-size: 13.5px; }
+.spec .nm small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.45; }
+.spec .smp { display: grid; grid-template-columns: 1fr 1fr; gap: 0 34px; }
+.spec .smp .lb { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 2px; }
+.cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
+.cols3 .box, .cols2 .box { background: var(--paper); border-radius: 8px; padding: 12px 18px 10px; box-shadow: 0 2px 14px rgb(0 0 0 / 14%); font-size: 14px; }
+.vrow { display: grid; grid-template-columns: 720px 1fr; gap: 24px; align-items: start; margin-top: 10px; }
+.vrow .box { font-size: 14px; background: var(--paper); border-radius: 8px; padding: 6px 18px; box-shadow: 0 2px 14px rgb(0 0 0 / 14%); }
+.cols2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; align-items: start; }
+.box > .bt { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 4px; }
+.box .bn { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 6px; }
+.chain { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #ece8e1; border-radius: 8px; padding: 10px 14px; margin: 8px 0 4px; font-size: 13.5px; max-width: 980px; }
+.chain b { background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 10px; }
+.chain .ar { color: #5a626c; }
+.dtable { width: 100%; border-collapse: collapse; font-size: 13px; background: #f4f1ea; border-radius: 8px; overflow: hidden; }
+.dtable th { text-align: left; background: #e3ddd0; padding: 6px 10px; font-size: 12px; position: sticky; top: 52px; }
+.dtable td { padding: 5px 10px; border-top: 1px solid #ded7c8; vertical-align: top; line-height: 1.4; }
+.dtable tr.gr td { background: #e9e4d8; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #5a626c; }
+.dtable .k { color: #5a626c; font-size: 12px; }
+.dtable .rm { color: #b3261e; }
+.dtable .ok { color: #2e7d4f; }
+.qs { background: #fff; border-radius: 10px; padding: 8px 22px 22px; margin-top: 40px; box-shadow: 0 2px 14px rgb(0 0 0 / 14%); }
+.qs h2 { font-size: 21px; margin: 14px 0 6px; }
+.qs table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.qs th { text-align: left; background: #ece8e1; padding: 6px 10px; font-size: 12px; }
+.qs td { padding: 8px 10px; border-top: 1px solid #e4ddcf; vertical-align: top; line-height: 1.5; }
+.qs td.n { font-family: ui-monospace, Consolas, monospace; font-weight: 700; white-space: nowrap; }
+.qs tr.gh td { background: #1f2a37; color: #fff; font-weight: 600; font-size: 12.5px; }
+.qs .rec { color: #2e7d4f; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="doc">
+<h1>Настройки: полная переделка (0.8.0, #102)</h1>
+<p class="lead">Макет <b>живой</b>: откройте файл локально и пробуйте — переключайте разделы, правьте значения, ходите по окну клавишами. Все подписи и настройки настоящие (из <code>ru.ts</code>, плагинов и кода окна), данные — вымышленные. Предложенные мной формулировки помечены <b>✎</b>. У каждого вопроса номер (1.1, 2.1…), у каждого варианта буква; в конце — блок «Вопросы», отвечать можно коротко: «1.1 А, 2.1 А…». Номера после публикации не меняются.</p>
+<p class="ctx"><b>Что нашёл в коде.</b> (1) Окно: левое меню (<code>--menu-width</code> 220 px), справа страница в колонке до <code>--column-max</code> 680 px, окно до <code>--prefs-max</code> 1280 px. Пункты меню сейчас: 8 разделов (Общие, Фон и запуск, Почта, Люди, Уведомления, Клавиши, Офлайн-доступ, Обновления), «Все ящики» и по пункту на ящик, «Все плагины» и по пункту на секцию плагина (сейчас две: «Напоминания», «Шаблоны ответов») — ≈ 14 пунктов. (2) «Сохранить/Отмена» общий на 6 страниц; «Клавиши», «Люди», страница ящика и плагины сохраняются сами. (3) Поиск по настройкам <kbd>Ctrl+F</kbd> ищет по описанию полей, а не по нарисованному окну — новые поля должны попасть в <code>settingsFields.ts</code>. (4) <b>Старшинство формата и вида.</b> Формат нового письма: человек (<code>sendFormatFor</code>) → ящик (<code>formatFor</code>) → общие настройки; если получателей несколько, берётся самый строгий формат из них (<code>strictestFormat</code>: обычный текст &lt; HTML &lt; Markdown). Вид чтения (<code>ViewRule</code>, «пусто — оставить следующему»): переключатель над письмом → человек → ящик → общие. (5) Из окна не настраивается порядок списков (<code>list_sort</code>, <code>view_sorts</code>) — он в меню вида списка, макет их не трогает.</p>
+<div class="toc"><a href="#s0">0. Сейчас</a><a href="#s1">1. Единый набор контролов</a><a href="#s2">2. Раскладка разделов</a><a href="#s3">3. Слои: общее → ящик → человек</a><a href="#s4">4. Клавиатура</a><a href="#map">Где была → где стала</a><a href="#qs">Вопросы</a></div>
+
+<div class="ctl" id="ctl">
+  <div class="cg"><span>Выбор из нескольких</span><button data-k="choice" data-v="A" class="on">А</button><button data-k="choice" data-v="B">Б</button><button data-k="choice" data-v="C">В</button></div>
+  <div class="cg"><span>Строка</span><button data-k="lay" data-v="A" class="on">А</button><button data-k="lay" data-v="B">Б</button><button data-k="lay" data-v="C">В</button></div>
+  <div class="cg"><span>Иерархия</span><button data-k="hier" data-v="1" class="on">1</button><button data-k="hier" data-v="2">2</button><button data-k="hier" data-v="3">3</button></div>
+  <div class="cg"><span>Подсказки</span><button data-k="hints" data-v="A">как сейчас</button><button data-k="hints" data-v="B" class="on">только нужные</button><button data-k="hints" data-v="C">по «?»</button></div>
+  <div class="cg"><span>Слои</span><button data-k="layer" data-v="A">А</button><button data-k="layer" data-v="B">Б</button><button data-k="layer" data-v="C" class="on">А+Б</button></div>
+  <div class="cg"><span>Клавиши</span><button data-k="kbd" data-v="A">Tab по всем</button><button data-k="kbd" data-v="B" class="on">↑↓ по строкам</button></div>
+  <div class="cg"><span>Сохранение</span><button data-k="apply" data-v="btn" class="on">кнопки</button><button data-k="apply" data-v="live">сразу</button></div>
+  <div class="cg"><span>Тема</span><button data-k="theme" data-v="paper" class="on">Бумага</button><button data-k="theme" data-v="night">Ночь</button></div>
+</div>
+
+<!-- ================= ЭКРАН 0 ================= -->
+<h2 class="screen" id="s0">Экран 0. Сейчас</h2>
+<p class="lead">Окно как в 0.7.2: то же меню, те же страницы, воспроизведены по коду (<code>Preferences.svelte</code>, <code>prefs/*</code>, <code>account/*</code>). Разделы переключаются. Красные пометки — места разнобоя; ниже список. Значки пунктов меню опущены.</p>
+<div class="ctl" style="position:static;background:#ece8e1;color:#1d232b;box-shadow:none"><div class="cg"><span style="color:#5a626c">Красные пометки</span><button id="mk-on" class="on" style="background:#1f2a37;color:#fff;border-color:#1f2a37">вкл</button><button id="mk-off" style="background:#fff;color:#1d232b;border-color:#b5ae9f">выкл</button></div></div>
+<div class="now">
+  <div class="probs">
+    <ol>
+      <li><b>Один выбор — три вида.</b> «Язык», «Уведомления», «Обновления», «Показывать письма» — кружки; «Формат новых писем», «Когда закрываю окно», «Офлайн» — выпадающий список; «Оформление» — плитки. Формат и вид читаются на одной странице «Почта» — и устроены по-разному.</li>
+      <li><b>Строки «подпись + поле» собраны каждый раз по-своему:</b> подпись и поле в строку, пояснение справа («Начало дня»), пояснение под строкой («Формат новых писем»), поле под заголовком без подписи («Папка для вложений», «Фон»).</li>
+      <li><b>Выключатель — флажок, но одни флажки с пояснением мелким шрифтом, другие без.</b> Зависимая строка («Пороги») просто серая.</li>
+      <li><b>Нет иерархии:</b> мелкий серый заголовок группы, линия между группами, пояснение под каждой строкой; на страницах «Офлайн», «Обновления», «Уведомления» заголовков групп нет вовсе.</li>
+      <li><b>Три разных слова</b> для «как в общих»: «Как обычно» (люди), «Как в общих настройках» (формат ящика), «Как в настройках» (вид ящика).</li>
+      <li><b>«Люди» и «Клавиши» — таблицы без «Сохранить»</b> (сохраняются сами), остальные страницы — с кнопками.</li>
+    </ol>
+  </div>
+  <div class="winwrap"><div class="win theme old marks" id="w-now"></div></div>
+</div>
+
+<!-- ================= ЭКРАН 1 ================= -->
+<h2 class="screen" id="s1">Экран 1. Единый набор контролов</h2>
+<p class="lead">Любая страница настроек собирается из восьми видов строк ниже; своих «особых» строк у страницы быть не должно. Образцы живые (с мышью и с клавиатуры). Панель сверху переключает правило выбора, раскладку строки, иерархию и политику подсказок во <b>всех</b> окнах ниже.</p>
+
+<h3 class="v"><span class="n">1</span>Восемь видов строк <em>— раскладка, подсказка, отключённая строка</em></h3>
+<p class="cap">Общая раскладка (вариант А строки): подпись слева, контрол прижат вправо, высота строки не меньше 44 px, подсказка — под подписью мелким серым текстом. Отключённая строка: приглушена на 50 %, контрол не принимает фокус, зависимая строка стоит с отступом и линией слева. Сменить раскладку на Б (подпись и контрол в сетке) или В (контрол под подписью) — кнопки «Строка» в панели.</p>
+<div class="sheet theme" id="s-types"></div>
+
+<h3 class="q"><span class="n">1.1</span>Правило для «выбрать один из нескольких»</h3>
+<p class="lead">Три правила на одних и тех же строках. Образцы ниже — шесть реальных выборов: «Язык» (3 коротких), «Формат новых писем» (3 коротких), «При входе в систему» (3, но длиннее 40 знаков), «Уведомления» (3 длинных), «Показывать письма» (3 с описаниями), «Скачивать письма целиком» (5).</p>
+<div class="cols3">
+  <div><h3 class="v rec" style="margin-top:0"><span class="n">А</span><em>сегменты до 3 коротких, иначе список</em></h3><div class="box theme"><div id="z-rule-a" class="rz" data-rule="A" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> все варианты видны сразу, переключение <kbd>←</kbd>/<kbd>→</kbd> без открытия списка</li><li><span class="plus">+</span> описание только у выбранного варианта — не три абзаца</li><li><span class="minus">−</span> два вида контрола; граница «≤ 3 и ≤ 40 знаков суммарно» нужно помнить при добавлении настройки</li></ul></div>
+  <div><h3 class="v" style="margin-top:0"><span class="n">Б</span><em>всегда выпадающий список</em></h3><div class="box theme"><div id="z-rule-b" class="rz" data-rule="B" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> один вид, никаких решений при добавлении настройки</li><li><span class="plus">+</span> строки одной высоты, ровный правый край</li><li><span class="minus">−</span> вариантов не видно, пока не откроешь; на «Язык» и «Формат» нужно два действия вместо одного</li></ul></div>
+  <div><h3 class="v" style="margin-top:0"><span class="n">В</span><em>кружки с описанием, когда нужно объяснить; иначе список</em></h3><div class="box theme"><div id="z-rule-c" class="rz" data-rule="C" data-ids="language,compose_format,autostart,notify,letter_view,offline"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> объяснение каждого варианта видно сразу, без клика</li><li><span class="minus">−</span> кружки выбивают строку: она вдвое выше, остальные — в одну линию; страницы «рваные»</li><li><span class="minus">−</span> сегментов нет, «Язык» и «Формат» — списки</li></ul></div>
+</div>
+<p class="cap">Тема («Оформление») во всех правилах — плитки с образцом: «Бумага» и «Ночь» применяются сразу и возвращаются по «Отмена», как сейчас (вопрос 1.5).</p>
+
+<h3 class="q"><span class="n">1.2</span>Раскладка строки</h3>
+<p class="lead">Одни и те же пять строк в трёх раскладках, ширина — как у страницы (до 680 px). В узком окне (&lt; 470 px) вариант А сам складывается в В — так же поведут себя узкие образцы выше.</p>
+<div class="vrow"><div><h3 class="v rec" style="margin-top:0"><span class="n">А</span><em>подпись слева, контрол справа</em></h3><div class="box theme"><div class="rz nq" data-lay="A" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> правый край ровный, подпись читается как предложение; выключатель рядом с подписью</li><li><span class="minus">−</span> левые края контролов гуляют (разная ширина)</li></ul></div>
+<div class="vrow"><div><h3 class="v" style="margin-top:0"><span class="n">Б</span><em>сетка: подпись 250 px, контрол слева</em></h3><div class="box theme"><div class="rz nq" data-lay="B" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> левый край контролов ровный, как в форме</li><li><span class="minus">−</span> между подписью и коротким контролом (выключатель) пустота; страница шире</li></ul></div>
+<div class="vrow"><div><h3 class="v" style="margin-top:0"><span class="n">В</span><em>контрол под подписью</em></h3><div class="box theme"><div class="rz nq" data-lay="C" data-ids="threads,compose_format,image_max_px,undo_send,attachments_dir"></div></div></div><ul class="pc"><li><span class="plus">+</span> ничего не ломается в узком окне</li><li><span class="minus">−</span> страницы вдвое длиннее, выключатели далеко от подписи</li></ul></div>
+
+<h3 class="q"><span class="n">1.3</span>Визуальная иерархия страницы</h3>
+<p class="lead">Одна и та же страница («Написание и отправка») в трёх оформлениях: заголовок группы, отступы, линии или карточки. Подсказки — по выбору в панели.</p>
+<div class="cols3">
+  <div><h3 class="v rec" style="margin-top:0"><span class="n">1</span><em>заголовок с линией, без карточек</em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="1" data-lay="A" data-page="write"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> ближе всего к нынешнему окну и к остальному приложению (линии <code>--line</code>, без теней)</li><li><span class="plus">+</span> нет вложенных рамок: зависимая строка отступом, а не карточкой</li><li><span class="minus">−</span> группы различаются только заголовком</li></ul></div>
+  <div><h3 class="v" style="margin-top:0"><span class="n">2</span><em>карточки на <code>--paper-2</code></em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="2" data-lay="A" data-page="write"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> группы видны с первого взгляда, длинные страницы листаются легче</li><li><span class="minus">−</span> рамки в рамках на страницах со списками (подписи, напоминания); карточки среди белого — ещё один стиль, которого в приложении нет</li></ul></div>
+  <div><h3 class="v" style="margin-top:0"><span class="n">3</span><em>открытый список: крупный заголовок, линии между строками</em></h3><div class="win theme" style="height:auto;display:block;padding:8px 16px"><div class="rz" data-hier="3" data-lay="A" data-page="write"></div></div>
+    <ul class="pc"><li><span class="plus">+</span> воздух, заголовок группы читается как раздел</li><li><span class="minus">−</span> много линий; страница выше на ≈ 15 %</li></ul></div>
+</div>
+
+<h3 class="q"><span class="n">1.4</span>Политика подсказок</h3>
+<p class="lead">Сейчас под каждой второй строкой мелкий серый абзац (29 подсказок на окно). Предлагаю три политики; переключайте «Подсказки» в панели и смотрите любую страницу. <b>Оставить</b> — подсказка, которую нельзя угадать из подписи (последствия, условия); <b>убрать</b> — то, что очевидно из подписи, единицы или соседней строки; <b>сократить</b> — оставить одну фразу. Полный перечень: таблица «Что с каждой подсказкой» ниже.</p>
+<ul class="pc"><li><b>А</b> — как сейчас (под каждой строкой, где она есть).</li><li><b>Б</b> — только нужные, под строкой мелким серым.</li><li><b>В</b> — только нужные, но за значком <b>?</b> у подписи (раскрывается по клику, <kbd>?</kbd> или <kbd>F1</kbd> на строке).</li></ul>
+
+<h3 class="q"><span class="n">1.5</span>Тема: плитки или обычный выбор</h3>
+<p class="lead">Плитки с образцом цвета (как сейчас) — исключение из правила 1.1: пять тем выбираются «глазами». Альтернатива — обычный список «Бумага, Ночь, Снег, Графит, Как в системе» без образцов, тема всё равно применяется сразу.</p>
+
+<h3 class="q"><span class="n">1.6</span>Отключённая строка</h3>
+<p class="lead">Пример: «Предупреждать, когда ящик заполнен» выключено, «Пороги» зависит от него. Переключатель выше каждого образца живой.</p>
+<div class="cols3">
+  <div><h3 class="v rec" style="margin-top:0"><span class="n">А</span><em>приглушена на месте</em></h3><div class="box theme"><div class="rz" data-dm="a" data-ids="qw_a,ql_a"></div></div></div>
+  <div><h3 class="v" style="margin-top:0"><span class="n">Б</span><em>скрыта, пока не включено</em></h3><div class="box theme"><div class="rz" data-dm="b" data-ids="qw_b,ql_b"></div></div></div>
+  <div><h3 class="v" style="margin-top:0"><span class="n">В</span><em>приглушена и с причиной</em></h3><div class="box theme"><div class="rz" data-dm="c" data-ids="qw_c,ql_c"></div></div></div>
+</div>
+<ul class="pc"><li><b>А</b> <span class="plus">+</span> страница не «прыгает», клавиатура ходит по тем же строкам, поиск находит строку. <span class="minus">−</span> не сказано, что включит.</li><li><b>Б</b> <span class="plus">+</span> чище. <span class="minus">−</span> страница прыгает, строку нельзя найти, пока она скрыта.</li><li><b>В</b> <span class="plus">+</span> понятно, что делать. <span class="minus">−</span> текст причины на каждой зависимой строке (✎ «Включите «…»» — новая строка в каждой).</li></ul>
+
+<h3 class="q"><span class="n">1.7</span>Сохранение</h3>
+<p class="lead">Сейчас «Сохранить/Отмена» внизу на 6 страницах; «Клавиши», «Люди», ящик и плагины сохраняют сами — ещё один разнобой. Панель «Сохранение» показывает оба варианта в окнах: <b>кнопки</b> (как сейчас, но подвал можно показывать только когда есть изменения) или <b>сразу</b> (каждое изменение применяется, внизу «Изменения применяются сразу»; тема, которую не хотят, возвращается кнопкой «Отменить» в тосте).</p>
+
+<h3 class="v"><span class="n">+</span>Что с каждой подсказкой <em>— по всему окну</em></h3>
+<table class="dtable" id="t-hints">
+<tr><th>Где</th><th>Подсказка (начало)</th><th>Что делаем</th><th>Почему</th></tr>
+<tr><td>Оформление</td><td>«Бумага» или «Ночь» — вслед за светлым или тёмным режимом системы.</td><td class="ok">оставить</td><td>показывается только при выбранном «Как в системе»</td></tr>
+<tr><td>Порог крупного письма</td><td>Для готовых запросов «Крупные…» в поиске и в Ctrl+K.</td><td class="ok">оставить</td><td>единственное, что говорит, зачем число</td></tr>
+<tr><td>Время для отложенных</td><td>Для меню «Отложить». «Следующая неделя» и «Следующий месяц» ведут на первый из рабочих дней. Время вида 9:00 или 18:30.</td><td class="rm">убрать</td><td>группа называется «Отложить»; формат времени проверяет поле; про рабочие дни скажет предупреждение</td></tr>
+<tr><td>Начало дня / Начало вечера</td><td>«Завтра», «Эти выходные», рабочие дни… / «Вечером» (сегодня)</td><td class="ok">оставить</td><td>короткие, говорят, какие пункты меню сдвинутся</td></tr>
+<tr><td>Рабочие дни</td><td>Рабочих дней нет: … в меню неактивны.</td><td class="ok">оставить</td><td>это предупреждение о последствии, показывается только когда дней нет</td></tr>
+<tr><td>Подсказки</td><td>Депеша может предложить запомнить формат или вид. Одна за раз, не больше трёх в день…</td><td class="ok">оставить</td><td>объясняет, что именно выключает переключатель</td></tr>
+<tr><td>Логотипы компаний</td><td>Логотипы, которые компания публикует сама (BIMI), и только у писем, прошедших проверку отправителя (DMARC)… Фото коллег приходят с вашего сервера Exchange в любом случае.</td><td>сократить ✎</td><td>жаргон BIMI/DMARC; оставить одну фразу про проверку и скачивание</td></tr>
+<tr><td>Формат новых писем</td><td>Так открываются новые письма и ответы. Ящик может задать свой формат… переключателем «Текст · HTML · Markdown».</td><td class="rm">убрать</td><td>«Ящик может задать своё» объясняет строка «Своё у … ›» (экран 3); переключатель виден в письме</td></tr>
+<tr><td>Уменьшать большие картинки</td><td>Картинка в тексте письма рисуется не шире этого размера… Ctrl+Z.</td><td class="rm">убрать</td><td>подпись и единица px говорят то же</td></tr>
+<tr><td>Ящик по умолчанию</td><td>Письмо всегда создаётся от этого ящика. «По контексту» берёт его из открытой папки или письма… Ответы и пересылки…</td><td>сократить ✎</td><td>нужна фраза про «По контексту» и про ответы; остальное повторяет</td></tr>
+<tr><td>Показывать письма</td><td>В самом письме вид меняется переключателем над текстом.</td><td class="ok">оставить</td><td>единственное место, где сказано, что вид можно сменить на лету</td></tr>
+<tr><td>Показывать письма — описания трёх вариантов</td><td>Самый богатый вид из присланных… / Если в письме есть Markdown-часть… / Без оформления и картинок…</td><td>показывать у выбранного</td><td>не три абзаца, а один под строкой</td></tr>
+<tr><td>Папка для вложений</td><td>Вложения сохраняются сюда сразу, без выбора места; «Сохранить как…» рядом с вложением по-прежнему спрашивает. Пусто — спрашивать каждый раз.</td><td class="rm">убрать</td><td>«Спрашивать каждый раз» уже в самом поле</td></tr>
+<tr><td>Формат для отдельных людей</td><td>Формат отправки и вид показа задаются у человека, в «Людях».</td><td class="rm">заменить</td><td>строкой «Своё у … ›» под «Формат новых писем» и «Показывать письма»</td></tr>
+<tr><td>Уведомления</td><td>Режим «Не беспокоить» включается колокольчиком внизу боковой панели.</td><td class="ok">оставить</td><td>иначе узнать негде</td></tr>
+<tr><td>Заполнение ящиков</td><td>Пороги общие для всех ящиков. Одно предупреждение на порог… Свой лимит для ящика задаётся на его странице, в «Хранилище».</td><td class="rm">убрать</td><td>«Свой лимит» — строка-ссылка «Настроить у ящика ›»; остальное — внутренняя механика</td></tr>
+<tr><td>Когда закрываю окно</td><td>Выйти можно всегда: «Выйти» в меню значка или Ctrl+Q.</td><td class="ok">оставить</td><td>снимает страх выбрать «в фоне»</td></tr>
+<tr><td>Пока Депеша в фоне (отдельный блок)</td><td>Проверяет почту и показывает уведомления, отправляет письма по расписанию…</td><td>показывать у выбранного</td><td>становится описанием варианта «Оставлять Депешу работать в фоне», а не отдельным блоком без настройки</td></tr>
+<tr><td>Число непрочитанных на значке</td><td>все непрочитанные во «Входящих»</td><td class="ok">оставить</td><td>уточняет, что считается</td></tr>
+<tr><td>Скачивать письма целиком</td><td>Скачанные письма открываются без сети… Спам и корзина пропускаются; без вложений — и письма больше 2 МБ. Ход загрузки — в «Фоновых задачах».</td><td>сократить ✎</td><td>оставить две первые фразы</td></tr>
+<tr><td>Обновления: автоматически</td><td>— новая версия начнёт работать после перезапуска</td><td>показывать у выбранного</td><td>описание варианта</td></tr>
+<tr><td>Обновления: подпись</td><td>Каждое обновление подписано ключом проекта; неподписанное или изменённое Депеша не установит.</td><td class="rm">убрать</td><td>не настройка и не последствие; уйдёт в документацию (⚠ спорно — вопрос оператору в отчёте)</td></tr>
+<tr><td>Обновления: пакет / копия</td><td>Пакет deb/rpm обновляется только по вашей команде… / Эта копия запущена не из установленного пакета…</td><td class="ok">оставить</td><td>условные: объясняют, почему «Проверить сейчас» ничего не ставит</td></tr>
+<tr><td>Ящик: папка для вложений</td><td>Пусто — папка из Настроек → «Почта»: …</td><td class="rm">заменить</td><td>пометкой «как в общих» (экран 3)</td></tr>
+<tr><td>Ящик: после ответа</td><td>Письмо, на которое вы ответили из «Входящих», переносится в папку «Ждут ответа» на сервере…</td><td class="ok">оставить</td><td>это единственное объяснение механики</td></tr>
+<tr><td>Человек: имя</td><td>Так имя покажется в подсказках адресов. Адресат его не видит.</td><td class="ok">оставить</td><td>снимает опасение «увидит ли адресат»</td></tr>
+<tr><td>Человек: формат и вид</td><td>Формат новых писем этому адресату; «Как обычно» — формат ящика. / В каком виде показывать его письма…</td><td class="rm">убрать</td><td>цепочку «человек → ящик → общие» показывает пометка (экран 3)</td></tr>
+<tr><td>Напоминания (плагин)</td><td>Свои варианты списка «Напомнить, если не ответят», после стандартных…</td><td class="ok">оставить</td><td>объясняет, где варианты потом появятся</td></tr>
+<tr><td>Шаблоны ответов (плагин)</td><td>Готовые тексты для типовых писем. Вставляются кнопкой «Шаблоны» в окне письма.</td><td class="ok">оставить</td><td>единственное место, где сказано, как вставить</td></tr>
+</table>
+
+<!-- ================= ЭКРАН 2 ================= -->
+<h2 class="screen" id="s2">Экран 2. Раскладка разделов</h2>
+<p class="lead">Три варианта — живые окна, собранные из тех же строк (экран 1) и подчиняющиеся панели сверху. У каждого — поиск <kbd>Ctrl+F</kbd> и ходьба по меню <kbd>↑</kbd>/<kbd>↓</kbd>, как сейчас. «Люди», «Клавиши», «Ящики», «Плагины» — страницы-таблицы, их содержимое здесь упрощено (в «Людях» и в ящике — на тех же строках).</p>
+<div class="ctx"><b>Куда я кладу спорное (во всех трёх вариантах — по-разному, см. таблицу «Где была → где стала»).</b> «Подсказки» → к системным (это переключатель программы, а список решений — про людей и форматы, но пользователь ищет его в «Системе»). «Порог крупного письма» → к месту в ящиках (он нужен запросу «Крупные…» и кнопке «Найти крупные письма»). «Напоминания» → к «Отложить» и «Ждут ответа»; «Шаблоны ответов» → к «Написанию». Так секция плагина оказывается рядом с родственной настройкой, с пометкой «плагин»; в «Плагинах» остаётся менеджер. Это требует, чтобы <code>settingsSection</code> принимал страницу назначения (вопрос 2.4).</div>
+
+<h3 class="v rec"><span class="n">А</span><em>по задачам: 9 пунктов (вместо ≈ 14)</em></h3>
+<p class="cap">Вид · Написание и отправка · Отложить и ждать · Уведомления и место · Система · Люди · Клавиши · Ящики (с пунктом на ящик) · Плагины.</p>
+<div class="win theme" id="w-a"></div>
+<ul class="pc"><li><span class="plus">+</span> названия страниц — задачи пользователя («что я хочу поменять»), а не устройство программы</li><li><span class="plus">+</span> тонкие страницы исчезли: «Офлайн», «Обновления», «Уведомления» и «Фон и запуск» слились в «Система» и «Уведомления и место»</li><li><span class="minus">−</span> «Система» самая толстая (фон, запуск, трей, офлайн, обновления, подсказки: 6 групп)</li></ul>
+
+<h3 class="v"><span class="n">Б</span><em>меньше разделов, длинные страницы с якорями: 6 пунктов</em></h3>
+<p class="cap">Программа · Почта (12 групп, якоря сверху) · Люди · Клавиши · Ящики · Плагины. Якоря — те же, что уже есть в оглавлении страницы ящика.</p>
+<div class="win theme" id="w-b"></div>
+<ul class="pc"><li><span class="plus">+</span> всего 6 пунктов, всё «про почту» в одном месте и находится прокруткой/якорем</li><li><span class="plus">+</span> один и тот же приём — якоря — работает и на странице ящика</li><li><span class="minus">−</span> «Почта» — страница на ≈ 3 экрана; клавиатурой до нижних групп долго (нужны якоря-клавиши, экран 4)</li></ul>
+
+<h3 class="v"><span class="n">В</span><em>моя: две оси «Почта» / «Программа» с заголовками в меню: 11 пунктов в 4 группах</em></h3>
+<p class="cap">ПОЧТА: Чтение и список · Написание · Отложить и ждать · Хранение. ПРОГРАММА: Вид и язык · Уведомления и значок · Запуск и обновления · Клавиши. ЛЮДИ И ЯЩИКИ: Люди · Ящики. Плагины. Идея: всё, что касается писем, — слева сверху; всё, что касается программы и системы, — ниже. «Хранение» собирает то, что про место: офлайн-копия, порог крупного письма, заполнение ящиков.</p>
+<div class="win theme" id="w-v"></div>
+<ul class="pc"><li><span class="plus">+</span> страницы ровные по толщине (4–6 групп), «Хранение» — понятное место для порога, офлайна и заполнения ящиков</li><li><span class="plus">+</span> меню похоже на нынешнее (есть заголовки групп «Ящики», «Плагины»)</li><li><span class="minus">−</span> 11 пунктов — почти как сейчас, выигрыш только в смысле названий; «Уведомления и значок» — тонкая страница (3 строки)</li></ul>
+
+<!-- ================= ЭКРАН 3 ================= -->
+<h2 class="screen" id="s3">Экран 3. Слои: общее → ящик → человек</h2>
+<p class="lead">Формат новых писем и вид чтения задаются в трёх местах. <b>Порядок старшинства (из кода):</b></p>
+<div class="chain"><span><b>Формат нового письма</b></span><b>получатель (человек)</b><span class="ar">→</span><b>ящик</b><span class="ar">→</span><b>общие настройки</b><span class="muted">— пусто значит «как следующий»; получателей несколько — берётся самый строгий формат</span></div>
+<div class="chain"><span><b>Вид чтения</b></span><b>переключатель над письмом</b><span class="ar">→</span><b>человек</b><span class="ar">→</span><b>ящик</b><span class="ar">→</span><b>общие настройки</b><span class="muted">— пусто значит «как следующий»</span></div>
+<p class="cap">Три панели каждого варианта связаны: смените формат в «Общих», и значения «как в общих» у ящика и человека поменяются. Исключения заданы так: ящик «Личный» — Markdown; Анна — обычный текст, Борис — Markdown. Панель «Слои» сверху применяет вариант ко всем окнам.</p>
+
+<h3 class="v"><span class="n">А</span><em>у общей настройки — строка «Своё у 2 людей, 1 ящика ›»; у ящика и человека всё как сейчас</em></h3>
+<div class="cols3 theme" style="--x:0">
+  <div class="box theme"><div class="bt">Общие · Написание</div><div class="rz" data-lay="C" data-layer="A" data-ids="compose_format,layer_format" data-hier="1" data-nogrp="1"></div><div class="bt" style="margin-top:12px">Общие · Чтение</div><div class="rz" data-lay="C" data-layer="A" data-ids="letter_view,layer_view" data-hier="1" data-nogrp="1"></div></div>
+  <div class="box theme"><div class="bt">Ящик «Личный»</div><div class="rz" data-lay="C" data-layer="A" data-ids="af_home,av_home" data-hier="1" data-nogrp="1"></div></div>
+  <div class="box theme"><div class="bt">Человек · Борис Громов</div><div class="rz" data-lay="C" data-layer="A" data-ids="pf_boris,pv_boris" data-hier="1" data-nogrp="1"></div></div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> общая настройка сама говорит, что у неё есть исключения: из неё видно, <i>что менять в других местах</i></li><li><span class="plus">+</span> ящик и человек не меняются — код пока не трогаем</li><li><span class="minus">−</span> у самого ящика/человека не видно, своё значение или общее: «Как в общих (HTML)» лежит в списке</li></ul>
+
+<h3 class="v"><span class="n">Б</span><em>у ящика и человека — пометка «как в общих / своё» со сбросом; на общей — ничего</em></h3>
+<div class="cols3 theme">
+  <div class="box theme"><div class="bt">Общие · Написание</div><div class="rz" data-lay="C" data-layer="B" data-ids="compose_format,layer_format" data-hier="1" data-nogrp="1"></div><div class="bt" style="margin-top:12px">Общие · Чтение</div><div class="rz" data-lay="C" data-layer="B" data-ids="letter_view,layer_view" data-hier="1" data-nogrp="1"></div></div>
+  <div class="box theme"><div class="bt">Ящик «Личный»</div><div class="rz" data-lay="C" data-layer="B" data-ids="af_home,av_home" data-hier="1" data-nogrp="1"></div></div>
+  <div class="box theme"><div class="bt">Человек · Борис Громов</div><div class="rz" data-lay="C" data-layer="B" data-ids="pf_boris,pv_boris" data-hier="1" data-nogrp="1"></div></div>
+</div>
+<ul class="pc"><li><span class="plus">+</span> там, где правишь, сразу видно «своё» или «как в общих»; сброс — одним кликом (или <kbd>Delete</kbd> на строке)</li><li><span class="minus">−</span> из общих не видно, что где-то перекрыто — забытое исключение найдёшь только обходом (в «Людях» есть фильтр «С особым форматом»)</li></ul>
+
+<h3 class="v rec"><span class="n">В</span><em>оба сразу (кнопка «Слои → А+Б» в панели)</em></h3>
+<p class="cap">Строка «Своё у … ›» на общей настройке (нажмите — список исключений с переходом) <b>и</b> пометка со сбросом у ящика и человека. Стоит одной строки и одной пометки; закрывает слабые места обоих.</p>
+<div class="cols3 theme">
+  <div class="box theme"><div class="bt">Общие · Написание</div><div class="rz" data-lay="C" data-layer="C" data-ids="compose_format,layer_format" data-hier="1" data-nogrp="1"></div><div class="bt" style="margin-top:12px">Общие · Чтение</div><div class="rz" data-lay="C" data-layer="C" data-ids="letter_view,layer_view" data-hier="1" data-nogrp="1"></div></div>
+  <div class="box theme"><div class="bt">Ящик «Личный»</div><div class="rz" data-lay="C" data-layer="C" data-ids="af_home,av_home" data-hier="1" data-nogrp="1"></div></div>
+  <div class="box theme"><div class="bt">Человек · Борис Громов</div><div class="rz" data-lay="C" data-layer="C" data-ids="pf_boris,pv_boris" data-hier="1" data-nogrp="1"></div></div>
+</div>
+
+<h3 class="q"><span class="n">3.2</span>Слово для «как в следующем слое»</h3>
+<p class="lead">Сейчас три разных: «Как обычно» (человек), «Как в общих настройках ({формат})» (формат ящика), «Как в настройках ({вид})» (вид ящика). В макете: <b>А</b> — везде «Как в общих»; <b>Б</b> — везде «Как обычно»; <b>В</b> — по слою: у ящика «Как в общих», у человека «Как в ящике». В образцах выше — вариант В.</p>
+
+<!-- ================= ЭКРАН 4 ================= -->
+<h2 class="screen" id="s4">Экран 4. Клавиатура</h2>
+<p class="lead">Окно ниже — живое (раскладка 2.А). Кликните в него и пробуйте. Панель «Клавиши» сверху переключает 4.1: <b>Tab по всем</b> (как сейчас: Tab ходит по каждому полю) и <b>↑↓ по строкам</b> (строка — одна остановка).</p>
+<div class="win theme" id="w-k"></div>
+<table class="dtable" style="margin-top:14px">
+<tr><th style="width:230px">Где / что</th><th style="width:250px">Клавиши</th><th>Что происходит</th></tr>
+<tr class="gr"><td colspan="3">Окно и меню разделов</td></tr>
+<tr><td>Поиск по настройкам</td><td><kbd>Ctrl</kbd>+<kbd>F</kbd> (уже есть, сохранить)</td><td>курсор в поле «Найти настройку»; <kbd>Enter</kbd> на результате — открыть страницу и встать на строку; <kbd>Esc</kbd> — очистить поиск, ещё раз — закрыть окно</td></tr>
+<tr><td>Разделы</td><td><kbd>↑</kbd> <kbd>↓</kbd> в меню (уже есть)</td><td>переключают страницу; <kbd>→</kbd> или <kbd>Enter</kbd> — войти на первую строку страницы</td></tr>
+<tr><td>Из страницы в меню / между страницами</td><td><kbd>Alt</kbd>+<kbd>←</kbd>; <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>/<kbd>PgDn</kbd></td><td>вернуться в меню; сменить раздел, не уходя со страницы (новое)</td></tr>
+<tr><td>Закрыть</td><td><kbd>Esc</kbd> (как сейчас)</td><td>если есть несохранённое — тот же вопрос «Сохранить изменения?»</td></tr>
+<tr class="gr"><td colspan="3">Ходьба по строкам страницы (вариант «↑↓ по строкам»)</td></tr>
+<tr><td>Между строками</td><td><kbd>↑</kbd> <kbd>↓</kbd>; <kbd>Home</kbd> <kbd>End</kbd></td><td>строка — одна остановка; внутренние кнопки строки не берут <kbd>Tab</kbd>. <kbd>Tab</kbd> уходит к подвалу («Сохранить/Отмена»)</td></tr>
+<tr><td>К группе</td><td><kbd>Ctrl</kbd>+<kbd>↑</kbd> <kbd>Ctrl</kbd>+<kbd>↓</kbd></td><td>на первую строку предыдущей/следующей группы (для длинных страниц 2.Б)</td></tr>
+<tr class="gr"><td colspan="3">Смена значения на выбранной строке — без мыши, для каждого вида контрола</td></tr>
+<tr><td>Переключатель</td><td><kbd>Space</kbd> или <kbd>Enter</kbd></td><td>включить / выключить</td></tr>
+<tr><td>Выбор (сегменты, кружки, список)</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>предыдущий / следующий вариант без открытия; <kbd>Enter</kbd> или <kbd>Alt</kbd>+<kbd>↓</kbd> — раскрыть список</td></tr>
+<tr><td>Число с единицей</td><td><kbd>←</kbd> <kbd>→</kbd> (шаг), <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> (×10); <kbd>Enter</kbd> — ввести цифрами</td><td>внутри поля <kbd>Enter</kbd> принимает, <kbd>Esc</kbd> отменяет; единица (МБ/ГБ) — <kbd>Tab</kbd> после числа</td></tr>
+<tr><td>Время</td><td><kbd>←</kbd> <kbd>→</kbd> (± 15 мин); <kbd>Enter</kbd> — ввести</td><td>«9:00», «18:30»; неверное — рамка предупреждения, значение не сохраняется</td></tr>
+<tr><td>Папка</td><td><kbd>Enter</kbd> — выбрать; <kbd>Delete</kbd> — очистить</td><td>очищенное значит «Спрашивать каждый раз»</td></tr>
+<tr><td>Дни недели</td><td><kbd>1</kbd>–<kbd>7</kbd> (Пн–Вс) или <kbd>←</kbd> <kbd>→</kbd> + <kbd>Space</kbd></td><td>включить/выключить день</td></tr>
+<tr><td>Кнопка-действие</td><td><kbd>Enter</kbd> или <kbd>Space</kbd></td><td>выполняется, результат — в строке или в тосте</td></tr>
+<tr><td>Ссылка «Настроить у …» / «Своё у … ›»</td><td><kbd>Enter</kbd> или <kbd>→</kbd></td><td>список назначений; <kbd>Enter</kbd> на пункте — перейти</td></tr>
+<tr><td>Своё значение у ящика/человека</td><td><kbd>Delete</kbd></td><td>сбросить к «как в общих» (вариант Б слоёв)</td></tr>
+<tr><td>Подсказка за «?» (политика В)</td><td><kbd>?</kbd> или <kbd>F1</kbd></td><td>раскрыть/скрыть подсказку строки</td></tr>
+</table>
+<h3 class="q"><span class="n">4.4</span>Поиск <kbd>Ctrl</kbd>+<kbd>F</kbd>: что после перехода</h3>
+<p class="lead">Сейчас поле вспыхивает рамкой на 1,5 с. В живых окнах — вариант А (вспышка <b>и</b> фокус на найденной строке): после <kbd>Enter</kbd> на результате сразу можно менять значение. Вариант Б — только вспышка, как сейчас.</p>
+
+<!-- ================= Где была → где стала ================= -->
+<h2 class="screen" id="map">Где была → где стала</h2>
+<p class="lead">Все настройки окна. Варианты: <b>2.А</b> «по задачам», <b>2.Б</b> «длинные страницы», <b>2.В</b> «Почта / Программа». «Ключ» — поле в <code>Settings</code> или в записи ящика/человека; <b>ящик</b> и <b>человек</b> — персональные поля.</p>
+<table class="dtable" id="t-map">
+<tr><th>Настройка (ключ)</th><th>Сейчас</th><th>2.А</th><th>2.Б</th><th>2.В</th></tr>
+<tr class="gr"><td colspan="5">Общие</td></tr>
+<tr><td>Язык (<code>language</code>)</td><td>Общие → Язык</td><td>Вид → Язык и оформление</td><td>Программа → Язык и оформление</td><td>Программа → Вид и язык</td></tr>
+<tr><td>Оформление (<code>theme</code>)</td><td>Общие → Оформление</td><td>Вид</td><td>Программа → Язык и оформление</td><td>Вид и язык</td></tr>
+<tr><td>Порог крупного письма (<code>large_mb</code>)</td><td>Общие → Поиск</td><td>Уведомления и место → Заполнение ящиков</td><td>Почта → Заполнение ящиков</td><td>Хранение</td></tr>
+<tr><td>Начало дня, начало вечера, рабочие дни (<code>day_start</code>, <code>evening_start</code>, <code>work_days</code>)</td><td>Общие → Время для отложенных писем</td><td>Отложить и ждать → Отложить</td><td>Почта → Отложить</td><td>Отложить и ждать → Отложить</td></tr>
+<tr><td>Показывать подсказки (<code>hints</code>) + список решений + «Спросить снова»</td><td>Общие → Подсказки</td><td>Система → Подсказки</td><td>Программа → Подсказки</td><td>Вид и язык → Подсказки</td></tr>
+<tr class="gr"><td colspan="5">Почта</td></tr>
+<tr><td>Собирать переписку в цепочки (<code>threads</code>)</td><td>Почта → Список писем</td><td>Вид → Список писем</td><td>Почта → Список</td><td>Чтение и список → Список</td></tr>
+<tr><td>Логотипы компаний (<code>sender_logos</code>)</td><td>Почта → Список писем</td><td>Вид → Список писем</td><td>Почта → Список</td><td>Чтение и список → Список</td></tr>
+<tr><td>Формат новых писем (<code>compose_format</code>)</td><td>Почта → Новые письма</td><td>Написание и отправка → Новые письма</td><td>Почта → Новые письма</td><td>Написание → Новые письма</td></tr>
+<tr><td>Уменьшать большие картинки (<code>image_max_px</code>)</td><td>Почта → Новые письма</td><td>Написание → Новые письма</td><td>Почта → Новые письма</td><td>Написание → Новые письма</td></tr>
+<tr><td>Ящик по умолчанию (<code>default_account_id</code>)</td><td>Почта → Новые письма</td><td>Написание → Новые письма</td><td>Почта → Новые письма</td><td>Написание → Новые письма</td></tr>
+<tr><td>Показывать письма (<code>letter_view</code>)</td><td>Почта → Чтение</td><td>Вид → Чтение</td><td>Почта → Чтение</td><td>Чтение и список → Чтение</td></tr>
+<tr><td>«Формат для отдельных людей» (ссылка на «Люди»)</td><td>Почта → Формат для отдельных людей</td><td>строка «Своё у … ›» под форматом и видом</td><td>то же</td><td>то же</td></tr>
+<tr><td>Папка для вложений (<code>attachments_dir</code>)</td><td>Почта → Папка для вложений</td><td>Написание → Отправка</td><td>Почта → Отправка</td><td>Написание → Отправка</td></tr>
+<tr><td>Можно отменить отправку в течение (<code>undo_send_secs</code>)</td><td>Почта → Отправка</td><td>Написание → Отправка</td><td>Почта → Отправка</td><td>Написание → Отправка</td></tr>
+<tr class="gr"><td colspan="5">Уведомления, ящики, место</td></tr>
+<tr><td>Уведомления: о ком (<code>notify</code>)</td><td>Уведомления</td><td>Уведомления и место → Уведомления</td><td>Почта → Уведомления</td><td>Уведомления и значок</td></tr>
+<tr><td>Предупреждать о заполнении, пороги, повтор (<code>quota_warn</code>, <code>quota_levels</code>, <code>quota_repeat</code>)</td><td>Уведомления → Заполнение ящиков</td><td>Уведомления и место → Заполнение ящиков</td><td>Почта → Заполнение ящиков</td><td>Хранение → Заполнение ящиков</td></tr>
+<tr><td>Скачивать письма целиком, письма с вложениями (<code>offline</code>, <code>offline_attachments</code>)</td><td>Офлайн-доступ</td><td>Система → Офлайн</td><td>Почта → Офлайн-доступ</td><td>Хранение → Офлайн</td></tr>
+<tr class="gr"><td colspan="5">Система</td></tr>
+<tr><td>Когда закрываю окно (<code>close_action</code>; <code>background_without_tray</code> — согласие, ставится само)</td><td>Фон и запуск</td><td>Система → Закрытие окна</td><td>Программа → Запуск и фон</td><td>Запуск и обновления → Закрытие окна</td></tr>
+<tr><td>При входе в систему (<code>autostart</code>)</td><td>Фон и запуск</td><td>Система → Запуск</td><td>Программа → Запуск и фон</td><td>Запуск и обновления → Запуск</td></tr>
+<tr><td>Значок: число непрочитанных; показывать при открытом окне (<code>tray_count</code>, <code>tray_always</code>)</td><td>Фон и запуск → Значок в трее</td><td>Система → Значок в трее</td><td>Программа → Запуск и фон</td><td>Уведомления и значок</td></tr>
+<tr><td>Обновления: режим (<code>updates</code>), «Проверить сейчас», версия</td><td>Обновления</td><td>Система → Обновления</td><td>Программа → Обновления</td><td>Запуск и обновления → Обновления</td></tr>
+<tr class="gr"><td colspan="5">Люди, клавиши, ящики, плагины</td></tr>
+<tr><td>Человек: имя, адреса, «Писать ему», «Его письма показывать», заметка, скрыть из подсказок (поля записи человека)</td><td>Люди</td><td>Люди</td><td>Люди</td><td>Люди и ящики → Люди</td></tr>
+<tr><td>Клавиши (<code>keybindings</code>)</td><td>Клавиши</td><td>Клавиши</td><td>Клавиши</td><td>Программа → Клавиши</td></tr>
+<tr><td>Ящик: название, имя отправителя, адрес (только чтение), цвет, подключение</td><td>Ящики → ящик → Общее</td><td>Ящики → ящик → Общее</td><td>то же</td><td>то же</td></tr>
+<tr><td>Ящик: папка для вложений</td><td>Ящик → Общее</td><td>Ящик → Общее (пометка «как в общих»)</td><td>то же</td><td>то же</td></tr>
+<tr><td>Ящик: формат писем, вид писем</td><td>Ящик → Письма и подписи</td><td>то же (пометка «как в общих / своё», экран 3)</td><td>то же</td><td>то же</td></tr>
+<tr><td>Ящик: подписи (список, по умолчанию, для ответов)</td><td>Ящик → Письма и подписи</td><td>то же</td><td>то же</td><td>то же</td></tr>
+<tr><td>Ящик: «После ответа» — убирать письмо из входящих, папка, «Не ждать» возвращает</td><td>Ящик → Письма и подписи</td><td>Ящик → Письма и подписи; в «Отложить и ждать» — ссылка «Настроить у ящика ›»</td><td>то же, ссылка в Почта → Ждут ответа</td><td>то же</td></tr>
+<tr><td>Ящик: предупреждения о заполнении, свой лимит, размер папок, «Найти крупные письма», «Открыть корзину»</td><td>Ящик → Хранилище</td><td>Ящик → Хранилище; в «Заполнение ящиков» — ссылка «Свой лимит ›»</td><td>то же</td><td>то же</td></tr>
+<tr><td>Ящик: сервер (возможности, «Проверить ещё раз»), метки</td><td>Ящик → Сервер, Метки</td><td>без изменений</td><td>без изменений</td><td>без изменений</td></tr>
+<tr><td>Все плагины (менеджер: включить, выключить, установить)</td><td>Плагины → Все плагины</td><td>Плагины</td><td>Плагины</td><td>Плагины</td></tr>
+<tr><td>Напоминания: варианты (название, когда, повтор, порядок), «Хранить закрытые ожидания» (<code>keep_days</code>)</td><td>Плагины → Напоминания</td><td>Отложить и ждать → Напоминания (плагин)</td><td>Почта → Напоминания (плагин)</td><td>Отложить и ждать → Напоминания (плагин)</td></tr>
+<tr><td>Шаблоны ответов: список (название, текст)</td><td>Плагины → Шаблоны ответов</td><td>Написание → Шаблоны ответов (плагин)</td><td>Почта → Шаблоны ответов (плагин)</td><td>Написание → Шаблоны ответов (плагин)</td></tr>
+<tr><td>Порядок списков (<code>list_sort</code>, <code>view_sorts</code>)</td><td>не в окне (меню вида списка)</td><td>не в окне</td><td>не в окне</td><td>не в окне</td></tr>
+</table>
+
+<!-- ================= Вопросы ================= -->
+<div class="qs" id="qs">
+<h2>Вопросы</h2>
+<p class="cap" style="color:#5a626c">Отвечайте коротко: «1.1 А, 1.2 А, 1.3 1…». Рекомендации — мои; номера не менять.</p>
+<table>
+<tr><th>№</th><th>Вопрос</th><th>Варианты</th><th>Рекомендую и почему</th></tr>
+<tr class="gh"><td colspan="4">Экран 1. Единый набор контролов</td></tr>
+<tr><td class="n">1.1</td><td>Правило для «выбрать один из нескольких»</td><td><b>А</b> сегменты до 3 коротких вариантов (≤ 40 знаков суммарно), иначе список<br><b>Б</b> всегда выпадающий список<br><b>В</b> кружки с описанием, когда варианты нужно объяснять, иначе список</td><td class="rec">А. Выбор из двух-трёх виден сразу и меняется <kbd>←</kbd>/<kbd>→</kbd>; описание показывается только у выбранного, поэтому кружки с абзацами не нужны. Граница «3 и 40 знаков» зафиксирована в одном месте — при добавлении настройки решение не придумывается заново.</td></tr>
+<tr><td class="n">1.2</td><td>Раскладка строки</td><td><b>А</b> подпись слева, контрол справа<br><b>Б</b> сетка: подпись 250 px, контрол слева<br><b>В</b> контрол под подписью</td><td class="rec">А. Читается как предложение, правый край ровный, пустоты нет; в узком окне (&lt; 640 px) само переходит в В.</td></tr>
+<tr><td class="n">1.3</td><td>Иерархия страницы</td><td><b>1</b> заголовок с линией, без карточек<br><b>2</b> карточки на <code>--paper-2</code><br><b>3</b> открытый список с крупным заголовком</td><td class="rec">1. Ближе всего к остальному приложению, без вложенных рамок; зависимые строки отступом, а не карточкой.</td></tr>
+<tr><td class="n">1.4</td><td>Политика подсказок</td><td><b>А</b> как сейчас<br><b>Б</b> только нужные, под строкой<br><b>В</b> только нужные, за значком «?»</td><td class="rec">Б. Из 29 подсказок 14 остаются как есть, 3 сокращаются, 3 становятся описанием выбранного варианта, 9 уходят или заменяются; нужные видны сразу; «?» (В) прячет и нужное, а скрытые подсказки не находит поиск глазами.</td></tr>
+<tr><td class="n">1.5</td><td>Тема</td><td><b>А</b> плитки с образцом (исключение из 1.1)<br><b>Б</b> обычный выбор по правилу 1.1</td><td class="rec">А. Тему выбирают глазами; пять вариантов с образцом — единственный выбор в окне, который нельзя описать словами.</td></tr>
+<tr><td class="n">1.6</td><td>Отключённая зависимая строка</td><td><b>А</b> приглушена на месте<br><b>Б</b> скрыта<br><b>В</b> приглушена и с причиной</td><td class="rec">А. Страница не прыгает, поиск и клавиатура находят строку. Причина видна по отступу под выключателем.</td></tr>
+<tr><td class="n">1.7</td><td>Сохранение</td><td><b>А</b> кнопки «Сохранить/Отмена», как сейчас (подвал только при изменениях)<br><b>Б</b> применять сразу везде, «Отменить» — в тосте<br><b>В</b> как сейчас, но без изменений</td><td class="rec">Б. «Люди», «Клавиши», ящик и плагины уже сохраняются сразу — теперь так будет везде, и не нужно вопроса «Сохранить изменения?» при уходе со страницы. Тема применяется сразу и без того. Это самое большое изменение поведения — если боитесь, А.</td></tr>
+<tr class="gh"><td colspan="4">Экран 2. Раскладка разделов</td></tr>
+<tr><td class="n">2.1</td><td>Раскладка разделов</td><td><b>А</b> по задачам, 9 пунктов<br><b>Б</b> 6 пунктов, длинные страницы с якорями<br><b>В</b> «Почта / Программа», 11 пунктов</td><td class="rec">А. Каждый раздел — «что я хочу поменять»; страницы одной толщины, а длинные страницы Б ломают ходьбу клавишами.</td></tr>
+<tr><td class="n">2.2</td><td>Куда «Подсказки»</td><td><b>А</b> в «Систему» (к программным переключателям)<br><b>Б</b> в «Люди» (рядом с их решениями)<br><b>В</b> в «Написание»</td><td class="rec">А. Это переключатель программы; список решений — справочный, его ищут по слову «подсказки» (поиск найдёт).</td></tr>
+<tr><td class="n">2.3</td><td>Куда «Порог крупного письма»</td><td><b>А</b> рядом с заполнением ящиков<br><b>Б</b> в «Список» (вид)<br><b>В</b> рядом с офлайном</td><td class="rec">А. Порог нужен «Найти крупные письма» в хранилище ящика и запросам «Крупные…»: это про место.</td></tr>
+<tr><td class="n">2.4</td><td>Настройки встроенных плагинов («Напоминания», «Шаблоны ответов»)</td><td><b>А</b> группа в родственном разделе с пометкой «плагин»<br><b>Б</b> отдельно в «Плагинах», как сейчас<br><b>В</b> группа в разделе, а в «Плагинах» — ссылка на неё</td><td class="rec">А. «Напоминания» — это настройка «Ждут ответа» (она же рядом «Отложить»); искать её среди плагинов незачем. Потребует, чтобы <code>settingsSection</code> принимал целевую страницу; сторонние плагины без неё остаются в «Плагинах».</td></tr>
+<tr><td class="n">2.5</td><td>«После ответа» (папка «Ждут ответа» — настройка ящика)</td><td><b>А</b> остаётся на странице ящика, в «Отложить и ждать» — ссылка «Настроить у ящика ›»<br><b>Б</b> переезжает в «Отложить и ждать» с выбором ящика</td><td class="rec">А. Настройка принадлежит ящику (папка на его сервере), в общей странице нечего хранить; ссылка достаточна.</td></tr>
+<tr><td class="n">2.6</td><td>Ящики в меню</td><td><b>А</b> пункт «Ящики» и под ним пункт на каждый ящик, как сейчас<br><b>Б</b> один пункт «Ящики», ящики внутри страницы списком</td><td class="rec">Б (в макете: А — в окне 2.А, Б — в 2.Б и 2.В). При пяти ящиках меню А снова вырастает вдвое; на странице ящика уже есть оглавление.</td></tr>
+<tr class="gh"><td colspan="4">Экран 3. Слои</td></tr>
+<tr><td class="n">3.1</td><td>Как показать «общее → ящик → человек»</td><td><b>А</b> на общей настройке строка «Своё у 2 людей, 1 ящика ›»<br><b>Б</b> у ящика и человека пометка «как в общих / своё» со сбросом<br><b>В</b> оба сразу</td><td class="rec">В. Строка А говорит «исключения есть, вот они»; пометка Б говорит «здесь своё, сбросить?». Стоят одной строки и одной пометки, закрывают слабые места друг друга.</td></tr>
+<tr><td class="n">3.2</td><td>Слово «как в следующем слое»</td><td><b>А</b> везде «Как в общих»<br><b>Б</b> везде «Как обычно»<br><b>В</b> по слою: у ящика «Как в общих», у человека «Как в ящике»</td><td class="rec">В. Говорит ровно то, что делает код (человек → ящик → общие), а не три слова для одного.</td></tr>
+<tr class="gh"><td colspan="4">Экран 4. Клавиатура</td></tr>
+<tr><td class="n">4.1</td><td>Ходьба по строкам страницы</td><td><b>А</b> <kbd>Tab</kbd> по каждому контролу, как сейчас<br><b>Б</b> <kbd>↑</kbd>/<kbd>↓</kbd> по строкам (строка — одна остановка), <kbd>Tab</kbd> — к подвалу</td><td class="rec">Б. На странице в 20 строк <kbd>Tab</kbd> по каждому контролу — 30+ нажатий; ↑↓ уже в меню разделов, так же и в странице.</td></tr>
+<tr><td class="n">4.2</td><td>Смена значения без мыши</td><td><b>А</b> на строке: <kbd>←</kbd>/<kbd>→</kbd> меняют значение, <kbd>Enter</kbd> раскрывает/вводит<br><b>Б</b> <kbd>Enter</kbd> входит в контрол, внутри <kbd>↑</kbd>/<kbd>↓</kbd></td><td class="rec">А. Одно действие вместо трёх; для текстовых полей (число, время) <kbd>Enter</kbd> всё равно входит в поле.</td></tr>
+<tr><td class="n">4.3</td><td>Между меню и страницей</td><td><b>А</b> <kbd>→</kbd>/<kbd>Enter</kbd> из меню на страницу, <kbd>Alt</kbd>+<kbd>←</kbd> обратно, <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>/<kbd>PgDn</kbd> — смена раздела<br><b>Б</b> только <kbd>Tab</kbd>/<kbd>Shift</kbd>+<kbd>Tab</kbd></td><td class="rec">А. <kbd>Esc</kbd> уже занят (закрыть окно), <kbd>←</kbd> занят значениями; <kbd>Alt</kbd>+<kbd>←</kbd> — привычное «назад».</td></tr>
+<tr><td class="n">4.4</td><td>После перехода из <kbd>Ctrl</kbd>+<kbd>F</kbd></td><td><b>А</b> вспышка и фокус на строке<br><b>Б</b> только вспышка, как сейчас</td><td class="rec">А. Нашёл — сразу меняешь, без мыши.</td></tr>
+</table>
+</div>
+</div>
+<div class="toast" id="toast" style="display:none"></div>
+<style>
+body.snow .theme { --paper: #ffffff; --paper-2: #f5f6f8; --ink: #1b1f24; --muted: #687180; --line: #e3e6ea; --hover: #f0f2f5; --selected: #e3e8ef; --accent: #c4302b; --link: #1d5fbf; --side: #f3f4f6; }
+body.graphite .theme { --paper: #1c1c1e; --paper-2: #232325; --ink: #e6e6e6; --muted: #9a9aa0; --line: #2e2e31; --hover: #2a2a2d; --selected: #34343a; --accent: #d6463d; --link: #8ab4f8; --side: #26272b; color-scheme: dark; }
+.swatch.paper { --s: #1f2a37; --p: #faf7f1; } .swatch.night { --s: #11161c; --p: #171a1f; } .swatch.snow { --s: #f3f4f6; --p: #ffffff; } .swatch.graphite { --s: #26272b; --p: #1c1c1e; } .swatch.system { --s: #1f2a37; --p: linear-gradient(135deg, #faf7f1 50%, #171a1f 50%); }
+.nw { font-size: 10px; color: var(--muted); vertical-align: super; margin-left: 2px; }
+@media (max-width: 1200px) { .doc { width: auto; margin: 0 16px; } }
+</style>
+<script>
+(function () {
+'use strict';
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const S = { choice: 'A', lay: 'A', hier: '1', hints: 'B', layer: 'C', kbd: 'B', apply: 'btn' };
+const O = (v, l, d) => ({ v, l, d });
+const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const ACC = [{ id: 'work', name: 'Работа', email: 'ivan@firma.example' }, { id: 'home', name: 'Личный', email: 'ivan@mail.example' }];
+const PPL = [{ id: 'anna', name: 'Анна Соколова', email: 'anna@firma.example', ini: 'АС', c: '#3d7a8a' }, { id: 'boris', name: 'Борис Громов', email: 'boris@mail.example', ini: 'БГ', c: '#8a5a3d' }, { id: 'vera', name: 'Вера Лис', email: 'vera@mail.example', ini: 'ВЛ', c: '#6a4f8a' }];
+const FMT_L = { plain: 'Обычный текст', html: 'HTML', markdown: 'Markdown' };
+const VIEW_L = { html: 'HTML', markdown: 'Markdown', text: 'Текст' };
+const GVIEW_L = { sender: 'Как прислал отправитель', markdown: 'Предпочитать Markdown', text: 'Предпочитать обычный текст' };
+const T_NOTE = {
+  sender: 'Самый богатый вид из присланных: обычно HTML, у писем с Markdown — Markdown, если отправитель поставил его последним.',
+  markdown: 'Если в письме есть Markdown-часть. Иначе — как прислал отправитель.',
+  text: 'Без оформления и картинок, если у письма есть текстовая часть.',
+};
+
+/* ---------- каталог строк: настоящие подписи и подсказки ---------- */
+const ROWS = {
+  language: { t: 'choice', label: 'Язык', v: 'auto', opts: [O('auto', 'Как в системе'), O('en', 'English'), O('ru', 'Русский')] },
+  theme: { t: 'theme', label: 'Оформление', v: 'paper', opts: [O('paper', 'Бумага'), O('night', 'Ночь'), O('snow', 'Снег'), O('graphite', 'Графит'), O('system', 'Как в системе')],
+    dyn: (v) => (v === 'system' ? '«Бумага» или «Ночь» — вслед за светлым или тёмным режимом системы.' : '') },
+  threads: { t: 'toggle', label: 'Собирать переписку в цепочки', v: true },
+  sender_logos: { t: 'toggle', label: 'Логотипы компаний рядом с их письмами', v: true,
+    old: 'Логотипы, которые компания публикует сама (BIMI), и только у писем, прошедших проверку отправителя (DMARC): подделка останется без логотипа. Скачиваются с сайта компании раз в неделю. Фото коллег приходят с вашего сервера Exchange в любом случае.',
+    hint: 'Только у писем, прошедших проверку отправителя. Скачиваются с сайта компании раз в неделю. ✎' },
+  letter_view: { t: 'choice', label: 'Показывать письма', v: 'sender', opts: [O('sender', 'Как прислал отправитель', T_NOTE.sender), O('markdown', 'Предпочитать Markdown', T_NOTE.markdown), O('text', 'Предпочитать обычный текст', T_NOTE.text)],
+    old: 'В самом письме вид меняется переключателем над текстом.', hint: 'В самом письме вид меняется переключателем над текстом.' },
+  compose_format: { t: 'choice', label: 'Формат новых писем', v: 'html', opts: [O('plain', 'Обычный текст'), O('html', 'HTML'), O('markdown', 'Markdown')],
+    old: 'Так открываются новые письма и ответы. Ящик может задать свой формат в его настройках, а в самом письме формат меняется переключателем «Текст · HTML · Markdown».' },
+  default_account: { t: 'choice', label: 'Ящик по умолчанию', v: '', opts: [O('', 'По контексту'), O('work', 'Работа'), O('home', 'Личный')],
+    old: 'Письмо всегда создаётся от этого ящика. «По контексту» берёт его из открытой папки или письма, иначе — первый ящик. Ответы и пересылки всегда уходят от того ящика, в который пришло письмо.',
+    hint: '«По контексту» берёт ящик из открытой папки или письма, иначе — первый. Ответы уходят от ящика, в который пришло письмо. ✎' },
+  image_max_px: { t: 'num', label: 'Уменьшать большие картинки', v: 1600, unit: 'px', min: 200, max: 8000, step: 100,
+    old: 'Картинка в тексте письма рисуется не шире этого размера по длинной стороне. Отменяется в самом письме, Ctrl+Z.' },
+  undo_send: { t: 'choice', label: 'Можно отменить отправку в течение', v: 10, opts: [O(0, 'не ждать'), O(5, '5 секунд'), O(10, '10 секунд'), O(20, '20 секунд'), O(30, '30 секунд')] },
+  attachments_dir: { t: 'folder', label: 'Папка для вложений', v: '', empty: 'Спрашивать каждый раз',
+    old: 'Вложения сохраняются сюда сразу, без выбора места; «Сохранить как…» рядом с вложением по-прежнему спрашивает. Пусто — спрашивать каждый раз.' },
+  templates: { t: 'html', html: () => '<p class="u" style="margin:2px 0 6px">Готовые тексты для типовых писем. Вставляются кнопкой «Шаблоны» в окне письма.</p>' +
+    '<div class="card"><div class="line"><input class="inp" style="flex:1" value="Счёт получен" tabindex="-1"><button class="btn ghost small" tabindex="-1">×</button></div><textarea class="inp" style="width:100%;height:48px;resize:none" tabindex="-1">Здравствуйте! Счёт получен, оплатим в течение трёх рабочих дней.</textarea></div>' +
+    '<button class="btn small" data-a="toast" data-msg="Добавится пустой шаблон">+ Добавить шаблон</button>',
+    old: 'Готовые тексты для типовых писем. Вставляются кнопкой «Шаблоны» в окне письма.', hintOnly: true },
+  day_start: { t: 'time', label: 'Начало дня', v: '9:00', old: '«Завтра», «Эти выходные», рабочие дни, «Следующая неделя» и «Следующий месяц»', hint: '«Завтра», «Эти выходные», рабочие дни, «Следующая неделя» и «Следующий месяц»' },
+  evening_start: { t: 'time', label: 'Начало вечера', v: '18:00', old: '«Вечером» (сегодня)', hint: '«Вечером» (сегодня)' },
+  work_days: { t: 'days', label: 'Рабочие дни', v: [1, 2, 3, 4, 5], warn: (v) => (v.length ? '' : 'Рабочих дней нет: «Рабочие дни», «Следующая неделя» и «Следующий месяц» в меню неактивны.') },
+  reminders: { t: 'html', html: () => '<p class="u" style="margin:2px 0 6px">Свои варианты списка «Напомнить, если не ответят», после стандартных. Добавляются здесь или через «Настроить…» при написании письма.</p>' +
+    '<div class="card"><div class="line"><input class="inp" style="flex:1" value="Через 3 дня" tabindex="-1"><button class="btn ghost small" tabindex="-1">↑</button><button class="btn ghost small" tabindex="-1">↓</button><button class="btn ghost small" tabindex="-1">×</button></div><div class="line"><select class="sel" tabindex="-1"><option>Через</option></select><input class="inp num" value="3" tabindex="-1"><select class="sel" tabindex="-1"><option>дня</option></select><span style="flex:1"></span><span class="u">Повторять до ответа · каждые</span><input class="inp num" value="1" tabindex="-1"><select class="sel" tabindex="-1"><option>день</option></select></div></div>' +
+    '<div class="card"><div class="line"><input class="inp" style="flex:1" value="В ближайший понедельник в 09:00" tabindex="-1"><button class="btn ghost small" tabindex="-1">↑</button><button class="btn ghost small" tabindex="-1">↓</button><button class="btn ghost small" tabindex="-1">×</button></div></div>' +
+    '<button class="btn small" data-a="toast" data-msg="Добавится вариант">+ Добавить вариант</button>',
+    old: 'Свои варианты списка «Напомнить, если не ответят», после стандартных. Добавляются здесь или через «Настроить…» при написании письма.', hintOnly: true },
+  keep_days: { t: 'num', label: 'Хранить закрытые ожидания', v: 90, unit: 'дней', min: 1, max: 3650, step: 1 },
+  waiting_link: { t: 'lnk', label: 'Убирать письмо из входящих, пока не ответят', text: 'Настроить у ящика', menu: 'waiting', old: 'Письмо, на которое вы ответили из «Входящих», переносится в папку «Ждут ответа» на сервере. Когда придёт ответ, оно вернётся во «Входящие».', hint: 'Письмо, на которое вы ответили из «Входящих», переносится в папку «Ждут ответа» на сервере. Когда придёт ответ, оно вернётся во «Входящие».' },
+  notify: { t: 'choice', label: 'Уведомления', v: 'people', opts: [O('people', 'Только о письмах от людей', 'рассылки и роботы не отвлекают'), O('all', 'Обо всех новых письмах'), O('none', 'Не показывать')],
+    old: 'Режим «Не беспокоить» включается колокольчиком внизу боковой панели.', hint: 'Режим «Не беспокоить» включается колокольчиком внизу боковой панели.' },
+  quota_warn: { t: 'toggle', label: 'Предупреждать, когда ящик заполнен', v: true },
+  quota_levels: { t: 'pair', label: 'Пороги', v: [90, 95], unit: '%', after: 'и при 100%', dep: 'quota_warn' },
+  quota_repeat: { t: 'choice', label: 'Повторять', v: 'threshold', opts: [O('threshold', 'при каждом новом пороге'), O('daily', 'и раз в сутки, пока не освободите место')], dep: 'quota_warn',
+    old: 'Пороги общие для всех ящиков. Одно предупреждение на порог: после синхронизации не повторяется. Если место освободили и порог пересечён снова — предупредим ещё раз. Свой лимит для ящика задаётся на его странице, в «Хранилище».' },
+  quota_own: { t: 'lnk', label: 'Свой лимит', text: 'Настроить у ящика', menu: 'quota', dep: 'quota_warn' },
+  large_mb: { t: 'numunit', label: 'Порог крупного письма', v: { n: 25, u: 'МБ' }, old: 'Для готовых запросов «Крупные…» в поиске и в Ctrl+K.', hint: 'Для готовых запросов «Крупные…» в поиске и в Ctrl+K.' },
+  close_action: { t: 'choice', label: 'Когда закрываю окно', v: 'ask', opts: [O('background', 'Оставлять Депешу работать в фоне', 'Проверяет почту и показывает уведомления, отправляет письма по расписанию, возвращает отложенные, следит за «Ждут ответа», докачивает письма для офлайна. Плагины работают как обычно.'), O('quit', 'Выходить из Депеши'), O('ask', 'Спрашивать каждый раз')],
+    old: 'Выйти можно всегда: «Выйти» в меню значка или Ctrl+Q.', hint: 'Выйти можно всегда: «Выйти» в меню значка или Ctrl+Q.' },
+  autostart: { t: 'choice', label: 'При входе в систему', v: 'off', opts: [O('off', 'Не запускать'), O('window', 'Запускать с окном'), O('background', 'Запускать в фоне')] },
+  tray_count: { t: 'toggle', label: 'Показывать число непрочитанных на значке', v: true, old: 'все непрочитанные во «Входящих»', hint: 'все непрочитанные во «Входящих»' },
+  tray_always: { t: 'toggle', label: 'Показывать значок, когда окно открыто', v: true },
+  offline: { t: 'choice', label: 'Скачивать письма целиком', v: '30', opts: [O('off', 'нет, только при открытии'), O('30', 'за последние 30 дней'), O('90', 'за последние 90 дней'), O('365', 'за последний год'), O('all', 'все письма')],
+    old: 'Скачанные письма открываются без сети и находятся поиском по тексту. Спам и корзина пропускаются; без вложений — и письма больше 2 МБ. Ход загрузки — в «Фоновых задачах».',
+    hint: 'Скачанные письма открываются без сети и находятся поиском по тексту. Спам и корзина пропускаются; без вложений — и письма больше 2 МБ. ✎' },
+  offline_attachments: { t: 'toggle', label: 'Письма с вложениями тоже', v: false, dis: () => V.offline === 'off', dep: true },
+  updates: { t: 'choice', label: 'Обновления', v: 'auto', opts: [O('auto', 'Устанавливать автоматически', 'новая версия начнёт работать после перезапуска'), O('notify', 'Только сообщать о новой версии'), O('off', 'Не проверять')] },
+  update_status: { t: 'act', label: 'Установлена версия 0.7.2.', text: 'Проверить сейчас', msg: 'Проверяю… Установлена последняя версия',
+    old: 'Каждое обновление подписано ключом проекта; неподписанное или изменённое Депеша не установит.' },
+  hints: { t: 'toggle', label: 'Показывать подсказки', v: true, old: 'Депеша может предложить запомнить формат или вид. Одна за раз, не больше трёх в день и никогда во время набора.', hint: 'Депеша может предложить запомнить формат или вид. Одна за раз, не больше трёх в день и никогда во время набора.' },
+  hints_list: { t: 'html', html: () => '<table class="tbl"><tr><th>Подсказка</th><th>О ком</th><th>Ответ</th></tr><tr><td>Писать в Markdown</td><td class="muted">boris@mail.example</td><td>принято</td></tr><tr><td>Отвечать в Markdown</td><td class="muted">любой</td><td>не сейчас</td></tr><tr><td>Запомнить вид писем</td><td class="muted">anna@firma.example</td><td>никогда</td></tr></table><button class="btn ghost small" data-a="toast" data-msg="Подсказки забыты">Спросить снова</button>' },
+};
+/* копии для образцов «отключённая строка» (1.6) */
+['a', 'b', 'c'].forEach((k) => {
+  ROWS['qw_' + k] = Object.assign({}, ROWS.quota_warn, { v: false });
+  ROWS['ql_' + k] = Object.assign({}, ROWS.quota_levels, { dep: 'qw_' + k, why: k === 'c' ? 'Включите «Предупреждать, когда ящик заполнен» ✎' : '' });
+});
+/* слои: ящик и люди */
+const L = { format: { acc: { work: '', home: 'markdown' }, ppl: { anna: 'plain', boris: 'markdown', vera: '' } }, view: { acc: { work: '', home: '' }, ppl: { anna: '', boris: 'text', vera: '' } } };
+ACC.forEach((a) => {
+  ROWS['af_' + a.id] = { t: 'lay', kind: 'format', level: 'acc', who: a.id, label: 'Формат писем' };
+  ROWS['av_' + a.id] = { t: 'lay', kind: 'view', level: 'acc', who: a.id, label: 'Показывать письма' };
+  Object.assign(ROWS, {
+    ['al_' + a.id]: { t: 'text', label: 'Название ящика', v: a.name },
+    ['an_' + a.id]: { t: 'text', label: 'Имя отправителя (видят получатели)', v: 'Иван Петров' },
+    ['ae_' + a.id]: { t: 'text', label: 'Адрес', v: a.email, ro: true },
+    ['ac_' + a.id]: { t: 'color', label: 'Цвет в сайдбаре и общих списках', v: a.id === 'work' ? '#3d7a8a' : '#8a5a3d' },
+    ['ad_' + a.id]: { t: 'folder', label: 'Папка для вложений', v: '', empty: 'Спрашивать каждый раз', inherit: true },
+    ['ak_' + a.id]: { t: 'act', label: 'Подключение', status: 'IMAP, SSL/TLS ✎', text: 'Изменить…', msg: 'Откроется блок подключения (без изменений)' },
+    ['as_' + a.id]: { t: 'html', html: () => '<table class="tbl"><tr><td>Рабочая</td><td><span class="chip own">по умолчанию</span></td><td class="muted">Иван Петров, ООО «Фирма»</td></tr><tr><td>Короткая</td><td></td><td class="muted">Иван</td></tr></table><button class="btn small" data-a="toast" data-msg="Откроется редактор подписи">+ Подпись</button>' },
+    ['ap_' + a.id]: { t: 'toggle', label: 'Убирать письмо из входящих, пока не ответят', v: a.id === 'work', old: 'Письмо, на которое вы ответили из «Входящих», переносится в папку «Ждут ответа» на сервере. Когда придёт ответ, оно вернётся во «Входящие». Папку видно и в других почтовых программах.', hint: 'Письмо, на которое вы ответили из «Входящих», переносится в папку «Ждут ответа» на сервере. Когда придёт ответ, оно вернётся во «Входящие».' },
+    ['af2_' + a.id]: { t: 'choice', label: 'Папка', v: 'new', opts: [O('new', 'Ждут ответа · создастся при первом ответе'), O('old', 'Ждут ответа')], dep: 'ap_' + a.id },
+    ['ao_' + a.id]: { t: 'choice', label: '«Не ждать» возвращает письмо', v: 'inbox', opts: [O('inbox', 'во «Входящие»'), O('archive', 'в «Архив»')], dep: 'ap_' + a.id },
+    ['aw_' + a.id]: { t: 'toggle', label: 'Предупреждать о заполнении ящика', v: true },
+    ['aq_' + a.id]: { t: 'choice', label: 'Лимит для предупреждений ✎', v: 'quota', opts: [O('quota', 'Лимит по квоте сервера (10 ГБ)'), O('own', 'Свой лимит')], dep: 'aw_' + a.id },
+    ['ag_' + a.id]: { t: 'num', label: 'Свой лимит', v: 8, unit: 'ГБ', min: 1, max: 1000, step: 1, dis: () => V['aq_' + a.id] !== 'own' || !V['aw_' + a.id], dep: true },
+    ['ar_' + a.id]: { t: 'html', html: () => '<p class="u" style="margin:2px 0 6px">Занято 6,2 ГБ из 10 ГБ · по данным сервера</p><button class="btn small" data-a="toast" data-msg="Ищу крупные письма">Найти крупные письма</button> <button class="btn small" data-a="toast" data-msg="Откроется корзина">Открыть корзину</button>' },
+    ['av2_' + a.id]: { t: 'act', label: 'Возможности сервера', status: 'IDLE, MOVE — всё есть ✎', text: 'Проверить ещё раз', msg: 'Проверено' },
+    ['am_' + a.id]: { t: 'html', html: () => '<p class="u" style="margin:2px 0">Таблица меток: название, где хранится, число писем, действия — без изменений.</p>' },
+  });
+});
+PPL.forEach((p) => {
+  ROWS['pf_' + p.id] = { t: 'lay', kind: 'format', level: 'ppl', who: p.id, label: 'Писать ему' };
+  ROWS['pv_' + p.id] = { t: 'lay', kind: 'view', level: 'ppl', who: p.id, label: 'Его письма показывать' };
+  Object.assign(ROWS, {
+    ['pn_' + p.id]: { t: 'text', label: 'Имя', v: p.name, old: 'Так имя покажется в подсказках адресов. Адресат его не видит.', hint: 'Так имя покажется в подсказках адресов. Адресат его не видит.' },
+    ['pa_' + p.id]: { t: 'text', label: 'Адреса', v: p.email, ro: true },
+    ['pt_' + p.id]: { t: 'area', label: 'Заметка', v: '' },
+    ['ph_' + p.id]: { t: 'toggle', label: 'Скрыть из подсказок адресов', v: false },
+  });
+});
+const V = {};
+Object.keys(ROWS).forEach((k) => { if ('v' in ROWS[k]) V[k] = typeof ROWS[k].v === 'object' ? JSON.parse(JSON.stringify(ROWS[k].v)) : ROWS[k].v; });
+V.theme = 'paper';
+const TIP = {};
+let PSEL = 'boris';
+
+/* ---------- группы и страницы ---------- */
+const G = (title, ids, extra) => Object.assign({ title, ids }, extra || {});
+const GRP = {
+  lang: G('Язык и оформление', ['language', 'theme']),
+  list: G('Список писем', ['threads', 'sender_logos']),
+  read: G('Чтение', ['letter_view', 'layer_view']),
+  new: G('Новые письма', ['compose_format', 'layer_format', 'default_account', 'image_max_px']),
+  send: G('Отправка', ['undo_send', 'attachments_dir']),
+  tpl: G('Шаблоны ответов', ['templates'], { plugin: true }),
+  snooze: G('Время для отложенных писем', ['day_start', 'evening_start', 'work_days'], { old: 'Для меню «Отложить». «Следующая неделя» и «Следующий месяц» ведут на первый из рабочих дней. Время вида 9:00 или 18:30.' }),
+  remind: G('Напоминания', ['reminders', 'keep_days'], { plugin: true }),
+  waiting: G('После ответа', ['waiting_link']),
+  notify: G('Уведомления', ['notify']),
+  space: G('Заполнение ящиков', ['quota_warn', 'quota_levels', 'quota_repeat', 'quota_own']),
+  big: G('Поиск', ['large_mb']),
+  offline: G('Офлайн-доступ', ['offline', 'offline_attachments']),
+  bg: G('Фон и запуск', ['close_action', 'autostart']),
+  tray: G('Значок в трее', ['tray_count', 'tray_always']),
+  updates: G('Обновления', ['updates', 'update_status']),
+  hints: G('Подсказки', ['hints', 'hints_list']),
+};
+const PGROUPS = { write: ['new', 'send', 'tpl'] };
+const ACCSEC = [['general', 'Общее'], ['letters', 'Письма и подписи'], ['storage', 'Хранилище'], ['server', 'Сервер'], ['labels', 'Метки']];
+function accGroups(a) {
+  return [
+    Object.assign(G('Общее', ['al_' + a, 'an_' + a, 'ae_' + a, 'ac_' + a, 'ad_' + a, 'ak_' + a]), { aid: 'general' }),
+    Object.assign(G('Письма и подписи', ['af_' + a, 'av_' + a, 'as_' + a, 'ap_' + a, 'af2_' + a, 'ao_' + a]), { aid: 'letters' }),
+    Object.assign(G('Хранилище', ['aw_' + a, 'aq_' + a, 'ag_' + a, 'ar_' + a]), { aid: 'storage' }),
+    Object.assign(G('Сервер', ['av2_' + a]), { aid: 'server' }),
+    Object.assign(G('Метки', ['am_' + a]), { aid: 'labels' }),
+  ];
+}
+const LAYOUTS = {
+  a: { first: 'view', sub: true, nav: [
+    { id: 'view', title: 'Вид', groups: ['lang', 'list', 'read'] },
+    { id: 'write', title: 'Написание и отправка', groups: ['new', 'send', 'tpl'] },
+    { id: 'later', title: 'Отложить и ждать', groups: ['snooze', 'remind', 'waiting'] },
+    { id: 'notify', title: 'Уведомления и место', groups: ['notify', 'space', 'big'] },
+    { id: 'system', title: 'Система', groups: ['bg', 'tray', 'offline', 'updates', 'hints'] },
+    { id: 'people', title: 'Люди', kind: 'people' }, { id: 'keys', title: 'Клавиши', kind: 'keys' },
+    { id: 'accounts', title: 'Ящики', kind: 'accounts' }, { id: 'plugins', title: 'Плагины', kind: 'plugins' }] },
+  b: { first: 'program', anchors: true, nav: [
+    { id: 'program', title: 'Программа', groups: ['lang', 'bg', 'tray', 'updates', 'hints'] },
+    { id: 'mail', title: 'Почта', groups: ['list', 'read', 'new', 'send', 'tpl', 'snooze', 'remind', 'waiting', 'notify', 'space', 'big', 'offline'] },
+    { id: 'people', title: 'Люди', kind: 'people' }, { id: 'keys', title: 'Клавиши', kind: 'keys' },
+    { id: 'accounts', title: 'Ящики', kind: 'accounts' }, { id: 'plugins', title: 'Плагины', kind: 'plugins' }] },
+  v: { first: 'read', nav: [
+    { g: 'Почта' },
+    { id: 'read', title: 'Чтение и список', groups: ['list', 'read'] },
+    { id: 'write', title: 'Написание', groups: ['new', 'send', 'tpl'] },
+    { id: 'later', title: 'Отложить и ждать', groups: ['snooze', 'remind', 'waiting'] },
+    { id: 'store', title: 'Хранение', groups: ['offline', 'space', 'big'] },
+    { g: 'Программа' },
+    { id: 'view', title: 'Вид и язык', groups: ['lang', 'hints'] },
+    { id: 'notify', title: 'Уведомления и значок', groups: ['notify', 'tray'] },
+    { id: 'start', title: 'Запуск и обновления', groups: ['bg', 'updates'] },
+    { id: 'keys', title: 'Клавиши', kind: 'keys' },
+    { g: 'Люди и ящики' },
+    { id: 'people', title: 'Люди', kind: 'people' }, { id: 'accounts', title: 'Ящики', kind: 'accounts' },
+    { g: 'Плагины' }, { id: 'plugins', title: 'Все плагины', kind: 'plugins' }] },
+};
+LAYOUTS.k = Object.assign({}, LAYOUTS.a, { first: 'write' });
+
+/* ---------- слои ---------- */
+const effGen = (kind) => (kind === 'format' ? V.compose_format : V.letter_view);
+const effAcc = (kind, a) => L[kind].acc[a] || effGen(kind);
+const lblEff = (kind, v) => (kind === 'format' ? FMT_L[v] : VIEW_L[v] || GVIEW_L[v]);
+const nPeople = (kind) => PPL.filter((p) => L[kind].ppl[p.id]).length;
+const nAcc = (kind) => ACC.filter((a) => L[kind].acc[a.id]).length;
+function plural(n, f) { const m = n % 10, h = n % 100; return n + ' ' + (m === 1 && h !== 11 ? f[0] : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? f[1] : f[2]); }
+function layerText(kind) {
+  const p = nPeople(kind), a = nAcc(kind), parts = [];
+  if (p) parts.push(p === 1 ? '1 человека' : plural(p, ['человека', 'людей', 'людей']));
+  if (a) parts.push(plural(a, ['ящика', 'ящиков', 'ящиков']));
+  return parts.length ? 'Своё у ' + parts.join(', ') : '';
+}
+
+/* ---------- отрисовка строк ---------- */
+function zopts(el) {
+  const d = el ? el.dataset : {};
+  return { rule: d.rule || S.choice, lay: d.lay || S.lay, hier: d.hier || S.hier, hints: d.hints || S.hints, layer: d.layer || S.layer, dm: d.dm || 'a', dis: !!d.dis, nogrp: !!d.nogrp };
+}
+const ti = () => (S.kbd === 'B' ? ' tabindex="-1"' : '');
+function choiceMode(r, rule) {
+  if (r.t === 'theme') return 'tiles';
+  const o = r.opts;
+  if (rule === 'A') return o.length <= 3 && o.reduce((n, x) => n + x.l.length, 0) <= 40 ? 'seg' : 'drop';
+  if (rule === 'B') return 'drop';
+  return o.some((x) => x.d) ? 'rad' : 'drop';
+}
+function selOpts(opts, val) { return opts.map((o) => `<option value="${esc(o.v)}"${String(o.v) === String(val) ? ' selected' : ''}>${esc(o.l)}</option>`).join(''); }
+function hintBlock(r, id, z, extra) {
+  let txt = z.hints === 'A' ? r.old : r.hint;
+  if (r.hintOnly && z.hints === 'A') txt = null;
+  if (r.hintOnly) txt = null;
+  const out = [];
+  let tip = false;
+  if (txt) {
+    if (z.hints === 'C') { tip = true; out.push(`<div class="h" data-tipbox${TIP[id] ? '' : ' hidden'}>${esc(txt)}</div>`); }
+    else out.push(`<div class="h">${esc(txt)}</div>`);
+  }
+  if (extra) out.push(`<div class="h">${esc(extra)}</div>`);
+  return { html: out.join(''), tip };
+}
+function control(id, r, z, dis) {
+  const val = V[id], d = dis ? ' disabled' : '';
+  switch (r.t) {
+    case 'toggle': return `<button class="sw" role="switch" aria-checked="${!!val}" aria-label="${esc(r.label)}" data-a="tog" data-id="${id}" data-main${ti()}${d}></button>`;
+    case 'choice': {
+      const m = choiceMode(r, z.rule);
+      if (m === 'seg') return `<div class="seg" role="radiogroup" aria-label="${esc(r.label)}">${r.opts.map((o) => `<button role="radio" aria-checked="${String(o.v) === String(val)}" data-a="set" data-id="${id}" data-v="${esc(o.v)}"${ti()}${d}>${esc(o.l)}</button>`).join('')}</div>`;
+      return `<select class="sel" aria-label="${esc(r.label)}" data-a="sel" data-id="${id}" data-main${ti()}${d}>${selOpts(r.opts, val)}</select>`;
+    }
+    case 'num': return `<input class="inp num" inputmode="numeric" aria-label="${esc(r.label)}" data-a="num" data-id="${id}" data-main value="${esc(val)}"${ti()}${d}><span class="u">${esc(r.unit)}</span>`;
+    case 'numunit': return `<input class="inp num" inputmode="numeric" aria-label="${esc(r.label)}" data-a="num" data-id="${id}" data-f="n" data-main value="${val.n}"${ti()}${d}><select class="sel" aria-label="Единица" data-a="sel" data-id="${id}" data-f="u"${ti()}${d}>${['МБ', 'ГБ'].map((u) => `<option${u === val.u ? ' selected' : ''}>${u}</option>`).join('')}</select>`;
+    case 'pair': return val.map((n, i) => `<input class="inp num" inputmode="numeric" aria-label="${esc(r.label)} ${i + 1}" data-a="num" data-id="${id}" data-f="${i}"${i ? '' : ' data-main'} value="${n}"${ti()}${d}><span class="u">${r.unit}</span>`).join('') + `<span class="u">${r.after}</span>`;
+    case 'time': return `<input class="inp time${/^([01]?\d|2[0-3]):[0-5]\d$/.test(val) ? '' : ' bad'}" aria-label="${esc(r.label)}" data-a="time" data-id="${id}" data-main value="${esc(val)}"${ti()}${d}>`;
+    case 'folder': return `<div class="fold"><span class="path${val ? '' : ' ph'}">${esc(val || (r.inherit ? 'Как в общих' : r.empty))}</span><button class="btn small" data-a="fold" data-id="${id}" data-main${ti()}${d}>Выбрать…</button>${val ? `<button class="btn ghost small" data-a="foldclr" data-id="${id}" aria-label="Очистить"${ti()}${d}>×</button>` : ''}</div>`;
+    case 'days': return `<div class="days" role="group" aria-label="${esc(r.label)}">${DAYS.map((n, i) => `<button class="day${(r.cur === i && dis !== true && false) ? ' cur' : ''}" role="checkbox" aria-checked="${val.includes(i + 1)}" data-a="day" data-id="${id}" data-v="${i + 1}"${i === 0 ? ' data-main' : ''}${ti()}${d}>${n}</button>`).join('')}</div>`;
+    case 'act': return `<button class="btn" data-a="act" data-id="${id}" data-main${ti()}${d}>${esc(r.text)}</button>`;
+    case 'lnk': return `<button class="lnk" data-a="lnk" data-id="${id}" data-main${ti()}${d}>${esc(r.text)} ›</button>`;
+    case 'text': return `<input class="inp txt" aria-label="${esc(r.label)}" data-a="txt" data-id="${id}" data-main value="${esc(val)}"${r.ro ? ' disabled' : ''}${ti()}${d}>`;
+    case 'area': return `<textarea class="inp" aria-label="${esc(r.label)}" data-a="txt" data-id="${id}" data-main placeholder="Что стоит помнить"${ti()}${d}>${esc(val)}</textarea>`;
+    case 'color': return `<div class="colors" role="radiogroup">${['#3d7a8a', '#8a5a3d', '#6a4f8a', '#4f8a5a', '#b3261e'].map((c) => `<button class="cdot" style="--c:${c}" role="radio" aria-checked="${val === c}" aria-label="${c}" data-a="set" data-id="${id}" data-v="${c}"${ti()}${d}></button>`).join('')}</div>`;
+  }
+  return '';
+}
+function layRow(id, r, z) {
+  const kind = r.kind, own = L[kind][r.level][r.who] || '';
+  const inh = r.level === 'acc' ? effGen(kind) : effAcc(kind, 'work');
+  const word = r.level === 'acc' ? 'Как в общих' : 'Как в ящике';
+  const list = kind === 'format' ? ['plain', 'html', 'markdown'] : ['html', 'markdown', 'text'];
+  const mark = z.layer !== 'A';
+  const first = mark ? `${word} — ${lblEff(kind, inh)}` : `${word} (${lblEff(kind, inh)})`;
+  const opts = [O('', first)].concat(list.map((v) => O(v, kind === 'format' ? FMT_L[v] : VIEW_L[v])));
+  const dis = z.dis;
+  let ch = `<select class="sel${mark && !own ? ' inh' : ''}" aria-label="${esc(r.label)}" data-a="lay" data-id="${id}" data-main${ti()}${dis ? ' disabled' : ''}>${selOpts(opts, own)}</select>`;
+  if (mark) ch = (own ? `<span class="chip own">своё</span>` : `<span class="chip">${word.toLowerCase()}</span>`) + ch + (own ? `<button class="lnk" data-a="lyreset" data-id="${id}"${ti()}>Сбросить</button>` : '');
+  return `<div class="rw${dis ? ' dis' : ''}" tabindex="${S.kbd === 'B' ? -1 : ''}" data-id="${id}" data-rid="${id}" data-t="lay"><div class="lab"><div class="t">${esc(r.label)}</div></div><div class="c">${ch}</div></div>`.replace(' tabindex=""', '');
+}
+function row(id, z) {
+  if (id === 'layer_format' || id === 'layer_view') {
+    if (z.layer === 'B') return '';
+    const kind = id === 'layer_format' ? 'format' : 'view', txt = layerText(kind);
+    if (!txt) return '';
+    return `<div class="rw dep" ${S.kbd === 'B' ? 'tabindex="-1" ' : ''}data-id="${id}" data-rid="${id}" data-t="lnk"><div class="lab"><div class="t"><button class="lnk" data-a="lyr" data-kind="${kind}" data-main${ti()}>${txt} ›</button></div></div></div>`;
+  }
+  const r = ROWS[id];
+  if (!r) return '';
+  if (r.t === 'lay') return layRow(id, r, z);
+  let dis = z.dis || (r.dep && typeof r.dep === 'string' && !V[r.dep]) || (r.dis && r.dis());
+  if (r.dep === true && r.dis && r.dis()) dis = true;
+  if (dis && z.dm === 'b' && typeof r.dep === 'string' && !z.dis) return '';
+  const dependent = !!r.dep;
+  const tabi = S.kbd === 'B' ? ' tabindex="-1"' : '';
+  const base = `class="rw${dis ? ' dis' : ''}${dependent ? ' dep' : ''}%BLK%" ${tabi}data-id="${id}" data-rid="${id}" data-t="${r.t}"`;
+  if (r.t === 'html') {
+    const hb = z.hints === 'A' && r.old ? '' : '';
+    return `<div ${base.replace('%BLK%', ' blk')}>${r.html()}</div>`;
+  }
+  const val = V[id];
+  let extra = '', dyn = '';
+  if (r.t === 'choice') { const o = r.opts.find((x) => String(x.v) === String(val)); if (o && o.d && choiceMode(r, z.rule) !== 'rad') dyn = o.d; }
+  if (r.t === 'theme' && r.dyn) dyn = r.dyn(val);
+  const warn = r.warn ? r.warn(val) : '';
+  const hb = hintBlock(r, id, z, dyn);
+  const why = dis && r.why ? `<div class="h">${esc(r.why)}</div>` : '';
+  const tipb = hb.tip ? `<button class="tipb" data-a="tip" data-id="${id}" aria-label="Подсказка" title="Подсказка"${ti()}>?</button>` : '';
+  const nw = /✎/.test(r.label) ? '' : '';
+  const lab = `<div class="lab"><div class="t">${esc(r.label)}${tipb}</div>${hb.html}${warn ? `<div class="h warn">${esc(warn)}</div>` : ''}${why}${r.status ? `<div class="h">${esc(r.status)}</div>` : ''}</div>`;
+  if (r.t === 'theme') {
+    return `<div ${base.replace('%BLK%', ' blk')}>${lab}<div class="themes" role="radiogroup">${r.opts.map((o) => `<button class="tile" role="radio" aria-checked="${o.v === val}" data-a="set" data-id="${id}" data-v="${o.v}"${ti()}${dis ? ' disabled' : ''}><span class="swatch ${o.v}"><i></i><b></b></span>${o.l}</button>`).join('')}</div></div>`;
+  }
+  if (r.t === 'choice' && choiceMode(r, z.rule) === 'rad') {
+    return `<div ${base.replace('%BLK%', ' blk')}>${lab}<div class="rad" role="radiogroup">${r.opts.map((o) => `<label role="radio" tabindex="${S.kbd === 'B' ? -1 : 0}" aria-checked="${String(o.v) === String(val)}" data-a="set" data-id="${id}" data-v="${esc(o.v)}"><span class="dot"></span><span>${esc(o.l)}${o.d ? `<span class="d">${esc(o.d)}</span>` : ''}</span></label>`).join('')}</div></div>`;
+  }
+  return `<div ${base.replace('%BLK%', '')}>${lab}<div class="c">${control(id, r, z, dis)}</div></div>`;
+}
+function grp(g, z) {
+  const rows = g.ids.map((id) => row(id, z)).join('');
+  if (!rows.trim()) return '';
+  const desc = z.hints === 'A' && g.old ? g.old : g.desc;
+  return `<section class="grp"${g.aid ? ` id="a-${g.aid}"` : ''} data-g="${esc(g.title)}"><h4>${esc(g.title)}${g.plugin ? '<span class="tagp">плагин</span>' : ''}</h4>${desc ? `<div class="gd">${esc(desc)}</div>` : ''}<div class="gb">${rows}</div></section>`;
+}
+
+/* ---------- всплывающее меню, тост ---------- */
+let POP = null;
+function closePop(refocus) { if (POP) { const r = POP.ret; POP.el.remove(); POP = null; if (refocus && r && r.isConnected) r.focus(); } }
+function openMenu(anchor, items, onPick, ret) {
+  closePop(false);
+  const el = document.createElement('div'); el.className = 'pop theme'; el.tabIndex = -1;
+  el.innerHTML = items.map((it, i) => it.t ? `<div class="mt">${esc(it.t)}</div>` : `<div class="mi" data-i="${i}">${esc(it.l)}${it.h ? `<span class="hint">${esc(it.h)}</span>` : ''}</div>`).join('');
+  document.body.appendChild(el);
+  const rc = anchor.getBoundingClientRect();
+  el.style.left = Math.max(8, Math.min(window.scrollX + rc.left, window.scrollX + document.documentElement.clientWidth - 320)) + 'px';
+  el.style.top = (window.scrollY + rc.bottom + 4) + 'px';
+  const real = $$('.mi', el); let cur = 0; real[0].classList.add('cur');
+  const mv = (d) => { real[cur].classList.remove('cur'); cur = (cur + d + real.length) % real.length; real[cur].classList.add('cur'); };
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); mv(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); mv(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); const it = items[+real[cur].dataset.i]; closePop(true); onPick(it); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(true); }
+  });
+  el.addEventListener('click', (e) => { const m = e.target.closest('.mi'); if (m) { const it = items[+m.dataset.i]; closePop(true); onPick(it); } });
+  POP = { el, ret: ret || anchor };
+  el.focus();
+}
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = 'none'), 2200); }
+
+/* ---------- значения ---------- */
+function applyTheme(v) {
+  const dark = v === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : false;
+  document.body.classList.remove('night', 'snow', 'graphite');
+  if (v === 'night' || dark) document.body.classList.add('night');
+  else if (v === 'snow') document.body.classList.add('snow');
+  else if (v === 'graphite') document.body.classList.add('graphite');
+  $$('.ctl [data-k="theme"]').forEach((b) => b.classList.toggle('on', b.dataset.v === (v === 'night' ? 'night' : 'paper')));
+}
+function coerce(id, raw) { const r = ROWS[id]; if (r && r.opts) { const o = r.opts.find((x) => String(x.v) === String(raw)); if (o) return o.v; } return raw; }
+function setVal(id, v, f) {
+  if (f !== undefined && f !== null && f !== '') { if (id === 'large_mb' && f === 'n') V[id].n = v; else if (id === 'large_mb') V[id].u = v; else V[id][+f] = v; }
+  else V[id] = v;
+  if (id === 'theme') applyTheme(v);
+  renderAll();
+}
+const cycle = (arr, cur, d) => arr[(arr.indexOf(cur) + d + arr.length) % arr.length];
+
+/* ---------- окна ---------- */
+const WINS = [], ZONES = [];
+function pageDef(w, pid) {
+  if (pid.startsWith('acc:')) { const a = ACC.find((x) => 'acc:' + x.id === pid); return { id: pid, title: a.name, sub: a.email, kind: 'acc', a: a.id, groups: [] }; }
+  return w.def.nav.find((n) => n.id === pid);
+}
+function pageGroups(w, pid) { const p = pageDef(w, pid); if (!p) return []; if (p.kind === 'acc') return accGroups(p.a); return (p.groups || []).map((k) => GRP[k]); }
+class Win {
+  constructor(root, def) {
+    this.root = root; this.def = def; this.cur = def.first; this.q = ''; this.cr = null;
+    root.classList.add('win', 'theme');
+    root.innerHTML = `<nav class="nav" aria-label="Настройки"><h3>Настройки</h3><div class="psearch"><span style="width:12px;height:12px;border:1.5px solid currentColor;border-radius:50%;flex:none"></span><input type="search" placeholder="Найти настройку" aria-label="Найти настройку"><kbd>Ctrl+F</kbd></div><div class="tabs" role="tablist" aria-orientation="vertical"></div></nav><div class="pane"><header></header><div class="content rz" role="tabpanel"></div><footer></footer></div>`;
+    this.tabs = $('.tabs', root); this.head = $('header', root); this.content = $('.content', root); this.foot = $('footer', root); this.search = $('input', root); this.ps = $('.psearch', root);
+    this.search.addEventListener('input', () => { this.q = this.search.value; this.ps.classList.toggle('on', !!this.q.trim()); this.draw(); });
+    root.addEventListener('keydown', (e) => this.key(e));
+    WINS.push(this); this.drawNav(); this.draw();
+  }
+  items() { const out = []; this.def.nav.forEach((n) => { if (n.g) return; out.push(n); if (this.def.sub && n.id === 'accounts') ACC.forEach((a) => out.push({ id: 'acc:' + a.id, title: a.name, sub: true })); }); return out; }
+  drawNav() {
+    this.tabs.innerHTML = this.def.nav.map((n) => {
+      if (n.g) return `<div class="ngroup">${n.g}</div>`;
+      const sel = (this.cur === n.id) || (n.id === 'accounts' && this.cur.startsWith('acc:') && !this.def.sub);
+      let h = `<button class="tab" role="tab" data-a="nav" data-p="${n.id}" aria-selected="${sel}" tabindex="${sel ? 0 : -1}"><i class="ico"></i><span>${esc(n.title)}</span></button>`;
+      if (this.def.sub && n.id === 'accounts') h += ACC.map((a) => { const s = this.cur === 'acc:' + a.id; return `<button class="tab sub" role="tab" data-a="nav" data-p="acc:${a.id}" aria-selected="${s}" tabindex="${s ? 0 : -1}"><span>${esc(a.name)}</span></button>`; }).join('');
+      return h;
+    }).join('');
+  }
+  go(pid, anchor, focusRow) {
+    closePop(false); this.cur = pid; this.q = ''; this.search.value = ''; this.ps.classList.remove('on'); this.cr = null; this.drawNav(); this.draw();
+    this.content.scrollTop = 0;
+    if (anchor) { const el = $(`[data-g="${anchor}"]`, this.content) || $('#a-' + anchor, this.content); if (el) el.scrollIntoView({ block: 'start' }); }
+    if (focusRow) this.focusFirst();
+  }
+  focusFirst() { const r = $('.rw:not(.dis)', this.content) || $('.rw', this.content); if (r) { if (S.kbd === 'B') r.focus(); else { const c = $('[data-main],button,select,input', r); (c || r).focus(); } } }
+  focusNav() { const t = $('.tab[aria-selected="true"]', this.tabs) || $('.tab', this.tabs); if (t) t.focus(); }
+  draw() {
+    const z = zopts(null); const p = pageDef(this, this.cur); const sc = this.content.scrollTop;
+    this.content.className = `content rz lay-${z.lay.toLowerCase()} h${z.hier}`;
+    if (this.q.trim()) {
+      const hits = this.hits(this.q);
+      this.head.innerHTML = `<h2>Найти настройку</h2><span class="sub">${hits.length ? `Найдено: ${hits.length} по запросу «${esc(this.q.trim())}»` : 'Ничего не найдено'}</span>`;
+      this.content.innerHTML = `<div class="col">${hits.map((h, i) => `<button class="hit" data-a="hit" data-i="${i}"><span class="g">${esc(h.group)}${h.sec ? ` · ${esc(h.sec)}` : ''}</span><span class="l">${esc(h.label)}</span></button>`).join('')}</div>`;
+      this.hitList = hits; this.foot.innerHTML = ''; return;
+    }
+    this.head.innerHTML = `<h2>${esc(p.title)}</h2>${p.sub ? `<span class="sub">${esc(p.sub)}</span>` : ''}`;
+    let body = '';
+    if (p.kind === 'people') body = this.people(z);
+    else if (p.kind === 'keys') body = this.keys();
+    else if (p.kind === 'accounts') body = this.accounts();
+    else if (p.kind === 'plugins') body = this.plugins();
+    else {
+      const gs = pageGroups(this, this.cur);
+      const anch = (this.def.anchors && gs.length > 4) || p.kind === 'acc';
+      const titles = p.kind === 'acc' ? ACCSEC : gs.map((g) => [g.title, g.title]);
+      body = (anch ? `<nav class="anch" aria-label="Якоря">${titles.map(([k, t]) => `<a href="#" data-a="anch" data-k="${esc(p.kind === 'acc' ? 'a-' + k : k)}" tabindex="${S.kbd === 'B' ? -1 : 0}">${esc(t)}</a>`).join('')}</nav>` : '') + gs.map((g) => grp(g, z)).join('');
+    }
+    this.content.innerHTML = `<div class="col"${['people', 'keys'].includes(p.kind) ? ' style="max-width:none"' : ''}>${body}</div>`;
+    this.content.scrollTop = sc;
+    if (S.kbd === 'B') { const rows = $$('.rw', this.content); const keep = this.cr && rows.find((r) => r.dataset.rid === this.cr); (keep || rows[0]) && (keep || rows[0]).setAttribute('tabindex', '0'); }
+    const selfSave = ['people', 'keys', 'accounts', 'plugins', 'acc'].includes(p.kind);
+    this.foot.innerHTML = selfSave ? '' : S.apply === 'btn' ? `<span class="sp"></span><button class="btn ghost" data-a="cancel">Отмена</button><button class="btn primary" data-a="save">Сохранить</button>` : `<span>Изменения применяются сразу</span>`;
+  }
+  hits(q) {
+    const n = q.trim().toLowerCase(), out = [];
+    this.def.nav.concat(ACC.map((a) => ({ id: 'acc:' + a.id, title: a.name, kind: 'acc', a: a.id }))).forEach((p) => {
+      if (p.g || p.kind === 'people' || p.kind === 'keys' || p.kind === 'accounts' || p.kind === 'plugins') { if (p.title && p.title.toLowerCase().includes(n)) out.push({ page: p.id, group: p.title, label: p.title }); return; }
+      pageGroups(this, p.id).forEach((g) => g.ids.forEach((id) => {
+        const r = ROWS[id]; if (!r || !r.label) return;
+        if (r.label.toLowerCase().includes(n) || g.title.toLowerCase().includes(n)) out.push({ page: p.id, group: p.title, sec: g.title, label: r.label.replace(' ✎', ''), id, g: g.title });
+      }));
+    });
+    return out;
+  }
+  people() {
+    const z = zopts(null); z.layer = S.layer;
+    const list = PPL.map((p) => `<button class="pr${p.id === PSEL ? ' on' : ''}" data-a="psel" data-p="${p.id}"><span class="av" style="background:${p.c}">${p.ini}</span><span><span>${p.name}</span><span class="em">${p.email}</span></span></button>`).join('');
+    const ids = ['pn_', 'pa_', 'pf_', 'pv_', 'pt_', 'ph_'].map((x) => x + PSEL);
+    return `<div class="people" style="max-width:none"><div class="pl"><div class="psearch" style="margin:0"><span style="width:12px;height:12px;border:1.5px solid currentColor;border-radius:50%;flex:none"></span><input placeholder="Найти человека ✎" tabindex="-1"></div><div class="chips"><span class="fchip on">Все</span><span class="fchip">С особым форматом</span><span class="fchip">Добавленные мной</span><span class="fchip">Скрытые</span></div><div>${list}</div></div><div class="pd"><div class="grp"><div class="gb">${ids.map((i) => row(i, z)).join('')}</div></div></div></div>`;
+  }
+  keys() { return `<div class="rw" style="display:block"><div class="seg" style="margin-right:8px"><button aria-checked="true" role="radio">Все</button><button aria-checked="false" role="radio">Изменённые</button></div><input class="inp" style="width:230px" placeholder="Действие или клавиша" tabindex="-1"> <button class="btn small" tabindex="-1">Нажать</button> <button class="btn ghost small" tabindex="-1">Сбросить всё</button></div>${['Везде', 'Список и письмо', 'Окно письма', 'Другие команды'].map((t) => `<section class="grp"><h4>${t}</h4><div class="gb"><div class="rw" style="min-height:34px"><div class="lab"><div class="t muted">…команды группы и их клавиши — таблица без изменений (#46)</div></div></div></div></section>`).join('')}`; }
+  accounts() { return `<section class="grp"><div class="gb">${ACC.map((a) => `<div class="rw" ${S.kbd === 'B' ? 'tabindex="-1" ' : ''}data-rid="acc-${a.id}" data-t="lnk"><div class="lab"><div class="t">${a.name}</div><div class="h">${a.email}</div></div><div class="c"><button class="lnk" data-a="nav" data-p="acc:${a.id}" data-main${ti()}>Настроить ›</button></div></div>`).join('')}</div></section><button class="btn" data-a="toast" data-msg="Откроется мастер добавления ящика"${ti()}>+ Добавить ящик</button>`; }
+  plugins() { return `<section class="grp"><div class="gb"><div class="rw" data-rid="pl1" ${S.kbd === 'B' ? 'tabindex="-1" ' : ''}><div class="lab"><div class="t">Напоминания</div><div class="h">Ждут ответа</div></div><div class="c"><button class="sw" role="switch" aria-checked="true" disabled></button></div></div><div class="rw" data-rid="pl2" ${S.kbd === 'B' ? 'tabindex="-1" ' : ''}><div class="lab"><div class="t">Шаблоны ответов</div><div class="h">Готовые тексты для типовых писем; вставляются из окна письма.</div></div><div class="c"><button class="sw" role="switch" aria-checked="true" disabled></button></div></div></div></section><p class="u">Менеджер плагинов (установка, список, выключение) — без изменений. Настройки встроенных плагинов — в разделах, к которым они относятся (вопрос 2.4).</p>`; }
+  key(e) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') { e.preventDefault(); this.search.focus(); this.search.select(); return; }
+    if (e.target === this.search) { if (e.key === 'Escape' && this.q) { e.preventDefault(); e.stopPropagation(); this.search.value = ''; this.q = ''; this.ps.classList.remove('on'); this.draw(); } else if (e.key === 'ArrowDown' && this.q.trim()) { e.preventDefault(); const h = $('.hit', this.content); if (h) h.focus(); } return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'PageDown' || e.key === 'PageUp')) { e.preventDefault(); const it = this.items(); const i = it.findIndex((x) => x.id === this.cur); const n = it[(i + (e.key === 'PageDown' ? 1 : -1) + it.length) % it.length]; this.go(n.id); this.focusFirst(); return; }
+    if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); this.focusNav(); return; }
+    if (e.target.closest('.tabs') && e.target.classList.contains('tab')) {
+      const it = this.items(); const i = it.findIndex((x) => x.id === this.cur);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = it[(i + (e.key === 'ArrowDown' ? 1 : -1) + it.length) % it.length]; this.go(n.id); this.focusNav(); }
+      else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); this.focusFirst(); }
+      return;
+    }
+    if (e.target.classList.contains('hit') && e.key === 'Enter') { e.preventDefault(); this.openHit(+e.target.dataset.i); }
+  }
+  openHit(i) {
+    const h = this.hitList[i]; if (!h) return; this.go(h.page);
+    if (!h.id) return;
+    const row = $(`.rw[data-rid="${h.id}"]`, this.content); if (!row) return;
+    row.scrollIntoView({ block: 'center' }); row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1500);
+    this.cr = h.id;
+    if (HITFOCUS) { if (S.kbd === 'B') row.focus(); else { const c = $('[data-main]', row); (c || row).focus(); } }
+  }
+}
+const HITFOCUS = true;
+
+/* ---------- старое окно (экран 0) ---------- */
+function mk(n, st) { return `<i class="mk" style="${st || 'left:-22px;top:6px'}">${n}</i>`; }
+const oR = (label, on, note, m) => `<div class="c-radio${on ? ' on' : ''}"><span class="rd"></span><span class="tx">${label}${note ? `<span class="note">${note}</span>` : ''}</span>${m ? mk(m, 'left:-22px;top:2px') : ''}</div>`;
+const oC = (label, on, note, m) => `<div class="chk${on ? ' on' : ''}"><span class="bx"></span><span class="tx" style="display:flex;flex-direction:column;gap:2px">${label}${note ? `<span class="note">${note}</span>` : ''}</span>${m ? mk(m, 'left:-22px;top:2px') : ''}</div>`;
+const oS = (t) => `<span class="sel">${t} ▾</span>`;
+const oI = (v, w) => `<span class="inp num" style="${w ? 'width:' + w : ''}">${v}</span>`;
+const OLD_NAV = [['general', 'Общие'], ['background', 'Фон и запуск'], ['mail', 'Почта'], ['people', 'Люди'], ['notifications', 'Уведомления'], ['keys', 'Клавиши'], ['offline', 'Офлайн-доступ'], ['updates', 'Обновления'], ['g', 'Ящики'], ['accounts', 'Все ящики'], ['acc:work', 'Работа', 1], ['acc:home', 'Личный', 1], ['g', 'Плагины'], ['plugins', 'Все плагины'], ['pl:rem', 'Напоминания', 1], ['pl:tpl', 'Шаблоны ответов', 1]];
+const OLD_PAGES = {
+  general: () => `<section>${mk(1, 'left:-22px;top:14px')}<h4>Язык</h4>${oR('Как в системе', 1)}${oR('English')}${oR('Русский')}</section>
+<section>${mk(1, 'left:-22px;top:14px')}<h4>Оформление</h4><div class="themes">${['paper:Бумага', 'night:Ночь', 'snow:Снег', 'graphite:Графит', 'system:Как в системе'].map((x, i) => `<span class="tile" style="${i === 4 ? 'border-color:var(--accent)' : ''}"><span class="swatch ${x.split(':')[0]}"><i></i><b></b></span>${x.split(':')[1]}</span>`).join('')}</div><p class="hintp">«Бумага» или «Ночь» — вслед за светлым или тёмным режимом системы.</p></section>
+<section>${mk(2, 'left:-22px;top:14px')}<h4>Поиск</h4><div class="inline"><span>Порог крупного письма</span>${oI(25)}${oS('МБ')}</div><p class="hintp">Для готовых запросов «Крупные…» в поиске и в Ctrl+K.</p></section>
+<section>${mk(4, 'left:-22px;top:14px')}<h4>Время для отложенных писем</h4><div class="inline"><span class="lbl120">Начало дня</span>${oI('9:00', '72px')}<span class="note">«Завтра», «Эти выходные», рабочие дни, «Следующая неделя» и «Следующий месяц»</span></div><div class="inline"><span class="lbl120">Начало вечера</span>${oI('18:00', '72px')}<span class="note">«Вечером» (сегодня)</span></div><div class="inline" style="align-items:flex-start"><span class="lbl120">Рабочие дни</span><span style="display:flex;flex-wrap:wrap;gap:4px 12px">${DAYS.map((d, i) => `<span class="dayl${i < 5 ? ' on' : ''}"><span class="bx"></span>${d}</span>`).join('')}</span></div><p class="hintp">Для меню «Отложить». «Следующая неделя» и «Следующий месяц» ведут на первый из рабочих дней. Время вида 9:00 или 18:30.</p></section>
+<section><h4>Подсказки</h4><p class="hintp" style="margin-top:0">Депеша может предложить запомнить формат или вид. Одна за раз, не больше трёх в день и никогда во время набора.</p>${oC('Показывать подсказки', 1)}<p class="note" style="margin:6px 0">Подсказка · О ком · Ответ — список решений, «Спросить снова»</p></section>`,
+  background: () => `<section>${mk(1, 'left:-22px;top:14px')}<h4>Когда закрываю окно</h4>${oS('Спрашивать каждый раз')}<p class="hintp">Выйти можно всегда: «Выйти» в меню значка или Ctrl+Q.</p></section><section><h4>При входе в систему</h4>${oS('Не запускать')}</section><section><h4>Значок в трее</h4>${oC('Показывать число непрочитанных на значке', 1, 'все непрочитанные во «Входящих»')}${oC('Показывать значок, когда окно открыто', 1)}</section><section><h4>Пока Депеша в фоне</h4><p class="hintp" style="margin-top:0">Проверяет почту и показывает уведомления, отправляет письма по расписанию, возвращает отложенные, следит за «Ждут ответа», докачивает письма для офлайна. Плагины работают как обычно.</p></section>`,
+  mail: () => `<section><h4>Список писем</h4>${oC('Собирать переписку в цепочки', 1)}${oC('Логотипы компаний рядом с их письмами', 1, 'Логотипы, которые компания публикует сама (BIMI)… Скачиваются с сайта компании раз в неделю…')}</section>
+<section><h4>Новые письма</h4><div class="inline">${mk(1, 'left:-22px;top:6px')}<span>Формат новых писем</span>${oS('HTML')}</div><p class="hintp">Так открываются новые письма и ответы. Ящик может задать свой формат в его настройках…</p><div class="inline"><span>Уменьшать большие картинки</span>${oI(1600)}<span>px</span></div><p class="hintp">Картинка в тексте письма рисуется не шире этого размера…</p><div class="inline"><span>Ящик по умолчанию</span>${oS('По контексту')}</div><p class="hintp">Письмо всегда создаётся от этого ящика…</p></section>
+<section><h4>Чтение</h4><div style="position:relative">${mk(1, 'left:-22px;top:0')}Показывать письма</div>${oR('Как прислал отправитель', 1, 'Самый богатый вид из присланных: обычно HTML…')}${oR('Предпочитать Markdown', 0, 'Если в письме есть Markdown-часть…')}${oR('Предпочитать обычный текст', 0, 'Без оформления и картинок…')}<p class="hintp">В самом письме вид меняется переключателем над текстом.</p></section>
+<section>${mk(5, 'left:-22px;top:14px')}<h4>Формат для отдельных людей</h4><div class="peoplelink"><span>Формат отправки и вид показа задаются у человека, в «Людях».</span><span style="flex:1"></span><span class="btn small">Открыть «Люди»</span></div></section>
+<section>${mk(2, 'left:-22px;top:14px')}<h4>Папка для вложений</h4><div class="fold"><span class="path ph">Спрашивать каждый раз</span><span class="btn small">Выбрать…</span></div><p class="hintp">Вложения сохраняются сюда сразу, без выбора места…</p></section><section><h4>Отправка</h4><div class="inline"><span>Можно отменить отправку в течение</span>${oS('10 секунд')}</div></section>`,
+  notifications: () => `<section>${mk(4, 'left:-22px;top:14px')}${oR('Только о письмах от людей', 1, '— рассылки и роботы не отвлекают')}${oR('Обо всех новых письмах')}${oR('Не показывать')}<p class="hintp">Режим «Не беспокоить» включается колокольчиком внизу боковой панели.</p></section><section><h4>Заполнение ящиков</h4>${oC('Предупреждать, когда ящик заполнен', 1, '', 3)}<div class="inline">Пороги ${oI(90, '56px')}% ${oI(95, '56px')}% и при 100%</div><div class="inline">Повторять ${oS('при каждом новом пороге')}</div><p class="hintp">Пороги общие для всех ящиков. Одно предупреждение на порог…</p></section>`,
+  offline: () => `<section>${mk(4, 'left:-22px;top:14px')}<div class="inline">${mk(1, 'left:-22px;top:6px')}<span>Скачивать письма целиком</span>${oS('за последние 30 дней')}</div>${oC('Письма с вложениями тоже', 0)}<p class="hintp">Скачанные письма открываются без сети и находятся поиском по тексту…</p></section>`,
+  updates: () => `<section>${mk(4, 'left:-22px;top:14px')}${oR('Устанавливать автоматически', 1, '— новая версия начнёт работать после перезапуска', 1)}${oR('Только сообщать о новой версии')}${oR('Не проверять')}</section><section><div class="inline" style="justify-content:space-between"><div>Установлена версия 0.7.2.</div><span class="btn">Проверить сейчас</span></div><p class="hintp">Каждое обновление подписано ключом проекта; неподписанное или изменённое Депеша не установит.</p></section>`,
+  people: () => `<div class="people" style="max-width:none"><div class="pl"><div class="chips"><span class="fchip on">Все</span><span class="fchip">С особым форматом</span></div>${PPL.map((p) => `<div class="pr"><span class="av" style="background:${p.c}">${p.ini}</span><span>${p.name}<span class="em">${p.email}</span></span></div>`).join('')}</div><div class="pd"><div class="inline" style="display:flex;gap:10px;padding:6px 0"><span style="width:150px">Писать ему</span>${oS('Как обычно')}${mk(5, 'left:-22px;top:8px')}</div><div class="inline" style="display:flex;gap:10px;padding:6px 0"><span style="width:150px">Его письма показывать</span>${oS('Как обычно')}</div><p class="hintp">Формат новых писем этому адресату; «Как обычно» — формат ящика.</p><p class="hintp">Страница сохраняется сама ${mk(6, 'position:static;margin-left:4px')}</p></div></div>`,
+  keys: () => `<p class="hintp" style="margin-top:0">Таблица команд и клавиш (#46), сохраняется сама ${mk(6, 'position:static;margin-left:4px')}</p>`,
+  accounts: () => `<section>${ACC.map((a) => `<div class="inline"><span style="flex:1">${a.name} <span class="note">${a.email}</span></span><span class="btn small">Настроить</span></div>`).join('')}</section>`,
+  acc: (a) => `<section><h4>Письма и подписи</h4><div class="inline"><span style="width:200px">Формат писем</span>${oS('Как в общих настройках (HTML)')}${mk(5, 'left:-22px;top:6px')}</div><div class="inline"><span style="width:200px">Показывать письма</span>${oS('Как в настройках (как прислал отправитель)')}</div><p class="hintp">Страница ящика: оглавление Общее · Письма и подписи · Хранилище · Сервер · Метки; свои кнопки «Сохранить/Отмена» ${mk(6, 'position:static;margin-left:4px')}</p></section>`,
+  plugins: () => `<section><p class="hintp" style="margin-top:0">Менеджер плагинов: список, включить, выключить, установить.</p></section>`,
+  'pl:rem': () => `<section><p class="hintp" style="margin-top:0">Свои варианты списка «Напомнить, если не ответят», после стандартных. Добавляются здесь или через «Настроить…» при написании письма.</p><div class="peoplelink" style="margin-bottom:8px;display:block"><div style="display:flex;gap:4px"><span class="inp" style="flex:1">Через 3 дня</span></div><div style="display:flex;gap:4px;margin-top:6px;align-items:center">${oS('Через')} ${oI(3, '64px')} ${oS('дня')}<span style="flex:1"></span>Повторять до ответа · каждые ${oI(1, '64px')} ${oS('день')}</div></div><span class="btn small">+ Добавить вариант</span><div class="inline" style="margin-top:16px">Хранить закрытые ожидания ${oI(90, '64px')} дней</div></section>`,
+  'pl:tpl': () => `<section><p class="hintp" style="margin-top:0">Готовые тексты для типовых писем. Вставляются кнопкой «Шаблоны» в окне письма.</p><div class="peoplelink" style="display:block"><span class="inp" style="display:block">Счёт получен</span></div><span class="btn small" style="margin-top:6px">+ Добавить шаблон</span></section>`,
+};
+class OldWin {
+  constructor(root) {
+    this.root = root; this.cur = 'general'; root.classList.add('win', 'theme', 'old');
+    root.innerHTML = `<nav class="nav"><h3>Настройки</h3><div class="psearch"><span style="width:12px;height:12px;border:1.5px solid currentColor;border-radius:50%;flex:none"></span><input placeholder="Найти настройку" tabindex="-1"><kbd>Ctrl+F</kbd></div><div class="tabs"></div></nav><div class="pane"><header></header><div class="content"></div><footer></footer></div>`;
+    this.tabs = $('.tabs', root); root.addEventListener('click', (e) => { const b = e.target.closest('[data-op]'); if (b) { this.cur = b.dataset.op; this.draw(); } });
+    this.draw();
+  }
+  draw() {
+    this.tabs.innerHTML = OLD_NAV.map((n) => n[0] === 'g' ? `<div class="ngroup">${n[1]}</div>` : `<button class="tab${n[2] ? ' sub' : ''}" data-op="${n[0]}" aria-selected="${n[0] === this.cur}">${n[2] ? '' : '<i class="ico"></i>'}<span>${n[1]}</span></button>`).join('');
+    const nav = OLD_NAV.find((n) => n[0] === this.cur);
+    $('header', this.root).innerHTML = `<h2>${nav[1]}</h2>${this.cur.startsWith('acc:') ? `<span class="sub">${ACC.find((a) => 'acc:' + a.id === this.cur).email}</span>` : ''}`;
+    const fn = this.cur.startsWith('acc:') ? OLD_PAGES.acc : OLD_PAGES[this.cur];
+    $('.content', this.root).innerHTML = `<div class="col">${fn(this.cur)}</div>`;
+    $('.content', this.root).style.paddingLeft = '34px';
+    const self = ['people', 'keys', 'accounts', 'plugins', 'pl:rem', 'pl:tpl'].includes(this.cur) || this.cur.startsWith('acc:');
+    $('footer', this.root).innerHTML = self ? '' : '<span style="flex:1"></span><span class="btn ghost">Отмена</span><span class="btn primary">Сохранить</span>';
+  }
+}
+
+/* ---------- образцы экрана 1 ---------- */
+function buildSpecs() {
+  const specs = [
+    ['Переключатель', 'Раскладка: подпись слева, выключатель справа. Клавиши: <kbd>Space</kbd>/<kbd>Enter</kbd>. Подсказка — под подписью.', ['threads', 'sender_logos'], 'A'],
+    ['Выбор одного из нескольких', 'По правилу 1.1 (панель «Выбор из нескольких»). Описание выбранного — под строкой. Клавиши: <kbd>←</kbd>/<kbd>→</kbd>, <kbd>Enter</kbd> раскрывает список.', ['compose_format', 'notify'], 'A'],
+    ['Число с единицей', 'Поле справа, единица («px», «дней», «%») — серый текст рядом; единица на выбор (МБ/ГБ) — список. Клавиши: <kbd>←</kbd>/<kbd>→</kbd> шаг, <kbd>Enter</kbd> — ввод.', ['image_max_px', 'large_mb'], 'A'],
+    ['Время', 'Узкое поле «9:00»; неверное значение — рамка предупреждения (как сейчас). Клавиши: <kbd>←</kbd>/<kbd>→</kbd> ± 15 мин.', ['day_start', 'evening_start'], 'A'],
+    ['Папка', 'Путь (или «Спрашивать каждый раз»), «Выбрать…», крестик очищает. Клавиши: <kbd>Enter</kbd>, <kbd>Delete</kbd>.', ['attachments_dir'], 'A'],
+    ['Дни недели', 'Семь кнопок-дней вместо флажков. Клавиши: <kbd>1</kbd>–<kbd>7</kbd>. Предупреждение, если не выбран ни один — под строкой.', ['work_days'], 'A'],
+    ['Кнопка-действие', 'Слева состояние («Установлена версия 0.7.2.»), справа кнопка. Результат — в строке или тосте.', ['update_status'], 'A'],
+    ['Ссылка «Настроить у человека/ящика»', 'Строка с текстом-ссылкой и «›»; открывает список назначений. То же — «Своё у 2 людей, 1 ящика ›» (экран 3).', ['waiting_link', 'layer_format'], 'A'],
+  ];
+  $('#s-types').innerHTML = specs.map((s, i) => `<div class="spec"><div class="nm">${i + 1}. ${s[0]}<small>${s[1]}</small></div><div class="smp"><div class="lb">Обычная и с подсказкой</div><div class="lb">Отключённая</div><div class="rz" data-hints="${i === 6 ? 'A' : 'B'}" data-ids="${s[2].join(',')}"></div><div class="rz" data-dis="1" data-hints="B" data-ids="${s[2].filter((x) => x !== 'layer_format').join(',') || s[2][0]}"></div></div></div>`).join('');
+}
+
+/* ---------- общий рендер ---------- */
+function zoneRender(el) {
+  const z = zopts(el);
+  el.className = 'rz lay-' + z.lay.toLowerCase() + ' h' + z.hier;
+  let html = '';
+  if (el.dataset.ids) html = `<div class="grp"><div class="gb">${el.dataset.ids.split(',').map((id) => row(id, z)).join('')}</div></div>`;
+  else if (el.dataset.page) html = PGROUPS[el.dataset.page].map((k) => grp(GRP[k], z)).join('');
+  el.innerHTML = html;
+  if (S.kbd === 'B') { const f = $('.rw', el); if (f) f.setAttribute('tabindex', '0'); }
+}
+function renderAll() {
+  const ae = document.activeElement; let keep = null;
+  if (ae && ae !== document.body) {
+    const rw = ae.closest && ae.closest('.rw'), host = ae.closest && ae.closest('.rz');
+    if (rw && host) keep = { host, rid: rw.dataset.rid, a: ae.dataset && ae.dataset.a, id: ae.dataset && ae.dataset.id, f: ae.dataset && ae.dataset.f, v: ae.dataset && ae.dataset.v, row: ae === rw };
+  }
+  const sc = keep && keep.host.scrollTop;
+  ZONES.forEach(zoneRender);
+  WINS.forEach((w) => { w.drawNav(); w.draw(); });
+  if (keep) {
+    const rw = $(`.rw[data-rid="${keep.rid}"]`, keep.host);
+    if (rw) {
+      let t = rw;
+      if (!keep.row && keep.a) { const sel = `[data-a="${keep.a}"][data-id="${keep.id}"]` + (keep.f ? `[data-f="${keep.f}"]` : '') + (keep.v ? `[data-v="${keep.v}"]` : ''); t = $(sel, rw) || rw; }
+      t.focus({ preventScroll: true }); keep.host.scrollTop = sc;
+      const w = WINS.find((x) => x.content === keep.host); if (w) w.cr = keep.rid;
+    }
+  }
+}
+
+/* ---------- события ---------- */
+const winOf = (el) => WINS.find((w) => w.root.contains(el));
+function stepRow(rw, dir, big) {
+  const id = rw.dataset.id, r = ROWS[id], t = rw.dataset.t; if (!r) return;
+  if (rw.classList.contains('dis')) return;
+  if (t === 'choice' || t === 'theme') { const vals = r.opts.map((o) => o.v); setVal(id, cycle(vals, V[id], dir)); }
+  else if (t === 'num') { const n = (+V[id] || 0) + dir * (r.step || 1) * (big ? 10 : 1); setVal(id, Math.max(r.min || 0, Math.min(r.max || 1e9, n))); }
+  else if (t === 'numunit') setVal(id, Math.max(1, V[id].n + dir * (big ? 10 : 1)), 'n');
+  else if (t === 'pair') setVal(id, Math.max(1, Math.min(99, V[id][0] + dir * (big ? 10 : 1))), 0);
+  else if (t === 'time') { const m = /^(\d{1,2}):(\d\d)$/.exec(V[id]); if (m) { let x = (+m[1] * 60 + +m[2] + dir * 15 + 1440) % 1440; setVal(id, Math.floor(x / 60) + ':' + String(x % 60).padStart(2, '0')); } }
+  else if (t === 'lay') {
+    const list = ['', ...(r.kind === 'format' ? ['plain', 'html', 'markdown'] : ['html', 'markdown', 'text'])];
+    const cur = L[r.kind][r.level][r.who] || ''; L[r.kind][r.level][r.who] = cycle(list, cur, dir); renderAll();
+  }
+}
+document.addEventListener('keydown', (e) => {
+  const rw = e.target.classList && e.target.classList.contains('rw') ? e.target : null;
+  if (!rw && e.target.closest) {
+    // внутри поля строки: Enter принимает, Esc отменяет — и возвращает на строку (режим «↑↓ по строкам»)
+    const inRow = e.target.closest('.rw');
+    if (inRow && S.kbd === 'B' && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && (e.key === 'Enter' || e.key === 'Escape') && !(e.key === 'Enter' && e.target.tagName === 'TEXTAREA')) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Escape') renderAll(); else e.target.dispatchEvent(new Event('change', { bubbles: true }));
+      const again = $(`.rw[data-rid="${inRow.dataset.rid}"]`, inRow.closest('.rz') || document); if (again) again.focus();
+    }
+    return;
+  }
+  if (!rw || S.kbd !== 'B') return;
+  const rows = $$('.rw', rw.closest('.rz') || document); const i = rows.indexOf(rw);
+  const move = (j) => { e.preventDefault(); const n = rows[Math.max(0, Math.min(rows.length - 1, j))]; if (n) n.focus(); };
+  if (e.key === 'ArrowDown' && !e.ctrlKey) return move(i + 1);
+  if (e.key === 'ArrowUp' && !e.ctrlKey) return move(i - 1);
+  if (e.key === 'Home') return move(0);
+  if (e.key === 'End') return move(rows.length - 1);
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.ctrlKey) { e.preventDefault(); const gs = $$('.grp', rw.closest('.rz') || document); const g = rw.closest('.grp'); const k = gs.indexOf(g) + (e.key === 'ArrowDown' ? 1 : -1); const t = gs[k] && $('.rw', gs[k]); if (t) t.focus(); return; }
+  if (e.key === '?' || e.key === 'F1') { const b = $('.tipb', rw); if (b) { e.preventDefault(); TIP[rw.dataset.rid] = !TIP[rw.dataset.rid]; renderAll(); } return; }
+  const t = rw.dataset.t, main = $('[data-main]', rw);
+  if (rw.classList.contains('dis')) return;
+  if (t === 'toggle' && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); main.click(); }
+  else if (['choice', 'theme', 'lay'].includes(t) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepRow(rw, e.key === 'ArrowRight' ? 1 : -1); }
+  else if (t === 'lay' && e.key === 'Delete') { const r = ROWS[rw.dataset.id]; L[r.kind][r.level][r.who] = ''; renderAll(); }
+  else if (['num', 'numunit', 'pair', 'time'].includes(t) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); stepRow(rw, e.key === 'ArrowRight' ? 1 : -1, e.shiftKey); }
+  else if ((e.key === 'Enter') && ['choice', 'lay'].includes(t) && main && main.tagName === 'SELECT') { e.preventDefault(); main.focus(); if (main.showPicker) try { main.showPicker(); } catch (x) { /* нет */ } }
+  else if (e.key === 'Enter' && main && (main.tagName === 'INPUT' || main.tagName === 'TEXTAREA')) { e.preventDefault(); main.focus(); main.select && main.select(); }
+  else if (t === 'folder' && e.key === 'Delete') { setVal(rw.dataset.id, ''); }
+  else if (['folder', 'act', 'lnk'].includes(t) && (e.key === 'Enter' || (e.key === ' ' && t !== 'folder') || (e.key === 'ArrowRight' && t === 'lnk'))) { e.preventDefault(); if (main) main.click(); }
+  else if (t === 'days') {
+    const id = rw.dataset.id;
+    if (/^[1-7]$/.test(e.key)) { e.preventDefault(); const d = +e.key; setVal(id, V[id].includes(d) ? V[id].filter((x) => x !== d) : [...V[id], d].sort()); }
+  }
+});
+document.addEventListener('focusin', (e) => {
+  const rw = e.target.classList && e.target.classList.contains('rw') ? e.target : null;
+  if (rw && S.kbd === 'B') { const host = rw.closest('.rz'); if (host) { $$('.rw', host).forEach((r) => r.setAttribute('tabindex', r === rw ? '0' : '-1')); const w = WINS.find((x) => x.content === host); if (w) w.cr = rw.dataset.rid; } }
+});
+function menuFor(btn, rw) {
+  const id = btn.dataset.id || '';
+  const ret = rw || btn;
+  if (btn.dataset.a === 'fold') { const items = [{ l: '~/Загрузки', v: '~/Загрузки' }, { l: '~/Документы/Вложения', v: '~/Документы/Вложения' }, { l: '/mnt/share/почта', v: '/mnt/share/почта' }, { l: 'Спрашивать каждый раз', v: '' }]; openMenu(btn, items, (it) => setVal(id, it.v), ret); return; }
+  if (btn.dataset.a === 'lyr') {
+    const kind = btn.dataset.kind, items = [{ t: 'Своё значение у:' }];
+    PPL.forEach((p) => { const v = L[kind].ppl[p.id]; if (v) items.push({ l: p.name, h: lblEff(kind, v), go: 'people' }); });
+    ACC.forEach((a) => { const v = L[kind].acc[a.id]; if (v) items.push({ l: 'Ящик «' + a.name + '»', h: lblEff(kind, v), go: 'acc:' + a.id }); });
+    openMenu(btn, items, (it) => { const w = winOf(btn); if (w && w.pageOk(it.go)) w.go(it.go, null, true); else toast('Откроется: ' + it.l); }, ret); return;
+  }
+  const r = ROWS[id];
+  if (r && r.menu === 'waiting') { const items = ACC.map((a) => ({ l: a.name, h: V['ap_' + a.id] ? 'убирать из входящих: да' : 'нет', go: 'acc:' + a.id, g: 'Письма и подписи' })); openMenu(btn, items, (it) => { const w = winOf(btn); if (w && w.pageOk(it.go)) w.go(it.go, it.g, true); else toast('Откроется страница ящика «' + it.l + '», «Письма и подписи»'); }, ret); return; }
+  if (r && r.menu === 'quota') { const items = ACC.map((a) => ({ l: a.name, h: V['aq_' + a.id] === 'own' ? 'свой лимит ' + V['ag_' + a.id] + ' ГБ' : 'по квоте сервера', go: 'acc:' + a.id, g: 'Хранилище' })); openMenu(btn, items, (it) => { const w = winOf(btn); if (w && w.pageOk(it.go)) w.go(it.go, it.g, true); else toast('Откроется страница ящика «' + it.l + '», «Хранилище»'); }, ret); }
+}
+Win.prototype.pageOk = function (p) { return p === 'people' ? this.def.nav.some((n) => n.id === 'people') : true; };
+document.addEventListener('click', (e) => {
+  if (POP && !e.target.closest('.pop')) closePop(false);
+  const el = e.target.closest('[data-a]'); if (!el) { const b = e.target.closest('.ctl button[data-k]'); if (b) ctl(b); return; }
+  const a = el.dataset.a, id = el.dataset.id, rw = el.closest('.rw');
+  if (el.disabled) return;
+  if (a === 'tog') setVal(id, !V[id]);
+  else if (a === 'set') setVal(id, coerce(id, el.dataset.v));
+  else if (a === 'day') { const d = +el.dataset.v; setVal(id, V[id].includes(d) ? V[id].filter((x) => x !== d) : [...V[id], d].sort()); }
+  else if (a === 'fold' || a === 'lyr' || a === 'lnk') menuFor(el, rw);
+  else if (a === 'foldclr') setVal(id, '');
+  else if (a === 'act') toast(ROWS[id].msg);
+  else if (a === 'toast') toast(el.dataset.msg);
+  else if (a === 'nav') { const w = winOf(el); if (w) { w.go(el.dataset.p); if (document.activeElement && !el.matches('.tab')) w.focusFirst(); } }
+  else if (a === 'psel') { PSEL = el.dataset.p; renderAll(); }
+  else if (a === 'tip') { TIP[id] = !TIP[id]; renderAll(); }
+  else if (a === 'lyreset') { const r = ROWS[id]; L[r.kind][r.level][r.who] = ''; renderAll(); }
+  else if (a === 'hit') { const w = winOf(el); w.openHit(+el.dataset.i); }
+  else if (a === 'anch') { e.preventDefault(); const w = winOf(el); const t = $(`[data-g="${el.dataset.k}"]`, w.content) || $('#' + el.dataset.k, w.content); if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+  else if (a === 'save') toast('В макете ничего не сохраняется');
+  else if (a === 'cancel') toast('Изменения отменены (в макете — только показ)');
+});
+document.addEventListener('change', (e) => {
+  const el = e.target.closest && e.target.closest('[data-a]'); if (!el) return;
+  const a = el.dataset.a, id = el.dataset.id;
+  if (a === 'sel') setVal(id, coerce(id, el.value), el.dataset.f);
+  else if (a === 'num') { const n = parseInt(el.value, 10); const r = ROWS[id]; if (isNaN(n)) renderAll(); else setVal(id, Math.max(r.min || 1, Math.min(r.max || 1e9, n)), el.dataset.f); }
+  else if (a === 'time') setVal(id, el.value.trim());
+  else if (a === 'txt') { V[id] = el.value; }
+  else if (a === 'lay') { const r = ROWS[id]; L[r.kind][r.level][r.who] = el.value; renderAll(); }
+});
+function ctl(b) {
+  const k = b.dataset.k, v = b.dataset.v; $$(`.ctl [data-k="${k}"]`).forEach((x) => x.classList.toggle('on', x === b));
+  if (k === 'theme') { V.theme = v; applyTheme(v); renderAll(); return; }
+  S[k] = v; renderAll();
+}
+$('#mk-on').addEventListener('click', () => { $('#w-now').classList.add('marks'); $('#mk-on').style.cssText = 'background:#1f2a37;color:#fff;border-color:#1f2a37'; $('#mk-off').style.cssText = 'background:#fff;color:#1d232b;border-color:#b5ae9f'; });
+$('#mk-off').addEventListener('click', () => { $('#w-now').classList.remove('marks'); $('#mk-off').style.cssText = 'background:#1f2a37;color:#fff;border-color:#1f2a37'; $('#mk-on').style.cssText = 'background:#fff;color:#1d232b;border-color:#b5ae9f'; });
+
+/* ---------- запуск ---------- */
+new OldWin($('#w-now'));
+buildSpecs();
+$$('.rz').forEach((el) => { if (!el.classList.contains('content')) ZONES.push(el); });
+new Win($('#w-a'), LAYOUTS.a); new Win($('#w-b'), LAYOUTS.b); new Win($('#w-v'), LAYOUTS.v); new Win($('#w-k'), LAYOUTS.k);
+renderAll();
+})();
+</script>
+</body>
+</html>
