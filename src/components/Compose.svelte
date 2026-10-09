@@ -550,9 +550,9 @@
         <button class="btn ghost icon" onclick={() => (m.moreOpen = !m.moreOpen)} disabled={m.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={m.moreOpen}><Ellipsis size={15} /></button>
         <Popover bind:open={m.moreOpen}>
           <button class="mi" role="menuitemcheckbox" aria-checked={m.important} onclick={() => { m.moreOpen = false; m.toggleImportance(); }}>
-            <span class="tick">{#if m.important}<Check size={14} />{/if}</span>{t("compose.importance")}<span class="hint">{keyLabel("importance")}</span>
+            <span class="tick">{#if m.important}<Check size={14} />{/if}</span>{t("compose.importance")}
           </button>
-          <button class="mi" onclick={() => { m.moreOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}<span class="hint">{keyLabel("save")}</span></button>
+          <button class="mi" onclick={() => { m.moreOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}</button>
           <button class="mi danger-text" onclick={() => { m.moreOpen = false; m.discard(); }}>{t("compose.discardDraft")}</button>
         </Popover>
       </span>

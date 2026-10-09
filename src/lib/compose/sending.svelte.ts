@@ -174,7 +174,9 @@ export class ComposeSending {
   /** «High importance» (#72, 4.1 А): the letter asks to be read first. The other levels are not offered. */
   toggleImportance() {
     const { draft } = this.host.win;
-    draft.importance = draft.importance === "high" ? "normal" : "high";
+    // Off removes the field: a letter put back to normal is the draft it was, not a changed one.
+    if (draft.importance === "high") delete draft.importance;
+    else draft.importance = "high";
   }
 
   toggleMax() {

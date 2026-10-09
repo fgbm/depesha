@@ -64,7 +64,18 @@ describe("the importance of a letter (#72)", () => {
     sending.toggleImportance();
     expect(w.draft.importance).toBe("high");
     sending.toggleImportance();
-    expect(w.draft.importance).toBe("normal");
+    expect(w.draft.importance ?? "normal").toBe("normal");
+  });
+
+  it("leaves the draft as it was after on and off: no field is left to make it a changed one", () => {
+    const w = win("a");
+    const before = JSON.stringify(structuredClone(w.draft));
+    const sending = new ComposeSending(host(w, {}));
+    sending.toggleImportance();
+    expect(JSON.stringify(structuredClone(w.draft))).not.toBe(before);
+    sending.toggleImportance();
+    expect(JSON.stringify(structuredClone(w.draft))).toBe(before);
+    expect("importance" in w.draft).toBe(false);
   });
 
   it("is switched by Alt+P in the window", () => {
