@@ -3250,13 +3250,35 @@ pub fn drop_seen(window: tauri::WebviewWindow, count: usize) {
     tracing::debug!(label = window.label(), count, "the page heard of a drop");
 }
 
-/// What the page did with a drop (#79): `attached`, `no_compose` or `missed_zone`, with the
-/// pointer and the window in logical pixels. Numbers only, never file names.
+/// What became of a drop (#79).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropOutcome {
+    Attached,
+    NoCompose,
+    MissedZone,
+}
+
+/// The zone the pointer was over at a drop.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropZoneChosen {
+    Inline,
+    Attach,
+    None,
+}
+
+/// What the page did with a drop (#79): the outcome, the files attached and the pictures put
+/// into the text, the zone, and the pointer and the window in logical pixels. Numbers only,
+/// never file names.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn drop_outcome(
     window: tauri::WebviewWindow,
-    outcome: String,
+    outcome: DropOutcome,
     attached: usize,
+    inline: usize,
+    zone: DropZoneChosen,
     x: f64,
     y: f64,
     width: f64,
@@ -3264,8 +3286,10 @@ pub fn drop_outcome(
 ) {
     tracing::debug!(
         label = window.label(),
-        outcome,
+        ?outcome,
         attached,
+        inline,
+        ?zone,
         x,
         y,
         width,
@@ -3282,6 +3306,16 @@ pub fn quit_cancel(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_drop_outcome_is_one_of_three_words() {
+        use super::DropOutcome;
+        assert!(matches!(
+            serde_json::from_str::<DropOutcome>("\"missed_zone\""),
+            Ok(DropOutcome::MissedZone)
+        ));
+        assert!(serde_json::from_str::<DropOutcome>("\"x\"").is_err());
+    }
+
     #[test]
     fn a_chosen_path_is_read_only_while_it_is_a_file() {
         let dir = std::env::temp_dir();

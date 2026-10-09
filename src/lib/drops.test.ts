@@ -5,6 +5,7 @@ vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventMo
 vi.mock("@tauri-apps/api/webview", () => import("./testing").then((m) => m.webviewModule));
 
 import { readFileSync } from "node:fs";
+import { api } from "./api";
 import { listenDrops, watchDrops, zoneAt } from "./drops";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { emit, eventModule, flush, webviewListen } from "./testing";
@@ -25,6 +26,18 @@ describe("files dropped on the window", () => {
     await flush();
     expect(dropFiles).toHaveBeenCalledWith(c, ["/a/b.pdf"], "attach");
     expect(zoneAt.mock.calls[0][0]).toMatchObject({ x: 10, y: 20 });
+  });
+
+  it("pictures into the text are counted apart and the zone is logged (#79)", async () => {
+    const dropOutcome = vi.spyOn(api, "dropOutcome").mockResolvedValue(undefined);
+    const dropFiles = vi.fn(async () => 2);
+    const c = { draft: { attachments: [{}] } };
+    const app = { activeCompose: () => c, compose: { dropFiles, dragging: { zones: true, zone: "inline" } } } as unknown as AppStore;
+    await listenDrops(app, () => "inline");
+    emit("files-dropped", { paths: ["/a/1.png", "/a/2.png"], position: { x: 30, y: 60 } });
+    await flush();
+    expect(dropOutcome).toHaveBeenCalledWith({ outcome: "attached", attached: 0, inline: 2, zone: "inline", x: 30, y: 60, width: 800, height: 600 });
+    dropOutcome.mockRestore();
   });
 
   it("go nowhere without an open composition, and say so (#79)", async () => {
