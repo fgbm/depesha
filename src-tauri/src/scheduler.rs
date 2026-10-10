@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 
 use crate::followups;
+use crate::lang::pick;
 use crate::state::AppState;
 use crate::worker::Queue;
-use depesha_core::lang::pick;
 use depesha_core::snooze;
 
 const TICK: Duration = Duration::from_secs(10);

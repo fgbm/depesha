@@ -1,0 +1,146 @@
+En|io-refused|the server refuses connections (the port is closed or the server is down)
+En|io-reset|the connection to the server broke
+En|io-aborted|the connection to the server broke
+En|io-pipe|the connection to the server broke
+En|io-eof|the connection to the server broke
+En|io-timedout|the server did not answer in time
+En|io-netunreach|no network, or the server is unreachable
+En|io-hostunreach|no network, or the server is unreachable
+En|io-other|network: os said
+En|io-dns|server not found: check its name (DNS)
+En|io-dns2|server not found: check its name (DNS)
+En|timeout-connecting|the server did not answer in time (connecting)
+En|timeout-server greeting|the server did not answer in time (server greeting)
+En|timeout-search answer|the server did not answer in time (search answer)
+En|timeout-SMTP answer|the server did not answer in time (SMTP answer)
+En|timeout-operation|the server did not answer in time (operation)
+En|timeout-connecting to the list server|the server did not answer in time (connecting to the list server)
+En|timeout-list server answer|the server did not answer in time (list server answer)
+En|timeout-HTTP answer|the server did not answer in time (HTTP answer)
+En|timeout-something else|the server did not answer in time (something else)
+En|tls|TLS: unexpected error: handshake
+En|certificate|untrusted certificate mail.example.org: the reason
+En|no-tls|the server does not support encryption (STARTTLS); the password was not sent
+En|invalid-host|invalid server name: bad host
+En|auth|the server rejected the login: no way
+En|auth-mechanism|the server offers no supported login method (offers: CRAM-MD5); PLAIN or LOGIN is needed
+En|imap-unavailable|the server accepted the password but did not open the mailbox over IMAP. On Exchange: IMAP is off for the mailbox (ImapEnabled) or the MSExchangeIMAP4BE service is not running
+En|imap-no|IMAP: refused: Internal error
+En|imap-bad|IMAP: command not accepted: bad command
+En|imap-io|IMAP: the connection to the server broke
+En|imap-lost|IMAP: the connection to the server broke
+En|smtp-421|the server limits the sending rate (Exchange allows 5 messages a minute by default); the message will go later (server: 421 the words)
+En|smtp-sendas|no right to send on behalf of this address (Send As) (server: 550 the words)
+En|smtp-535|wrong user name or password (server: 535 the words)
+En|smtp-573|wrong user name or password (server: 550 the words)
+En|smtp-530|the server requires a login before sending (server: 530 the words)
+En|smtp-5757|the server requires a login before sending (server: 554 the words)
+En|smtp-552|the message is too large for the server (server: 552 the words)
+En|smtp-534|the message is too large for the server (server: 550 the words)
+En|smtp-511|the recipient address does not exist (server: 550 the words)
+En|smtp-5110|the recipient address does not exist (server: 550 the words)
+En|smtp-571|the server refused the message (no permission, or rejected by policy) (server: 550 the words)
+En|smtp-451|temporary server error, the message will go later (server: 451 the words)
+En|smtp-plain|the server answered 550: the words
+En|smtp-hello|the server did not accept the client's greeting (EHLO host.local), before any login: 501 bad
+En|too-large|the message is 12000000 bytes, over the server's limit of 10000000 bytes
+En|compose|the message could not be built: no sender
+En|store|local database: Query returned no rows
+En|closed|the server closed the connection
+En|bye|the server closed the connection: shutting down
+En|protocol|unexpected answer from the server: odd
+En|not-found|message not found
+En|parse|the message could not be parsed
+En|unreadable|stored data could not be read
+En|ews-busy|the server is busy (Exchange: ErrorServerBusy)
+En|ews-busy-wait|the server is busy and asks to wait 2 s (Exchange: ErrorServerBusy)
+En|ews-item|the message is no longer on the server (Exchange: ErrorItemNotFound)
+En|ews-folder|the folder is no longer on the server (Exchange: ErrorFolderNotFound)
+En|ews-size|the message is too large for the server (Exchange: ErrorMessageSizeExceeded)
+En|ews-sendas|no right to send on behalf of this address (Send As) (Exchange: ErrorSendAsDenied)
+En|ews-quota|the mailbox is full (Exchange: ErrorQuotaExceeded)
+En|ews-denied|access denied (Exchange: ErrorAccessDenied)
+En|ews-unknown|Exchange answered ErrorWhatever: msg
+En|busy-retrying|the Exchange server is busy; the mailbox will try again in 3 s
+En|busy-not|the Exchange server is busy; nothing was done, try again in 1 s
+En|http-auth|Exchange accepts only Negotiate on EWS; Depesha signs in with Basic or NTLM. Ask the administrator to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true
+En|paused|the mailbox is paused until its settings are fixed
+En|private|192.168.0.1 is an address in a private network; Depesha does not send requests there from a letter
+En|cache-too-new|the local mail cache was saved by a newer version of Depesha (format 20, this version reads up to 18). Install the newer version; the cache was left as it is
+En|folder-changed|the folder changed on the server before the action ran; nothing was done, try again
+En|label-stripping|The label is still being removed, try again in a minute
+En|label-check|this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run
+En|copy-refused|quota says no
+Ru|io-refused|сервер не принимает соединения (порт закрыт или сервер выключен)
+Ru|io-reset|соединение с сервером оборвалось
+Ru|io-aborted|соединение с сервером оборвалось
+Ru|io-pipe|соединение с сервером оборвалось
+Ru|io-eof|соединение с сервером оборвалось
+Ru|io-timedout|сервер не ответил вовремя
+Ru|io-netunreach|нет сети или сервер недоступен
+Ru|io-hostunreach|нет сети или сервер недоступен
+Ru|io-other|сеть: os said
+Ru|io-dns|сервер не найден: проверьте имя (DNS)
+Ru|io-dns2|сервер не найден: проверьте имя (DNS)
+Ru|timeout-connecting|сервер не ответил вовремя (подключение)
+Ru|timeout-server greeting|сервер не ответил вовремя (приветствие сервера)
+Ru|timeout-search answer|сервер не ответил вовремя (ответ на поиск)
+Ru|timeout-SMTP answer|сервер не ответил вовремя (ответ SMTP)
+Ru|timeout-operation|сервер не ответил вовремя (операция)
+Ru|timeout-connecting to the list server|сервер не ответил вовремя (подключение к серверу рассылки)
+Ru|timeout-list server answer|сервер не ответил вовремя (ответ сервера рассылки)
+Ru|timeout-HTTP answer|сервер не ответил вовремя (ответ HTTP)
+Ru|timeout-something else|сервер не ответил вовремя (something else)
+Ru|tls|TLS: unexpected error: handshake
+Ru|certificate|недоверенный сертификат mail.example.org: the reason
+Ru|no-tls|сервер не поддерживает шифрование (STARTTLS); пароль не отправлен
+Ru|invalid-host|неверное имя сервера: bad host
+Ru|auth|сервер отклонил вход: no way
+Ru|auth-mechanism|сервер не предлагает поддерживаемый способ входа (предлагает: CRAM-MD5); нужен PLAIN или LOGIN
+Ru|imap-unavailable|сервер принял пароль, но не открыл ящик по IMAP. На Exchange: для ящика выключен IMAP (ImapEnabled) или не запущена служба MSExchangeIMAP4BE
+Ru|imap-no|IMAP: сервер отказал: Internal error
+Ru|imap-bad|IMAP: сервер не принял команду: bad command
+Ru|imap-io|IMAP: соединение с сервером оборвалось
+Ru|imap-lost|IMAP: соединение с сервером оборвалось
+Ru|smtp-421|сервер ограничил частоту отправки (у Exchange по умолчанию 5 писем в минуту); письмо уйдёт позже (сервер: 421 the words)
+Ru|smtp-sendas|нет права отправлять от имени этого адреса (Send As) (сервер: 550 the words)
+Ru|smtp-535|неверный логин или пароль (сервер: 535 the words)
+Ru|smtp-573|неверный логин или пароль (сервер: 550 the words)
+Ru|smtp-530|сервер требует входа перед отправкой (сервер: 530 the words)
+Ru|smtp-5757|сервер требует входа перед отправкой (сервер: 554 the words)
+Ru|smtp-552|письмо слишком большое для сервера (сервер: 552 the words)
+Ru|smtp-534|письмо слишком большое для сервера (сервер: 550 the words)
+Ru|smtp-511|адрес получателя не существует (сервер: 550 the words)
+Ru|smtp-5110|адрес получателя не существует (сервер: 550 the words)
+Ru|smtp-571|сервер отказался принять письмо (нет прав или письмо отклонено политикой) (сервер: 550 the words)
+Ru|smtp-451|временная ошибка сервера, письмо уйдёт позже (сервер: 451 the words)
+Ru|smtp-plain|сервер ответил 550: the words
+Ru|smtp-hello|сервер не принял приветствие клиента (EHLO host.local) ещё до входа: 501 bad
+Ru|too-large|письмо 12000000 байт больше лимита сервера 10000000 байт
+Ru|compose|письмо не собрано: no sender
+Ru|store|локальная база: Query returned no rows
+Ru|closed|сервер закрыл соединение
+Ru|bye|сервер закрыл соединение: shutting down
+Ru|protocol|сервер ответил непонятно: odd
+Ru|not-found|письмо не найдено
+Ru|parse|не удалось разобрать письмо
+Ru|unreadable|сохранённые данные не читаются
+Ru|ews-busy|сервер занят (Exchange: ErrorServerBusy)
+Ru|ews-busy-wait|сервер занят и просит подождать 2 с (Exchange: ErrorServerBusy)
+Ru|ews-item|письма уже нет на сервере (Exchange: ErrorItemNotFound)
+Ru|ews-folder|папки уже нет на сервере (Exchange: ErrorFolderNotFound)
+Ru|ews-size|письмо слишком большое для сервера (Exchange: ErrorMessageSizeExceeded)
+Ru|ews-sendas|нет права отправлять от имени этого адреса (Send As) (Exchange: ErrorSendAsDenied)
+Ru|ews-quota|ящик переполнен (Exchange: ErrorQuotaExceeded)
+Ru|ews-denied|доступ запрещён (Exchange: ErrorAccessDenied)
+Ru|ews-unknown|Exchange ответил ErrorWhatever: msg
+Ru|busy-retrying|сервер Exchange занят; ящик повторит запрос через 3 с
+Ru|busy-not|сервер Exchange занят; ничего не сделано, повторите через 1 с
+Ru|http-auth|Exchange принимает на EWS только Negotiate, а Депеша входит через Basic или NTLM. Попросите администратора включить один из них: Set-WebServicesVirtualDirectory -WindowsAuthentication $true
+Ru|paused|ящик приостановлен, пока не исправлены его настройки
+Ru|private|192.168.0.1 — адрес во внутренней сети; по ссылке из письма Депеша туда не обращается
+Ru|cache-too-new|локальный кэш почты сохранён более новой версией Депеши (формат 20, эта версия читает до 18). Установите новую версию; кэш оставлен как есть
+Ru|folder-changed|папка изменилась на сервере, пока действие ждало очереди; ничего не сделано, повторите действие
+Ru|label-stripping|Метка ещё удаляется, попробуйте через минуту
+Ru|label-check|на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется
+Ru|copy-refused|quota says no

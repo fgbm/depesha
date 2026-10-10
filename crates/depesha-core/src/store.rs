@@ -14,7 +14,6 @@ use crate::domain::{Addr, Importance};
 use crate::domain::{Draft, FlagChange, Flags, Folder, FolderRole};
 use crate::message::{Summary, Unsubscribe};
 use crate::query::SearchQuery;
-use crate::tr;
 
 mod followups;
 mod json;
@@ -2485,10 +2484,7 @@ impl Store {
             })?
             .collect::<rusqlite::Result<_>>()?;
         for (id, raw) in unread {
-            let why = tr!(
-                "the letter is damaged and cannot be read",
-                "письмо повреждено и не читается"
-            );
+            let why = "the letter is damaged and cannot be read";
             // Only the first pass changes the row, so only it writes to the log.
             let first = conn.execute(
                 "UPDATE outbox SET failed = 1, last_error = ?2 WHERE id = ?1 AND failed = 0",
@@ -2499,7 +2495,7 @@ impl Store {
             }
             if let Some(item) = items.iter_mut().find(|i| i.id == id) {
                 item.failed = true;
-                item.last_error.get_or_insert(why);
+                item.last_error.get_or_insert(why.to_owned());
             }
         }
         Ok(items)

@@ -18,8 +18,9 @@ use roxmltree::{Document, Node};
 use crate::account::{Credentials, EwsConfig};
 use crate::avatar::Receiver;
 use crate::http::{Connection, Url};
-use crate::lang::pick;
-use crate::tr;
+
+use crate::autodetect::{Note, Source};
+use crate::say::Say;
 use crate::{Error, Result};
 
 const SOAP_HEAD: &str = r#"<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">"#;
@@ -162,16 +163,10 @@ impl Session {
                     return Err(e);
                 }
                 s @ (502..=504) => {
-                    return Err(Error::Io(std::io::Error::other(tr!(
-                        "the Exchange server is temporarily unavailable (HTTP {s})",
-                        "сервер Exchange временно недоступен (HTTP {s})"
-                    ))));
+                    return Err(Error::Said(Say::EwsUnavailable { status: s }));
                 }
                 s => {
-                    return Err(Error::Protocol(tr!(
-                        "EWS answered HTTP {s}; check the server address",
-                        "EWS ответил HTTP {s}; проверьте адрес сервера"
-                    )));
+                    return Err(Error::Said(Say::EwsHttp { status: s }));
                 }
             }
         }
@@ -253,18 +248,10 @@ fn ntlm_scheme(challenges: &[String]) -> Option<&'static str> {
 }
 
 fn ntlm_refused(scheme: &str) -> Error {
-    Error::Auth(if scheme == "Negotiate" {
-        pick(
-            "wrong user name or password, or the server takes Kerberos only (the login is often DOMAIN\\user)",
-            "неверный логин или пароль, либо сервер принимает только Kerberos (логин часто ДОМЕН\\пользователь)",
-        )
-        .into()
+    Error::Said(if scheme == "Negotiate" {
+        Say::EwsKerberos
     } else {
-        pick(
-            "wrong user name or password (on Exchange the login is often DOMAIN\\user)",
-            "неверный логин или пароль (на Exchange логин часто ДОМЕН\\пользователь)",
-        )
-        .into()
+        Say::EwsWrongLogin
     })
 }
 
@@ -324,17 +311,11 @@ fn unauthorized(challenges: &[String]) -> Error {
         offered.dedup();
         return Error::HttpAuth(offered.join(", "));
     }
-    Error::Auth(
-        pick(
-            "wrong user name or password (on Exchange the login is often DOMAIN\\user)",
-            "неверный логин или пароль (на Exchange логин часто ДОМЕН\\пользователь)",
-        )
-        .into(),
-    )
+    Error::Said(Say::EwsWrongLogin)
 }
 
 fn no_answer() -> Error {
-    Error::Protocol(pick("empty answer from EWS", "пустой ответ EWS").into())
+    Error::Said(Say::EwsEmptyAnswer)
 }
 
 pub(crate) fn parse(text: &str) -> Result<Document<'_>> {
@@ -463,8 +444,8 @@ pub fn url_from_server(server: &str) -> Option<String> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EwsDetection {
     pub url: Option<String>,
-    pub source: String,
-    pub notes: Vec<String>,
+    pub source: Option<Source>,
+    pub notes: Vec<Note>,
 }
 
 /// Finds the EWS address: the server the user named, Autodiscover (with the login,
@@ -473,13 +454,13 @@ pub async fn discover(email: &str, creds: &Credentials, server: Option<&str>) ->
     if let Some(url) = server.and_then(url_from_server) {
         return EwsDetection {
             url: Some(url),
-            source: pick("the address you entered", "указанный адрес").into(),
+            source: Some(Source::EnteredAddress),
             notes: Vec::new(),
         };
     }
     let Some(domain) = crate::account::domain_of(email).map(str::to_ascii_lowercase) else {
         return EwsDetection {
-            notes: vec![tr!("the address has no domain", "адрес без домена")],
+            notes: vec![Note::NoDomain],
             ..Default::default()
         };
     };
@@ -489,12 +470,15 @@ pub async fn discover(email: &str, creds: &Credentials, server: Option<&str>) ->
             Ok(Some(url)) => {
                 return EwsDetection {
                     url: Some(url),
-                    source: format!("Autodiscover ({host})"),
+                    source: Some(Source::Autodiscover(host.clone())),
                     notes,
                 };
             }
             Ok(None) => {}
-            Err(Error::Certificate(p)) => notes.push(format!("{host} — {}", p.reason)),
+            Err(Error::Certificate(p)) => notes.push(Note::Untrusted {
+                server: host.clone(),
+                problem: p,
+            }),
             Err(_) => {}
         }
     }
@@ -515,16 +499,19 @@ pub async fn discover(email: &str, creds: &Credentials, server: Option<&str>) ->
             Ok(Ok(r)) if matches!(r.status, 200 | 401 | 405) => {
                 return EwsDetection {
                     url: Some(url),
-                    source: tr!("probing server names", "перебор адресов сервера"),
+                    source: Some(Source::ProbingNames),
                     notes,
                 };
             }
             // The server is there; the certificate question comes up when checking the login.
             Ok(Err(Error::Certificate(p))) => {
-                notes.push(format!("{host} — {}", p.reason));
+                notes.push(Note::Untrusted {
+                    server: host.clone(),
+                    problem: p,
+                });
                 return EwsDetection {
                     url: Some(url),
-                    source: tr!("probing server names", "перебор адресов сервера"),
+                    source: Some(Source::ProbingNames),
                     notes,
                 };
             }
@@ -533,7 +520,7 @@ pub async fn discover(email: &str, creds: &Credentials, server: Option<&str>) ->
     }
     EwsDetection {
         url: None,
-        source: String::new(),
+        source: None,
         notes,
     }
 }

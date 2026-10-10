@@ -3,12 +3,13 @@
 //! failed), the events that tell the windows, the sync after a run and the local copies of
 //! the drafts on disk. The rules of what is wiped and what stays are in the core.
 
+use crate::lang::pick;
+use crate::tr;
+use depesha_core::Result;
 use depesha_core::account::Account;
 use depesha_core::clear::{self, Emptied, Emptying, Forgot};
 use depesha_core::domain::FolderRole;
-use depesha_core::lang::pick;
 use depesha_core::mail::{self, Conn};
-use depesha_core::{Result, tr};
 use serde::Serialize;
 use serde_json::json;
 
@@ -108,7 +109,7 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
         }
         Err(e) => {
             let mut shown = CmdError::from(clone_error(&e));
-            shown.message = summary(&req.job.how, done.last.0, done.last.1, &e.to_string());
+            shown.message = summary(&req.job.how, done.last.0, done.last.1, &crate::localize::error_now(&e));
             state.task_failed(key, shown);
             Err(e)
         }
@@ -233,7 +234,7 @@ mod tests {
 
     #[test]
     fn a_failed_run_says_how_far_it_got_and_what_is_left() {
-        depesha_core::lang::pin(depesha_core::lang::Lang::Ru);
+        crate::lang::pin(crate::lang::Lang::Ru);
         assert_eq!(
             summary(&Emptying::Erase, 1200, 2100, "превышено время ожидания"),
             "Стёрто 1200 из 2100, осталось 900. превышено время ожидания"

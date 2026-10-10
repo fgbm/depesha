@@ -7,8 +7,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::lang::pick;
 use depesha_core::account::Account;
-use depesha_core::lang::pick;
 use depesha_core::store::{OutboxItem, ParkJob, ParkKind};
 use depesha_core::waiting::{self, Archived, Archiving, Brought, Taken};
 use serde_json::json;
@@ -165,6 +165,7 @@ async fn take_in(state: &AppState, job: &ParkJob) -> CmdResult<()> {
         &account,
         job,
         now,
+        crate::lang::pick("Waiting for reply", "Ждут ответа"),
     )
     .await?;
     match taken {

@@ -19,7 +19,7 @@ use crate::acl::{LabelCheck, Namespace, PermanentFlags, Rights};
 use crate::avatar::Receiver;
 use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
 pub use crate::query::Criterion;
-use crate::tr;
+use crate::say::{Say, Xoauth2Detail};
 use crate::watchdog::Watchdog;
 use crate::{Error, Result, tls, utf7};
 
@@ -135,7 +135,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
             client.authenticate("XOAUTH2", auth).await.map_err(|(err, _)| {
                 let detail = detail.lock().unwrap_or_else(|e| e.into_inner()).take();
                 match (login_error(err), detail) {
-                    (Error::Auth(m), Some(d)) => Error::Auth(format!("{m} ({d})")),
+                    (Error::Auth(m), Some(d)) => Error::Said(Say::AuthDetail { message: m, detail: d }),
                     (e, _) => e,
                 }
             })?
@@ -247,7 +247,7 @@ async fn open(server: &ServerConfig) -> Result<(Client<Box<dyn Io>>, Option<Stri
 /// which the client must answer with an empty line before the server says NO.
 struct XOAuth2 {
     initial: Option<String>,
-    detail: Arc<Mutex<Option<String>>>,
+    detail: Arc<Mutex<Option<Xoauth2Detail>>>,
 }
 
 impl async_imap::Authenticator for XOAuth2 {
@@ -267,22 +267,16 @@ impl async_imap::Authenticator for XOAuth2 {
 /// `{"status":"401","schemes":"Bearer","scope":"https://mail.google.com/"}` -> what to do, and the status.
 /// Gmail answers 400 when the token lacks the mail scope (the user left Gmail unticked
 /// on the consent page) and 401 when the token is expired or revoked.
-pub(crate) fn xoauth2_error(challenge: &[u8]) -> Option<String> {
+pub(crate) fn xoauth2_error(challenge: &[u8]) -> Option<Xoauth2Detail> {
     let v: serde_json::Value = serde_json::from_slice(challenge).ok()?;
     let status = match v.get("status")? {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
     };
     Some(match status.as_str() {
-        "400" => tr!(
-            "the sign-in does not allow mail access: sign in again and allow access to mail ({status})",
-            "вход не даёт доступа к почте: войдите заново и разрешите доступ к почте ({status})"
-        ),
-        "401" => tr!(
-            "the sign-in has expired: sign in again ({status})",
-            "вход устарел: войдите заново ({status})"
-        ),
-        _ => status,
+        "400" => Xoauth2Detail::NoMailAccess(status),
+        "401" => Xoauth2Detail::Expired(status),
+        _ => Xoauth2Detail::Other(status),
     })
 }
 
@@ -1460,10 +1454,7 @@ async fn read_search(
 }
 
 fn search_refused(info: &str) -> Error {
-    Error::Protocol(tr!(
-        "the server could not search for non-Latin text (no CHARSET UTF-8 support): {info}",
-        "сервер не выполнил поиск по-русски (нет поддержки CHARSET UTF-8): {info}"
-    ))
+    Error::Said(Say::SearchCharset { info: info.to_owned() })
 }
 
 pub enum IdleOutcome {
@@ -1925,10 +1916,13 @@ mod tests {
     fn explains_xoauth2_refusals() {
         let no_scope =
             xoauth2_error(br#"{"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}"#).unwrap();
-        assert!(no_scope.ends_with("(400)") && no_scope.len() > 10);
+        assert_eq!(no_scope, Xoauth2Detail::NoMailAccess("400".into()));
         let expired = xoauth2_error(br#"{"status":"401","schemes":"Bearer"}"#).unwrap();
-        assert!(expired.ends_with("(401)") && expired != no_scope);
-        assert_eq!(xoauth2_error(br#"{"status":503}"#).unwrap(), "503");
+        assert_eq!(expired, Xoauth2Detail::Expired("401".into()));
+        assert_eq!(
+            xoauth2_error(br#"{"status":503}"#).unwrap(),
+            Xoauth2Detail::Other("503".into())
+        );
         assert!(xoauth2_error(b"not json").is_none());
     }
 

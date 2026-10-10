@@ -11,6 +11,8 @@ mod flights;
 mod followups;
 mod install_secret;
 mod label_strip;
+mod lang;
+mod localize;
 mod outbox;
 mod paths;
 #[cfg(target_os = "macos")]
@@ -102,8 +104,8 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
     }
     let handle = app.handle().clone();
     app.dialog()
-        .message(e.to_string())
-        .title(depesha_core::lang::pick("Depesha", "Депеша"))
+        .message(crate::localize::error_now(e))
+        .title(crate::lang::pick("Depesha", "Депеша"))
         .kind(MessageDialogKind::Error)
         .show(move |_| handle.exit(1));
 }
@@ -170,7 +172,7 @@ pub fn run() {
             let config_path = config_dir.join("accounts.json");
             let mut config = config::load(&config_path);
             // The language before the cache opens: its refusal is shown to the user.
-            depesha_core::lang::set(config.settings.lang());
+            crate::lang::set(config.settings.lang());
             config::adopt_old_signatures(&mut config);
             let store = match Store::open(data_dir.join("mail.sqlite")) {
                 Ok(store) => store,

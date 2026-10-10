@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::timeout;
 
 use crate::message::Unsubscribe;
-use crate::tr;
+use crate::say::Say;
 use crate::{Error, Result, http, tls};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -54,10 +54,7 @@ pub fn no_way(u: &Unsubscribe) -> Error {
     if let Some(Err(e)) = u.mailto.as_deref().map(mailto) {
         return e;
     }
-    Error::Protocol(tr!(
-        "the sender gave no way to unsubscribe that is safe to use",
-        "отправитель не указал безопасного способа отписаться"
-    ))
+    Error::Said(Say::UnsubscribeNoSafeWay)
 }
 
 /// The letter to offer when one click did not work.
@@ -85,12 +82,7 @@ fn split_url(url: &str) -> Result<(String, u16, String)> {
         .trim()
         .strip_prefix("https://")
         .or_else(|| url.trim().strip_prefix("HTTPS://"))
-        .ok_or_else(|| {
-            Error::Protocol(tr!(
-                "one-click unsubscribe works only over https",
-                "отписка в один клик возможна только по https"
-            ))
-        })?;
+        .ok_or(Error::Said(Say::UnsubscribeHttpsOnly))?;
     let (authority, path) = match rest.find(['/', '?']) {
         Some(i) if rest[i..].starts_with('/') => (&rest[..i], rest[i..].to_owned()),
         Some(i) => (&rest[..i], format!("/{}", &rest[i..])),
@@ -131,19 +123,14 @@ pub async fn one_click(url: &str) -> Result<u16> {
         .nth(1)
         .and_then(|c| c.parse().ok())
         .ok_or_else(|| {
-            Error::Protocol(tr!(
-                "unexpected answer from the list server: {}",
-                "сервер рассылки ответил непонятно: {}",
-                line.trim()
-            ))
+            Error::Said(Say::ListUnexpected {
+                line: line.trim().to_owned(),
+            })
         })?;
     if (200..400).contains(&status) {
         Ok(status)
     } else {
-        Err(Error::Protocol(tr!(
-            "the list server refused to unsubscribe: HTTP {status}",
-            "сервер рассылки отказал в отписке: HTTP {status}"
-        )))
+        Err(Error::Said(Say::ListRefused { status }))
     }
 }
 
@@ -153,11 +140,9 @@ pub async fn one_click(url: &str) -> Result<u16> {
 /// through them would send the letter elsewhere.
 pub fn mailto(url: &str) -> Result<(String, String, String)> {
     let bad = || {
-        Error::Compose(tr!(
-            "the unsubscribe address is not a single valid address: {}",
-            "адрес для отписки — не один правильный адрес: {}",
-            url.trim()
-        ))
+        Error::Said(Say::UnsubscribeBadAddress {
+            url: url.trim().to_owned(),
+        })
     };
     let rest = url
         .trim()
@@ -183,10 +168,7 @@ pub fn mailto(url: &str) -> Result<(String, String, String)> {
     }
     if subject.chars().any(char::is_control) || body.chars().any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
     {
-        return Err(Error::Compose(tr!(
-            "the unsubscribe letter's subject or text has control characters",
-            "в теме или тексте письма-отписки есть управляющие символы"
-        )));
+        return Err(Error::Said(Say::UnsubscribeControlChars));
     }
     Ok((addr, subject, body))
 }

@@ -28,12 +28,12 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::config::Settings;
 use crate::error::{CmdError, CmdResult};
+use crate::lang::pick;
 use crate::paths::Use;
 use crate::secrets;
 use crate::state::{AccountStatus, AppState, lock};
+use crate::tr;
 use crate::worker::{self, Output, Queue, Work};
-use depesha_core::lang::pick;
-use depesha_core::tr;
 
 type St<'a> = State<'a, Arc<AppState>>;
 
@@ -59,9 +59,40 @@ pub fn accounts(state: St<'_>) -> Vec<AccountView> {
         .collect()
 }
 
+/// What the detection found, with its source and notes worded for the interface.
+#[derive(Serialize)]
+pub struct DetectionView {
+    imap: Option<depesha_core::account::ServerConfig>,
+    smtp: Option<depesha_core::account::ServerConfig>,
+    username: String,
+    source: String,
+    notes: Vec<String>,
+}
+
+impl From<Detection> for DetectionView {
+    fn from(d: Detection) -> Self {
+        let (source, notes) = crate::localize::source_and_notes(d.source.as_ref(), &d.notes, crate::lang::current());
+        Self {
+            imap: d.imap,
+            smtp: d.smtp,
+            username: d.username,
+            source,
+            notes,
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn detect(email: String) -> Detection {
-    autodetect::detect(&email).await
+pub async fn detect(email: String) -> DetectionView {
+    autodetect::detect(&email).await.into()
+}
+
+/// Where the Exchange address came from, worded for the interface.
+#[derive(Serialize)]
+pub struct EwsDetectionView {
+    url: Option<String>,
+    source: String,
+    notes: Vec<String>,
 }
 
 /// Logs in to IMAP and SMTP (or EWS) with the given settings; nothing is saved.
@@ -354,7 +385,7 @@ pub fn oauth_providers(state: St<'_>) -> Vec<OAuthProviderView> {
         .into_iter()
         .map(|p| OAuthProviderView {
             provider: p,
-            title: p.title(),
+            title: crate::localize::provider_title(p, crate::lang::current()),
             configured: settings.oauth_client(p).is_some(),
         })
         .collect()
@@ -396,7 +427,15 @@ pub async fn oauth_sign_in(
     let cancel = state.oauth_cancel.notified();
     tokio::pin!(cancel);
     cancel.as_mut().enable();
-    let grant = oauth::sign_in(provider, &client, login_hint.as_deref(), open, cancel).await?;
+    let grant = oauth::sign_in(
+        provider,
+        &client,
+        login_hint.as_deref(),
+        open,
+        cancel,
+        &crate::localize::sign_in_pages(),
+    )
+    .await?;
     let id = format!("{}-{}", provider.as_str(), chrono::Utc::now().timestamp_millis());
     let (imap, smtp) = provider.servers();
     let view = OAuthGrantView {
@@ -423,9 +462,15 @@ pub async fn exchange_detect(
     username: String,
     password: String,
     server: Option<String>,
-) -> EwsDetection {
+) -> EwsDetectionView {
     let creds = Credentials::new(username, password);
-    ews::discover(email.trim(), &creds, server.as_deref().filter(|s| !s.trim().is_empty())).await
+    let d: EwsDetection = ews::discover(email.trim(), &creds, server.as_deref().filter(|s| !s.trim().is_empty())).await;
+    let (source, notes) = crate::localize::source_and_notes(d.source.as_ref(), &d.notes, crate::lang::current());
+    EwsDetectionView {
+        url: d.url,
+        source,
+        notes,
+    }
 }
 
 // Commands that read the cache run off the main thread (`async`): while a sync holds
@@ -1685,7 +1730,7 @@ pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsub
                         tracing::info!("one-click unsubscribe failed, offering mail: {e}");
                         Ok(Unsubscribed::Confirm {
                             plan: plan_of(&state, &r, mail.clone())?,
-                            reason: e.to_string(),
+                            reason: crate::localize::error_now(&e),
                         })
                     }
                     None => Err(e.into()),
@@ -1728,7 +1773,7 @@ pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsub
 
 /// The language the interface is shown in, resolved from the settings and the locale.
 #[tauri::command]
-pub fn language(state: St<'_>) -> depesha_core::lang::Lang {
+pub fn language(state: St<'_>) -> crate::lang::Lang {
     state.settings().lang()
 }
 

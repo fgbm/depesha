@@ -1,7 +1,7 @@
 //! Passwords in the OS keyring: Secret Service on Linux, Keychain, Credential Manager.
 
 use crate::error::{CmdError, CmdResult};
-use depesha_core::tr;
+use crate::tr;
 
 const SERVICE: &str = "ru.depesha.mail";
 

@@ -231,7 +231,7 @@ impl OAuthProvider {
     pub fn title(self) -> &'static str {
         match self {
             Self::Google => "Google",
-            Self::Yandex => crate::lang::pick("Yandex", "Яндекс"),
+            Self::Yandex => "Yandex",
             Self::Microsoft => "Microsoft",
         }
     }

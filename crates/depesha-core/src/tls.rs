@@ -9,15 +9,45 @@ use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVe
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio_rustls::rustls::{self, CertificateError, ClientConfig, DigitallySignedStruct, SignatureScheme};
 
-use crate::lang::pick;
 use crate::{Error, Result};
+
+/// The reasons a certificate is rejected that the program words itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CertWhy {
+    Expired,
+    NotYetValid,
+    UnknownIssuer,
+    WrongName,
+    Revoked,
+    Failed,
+    /// Anything else: the verifier's own words stay in `reason`.
+    #[default]
+    Other,
+}
+
+impl CertWhy {
+    pub fn english(self) -> &'static str {
+        match self {
+            Self::Expired => "the certificate has expired",
+            Self::NotYetValid => "the certificate is not valid yet (check the computer's clock)",
+            Self::UnknownIssuer => "issued by an unknown authority: self-signed or an internal certificate authority",
+            Self::WrongName => "issued for a different server name",
+            Self::Revoked => "the certificate is revoked",
+            Self::Failed => "the certificate failed verification",
+            Self::Other => "",
+        }
+    }
+}
 
 /// Why the server certificate was rejected, with what the user needs to
 /// decide whether to trust it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CertProblem {
     pub host: String,
+    /// Why, in English; the words the user reads are made from `why` (or this, for `Other`).
     pub reason: String,
+    #[serde(default)]
+    pub why: CertWhy,
     /// SHA-256 of the DER certificate, lowercase hex; this is what gets pinned.
     pub sha256: String,
     pub subject: String,
@@ -94,28 +124,21 @@ impl ServerCertVerifier for Verifier {
 }
 
 fn describe(host: &str, cert: &CertificateDer<'_>, sha256: String, err: &rustls::Error) -> CertProblem {
-    let reason = match err {
-        rustls::Error::InvalidCertificate(e) => match e {
-            CertificateError::Expired | CertificateError::ExpiredContext { .. } => {
-                pick("the certificate has expired", "срок действия сертификата истёк")
-            }
-            CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => pick(
-                "the certificate is not valid yet (check the computer's clock)",
-                "сертификат ещё не действует (проверьте часы компьютера)",
-            ),
-            CertificateError::UnknownIssuer => pick(
-                "issued by an unknown authority: self-signed or an internal certificate authority",
-                "сертификат выдан неизвестным центром: самоподписанный или внутренний центр сертификации",
-            ),
-            CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => pick(
-                "issued for a different server name",
-                "сертификат выдан для другого имени сервера",
-            ),
-            CertificateError::Revoked => pick("the certificate is revoked", "сертификат отозван"),
-            _ => pick("the certificate failed verification", "сертификат не прошёл проверку"),
+    let (why, reason) = match err {
+        rustls::Error::InvalidCertificate(e) => {
+            let why = match e {
+                CertificateError::Expired | CertificateError::ExpiredContext { .. } => CertWhy::Expired,
+                CertificateError::NotValidYet | CertificateError::NotValidYetContext { .. } => CertWhy::NotYetValid,
+                CertificateError::UnknownIssuer => CertWhy::UnknownIssuer,
+                CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. } => {
+                    CertWhy::WrongName
+                }
+                CertificateError::Revoked => CertWhy::Revoked,
+                _ => CertWhy::Failed,
+            };
+            (why, why.english().to_owned())
         }
-        .to_owned(),
-        other => other.to_string(),
+        other => (CertWhy::Other, other.to_string()),
     };
     let (subject, issuer, not_after) = match x509_parser::parse_x509_certificate(cert) {
         Ok((_, c)) => (
@@ -128,6 +151,7 @@ fn describe(host: &str, cert: &CertificateDer<'_>, sha256: String, err: &rustls:
     CertProblem {
         host: host.to_owned(),
         reason,
+        why,
         sha256,
         subject,
         issuer,

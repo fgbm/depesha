@@ -75,7 +75,7 @@ impl<S> Loaded<S> {
 
 #[cfg(not(target_os = "macos"))]
 pub async fn print(_window: &tauri::WebviewWindow, _html: String) -> CmdResult<()> {
-    use depesha_core::tr;
+    use crate::tr;
     Err(CmdError::new(
         depesha_core::ErrorKind::Unsupported,
         tr!(
@@ -88,7 +88,7 @@ pub async fn print(_window: &tauri::WebviewWindow, _html: String) -> CmdResult<(
 #[cfg(target_os = "macos")]
 pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()> {
     use crate::print_mac::{Output, Sheet};
-    use depesha_core::tr;
+    use crate::tr;
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSWindow;
     use std::cell::RefCell;

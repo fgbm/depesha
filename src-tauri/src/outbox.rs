@@ -12,8 +12,8 @@ use serde_json::json;
 
 use crate::error::CmdError;
 use crate::state::AppState;
+use crate::tr;
 use crate::worker::{Queue, Work};
-use depesha_core::tr;
 
 /// A gap between rounds this long means the app was not running (the machine slept):
 /// the wall clock runs on, the monotonic one does not.
@@ -61,7 +61,7 @@ pub async fn run(state: Arc<AppState>) {
 /// A letter whose send was cut short (the app quit mid-SMTP): whether the server took it
 /// cannot be known, so it is not tried again by itself; the user checks «Sent».
 fn recover_interrupted(state: &AppState) {
-    match outbox::hold_interrupted(&state.store, chrono::Utc::now().timestamp()) {
+    match outbox::hold_interrupted(&state.store, chrono::Utc::now().timestamp(), &crate::localize::Phrases) {
         Ok(true) => state.emit("outbox-changed", json!({})),
         Ok(false) => {}
         Err(e) => tracing::warn!("outbox: {e}"),
@@ -105,7 +105,8 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
         let account = state.account(&item.account_id).ok();
         let key = format!("send:{}", item.id);
         let mut starting = || {
-            let subject = outbox::subject_or_placeholder(&item.draft.subject);
+            let subject =
+                outbox::subject_or_placeholder(&item.draft.subject, crate::lang::pick("(no subject)", "(без темы)"));
             state.task(
                 &key,
                 "send",
@@ -120,12 +121,19 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             starting: &mut starting,
             aborted: &mut aborted,
         };
-        let attempt = outbox::attempt(&state.store, &item, account.as_ref(), blocked, now, progress, |a| {
-            MailSender {
+        let attempt = outbox::attempt(
+            &state.store,
+            &item,
+            account.as_ref(),
+            blocked,
+            now,
+            progress,
+            &crate::localize::Phrases,
+            |a| MailSender {
                 state: state.clone(),
                 account: a.clone(),
-            }
-        })
+            },
+        )
         .await?;
         match attempt {
             Attempt::Skipped => continue,
@@ -262,6 +270,7 @@ pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Resu
         copy,
         chrono::Utc::now().timestamp(),
         refusal_delay,
+        &crate::localize::Phrases,
         |item, cached| async move {
             if !cached {
                 state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent yet: it will be filed later", "письмо отправлено, но копия в «Отправленные» пока не сохранена: её положат позже") }));
@@ -306,7 +315,7 @@ const FILED_KIND: depesha_core::ErrorKind = depesha_core::ErrorKind::CopyFiled;
 /// for a reply could not start is a task of its own, and its error is ours, not the server's.
 fn stuck_label(copy: &StuckCopy) -> (String, depesha_core::ErrorKind) {
     let subject = if copy.subject.is_empty() {
-        depesha_core::lang::pick("(no subject)", "(без темы)").to_owned()
+        crate::lang::pick("(no subject)", "(без темы)").to_owned()
     } else {
         copy.subject.clone()
     };

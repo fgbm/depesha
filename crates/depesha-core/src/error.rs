@@ -1,49 +1,69 @@
 use std::time::Duration;
 
+use crate::say::{Class, Say};
 use crate::tls::CertProblem;
-use crate::tr;
 
-/// Errors are worded for the end user in the current language (`lang`): the GUI shows them as is.
-#[derive(Debug)]
+/// What went wrong, worded in English for the log. The words the user reads are made from the
+/// value at the edge of the program (`CmdError`): the core knows no language.
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Io(std::io::Error),
+    #[error("{}", io_text(.0))]
+    Io(#[from] std::io::Error),
+    #[error("the server did not answer in time ({0})")]
     Timeout(&'static str),
-    Tls(tokio_rustls::rustls::Error),
+    #[error("TLS: {0}")]
+    Tls(#[from] tokio_rustls::rustls::Error),
+    #[error("untrusted certificate {}: {}", .0.host, .0.reason)]
     Certificate(Box<CertProblem>),
+    #[error("the server does not support encryption (STARTTLS); the password was not sent")]
     NoTls,
+    #[error("invalid server name: {0}")]
     InvalidHost(String),
+    #[error("the server rejected the login: {0}")]
     Auth(String),
+    /// The login methods the server offers, or none when empty.
+    #[error("the server offers no supported login method (offers: {}); PLAIN or LOGIN is needed", offers_text(.0))]
     AuthMechanism(String),
+    #[error(
+        "the server accepted the password but did not open the mailbox over IMAP. On Exchange: \
+         IMAP is off for the mailbox (ImapEnabled) or the MSExchangeIMAP4BE service is not running"
+    )]
     ImapUnavailable,
-    Imap(async_imap::error::Error),
+    #[error("IMAP: {}", imap_text(.0))]
+    Imap(#[from] async_imap::error::Error),
+    #[error("{}", smtp_text(*.code, .enhanced.as_deref(), .message))]
     Smtp {
         code: u16,
         enhanced: Option<String>,
         message: String,
     },
     /// The SMTP server refused our EHLO: it judges the client by the name it gives.
-    SmtpHello {
-        name: String,
-        code: u16,
-        message: String,
-    },
-    TooLarge {
-        size: usize,
-        limit: u64,
-    },
+    #[error("the server did not accept the client's greeting (EHLO {name}), before any login: {code} {message}")]
+    SmtpHello { name: String, code: u16, message: String },
+    #[error("the message is {size} bytes, over the server's limit of {limit} bytes")]
+    TooLarge { size: usize, limit: u64 },
+    #[error("the message could not be built: {0}")]
     Compose(String),
-    Store(rusqlite::Error),
+    #[error("local database: {0}")]
+    Store(#[from] rusqlite::Error),
+    #[error("the server closed the connection")]
     Closed,
     /// The server said `* BYE` with this text (sent as it was worded) and closed the connection.
+    #[error("the server closed the connection: {0}")]
     Bye(String),
+    #[error("unexpected answer from the server: {0}")]
     Protocol(String),
+    #[error("message not found")]
     NotFound,
+    #[error("the message could not be parsed")]
     Parse,
     /// A value of the local cache does not parse (#146); the log names the row, never the content.
+    #[error("stored data could not be read")]
     Unreadable,
     /// Exchange Web Services refused a request: `ResponseCode` and `MessageText`;
     /// `back_off` is the pause a throttled request (`ErrorServerBusy`) is asked to
     /// keep, `BackOffMilliseconds` of its `MessageXml`.
+    #[error("{}", ews_text(.code, .message, *.back_off))]
     Ews {
         code: String,
         message: String,
@@ -51,35 +71,47 @@ pub enum Error {
     },
     /// Exchange is busy and the mailbox's queue sends nothing for `wait`: `retrying`
     /// when the queue repeats the request itself, otherwise the action was not done.
-    Busy {
-        wait: Duration,
-        retrying: bool,
-    },
+    #[error("{}", busy_text(*.wait, *.retrying))]
+    Busy { wait: Duration, retrying: bool },
     /// The web server offers none of the login methods we speak (EWS without Basic).
+    #[error(
+        "Exchange accepts only {0} on EWS; Depesha signs in with Basic or NTLM. Ask the administrator \
+         to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true"
+    )]
     HttpAuth(String),
     /// The mailbox waits for the user (a wrong password): background work does not
     /// knock on the server meanwhile.
+    #[error("the mailbox is paused until its settings are fixed")]
     Paused,
     /// A link from a letter leads into a private network (loopback, LAN, link-local…):
     /// Depesha does not go there on a stranger's word.
+    #[error("{0} is an address in a private network; Depesha does not send requests there from a letter")]
     PrivateAddress(String),
     /// The local cache was written by a newer version: its format number and the
     /// newest this version knows. The cache is left as it is.
-    CacheTooNew {
-        found: i64,
-        known: i64,
-    },
+    #[error(
+        "the local mail cache was saved by a newer version of Depesha (format {found}, this version \
+         reads up to {known}). Install the newer version; the cache was left as it is"
+    )]
+    CacheTooNew { found: i64, known: i64 },
     /// The server renumbered the folder (a new UIDVALIDITY, or an Exchange folder
     /// cached anew) after the UIDs of an action were read: they name other messages.
+    #[error("the folder changed on the server before the action ran; nothing was done, try again")]
     FolderChanged,
     /// The label is being taken off every letter: a new one by the same name would have its
     /// keyword stripped with the rest.
+    #[error("The label is still being removed, try again in a minute")]
     LabelStripping,
     /// The label check cannot run here: without UIDPLUS its test letter could not be
     /// expunged by UID, so it would stay behind. Depesha does not run it.
+    #[error("this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run")]
     LabelCheckUnsupported,
     /// The server refuses to file the copy of a sent letter in «Sent» (see `append_refused`); the text is the refusal as it was worded.
+    #[error("{0}")]
     CopyRefused(String),
+    /// A failure the core words itself, as a code with its parameters.
+    #[error("{}", .0.english())]
+    Said(Say),
 }
 
 /// What the interface branches on when a call fails: the stable code of an error, the same
@@ -221,162 +253,6 @@ impl ErrorKind {
     }
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            Self::Io(e) => io_text(e),
-            Self::Timeout(what) => {
-                tr!(
-                    "the server did not answer in time ({})",
-                    "сервер не ответил вовремя ({})",
-                    timeout_label(what)
-                )
-            }
-            Self::Tls(e) => format!("TLS: {e}"),
-            Self::Certificate(p) => tr!(
-                "untrusted certificate {}: {}",
-                "недоверенный сертификат {}: {}",
-                p.host,
-                p.reason
-            ),
-            Self::NoTls => tr!(
-                "the server does not support encryption (STARTTLS); the password was not sent",
-                "сервер не поддерживает шифрование (STARTTLS); пароль не отправлен"
-            ),
-            Self::InvalidHost(h) => tr!("invalid server name: {h}", "неверное имя сервера: {h}"),
-            Self::Auth(m) => tr!("the server rejected the login: {m}", "сервер отклонил вход: {m}"),
-            Self::AuthMechanism(m) => tr!(
-                "the server offers no supported login method (offers: {m}); PLAIN or LOGIN is needed",
-                "сервер не предлагает поддерживаемый способ входа (предлагает: {m}); нужен PLAIN или LOGIN"
-            ),
-            Self::ImapUnavailable => tr!(
-                "the server accepted the password but did not open the mailbox over IMAP. On Exchange: \
-                 IMAP is off for the mailbox (ImapEnabled) or the MSExchangeIMAP4BE service is not running",
-                "сервер принял пароль, но не открыл ящик по IMAP. На Exchange: для ящика выключен IMAP \
-                 (ImapEnabled) или не запущена служба MSExchangeIMAP4BE"
-            ),
-            Self::Imap(e) => format!("IMAP: {}", imap_text(e)),
-            Self::Smtp {
-                code,
-                enhanced,
-                message,
-            } => smtp_text(*code, enhanced.as_deref(), message),
-            Self::SmtpHello { name, code, message } => tr!(
-                "the server did not accept the client's greeting (EHLO {name}), before any login: {code} {message}",
-                "сервер не принял приветствие клиента (EHLO {name}) ещё до входа: {code} {message}"
-            ),
-            Self::TooLarge { size, limit } => tr!(
-                "the message is {size} bytes, over the server's limit of {limit} bytes",
-                "письмо {size} байт больше лимита сервера {limit} байт"
-            ),
-            Self::Compose(m) => tr!("the message could not be built: {m}", "письмо не собрано: {m}"),
-            Self::Store(e) => tr!("local database: {e}", "локальная база: {e}"),
-            Self::Closed => tr!("the server closed the connection", "сервер закрыл соединение"),
-            Self::Bye(text) => tr!(
-                "the server closed the connection: {}",
-                "сервер закрыл соединение: {}",
-                text
-            ),
-            Self::Paused => tr!(
-                "the mailbox is paused until its settings are fixed",
-                "ящик приостановлен, пока не исправлены его настройки"
-            ),
-            Self::Protocol(m) => tr!(
-                "unexpected answer from the server: {m}",
-                "сервер ответил непонятно: {m}"
-            ),
-            Self::NotFound => tr!("message not found", "письмо не найдено"),
-            Self::Unreadable => tr!("stored data could not be read", "сохранённые данные не читаются"),
-            Self::CacheTooNew { found, known } => tr!(
-                "the local mail cache was saved by a newer version of Depesha (format {found}, this version \
-                 reads up to {known}). Install the newer version; the cache was left as it is",
-                "локальный кэш почты сохранён более новой версией Депеши (формат {found}, эта версия \
-                 читает до {known}). Установите новую версию; кэш оставлен как есть"
-            ),
-            Self::FolderChanged => tr!(
-                "the folder changed on the server before the action ran; nothing was done, try again",
-                "папка изменилась на сервере, пока действие ждало очереди; ничего не сделано, повторите действие"
-            ),
-            Self::LabelStripping => tr!(
-                "The label is still being removed, try again in a minute",
-                "Метка ещё удаляется, попробуйте через минуту"
-            ),
-            Self::LabelCheckUnsupported => tr!(
-                "this server has no UIDPLUS: the label check cannot remove its test letter, so it is not run",
-                "на этом сервере нет UIDPLUS: проверка меток не сможет удалить тестовое письмо, поэтому она не выполняется"
-            ),
-            Self::CopyRefused(text) => text.clone(),
-            Self::Parse => tr!("the message could not be parsed", "не удалось разобрать письмо"),
-            Self::PrivateAddress(host) => tr!(
-                "{host} is an address in a private network; Depesha does not send requests there from a letter",
-                "{host} — адрес во внутренней сети; по ссылке из письма Депеша туда не обращается"
-            ),
-            Self::Ews {
-                code,
-                message,
-                back_off,
-            } => ews_text(code, message, *back_off),
-            Self::Busy { wait, retrying: true } => {
-                let n = seconds(*wait);
-                tr!(
-                    "the Exchange server is busy; the mailbox will try again in {n} s",
-                    "сервер Exchange занят; ящик повторит запрос через {n} с"
-                )
-            }
-            Self::Busy { wait, retrying: false } => {
-                let n = seconds(*wait);
-                tr!(
-                    "the Exchange server is busy; nothing was done, try again in {n} s",
-                    "сервер Exchange занят; ничего не сделано, повторите через {n} с"
-                )
-            }
-            Self::HttpAuth(offered) => tr!(
-                "Exchange accepts only {offered} on EWS; Depesha signs in with Basic or NTLM. Ask the administrator \
-                 to enable one of them: Set-WebServicesVirtualDirectory -WindowsAuthentication $true",
-                "Exchange принимает на EWS только {offered}, а Депеша входит через Basic или NTLM. Попросите \
-                 администратора включить один из них: Set-WebServicesVirtualDirectory -WindowsAuthentication $true"
-            ),
-        };
-        f.write_str(&text)
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(e) => Some(e),
-            Self::Tls(e) => Some(e),
-            Self::Imap(e) => Some(e),
-            Self::Store(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<tokio_rustls::rustls::Error> for Error {
-    fn from(e: tokio_rustls::rustls::Error) -> Self {
-        Self::Tls(e)
-    }
-}
-
-impl From<async_imap::error::Error> for Error {
-    fn from(e: async_imap::error::Error) -> Self {
-        Self::Imap(e)
-    }
-}
-
-impl From<rusqlite::Error> for Error {
-    fn from(e: rusqlite::Error) -> Self {
-        Self::Store(e)
-    }
-}
-
 impl Error {
     /// Worth retrying later without user action: network trouble and SMTP 4xx.
     pub fn is_transient(&self) -> bool {
@@ -394,6 +270,7 @@ impl Error {
                     | "ErrorBatchProcessingStopped"
             ),
             Self::Busy { .. } => true,
+            Self::Said(s) => s.class() == Class::Transient,
             Self::Imap(async_imap::error::Error::Io(_) | async_imap::error::Error::ConnectionLost) => true,
             _ => false,
         }
@@ -409,6 +286,7 @@ impl Error {
         }
         match self {
             Self::Paused | Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) | Self::Busy { .. } => true,
+            Self::Said(s) => s.class() == Class::Auth,
             Self::Imap(e) => {
                 let raw = match e {
                     async_imap::error::Error::No(m) | async_imap::error::Error::Bad(m) => m,
@@ -517,6 +395,7 @@ impl Error {
             Self::Certificate(_) => ErrorKind::Certificate,
             Self::NoTls => ErrorKind::NoTls,
             Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) => ErrorKind::Auth,
+            Self::Said(s) if s.class() == Class::Auth => ErrorKind::Auth,
             Self::Ews { code, .. } if code == "ErrorItemNotFound" => ErrorKind::NotFound,
             Self::Ews { code, .. } if code == "ErrorMessageSizeExceeded" => ErrorKind::TooLarge,
             Self::ImapUnavailable => ErrorKind::ImapUnavailable,
@@ -538,35 +417,40 @@ impl Error {
     }
 }
 
-/// Timeout labels are English keys; Russian is chosen when displayed.
-fn timeout_label(what: &str) -> &str {
-    if !crate::lang::is_ru() {
-        return what;
+/// What a failed IMAP command or connection comes to, for the edge that words it.
+pub enum ImapFault {
+    Refused(String),
+    NotAccepted(String),
+    ConnectionLost,
+    Other(String),
+}
+
+impl Error {
+    /// The IMAP error told apart for wording: `Io` is the one `Error::Io` also has.
+    pub fn imap_fault(&self) -> Option<Result<ImapFault, &std::io::Error>> {
+        use async_imap::error::Error as E;
+        let Self::Imap(e) = self else { return None };
+        Some(match e {
+            E::No(m) => Ok(ImapFault::Refused(crate::imap::server_text(m))),
+            E::Bad(m) => Ok(ImapFault::NotAccepted(crate::imap::server_text(m))),
+            E::Io(io) => Err(io),
+            E::ConnectionLost => Ok(ImapFault::ConnectionLost),
+            other => Ok(ImapFault::Other(other.to_string())),
+        })
     }
-    match what {
-        "connecting" => "подключение",
-        "server greeting" => "приветствие сервера",
-        "search answer" => "ответ на поиск",
-        "SMTP answer" => "ответ SMTP",
-        "operation" => "операция",
-        "connecting to the list server" => "подключение к серверу рассылки",
-        "list server answer" => "ответ сервера рассылки",
-        "HTTP answer" => "ответ HTTP",
-        other => other,
-    }
+}
+
+fn offers_text(offers: &str) -> &str {
+    if offers.is_empty() { "nothing" } else { offers }
 }
 
 fn imap_text(e: &async_imap::error::Error) -> String {
     use async_imap::error::Error as E;
     match e {
-        E::No(m) => tr!("refused: {}", "сервер отказал: {}", crate::imap::server_text(m)),
-        E::Bad(m) => tr!(
-            "command not accepted: {}",
-            "сервер не принял команду: {}",
-            crate::imap::server_text(m)
-        ),
+        E::No(m) => format!("refused: {}", crate::imap::server_text(m)),
+        E::Bad(m) => format!("command not accepted: {}", crate::imap::server_text(m)),
         E::Io(io) => io_text(io),
-        E::ConnectionLost => tr!("the connection to the server broke", "соединение с сервером оборвалось"),
+        E::ConnectionLost => "the connection to the server broke".to_owned(),
         other => other.to_string(),
     }
 }
@@ -575,119 +459,134 @@ fn io_text(e: &std::io::Error) -> String {
     use std::io::ErrorKind as K;
     let text = e.to_string();
     match e.kind() {
-        K::ConnectionRefused => tr!(
-            "the server refuses connections (the port is closed or the server is down)",
-            "сервер не принимает соединения (порт закрыт или сервер выключен)"
-        ),
+        K::ConnectionRefused => "the server refuses connections (the port is closed or the server is down)".to_owned(),
         K::ConnectionReset | K::ConnectionAborted | K::BrokenPipe | K::UnexpectedEof => {
-            tr!("the connection to the server broke", "соединение с сервером оборвалось")
+            "the connection to the server broke".to_owned()
         }
-        K::TimedOut => tr!("the server did not answer in time", "сервер не ответил вовремя"),
-        K::NetworkUnreachable | K::HostUnreachable => {
-            tr!(
-                "no network, or the server is unreachable",
-                "нет сети или сервер недоступен"
-            )
-        }
+        K::TimedOut => "the server did not answer in time".to_owned(),
+        K::NetworkUnreachable | K::HostUnreachable => "no network, or the server is unreachable".to_owned(),
         _ if text.contains("lookup address") || text.contains("Name or service not known") => {
-            tr!(
-                "server not found: check its name (DNS)",
-                "сервер не найден: проверьте имя (DNS)"
-            )
+            "server not found: check its name (DNS)".to_owned()
         }
-        _ => tr!("network: {text}", "сеть: {text}"),
+        _ => format!("network: {text}"),
     }
 }
 
 /// Whole seconds of a pause, rounded up: "0 s" would read as no pause.
-fn seconds(d: Duration) -> u64 {
+pub fn seconds(d: Duration) -> u64 {
     d.as_millis().div_ceil(1000).max(1) as u64
 }
 
+fn busy_text(wait: Duration, retrying: bool) -> String {
+    let n = seconds(wait);
+    if retrying {
+        format!("the Exchange server is busy; the mailbox will try again in {n} s")
+    } else {
+        format!("the Exchange server is busy; nothing was done, try again in {n} s")
+    }
+}
+
+/// What an Exchange response code the program knows by name means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EwsMeaning {
+    ItemGone,
+    FolderGone,
+    TooLarge,
+    SendAsDenied,
+    MailboxFull,
+    AccessDenied,
+}
+
+impl EwsMeaning {
+    pub fn of(code: &str) -> Option<Self> {
+        Some(match code {
+            "ErrorItemNotFound" => Self::ItemGone,
+            "ErrorFolderNotFound" => Self::FolderGone,
+            "ErrorMessageSizeExceeded" => Self::TooLarge,
+            "ErrorSendAsDenied" => Self::SendAsDenied,
+            "ErrorQuotaExceeded" => Self::MailboxFull,
+            "ErrorAccessDenied" => Self::AccessDenied,
+            _ => return None,
+        })
+    }
+
+    pub fn english(self) -> &'static str {
+        match self {
+            Self::ItemGone => "the message is no longer on the server",
+            Self::FolderGone => "the folder is no longer on the server",
+            Self::TooLarge => "the message is too large for the server",
+            Self::SendAsDenied => "no right to send on behalf of this address (Send As)",
+            Self::MailboxFull => "the mailbox is full",
+            Self::AccessDenied => "access denied",
+        }
+    }
+}
+
 fn ews_text(code: &str, message: &str, back_off: Option<Duration>) -> String {
-    use crate::lang::pick;
     if code == "ErrorServerBusy" {
         // Whether and when the request is repeated is the caller's business (`Busy`).
         return match back_off {
-            Some(d) => {
-                let n = seconds(d);
-                tr!(
-                    "the server is busy and asks to wait {n} s (Exchange: {code})",
-                    "сервер занят и просит подождать {n} с (Exchange: {code})"
-                )
-            }
-            None => tr!(
-                "the server is busy (Exchange: {code})",
-                "сервер занят (Exchange: {code})"
+            Some(d) => format!(
+                "the server is busy and asks to wait {} s (Exchange: {code})",
+                seconds(d)
             ),
+            None => format!("the server is busy (Exchange: {code})"),
         };
     }
-    let explained = match code {
-        "ErrorItemNotFound" => pick("the message is no longer on the server", "письма уже нет на сервере"),
-        "ErrorFolderNotFound" => pick("the folder is no longer on the server", "папки уже нет на сервере"),
-        "ErrorMessageSizeExceeded" => pick(
-            "the message is too large for the server",
-            "письмо слишком большое для сервера",
-        ),
-        "ErrorSendAsDenied" => pick(
-            "no right to send on behalf of this address (Send As)",
-            "нет права отправлять от имени этого адреса (Send As)",
-        ),
-        "ErrorQuotaExceeded" => pick("the mailbox is full", "ящик переполнен"),
-        "ErrorAccessDenied" => pick("access denied", "доступ запрещён"),
-        _ => "",
-    };
-    if explained.is_empty() {
-        tr!(
-            "Exchange answered {code}: {message}",
-            "Exchange ответил {code}: {message}"
-        )
-    } else {
-        tr!("{explained} (Exchange: {code})", "{explained} (Exchange: {code})")
+    match EwsMeaning::of(code) {
+        Some(m) => format!("{} (Exchange: {code})", m.english()),
+        None => format!("Exchange answered {code}: {message}"),
+    }
+}
+
+/// What an SMTP reply means, by its code and its enhanced status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtpMeaning {
+    RateLimited,
+    SendAsDenied,
+    WrongLogin,
+    LoginRequired,
+    TooLarge,
+    NoSuchRecipient,
+    Refused,
+    Temporary,
+}
+
+impl SmtpMeaning {
+    pub fn of(code: u16, enhanced: Option<&str>) -> Option<Self> {
+        Some(match (code, enhanced.unwrap_or_default()) {
+            (421, "4.4.2") => Self::RateLimited,
+            (_, "5.7.60") => Self::SendAsDenied,
+            (535, _) | (_, "5.7.3") | (_, "5.7.8") => Self::WrongLogin,
+            (530, _) | (_, "5.7.57") => Self::LoginRequired,
+            (552, _) | (_, "5.3.4") => Self::TooLarge,
+            (_, "5.1.1") | (_, "5.1.10") => Self::NoSuchRecipient,
+            (_, "5.7.1") => Self::Refused,
+            (c, _) if (400..500).contains(&c) => Self::Temporary,
+            _ => return None,
+        })
+    }
+
+    pub fn english(self) -> &'static str {
+        match self {
+            Self::RateLimited => {
+                "the server limits the sending rate (Exchange allows 5 messages a minute by default); the message will go later"
+            }
+            Self::SendAsDenied => "no right to send on behalf of this address (Send As)",
+            Self::WrongLogin => "wrong user name or password",
+            Self::LoginRequired => "the server requires a login before sending",
+            Self::TooLarge => "the message is too large for the server",
+            Self::NoSuchRecipient => "the recipient address does not exist",
+            Self::Refused => "the server refused the message (no permission, or rejected by policy)",
+            Self::Temporary => "temporary server error, the message will go later",
+        }
     }
 }
 
 fn smtp_text(code: u16, enhanced: Option<&str>, message: &str) -> String {
-    use crate::lang::pick;
-    let explained = match (code, enhanced.unwrap_or_default()) {
-        (421, "4.4.2") => pick(
-            "the server limits the sending rate (Exchange allows 5 messages a minute by default); the message will go later",
-            "сервер ограничил частоту отправки (у Exchange по умолчанию 5 писем в минуту); письмо уйдёт позже",
-        ),
-        (_, "5.7.60") => pick(
-            "no right to send on behalf of this address (Send As)",
-            "нет права отправлять от имени этого адреса (Send As)",
-        ),
-        (535, _) | (_, "5.7.3") | (_, "5.7.8") => pick("wrong user name or password", "неверный логин или пароль"),
-        (530, _) | (_, "5.7.57") => pick(
-            "the server requires a login before sending",
-            "сервер требует входа перед отправкой",
-        ),
-        (552, _) | (_, "5.3.4") => pick(
-            "the message is too large for the server",
-            "письмо слишком большое для сервера",
-        ),
-        (_, "5.1.1") | (_, "5.1.10") => pick("the recipient address does not exist", "адрес получателя не существует"),
-        (_, "5.7.1") => pick(
-            "the server refused the message (no permission, or rejected by policy)",
-            "сервер отказался принять письмо (нет прав или письмо отклонено политикой)",
-        ),
-        (c, _) if (400..500).contains(&c) => pick(
-            "temporary server error, the message will go later",
-            "временная ошибка сервера, письмо уйдёт позже",
-        ),
-        _ => "",
-    };
-    if explained.is_empty() {
-        tr!(
-            "the server answered {code}: {message}",
-            "сервер ответил {code}: {message}"
-        )
-    } else {
-        tr!(
-            "{explained} (server: {code} {message})",
-            "{explained} (сервер: {code} {message})"
-        )
+    match SmtpMeaning::of(code, enhanced) {
+        Some(m) => format!("{} (server: {code} {message})", m.english()),
+        None => format!("the server answered {code}: {message}"),
     }
 }
 

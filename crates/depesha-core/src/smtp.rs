@@ -18,7 +18,7 @@ use crate::account::{Credentials, Security, ServerConfig};
 use crate::domain::{Addr, Importance};
 use crate::domain::{BodyFormat, Draft};
 use crate::imap::Io;
-use crate::tr;
+use crate::say::Say;
 use crate::{Error, Result, tls};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -67,7 +67,7 @@ fn mailbox(a: &Addr) -> Result<Mailbox> {
         .email
         .trim()
         .parse()
-        .map_err(|_| Error::Compose(tr!("invalid address: {}", "неверный адрес: {}", a.email)))?;
+        .map_err(|_| Error::Said(Say::InvalidAddress { email: a.email.clone() }))?;
     Ok(Mailbox::new(a.name.clone().filter(|n| !n.trim().is_empty()), email))
 }
 
@@ -86,12 +86,9 @@ fn html_part(html: String) -> SinglePart {
 }
 
 pub fn build(draft: &Draft) -> Result<Message> {
-    let from = draft
-        .from
-        .as_ref()
-        .ok_or_else(|| Error::Compose(tr!("no sender", "не указан отправитель")))?;
+    let from = draft.from.as_ref().ok_or(Error::Said(Say::NoSender))?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
-        return Err(Error::Compose(tr!("no recipients", "нет ни одного получателя")));
+        return Err(Error::Said(Say::NoRecipients));
     }
     let domain = from
         .email
@@ -815,7 +812,10 @@ async fn login(conn: &mut Conn, caps: &SmtpCaps, creds: &Credentials) -> Result<
                 let last = conn.command("").await?;
                 let mut err = auth_err(last);
                 if let (Error::Auth(m), Some(d)) = (&mut err, detail) {
-                    m.push_str(&format!(" ({d})"));
+                    err = Error::Said(Say::AuthDetail {
+                        message: std::mem::take(m),
+                        detail: d,
+                    });
                 }
                 Err(err)
             }
@@ -847,7 +847,7 @@ async fn login(conn: &mut Conn, caps: &SmtpCaps, creds: &Credentials) -> Result<
         return Ok(());
     }
     if caps.auth.is_empty() {
-        Err(Error::AuthMechanism(tr!("nothing", "ничего")))
+        Err(Error::AuthMechanism(String::new()))
     } else {
         Err(Error::AuthMechanism(caps.auth.join(" ")))
     }
@@ -1433,7 +1433,7 @@ mod tests {
             from: Some(addr("me@example.org")),
             ..Default::default()
         };
-        assert!(matches!(build(&draft), Err(Error::Compose(_))));
+        assert!(matches!(build(&draft), Err(Error::Said(Say::NoRecipients))));
     }
 
     #[test]

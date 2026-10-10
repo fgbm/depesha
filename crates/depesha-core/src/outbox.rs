@@ -16,11 +16,9 @@ use std::future::Future;
 use crate::Result;
 use crate::account::Account;
 use crate::domain::FolderRole;
-use crate::lang::pick;
 use crate::message;
 use crate::port::{MailQueue, Sender};
 use crate::store::{NewSentCopy, OutboxItem, SentCopy, Store};
-use crate::tr;
 
 /// A letter due longer than this before the app was running again is not sent at once: it
 /// waits for the user instead of leaving hours late.
@@ -37,27 +35,47 @@ pub fn missed(item: &OutboxItem, now: i64, awake_since: i64) -> bool {
         && now - item.next_attempt > MISSED_AFTER
 }
 
-/// The words of a letter that may have left: the user looks in «Sent».
-fn possibly_sent() -> String {
-    tr!(
-        "possibly sent: check “Sent”",
-        "возможно, ушло — проверьте «Отправленные»"
-    )
+/// The words the rules store for the user in the cache (`last_error` of a letter, of a copy):
+/// the core has no language, so whoever runs the rules brings them.
+pub trait Words: Sync {
+    /// A failure, in the user's words.
+    fn failure(&self, e: &crate::Error) -> String;
+    /// A letter that may have left: the user looks in «Sent».
+    fn possibly_sent(&self) -> String;
+    /// A letter that was not sent on time: the app was closed or the computer asleep.
+    fn not_on_time(&self) -> String;
+    /// The mailbox of a letter was removed.
+    fn account_removed(&self) -> String;
+}
+
+/// The words in English, as the log has them.
+pub struct English;
+
+impl Words for English {
+    fn failure(&self, e: &crate::Error) -> String {
+        e.to_string()
+    }
+    fn possibly_sent(&self) -> String {
+        "possibly sent: check “Sent”".to_owned()
+    }
+    fn not_on_time(&self) -> String {
+        "not sent on time: Depesha was closed or the computer was asleep".to_owned()
+    }
+    fn account_removed(&self) -> String {
+        "the account was removed".to_owned()
+    }
 }
 
 /// Hours late (the app was closed, the computer asleep), a letter waits for the user. The ids
 /// of the letters it put on hold.
-pub fn hold_missed(store: &Store, now: i64, awake_since: i64) -> Result<Vec<i64>> {
+pub fn hold_missed(store: &Store, now: i64, awake_since: i64, words: &dyn Words) -> Result<Vec<i64>> {
     let late: Vec<i64> = store
         .outbox()?
         .iter()
         .filter(|i| missed(i, now, awake_since))
         .map(|i| i.id)
         .collect();
-    let why = tr!(
-        "not sent on time: Depesha was closed or the computer was asleep",
-        "не ушло вовремя: Депеша была закрыта или компьютер спал"
-    );
+    let why = words.not_on_time();
     for id in &late {
         store.outbox_retry_later(*id, now, &why, true)?;
     }
@@ -67,14 +85,14 @@ pub fn hold_missed(store: &Store, now: i64, awake_since: i64) -> Result<Vec<i64>
 /// Letters whose send was cut short (the app quit mid-send): whether the server took them
 /// cannot be known, so they are not tried again by themselves; the user checks «Sent». Whether
 /// there were any.
-pub fn hold_interrupted(store: &Store, now: i64) -> Result<bool> {
+pub fn hold_interrupted(store: &Store, now: i64, words: &dyn Words) -> Result<bool> {
     let interrupted: Vec<i64> = store
         .outbox()?
         .iter()
         .filter(|i| i.sending_started > 0)
         .map(|i| i.id)
         .collect();
-    let why = possibly_sent();
+    let why = words.possibly_sent();
     for id in &interrupted {
         store.outbox_retry_later(*id, now, &why, true)?;
     }
@@ -165,6 +183,7 @@ pub struct Progress<'a> {
 /// One letter: the steps in the order that keeps it from being sent twice or lost. `blocked`:
 /// an earlier letter of this mailbox was refused, and the rest wait for the user. `sender` makes
 /// the port of the account's kind.
+#[allow(clippy::too_many_arguments)]
 pub async fn attempt<S: Sender>(
     store: &Store,
     item: &OutboxItem,
@@ -172,6 +191,7 @@ pub async fn attempt<S: Sender>(
     blocked: bool,
     now: i64,
     progress: Progress<'_>,
+    words: &dyn Words,
     sender: impl FnOnce(&Account) -> S,
 ) -> Result<Attempt> {
     if item.failed || item.next_attempt > now || blocked {
@@ -180,16 +200,11 @@ pub async fn attempt<S: Sender>(
     // A send that started but whose row was not removed (the removal failed after a good send)
     // may have left: do not send it again, the user checks «Sent».
     if item.sending_started > 0 {
-        store.outbox_retry_later(item.id, now, &possibly_sent(), true)?;
+        store.outbox_retry_later(item.id, now, &words.possibly_sent(), true)?;
         return Ok(Attempt::Held(Hold::PossiblySent));
     }
     let Some(account) = account else {
-        store.outbox_retry_later(
-            item.id,
-            now,
-            &tr!("the account was removed", "учётная запись удалена"),
-            true,
-        )?;
+        store.outbox_retry_later(item.id, now, &words.account_removed(), true)?;
         return Ok(Attempt::Held(Hold::NoAccount));
     };
     // Taken before the letter leaves, with the draft as the cache has it: a quit between here
@@ -205,7 +220,7 @@ pub async fn attempt<S: Sender>(
             Err(error) => {
                 let transient = error.is_transient();
                 let delay = retry_delay(item.attempts, &error);
-                store.outbox_retry_later(item.id, now + delay, &error.to_string(), !transient)?;
+                store.outbox_retry_later(item.id, now + delay, &words.failure(&error), !transient)?;
                 Ok(Attempt::Failed { error, transient })
             }
         }
@@ -306,6 +321,7 @@ pub fn settle_copy(
     outcome: &Result<()>,
     now: i64,
     delay: fn(u32) -> i64,
+    words: &dyn Words,
 ) -> Result<Settled> {
     match outcome {
         Ok(()) => {
@@ -315,13 +331,13 @@ pub fn settle_copy(
         Err(e) if copy_refused(e) => {
             let refusals = copy.refusals + 1;
             let hold = refusals >= REFUSALS_BEFORE_HOLD;
-            store.sent_copy_refused(copy.id, now + delay(refusals), &e.to_string(), hold)?;
+            store.sent_copy_refused(copy.id, now + delay(refusals), &words.failure(e), hold)?;
             Ok(if hold { Settled::Held } else { Settled::Waiting })
         }
         Err(e) => {
             let pause = (30_i64 << copy.attempts.min(6)).min(1800);
             let pause = pause.max(e.back_off().map_or(0, |d| d.as_secs().min(1800) as i64 + 1));
-            store.sent_copy_retry_later(copy.id, now + pause, &e.to_string())?;
+            store.sent_copy_retry_later(copy.id, now + pause, &words.failure(e))?;
             Ok(Settled::Waiting)
         }
     }
@@ -339,10 +355,11 @@ pub fn settle_failed_finish(
     filed: bool,
     now: i64,
     delay: fn(u32) -> i64,
+    words: &dyn Words,
 ) -> Result<Settled> {
     if !filed {
         let failed = Err(crate::Error::CopyRefused(failure.to_owned()));
-        return settle_copy(store, copy, &failed, now, delay);
+        return settle_copy(store, copy, &failed, now, delay, words);
     }
     let refusals = copy.refusals + 1;
     let hold = refusals >= REFUSALS_BEFORE_HOLD;
@@ -369,6 +386,7 @@ pub async fn deliver_copy<Q, E, F, Fut>(
     copy: &SentCopy,
     now: i64,
     delay: fn(u32) -> i64,
+    words: &dyn Words,
     finish: F,
 ) -> Result<CopyTry<E>>
 where
@@ -386,10 +404,7 @@ where
                     .copy_to_sent(&copy.folder, &copy.raw, &copy.flags, copy.message_id.as_deref())
                     .await
             }
-            None => Err(crate::Error::Io(std::io::Error::other(tr!(
-                "the account is not running",
-                "учётная запись не запущена"
-            )))),
+            None => Err(crate::Error::Said(crate::Say::AccountNotRunning)),
         }
     };
     let ready = match (&outcome, copy.pending.as_ref()) {
@@ -401,13 +416,13 @@ where
         && let Err(e) = finish(item.clone(), cached).await
     {
         // Counted as a refusal: otherwise the copy and the finish are repeated for ever.
-        let settled = settle_failed_finish(store, copy, &e.to_string(), outcome.is_ok(), now, delay)?;
+        let settled = settle_failed_finish(store, copy, &e.to_string(), outcome.is_ok(), now, delay, words)?;
         return Ok(CopyTry {
             settled,
             finish_failed: Some(e),
         });
     }
-    let settled = settle_copy(store, copy, &outcome, now, delay)?;
+    let settled = settle_copy(store, copy, &outcome, now, delay, words)?;
     if matches!(ready, Some((_, false))) {
         store.sent_copy_forget_wait(copy.id)?;
     }
@@ -435,9 +450,9 @@ where
 }
 
 /// What the subject of a letter reads as in the tasks and toasts.
-pub fn subject_or_placeholder(subject: &str) -> String {
+pub fn subject_or_placeholder(subject: &str, placeholder: &str) -> String {
     if subject.is_empty() {
-        pick("(no subject)", "(без темы)").to_owned()
+        placeholder.to_owned()
     } else {
         subject.to_owned()
     }
@@ -525,7 +540,7 @@ mod tests {
             starting: &mut || started += 1,
             aborted: &mut || aborted += 1,
         };
-        let got = attempt(store, item, account, blocked, now, progress, |_| &mut *sender)
+        let got = attempt(store, item, account, blocked, now, progress, &English, |_| &mut *sender)
             .await
             .unwrap();
         assert_eq!(aborted, 0);
@@ -827,13 +842,16 @@ mod tests {
         store.outbox_sending(cut.id, 5).unwrap();
         let late = queued(&store, 1, 0);
         let fresh = queued(&store, 1_000_000, 0);
-        assert!(hold_interrupted(&store, 10).unwrap());
-        assert!(!hold_interrupted(&store, 10).unwrap(), "nothing more is cut short");
+        assert!(hold_interrupted(&store, 10, &English).unwrap());
+        assert!(
+            !hold_interrupted(&store, 10, &English).unwrap(),
+            "nothing more is cut short"
+        );
         let rows = store.outbox().unwrap();
         let by = |id| rows.iter().find(|i| i.id == id).unwrap();
         assert!(by(cut.id).failed && !by(late.id).failed);
         // Overdue by hours from before the app woke: held, with the word.
-        let held = hold_missed(&store, 1_000_000 - 100, 1_000_000 - 200).unwrap();
+        let held = hold_missed(&store, 1_000_000 - 100, 1_000_000 - 200, &English).unwrap();
         assert_eq!(held, [late.id]);
         assert!(store.outbox().unwrap().iter().all(|i| i.id == fresh.id || i.failed));
     }
@@ -903,7 +921,7 @@ mod tests {
             let copy = store.sent_copies().unwrap().remove(0);
             assert_eq!(copy.refusals, n as u32);
             assert_eq!(
-                settle_failed_finish(&store, &copy, "finish failed", false, now, DELAY).unwrap(),
+                settle_failed_finish(&store, &copy, "finish failed", false, now, DELAY, &English).unwrap(),
                 expect
             );
             assert_eq!(
@@ -948,7 +966,7 @@ mod tests {
         ] {
             let copy = store.sent_copies().unwrap().remove(0);
             assert_eq!(
-                settle_copy(&store, &copy, &Err(failure), now, DELAY).unwrap(),
+                settle_copy(&store, &copy, &Err(failure), now, DELAY, &English).unwrap(),
                 Settled::Waiting
             );
             assert!(store.sent_copies_due(now).unwrap().is_empty(), "not hammered at once");
@@ -959,7 +977,7 @@ mod tests {
         assert_eq!(due.len(), 1);
         assert_eq!((due[0].id, due[0].raw.as_slice()), (copy.id, &b"raw"[..]));
         assert_eq!(
-            settle_copy(&store, &due[0], &Ok(()), now + 3_600, DELAY).unwrap(),
+            settle_copy(&store, &due[0], &Ok(()), now + 3_600, DELAY, &English).unwrap(),
             Settled::Filed
         );
         assert!(store.sent_copies().unwrap().is_empty());
@@ -987,7 +1005,7 @@ mod tests {
             sent(&store);
             for n in 0..3 {
                 let copy = store.sent_copies().unwrap().remove(0);
-                let got = settle_copy(&store, &copy, &Err(refused(answer)), 0, DELAY).unwrap();
+                let got = settle_copy(&store, &copy, &Err(refused(answer)), 0, DELAY, &English).unwrap();
                 assert_eq!(got, if n == 2 { Settled::Held } else { Settled::Waiting });
             }
             assert_eq!(store.sent_copies_stuck().unwrap().len(), 1);
@@ -1007,7 +1025,7 @@ mod tests {
             assert!(!failure.append_refused());
             let copy = store.sent_copies().unwrap().remove(0);
             assert_eq!(
-                settle_copy(&store, &copy, &Err(failure), 0, DELAY).unwrap(),
+                settle_copy(&store, &copy, &Err(failure), 0, DELAY, &English).unwrap(),
                 Settled::Waiting
             );
         }
@@ -1024,7 +1042,7 @@ mod tests {
         // A dead network between the refusals does not count as one.
         let copy = store.sent_copies().unwrap().remove(0);
         assert_eq!(
-            settle_copy(&store, &copy, &Err(Error::Closed), now, DELAY).unwrap(),
+            settle_copy(&store, &copy, &Err(Error::Closed), now, DELAY, &English).unwrap(),
             Settled::Waiting
         );
         for (n, (wait, expect)) in [
@@ -1037,7 +1055,7 @@ mod tests {
         {
             let copy = store.sent_copies().unwrap().remove(0);
             assert_eq!(copy.refusals, n as u32);
-            let got = settle_copy(&store, &copy, &Err(refused("OVERQUOTA full")), now, DELAY).unwrap();
+            let got = settle_copy(&store, &copy, &Err(refused("OVERQUOTA full")), now, DELAY, &English).unwrap();
             assert_eq!(got, expect);
             assert_eq!(
                 store.sent_copies().unwrap()[0].next_attempt,
@@ -1069,14 +1087,14 @@ mod tests {
             refusals: 2,
             ..copy.clone()
         };
-        settle_copy(&store, &held, &Err(refused("OVERQUOTA")), 0, DELAY).unwrap();
+        settle_copy(&store, &held, &Err(refused("OVERQUOTA")), 0, DELAY, &English).unwrap();
         assert!(store.sent_copies_due(i64::MAX).unwrap().is_empty());
         assert!(store.sent_copy_resume(copy.id).unwrap());
         let due = store.sent_copies_due(0).unwrap();
         assert_eq!((due.len(), due[0].refusals, due[0].paused), (1, 0, false));
         // It is refused once more: the count starts from one again, not on hold.
         assert_eq!(
-            settle_copy(&store, &due[0], &Err(refused("OVERQUOTA")), 0, DELAY).unwrap(),
+            settle_copy(&store, &due[0], &Err(refused("OVERQUOTA")), 0, DELAY, &English).unwrap(),
             Settled::Waiting
         );
         store.sent_copy_done(copy.id).unwrap();
@@ -1093,7 +1111,7 @@ mod tests {
         for n in 0..3 {
             let copy = store.sent_copies().unwrap().remove(0);
             assert_eq!(copy.filed, n > 0, "the copy is marked after the first failure");
-            settle_failed_finish(&store, &copy, "no database", true, 1_000, DELAY).unwrap();
+            settle_failed_finish(&store, &copy, "no database", true, 1_000, DELAY, &English).unwrap();
         }
         let held: StuckCopy = store.sent_copies_stuck().unwrap().remove(0);
         assert!(held.filed);
@@ -1120,7 +1138,7 @@ mod tests {
         finishes: &std::sync::Mutex<Vec<bool>>,
         finish_fails: bool,
     ) -> CopyTry<&'static str> {
-        deliver_copy(store, queue, copy, 1_000, DELAY, |_, cached| async move {
+        deliver_copy(store, queue, copy, 1_000, DELAY, &English, |_, cached| async move {
             finishes.lock().unwrap().push(cached);
             if finish_fails { Err("finish failed") } else { Ok(()) }
         })
@@ -1280,7 +1298,10 @@ mod tests {
             starting: &mut || started += 1,
             aborted: &mut || aborted += 1,
         };
-        let first = attempt(&store, &item, Some(&acct), false, 100, progress, |_| &mut sender).await;
+        let first = attempt(&store, &item, Some(&acct), false, 100, progress, &English, |_| {
+            &mut sender
+        })
+        .await;
         assert!(first.is_err(), "the failure is the caller's");
         assert_eq!((started, aborted), (1, 1), "the task the user saw is told it is over");
         assert_eq!(sender.sent.len(), 1);
@@ -1291,9 +1312,11 @@ mod tests {
             starting: &mut || {},
             aborted: &mut || {},
         };
-        let second = attempt(&store, &row, Some(&acct), false, 200, progress, |_| &mut sender)
-            .await
-            .unwrap();
+        let second = attempt(&store, &row, Some(&acct), false, 200, progress, &English, |_| {
+            &mut sender
+        })
+        .await
+        .unwrap();
         assert!(matches!(second, Attempt::Held(Hold::PossiblySent)), "{second:?}");
         assert_eq!(sender.sent.len(), 1, "sent once");
         assert!(

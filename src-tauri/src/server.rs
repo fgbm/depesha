@@ -5,10 +5,11 @@
 
 use std::sync::Arc;
 
+use crate::tr;
 use depesha_core::account::Account;
 use depesha_core::mail::Conn;
 use depesha_core::store::{FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
-use depesha_core::{Error, ews, imap, quota, tr};
+use depesha_core::{Error, ews, imap, quota};
 use serde::Serialize;
 use serde_json::json;
 

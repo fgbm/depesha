@@ -41,8 +41,8 @@ fn explains_401() {
     assert_eq!(ntlm_scheme(&["Negotiate".into()]), Some("Negotiate"));
     assert_eq!(ntlm_scheme(&["Basic realm=\"x\"".into()]), None);
     let e = unauthorized(&["Negotiate, NTLM".into(), "Basic realm=\"mail.corp.ru\"".into()]);
-    assert!(matches!(e, Error::Auth(_)));
-    assert!(matches!(unauthorized(&[]), Error::Auth(_)));
+    assert!(matches!(e, Error::Said(Say::EwsWrongLogin)));
+    assert!(matches!(unauthorized(&[]), Error::Said(Say::EwsWrongLogin)));
 }
 
 #[test]

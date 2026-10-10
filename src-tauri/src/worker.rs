@@ -24,7 +24,7 @@ use tokio::task::JoinHandle;
 
 use crate::error::CmdError;
 use crate::state::{AccountStatus, AppState, lock};
-use depesha_core::tr;
+use crate::tr;
 
 const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Messages downloaded for offline reading per round: user actions wait for a
@@ -1732,7 +1732,7 @@ async fn perform(
                     // A refusal that waiting will not mend is counted by the outbox, which shows
                     // one task when the copy is put on hold; a red task per try is only noise.
                     state.task_done(&key);
-                    Err(Error::CopyRefused(e.to_string()))
+                    Err(Error::CopyRefused(crate::localize::error_now(&e)))
                 }
                 Err(e) => {
                     state.task_failed(&key, CmdError::from(clone_error(&e)));

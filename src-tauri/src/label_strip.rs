@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 
+use crate::lang::pick;
 use depesha_core::label_strip::{self, Ended};
-use depesha_core::lang::pick;
 
 use crate::error::CmdError;
 use crate::state::AppState;

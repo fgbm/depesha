@@ -13,9 +13,9 @@ use tauri::utils::config::BundleType;
 use tauri::utils::platform::bundle_type;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+use crate::lang::pick;
 use crate::state::{AppState, lock};
-use depesha_core::lang::pick;
-use depesha_core::tr;
+use crate::tr;
 
 const FIRST_CHECK: Duration = Duration::from_secs(20);
 const EVERY: Duration = Duration::from_secs(6 * 3600);

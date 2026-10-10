@@ -6,10 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::lang::pick;
+use crate::tr;
 use depesha_core::domain::FolderRole;
-use depesha_core::lang::pick;
 use depesha_core::store::FolderInfo;
-use depesha_core::tr;
 use tauri::image::Image;
 use tauri::menu::{IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -576,8 +576,8 @@ fn set_dnd(state: &AppState, how: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lang::{self, Lang};
     use depesha_core::domain::Folder;
-    use depesha_core::lang::{self, Lang};
 
     fn item(id: &str, label: &str) -> Entry {
         Entry::Item {

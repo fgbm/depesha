@@ -1,5 +1,6 @@
+use crate::tr;
+use depesha_core::ErrorKind;
 use depesha_core::tls::CertProblem;
-use depesha_core::{ErrorKind, tr};
 use serde::Serialize;
 
 /// Error as the GUI sees it: a kind to branch on, a Russian message to show,
@@ -31,13 +32,14 @@ impl std::fmt::Display for CmdError {
 
 impl From<depesha_core::Error> for CmdError {
     fn from(err: depesha_core::Error) -> Self {
+        let lang = crate::lang::current();
         let cert = match &err {
-            depesha_core::Error::Certificate(p) => Some(p.clone()),
+            depesha_core::Error::Certificate(p) => Some(Box::new(crate::localize::cert_view(p, lang))),
             _ => None,
         };
         Self {
             kind: err.kind(),
-            message: err.to_string(),
+            message: crate::localize::error(&err, lang),
             cert,
         }
     }

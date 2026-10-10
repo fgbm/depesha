@@ -12,8 +12,8 @@ use tokio::sync::Notify;
 use crate::config::{self, Config, Settings};
 use crate::error::{CmdError, CmdResult};
 use crate::secrets;
+use crate::tr;
 use crate::worker::Worker;
-use depesha_core::tr;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AccountStatus {
@@ -172,9 +172,9 @@ impl AppState {
     pub fn apply_language(&self) {
         use tauri::Manager;
         let lang = self.settings().lang();
-        depesha_core::lang::set(lang);
+        crate::lang::set(lang);
         if let Some(w) = self.app.get_webview_window("main") {
-            let _ = w.set_title(depesha_core::lang::pick("Depesha", "Депеша"));
+            let _ = w.set_title(crate::lang::pick("Depesha", "Депеша"));
         }
     }
 
@@ -296,7 +296,7 @@ impl AppState {
                 return Err(depesha_core::Error::Auth(tr!(
                     "no saved sign-in: sign in with {} again",
                     "вход не сохранён: войдите через {} заново",
-                    provider.title()
+                    crate::localize::provider_title(provider, crate::lang::current())
                 )));
             }
             Err(e) => return Err(depesha_core::Error::Auth(e.message)),

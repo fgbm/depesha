@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::Result;
 use crate::account::Account;
 use crate::domain::{Act, Draft, FlagChange, FolderRole};
-use crate::lang::pick;
 use crate::port::{MailQueue, Move};
 use crate::store::{Followup, FollowupPlan, OutboxItem, ParkJob, Parking, Store, WaitFolder, moves, waiting_folder};
 
@@ -382,6 +381,7 @@ pub enum Taken {
 
 /// Takes the conversation of an answer from where it sits to the folder the mailbox waits in,
 /// making the folder when there is none. The state of the wait follows what came of it.
+#[allow(clippy::too_many_arguments)]
 pub async fn take_in<Q: MailQueue>(
     store: &Store,
     queue: &mut Q,
@@ -390,6 +390,7 @@ pub async fn take_in<Q: MailQueue>(
     account: &Account,
     job: &ParkJob,
     now: i64,
+    default_folder: &str,
 ) -> Result<Taken> {
     // The conversation is found now (#109): a wait put off for the archival of its own
     // conversation comes round again; one made before that carries its letters already.
@@ -429,7 +430,7 @@ pub async fn take_in<Q: MailQueue>(
             error,
         })
     };
-    let default = pick("Waiting for reply", "Ждут ответа");
+    let default = default_folder;
     let folders: Vec<(String, String)> = store
         .folders(Some(&account.id))?
         .into_iter()
@@ -1237,6 +1238,7 @@ mod tests {
             &waits_in_wait(),
             job,
             now,
+            "Waiting for reply",
         )
         .await
         .unwrap()
@@ -1343,9 +1345,18 @@ mod tests {
         let guard = archivals.begin("a", "q@x");
         let mut queue = Queue::default();
         let account = waits_in_wait();
-        let taken = take_in(&store, &mut queue, &archivals, &Refused::default(), &account, &job, 110)
-            .await
-            .unwrap();
+        let taken = take_in(
+            &store,
+            &mut queue,
+            &archivals,
+            &Refused::default(),
+            &account,
+            &job,
+            110,
+            "Waiting for reply",
+        )
+        .await
+        .unwrap();
         assert!(matches!(taken, Taken::Later) && queue.moves.is_empty());
         // After an hour it does not wait any longer: it goes by what the cache shows.
         let taken = take_in(
@@ -1356,6 +1367,7 @@ mod tests {
             &account,
             &job,
             100 + GIVE_UP_SECS,
+            "Waiting for reply",
         )
         .await
         .unwrap();
@@ -1377,9 +1389,18 @@ mod tests {
             created: [Err(Error::Protocol("no".into()))].into(),
             ..Default::default()
         };
-        let first = take_in(&store, &mut queue, &archivals, &refused, &account, &job, 110)
-            .await
-            .unwrap();
+        let first = take_in(
+            &store,
+            &mut queue,
+            &archivals,
+            &refused,
+            &account,
+            &job,
+            110,
+            "Waiting for reply",
+        )
+        .await
+        .unwrap();
         assert!(
             matches!(
                 first,
@@ -1394,9 +1415,18 @@ mod tests {
         // The next answer: quietly in the inbox, and the server is not asked again.
         let store = self::store();
         let job = sent_to_wait(&store, 200).await;
-        let second = take_in(&store, &mut queue, &archivals, &refused, &account, &job, 210)
-            .await
-            .unwrap();
+        let second = take_in(
+            &store,
+            &mut queue,
+            &archivals,
+            &refused,
+            &account,
+            &job,
+            210,
+            "Waiting for reply",
+        )
+        .await
+        .unwrap();
         assert!(matches!(second, Taken::Quiet), "{second:?}");
         assert_eq!(queue.log.lock().unwrap().len(), 1, "one attempt to make it");
         assert!(store.park_jobs().unwrap().is_empty());
@@ -1417,9 +1447,18 @@ mod tests {
             created: down(),
             ..Default::default()
         };
-        let early = take_in(&store, &mut queue, &archivals, &refused, &account, &job, 110)
-            .await
-            .unwrap();
+        let early = take_in(
+            &store,
+            &mut queue,
+            &archivals,
+            &refused,
+            &account,
+            &job,
+            110,
+            "Waiting for reply",
+        )
+        .await
+        .unwrap();
         assert!(matches!(early, Taken::Later));
         queue.created = down();
         let late = take_in(
@@ -1430,6 +1469,7 @@ mod tests {
             &account,
             &job,
             100 + GIVE_UP_SECS,
+            "Waiting for reply",
         )
         .await
         .unwrap();
@@ -1445,7 +1485,7 @@ mod tests {
             "{late:?}"
         );
         // Failing for now is not refusing: the next answer tries again.
-        assert!(!refused.contains("a", pick("Waiting for reply", "Ждут ответа")));
+        assert!(!refused.contains("a", "Waiting for reply"));
     }
 
     /// A wait parked in the folder and stopped by hand: its letters are to come back.

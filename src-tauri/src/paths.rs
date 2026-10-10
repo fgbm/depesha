@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
-use depesha_core::tr;
+use crate::tr;
 
 use crate::error::{CmdError, CmdResult};
 use crate::state::lock;

@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use depesha_core::lang::pick;
+use crate::lang::pick;
+use crate::tr;
 use depesha_core::store::MessageRow;
-use depesha_core::tr;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
@@ -1089,7 +1089,7 @@ mod windows_toast {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use depesha_core::lang::{self, Lang};
+    use crate::lang::{self, Lang};
 
     fn letter(id: i64, account: &str, from: &str, subject: &str) -> Letter {
         Letter {

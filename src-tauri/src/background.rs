@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::tr;
 use depesha_core::store::OutboxItem;
-use depesha_core::tr;
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Notify;
@@ -370,7 +370,7 @@ pub fn sync_autostart(app: &AppHandle, before: Option<&Settings>, now: &Settings
 /// `awake_since` is when the app last (re)started or woke: only a letter overdue from
 /// before that was missed — one held back while the app ran goes its usual way.
 pub fn hold_missed(state: &AppState, now: i64, awake_since: i64) -> depesha_core::Result<()> {
-    let late = depesha_core::outbox::hold_missed(&state.store, now, awake_since)?;
+    let late = depesha_core::outbox::hold_missed(&state.store, now, awake_since, &crate::localize::Phrases)?;
     if late.is_empty() {
         return Ok(());
     }

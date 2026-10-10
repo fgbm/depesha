@@ -12,11 +12,50 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{self, Security, ServerConfig};
-use crate::tr;
 use crate::{Error, imap, smtp, tls};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(6);
 const MAX_XML: usize = 256 * 1024;
+
+/// Where the settings came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+pub enum Source {
+    #[error("known provider")]
+    KnownProvider,
+    #[error("DNS SRV")]
+    DnsSrv,
+    #[error("probing server names")]
+    ProbingNames,
+    #[error("autoconfig ({0})")]
+    Autoconfig(String),
+    #[error("MX: {0}")]
+    Mx(String),
+    #[error("MX: Microsoft 365")]
+    MxMicrosoft365,
+    #[error("Autodiscover ({0})")]
+    Autodiscover(String),
+    #[error("the address you entered")]
+    EnteredAddress,
+}
+
+/// A problem found on the way.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+pub enum Note {
+    #[error("the address has no domain")]
+    NoDomain,
+    #[error("Microsoft 365 accepts only sign-in through the browser: go back and use «Sign in with Microsoft»")]
+    Microsoft365BrowserOnly,
+    #[error("{0} from autoconfig does not exist")]
+    AutoconfigHostMissing(String),
+    /// The certificate of `server` (a host, or host:port) is not trusted.
+    #[error("{server} — {}", .problem.reason)]
+    Untrusted {
+        server: String,
+        problem: Box<crate::tls::CertProblem>,
+    },
+    #[error("{server} — the server does not support encryption (STARTTLS); the password was not sent")]
+    NoTls { server: String },
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Detection {
@@ -25,16 +64,16 @@ pub struct Detection {
     /// Login to suggest: the full address or its local part.
     pub username: String,
     /// Where the settings came from, for the user.
-    pub source: String,
+    pub source: Option<Source>,
     /// Problems found on the way, e.g. a server without STARTTLS.
-    pub notes: Vec<String>,
+    pub notes: Vec<Note>,
 }
 
 pub async fn detect(email: &str) -> Detection {
     let email = email.trim();
     let Some(domain) = account::domain_of(email).map(str::to_ascii_lowercase) else {
         return Detection {
-            notes: vec![tr!("the address has no domain", "адрес без домена")],
+            notes: vec![Note::NoDomain],
             ..Default::default()
         };
     };
@@ -46,7 +85,7 @@ pub async fn detect(email: &str) -> Detection {
     if let Some((imap, smtp)) = account::known_provider(&domain) {
         d.imap = Some(imap);
         d.smtp = Some(smtp);
-        d.source = tr!("known provider", "известный провайдер");
+        d.source = Some(Source::KnownProvider);
         return d;
     }
 
@@ -66,8 +105,8 @@ pub async fn detect(email: &str) -> Detection {
     }
 
     let (srv_imap, srv_smtp) = srv(&domain).await;
-    if d.source.is_empty() && srv_imap.is_some() {
-        d.source = "DNS SRV".into();
+    if d.source.is_none() && srv_imap.is_some() {
+        d.source = Some(Source::DnsSrv);
     }
     if d.imap.is_none() {
         d.imap = srv_imap;
@@ -85,8 +124,8 @@ pub async fn detect(email: &str) -> Detection {
             d.smtp = smtp;
         }
         d.notes.extend(notes);
-        if d.source.is_empty() && (d.imap.is_some() || d.smtp.is_some()) {
-            d.source = tr!("probing server names", "перебор адресов сервера");
+        if d.source.is_none() && (d.imap.is_some() || d.smtp.is_some()) {
+            d.source = Some(Source::ProbingNames);
         }
     }
     d
@@ -119,15 +158,11 @@ async fn autoconfig(email: &str, domain: &str) -> Option<Detection> {
                 if let Some(smtp) = &d.smtp
                     && addresses(resolver, &smtp.host).await.is_empty()
                 {
-                    d.notes.push(tr!(
-                        "{} from autoconfig does not exist",
-                        "{} из autoconfig не существует",
-                        smtp.host
-                    ));
+                    d.notes.push(Note::AutoconfigHostMissing(smtp.host.clone()));
                     d.smtp = None;
                 }
             }
-            d.source = format!("autoconfig ({host})");
+            d.source = Some(Source::Autoconfig(host.to_string()));
             return Some(d);
         }
     }
@@ -187,11 +222,8 @@ fn by_mx(email: &str, mx: &[String]) -> Option<Detection> {
             imap: Some(imap),
             smtp: Some(smtp),
             username: email.to_owned(),
-            source: "MX: Microsoft 365".into(),
-            notes: vec![tr!(
-                "Microsoft 365 accepts only sign-in through the browser: go back and use «Sign in with Microsoft»",
-                "Microsoft 365 принимает только вход через браузер: вернитесь и нажмите «Войти через Microsoft»"
-            )],
+            source: Some(Source::MxMicrosoft365),
+            notes: vec![Note::Microsoft365BrowserOnly],
         });
     } else {
         return None;
@@ -201,7 +233,7 @@ fn by_mx(email: &str, mx: &[String]) -> Option<Detection> {
         imap: Some(imap),
         smtp: Some(smtp),
         username: email.to_owned(),
-        source: format!("MX: {host}"),
+        source: Some(Source::Mx(host.to_string())),
         notes: Vec::new(),
     })
 }
@@ -249,7 +281,7 @@ async fn probe_hosts(
     mx: &[String],
     known_imap: Option<&ServerConfig>,
     want_smtp: bool,
-) -> (Option<ServerConfig>, Option<ServerConfig>, Vec<String>) {
+) -> (Option<ServerConfig>, Option<ServerConfig>, Vec<Note>) {
     let guessed = real_guesses(domain, &["mail", "imap", "smtp"]).await;
     let hosts = |service: &str| {
         let mut hosts: Vec<String> = [format!("mail.{domain}"), format!("{service}.{domain}")]
@@ -351,7 +383,7 @@ fn pick(
     candidates: &[ServerConfig],
     results: Vec<Option<crate::Result<()>>>,
     prefer: Option<&str>,
-    notes: &mut Vec<String>,
+    notes: &mut Vec<Note>,
 ) -> Option<ServerConfig> {
     let mut valid = Vec::new();
     let mut untrusted = Vec::new();
@@ -359,10 +391,15 @@ fn pick(
         match result {
             Some(Ok(())) => valid.push(server),
             Some(Err(Error::Certificate(p))) => {
-                notes.push(format!("{}:{} — {}", server.host, server.port, p.reason));
+                notes.push(Note::Untrusted {
+                    server: format!("{}:{}", server.host, server.port),
+                    problem: p,
+                });
                 untrusted.push(server);
             }
-            Some(Err(e @ Error::NoTls)) => notes.push(format!("{}:{} — {e}", server.host, server.port)),
+            Some(Err(Error::NoTls)) => notes.push(Note::NoTls {
+                server: format!("{}:{}", server.host, server.port),
+            }),
             _ => {}
         }
     }
@@ -435,7 +472,7 @@ pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detection> {
         imap: Some(imap),
         smtp,
         username,
-        source: String::new(),
+        source: None,
         notes: Vec::new(),
     })
 }
@@ -467,6 +504,7 @@ mod tests {
         Err(Error::Certificate(Box::new(crate::tls::CertProblem {
             host: host.into(),
             reason: "name mismatch".into(),
+            why: crate::tls::CertWhy::WrongName,
             sha256: String::new(),
             subject: String::new(),
             issuer: String::new(),
@@ -534,11 +572,8 @@ mod tests {
 
     #[tokio::test]
     async fn known_provider_needs_no_network() {
-        crate::lang::pin(crate::lang::Lang::Ru);
         let d = detect("someone@yandex.ru").await;
         assert_eq!(d.imap.unwrap().host, "imap.yandex.ru");
-        assert_eq!(d.source, "известный провайдер");
-        crate::lang::pin(crate::lang::Lang::En);
-        assert_eq!(detect("someone@yandex.ru").await.source, "known provider");
+        assert_eq!(d.source, Some(Source::KnownProvider));
     }
 }

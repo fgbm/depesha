@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use depesha_core::tr;
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -596,11 +596,7 @@ pub fn serve(app: &tauri::AppHandle, path: &str, disabled: &[String]) -> tauri::
     let Ok(code) = String::from_utf8(code) else {
         return not_found();
     };
-    let lang = if depesha_core::lang::is_ru() {
-        "\"ru\""
-    } else {
-        "\"en\""
-    };
+    let lang = if crate::lang::is_ru() { "\"ru\"" } else { "\"en\"" };
     let source = format!(
         "{}\n;(() => {{\n{code}\n}})();\npostMessage({{ type: \"ready\" }});\n",
         include_str!("ext/runtime.js").replace("__DEPESHA_LANG__", lang)

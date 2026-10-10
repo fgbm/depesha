@@ -14,9 +14,20 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::account::OAuthProvider;
 use crate::http;
-use crate::lang::pick;
-use crate::tr;
+use crate::say::Say;
 use crate::{Error, Result};
+
+/// The words of the pages the browser shows when it comes back, in the user's language: the
+/// core knows none, so the caller brings them.
+#[derive(Debug, Clone, Default)]
+pub struct PageWords {
+    pub signed_in: String,
+    pub close_tab: String,
+    pub failed: String,
+    pub unexpected: String,
+    /// Why the page says the sign-in failed when the user did not allow access.
+    pub denied: String,
+}
 
 /// Fixed so they can be registered: Yandex compares the port of the redirect URI.
 pub const PORTS: [u16; 3] = [47851, 47852, 47853];
@@ -152,13 +163,11 @@ async fn bind() -> Result<(TcpListener, u16)> {
             Err(e) => last = Some(e),
         }
     }
-    Err(Error::Protocol(tr!(
-        "ports {}–{} for the sign-in answer are busy: {}",
-        "порты {}–{} для ответа на вход заняты: {}",
-        PORTS[0],
-        PORTS[PORTS.len() - 1],
-        last.map(|e| e.to_string()).unwrap_or_default()
-    )))
+    Err(Error::Said(Say::SignInPortsBusy {
+        first: PORTS[0],
+        last: PORTS[PORTS.len() - 1],
+        why: last.map(|e| e.to_string()).unwrap_or_default(),
+    }))
 }
 
 pub fn authorize_url(
@@ -195,6 +204,7 @@ pub async fn sign_in(
     login_hint: Option<&str>,
     open: impl FnOnce(&str) -> Result<()>,
     cancel: impl Future<Output = ()>,
+    words: &PageWords,
 ) -> Result<Grant> {
     if !client.is_set() {
         return Err(not_configured(provider));
@@ -213,10 +223,10 @@ pub async fn sign_in(
     ))?;
 
     let code = tokio::select! {
-        r = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&listener, &state)) => {
-            r.map_err(|_| Error::Auth(pick("the browser did not come back in ten minutes", "браузер не вернулся за десять минут").into()))??
+        r = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&listener, &state, words)) => {
+            r.map_err(|_| Error::Said(Say::SignInTimeout))??
         }
-        _ = cancel => return Err(Error::Auth(pick("sign-in cancelled", "вход отменён").into())),
+        _ = cancel => return Err(Error::Said(Say::SignInCancelled)),
     };
     drop(listener);
 
@@ -231,15 +241,11 @@ pub async fn sign_in(
 }
 
 pub fn not_configured(provider: OAuthProvider) -> Error {
-    Error::Auth(tr!(
-        "sign-in with {} is not set up in this build: add your OAuth client in Preferences",
-        "вход через {} не настроен в этой сборке: укажите свой OAuth-клиент в настройках",
-        provider.title()
-    ))
+    Error::Said(Say::OauthNotConfigured { provider })
 }
 
 /// Accepts browser requests until one brings the code (or an error) for our state.
-async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
+async fn wait_for_code(listener: &TcpListener, state: &str, words: &PageWords) -> Result<String> {
     loop {
         let (mut stream, _) = listener.accept().await?;
         let Ok(Some(target)) = read_target(&mut stream).await else {
@@ -253,32 +259,29 @@ async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
         let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         if get("state").as_deref() != Some(state) {
             // Not our request (an old tab, another program): ignore it.
-            let _ = respond(
-                &mut stream,
-                "400 Bad Request",
-                pick("Unexpected request.", "Неожиданный запрос."),
-            )
-            .await;
+            let _ = respond(&mut stream, "400 Bad Request", &words.unexpected).await;
             continue;
         }
         if let Some(error) = get("error") {
             let detail = get("error_description").unwrap_or_default();
-            let text = if error == "access_denied" {
-                pick("access was not granted", "доступ не разрешён").to_owned()
+            let denied = error == "access_denied";
+            let text = if denied {
+                words.denied.clone()
             } else {
                 format!("{error} {detail}").trim().to_owned()
             };
-            let _ = respond(&mut stream, "200 OK", &page(false, &text)).await;
-            return Err(Error::Auth(tr!(
-                "the provider refused: {text}",
-                "провайдер отказал: {text}"
-            )));
+            let _ = respond(&mut stream, "200 OK", &page(words, false, &text)).await;
+            return Err(Error::Said(if denied {
+                Say::ProviderDenied
+            } else {
+                Say::ProviderRefused { text }
+            }));
         }
         let Some(code) = get("code").filter(|c| !c.is_empty()) else {
             let _ = respond(&mut stream, "400 Bad Request", "").await;
             continue;
         };
-        let _ = respond(&mut stream, "200 OK", &page(true, "")).await;
+        let _ = respond(&mut stream, "200 OK", &page(words, true, "")).await;
         return Ok(code);
     }
 }
@@ -318,17 +321,11 @@ async fn respond(stream: &mut TcpStream, status: &str, html: &str) -> std::io::R
     stream.shutdown().await
 }
 
-fn page(ok: bool, detail: &str) -> String {
+fn page(words: &PageWords, ok: bool, detail: &str) -> String {
     let (title, text) = if ok {
-        (
-            pick("Signed in", "Вход выполнен"),
-            pick(
-                "You can close this tab and return to Depesha.",
-                "Вкладку можно закрыть и вернуться в Депешу.",
-            ),
-        )
+        (words.signed_in.as_str(), words.close_tab.as_str())
     } else {
-        (pick("Sign-in failed", "Вход не выполнен"), detail)
+        (words.failed.as_str(), detail)
     };
     let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
     format!(
@@ -375,34 +372,24 @@ async fn token_request(provider: OAuthProvider, client: &OAuthClient, params: &[
     )
     .await?;
     let answer: TokenAnswer = serde_json::from_slice(&resp.body).map_err(|_| {
-        Error::Protocol(tr!(
-            "token endpoint answered {}: {}",
-            "сервер токенов ответил {}: {}",
-            resp.status,
-            resp.text().chars().take(300).collect::<String>()
-        ))
+        Error::Said(Say::TokenEndpoint {
+            status: resp.status,
+            body: resp.text().chars().take(300).collect(),
+        })
     })?;
     if let Some(error) = answer.error {
         let detail = answer.error_description.unwrap_or_default();
-        return Err(Error::Auth(match error.as_str() {
+        return Err(match error.as_str() {
             // Revoked, expired (Google keeps test-mode tokens for 7 days) or password changed.
-            "invalid_grant" => tr!(
-                "{} no longer accepts the saved sign-in, sign in again ({detail})",
-                "{} больше не принимает сохранённый вход, войдите заново ({detail})",
-                provider.title()
-            ),
-            "invalid_client" | "unauthorized_client" => tr!(
-                "{} does not know this app's OAuth client: {detail}",
-                "{} не знает OAuth-клиент приложения: {detail}",
-                provider.title()
-            ),
-            _ => format!("{error}: {detail}"),
-        }));
+            "invalid_grant" => Error::Said(Say::OauthInvalidGrant { provider, detail }),
+            "invalid_client" | "unauthorized_client" => Error::Said(Say::OauthInvalidClient { provider, detail }),
+            _ => Error::Auth(format!("{error}: {detail}")),
+        });
     }
     let access_token = answer
         .access_token
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| Error::Protocol(tr!("no access token in the answer", "в ответе нет токена доступа")))?;
+        .ok_or(Error::Said(Say::OauthNoToken))?;
     let expires_in = match answer.expires_in {
         Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(3600),
         Some(serde_json::Value::String(s)) => s.parse().unwrap_or(3600),
@@ -444,18 +431,10 @@ async fn exchange(
     )
     .await?;
     if ex.tokens.refresh_token.is_empty() {
-        return Err(Error::Auth(tr!(
-            "{} gave no refresh token; remove the app's access in the account settings and sign in again",
-            "{} не выдал токен обновления; отзовите доступ приложения в настройках аккаунта и войдите снова",
-            provider.title()
-        )));
+        return Err(Error::Said(Say::OauthNoRefresh { provider }));
     }
     if !grants_mail(provider, ex.scope.as_deref()) {
-        return Err(Error::Auth(tr!(
-            "{} did not grant access to mail: sign in again and tick mail access on the permissions page",
-            "{} не дал доступ к почте: войдите заново и на странице разрешений отметьте доступ к почте",
-            provider.title()
-        )));
+        return Err(Error::Said(Say::OauthNoMailAccess { provider }));
     }
     Ok(ex)
 }
@@ -495,7 +474,7 @@ async fn identity(provider: OAuthProvider, ex: &Exchanged) -> Result<(String, Op
             .map(str::to_owned);
         return email
             .map(|e| (e, name.filter(|n| !n.is_empty())))
-            .ok_or_else(|| Error::Protocol(tr!("Yandex did not tell the address", "Яндекс не сообщил адрес")));
+            .ok_or(Error::Said(Say::OauthNoAddress { provider }));
     }
     let claims = ex.id_token.as_deref().and_then(jwt_claims).unwrap_or_default();
     let email = claims["email"]
@@ -503,13 +482,7 @@ async fn identity(provider: OAuthProvider, ex: &Exchanged) -> Result<(String, Op
         .or(claims["preferred_username"].as_str())
         .filter(|e| e.contains('@'))
         .map(str::to_owned)
-        .ok_or_else(|| {
-            Error::Protocol(tr!(
-                "{} did not tell the address",
-                "{} не сообщил адрес",
-                provider.title()
-            ))
-        })?;
+        .ok_or(Error::Said(Say::OauthNoAddress { provider }))?;
     let name = claims["name"].as_str().filter(|n| !n.is_empty()).map(str::to_owned);
     Ok((email, name))
 }
@@ -599,6 +572,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_receives_the_code() {
+        let words = PageWords::default();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let browser = async move {
@@ -619,7 +593,7 @@ mod tests {
             );
             get("/oauth/callback?code=4%2F0Ab&state=good").await
         };
-        let (code, page) = tokio::join!(wait_for_code(&listener, "good"), browser);
+        let (code, page) = tokio::join!(wait_for_code(&listener, "good", &words), browser);
         assert_eq!(code.unwrap(), "4/0Ab");
         assert!(page.starts_with("HTTP/1.1 200"));
 
@@ -631,7 +605,7 @@ mod tests {
             let mut out = String::new();
             s.read_to_string(&mut out).await.unwrap();
         };
-        let (r, ()) = tokio::join!(wait_for_code(&listener, "good"), denied);
+        let (r, ()) = tokio::join!(wait_for_code(&listener, "good", &words), denied);
         assert_eq!(r.unwrap_err().kind(), crate::error::ErrorKind::Auth);
     }
 }

@@ -14,9 +14,9 @@ use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
 use crate::imap::IdleOutcome;
 use crate::message::{self, Summary};
 use crate::query::SearchQuery;
+use crate::say::Say;
 use crate::store::{NewMessage, Store};
 use crate::sync::{FolderSync, SyncOptions};
-use crate::tr;
 use crate::{Error, Result};
 
 /// The inbox gets the IMAP name, so code that looks for `INBOX` works for EWS too.
@@ -274,7 +274,7 @@ pub async fn list_folders(s: &mut Session) -> Result<Vec<(Folder, String)>> {
     let root = known
         .get("msgfolderroot")
         .cloned()
-        .ok_or_else(|| Error::Protocol(tr!("the mailbox has no folder root", "у ящика нет корня папок")))?;
+        .ok_or(Error::Said(Say::EwsNoFolderRoot))?;
 
     let mut raw = Vec::new();
     let mut offset = 0;

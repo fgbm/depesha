@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::imap::Io;
-use crate::tr;
+use crate::say::Say;
 use crate::{Error, Result, tls};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -222,7 +222,7 @@ impl Connection {
                 .await
                 .map_err(|e| match e.downcast::<hyper::Error>() {
                     Ok(e) => http_error(*e),
-                    Err(e) => Error::Protocol(tr!("answer too large: {e}", "слишком большой ответ: {e}")),
+                    Err(e) => Error::Said(Say::AnswerTooLarge { why: e.to_string() }),
                 })?
                 .to_bytes();
             Ok(Response {

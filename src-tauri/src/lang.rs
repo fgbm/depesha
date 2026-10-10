@@ -35,6 +35,7 @@ pub fn is_ru() -> bool {
 }
 
 /// Pins the language for the current thread (tests).
+#[cfg(test)]
 pub fn pin(lang: Lang) {
     PINNED.with(|p| p.set(Some(lang)));
 }

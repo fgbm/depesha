@@ -1,0 +1,141 @@
+// Samples of every wording the core's `Error` has, shared by the golden test of the user's
+// texts (#142). No `use`: the includer has `depesha_core::Error` in scope as `Error`.
+fn samples() -> Vec<(String, Error)> {
+    use async_imap::error::Error as I;
+    use std::io::{Error as IoErr, ErrorKind as K};
+    use std::time::Duration;
+    let mut v: Vec<(String, Error)> = Vec::new();
+    let mut add = |name: &str, e: Error| v.push((name.to_owned(), e));
+    for (n, k) in [
+        ("refused", K::ConnectionRefused),
+        ("reset", K::ConnectionReset),
+        ("aborted", K::ConnectionAborted),
+        ("pipe", K::BrokenPipe),
+        ("eof", K::UnexpectedEof),
+        ("timedout", K::TimedOut),
+        ("netunreach", K::NetworkUnreachable),
+        ("hostunreach", K::HostUnreachable),
+        ("other", K::PermissionDenied),
+    ] {
+        add(&format!("io-{n}"), Error::Io(IoErr::new(k, "os said")));
+    }
+    add("io-dns", Error::Io(IoErr::other("failed to lookup address information")));
+    add("io-dns2", Error::Io(IoErr::other("Name or service not known")));
+    for label in [
+        "connecting",
+        "server greeting",
+        "search answer",
+        "SMTP answer",
+        "operation",
+        "connecting to the list server",
+        "list server answer",
+        "HTTP answer",
+        "something else",
+    ] {
+        add(&format!("timeout-{label}"), Error::Timeout(match label {
+            "connecting" => "connecting",
+            "server greeting" => "server greeting",
+            "search answer" => "search answer",
+            "SMTP answer" => "SMTP answer",
+            "operation" => "operation",
+            "connecting to the list server" => "connecting to the list server",
+            "list server answer" => "list server answer",
+            "HTTP answer" => "HTTP answer",
+            _ => "something else",
+        }));
+    }
+    add("tls", Error::Tls(tokio_rustls::rustls::Error::General("handshake".into())));
+    add(
+        "certificate",
+        Error::Certificate(Box::new(depesha_core::tls::CertProblem {
+            host: "mail.example.org".into(),
+            reason: "the reason".into(),
+            why: depesha_core::tls::CertWhy::Other,
+            sha256: "ab".into(),
+            subject: "s".into(),
+            issuer: "i".into(),
+            not_after: None,
+        })),
+    );
+    add("no-tls", Error::NoTls);
+    add("invalid-host", Error::InvalidHost("bad host".into()));
+    add("auth", Error::Auth("no way".into()));
+    add("auth-mechanism", Error::AuthMechanism("CRAM-MD5".into()));
+    add("imap-unavailable", Error::ImapUnavailable);
+    add("imap-no", Error::Imap(I::No("code: None, info: Some(\"Internal error\")".into())));
+    add("imap-bad", Error::Imap(I::Bad("code: None, info: Some(\"bad command\")".into())));
+    add("imap-io", Error::Imap(I::Io(IoErr::new(K::ConnectionReset, "x"))));
+    add("imap-lost", Error::Imap(I::ConnectionLost));
+    for (n, code, enh) in [
+        ("421", 421u16, Some("4.4.2")),
+        ("sendas", 550, Some("5.7.60")),
+        ("535", 535, None),
+        ("573", 550, Some("5.7.3")),
+        ("530", 530, None),
+        ("5757", 554, Some("5.7.57")),
+        ("552", 552, None),
+        ("534", 550, Some("5.3.4")),
+        ("511", 550, Some("5.1.1")),
+        ("5110", 550, Some("5.1.10")),
+        ("571", 550, Some("5.7.1")),
+        ("451", 451, None),
+        ("plain", 550, None),
+    ] {
+        add(
+            &format!("smtp-{n}"),
+            Error::Smtp {
+                code,
+                enhanced: enh.map(str::to_owned),
+                message: "the words".into(),
+            },
+        );
+    }
+    add(
+        "smtp-hello",
+        Error::SmtpHello {
+            name: "host.local".into(),
+            code: 501,
+            message: "bad".into(),
+        },
+    );
+    add("too-large", Error::TooLarge { size: 12_000_000, limit: 10_000_000 });
+    add("compose", Error::Compose("no sender".into()));
+    add("store", Error::Store(rusqlite::Error::QueryReturnedNoRows));
+    add("closed", Error::Closed);
+    add("bye", Error::Bye("shutting down".into()));
+    add("protocol", Error::Protocol("odd".into()));
+    add("not-found", Error::NotFound);
+    add("parse", Error::Parse);
+    add("unreadable", Error::Unreadable);
+    for (n, code, back) in [
+        ("busy", "ErrorServerBusy", None),
+        ("busy-wait", "ErrorServerBusy", Some(Duration::from_millis(1500))),
+        ("item", "ErrorItemNotFound", None),
+        ("folder", "ErrorFolderNotFound", None),
+        ("size", "ErrorMessageSizeExceeded", None),
+        ("sendas", "ErrorSendAsDenied", None),
+        ("quota", "ErrorQuotaExceeded", None),
+        ("denied", "ErrorAccessDenied", None),
+        ("unknown", "ErrorWhatever", None),
+    ] {
+        add(
+            &format!("ews-{n}"),
+            Error::Ews {
+                code: code.into(),
+                message: "msg".into(),
+                back_off: back,
+            },
+        );
+    }
+    add("busy-retrying", Error::Busy { wait: Duration::from_millis(2300), retrying: true });
+    add("busy-not", Error::Busy { wait: Duration::from_millis(0), retrying: false });
+    add("http-auth", Error::HttpAuth("Negotiate".into()));
+    add("paused", Error::Paused);
+    add("private", Error::PrivateAddress("192.168.0.1".into()));
+    add("cache-too-new", Error::CacheTooNew { found: 20, known: 18 });
+    add("folder-changed", Error::FolderChanged);
+    add("label-stripping", Error::LabelStripping);
+    add("label-check", Error::LabelCheckUnsupported);
+    add("copy-refused", Error::CopyRefused("quota says no".into()));
+    v
+}
