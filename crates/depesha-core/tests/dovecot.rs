@@ -1521,26 +1521,73 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     let (_, uids) = imap::folder_uids(c, &drafts).await.unwrap();
     assert_eq!(uids.len(), 5);
     let bound = bound_of(&mut conn, &store, "a", &drafts).await;
-    let run = mail::empty_folder(
+    // The drafts are cached as the app has them; the first is open in a window.
+    store
+        .replace_folders(
+            "a",
+            &[depesha_core::domain::Folder {
+                name: drafts.clone(),
+                display_name: drafts.clone(),
+                delimiter: Some("/".into()),
+                role: Some(FolderRole::Drafts),
+                selectable: true,
+                hidden: false,
+            }],
+        )
+        .unwrap();
+    let ids: Vec<i64> = uids
+        .iter()
+        .map(|uid| {
+            let summary = depesha_core::message::Summary {
+                message_id: Some(format!("{uid}@x")),
+                date: Some(1),
+                ..Default::default()
+            };
+            let msg = depesha_core::store::NewMessage {
+                uid: *uid,
+                summary: &summary,
+                fallback_date: 0,
+                size: 1,
+                flags: Default::default(),
+                keywords: Vec::new(),
+            };
+            store.insert_message("a", &drafts, &msg).unwrap()
+        })
+        .collect();
+    let clearing = depesha_core::clear::Clearing::default();
+    clearing.draft_set("main", "k1", Some(ids[0]), None);
+    let request = depesha_core::clear::Request {
+        folder: drafts.clone(),
+        how: depesha_core::clear::Emptying::ToFolder(trash.clone()),
+        bound,
+        keep_ids: Vec::new(),
+        drafts: true,
+    };
+    let mut forgot = Vec::new();
+    let done = mail::clear_folder(
         &mut conn,
         &store,
+        &clearing,
         "a",
-        &drafts,
-        &depesha_core::clear::Emptying::ToFolder(trash.clone()),
-        &bound,
-        &uids[..1],
-        2,
+        &request,
         &mut |_, _| true,
+        &mut |f| forgot.push(matches!(f, depesha_core::clear::Forgot::Done)),
     )
-    .await
-    .unwrap();
+    .await;
     assert_eq!(
-        run,
+        done.result.unwrap(),
         depesha_core::clear::Emptied {
             total: 4,
             done: 4,
             stopped: false
         }
+    );
+    assert_eq!(done.kept_ids, [ids[0]]);
+    assert_eq!(forgot, [true]);
+    assert_eq!(
+        store.known_uids("a", &drafts).unwrap(),
+        uids[..1],
+        "the cache keeps the draft that stays"
     );
     let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
     assert_eq!(

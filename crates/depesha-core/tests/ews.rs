@@ -907,29 +907,36 @@ async fn clearing_exchange_folders() {
             ..Default::default()
         })
         .unwrap()[0]
-        .uid;
+        .id;
     let bound = bound_of(&mut conn, &store, ACCOUNT, "Черновики").await;
-    let run = mail::empty_folder(
+    let clearing = depesha_core::clear::Clearing::default();
+    clearing.draft_set("main", "k1", Some(newest), None);
+    let request = depesha_core::clear::Request {
+        folder: "Черновики".into(),
+        how: depesha_core::clear::Emptying::ToFolder("Удаленные".into()),
+        bound,
+        keep_ids: Vec::new(),
+        drafts: true,
+    };
+    let done = mail::clear_folder(
         &mut conn,
         &store,
+        &clearing,
         ACCOUNT,
-        "Черновики",
-        &depesha_core::clear::Emptying::ToFolder("Удаленные".into()),
-        &bound,
-        &[newest],
-        500,
+        &request,
         &mut |_, _| true,
+        &mut |_| {},
     )
-    .await
-    .unwrap();
+    .await;
     assert_eq!(
-        run,
+        done.result.unwrap(),
         depesha_core::clear::Emptied {
             total: 4,
             done: 4,
             stopped: false
         }
     );
+    assert_eq!(done.kept_ids, [newest]);
     let mb = mailbox.lock().unwrap();
     assert_eq!(
         mb.items.iter().filter(|i| i.folder == "D").count(),
