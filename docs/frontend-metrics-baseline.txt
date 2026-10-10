@@ -2,8 +2,9 @@ component	src/App.svelte	338	216	76	46
 component	src/MessageWindow.svelte	139	101	33	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	271	128	43	100
+component	src/components/AttachmentMenu.svelte	153	9	94	50
 component	src/components/Avatar.svelte	45	11	7	27
-component	src/components/Compose.svelte	1242	390	331	521
+component	src/components/Compose.svelte	1246	391	334	521
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -24,7 +25,7 @@ component	src/components/MessageList.svelte	808	233	132	443
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
-component	src/components/Popover.svelte	232	125	33	74
+component	src/components/Popover.svelte	235	128	33	74
 component	src/components/Preferences.svelte	577	225	80	272
 component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	336	136	97	103
@@ -40,7 +41,7 @@ component	src/components/SignaturePicker.svelte	122	31	31	60
 component	src/components/StuckCopy.svelte	123	55	18	50
 component	src/components/Tasks.svelte	338	85	104	149
 component	src/components/ViewMenu.svelte	257	56	61	140
-component	src/components/Viewer.svelte	253	102	42	109
+component	src/components/Viewer.svelte	256	104	42	110
 component	src/components/WindowControls.svelte	57	16	11	30
 component	src/components/Wizard.svelte	233	27	92	114
 component	src/components/account/AccountPage.svelte	298	97	53	148
@@ -79,11 +80,12 @@ component	src/components/prefs/controls/SegChoice.svelte	61	15	9	37
 component	src/components/prefs/controls/Switch.svelte	52	8	6	38
 component	src/components/prefs/controls/ThemeTiles.svelte	106	16	12	78
 component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
+component	src/components/reader/AttachmentStrip.svelte	247	79	52	116
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	773	350	113	310
 component	src/components/reader/QuickReply.svelte	218	57	31	130
 component	src/components/reader/ReaderBody.svelte	187	108	43	36
-component	src/components/reader/ReaderHeader.svelte	353	92	61	200
+component	src/components/reader/ReaderHeader.svelte	259	90	46	123
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
 component	src/components/reader/ReaderToolbar.svelte	172	70	52	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
@@ -289,6 +291,7 @@ function	src/components/AddressInput.svelte::onKey	23
 function	src/components/AddressInput.test.ts::show	7
 function	src/components/AddressInput.test.ts::key	6
 function	src/components/AddressInput.test.ts::type	8
+function	src/components/AttachmentMenu.svelte::onKey	15
 function	src/components/Compose.svelte::formatLabel	3
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Compose.svelte::name	2
@@ -367,7 +370,7 @@ function	src/components/Plugins.svelte::permission	7
 function	src/components/Popover.svelte::place	28
 function	src/components/Popover.svelte::outside	5
 function	src/components/Popover.svelte::items	3
-function	src/components/Popover.svelte::onKey	25
+function	src/components/Popover.svelte::onKey	28
 function	src/components/Preferences.svelte::openHit	8
 function	src/components/Preferences.svelte::reveal	10
 function	src/components/Preferences.svelte::close	4
@@ -450,7 +453,7 @@ function	src/components/ViewMenu.svelte::remove	3
 function	src/components/ViewMenu.svelte::add	3
 function	src/components/Viewer.svelte::load	7
 function	src/components/Viewer.svelte::go	4
-function	src/components/Viewer.svelte::onKey	18
+function	src/components/Viewer.svelte::onKey	20
 function	src/components/account/AccountPage.svelte::track	6
 function	src/components/account/AccountPage.svelte::go	4
 function	src/components/account/AccountPage.svelte::scrollTo	5
@@ -554,6 +557,7 @@ function	src/components/prefs/controls/ValueField.svelte::commit	11
 function	src/components/prefs/controls/ValueField.svelte::revert	5
 function	src/components/prefs/controls/ValueField.svelte::onKey	14
 function	src/components/prefs/useKeyEditor.svelte.ts::useKeyEditor	3
+function	src/components/reader/AttachmentStrip.svelte::pick	7
 function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
 function	src/components/reader/PersonCard.svelte::setRule	8
@@ -630,6 +634,9 @@ function	src/lib/arrivals.test.ts::acc	2
 function	src/lib/arrivals.test.ts::folder	2
 function	src/lib/arrivals.test.ts::started	7
 function	src/lib/arrivals.test.ts::letter	1
+function	src/lib/attachFold.test.ts::chips	1
+function	src/lib/attachFold.ts::lay	15
+function	src/lib/attachFold.ts::foldChips	10
 function	src/lib/avatars.svelte.ts::avatarOf	15
 function	src/lib/background.svelte.ts::listenBackground	10
 function	src/lib/background.svelte.ts::quitApp	3
