@@ -142,7 +142,8 @@ pub struct Asking<'a> {
 /// archival. In the archive only when the archival of an answer took it there: what the user
 /// archived by hand stays. While the archival of this conversation is under way the wait waits
 /// (`may_wait`), and other archivals of the mailbox do not hold it. The archive's mark counts
-/// only if made since the wait began (`since`).
+/// only if made within `GIVE_UP_SECS` before the wait began (`since`): the archival of the
+/// answer sent just before it is the usual case, a mark of long ago is not this conversation's.
 pub fn find_parking(
     store: &Store,
     archivals: &Archivals,
@@ -163,7 +164,11 @@ pub fn find_parking(
             chain,
         }));
     }
-    let Some(archive) = archive.filter(|_| store.archived_marked(account_id, anchor, since).unwrap_or(false)) else {
+    let Some(archive) = archive.filter(|_| {
+        store
+            .archived_marked(account_id, anchor, since - GIVE_UP_SECS)
+            .unwrap_or(false)
+    }) else {
         return Ok(Found::Nothing);
     };
     let chain = store.inbox_chain(account_id, archive, anchor)?;
@@ -812,6 +817,9 @@ mod tests {
         })
     }
 
+    const SENT: i64 = 100_000;
+    const WAIT: i64 = SENT + 5;
+
     fn found(store: &Store, archivals: &Archivals, anchor: &str, may_wait: bool) -> Found {
         find_parking(
             store,
@@ -887,7 +895,7 @@ mod tests {
         assert_eq!(found(&store, &reg, "mine@x", true), Found::Nothing);
         // An archival of an answer took it: the wait takes it from the archive.
         // The mark is in the cache: a new, empty memory (after a restart, or an hour later) finds it.
-        store.archived_mark("a", &["r@x".to_owned()], 1).unwrap();
+        store.archived_mark("a", &["r@x".to_owned()], SENT).unwrap();
         letter(&store, "Archive", 8, "r@x");
         assert_eq!(found(&store, &reg, "r@x", true), take("Archive", &["r@x"]));
         assert_eq!(found(&store, &reg, "gone@x", true), Found::Nothing);
@@ -918,7 +926,7 @@ mod tests {
     fn undoing_the_archival_takes_the_mark_off() {
         let store = store();
         let reg = Archivals::default();
-        store.archived_mark("a", &["<r@x>".to_owned()], 1).unwrap();
+        store.archived_mark("a", &["<r@x>".to_owned()], SENT).unwrap();
         letter(&store, "Archive", 8, "r@x");
         assert_eq!(found(&store, &reg, "r@x", true), take("Archive", &["r@x"]));
         store.archived_unmark("a", &["r@x".to_owned()]).unwrap();
@@ -947,17 +955,18 @@ mod tests {
         letter(&store, "Archive", 5, "q@x");
         assert_eq!(found(&store, &reg, "q@x", true), Found::Later, "not over yet");
         drop(own);
-        store.archived_mark("a", &["q@x".to_owned()], 1).unwrap();
+        store.archived_mark("a", &["q@x".to_owned()], SENT).unwrap();
         assert_eq!(found(&store, &reg, "q@x", true), take("Archive", &["q@x"]));
     }
 
-    /// The archive's mark of an earlier answer does not belong to a wait that began after it.
+    /// The usual case of #109: the archival of the first answer is marked at `SENT`, the second
+    /// answer (with the wait) goes a little later. A mark from before the window is not this
+    /// conversation's.
     #[test]
-    fn a_mark_older_than_the_wait_does_not_take_the_conversation_from_the_archive() {
+    fn a_mark_of_the_answer_before_takes_the_conversation_from_the_archive_an_old_one_does_not() {
         let store = store();
         let reg = Archivals::default();
         letter(&store, "Archive", 5, "q@x");
-        store.archived_mark("a", &["q@x".to_owned()], 10).unwrap();
         let find = |since| {
             find_parking(
                 &store,
@@ -970,9 +979,18 @@ mod tests {
             )
             .unwrap()
         };
-        assert_eq!(find(11), Found::Nothing, "the mark is older than the wait");
-        assert_eq!(find(10), take("Archive", &["q@x"]));
-        assert_eq!(find(5), take("Archive", &["q@x"]));
+        store.archived_mark("a", &["q@x".to_owned()], SENT).unwrap();
+        assert_eq!(find(SENT + 5), take("Archive", &["q@x"]));
+        assert_eq!(
+            find(SENT + GIVE_UP_SECS),
+            take("Archive", &["q@x"]),
+            "the window's edge"
+        );
+        assert_eq!(
+            find(SENT + GIVE_UP_SECS + 1),
+            Found::Nothing,
+            "a mark older than the window"
+        );
     }
 
     #[test]
