@@ -92,7 +92,7 @@ export const S = {
   stopped: { en: "No longer waiting for a reply: {what}", ru: "Не ждём ответа: {what}" },
   stoppedMany: { en: { one: "{n} message", other: "{n} messages" }, ru: { one: "{n} письмо", few: "{n} письма", other: "{n} писем" } },
   undo: { en: "Undo", ru: "Отменить" },
-  resumeFailed: { en: "Could not take it back: the wait has ended another way", ru: "Не удалось вернуть: ожидание уже закончилось иначе" },
+  resumeFailed: { en: "Could not take it back: the letters are already back, the wait cannot be restored", ru: "Не удалось вернуть: письма уже вернулись — ожидание не восстановить" },
   // A letter waiting in the folder (#59).
   comesBack: { en: "The letter comes back to the inbox when they reply.", ru: "Письмо вернётся во «Входящие», когда ответят." },
   unpark: { en: "Back to the inbox", ru: "Вернуть во входящие" },
