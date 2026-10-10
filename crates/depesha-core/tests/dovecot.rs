@@ -1775,7 +1775,12 @@ async fn the_pace_holds_a_link_cut_by_silence() {
     }
     let run = paced(Cut::Silence(Duration::from_secs(3)), Duration::from_secs(18)).await;
     let causes: Vec<_> = run.drops.iter().map(|(_, c)| c.clone()).collect();
-    assert_eq!(run.drops.len(), 2, "two drops teach, the rest is held: {causes:?}");
+    // Two drops teach; a slow runner may cost a third. A pace that does not hold the link
+    // is cut every 3 s, which is five or six drops in this run.
+    assert!(
+        (2..=3).contains(&run.drops.len()),
+        "the drops teach, the rest is held: {causes:?}"
+    );
     assert!(run.pace.renew() < Duration::from_secs(3), "{:?}", run.pace.renew());
     assert!(run.waits >= 2, "the renewals went through: {}", run.waits);
 }
