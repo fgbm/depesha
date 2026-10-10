@@ -12,7 +12,7 @@
 // The stand is one for every worktree: unless scripts/check.sh already holds the lock
 // (DEPESHA_STAND_LOCKED=1), the run starts itself again under scripts/stand-lock.sh and waits its turn.
 
-import { spawn, spawnSync, execFileSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";

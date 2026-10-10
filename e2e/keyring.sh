@@ -18,6 +18,7 @@ fi
 data="$(mktemp -d)"
 trap 'rm -rf "$data"' EXIT
 # --login creates the default collection; --unlock alone leaves none.
-echo -n x | XDG_DATA_HOME="$data" gnome-keyring-daemon --login >/dev/null 2>&1
-eval "$(XDG_DATA_HOME="$data" gnome-keyring-daemon --start --components=secrets)"
+# 9>&-: the daemons outlive the run and must not inherit the stand's lock (scripts/stand-lock.sh).
+echo -n x | XDG_DATA_HOME="$data" gnome-keyring-daemon --login >/dev/null 2>&1 9>&-
+eval "$(XDG_DATA_HOME="$data" gnome-keyring-daemon --start --components=secrets 9>&-)"
 "$@"

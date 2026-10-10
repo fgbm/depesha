@@ -10,9 +10,11 @@
 # Needs Xvfb on $E2E_DISPLAY (default :99), tauri-driver and WebKitWebDriver;
 # see e2e/README.md.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+self=$(realpath "$0")
+cd "$(dirname "$self")/.."
 # The stand's lock (scripts/stand-lock.sh), waiting if the stand is busy.
-[[ -n "${DEPESHA_STAND_LOCKED:-}" ]] || exec scripts/stand-lock.sh "$0" "$@"
+source scripts/stand-lock.sh
+stand_lock_reexec "$self" "$@"
 
 step() { printf '\n== %s\n' "$*"; }
 
@@ -32,7 +34,8 @@ done
 
 if [[ -z "${DEPESHA_APP:-}" ]]; then
   step "сборка"
-  npx tauri build --debug --no-bundle --features e2e
+  # 9>&-: a sccache server started by the build must not inherit the stand's lock.
+  npx tauri build --debug --no-bundle --features e2e 9>&-
 fi
 
 step "съёмка"
