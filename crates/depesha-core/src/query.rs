@@ -148,7 +148,7 @@ fn tokens(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut quoted = false;
-    // Whether the open quote stays: it closes in the middle of a word (`"a b"@x`), so the
+    // Whether the open quote stays: it closes right before an `@` (`"a b"@x`), so the
     // quotes are the address's own (RFC 5321 quoted local part), not the query's.
     let mut keep = false;
     let chars: Vec<char> = text.chars().collect();
@@ -157,7 +157,7 @@ fn tokens(text: &str) -> Vec<String> {
             '"' if !quoted => {
                 quoted = true;
                 let close = chars[i + 1..].iter().position(|&c| c == '"').map(|p| i + 1 + p);
-                keep = close.is_some_and(|j| chars.get(j + 1).is_some_and(|c| !c.is_whitespace()));
+                keep = close.is_some_and(|j| chars.get(j + 1) == Some(&'@'));
                 if keep {
                     cur.push('"');
                 }
@@ -509,6 +509,11 @@ mod tests {
         // A quoted value that ends the word is still unwrapped.
         assert_eq!(SearchQuery::parse(r#"from:"ivan petrov" док"#).from, ["ivan petrov"]);
         assert_eq!(SearchQuery::parse(r#""два слова" x"#).words, ["два слова", "x"]);
+        // Only an `@` right after the closing quote makes it an address; punctuation does not.
+        assert_eq!(SearchQuery::parse(r#""a b","#).words, ["a b,"]);
+        assert_eq!(SearchQuery::parse(r#""a b"."#).words, ["a b."]);
+        let q = SearchQuery::parse(r#"from:"a b","#);
+        assert_eq!(imap_criteria(&q)[0].value.as_deref(), Some("a b,"));
     }
 
     #[test]
