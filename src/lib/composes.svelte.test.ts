@@ -132,23 +132,27 @@ describe("the «Sending…» toast", () => {
 });
 
 describe("a local copy that cannot be dropped (#147)", () => {
-  it("is told after the restore, as the copy would be offered again", async () => {
+  it("does not open a copy it cannot take out of the cache, so the copy does not multiply under a new key", async () => {
     const boom = new Error("disk locked");
     api.draftCacheDrop.mockRejectedValue(boom);
     const fail = vi.fn();
     const mgr = new ComposeManager({ windowOf: null, fail } as unknown as ComposeHost);
     const draft = emptyDraft({ name: "Me", email: "me@example.com" });
-    await mgr.restoreLocal([{ key: "k1", account_id: "a", draft, draft_id: null, updated: 1 }]);
-    expect(mgr.windows).toHaveLength(1);
+    const copy = { key: "k1", account_id: "a", draft, draft_id: null, updated: 1 };
+    await mgr.restoreLocal([copy]);
+    await mgr.restoreLocal([copy]);
+    expect(mgr.windows).toHaveLength(0);
+    expect(api.draftCacheDrop).toHaveBeenCalledTimes(2);
     expect(fail).toHaveBeenCalledWith(boom, expect.any(String));
   });
 
-  it("tells a saver that throws, and the close goes on", async () => {
-    const boom = new Error("saver broke");
-    const fail = vi.fn();
-    const mgr = new ComposeManager({ windowOf: null, fail } as unknown as ComposeHost);
-    mgr.onSaver(1, () => Promise.reject(boom));
-    await mgr.saveAll(1000);
-    expect(fail).toHaveBeenCalledWith(boom, expect.any(String));
+  it("takes the copy out of the cache before the window opens", async () => {
+    const mgr = manager();
+    const seen: number[] = [];
+    api.draftCacheDrop.mockImplementation(async () => void seen.push(mgr.windows.length));
+    const draft = emptyDraft({ name: "Me", email: "me@example.com" });
+    await mgr.restoreLocal([{ key: "k1", account_id: "a", draft, draft_id: null, updated: 1 }]);
+    expect(seen).toEqual([0]);
+    expect(mgr.windows).toHaveLength(1);
   });
 });

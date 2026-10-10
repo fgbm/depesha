@@ -66,12 +66,35 @@ describe("the draft saves one at a time", () => {
 });
 
 describe("a local copy that cannot be dropped (#147)", () => {
-  it("is told: it would be offered for restore again, and the letter could go twice", async () => {
+  it("is told with the reason it matters: a letter already sent could go twice", async () => {
+    fail.mockClear();
     const boom = new Error("disk locked");
     api.draftCacheDrop.mockRejectedValue(boom);
     const autosave = setup();
     (autosave as unknown as { localStored: boolean }).localStored = true;
-    await autosave.forgetLocal();
-    expect(fail).toHaveBeenCalledWith(boom, expect.any(String));
+    await autosave.forgetLocal("sent");
+    expect(fail).toHaveBeenCalledWith(boom, expect.stringContaining("The letter was sent, but its local copy remained"));
+  });
+
+  it("has its own words for the server save and for the discard", async () => {
+    api.draftCacheDrop.mockRejectedValue(new Error("x"));
+    for (const [reason, words] of [["server", "saved on the server"], ["discard", "after the discard"]] as const) {
+      fail.mockClear();
+      const autosave = setup();
+      (autosave as unknown as { localStored: boolean }).localStored = true;
+      await autosave.forgetLocal(reason);
+      expect(fail).toHaveBeenCalledWith(expect.anything(), expect.stringContaining(words));
+    }
+  });
+
+  it("is told once per window, not at every autosave", async () => {
+    fail.mockClear();
+    api.draftCacheDrop.mockRejectedValue(new Error("disk locked"));
+    const autosave = setup();
+    for (let i = 0; i < 3; i++) {
+      (autosave as unknown as { localStored: boolean }).localStored = true;
+      await autosave.forgetLocal("server");
+    }
+    expect(fail).toHaveBeenCalledTimes(1);
   });
 });

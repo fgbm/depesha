@@ -98,7 +98,7 @@ export class ComposeAutosave {
     }
     // An untouched letter (only its signature) is worth neither the server nor a local copy.
     if (!isDirty(draft) && win.draft_id === null) {
-      await this.forgetLocal();
+      await this.forgetLocal("discard");
       return true;
     }
     // Taken before the first await: a second save, the send and the discard all wait for it.
@@ -147,12 +147,21 @@ export class ComposeAutosave {
     }
   }
 
+  private dropTold = false;
+
   /** Drops the local copy: the draft is on the server now, or was thrown away. */
-  async forgetLocal() {
+  async forgetLocal(reason: "sent" | "server" | "discard" = "server") {
     if (!this.localStored) return;
     this.localStored = false;
-    // A copy left behind is offered for restore at the next start: a letter already sent could go twice.
-    await api.draftCacheDrop(this.host.win.local_id).catch((e) => this.host.fail(e, t("compose.localNotDropped")));
+    try {
+      await api.draftCacheDrop(this.host.win.local_id);
+    } catch (e) {
+      // A copy left behind is offered for restore at the next start: a letter already sent could go twice.
+      // Told once per window, not at every autosave.
+      if (this.dropTold) return;
+      this.dropTold = true;
+      this.host.fail(e, t(`compose.localKept.${reason}`));
+    }
   }
 
   /** The held-back save: runs once the minute since the last server save is up. */

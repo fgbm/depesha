@@ -90,15 +90,22 @@ export class ComposeManager {
 
   /** Keeps every composition, waiting for each at most `ms`; a slow server does not hold a close. */
   async saveAll(ms: number): Promise<void> {
-    const saves = [...this.savers.values()].map((s) => within(s().catch((e) => (this.host.fail(e, t("compose.saveFailed")), false)), ms));
+    // A saver answers false on a failed save (the window says so itself); it does not throw.
+    const saves = [...this.savers.values()].map((s) => within(s(), ms));
     await Promise.all(saves);
   }
 
   /** Opens the drafts kept locally when the app last stopped, and drops their copies. */
   async restoreLocal(drafts: CachedDraft[]) {
     for (const d of drafts) {
+      // The copy goes first: a window opened beside a copy that stays would write a second one under its own key.
+      try {
+        await api.draftCacheDrop(d.key);
+      } catch (e) {
+        this.host.fail(e, t("compose.localNotRestored"));
+        continue;
+      }
       this.open({ account_id: d.account_id, draft: d.draft, draft_id: d.draft_id ?? null, draft_message_id: d.draft_message_id ?? null, unsaved: true });
-      await api.draftCacheDrop(d.key).catch((e) => this.host.fail(e, t("compose.localNotDropped")));
     }
   }
 

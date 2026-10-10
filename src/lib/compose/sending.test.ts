@@ -172,3 +172,37 @@ describe("the box «out of the inbox» of an answer (#106)", () => {
     expect(withArchive(null, null)).toBeNull();
   });
 });
+
+describe("the local copy of a letter that left or was discarded (#147)", () => {
+  function sendingHost() {
+    const w = win("a");
+    w.draft.to = [{ name: null, email: "you@example.com" }];
+    const forgetLocal = vi.fn(async () => {});
+    const h = {
+      win: w,
+      autosave: { cancel: () => {}, settled: async () => {}, forgetLocal },
+      commitAll: () => true,
+      clearError: () => {},
+      setError: () => {},
+      sendApp: async () => {},
+      closeCompose: () => {},
+      confirmDiscard: async () => true,
+      account: () => undefined,
+      accountColor: () => "#000000",
+      format: { insertText: () => {} },
+    } as unknown as ComposeSendHost;
+    return { sending: new ComposeSending(h), forgetLocal };
+  }
+
+  it("is dropped with the reason «sent» after a send", async () => {
+    const { sending, forgetLocal } = sendingHost();
+    await sending.send(null, true);
+    expect(forgetLocal).toHaveBeenCalledWith("sent");
+  });
+
+  it("is dropped with the reason «discard» after «Delete»", async () => {
+    const { sending, forgetLocal } = sendingHost();
+    await sending.discard();
+    expect(forgetLocal).toHaveBeenCalledWith("discard");
+  });
+});

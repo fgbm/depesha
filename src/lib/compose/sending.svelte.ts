@@ -164,7 +164,7 @@ export class ComposeSending {
       await this.host.autosave.settled();
       await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withArchive(this.options.followup, this.park));
       // The letter left: its local copy is done with.
-      await this.host.autosave.forgetLocal();
+      await this.host.autosave.forgetLocal("sent");
       this.host.closeCompose(win.id);
     } catch (e) {
       this.host.setError((e as { message: string }).message);
@@ -193,7 +193,7 @@ export class ComposeSending {
     }
     this.host.autosave.cancel();
     await this.host.autosave.settled();
-    await this.host.autosave.forgetLocal();
+    await this.host.autosave.forgetLocal("discard");
     if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id, win.draft_message_id ?? null).catch((e) => this.host.fail(e));
     this.host.closeCompose(win.id);
   }
