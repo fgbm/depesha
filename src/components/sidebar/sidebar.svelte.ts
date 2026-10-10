@@ -63,7 +63,7 @@ class SidebarUi {
 
   /** «Do not disturb» is on until this moment. */
   get dnd(): boolean {
-    return app.settings.dnd_until > Date.now() / 1000;
+    return app.settingsCtl.settings.dnd_until > Date.now() / 1000;
   }
 
   toggleAccount(id: string) {
@@ -100,7 +100,7 @@ class SidebarUi {
   }
 
   foldersOf(acc: AccountView): FolderInfo[] {
-    return app.folders.filter((f) => f.account_id === acc.id && !f.hidden);
+    return app.mailboxes.folders.filter((f) => f.account_id === acc.id && !f.hidden);
   }
 
   /** The depth of the indent of a folder, from the hierarchy in its name. */
@@ -118,7 +118,7 @@ class SidebarUi {
   }
 
   isActive(v: View): boolean {
-    const c = app.view;
+    const c = app.list.view;
     if (c.kind !== v.kind) return false;
     if (c.kind === "unified" && v.kind === "unified")
       return c.role === v.role && !!c.unread === !!v.unread && !!c.flagged === !!v.flagged;
@@ -143,11 +143,11 @@ class SidebarUi {
 
   /** The folder list of the mailbox has been read: a favourite missing from it is gone, not unloaded. */
   listed(acc: AccountView): boolean {
-    return app.folders.some((f) => f.account_id === acc.id);
+    return app.mailboxes.folders.some((f) => f.account_id === acc.id);
   }
 
   inboxUnread(acc: AccountView): number {
-    return app.folders.filter((f) => f.account_id === acc.id && f.role === "inbox").reduce((n, f) => n + f.unread, 0);
+    return app.mailboxes.folders.filter((f) => f.account_id === acc.id && f.role === "inbox").reduce((n, f) => n + f.unread, 0);
   }
 
   accountInitials(acc: AccountView): string {
@@ -160,16 +160,16 @@ class SidebarUi {
   }
 
   totalUnread(): number {
-    return app.folders.filter((f) => f.role === "inbox").reduce((n, f) => n + f.unread, 0);
+    return app.mailboxes.folders.filter((f) => f.role === "inbox").reduce((n, f) => n + f.unread, 0);
   }
 
   /** Drafts of every mailbox, read or not: a draft is not «unread». */
   totalDrafts(): number {
-    return app.folders.filter((f) => f.role === "drafts").reduce((n, f) => n + f.total, 0);
+    return app.mailboxes.folders.filter((f) => f.role === "drafts").reduce((n, f) => n + f.total, 0);
   }
 
   get outboxFailed(): boolean {
-    return app.outbox.some((o) => o.failed);
+    return app.mailboxes.outbox.some((o) => o.failed);
   }
 
   get tasksRunning(): number {

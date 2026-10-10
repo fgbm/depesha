@@ -1,6 +1,9 @@
 // Composition windows: docked in the corner, minimized to bars, or full screen; sending
 // through the outbox and taking a queued letter back.
 
+import type { MailboxController } from "./mailboxes.svelte";
+import type { SettingsController } from "./settings.svelte";
+import type { Reader } from "./reader.svelte";
 import type { UiController } from "./ui.svelte";
 import { api } from "./api";
 import { bus, collect } from "./bus";
@@ -34,16 +37,14 @@ export interface ComposeWindow extends ComposeState {
 
 /** What compositions need from the app store. */
 export interface ComposeHost {
+  readonly mailboxes: MailboxController;
+  readonly settingsCtl: SettingsController;
+  readonly reader: Reader;
   readonly ui: UiController;
-  readonly outbox: OutboxItem[];
   /** The letter of a separate message window, where compositions open full screen; null in the main window. */
   readonly windowOf: number | null;
-  readonly opened: OpenedMessage | null;
-  /** The format of new letters comes from here unless the mailbox has its own. */
-  readonly settings: Settings;
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server?: boolean): void;
-  account(id: string): AccountView | undefined;
   /** The mailbox a new letter is written from. */
   defaultAccount(): AccountView | undefined;
 }
@@ -110,8 +111,8 @@ export class ComposeManager {
   }
 
   replyTo(all: boolean) {
-    const msg = this.host.opened;
-    const acc = msg && this.host.account(msg.row.account_id);
+    const msg = this.host.reader.opened;
+    const acc = msg && this.host.mailboxes.account(msg.row.account_id);
     if (!msg || !acc) return;
     // An answer already being written to this letter comes back instead of a second one.
     // A forward of it is threaded the same way and is not an answer.
@@ -125,8 +126,8 @@ export class ComposeManager {
   }
 
   forwardOpened() {
-    const msg = this.host.opened;
-    const acc = msg && this.host.account(msg.row.account_id);
+    const msg = this.host.reader.opened;
+    const acc = msg && this.host.mailboxes.account(msg.row.account_id);
     if (!msg || !acc) return;
     this.host.markSeen([msg.row.id]);
     const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }, this.format(acc)), replySignature(acc));
@@ -179,7 +180,7 @@ export class ComposeManager {
 
   /** How a new letter from the mailbox is written. */
   format(acc: Account | undefined) {
-    return formatFor(acc, this.host.settings);
+    return formatFor(acc, this.host.settingsCtl.settings);
   }
 
   /** Unfolds a window and folds the rest. */
@@ -222,7 +223,7 @@ export class ComposeManager {
   /** Takes a queued message back into the composer. */
   async reopenOutbox(id: number) {
     try {
-      const item = this.host.outbox.find((i) => i.id === id);
+      const item = this.host.mailboxes.outbox.find((i) => i.id === id);
       const back = await api.outboxCancel(id);
       if (!back) {
         this.host.ui.toast(t("toast.alreadySent"), true);

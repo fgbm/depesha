@@ -19,10 +19,10 @@
 
   // With one account «All inboxes» and «All drafts» would repeat its own folders.
   const smart = $derived<{ view: View; label: string; icon: Component; count: number; quiet: boolean }[]>([
-    ...(app.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "inbox" } as View, label: t("nav.allInboxes"), icon: Mails, count: sidebarUi.totalUnread(), quiet: false }]),
+    ...(app.mailboxes.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "inbox" } as View, label: t("nav.allInboxes"), icon: Mails, count: sidebarUi.totalUnread(), quiet: false }]),
     { view: { kind: "unified", role: "inbox", unread: true } as View, label: t("nav.unread"), icon: Mail, count: 0, quiet: false },
     { view: { kind: "unified", role: "inbox", flagged: true } as View, label: t("nav.flagged"), icon: Flag, count: 0, quiet: false },
-    ...(app.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "drafts" } as View, label: t("nav.allDrafts"), icon: FilePen, count: sidebarUi.totalDrafts(), quiet: true }]),
+    ...(app.mailboxes.accounts.length === 1 ? [] : [{ view: { kind: "unified", role: "drafts" } as View, label: t("nav.allDrafts"), icon: FilePen, count: sidebarUi.totalDrafts(), quiet: true }]),
   ]);
 </script>
 
@@ -42,10 +42,10 @@
       </button>
     {/if}
   {/each}
-  {#if app.outbox.length > 0}
+  {#if app.mailboxes.outbox.length > 0}
     <button class="tile" class:active={sidebarUi.isActive({ kind: "outbox" })} onclick={() => app.selection.setView({ kind: "outbox" })} title={t("nav.outbox")} aria-label={t("nav.outbox")}>
       <Hourglass size={18} />
-      <span class="badge" class:alert={sidebarUi.outboxFailed}>{sidebarUi.badge(app.outbox.length)}</span>
+      <span class="badge" class:alert={sidebarUi.outboxFailed}>{sidebarUi.badge(app.mailboxes.outbox.length)}</span>
     </button>
   {/if}
   <button class="tile" class:active={sidebarUi.isActive({ kind: "people" })} onclick={() => void app.openPeople()} title={t("nav.people")} aria-label={t("nav.people")}>
@@ -69,11 +69,11 @@
       </button>
     {/if}
   {/each}
-  {#if app.outbox.length > 0}
+  {#if app.mailboxes.outbox.length > 0}
     <button class="item" class:active={sidebarUi.isActive({ kind: "outbox" })} onclick={() => app.selection.setView({ kind: "outbox" })}>
       <span class="icon"><Hourglass size={16} /></span>
       <span class="name">{t("nav.outbox")}</span>
-      <span class="count" class:alert={sidebarUi.outboxFailed}>{app.outbox.length}</span>
+      <span class="count" class:alert={sidebarUi.outboxFailed}>{app.mailboxes.outbox.length}</span>
     </button>
   {/if}
   <button class="item" class:active={sidebarUi.isActive({ kind: "people" })} onclick={() => void app.openPeople()}>

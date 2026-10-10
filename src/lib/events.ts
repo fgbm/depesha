@@ -26,9 +26,9 @@ function common(app: AppStore) {
   // A series of settings saves from another window is read once (#71).
   const settingsChanged = debounce(() => void applySettingsChanged(app), 250, 1000);
   return [
-    listen("folders-changed", () => app.scheduleFolders()),
+    listen("folders-changed", () => app.mailboxes.scheduleFolders()),
     listen<{ account_id: string; status: AccountStatus }>("account-status", (e) => {
-      const a = app.accounts.find((x) => x.id === e.payload.account_id);
+      const a = app.mailboxes.accounts.find((x) => x.id === e.payload.account_id);
       if (a) a.status = e.payload.status;
     }),
     // An answer going to "Waiting for reply" says so in one toast, once the letter has moved.
@@ -54,12 +54,12 @@ function common(app: AppStore) {
  * extensions only when their own fields changed (#71).
  */
 async function applySettingsChanged(app: AppStore) {
-  const before = app.settings;
+  const before = app.settingsCtl.settings;
   const language = before.language;
   const disabled = (before.disabled_extensions ?? []).join("\u0000");
-  await app.loadSettings();
-  if (app.settings.language !== language) await app.loadLanguage();
-  if ((app.settings.disabled_extensions ?? []).join("\u0000") !== disabled) await extensions.load();
+  await app.settingsCtl.loadSettings();
+  if (app.settingsCtl.settings.language !== language) await app.settingsCtl.loadLanguage();
+  if ((app.settingsCtl.settings.disabled_extensions ?? []).join("\u0000") !== disabled) await extensions.load();
 }
 
 /** The main window: the list, the outbox, tasks, mail rules and updates. */
@@ -69,15 +69,15 @@ export function listenMain(app: AppStore) {
     ...common(app),
     listen<MailChanged>("mail-changed", (e) => {
       // My answers and drafts change how conversations look in every grouped list.
-      const role = app.folder(e.payload.account_id, e.payload.folder)?.role;
-      const threadPart = app.settings.threads && (role === "sent" || role === "drafts");
+      const role = app.mailboxes.folder(e.payload.account_id, e.payload.folder)?.role;
+      const threadPart = app.settingsCtl.settings.threads && (role === "sent" || role === "drafts");
       if (threadPart || app.list.includes(e.payload.account_id, e.payload.folder)) app.selection.scheduleReload();
-      if (app.opened?.row.account_id === e.payload.account_id) app.reader.scheduleConversation();
-      app.scheduleFolders();
+      if (app.reader.opened?.row.account_id === e.payload.account_id) app.reader.scheduleConversation();
+      app.mailboxes.scheduleFolders();
     }),
     // A queued answer marks its letter at once, and taking it back unmarks it.
     listen("outbox-changed", () => {
-      app.loadOutbox();
+      app.mailboxes.loadOutbox();
       app.selection.scheduleReload();
     }),
     listen<Parked>("parked", (e) => parked(app, e.payload)),
@@ -105,7 +105,7 @@ export function listenMain(app: AppStore) {
     }),
     // Mail rules run in the main window only, or they would run twice.
     listenForMail((ids) => applyRules(app, ids)),
-    listen<UpdateStatus>("update-status", (e) => (app.update = e.payload)),
+    listen<UpdateStatus>("update-status", (e) => (app.settingsCtl.update = e.payload)),
     listen<{ account_id: string }>("server-changed", (e) => rooms.changed(e.payload.account_id)),
     // A message window hands over what concerns the list.
     listen<Undoable>("window-moved", (e) => {
@@ -148,7 +148,7 @@ function quitDrafts(app: AppStore) {
     cancel() {
       quit++;
       // Only tells the backend whether a quit must ask; the next change tells again.
-      void api.composeUnsaved(app.composes.length > 0 || app.ui.settingsTyping).catch(() => {});
+      void api.composeUnsaved(app.compose.windows.length > 0 || app.ui.settingsTyping).catch(() => {});
     },
   };
 }
@@ -220,7 +220,7 @@ export function listenWindow(app: AppStore) {
   return Promise.all([
     ...common(app),
     listen<MailChanged>("mail-changed", (e) => {
-      const row = app.opened?.row;
+      const row = app.reader.opened?.row;
       if (row && row.account_id === e.payload.account_id && row.folder === e.payload.folder) app.reader.checkStillThere();
     }),
   ]);

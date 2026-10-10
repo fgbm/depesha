@@ -4,6 +4,7 @@
 // their time (the toast of 9Б). The window itself only hides: its page keeps the
 // mail rules and plugins running.
 
+import type { SettingsController } from "./settings.svelte";
 import type { UiController } from "./ui.svelte";
 import type { SelectionController } from "./selection.svelte";
 import { listen } from "@tauri-apps/api/event";
@@ -17,10 +18,9 @@ import type { Choice, Confirmation } from "./ui.svelte";
 
 /** What the background needs from the app store. */
 export interface BackgroundHost extends ArrivalsHost {
+  readonly settingsCtl: SettingsController;
   readonly ui: UiController;
   readonly selection: SelectionController;
-  readonly settings: Settings;
-  patchSettings(patch: Record<string, unknown>): Promise<void>;
   newMessage(): void;
 }
 
@@ -78,7 +78,7 @@ async function askClose(host: BackgroundHost, noTray: boolean) {
     // another window wrote meanwhile is not rolled back.
     const patch: Record<string, unknown> = { close_action: answer ? "background" : "quit" };
     if (answer && noTray) patch.background_without_tray = true;
-    await host.patchSettings(patch).catch((e) => host.ui.fail(e));
+    await host.settingsCtl.patchSettings(patch).catch((e) => host.ui.fail(e));
   }
   if (answer) await api.windowHide().catch((e) => host.ui.fail(e));
   else await api.appQuit(false).catch((e) => host.ui.fail(e));

@@ -29,7 +29,7 @@ beforeEach(() => {
   i18n.lang = "ru";
   for (const m of Object.values(api)) m.mockReset();
   api.draftSave.mockResolvedValue({ id: 7, message_id: "<m@x>" });
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
 });
 
 afterEach(() => {

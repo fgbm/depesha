@@ -13,7 +13,7 @@
 
   function setDnd(until: number) {
     sidebarUi.dndMenu = false;
-    app.patchSettings({ dnd_until: until });
+    app.settingsCtl.patchSettings({ dnd_until: until });
   }
 
   function dndOptions(): { label: string; until: number }[] {
@@ -34,7 +34,7 @@
     class="foot-btn"
     class:on={sidebarUi.dnd}
     onclick={() => (sidebarUi.dnd ? setDnd(0) : (sidebarUi.dndMenu = !sidebarUi.dndMenu))}
-    title={sidebarUi.dnd ? t("dnd.until", { when: when(app.settings.dnd_until) }) : t("dnd.title")}
+    title={sidebarUi.dnd ? t("dnd.until", { when: when(app.settingsCtl.settings.dnd_until) }) : t("dnd.title")}
     aria-label={t("dnd.title")}
   >
     {#if sidebarUi.dnd}<BellOff size={16} />{:else}<Bell size={16} />{/if}

@@ -17,7 +17,7 @@ import { settings } from "../../lib/testing";
 const auto = new SettingsAutosave({ settings: () => ({}), patch: async () => {}, toast: () => 0, dismiss: () => {} });
 
 function page(id: string, over: object = {}) {
-  app.settings = { ...settings(), ...over };
+  app.settingsCtl.settings = { ...settings(), ...over };
   const spec = PAGES.find((p) => p.id === id)!;
   return render(SettingsPage, { props: { page: spec, auto, sections: [], go: () => {} } }).body;
 }

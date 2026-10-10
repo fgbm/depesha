@@ -15,18 +15,18 @@
   let names = $state<Record<string, string>>({});
 
   async function arrange(from: number, to: number) {
-    if (to < 0 || to >= app.accounts.length) return;
-    const list = [...app.accounts];
+    if (to < 0 || to >= app.mailboxes.accounts.length) return;
+    const list = [...app.mailboxes.accounts];
     const [moved] = list.splice(from, 1);
     list.splice(to, 0, moved);
     // The sidebar follows at once; the file is written behind it.
-    app.accounts = list;
+    app.mailboxes.accounts = list;
     try {
       await api.accountsArrange(list.map((a) => a.id));
     } catch (e) {
       app.ui.fail(e);
     }
-    await app.loadAccounts();
+    await app.mailboxes.loadAccounts();
   }
 
   async function look(acc: AccountView, label: string, color: string) {
@@ -35,7 +35,7 @@
     } catch (e) {
       app.ui.fail(e);
     }
-    await app.loadAccounts();
+    await app.mailboxes.loadAccounts();
   }
 
   function saveName(acc: AccountView) {
@@ -63,12 +63,12 @@
 <div class="accounts">
     <p class="muted small hint">{t("accounts.hint")}</p>
     <div class="content">
-      {#each app.accounts as acc, i (acc.id)}
+      {#each app.mailboxes.accounts as acc, i (acc.id)}
         {@const color = accountColor(acc, i)}
         <div class="acc" role="group" aria-label={acc.email}>
           <div class="order">
             <button class="btn ghost icon" disabled={i === 0} onclick={() => arrange(i, i - 1)} title={t("accounts.up")} aria-label={t("accounts.up")}><ArrowUp size={14} /></button>
-            <button class="btn ghost icon" disabled={i === app.accounts.length - 1} onclick={() => arrange(i, i + 1)} title={t("accounts.down")} aria-label={t("accounts.down")}><ArrowDown size={14} /></button>
+            <button class="btn ghost icon" disabled={i === app.mailboxes.accounts.length - 1} onclick={() => arrange(i, i + 1)} title={t("accounts.down")} aria-label={t("accounts.down")}><ArrowDown size={14} /></button>
           </div>
           <!-- The colour is chosen on the mailbox's page. -->
           <span class="swatch" style:background={color} aria-hidden="true"></span>

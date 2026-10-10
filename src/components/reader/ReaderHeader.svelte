@@ -123,7 +123,7 @@
     <div class="date muted small">
       {longDate(msg.view.summary.date ?? msg.row.date)}
       {#if msg.row.size}<div title={t("list.size")}>{size(msg.row.size)}</div>{/if}
-      {#if app.accounts.length > 1 && account}<div>{accountLabel(account)}</div>{/if}
+      {#if app.mailboxes.accounts.length > 1 && account}<div>{accountLabel(account)}</div>{/if}
     </div>
   </div>
 </div>

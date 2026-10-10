@@ -40,7 +40,7 @@
   } = $props();
 
 
-  const pluginView = $derived(app.view.kind === "plugin" ? registry.view(app.view.id) : undefined);
+  const pluginView = $derived(app.list.view.kind === "plugin" ? registry.view(app.list.view.id) : undefined);
 
   function tagsOf(m: MessageRow): RowTag[] {
     return registry.collect<RowTag, MessageRow>("rowTags", m).slice(0, 1);
@@ -60,17 +60,17 @@
   let height = $state(600);
 
   const start = $derived(Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN));
-  const end = $derived(Math.min(app.messages.length, Math.ceil((scrollTop + height) / ROW) + OVERSCAN));
-  const visible = $derived(app.messages.slice(start, end));
+  const end = $derived(Math.min(app.list.messages.length, Math.ceil((scrollTop + height) / ROW) + OVERSCAN));
+  const visible = $derived(app.list.messages.slice(start, end));
 
-  const title = $derived(viewTitle(app.view));
+  const title = $derived(viewTitle(app.list.view));
 
-  const count = $derived(tn("count.messages", app.messages.length, { n: `${app.messages.length}${app.exhausted ? "" : "+"}` }));
+  const count = $derived(tn("count.messages", app.list.messages.length, { n: `${app.list.messages.length}${app.list.exhausted ? "" : "+"}` }));
 
-  const showAccount = $derived(app.accounts.length > 1 && app.view.kind !== "folder");
+  const showAccount = $derived(app.mailboxes.accounts.length > 1 && app.list.view.kind !== "folder");
   /** Whether labels can be stored on the server for the folders the rows lie in (#42). */  const labelsLocal = $derived.by(() => {
     const per = new Map<string, boolean>();
-    for (const m of app.messages) {
+    for (const m of app.list.messages) {
       const key = `${m.account_id}\u0000${m.folder}`;
       if (!per.has(key)) per.set(key, !(labelsCtl.prop(m.account_id, m.folder)?.labels_on_server ?? true));
     }
@@ -85,7 +85,7 @@
 
   /** A folder opened here that is known to be read-only: the header says so (#42, frame 7А). */
   const readOnlyHere = $derived.by(() => {
-    const v = app.view;
+    const v = app.list.view;
     if (v.kind !== "folder") return false;
     const rights = labelsCtl.prop(v.account_id, v.folder)?.rights;
     return !!rights && readOnly(rights);
@@ -93,16 +93,16 @@
   /** Every row shows its size, quietly; ordered by size, the sizes are what is read. */
   const bySize = $derived(app.selection.sort()[0]?.by === "size");
   const found = $derived.by(() => {
-    const totals = app.searchTotals;
+    const totals = app.list.totals;
     if (!totals) return "";
     return tn("search.found", totals.count, { n: new Intl.NumberFormat(locale()).format(totals.count), size: size(totals.size) });
   });
   const isSentLike = $derived.by(() => {
-    const v = app.view;
+    const v = app.list.view;
     if (v.kind === "plugin") return !!pluginView?.showRecipients;
     if (v.kind === "unified") return v.role === "sent" || v.role === "drafts";
     if (v.kind !== "folder") return false;
-    const role = app.folder(v.account_id, v.folder)?.role;
+    const role = app.mailboxes.folder(v.account_id, v.folder)?.role;
     return role === "sent" || role === "drafts";
   });
 
@@ -117,7 +117,7 @@
     // A plain click opens the letter; in a narrow window it takes the column.
     if (mode === "single") layout.showLetter();
     // A result opened: the search was worth it, it goes among the recent ones.
-    if (app.view.kind === "search") recentSearches.remember(app.view.text);
+    if (app.list.view.kind === "search") recentSearches.remember(app.list.view.text);
     // A choice by the mouse leaves the list where it is: the row clicked is in sight, and the
     // cursor that is left over (the one selected row below the screen) is not worth a jump (#122).
     if (mode !== "single") {
@@ -139,16 +139,16 @@
   }
 
   /** A round picture at the left of every row (#108); off, the rows are as they were. */
-  const avatars = $derived(app.settings.list_avatars);
+  const avatars = $derived(app.settingsCtl.settings.list_avatars);
   /** Chosen rows are the ones of an explicit choice of several (Ctrl or Shift click): a single
    *  selection is only the letter that is open, which the cursor bar already marks (#108, 2.5 Б). */
   const chosen = (id: number) => app.selection.selected.size > 1 && app.selection.selected.has(id);
-  const myAddresses = $derived(new Set(app.accounts.map((a) => a.email.toLowerCase())));
+  const myAddresses = $derived(new Set(app.mailboxes.accounts.map((a) => a.email.toLowerCase())));
   /** The pictured row's person and whether a company logo may stand by them (the setting for logos too). */
   function pictureOf(m: MessageRow) {
-    const mine = isSentLike && (app.view.kind !== "plugin" || ["sent", "drafts"].includes(app.folder(m.account_id, m.folder)?.role ?? ""));
+    const mine = isSentLike && (app.list.view.kind !== "plugin" || ["sent", "drafts"].includes(app.mailboxes.folder(m.account_id, m.folder)?.role ?? ""));
     const who = rowAvatar(m, mine, myAddresses);
-    const brand = who.brand && app.settings.sender_logos && mayAskLogo(app.folder(m.account_id, m.folder)?.role);
+    const brand = who.brand && app.settingsCtl.settings.sender_logos && mayAskLogo(app.mailboxes.folder(m.account_id, m.folder)?.role);
     return { addr: who.addr, logoOf: brand ? who.id : null };
   }
 
@@ -156,11 +156,11 @@
 
   function who(m: MessageRow): string {
     // "Waiting for reply" lists my letters and the letters I answered: each says its own.
-    const mine = isSentLike && (app.view.kind !== "plugin" || ["sent", "drafts"].includes(app.folder(m.account_id, m.folder)?.role ?? ""));
+    const mine = isSentLike && (app.list.view.kind !== "plugin" || ["sent", "drafts"].includes(app.mailboxes.folder(m.account_id, m.folder)?.role ?? ""));
     if (mine) return m.to.length ? t("list.to", { who: m.to.map(addrName).join(", ") }) : t("list.noRecipients");
     // A conversation names everyone who wrote, me as "me": "Ivan, me", as in Gmail.
     if (m.thread_senders?.length > 1) {
-      const mine = new Set(app.accounts.map((a) => a.email.toLowerCase()));
+      const mine = new Set(app.mailboxes.accounts.map((a) => a.email.toLowerCase()));
       const names = m.thread_senders.map((a) => (mine.has(a.email.toLowerCase()) ? t("list.me") : firstName(a)));
       return names.length > 3 ? `${names[0]} … ${names.slice(-2).join(", ")}` : names.join(", ");
     }
@@ -173,7 +173,7 @@
   }
 
   /** The row with the cursor bar: it moves with the key, not with the answer of the server (#108). */
-  const cursor = $derived(cursorId(app.selection.selected, app.openingRow?.id, app.opened?.row.id));
+  const cursor = $derived(cursorId(app.selection.selected, app.reader.openingRow?.id, app.reader.opened?.row.id));
 
   /** The selection is changing by a Ctrl or Shift click, not by a key or by opening a letter. */
   let byMouse = false;
@@ -186,7 +186,7 @@
     const id = cursor;
     if (!viewport || id === null) return;
     // Read first, so that the row arriving later (a page loaded) runs this again.
-    const i = app.messages.findIndex((m) => m.id === id);
+    const i = app.list.messages.findIndex((m) => m.id === id);
     if (i < 0) return;
     // The list refreshing under the same cursor, or a choice by the mouse, is no reason to jump.
     const fresh = id !== followed;
@@ -204,7 +204,7 @@
   $effect(() => {
     const id = arrivals.focus;
     if (id === null || !viewport) return;
-    const i = app.messages.findIndex((m) => m.id === id);
+    const i = app.list.messages.findIndex((m) => m.id === id);
     if (i < 0) return;
     const top = i * ROW;
     if (top < viewport.scrollTop || top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top;
@@ -217,7 +217,7 @@
 
   /** Enter on a row that has the keyboard opens it. */
   function rowKey(e: KeyboardEvent, m: MessageRow) {
-    if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || app.opened?.row.id === m.id) return;
+    if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || app.reader.opened?.row.id === m.id) return;
     e.preventDefault();
     layout.showLetter();
     app.selection.select(m.id);
@@ -228,7 +228,7 @@
 
   // A new view starts at the top.
   $effect(() => {
-    void app.view;
+    void app.list.view;
     if (viewport) viewport.scrollTop = 0;
     scrollTop = 0;
   });
@@ -257,17 +257,17 @@
     </div>
   </header>
 
-  {#if app.view.kind === "search" && app.view.text.trim()}
+  {#if app.list.view.kind === "search" && app.list.view.text.trim()}
     <!-- Totals of what the cache has; the servers are asked on demand, for mail older than the cache. -->
     <div class="server">
       <span class="totals">
         {#if found}<span class="found">{found}</span>{/if}
-        <span class="muted">{app.serverRows ? t("search.withServer") : t("search.byCache")}</span>
+        <span class="muted">{app.list.serverRows ? t("search.withServer") : t("search.byCache")}</span>
       </span>
-      {#if app.serverSearching}
+      {#if app.list.serverSearching}
         <span class="muted">{t("search.serverRunning")}</span>
-      {:else if app.serverRows}
-        <span class="muted" title={t("search.serverFound", { n: app.serverRows.length })}>{t("search.serverFoundShort", { n: app.serverRows.length })}</span>
+      {:else if app.list.serverRows}
+        <span class="muted" title={t("search.serverFound", { n: app.list.serverRows.length })}>{t("search.serverFoundShort", { n: app.list.serverRows.length })}</span>
       {:else}
         <button class="btn ghost small" title={t("search.onServerHint")} onclick={() => app.selection.searchServer()}>{t("search.onServer")}</button>
       {/if}
@@ -275,9 +275,9 @@
   {/if}
 
   <div class="viewport" bind:this={viewport} bind:clientHeight={height} onscroll={onScroll} role="listbox" tabindex="-1">
-    {#if app.messages.length === 0}
+    {#if app.list.messages.length === 0}
       <div class="empty muted">
-        {#if app.view.kind === "search"}
+        {#if app.list.view.kind === "search"}
           {t("search.nothing")}
           <div class="ops">
             {t("search.refine")}
@@ -285,7 +285,7 @@
           </div>
         {:else if pluginView}
           {pluginView.empty()}
-        {:else if app.accounts.length === 0}
+        {:else if app.mailboxes.accounts.length === 0}
           {t("empty.noAccounts")}
         {:else if app.ui.busy > 0}
           {t("loading")}
@@ -294,7 +294,7 @@
         {/if}
       </div>
     {/if}
-    <div class="spacer" style:height="{app.messages.length * ROW}px">
+    <div class="spacer" style:height="{app.list.messages.length * ROW}px">
       {#each visible as m, i (m.id)}
         {@const tags = tagsOf(m)}
         <div
@@ -304,9 +304,9 @@
           class:cursor={cursor === m.id}
           class:avatars
           class:flash={arrivals.flash === m.id}
-          class:fresh={arrivals.isFresh(app.view, m.id)}
+          class:fresh={arrivals.isFresh(app.list.view, m.id)}
           style:top="{(start + i) * ROW}px"
-          style:--acct={showAccount ? app.accountColor(m.account_id) : "transparent"}
+          style:--acct={showAccount ? app.mailboxes.accountColor(m.account_id) : "transparent"}
           role="option"
           aria-selected={app.selection.selected.has(m.id)}
           tabindex="-1"
@@ -356,7 +356,7 @@
         </div>
       {/each}
     </div>
-    {#if app.loadingMore}<div class="more muted">{t("loading")}</div>{/if}
+    {#if app.list.loadingMore}<div class="more muted">{t("loading")}</div>{/if}
   </div>
   {#if menu}
     {#key menu}<RowMenu at={menu.at} ids={menu.ids} onclose={() => (menu = null)} />{/key}

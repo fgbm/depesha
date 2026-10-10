@@ -5,7 +5,7 @@ vi.mock("svelte", async (orig) => ({ ...(await orig<object>()), onMount: () => {
 vi.mock("../api", async (orig) => ({ ...(await orig<object>()), api: (await import("../testing")).api }));
 const { confirm, toast, fail } = vi.hoisted(() => ({ confirm: vi.fn(), toast: vi.fn(), fail: vi.fn() }));
 vi.mock("../store.svelte", async () => ({
-  app: (await import("../testing")).appMock({ ui: { confirm, toast, fail }, account: () => undefined }),
+  app: (await import("../testing")).appMock({ ui: { confirm, toast, fail }, mailboxes: { account: () => undefined } }),
 }));
 
 import { emptyDraft } from "../compose";

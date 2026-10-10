@@ -6,6 +6,9 @@
 // wait means it does not begin. Only what the question counted is cleared: the backend hands
 // back a bound with the number, and the run (also a retry) is asked for that bound.
 
+import type { MailboxController } from "./mailboxes.svelte";
+import type { ListController } from "./list.svelte";
+import type { ComposeManager } from "./composes.svelte";
 import type { UiController } from "./ui.svelte";
 import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
@@ -23,13 +26,12 @@ const isClearable = (role: FolderInfo["role"]): role is Role => role === "trash"
 
 /** What the clearing needs from the app store. */
 export interface ClearHost {
+  readonly mailboxes: MailboxController;
+  readonly compose: ComposeManager;
+  readonly list: ListController;
   readonly ui: UiController;
-  readonly view: View;
   /** The letter of a separate message window; the command lives in the main window only. */
   readonly windowOf: number | null;
-  readonly composes: ComposeWindow[];
-  account(id: string): AccountView | undefined;
-  folder(accountId: string, name: string): FolderInfo | undefined;
   /** "z" takes `run` back while the wait lasts; the returned function lets go of it. */
   holdUndo(text: string, run: () => Promise<void>): () => void;
 }
@@ -53,13 +55,13 @@ export class ClearFolder {
 
   /** The folder of the open list, when it is one of the three. */
   here(): ClearTarget | null {
-    const { view } = this.host;
+    const { view } = this.host.list;
     if (this.host.windowOf !== null || view.kind !== "folder") return null;
     return this.target(view.account_id, view.folder);
   }
 
   target(accountId: string, name: string): ClearTarget | null {
-    const folder = this.host.folder(accountId, name);
+    const folder = this.host.mailboxes.folder(accountId, name);
     if (!folder || !isClearable(folder.role)) return null;
     return { account_id: accountId, folder, role: folder.role };
   }
@@ -77,12 +79,12 @@ export class ClearFolder {
   }
 
   private online(accountId: string): boolean {
-    return this.host.account(accountId)?.status?.state === "online";
+    return this.host.mailboxes.account(accountId)?.status?.state === "online";
   }
 
   /** The cache ids of the drafts that windows of the mailbox have open: they stay. */
   private open(accountId: string): ComposeWindow[] {
-    return this.host.composes.filter((w) => w.account_id === accountId && w.draft_id !== null);
+    return this.host.compose.windows.filter((w) => w.account_id === accountId && w.draft_id !== null);
   }
 
   /** Asks; once confirmed, the delay runs and the clearing follows by itself. Returns when the delay has begun. */
@@ -152,7 +154,7 @@ export class ClearFolder {
       return null;
     }
     // A copy that never reached the server stays, and so does the one of an open window.
-    const openKeys = new Set(this.host.composes.map((w) => w.local_id));
+    const openKeys = new Set(this.host.compose.windows.map((w) => w.local_id));
     // Only the number in the warning: the copies stay in any case.
     const lonely = (await api.draftCacheList().catch(() => []))
       .filter((c) => c.account_id === account_id && c.draft_id == null && !openKeys.has(c.key)).length;

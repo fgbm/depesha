@@ -36,10 +36,10 @@
     go: (page: string, opts?: { section?: string; person?: string }) => void | Promise<void>;
   } = $props();
 
-  const s = $derived(app.settings);
+  const s = $derived(app.settingsCtl.settings);
   let noTray = $state(false);
-  const ctx = $derived<RowContext>({ accounts: app.accounts, noTray });
-  const editor = new RowEditor({ settings: () => app.settings, ctx: () => ctx, auto: { commit: (...a) => auto.forPage(page.id).commit(...a) } });
+  const ctx = $derived<RowContext>({ accounts: app.mailboxes.accounts, noTray });
+  const editor = new RowEditor({ settings: () => app.settingsCtl.settings, ctx: () => ctx, auto: { commit: (...a) => auto.forPage(page.id).commit(...a) } });
 
   let box = $state<HTMLElement | null>(null);
   /** The row that has the stop of Tab; null until the page is entered: the first one. */
@@ -55,7 +55,7 @@
     if (page.id === "start") api.backgroundStatus().then((b) => (noTray = b.tray === "absent"), () => {});
   });
 
-  const exc = (layer: "format" | "view") => exceptions(layer, peopleBook.list, app.accounts);
+  const exc = (layer: "format" | "view") => exceptions(layer, peopleBook.list, app.mailboxes.accounts);
 
   /** A question is drawn only while it is asked. */
   function shown(spec: RowSpec): boolean {
@@ -96,7 +96,7 @@
 
   function items(spec: RowSpec): Item[] {
     if (spec.kind === "link") {
-      return app.accounts.map((a) => ({ key: `account:${a.id}`, label: accountLabel(a), open: () => go(`account:${a.id}`, { section: spec.section }) }));
+      return app.mailboxes.accounts.map((a) => ({ key: `account:${a.id}`, label: accountLabel(a), open: () => go(`account:${a.id}`, { section: spec.section }) }));
     }
     if (spec.kind !== "layer") return [];
     const ex = exc(spec.layer);
@@ -123,7 +123,7 @@
   // ---- The update row ----
 
   const updateHint = $derived.by(() => {
-    const u = app.update;
+    const u = app.settingsCtl.update;
     const lines: string[] = [];
     if (u?.state === "checking") lines.push(t("settings.checking"));
     else if (u?.version) lines.push(`${t("update.available", { version: u.version })}.`);
@@ -135,7 +135,7 @@
   const isUpdate = (spec: RowSpec) => spec.kind === "action" && spec.run === "update-check";
 
   const labelOf = (spec: RowSpec) =>
-    isUpdate(spec) ? t("settings.installed", { version: app.update?.current ?? "—" }) : spec.kind === "layer" ? layerText(exc(spec.layer)) : spec.label();
+    isUpdate(spec) ? t("settings.installed", { version: app.settingsCtl.update?.current ?? "—" }) : spec.kind === "layer" ? layerText(exc(spec.layer)) : spec.label();
 
   function hintOf(spec: RowSpec): string | null {
     if (isUpdate(spec)) return updateHint;
@@ -143,14 +143,14 @@
   }
 
   function warnOf(spec: RowSpec): string | null {
-    if (isUpdate(spec)) return app.update?.state === "error" ? (app.update.error ?? null) : null;
+    if (isUpdate(spec)) return app.settingsCtl.update?.state === "error" ? (app.settingsCtl.update.error ?? null) : null;
     return spec.warn?.(s, ctx) ?? null;
   }
 
   /** The button of an action row, and what it does. */
   function runAction(spec: RowSpec) {
     if (spec.kind !== "action") return;
-    if (spec.run === "update-check") void app.checkUpdates();
+    if (spec.run === "update-check") void app.settingsCtl.checkUpdates();
     // The row goes away once agreed to: the hand stays where it was, on the choice above.
     else void editor.grantTray(spec).then(tick).then(() => leave("close_action"));
   }
@@ -249,7 +249,7 @@
         <HintsList />
       {:else if spec.kind === "action"}
         {#if spec.run === "update-check"}
-          <button type="button" class="btn" tabindex="-1" disabled={app.update?.state === "checking"} onclick={() => runAction(spec)}>{t("settings.checkNow")}</button>
+          <button type="button" class="btn" tabindex="-1" disabled={app.settingsCtl.update?.state === "checking"} onclick={() => runAction(spec)}>{t("settings.checkNow")}</button>
         {:else}
           <button type="button" class="btn" tabindex="-1" onclick={() => runAction(spec)}>{t("bg.noTray.keep")}</button>
         {/if}

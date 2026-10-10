@@ -2,6 +2,8 @@
 // opening and moving through it. The list itself (./list.svelte) reads the rows; here is
 // what the user does with them. `app.*` on the store delegates straight to these methods.
 
+import type { MailboxController } from "./mailboxes.svelte";
+import type { SettingsController } from "./settings.svelte";
 import type { UiController } from "./ui.svelte";
 import { emitTo } from "@tauri-apps/api/event";
 import { api } from "./api";
@@ -13,14 +15,13 @@ import type { FolderInfo, MessageRow, Settings, SortKey } from "./types";
 
 /** What the list view and the selection need from the app store. */
 export interface SelectionHost {
+  readonly mailboxes: MailboxController;
+  readonly settingsCtl: SettingsController;
+  readonly list: ListController;
+  readonly reader: Reader;
   readonly ui: UiController;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
-  readonly list: ListController;
-  readonly reader: Reader;
-  readonly settings: Settings;
-  folder(accountId: string, name: string): FolderInfo | undefined;
-  patchSettings(patch: Record<string, unknown>): Promise<void>;
   /** A folder was opened: read its rights and labels (#42); quietly from the cache, from the server when never checked. */
   folderOpened?(accountId: string, folder: string): void;
 }
@@ -52,15 +53,15 @@ export class SelectionController {
   /** Orders the current list (`own`), or every list without an order of its own. */
   async setSort(sort: SortKey[], own = this.ownSort()) {
     const key = this.listKey();
-    const view_sorts = { ...(this.host.settings.view_sorts ?? {}) };
-    let list_sort = this.host.settings.list_sort ?? [];
+    const view_sorts = { ...(this.host.settingsCtl.settings.view_sorts ?? {}) };
+    let list_sort = this.host.settingsCtl.settings.list_sort ?? [];
     if (own && key) view_sorts[key] = sort;
     else {
       if (key) delete view_sorts[key];
       list_sort = sort;
     }
     this.host.list.unpin();
-    await this.host.patchSettings({ list_sort, view_sorts });
+    await this.host.settingsCtl.patchSettings({ list_sort, view_sorts });
     this.reload();
   }
 
@@ -255,7 +256,7 @@ export class SelectionController {
 
   /** Opens a letter in a window of its own; a draft opens in the composer instead. */
   async openWindow(row: MessageRow) {
-    if (this.host.folder(row.account_id, row.folder)?.role === "drafts") {
+    if (this.host.mailboxes.folder(row.account_id, row.folder)?.role === "drafts") {
       await this.select(row.id);
       return;
     }

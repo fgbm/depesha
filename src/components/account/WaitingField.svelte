@@ -11,7 +11,7 @@
 
   /** Folders of the mailbox a letter can wait in: not the ones with a role of their own. */
   const folders = $derived(
-    app.folders
+    app.mailboxes.folders
       .filter((f) => f.account_id === accountId && f.selectable && !f.role)
       .map((f) => ({ value: f.name, label: f.display_name })),
   );

@@ -25,7 +25,7 @@ const opened = (importance: Importance): OpenedMessage =>
 
 let view: ReturnType<typeof mount> | null = null;
 function draw(msg: OpenedMessage) {
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
   const target = document.createElement("div");
   document.body.append(target);
   view = mount(ReaderHeader, {

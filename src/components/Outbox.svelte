@@ -14,14 +14,14 @@
 <div class="outbox">
   <h2>{t("nav.outbox")}</h2>
   <p class="muted">{t("outbox.about")}</p>
-  {#if app.outbox.length === 0}
+  {#if app.mailboxes.outbox.length === 0}
     <p class="muted">{t("outbox.empty")}</p>
   {/if}
-  {#each app.outbox as item (item.id)}
+  {#each app.mailboxes.outbox as item (item.id)}
     <div class="item" class:failed={item.failed}>
       <div class="main">
         <b>{item.draft.subject || t("noSubject")}</b>
-        <div class="muted small">{t("compose.fwd.to")}: {item.draft.to.map(addrFull).join(", ")} · {app.account(item.account_id)?.email ?? item.account_id}</div>
+        <div class="muted small">{t("compose.fwd.to")}: {item.draft.to.map(addrFull).join(", ")} · {app.mailboxes.account(item.account_id)?.email ?? item.account_id}</div>
         {#if item.last_error}
           <div class="small" class:danger-text={item.failed}>{item.last_error}</div>
         {/if}

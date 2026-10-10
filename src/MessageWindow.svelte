@@ -31,7 +31,7 @@
     // An answer being written is not dropped by closing the window unasked. Quitting
     // from the tray or Ctrl+Q closes this window the same way, so the same question is asked.
     const off = win.onCloseRequested(async (e) => {
-      if (!app.composes.length) return;
+      if (!app.compose.windows.length) return;
       e.preventDefault();
       const ok = await app.ui.confirm({ text: t("window.closeWithAnswer"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
       if (ok) {
@@ -54,18 +54,18 @@
   // A quit asks this window first when a letter is being written here.
   $effect(() => {
     // Only tells the backend whether a quit must ask; the next change tells again.
-    api.composeUnsaved(app.composes.length > 0).catch(() => {});
+    api.composeUnsaved(app.compose.windows.length > 0).catch(() => {});
   });
 
   // Plugins add their buttons and banners to the reader here as in the main window.
   $effect(() => {
-    void app.settings.disabled_plugins;
-    void app.settings.enabled_plugins;
+    void app.settingsCtl.settings.disabled_plugins;
+    void app.settingsCtl.settings.enabled_plugins;
     host.sync();
   });
 
   $effect(() => {
-    const subject = app.opened?.view.summary.subject;
+    const subject = app.reader.opened?.view.summary.subject;
     // The window title is cosmetic.
     if (subject !== undefined) win.setTitle(subject || t("noSubject")).catch(() => {});
   });
@@ -77,7 +77,7 @@
     if (app.ui.confirmation) return;
     if (target?.closest?.(".compose")) return;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
-    const opened = app.opened;
+    const opened = app.reader.opened;
     // The letter's commands, by the keys of the main window (keyCommands.ts, Settings → Keys); a plugin's key (h, w) runs as there.
     const actions: Record<string, () => void> = {
       "core.reply": () => app.replyTo(false),
@@ -96,7 +96,7 @@
     // Nothing being written: Esc closes the window, as a viewer of one letter.
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
     const id = shortcuts.find(e, "main");
-    const action = plain && e.key === "Escape" ? () => !app.composes.length && win.close() : id ? (actions[id] ?? keybindingRun(id)) : undefined;
+    const action = plain && e.key === "Escape" ? () => !app.compose.windows.length && win.close() : id ? (actions[id] ?? keybindingRun(id)) : undefined;
     if (action) {
       e.preventDefault();
       action();

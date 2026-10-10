@@ -141,7 +141,7 @@
     if (part === "cc" || part === "bcc") {
       await openCopyField(part === "cc");
     } else if (part === "from") {
-      if (app.accounts.length > 1) fromOpen = !fromOpen;
+      if (app.mailboxes.accounts.length > 1) fromOpen = !fromOpen;
     } else if (part === "files") {
       if (c.draft.attachments.length) filesOpen = !filesOpen;
       else void files.attach();
@@ -154,7 +154,7 @@
     }
   }
 
-  const fromAccount = $derived(app.account(c.account_id));
+  const fromAccount = $derived(app.mailboxes.account(c.account_id));
   const fromFull = $derived(fromAccount ? (fromAccount.display_name ? `${fromAccount.display_name} <${fromAccount.email}>` : fromAccount.email) : "");
   const hasQuote = $derived(fmt.format !== "html" && !!fmt.quote);
   /** Whether a plugin has a control for the line of state (the wait's box and reminder). */
@@ -208,7 +208,7 @@
 
   /** The format menu's note is closed for good; Settings → Hints brings it back (#103, 3.3 А). */
   function closePartsNote() {
-    void app.patchSettings({ markdown_parts_note: false });
+    void app.settingsCtl.patchSettings({ markdown_parts_note: false });
   }
 
   // The hint line of #69 (frame 14А): a hint about a recipient of this letter stays while
@@ -302,7 +302,7 @@
       <span class="saved" aria-live="polite">{auto.savingNow ? t("compose.saving") : savedText}</span>
       {#if fromAccount}
         <span class="anchor mailbox-anchor">
-          {#if app.accounts.length > 1}
+          {#if app.mailboxes.accounts.length > 1}
             <button
               class="mailbox"
               onclick={() => (fromOpen = !fromOpen)}
@@ -311,21 +311,21 @@
               aria-haspopup="menu"
               aria-expanded={fromOpen}
             >
-              <i class="dot" style:background={app.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span><ChevronDown size={12} />
+              <i class="dot" style:background={app.mailboxes.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span><ChevronDown size={12} />
             </button>
             <Popover bind:open={fromOpen}>
               <div class="mt">{t("compose.fwd.from")}</div>
-              {#each app.accounts as a (a.id)}
+              {#each app.mailboxes.accounts as a (a.id)}
                 <button class="mi" role="menuitemradio" aria-checked={a.id === c.account_id} data-value={a.id} onclick={() => { fromOpen = false; fmt.setAccount(a.id); }}>
                   <span class="tick">{#if a.id === c.account_id}<Check size={14} />{/if}</span>
-                  <i class="dot" style:background={app.accountColor(a.id)}></i>
+                  <i class="dot" style:background={app.mailboxes.accountColor(a.id)}></i>
                   {(a.label?.trim() ? `${accountLabel(a)} — ` : "") + (a.display_name ? `${a.display_name} <${a.email}>` : a.email)}
                 </button>
               {/each}
             </Popover>
           {:else}
             <span class="mailbox fixed" title={t("compose.mailbox.is", { name: fromFull })}>
-              <i class="dot" style:background={app.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span>
+              <i class="dot" style:background={app.mailboxes.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span>
             </span>
           {/if}
         </span>
@@ -577,7 +577,7 @@
             <button class="mi" role="menuitemcheckbox" aria-checked={fmt.markup} onclick={() => { menuOpen = false; fmt.markup = !fmt.markup; }}>
               <span class="tick">{#if fmt.markup}<Check size={14} />{/if}</span>{t("compose.markdown.showMarkup")}
             </button>
-            {#if app.settings.markdown_parts_note}<MarkdownPartsNote onclose={closePartsNote} />{/if}
+            {#if app.settingsCtl.settings.markdown_parts_note}<MarkdownPartsNote onclose={closePartsNote} />{/if}
           {/if}
         </Popover>
       </span>

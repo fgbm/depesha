@@ -22,7 +22,7 @@ const radios = () => [...target.querySelectorAll<HTMLInputElement>("input[type=r
 beforeEach(() => {
   resetFakes();
   i18n.lang = "ru";
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
   form.quotaLimitGb = "";
   target = document.createElement("div");
   document.body.append(target);

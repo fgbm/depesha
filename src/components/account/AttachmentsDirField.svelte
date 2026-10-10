@@ -8,5 +8,5 @@
 
 <div class="field"><span>{t("wizard.attachmentsDir")}</span>
   <!-- The settings' folder is what an empty value means: it shows as the placeholder, the cross beside it goes back to it (#102, 3.1 В). -->
-  <FolderPicker bind:value label={t("wizard.attachmentsDir")} placeholder={app.settings.attachments_dir || t("settings.askEveryTime")} />
+  <FolderPicker bind:value label={t("wizard.attachmentsDir")} placeholder={app.settingsCtl.settings.attachments_dir || t("settings.askEveryTime")} />
 </div>

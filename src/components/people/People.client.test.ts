@@ -407,7 +407,7 @@ describe("the merge dialog", () => {
     expect(root.querySelector<HTMLInputElement>('input[name="merge-name"]:checked')?.value).toBe("Ольга Смирнова");
     expect(root.querySelector<HTMLInputElement>('input[name="merge-hidden"]:checked')?.value).toBe("true");
     press(document.body, "Enter");
-    await vi.waitFor(() => expect(app.lastUndo?.text).toContain("Объединено"));
+    await vi.waitFor(() => expect(app.actions.lastUndo?.text).toContain("Объединено"));
     expect(api.personMerge).toHaveBeenCalledWith({
       emails: ["olga@example.org", "o.smirnova@example.com"],
       name: "Ольга Смирнова",
@@ -485,7 +485,7 @@ describe("removing a person added by hand", () => {
     const choose = vi.spyOn(app.ui, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
     const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
     rowOf(root, "delete").click();
-    await vi.waitFor(() => expect(app.lastUndo?.text).toContain("снята пометка"));
+    await vi.waitFor(() => expect(app.actions.lastUndo?.text).toContain("снята пометка"));
     expect(asked[0].text).toContain("останется в книге");
     await app.undo();
     expect(api.personRestore).toHaveBeenCalledWith({ persons: [] });
@@ -514,7 +514,7 @@ describe("removing a person added by hand", () => {
     const choose = vi.spyOn(app.ui, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
     const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
     rowOf(root, "delete").click();
-    await vi.waitFor(() => expect(app.lastUndo?.text).toContain("Удалено"));
+    await vi.waitFor(() => expect(app.actions.lastUndo?.text).toContain("Удалено"));
     expect(asked[0].text).toContain("будут удалены");
     choose.mockRestore();
   });

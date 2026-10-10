@@ -28,7 +28,7 @@ const more = () => document.querySelectorAll(".card.more").length;
 beforeEach(async () => {
   resetFakes();
   i18n.lang = "ru";
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
   api.people.mockResolvedValue([]);
   api.hints.mockResolvedValue([]);
   const chain = [1, 2, 3, 4, 5, 6, 7].map(row);

@@ -17,8 +17,8 @@
   const say = (text: { en: string; ru: string }) => (i18n.lang === "ru" ? text.ru : text.en);
 
   function toggleExtension(ext: Extension, on: boolean) {
-    const off = app.settings.disabled_extensions.filter((m) => m !== ext.id);
-    app.patchSettings({ disabled_extensions: on ? off : [...off, ext.id] });
+    const off = app.settingsCtl.settings.disabled_extensions.filter((m) => m !== ext.id);
+    app.settingsCtl.patchSettings({ disabled_extensions: on ? off : [...off, ext.id] });
   }
 
   async function install() {
@@ -64,7 +64,7 @@
     extensions.stop(ext.id);
     try {
       await api.extensionRemove(ext.id);
-      await app.loadSettings();
+      await app.settingsCtl.loadSettings();
       await extensions.load();
     } catch (e) {
       app.ui.fail(e);

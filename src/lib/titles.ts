@@ -13,10 +13,10 @@ export function viewTitle(v: View): string {
     return v.role === "drafts" ? t("nav.allDrafts") : t("nav.allInboxes");
   }
   if (v.kind === "folder") {
-    const f = app.folder(v.account_id, v.folder);
-    const acc = app.account(v.account_id);
+    const f = app.mailboxes.folder(v.account_id, v.folder);
+    const acc = app.mailboxes.account(v.account_id);
     const name = f?.role ? roleLabel(f.role) : (f?.display_name ?? v.folder);
-    return `${name}${app.accounts.length > 1 && acc ? ` · ${accountLabel(acc)}` : ""}`;
+    return `${name}${app.mailboxes.accounts.length > 1 && acc ? ` · ${accountLabel(acc)}` : ""}`;
   }
   return "";
 }

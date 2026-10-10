@@ -13,7 +13,7 @@
 
   let open = $state(false);
 
-  const search = $derived(app.view.kind === "search");
+  const search = $derived(app.list.view.kind === "search");
   const sort = $derived(app.selection.sort());
   const preset = $derived(presetOf(sort));
   const presets = $derived(search ? [RELEVANCE, ...PRESETS] : PRESETS);

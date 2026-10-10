@@ -204,9 +204,8 @@ export interface AppMock {
   ui?: Partial<AppStore["ui"]>;
   selection?: Partial<AppStore["selection"]>;
   compose?: Partial<AppStore["compose"]>;
-  settings?: Partial<AppStore["settings"]>;
-  account?: AppStore["account"];
-  accountColor?: AppStore["accountColor"];
+  settingsCtl?: { settings?: Partial<AppStore["settingsCtl"]["settings"]> };
+  mailboxes?: Partial<AppStore["mailboxes"]>;
   activeCompose?: AppStore["activeCompose"];
   closeCompose?: AppStore["closeCompose"];
   showCompose?: AppStore["showCompose"];

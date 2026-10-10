@@ -100,9 +100,9 @@ export class ComposeFormat {
 
   constructor(host: ComposeFormatHost) {
     this.host = host;
-    this.signatures = $derived(signaturesOf(app.account(host.win.account_id)));
+    this.signatures = $derived(signaturesOf(app.mailboxes.account(host.win.account_id)));
     const { draft } = host.win;
-    this.signature = untrack(() => signatureIn(draft, signaturesOf(app.account(host.win.account_id))));
+    this.signature = untrack(() => signatureIn(draft, signaturesOf(app.mailboxes.account(host.win.account_id))));
     const parts = untrack(() => splitPlain(draft.text));
     this.head = parts.body;
     this.quote = parts.rest;
@@ -331,7 +331,7 @@ export class ComposeFormat {
    * letter, since only those two carry it.
    */
   setAccount(id: string) {
-    const acc = app.account(id);
+    const acc = app.mailboxes.account(id);
     if (!acc) return;
     this.putSignature(this.host.win.draft.in_reply_to ? replySignature(acc) : defaultSignature(acc));
     this.host.win.account_id = id;

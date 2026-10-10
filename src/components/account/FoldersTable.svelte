@@ -15,7 +15,7 @@
   // Every folder of the mailbox, in the sidebar's order; the props join by name.
   const byName = $derived(new Map(folders.map((p) => [p.folder, p])));
   const list = $derived(
-    app.folders
+    app.mailboxes.folders
       .filter((f) => f.account_id === account.id && !f.hidden)
       .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { numeric: true })),
   );

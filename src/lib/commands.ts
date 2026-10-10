@@ -23,7 +23,7 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const MAIN_ONLY = /^core\.(search|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
 
 export function coreCommands(): Command[] {
-  const msg = app.opened;
+  const msg = app.reader.opened;
   const target = app.selection.selectedIds();
   const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), run: () => app.newMessage() }];
   if (msg) {
@@ -42,8 +42,8 @@ export function coreCommands(): Command[] {
       { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.selection.flag("flagged", !msg.row.flags.flagged) },
       { id: "core.unread", title: () => t("act.markUnread"), run: () => app.selection.flag("seen", false) },
     );
-    const account = msg?.row.account_id ?? app.messages.find((m) => m.id === target[0])?.account_id;
-    for (const f of app.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
+    const account = msg?.row.account_id ?? app.list.messages.find((m) => m.id === target[0])?.account_id;
+    for (const f of app.mailboxes.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
       const folder = f.role ? roleLabel(f.role) : f.display_name;
       list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.moveTo(f.name) });
     }
@@ -64,15 +64,15 @@ export function coreCommands(): Command[] {
   }
   for (const c of extensions.commands()) {
     if (c.message && !msg) continue;
-    const message = c.message && msg ? fromRow(msg.row, app.account(msg.row.account_id)?.email ?? "", msg.view.text) : null;
+    const message = c.message && msg ? fromRow(msg.row, app.mailboxes.account(msg.row.account_id)?.email ?? "", msg.view.text) : null;
     list.push({ id: `ext.${c.ext.id}.${c.id}`, title: () => c.title, run: () => extensions.command(c.ext, c.id, message) });
   }
-  const undo = app.lastUndo;
+  const undo = app.actions.lastUndo;
   if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), run: () => app.undo() });
 
   if (app.selection.listKey()) {
     // Search results keep an order of their own: the rank means nothing elsewhere.
-    const search = app.view.kind === "search";
+    const search = app.list.view.kind === "search";
     for (const p of search ? [RELEVANCE, ...PRESETS] : PRESETS) {
       const how = t(`sort.preset.${p.id}`).toLowerCase();
       list.push({ id: `core.sort.${p.id}`, title: () => t("sort.cmd", { how }), run: () => app.selection.setSort(p.sort, search || app.selection.ownSort()) });
@@ -92,8 +92,8 @@ export function coreCommands(): Command[] {
   );
   // Ready queries, as the search box suggests them: each opens as a search, its text in
   // the search box; the hint shows that text. In a folder, also its large mail with subfolders.
-  const v = app.view;
-  for (const q of readyQueries(app.settings.large_mb, new Date(), v.kind === "folder" ? v.folder : null)) {
+  const v = app.list.view;
+  for (const q of readyQueries(app.settingsCtl.settings.large_mb, new Date(), v.kind === "folder" ? v.folder : null)) {
     list.push({
       id: `core.ready.${q.id}`,
       title: () => t("cmd.find", { what: lowerFirst(q.title) }),
@@ -105,13 +105,13 @@ export function coreCommands(): Command[] {
     });
   }
   list.push(
-    app.accounts.length > 1
+    app.mailboxes.accounts.length > 1
       ? { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) }
-      : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.selection.setView(app.home()) },
+      : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.selection.setView(app.mailboxes.home()) },
     { id: "core.go.unread", title: where(t("nav.unread")), run: go({ kind: "unified", role: "inbox", unread: true }) },
     { id: "core.go.flagged", title: where(t("nav.flagged")), run: go({ kind: "unified", role: "inbox", flagged: true }) },
   );
-  if (app.accounts.length > 1) {
+  if (app.mailboxes.accounts.length > 1) {
     list.push({ id: "core.go.drafts", title: where(t("nav.allDrafts")), run: go({ kind: "unified", role: "drafts" }) });
   }
   for (const v of registry.items("views")) {
@@ -124,9 +124,9 @@ export function coreCommands(): Command[] {
     list.push({ id: "core.sender-card", title: () => t("cmd.senderCard"), run: () => app.openSenderCard() });
   }
 
-  const many = app.accounts.length > 1;
-  for (const f of app.folders.filter((f) => f.selectable && !f.hidden)) {
-    const acc = app.account(f.account_id);
+  const many = app.mailboxes.accounts.length > 1;
+  for (const f of app.mailboxes.folders.filter((f) => f.selectable && !f.hidden)) {
+    const acc = app.mailboxes.account(f.account_id);
     const name = f.role ? roleLabel(f.role) : f.display_name;
     const suffix = many && acc ? ` · ${accountLabel(acc)}` : "";
     list.push({
@@ -135,14 +135,14 @@ export function coreCommands(): Command[] {
       run: go({ kind: "folder", account_id: f.account_id, folder: f.name }),
     });
   }
-  const dnd = app.settings.dnd_until > Date.now() / 1000;
+  const dnd = app.settingsCtl.settings.dnd_until > Date.now() / 1000;
   list.push(
     dnd
-      ? { id: "core.dnd", title: () => t("cmd.dndOff"), run: () => void app.patchSettings({ dnd_until: 0 }) }
+      ? { id: "core.dnd", title: () => t("cmd.dndOff"), run: () => void app.settingsCtl.patchSettings({ dnd_until: 0 }) }
       : {
           id: "core.dnd",
           title: () => t("cmd.dndHour"),
-          run: () => void app.patchSettings({ dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
+          run: () => void app.settingsCtl.patchSettings({ dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
         },
     { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.ui.fail(e)) },
     { id: "core.settings", title: () => t("settings.title"), run: () => app.ui.openSettings() },

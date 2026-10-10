@@ -34,18 +34,18 @@
   /** A second step in place of the menu: a folder to move to, or a plugin's own menu. */
   let sub = $state<{ kind: "move" } | { kind: "plugin"; action: RowAction } | null>(null);
 
-  const rows = $derived(app.messages.filter((m) => ids.includes(m.id)));
+  const rows = $derived(app.list.messages.filter((m) => ids.includes(m.id)));
   const single = $derived(rows.length === 1 ? rows[0] : null);
   const anyUnread = $derived(rows.some((m) => !m.flags.seen));
   const allFlagged = $derived(rows.length > 0 && rows.every((m) => m.flags.flagged));
-  const isDraft = $derived(!!single && app.folder(single.account_id, single.folder)?.role === "drafts");
+  const isDraft = $derived(!!single && app.mailboxes.folder(single.account_id, single.folder)?.role === "drafts");
   /** Folders to move to: those of the one account the rows belong to, minus where they all lie. */
   const folders = $derived.by(() => {
     const accounts = new Set(rows.map((m) => m.account_id));
     if (accounts.size !== 1) return [];
     const [account] = accounts;
     const from = new Set(rows.map((m) => m.folder));
-    return app.folders.filter((f) => {
+    return app.mailboxes.folders.filter((f) => {
       if (f.account_id !== account || !f.selectable || f.hidden) return false;
       if (from.size === 1 && from.has(f.name)) return false;
       // A folder known not to take letters is not offered (#42, frame 7, note 1).
@@ -90,8 +90,8 @@
     const id = single?.id;
     onclose();
     if (id === undefined) return;
-    if (app.opened?.row.id !== id) await app.selection.select(id);
-    if (app.opened?.row.id === id) fn();
+    if (app.reader.opened?.row.id !== id) await app.selection.select(id);
+    if (app.reader.opened?.row.id === id) fn();
   }
 
   function fromSender() {

@@ -58,15 +58,15 @@
   }
 
   /** The outbox and the address book take the place of the list and the letter. */
-  const wideView = $derived(app.view.kind === "outbox" || app.view.kind === "people");
+  const wideView = $derived(app.list.view.kind === "outbox" || app.list.view.kind === "people");
 
   /** A letter (or its error, or one being opened) to show; several selected rows are not one. */
-  const hasLetter = $derived(app.selection.selected.size <= 1 && !!(app.opened || app.opening || app.openError));
+  const hasLetter = $derived(app.selection.selected.size <= 1 && !!(app.reader.opened || app.reader.opening || app.reader.openError));
   const column = $derived(layout.single ? layout.column(hasLetter) : null);
 
   // Another list starts on the list in a narrow window.
   $effect(() => {
-    void app.view;
+    void app.list.view;
     untrack(() => layout.showList());
   });
   $effect(() => {
@@ -130,7 +130,7 @@
   /** The rows the labels command acts on: the selection, or the open letter (#42, frame 10). */
   function labelTarget(): number[] {
     const ids = app.selection.selectedIds();
-    return ids.length ? ids : app.opened ? [app.opened.row.id] : [];
+    return ids.length ? ids : app.reader.opened ? [app.reader.opened.row.id] : [];
   }
 
   /** What a command does now: the core's, a plugin's key, or any command of the palette given a key. */
@@ -202,15 +202,15 @@
 
   // Built-in plugins follow the settings: switched on and off at once.
   $effect(() => {
-    void app.settings.disabled_plugins;
-    void app.settings.enabled_plugins;
+    void app.settingsCtl.settings.disabled_plugins;
+    void app.settingsCtl.settings.enabled_plugins;
     host.sync();
   });
 
   // A quit asks this window to keep its drafts: it says whether it holds any (#71).
   $effect(() => {
     // Only tells the backend whether a quit must ask; the next change tells again.
-    api.composeUnsaved(app.composes.length > 0 || app.ui.settingsTyping).catch(() => {});
+    api.composeUnsaved(app.compose.windows.length > 0 || app.ui.settingsTyping).catch(() => {});
   });
 
   $effect(() => bus.on("mail.search", () => searchInput?.focus()));
@@ -228,9 +228,9 @@
       : `${layout.sideWidth}px 1px ${layout.listWidth}px 1px 1fr`}
 >
   <Sidebar onCompose={() => app.newMessage()} />
-  {#if app.view.kind === "outbox"}
+  {#if app.list.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
-  {:else if app.view.kind === "people"}
+  {:else if app.list.view.kind === "people"}
     <section class="wide"><PeopleView /></section>
   {:else}
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
@@ -270,8 +270,8 @@
 {/if}
 
 {#if app.labels.card}
-  {@const acc = app.account(app.labels.card.accountId)}
-  {@const fol = app.folder(app.labels.card.accountId, app.labels.card.folder)}
+  {@const acc = app.mailboxes.account(app.labels.card.accountId)}
+  {@const fol = app.mailboxes.folder(app.labels.card.accountId, app.labels.card.folder)}
   {#if acc && fol}
     <FolderPropsCard at={{ x: Math.round(window.innerWidth / 2 - 160), y: 120 }} account={acc} folder={fol} onclose={() => app.labels.closeCard()} />
   {/if}

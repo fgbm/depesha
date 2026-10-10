@@ -40,7 +40,7 @@
   <div class="brand" data-tauri-drag-region>
     <img src="/icon.png" alt="" width="26" height="26" />
     <span>{t("app.name")}</span>
-    {#if app.version}<span class="version" title={t("app.version", { version: app.version })}>{app.version}</span>{/if}
+    {#if app.mailboxes.version}<span class="version" title={t("app.mailboxes.version", { version: app.mailboxes.version })}>{app.mailboxes.version}</span>{/if}
     <span class="spacer"></span>
     <button class="fold-side" onclick={() => layout.toggleSidebar()} title={t("sidebar.fold")} aria-label={t("sidebar.fold")}><ChevronsLeft size={14} /></button>
   </div>
@@ -52,11 +52,11 @@
       <SmartSections variant="full" />
     </div>
 
-    {#each app.accounts as acc (acc.id)}
+    {#each app.mailboxes.accounts as acc (acc.id)}
       <div class="group" class:collapsed={sidebarUi.collapsed[acc.id]}>
         <div class="account" class:open={sidebarUi.menuFor === acc.id} class:collapsed={sidebarUi.collapsed[acc.id]}>
           <button class="account-name" onclick={() => sidebarUi.toggleAccount(acc.id)} oncontextmenu={(e) => sidebarUi.contextMenu(e, acc, null)} title={acc.email}>
-            <span class="dot {acc.status?.state ?? 'connecting'}" style:--dot={app.accountColor(acc.id)} title={statusText(acc)}></span>
+            <span class="dot {acc.status?.state ?? 'connecting'}" style:--dot={app.mailboxes.accountColor(acc.id)} title={statusText(acc)}></span>
             <span class="name">{accountLabel(acc)}</span>
             <span class="chev"><ChevronRight size={13} /></span>
           </button>
@@ -84,17 +84,17 @@
     {/each}
   </div>
 
-  {#if app.update && ["available", "downloading", "ready", "installed"].includes(app.update.state)}
-    {@const u = app.update}
+  {#if app.settingsCtl.update && ["available", "downloading", "ready", "installed"].includes(app.settingsCtl.update.state)}
+    {@const u = app.settingsCtl.update}
     <div class="update">
       {#if u.state === "installed" || u.state === "ready"}
         <span>{t("update.ready", { version: u.version ?? "" })}</span>
-        <button class="btn primary" onclick={() => app.restartForUpdate()}><RotateCw size={14} /> {t("update.restart")}</button>
+        <button class="btn primary" onclick={() => app.settingsCtl.restartForUpdate()}><RotateCw size={14} /> {t("update.restart")}</button>
       {:else if u.state === "downloading"}
         <span>{t("update.downloading", { version: u.version ?? "" })}</span>
       {:else}
         <span>{t("update.available", { version: u.version ?? "" })}</span>
-        <button class="btn primary" onclick={() => app.installUpdate()}><Download size={14} /> {t("update.install")}</button>
+        <button class="btn primary" onclick={() => app.settingsCtl.installUpdate()}><Download size={14} /> {t("update.install")}</button>
       {/if}
     </div>
   {/if}

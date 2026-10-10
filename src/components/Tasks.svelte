@@ -36,14 +36,14 @@
   const failed = $derived(app.ui.tasks.filter((x) => x.state === "failed" && x.kind !== "stuck-copy"));
   // A copy the server refuses is not a failure to dismiss: it waits for a decision.
   const stuck = $derived(stuckTasks(app.ui.tasks));
-  const offline = $derived(app.settings.offline !== "off");
+  const offline = $derived(app.settingsCtl.settings.offline !== "off");
 
   function percent(x: { done: number; total: number }): number {
     return x.total > 0 ? Math.min(100, Math.round((x.done / x.total) * 100)) : 0;
   }
 
   function accountName(id?: string): string {
-    const acc = id ? app.account(id) : undefined;
+    const acc = id ? app.mailboxes.account(id) : undefined;
     return acc ? accountLabel(acc) : "";
   }
 
@@ -98,7 +98,7 @@
             <div class="line">
               <span class="spin"><RotateCw size={14} /></span>
               <span class="label">{task.label}</span>
-              {#if task.account_id && app.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
+              {#if task.account_id && app.mailboxes.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
               {#if task.kind === "empty"}
                 {#if task.total > 0}<span class="muted small num">{t("clear.progress", { done: task.done, total: task.total })}</span>{/if}
                 <button class="btn ghost small-btn" onclick={() => api.taskStop(task.key).catch((e) => app.ui.fail(e))}>{t("clear.stop")}</button>
@@ -127,7 +127,7 @@
             <div class="task failed" data-kind={task.kind}>
               <div class="line">
                 <span class="label">{task.label}</span>
-                {#if task.account_id && app.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
+                {#if task.account_id && app.mailboxes.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
                 <span class="spacer"></span>
                 {#if task.account_id && (task.kind === "sync" || task.kind === "prefetch")}
                   <button class="btn ghost small-btn" onclick={() => retry(task)}>{t("retry")}</button>
@@ -147,7 +147,7 @@
           <h4>{t("tasks.accounts")}</h4>
           <button class="btn ghost small-btn" onclick={openSettings}>{t("tasks.offlineSettings")}</button>
         </div>
-        {#each app.accounts as acc (acc.id)}
+        {#each app.mailboxes.accounts as acc (acc.id)}
           {@const o = overview.find((x) => x.account_id === acc.id)}
           <div class="acc" data-account={acc.id}>
             <div class="line">

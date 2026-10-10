@@ -22,7 +22,7 @@ describe("moving through the list", () => {
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     await s.selection.select(1);
-    expect(s.opened?.row.id).toBe(1);
+    expect(s.reader.opened?.row.id).toBe(1);
 
     // Every open from now on hangs: the reader keeps showing letter 1 meanwhile.
     api.open.mockClear();
@@ -81,7 +81,7 @@ describe("archiving through the list", () => {
 
     for (let n = 1; n <= 20; n++) {
       void s.archive();
-      expect(s.messages.map((m) => m.id)).not.toContain(n);
+      expect(s.list.messages.map((m) => m.id)).not.toContain(n);
       expect([...s.selection.selected]).toEqual([n + 1]);
     }
     expect(gone.size).toBe(0);

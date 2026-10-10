@@ -33,8 +33,8 @@ const row = (id: number, from: string, over: Partial<MessageRow> = {}): MessageR
 
 let view: ReturnType<typeof mount> | null = null;
 function draw(rows: MessageRow[], over: object = {}) {
-  app.settings = { ...settings(), ...over };
-  app.accounts = [account];
+  app.settingsCtl.settings = { ...settings(), ...over };
+  app.mailboxes.accounts = [account];
   app.list.messages = rows;
   const target = document.createElement("div");
   document.body.append(target);
@@ -193,7 +193,7 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
     expect([...app.selection.selected]).toEqual([40]);
     expect(writes).toEqual([]);
     // The list refreshed under the same cursor (new mail, a sync) does not jump to it either.
-    app.list.messages = [...app.messages];
+    app.list.messages = [...app.list.messages];
     flushSync();
     await tick();
     expect(writes).toEqual([]);

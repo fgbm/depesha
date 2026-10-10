@@ -23,8 +23,8 @@
    * Everything is saved at once, so the window has no «Save» and closes without a question.
    */
   const auto = new SettingsAutosave({
-    settings: () => $state.snapshot(app.settings) as unknown as Record<string, unknown>,
-    patch: (patch) => app.patchSettings(patch),
+    settings: () => $state.snapshot(app.settingsCtl.settings) as unknown as Record<string, unknown>,
+    patch: (patch) => app.settingsCtl.patchSettings(patch),
     toast: (text, action) => app.ui.toast(text, false, action),
     dismiss: (id) => app.ui.dismiss(id),
   });
@@ -36,7 +36,7 @@
   // A link inside the settings (a mailbox's «Storage» to «Hints») turns the page.
   $effect(() => bus.on("settings.open", (at) => void turn(resolvePage(at.page))));
   // A page that went away (its mailbox) falls back to the first one.
-  const pageAccount = $derived(page.startsWith("account:") ? (app.accounts.find((a) => `account:${a.id}` === page) ?? null) : null);
+  const pageAccount = $derived(page.startsWith("account:") ? (app.mailboxes.accounts.find((a) => `account:${a.id}` === page) ?? null) : null);
   const current = $derived(pages.includes(page) || page === "account:new" || pageAccount ? page : pages[0]);
   /** The menu entry that is lit: a mailbox's page belongs to «Mailboxes». */
   const lit = $derived(current.startsWith("account:") ? "accounts" : current);
@@ -56,7 +56,7 @@
 
   const index = $derived([
     ...buildSettingsIndex(),
-    ...app.accounts.map((a) => ({ page: `account:${a.id}`, group: pageTitle("accounts"), section: "", label: accountLabel(a), anchor: null })),
+    ...app.mailboxes.accounts.map((a) => ({ page: `account:${a.id}`, group: pageTitle("accounts"), section: "", label: accountLabel(a), anchor: null })),
     ...sections.map((s) => {
       const home = PAGES.some((p) => p.id === s.item.page) ? (s.item.page as string) : "plugins";
       return { page: home, group: pageTitle(home), section: t("settings.pluginTag"), label: s.item.title(), anchor: null };
@@ -285,7 +285,7 @@
               <SettingsPage page={spec} {auto} sections={sectionsOn(spec.id)} {flash} {go} />
             {/key}
           {:else if current === "keys"}
-            <KeysPanel draft={app.settings} />
+            <KeysPanel draft={app.settingsCtl.settings} />
           {:else if current === "plugins"}
             <PluginsPanel sections={sectionsOn("plugins")} />
           {:else}

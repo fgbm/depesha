@@ -11,7 +11,7 @@ import { t } from "./i18n.svelte";
 import { api, deferred, flush, resetFakes, row } from "./testing";
 import type { MessageRow } from "./types";
 
-const ids = (s: AppStore) => s.messages.map((m) => m.id);
+const ids = (s: AppStore) => s.list.messages.map((m) => m.id);
 
 /** The inbox with five rows; the first three are conversations of two letters. */
 async function inbox() {
@@ -113,11 +113,11 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
 describe("undo", () => {  it("takes back the last action that went through", async () => {
     const s = await inbox();
     await s.archive([4]);
-    const moved = s.lastUndo?.moved;
+    const moved = s.actions.lastUndo?.moved;
     expect(moved?.[0].message_ids).toEqual(["4"]);
     await s.undo();
     expect(api.undo).toHaveBeenCalledWith(moved);
-    expect(s.lastUndo).toBeNull();
+    expect(s.actions.lastUndo).toBeNull();
   });
 
   it("of a letter brought back from the snoozed mail snoozes it again for the same time (#93)", async () => {
@@ -163,15 +163,15 @@ describe("an offer to take back something that is not a move (#104)", () => {
       const s = new AppStore();
       const run = vi.fn(async () => {});
       s.offerUndo("Объединено: «Ольга», 2 адреса.", run);
-      expect(s.lastUndo?.text).toBe("Объединено: «Ольга», 2 адреса.");
+      expect(s.actions.lastUndo?.text).toBe("Объединено: «Ольга», 2 адреса.");
       expect(s.ui.toasts.at(-1)?.action?.label).toBe(t("undo"));
       await s.undo();
       expect(run).toHaveBeenCalledTimes(1);
-      expect(s.lastUndo).toBeNull();
+      expect(s.actions.lastUndo).toBeNull();
 
       s.offerUndo("Ещё одно", run);
       vi.advanceTimersByTime(10_001);
-      expect(s.lastUndo).toBeNull();
+      expect(s.actions.lastUndo).toBeNull();
       await s.undo();
       expect(run).toHaveBeenCalledTimes(1);
     } finally {
@@ -184,22 +184,22 @@ describe("an undo held while something else counts down", () => {
   it("is what z takes back instead of the older move, and goes when released", async () => {
     const s = await inbox();
     await s.archive([1]);
-    expect(s.lastUndo?.moved.length).toBeGreaterThan(0);
+    expect(s.actions.lastUndo?.moved.length).toBeGreaterThan(0);
     const run = vi.fn(async () => {});
     const release = s.holdUndo("Очистка Корзины", run);
-    expect(s.lastUndo?.text).toBe("Очистка Корзины");
+    expect(s.actions.lastUndo?.text).toBe("Очистка Корзины");
     await s.undo();
     expect(run).toHaveBeenCalledTimes(1);
     expect(api.undo).not.toHaveBeenCalled();
 
     const again = s.holdUndo("Ещё", run);
     again();
-    expect(s.lastUndo).toBeNull();
+    expect(s.actions.lastUndo).toBeNull();
     // A release after something newer took the place does not remove the newer one.
     const old = s.holdUndo("Старое", run);
     s.offerUndo("Новое", run);
     old();
-    expect(s.lastUndo?.text).toBe("Новое");
+    expect(s.actions.lastUndo?.text).toBe("Новое");
     release();
   });
 });
@@ -212,9 +212,9 @@ describe("an undo held over an older one", () => {
       const older = vi.fn(async () => {});
       s.offerUndo("Старое", older);
       const release = s.holdUndo("Очистка", async () => {});
-      expect(s.lastUndo?.text).toBe("Очистка");
+      expect(s.actions.lastUndo?.text).toBe("Очистка");
       release();
-      expect(s.lastUndo?.text).toBe("Старое");
+      expect(s.actions.lastUndo?.text).toBe("Старое");
       await s.undo();
       expect(older).toHaveBeenCalledTimes(1);
     } finally {
@@ -230,14 +230,14 @@ describe("an undo held over an older one", () => {
       const release = s.holdUndo("Очистка", async () => {});
       vi.advanceTimersByTime(10_001);
       release();
-      expect(s.lastUndo).toBeNull();
+      expect(s.actions.lastUndo).toBeNull();
 
       const run = vi.fn(async () => {});
       s.offerUndo("Другое", run);
       const again = s.holdUndo("Очистка", async () => {});
       await s.undo();
       again();
-      expect(s.lastUndo).toBeNull();
+      expect(s.actions.lastUndo).toBeNull();
       expect(run).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

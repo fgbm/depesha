@@ -46,7 +46,7 @@
 
   peopleBook.load();
 
-  const mailbox = $derived(app.account(accountId)?.compose_format ?? app.settings.compose_format);
+  const mailbox = $derived(app.mailboxes.account(accountId)?.compose_format ?? app.settingsCtl.settings.compose_format);
   const emails = $derived([...to, ...cc, ...bcc].map((a) => a.email).filter(Boolean));
   const rule = $derived(recipientParts(peopleBook.list, emails, mailbox));
   const who = $derived(

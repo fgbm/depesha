@@ -18,14 +18,14 @@ import type { AccountView } from "../../lib/types";
 
 /** The page drawn in a real DOM, with a store that keeps what is written, as the app's does. */
 function setup(id: string, over: object = {}, accounts: AccountView[] = []) {
-  app.settings = { ...settings(), ...over };
-  app.accounts = accounts;
+  app.settingsCtl.settings = { ...settings(), ...over };
+  app.mailboxes.accounts = accounts;
   const patches: Record<string, unknown>[] = [];
   const auto = new SettingsAutosave({
-    settings: () => JSON.parse(JSON.stringify(app.settings)) as Record<string, unknown>,
+    settings: () => JSON.parse(JSON.stringify(app.settingsCtl.settings)) as Record<string, unknown>,
     patch: async (patch) => {
       patches.push(patch);
-      app.settings = { ...app.settings, ...patch };
+      app.settingsCtl.settings = { ...app.settingsCtl.settings, ...patch };
     },
     toast: () => 0,
     dismiss: () => {},
@@ -165,7 +165,7 @@ describe("a refused value (#102)", () => {
     field.dispatchEvent(new Event("input", { bubbles: true }));
     key(field, "Enter");
     await vi.waitFor(() => expect(field.getAttribute("aria-invalid")).toBe("true"));
-    app.settings = { ...app.settings, large_mb: 200 };
+    app.settingsCtl.settings = { ...app.settingsCtl.settings, large_mb: 200 };
     await vi.waitFor(() => expect(field.getAttribute("aria-invalid")).toBe("false"));
     expect(page.row("large_mb").textContent).not.toContain("Нужно число");
   });
@@ -177,7 +177,7 @@ describe("the background with no tray icon (#102)", () => {
     page = setup("start", { close_action: "ask" });
     await vi.waitFor(() => expect(page!.row("close_action")).not.toBeNull());
     page.row("close_action").querySelector<HTMLElement>("[role=radio]:nth-child(1)")?.click();
-    app.settings = { ...app.settings, close_action: "background" };
+    app.settingsCtl.settings = { ...app.settingsCtl.settings, close_action: "background" };
     await vi.waitFor(() => expect(page!.row("tray_consent")).not.toBeNull());
     expect(page.patches).toEqual([]);
     const ask = page.row("tray_consent");

@@ -51,7 +51,7 @@
   let moveOpen = $state(false);
   /** The folders the letter may be moved to: every selectable one but its own. */
   const folders = $derived(
-    app.folders.filter((f) => f.account_id === msg.row.account_id && f.selectable && !f.hidden && f.name !== msg.row.folder),
+    app.mailboxes.folders.filter((f) => f.account_id === msg.row.account_id && f.selectable && !f.hidden && f.name !== msg.row.folder),
   );
   const messageCommands = $derived(extensions.commands().filter((c) => c.message));
   const pluginActions = $derived(

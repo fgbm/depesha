@@ -37,7 +37,7 @@ describe("list reloads", () => {
     await b;
     first.resolve(rows(1, 3));
     await a;
-    expect(s.messages.map((m) => m.id)).toEqual([10, 11]);
+    expect(s.list.messages.map((m) => m.id)).toEqual([10, 11]);
   });
 
   it("hold a search asked again while one is in flight, and show the latest", async () => {
@@ -55,23 +55,23 @@ describe("list reloads", () => {
     first.resolve([row(1), row(2)]);
     await Promise.all([a, b]);
     await flush();
-    expect(s.messages.map((m) => m.id)).toEqual([7]);
+    expect(s.list.messages.map((m) => m.id)).toEqual([7]);
   });
 
   it("of a search by size put the largest first, keep their own order and count what they found", async () => {
     const s = new AppStore();
-    await s.loadSettings();
+    await s.settingsCtl.loadSettings();
     api.search.mockResolvedValue([row(1)]);
     api.searchTotals.mockResolvedValue({ count: 412, size: 9 * 1024 ** 3 });
     await s.selection.setView({ kind: "search", text: "larger:25MB year:2024" });
     expect(s.selection.listKey()).toBe("search:size");
     expect(api.search).toHaveBeenLastCalledWith("larger:25MB year:2024", [{ by: "size", desc: true }]);
-    expect(s.searchTotals).toEqual({ count: 412, size: 9 * 1024 ** 3 });
+    expect(s.list.totals).toEqual({ count: 412, size: 9 * 1024 ** 3 });
 
     // Another order for searches by size stays theirs; other searches keep theirs.
     api.settingsPatch.mockResolvedValue(undefined);
     await s.selection.setSort([{ by: "date", desc: false }], true);
-    expect(s.settings.view_sorts["search:size"]).toEqual([{ by: "date", desc: false }]);
+    expect(s.settingsCtl.settings.view_sorts["search:size"]).toEqual([{ by: "date", desc: false }]);
     // The order is saved as a patch of its own keys, not the whole settings from memory.
     const patch = api.settingsPatch.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(Object.keys(patch).sort()).toEqual(["list_sort", "view_sorts"]);
@@ -86,8 +86,8 @@ describe("list reloads", () => {
     // Without totals the list still shows what it found.
     api.searchTotals.mockRejectedValue(new Error("old backend"));
     await s.selection.setView({ kind: "search", text: "larger:1MB" });
-    expect(s.messages.map((m) => m.id)).toEqual([1]);
-    expect(s.searchTotals).toBeNull();
+    expect(s.list.messages.map((m) => m.id)).toEqual([1]);
+    expect(s.list.totals).toBeNull();
   });
 
   it("sum the size of the selection and select everything found", async () => {
@@ -123,7 +123,7 @@ describe("list reloads", () => {
     api.folders.mockResolvedValue([{ account_id: "a", name: "INBOX", role: "inbox" } as never]);
     const s = new AppStore();
     await s.init();
-    while (s.messages.length < 1400) await s.selection.loadMore();
+    while (s.list.messages.length < 1400) await s.selection.loadMore();
     s.selection.selected = new Set([1300]);
     cache.unshift(row(9999));
 
@@ -134,9 +134,9 @@ describe("list reloads", () => {
     await flush();
 
     expect(lastQuery().limit).toBeLessThanOrEqual(RELOAD_CAP);
-    expect(s.messages.length).toBe(1401);
-    expect(s.messages[0].id).toBe(9999);
-    expect(new Set(s.messages.map((m) => m.id)).size).toBe(1401);
+    expect(s.list.messages.length).toBe(1401);
+    expect(s.list.messages[0].id).toBe(9999);
+    expect(new Set(s.list.messages.map((m) => m.id)).size).toBe(1401);
     expect([...s.selection.selected]).toEqual([1300]);
   });
 
@@ -144,7 +144,7 @@ describe("list reloads", () => {
     serve(rows(1, 1500));
     const s = new AppStore();
     await s.selection.setView(inbox);
-    while (s.messages.length < 1400) await s.selection.loadMore();
+    while (s.list.messages.length < 1400) await s.selection.loadMore();
     await s.selection.reload();
     expect(lastQuery().limit).toBe(1400);
   });
@@ -170,7 +170,7 @@ describe("a search while one is already in flight", () => {
     await flush();
     expect(api.search).toHaveBeenCalledTimes(2);
     expect(api.search).toHaveBeenLastCalledWith("two", []);
-    expect(s.messages.map((m) => m.id)).toEqual([2]);
+    expect(s.list.messages.map((m) => m.id)).toEqual([2]);
   });
 });
 
@@ -180,7 +180,7 @@ describe("marks kept by the view", () => {
     serve(cache);
     api.open.mockImplementation(async (id: number) => opened(cache.find((m) => m.id === id) ?? row(id)));
     const s = new AppStore();
-    s.settings = { ...settings(), threads: false, list_sort: [{ by: "unread", desc: true }] };
+    s.settingsCtl.settings = { ...settings(), threads: false, list_sort: [{ by: "unread", desc: true }] };
     await s.selection.setView({ kind: "unified", role: "inbox", unread: true });
     const gone = cache.slice(0, 50).map((m) => m.id);
     for (const id of gone) await s.open(id);
@@ -199,7 +199,7 @@ describe("marks kept by the view", () => {
 
 describe("a letter whose answer takes it to Waiting for reply", () => {
   const going = (id: number, scheduled = false) => row(id, { outgoing: { act: "reply", at: 2_000_000_000, park: true, scheduled } });
-  const ids = (s: AppStore) => s.messages.map((m) => m.id);
+  const ids = (s: AppStore) => s.list.messages.map((m) => m.id);
 
   const folder = (name: string, role: FolderInfo["role"]): FolderInfo => ({ account_id: "a", name, display_name: name, delimiter: "/", role, selectable: true, hidden: false, total: 0, unread: 0 });
 
@@ -208,7 +208,7 @@ describe("a letter whose answer takes it to Waiting for reply", () => {
     api.open.mockImplementation(async (id: number) => opened(cache.find((m) => m.id === id) ?? row(id)));
     api.folders.mockResolvedValue([folder("INBOX", "inbox"), folder("Archive", "archive")]);
     const s = new AppStore();
-    await s.loadFolders();
+    await s.mailboxes.loadFolders();
     await s.selection.setView(view);
     return s;
   }
@@ -225,7 +225,7 @@ describe("a letter whose answer takes it to Waiting for reply", () => {
     cache.splice(1, 1);
     await s.selection.reload();
     expect(ids(s)).toEqual([1, 2, 3]);
-    expect(s.opened?.row.id).toBe(2);
+    expect(s.reader.opened?.row.id).toBe(2);
     await s.selection.select(3);
     expect(ids(s)).toEqual([1, 3]);
     await s.selection.reload();

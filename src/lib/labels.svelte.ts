@@ -168,8 +168,8 @@ class Labels {
   private rowsFor(ids: number[]): MessageRow[] {
     const app = this.app;
     if (!app || !ids.length) return [];
-    const out = ids.map((id) => app.messages.find((m) => m.id === id)).filter((m): m is MessageRow => !!m);
-    const opened = app.opened?.row;
+    const out = ids.map((id) => app.list.messages.find((m) => m.id === id)).filter((m): m is MessageRow => !!m);
+    const opened = app.reader.opened?.row;
     if (opened && ids.includes(opened.id) && !out.some((m) => m.id === opened.id)) out.push(opened);
     return out;
   }

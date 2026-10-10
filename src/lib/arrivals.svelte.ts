@@ -3,6 +3,7 @@
 // selected where it is seen (decisions, frame 12В), a summary opens its inbox with the
 // new letters tinted (13А), a letter gone since is told with a way to find it (14А).
 
+import type { ListController } from "./list.svelte";
 import type { UiController } from "./ui.svelte";
 import type { SelectionController } from "./selection.svelte";
 import { t } from "./i18n.svelte";
@@ -30,10 +31,9 @@ export const FLASH_MS = 1500;
 
 /** What a click on a notification needs from the app store. */
 export interface ArrivalsHost {
+  readonly list: ListController;
   readonly ui: UiController;
   readonly selection: SelectionController;
-  readonly view: View;
-  readonly messages: MessageRow[];
 }
 
 export class Arrivals {
@@ -81,8 +81,8 @@ export class Arrivals {
 
   private async openLetter(host: ArrivalsHost, p: NotificationOpen, id: number) {
     // The open list stays when it shows the letter: a mailbox's folder, all inboxes, «Unread».
-    const v = host.view;
-    const stays = (v.kind === "folder" || v.kind === "unified") && host.messages.some((m) => m.id === id);
+    const v = host.list.view;
+    const stays = (v.kind === "folder" || v.kind === "unified") && host.list.messages.some((m) => m.id === id);
     if (!stays && p.account_id && p.folder) await host.selection.setView({ kind: "folder", account_id: p.account_id, folder: p.folder });
     layout.showLetter();
     await host.selection.select(id);
@@ -108,9 +108,9 @@ export class Arrivals {
       return;
     }
     this.fresh = new Set(p.ids);
-    this.freshIn = host.view;
+    this.freshIn = host.list.view;
     // The first new row takes the keyboard, unopened: Enter opens it.
-    this.focus = host.messages.find((m) => this.fresh.has(m.id))?.id ?? null;
+    this.focus = host.list.messages.find((m) => this.fresh.has(m.id))?.id ?? null;
   }
 }
 

@@ -2,6 +2,9 @@
 // the last one back with "z". None of them rejects: a failure is a toast, the rows come
 // back, and the app goes on as before.
 
+import type { MailboxController } from "./mailboxes.svelte";
+import type { SettingsController } from "./settings.svelte";
+import type { Reader } from "./reader.svelte";
 import type { UiController } from "./ui.svelte";
 import type { SelectionController } from "./selection.svelte";
 import { emitTo } from "@tauri-apps/api/event";
@@ -28,13 +31,13 @@ export interface Undoable {
 
 /** What actions need from the app store. */
 export interface ActionHost {
+  readonly mailboxes: MailboxController;
+  readonly settingsCtl: SettingsController;
+  readonly reader: Reader;
   readonly ui: UiController;
   readonly selection: SelectionController;
-  readonly settings: Settings;
-  readonly folders: FolderInfo[];
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
-  readonly opened: OpenedMessage | null;
   readonly list: ListController;
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server?: boolean): void;
@@ -65,7 +68,7 @@ export class ActionRunner {
     this.lastUndo = null;
     // The rows as they were: their conversations are looked up, and they come back on a failure.
     const before = list.messages;
-    const rows = ids.map((id) => before.find((m) => m.id === id) ?? (this.host.opened?.row.id === id ? this.host.opened.row : undefined));
+    const rows = ids.map((id) => before.find((m) => m.id === id) ?? (this.host.reader.opened?.row.id === id ? this.host.reader.opened.row : undefined));
     const hidden = new Set(ids);
     // A letter being dealt with is read now, not after the wait (#71). Locally only:
     // the move sets `\Seen` for these letters only, and a flag between moves would split the series.
@@ -114,7 +117,7 @@ export class ActionRunner {
     const what = refusalOf(kind);
     // The folder the rows were in, for the notice's words; the first row names it.
     const row = rows.find((r): r is MessageRow => !!r);
-    const folder = row ? (this.host.folders.find((f) => f.account_id === row.account_id && f.name === row.folder)?.display_name ?? row.folder) : "";
+    const folder = row ? (this.host.mailboxes.folders.find((f) => f.account_id === row.account_id && f.name === row.folder)?.display_name ?? row.folder) : "";
     switch (what) {
       case "no-rights": {
         // The ban is already remembered by the backend; the notice leads to the folder.
@@ -142,7 +145,7 @@ export class ActionRunner {
   /** The ids an action applies to: in a grouped list a row stands for its whole conversation. */
   private async withConversation(ids: number[], rows: (MessageRow | undefined)[]): Promise<number[]> {
     // A message window shows one letter, not a row of the list: the action is for it alone.
-    if (!this.host.settings.threads || this.host.windowOf !== null) return ids;
+    if (!this.host.settingsCtl.settings.threads || this.host.windowOf !== null) return ids;
     const grouped = rows.filter((r): r is MessageRow => !!r && r.thread_count > 1);
     // Every conversation at once, not one after another.
     const threads = await Promise.all(grouped.map((r) => api.thread(r.id)));
@@ -161,7 +164,7 @@ export class ActionRunner {
   }
 
   moveTo(folder: string, ids: number[]) {
-    const name = this.host.folders.find((f) => f.name === folder)?.display_name ?? folder;
+    const name = this.host.mailboxes.folders.find((f) => f.name === folder)?.display_name ?? folder;
     return this.perform(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
   }
 

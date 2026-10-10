@@ -6,14 +6,14 @@ import { t, tn } from "./i18n.svelte";
 import type { AppStore } from "./store.svelte";
 import type { MessageRow } from "./types";
 
-type RulesHost = Pick<AppStore, "folders" | "account" | "ui" | "selection">;
+type RulesHost = Pick<AppStore, "mailboxes" | "ui" | "selection">;
 
 /** Mail rules of extensions on newly arrived mail. */
 export async function applyRules(app: RulesHost, ids: number[]) {
   if (!extensions.enabled().some((e) => e.hooks.includes("newMail"))) return;
   const rows = await api.messagesById(ids).catch((e) => (app.ui.fail(e, t("rules.readFailed")), [] as MessageRow[]));
   if (!rows.length) return;
-  const results = await extensions.newMail(rows, (id) => app.account(id)?.email ?? "");
+  const results = await extensions.newMail(rows, (id) => app.mailboxes.account(id)?.email ?? "");
   for (const { ext, actions } of results) {
     let done = 0;
     for (const a of actions) {
@@ -45,7 +45,7 @@ async function applyMailAction(app: RulesHost, a: MailAction, row: MessageRow) {
       return void (await api.spam(ids));
     case "move": {
       const want = a.folder.toLowerCase();
-      const f = app.folders.find(
+      const f = app.mailboxes.folders.find(
         (x) => x.account_id === row.account_id && (x.name.toLowerCase() === want || x.display_name.toLowerCase() === want),
       );
       if (!f) throw new Error(t("ext.noFolder", { folder: a.folder }));

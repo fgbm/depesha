@@ -46,15 +46,15 @@
     </div>
 
     <div class="circles">
-      {#each app.accounts as acc (acc.id)}
+      {#each app.mailboxes.accounts as acc (acc.id)}
         {@const unread = sidebarUi.inboxUnread(acc)}
         {@const state = acc.status?.state ?? "connecting"}
         <div class="circle-wrap">
           <button
             class="circle"
             class:open={sidebarUi.flyout === acc.id}
-            class:current={app.view.kind === "folder" && app.view.account_id === acc.id}
-            style:--acc={app.accountColor(acc.id)}
+            class:current={app.list.view.kind === "folder" && app.list.view.account_id === acc.id}
+            style:--acc={app.mailboxes.accountColor(acc.id)}
             onclick={() => (sidebarUi.flyout = sidebarUi.flyout === acc.id ? null : acc.id)}
             oncontextmenu={(e) => sidebarUi.contextMenu(e, acc, null)}
             title={`${accountLabel(acc)} · ${statusText(acc)}`}
@@ -69,7 +69,7 @@
           </button>
           <Popover bind:open={() => sidebarUi.flyout === acc.id, (v) => (sidebarUi.flyout = v ? acc.id : null)} beside tone="side">
             <div class="fly-head" oncontextmenu={(e) => sidebarUi.contextMenu(e, acc, null)} role="presentation">
-              <span class="dot {state}" style:--dot={app.accountColor(acc.id)} title={statusText(acc)}></span>
+              <span class="dot {state}" style:--dot={app.mailboxes.accountColor(acc.id)} title={statusText(acc)}></span>
               <span class="fly-name">{accountLabel(acc)}</span>
             </div>
             {#if acc.label?.trim()}<div class="fly-mail">{acc.email}</div>{/if}
@@ -94,12 +94,12 @@
     </div>
   </div>
 
-  {#if app.update && ["available", "ready", "installed"].includes(app.update.state)}
-    {@const u = app.update}
+  {#if app.settingsCtl.update && ["available", "ready", "installed"].includes(app.settingsCtl.update.state)}
+    {@const u = app.settingsCtl.update}
     {#if u.state === "available"}
-      <button class="tile update-tile" onclick={() => app.installUpdate()} title={t("update.available", { version: u.version ?? "" })} aria-label={t("update.install")}><Download size={18} /></button>
+      <button class="tile update-tile" onclick={() => app.settingsCtl.installUpdate()} title={t("update.available", { version: u.version ?? "" })} aria-label={t("update.install")}><Download size={18} /></button>
     {:else}
-      <button class="tile update-tile" onclick={() => app.restartForUpdate()} title={t("update.ready", { version: u.version ?? "" })} aria-label={t("update.restart")}><RotateCw size={18} /></button>
+      <button class="tile update-tile" onclick={() => app.settingsCtl.restartForUpdate()} title={t("update.ready", { version: u.version ?? "" })} aria-label={t("update.restart")}><RotateCw size={18} /></button>
     {/if}
   {/if}
 

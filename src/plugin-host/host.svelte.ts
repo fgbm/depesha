@@ -66,7 +66,7 @@ export function keybindingRun(id: string): (() => void) | undefined {
 
 function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
   const id = plugin.manifest.id;
-  const own = (): Record<string, unknown> => (app.settings.plugin_settings?.[id] as Record<string, unknown>) ?? {};
+  const own = (): Record<string, unknown> => (app.settingsCtl.settings.plugin_settings?.[id] as Record<string, unknown>) ?? {};
   return {
     id,
     lang: () => i18n.lang,
@@ -90,15 +90,15 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       allMail: (email) => void app.selection.setView({ kind: "search", text: allMailQuery(peopleBook.find(email) ?? blankPerson(email)) }),
     },
     mail: {
-      opened: () => app.opened,
+      opened: () => app.reader.opened,
       selection: () => app.selection.selectedIds(),
-      accounts: () => app.accounts,
-      folders: () => app.folders,
+      accounts: () => app.mailboxes.accounts,
+      folders: () => app.mailboxes.folders,
       perform: (text, ids, run, failText) => app.perform(text, ids, run, failText),
       offerUndo: (text, run) => app.offerUndo(text, run),
       reload: () => app.selection.reload(), scheduleReload: () => app.selection.scheduleReload(),
       showView: (view) => app.selection.setView({ kind: "plugin", id: view }),
-      viewing: (view) => app.view.kind === "plugin" && app.view.id === view,
+      viewing: (view) => app.list.view.kind === "plugin" && app.list.view.id === view,
       compose: () => app.newMessage(),
       reply: (all) => app.replyTo(all),
       open: async (id, view) => {
@@ -117,10 +117,10 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     toast: (text, o) => app.ui.toast(text, o?.error ?? false, o?.action, o?.ms),
     fail: (e, prefix) => app.ui.fail(e, prefix),
     anchor: () => keyAnchor(),
-    workTime: () => workTimeFrom(app.settings),
+    workTime: () => workTimeFrom(app.settingsCtl.settings),
     settings: {
       get: <T>(key: string, fallback: T) => (key in own() ? (own()[key] as T) : fallback),
-      set: (key, value) => app.savePluginSettings(id, { ...own(), [key]: value }),
+      set: (key, value) => app.settingsCtl.savePluginSettings(id, { ...own(), [key]: value }),
     },
     ui: {
       command: (c) => registry.add("commands", id, c),
@@ -155,8 +155,8 @@ class Host {
   }
 
   enabled(id: string): boolean {
-    if (this.defaultOff(id)) return (app.settings.enabled_plugins ?? []).includes(id);
-    return !(app.settings.disabled_plugins ?? []).includes(id);
+    if (this.defaultOff(id)) return (app.settingsCtl.settings.enabled_plugins ?? []).includes(id);
+    return !(app.settingsCtl.settings.disabled_plugins ?? []).includes(id);
   }
 
   /** Brings the active set in line with the settings. */
@@ -197,12 +197,12 @@ class Host {
     // A default-off plugin lists its id in `enabled_plugins` while the user wants it on;
     // the others list theirs in `disabled_plugins` while off.
     if (this.defaultOff(id)) {
-      const rest = (app.settings.enabled_plugins ?? []).filter((x) => x !== id);
-      app.patchSettings({ enabled_plugins: on ? [...rest, id] : rest });
+      const rest = (app.settingsCtl.settings.enabled_plugins ?? []).filter((x) => x !== id);
+      app.settingsCtl.patchSettings({ enabled_plugins: on ? [...rest, id] : rest });
       return;
     }
-    const rest = (app.settings.disabled_plugins ?? []).filter((x) => x !== id);
-    app.patchSettings({ disabled_plugins: on ? rest : [...rest, id] });
+    const rest = (app.settingsCtl.settings.disabled_plugins ?? []).filter((x) => x !== id);
+    app.settingsCtl.patchSettings({ disabled_plugins: on ? rest : [...rest, id] });
   }
 }
 

@@ -27,13 +27,13 @@
 
   let bulkMoveOpen = $state(false);
   const selectedSize = $derived(app.selection.selectedSize());
-  const canSelectAll = $derived(app.view.kind === "search" && app.messages.length > app.selection.selected.size);
+  const canSelectAll = $derived(app.list.view.kind === "search" && app.list.messages.length > app.selection.selected.size);
   const bulkAccount = $derived.by(() => {
     const ids = [...app.selection.selected];
-    const accs = new Set(app.messages.filter((m) => ids.includes(m.id)).map((m) => m.account_id));
+    const accs = new Set(app.list.messages.filter((m) => ids.includes(m.id)).map((m) => m.account_id));
     return accs.size === 1 ? [...accs][0] : null;
   });
-  const bulkFolders = $derived(bulkAccount ? app.folders.filter((f) => f.account_id === bulkAccount && f.selectable && !f.hidden) : []);
+  const bulkFolders = $derived(bulkAccount ? app.mailboxes.folders.filter((f) => f.account_id === bulkAccount && f.selectable && !f.hidden) : []);
 </script>
 
 {#if which === "bulk"}
@@ -62,19 +62,19 @@
     </div>
     {#if canSelectAll}
       <button class="btn ghost select-all" onclick={() => app.selection.selectAll()}>
-        {tn("bulk.selectAll", app.messages.length, { n: app.messages.length })} {#if shortcuts.key("core.select-all")}<kbd>{shortcuts.hint("core.select-all")}</kbd>{/if}
+        {tn("bulk.selectAll", app.list.messages.length, { n: app.list.messages.length })} {#if shortcuts.key("core.select-all")}<kbd>{shortcuts.hint("core.select-all")}</kbd>{/if}
       </button>
     {/if}
   </div>
 {:else if which === "error"}
   <div class="center">
-    <p class="danger-text">{app.openError?.message}</p>
-    {#if app.opened === null && app.selection.selected.size === 1}
+    <p class="danger-text">{app.reader.openError?.message}</p>
+    {#if app.reader.opened === null && app.selection.selected.size === 1}
       <button class="btn" onclick={() => app.open([...app.selection.selected][0])}>{t("retry")}</button>
     {/if}
   </div>
 {:else if which === "opening"}
-  {@const r = app.openingRow}
+  {@const r = app.reader.openingRow}
   <div class="opening" aria-busy="true" aria-live="polite">
     <div class="progress" role="progressbar" aria-label={t("reader.loading")}><span></span></div>
     {#if r}
@@ -93,7 +93,7 @@
   </div>
 {:else}
   <!-- One way in instead of a wall of keys: the palette lists every command with its key. -->
-  {@const fresh = arrivals.freshCount(app.view)}
+  {@const fresh = arrivals.freshCount(app.list.view)}
   <!-- The palette's key as the keymap has it; a palette without a key says nothing of it. -->
   {@const palette = shortcuts.key("command-palette.open")}
   <div class="center muted">

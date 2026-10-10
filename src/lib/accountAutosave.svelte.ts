@@ -121,7 +121,7 @@ export class AccountAutosave {
 
   /** The mailbox as it is saved. */
   private saved(): Account {
-    return app.accounts.find((a) => a.id === this.id) ?? this.form.existing!;
+    return app.mailboxes.accounts.find((a) => a.id === this.id) ?? this.form.existing!;
   }
 
   private clear(key: string) {
@@ -263,7 +263,7 @@ export class AccountAutosave {
         }
       }
     }
-    await app.loadAccounts();
+    await app.mailboxes.loadAccounts();
     return refused;
   }
 

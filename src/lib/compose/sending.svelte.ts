@@ -127,7 +127,7 @@ export class ComposeSending {
       return;
     }
     if (!force) {
-      const email = app.account(win.account_id)?.email ?? "";
+      const email = app.mailboxes.account(win.account_id)?.email ?? "";
       const draft = $state.snapshot(win.draft);
       this.busy = true;
       let found: string[];
@@ -319,9 +319,9 @@ function makeContext(host: ComposeSendHost, me: ComposeSending): ComposeContext 
     get draft() {
       return host.win.draft;
     },
-    accountEmail: () => app.account(host.win.account_id)?.email ?? "",
+    accountEmail: () => app.mailboxes.account(host.win.account_id)?.email ?? "",
     accountId: () => host.win.account_id,
-    accountColor: () => app.accountColor(host.win.account_id),
+    accountColor: () => app.mailboxes.accountColor(host.win.account_id),
     insertText: (text: string) => host.format.insertText(text),
     options: me.options,
     onAction: (action, run) => me.onAction(action, run),

@@ -23,9 +23,9 @@ export interface QuickReplyHost {
 
 export class QuickReplyState {
   /** The letter being read; the answer is built from it. */
-  readonly msg = $derived(app.opened);
+  readonly msg = $derived(app.reader.opened);
   /** The letter's mailbox: the answer comes from its address, in its format. */
-  readonly account = $derived(this.msg ? app.account(this.msg.row.account_id) : undefined);
+  readonly account = $derived(this.msg ? app.mailboxes.account(this.msg.row.account_id) : undefined);
   /** "All" is offered only when it reaches someone a plain reply does not. */
   readonly manyRecipients = $derived.by(() => {
     const msg = this.msg;
@@ -81,7 +81,7 @@ export class QuickReplyState {
     if (!msg || !account) return;
     const me = { name: account.display_name, email: account.email };
     // No format switch here: the answer goes in the mailbox's format.
-    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settings)), replySignature(account));
+    const draft = withSignature(reply(msg, me, all, formatFor(account, app.settingsCtl.settings)), replySignature(account));
     this.quick = { account_id: account.id, email: account.email, draft, all, to: msg.row.id };
     queueMicrotask(() => this.box?.focus());
   }

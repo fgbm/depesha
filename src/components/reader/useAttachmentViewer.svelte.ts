@@ -25,11 +25,11 @@ export interface AttachmentViewerHost {
 
 export class AttachmentViewerState {
   /** The letter open now: its files and the mailbox they belong to. */
-  readonly msg = $derived(app.opened);
+  readonly msg = $derived(app.reader.opened);
   readonly files = $derived(this.msg ? this.msg.view.attachments.filter((a) => !(a.inline && a.content_id)) : []);
-  readonly account = $derived(this.msg ? app.account(this.msg.row.account_id) : undefined);
+  readonly account = $derived(this.msg ? app.mailboxes.account(this.msg.row.account_id) : undefined);
   /** The folder attachments go to without asking: the mailbox's own, else the settings'. */
-  readonly saveDir = $derived(this.account?.attachments_dir?.trim() || app.settings.attachments_dir?.trim() || "");
+  readonly saveDir = $derived(this.account?.attachments_dir?.trim() || app.settingsCtl.settings.attachments_dir?.trim() || "");
   private readonly openId = $derived(this.msg?.row.id ?? null);
   /** The letter the viewer belongs to: null while the letter's text is shown. */
   viewingId = $derived.by<number | null>(() => {

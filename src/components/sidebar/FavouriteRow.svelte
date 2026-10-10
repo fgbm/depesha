@@ -24,7 +24,7 @@
 
   const isLabel = $derived(fav.kind === "label");
   /** The folder in the mailbox, or undefined when it is gone. */
-  const found = $derived(isLabel ? undefined : app.folder(account.id, fav.name));
+  const found = $derived(isLabel ? undefined : app.mailboxes.folder(account.id, fav.name));
   const gone = $derived(!isLabel && sidebarUi.listed(account) && !found?.selectable);
   const Icon = $derived(isLabel ? Tag : roleIcon(found?.role ?? null));
   const v = $derived(

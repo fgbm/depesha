@@ -34,7 +34,7 @@
 
   type Item = { kind: "query"; title: string; text: string; icon: "large" | "files" | "recent" } | { kind: "completion"; c: Completion };
 
-  const mb = $derived(threshold(app.settings.large_mb));
+  const mb = $derived(threshold(app.settingsCtl.settings.large_mb));
   const ready = $derived(readyQueries(mb).map((q) => ({ kind: "query" as const, title: q.title, text: q.text, icon: q.id === "files" ? ("files" as const) : ("large" as const) })));
   const recent = $derived(recentSearches.list.map((s) => ({ kind: "query" as const, title: s, text: s, icon: "recent" as const })));
   const typed = $derived<Item[]>(
@@ -42,9 +42,9 @@
       ? completions(text, {
           lang: i18n.lang,
           now: new Date(),
-          folders: app.folders,
-          accounts: app.accounts,
-          labels: [...new Set(app.accounts.flatMap((a) => app.labels.of(a.id).map((l) => l.name)))],
+          folders: app.mailboxes.folders,
+          accounts: app.mailboxes.accounts,
+          labels: [...new Set(app.mailboxes.accounts.flatMap((a) => app.labels.of(a.id).map((l) => l.name)))],
         }).map((c) => ({ kind: "completion" as const, c }))
       : [],
   );
@@ -54,7 +54,7 @@
 
   // The box shows the search the list shows, however it was started ("Mail from", Ctrl+K).
   $effect(() => {
-    const v = app.view;
+    const v = app.list.view;
     if (v.kind !== "search") text = "";
     else if (untrack(() => text.trim()) !== v.text.trim()) text = v.text;
   });
@@ -65,7 +65,7 @@
     timer = setTimeout(() => {
       const q = text.trim();
       if (q) app.selection.setView({ kind: "search", text: q });
-      else if (app.view.kind === "search") app.selection.setView(app.home());
+      else if (app.list.view.kind === "search") app.selection.setView(app.mailboxes.home());
     }, 250);
   }
 
@@ -98,7 +98,7 @@
   function clear() {
     if (timer) clearTimeout(timer);
     text = "";
-    if (app.view.kind === "search") app.selection.setView(app.home());
+    if (app.list.view.kind === "search") app.selection.setView(app.mailboxes.home());
   }
 
   function onKey(e: KeyboardEvent) {

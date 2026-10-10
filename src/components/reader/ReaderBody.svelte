@@ -65,7 +65,7 @@
   const person = $derived(peopleBook.find(from?.email ?? ""));
 
   /** The form asked for: the sender's rule, the mailbox's, the setting (#105). */
-  const pref = $derived(effectivePref(person?.view, app.account(msg.row.account_id)?.letter_view, app.settings.letter_view));
+  const pref = $derived(effectivePref(person?.view, app.mailboxes.account(msg.row.account_id)?.letter_view, app.settingsCtl.settings.letter_view));
   const switchable = $derived(switchViews(msg.view, pref));
   const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, pref));
 
@@ -129,13 +129,13 @@
 <!-- Hidden, not removed, while an attachment is shown: the letter keeps its scroll and pictures. -->
 <div class="body" hidden={viewing}>
   {#if shown === "markdown" && msg.view.markdown}
-    {#key `${msg.row.id}:md:${app.allowRemote || msg.trusted_sender}`}
-      <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
+    {#key `${msg.row.id}:md:${app.reader.allowRemote || msg.trusted_sender}`}
+      <MailFrame themed markdown html={MARKDOWN_CSS + (marked || msg.view.markdown)} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} />
     {/key}
   {:else if shown === "html" && msg.view.html}
     <!-- WebKitGTK does not reload an iframe when srcdoc changes: recreate it instead. -->
-    {#key `${msg.row.id}:${app.allowRemote || msg.trusted_sender}`}
-      <MailFrame html={msg.view.html} allowRemote={app.allowRemote || msg.trusted_sender} onLink={link} />
+    {#key `${msg.row.id}:${app.reader.allowRemote || msg.trusted_sender}`}
+      <MailFrame html={msg.view.html} allowRemote={app.reader.allowRemote || msg.trusted_sender} onLink={link} />
     {/key}
   {:else}
     <div class="plain selectable">

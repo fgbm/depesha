@@ -41,7 +41,7 @@ function backend(initial: Account) {
     stored = next as unknown as Account;
     return stored;
   });
-  app.accounts = [{ ...stored, status: null } as AccountView];
+  app.mailboxes.accounts = [{ ...stored, status: null } as AccountView];
   return () => stored;
 }
 

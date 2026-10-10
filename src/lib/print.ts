@@ -30,7 +30,7 @@ async function formOf(msg: OpenedMessage): Promise<BodyView> {
   // Without the book the preference of the account or the settings applies.
   await peopleBook.load().catch(() => {});
   const person = peopleBook.find(msg.view.summary.from?.email ?? "");
-  return preferredView(msg.view, effectivePref(person?.view, app.account(msg.row.account_id)?.letter_view, app.settings.letter_view));
+  return preferredView(msg.view, effectivePref(person?.view, app.mailboxes.account(msg.row.account_id)?.letter_view, app.settingsCtl.settings.letter_view));
 }
 
 const labels = (): PrintLabels => ({
@@ -100,7 +100,7 @@ export function printHtml(html: string): Promise<void> {
 export async function printMessage(msg: OpenedMessage): Promise<void> {
   const form = await formOf(msg);
   // The same rule as the reading frame: remote pictures only when the screen shows them.
-  const allowRemote = (app.opened?.row.id === msg.row.id && app.allowRemote) || msg.trusted_sender;
+  const allowRemote = (app.reader.opened?.row.id === msg.row.id && app.reader.allowRemote) || msg.trusted_sender;
   let marked: string | undefined;
   const source = msg.view.markdown;
   if (form === "markdown" && source) {
@@ -119,13 +119,13 @@ function failed(e: unknown) {
 
 /** Ctrl+P, the palette, «More»: the open letter. Nothing is open: nothing to print. */
 export function printOpened() {
-  const msg = app.opened;
+  const msg = app.reader.opened;
   if (msg) printMessage(msg).catch(failed);
 }
 
 /** The context menu of a row: the letter is printed without being opened in the reader. */
 export function printRow(id: number) {
-  const open = app.opened;
+  const open = app.reader.opened;
   const msg = open?.row.id === id ? Promise.resolve(open) : api.open(id, false);
   msg.then(printMessage).catch(failed);
 }

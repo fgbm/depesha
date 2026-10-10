@@ -46,12 +46,12 @@ describe("a click on a notification about one letter", () => {
     vi.useFakeTimers();
     api.messages.mockResolvedValue([row(1), row(7), row(9)]);
     const s = await started();
-    const view = s.view;
+    const view = s.list.view;
     emit("notification-open", letter(7));
     await flush();
-    expect(s.view).toBe(view);
+    expect(s.list.view).toBe(view);
     expect([...s.selection.selected]).toEqual([7]);
-    expect(s.opened?.row.id).toBe(7);
+    expect(s.reader.opened?.row.id).toBe(7);
     expect(arrivals.flash).toBe(7);
     vi.advanceTimersByTime(FLASH_MS - 1);
     expect(arrivals.flash).toBe(7);
@@ -64,10 +64,10 @@ describe("a click on a notification about one letter", () => {
     const s = await started();
     for (const v of [{ kind: "unified", role: "inbox", unread: true } as const, { kind: "folder", account_id: "a", folder: "INBOX" } as const]) {
       await s.selection.setView(v);
-      const view = s.view;
+      const view = s.list.view;
       emit("notification-open", letter(7));
       await flush();
-      expect(s.view).toBe(view);
+      expect(s.list.view).toBe(view);
       expect([...s.selection.selected]).toEqual([7]);
     }
   });
@@ -79,9 +79,9 @@ describe("a click on a notification about one letter", () => {
     api.messages.mockResolvedValue([row(7), row(1)]);
     emit("notification-open", letter(7));
     await flush();
-    expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
+    expect(s.list.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
     expect([...s.selection.selected]).toEqual([7]);
-    expect(s.opened?.row.id).toBe(7);
+    expect(s.reader.opened?.row.id).toBe(7);
     expect(arrivals.flash).toBe(7);
   });
 
@@ -93,7 +93,7 @@ describe("a click on a notification about one letter", () => {
       await s.selection.setView(v);
       emit("notification-open", letter(7));
       await flush();
-      expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
+      expect(s.list.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
       expect([...s.selection.selected]).toEqual([7]);
     }
   });
@@ -106,8 +106,8 @@ describe("a click on a notification about a letter moved or gone", () => {
     const s = await started();
     emit("notification-open", letter(42, { folder: "Archive" }));
     await flush();
-    expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "Archive" });
-    expect(s.opened?.row.id).toBe(42);
+    expect(s.list.view).toEqual({ kind: "folder", account_id: "a", folder: "Archive" });
+    expect(s.reader.opened?.row.id).toBe(42);
   });
 
   it("says a letter is gone and offers to find it", async () => {
@@ -116,14 +116,14 @@ describe("a click on a notification about a letter moved or gone", () => {
     await s.selection.setView({ kind: "unified", role: "inbox", flagged: true });
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [], gone: { subject: "Invoice for October", from: "ivan.petrov@example.com" } });
     await flush();
-    expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
+    expect(s.list.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
     expect(s.selection.selected.size).toBe(0);
     const toast = s.ui.toasts.find((x) => x.text.includes("«Invoice for October»"));
     expect(toast?.text).toBe("«Invoice for October» is no longer in the Inbox: it was moved or deleted.");
     expect(toast?.action?.label).toBe("Find");
     toast?.action?.run();
     await flush();
-    expect(s.view).toEqual({ kind: "search", text: 'from:ivan.petrov@example.com subject:"Invoice for October"' });
+    expect(s.list.view).toEqual({ kind: "search", text: 'from:ivan.petrov@example.com subject:"Invoice for October"' });
   });
 
 });
@@ -133,9 +133,9 @@ describe("a click on a notification about letters that missed their time", () =>
     const s = await started();
     emit("notification-open", { account_id: null, folder: null, id: null, ids: [], outbox: true, gone: null });
     await flush();
-    expect(s.view).toEqual({ kind: "outbox" });
+    expect(s.list.view).toEqual({ kind: "outbox" });
     expect(s.selection.selected.size).toBe(0);
-    expect(s.opened).toBeNull();
+    expect(s.reader.opened).toBeNull();
   });
 });
 
@@ -169,11 +169,11 @@ describe("a click on a summary", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [1, 2, 3], gone: null });
     await flush();
-    expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
+    expect(s.list.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
     expect(s.selection.selected.size).toBe(0);
-    expect(s.opened).toBeNull();
-    expect([1, 2, 3, 4].map((id) => arrivals.isFresh(s.view, id))).toEqual([true, true, true, false]);
-    expect(arrivals.freshCount(s.view)).toBe(3);
+    expect(s.reader.opened).toBeNull();
+    expect([1, 2, 3, 4].map((id) => arrivals.isFresh(s.list.view, id))).toEqual([true, true, true, false]);
+    expect(arrivals.freshCount(s.list.view)).toBe(3);
     // The first new row takes the keyboard, unopened: Enter opens it.
     expect(arrivals.focus).toBe(1);
   });
@@ -184,8 +184,8 @@ describe("a click on a summary", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     emit("notification-open", { account_id: null, folder: null, id: null, ids: [1, 2], gone: null });
     await flush();
-    expect(s.view).toEqual({ kind: "unified", role: "inbox" });
-    expect(arrivals.isFresh(s.view, 2)).toBe(true);
+    expect(s.list.view).toEqual({ kind: "unified", role: "inbox" });
+    expect(arrivals.isFresh(s.list.view, 2)).toBe(true);
   });
 
   it("keeps the tint only while its list is open", async () => {
@@ -193,16 +193,16 @@ describe("a click on a summary", () => {
     const s = await started();
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [1, 2], gone: null });
     await flush();
-    const tinted = s.view;
+    const tinted = s.list.view;
     expect(arrivals.isFresh(tinted, 1)).toBe(true);
     // Reading one keeps the list as it is: the tint stays.
     await s.selection.select(1);
-    expect(arrivals.isFresh(s.view, 1)).toBe(true);
+    expect(arrivals.isFresh(s.list.view, 1)).toBe(true);
     await s.selection.setView({ kind: "unified", role: "inbox" });
-    expect(arrivals.isFresh(s.view, 1)).toBe(false);
+    expect(arrivals.isFresh(s.list.view, 1)).toBe(false);
     // Coming back is another visit: no tint.
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    expect(arrivals.isFresh(s.view, 1)).toBe(false);
-    expect(arrivals.freshCount(s.view)).toBe(0);
+    expect(arrivals.isFresh(s.list.view, 1)).toBe(false);
+    expect(arrivals.freshCount(s.list.view)).toBe(0);
   });
 });

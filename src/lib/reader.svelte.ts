@@ -1,6 +1,7 @@
 // The letter being read and its conversation: opened beside the list, kept up to date
 // while open, and read along with it.
 
+import type { MailboxController } from "./mailboxes.svelte";
 import type { UiController } from "./ui.svelte";
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
@@ -14,11 +15,11 @@ const SEEN_MS = 1000;
 
 /** What the reader needs from the app store. */
 export interface ReaderHost {
-  readonly ui: UiController;
+  readonly mailboxes: MailboxController;
   readonly list: ListController;
+  readonly ui: UiController;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
-  account(id: string): AccountView | undefined;
 }
 
 export class Reader {
@@ -74,7 +75,7 @@ export class Reader {
       // The view holds the open letter at once; the read mark waits for it to stay (#71).
       if (wasUnread) list.mark(id, list.messages.find((m) => m.id === id) ?? { ...msg.row, flags: { ...msg.row.flags, seen: false } });
       this.loadConversation(id, seq, epoch, msg.row.folder, wasUnread);
-      extensions.messageOpen(msg, this.host.account(msg.row.account_id)?.email ?? "");
+      extensions.messageOpen(msg, this.host.mailboxes.account(msg.row.account_id)?.email ?? "");
     } catch (e) {
       if (seq === this.openSeq) {
         this.opened = null;

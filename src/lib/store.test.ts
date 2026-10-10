@@ -79,16 +79,16 @@ const acc = (id: string): AccountView =>
 describe("the mailbox of a new message", () => {
   it("is the default one even when another mailbox's folder is open", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: "b" };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: "b" };
     s.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
     expect(s.defaultAccount()?.id).toBe("b");
   });
 
   it("follows the context when none is chosen", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: null };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: null };
     s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
     expect(s.defaultAccount()?.id).toBe("b");
     s.list.view = { kind: "unified", role: "inbox" };
@@ -97,8 +97,8 @@ describe("the mailbox of a new message", () => {
 
   it("treats a removed or unknown default as none", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: "gone" };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: "gone" };
     s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
     expect(s.defaultAccount()?.id).toBe("b");
   });
@@ -107,8 +107,8 @@ describe("the mailbox of a new message", () => {
 describe("the mailbox an answer, a forward or a link goes from", () => {
   it("leaves an answer going from the mailbox the letter arrived in", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: "a" };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
     s.replyTo(false);
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
@@ -116,8 +116,8 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
 
   it("leaves «Reply all» and a forward going from the mailbox the letter arrived in", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: "a" };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
     s.replyTo(true);
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
@@ -127,8 +127,8 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
 
   it("leaves a quick answer going from the mailbox the letter arrived in", () => {
     // The quick answer reads the running store, not a host of its own.
-    app.accounts = [acc("a"), acc("b")];
-    app.settings = { ...settings(), default_account_id: "a" };
+    app.mailboxes.accounts = [acc("a"), acc("b")];
+    app.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     app.reader.opened = opened(row(1, { account_id: "b" }));
     const quick = new QuickReplyState({ keptAsDraft: () => {} });
     quick.openQuick(false);
@@ -137,8 +137,8 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
 
   it("writes a mailto link from the default mailbox, not the letter's", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: "a" };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
     s.openMailto("mailto:someone@example.org?subject=Hi%20there");
@@ -150,8 +150,8 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
 
   it("writes a mailto link from the open letter when no default is set", () => {
     const s = new AppStore();
-    s.accounts = [acc("a"), acc("b")];
-    s.settings = { ...settings(), default_account_id: null };
+    s.mailboxes.accounts = [acc("a"), acc("b")];
+    s.settingsCtl.settings = { ...settings(), default_account_id: null };
     s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
     s.openMailto("mailto:someone@example.org");
@@ -170,8 +170,8 @@ const accWith = (id: string, format: BodyFormat): AccountView =>
 
 /** A quick answer to a letter in this mailbox, with `text` typed into it. */
 function typing(account: AccountView, text: string): QuickReplyState {
-  app.accounts = [account];
-  app.settings = { ...settings(), default_account_id: account.id };
+  app.mailboxes.accounts = [account];
+  app.settingsCtl.settings = { ...settings(), default_account_id: account.id };
   app.reader.opened = opened(row(1, { account_id: account.id }));
   const quick = new QuickReplyState({ keptAsDraft: () => {} });
   quick.openQuick(false);
@@ -265,8 +265,8 @@ describe("the caret of a quick answer unfolded into a window", () => {
 
   it("stays at the very top of a fresh reply, the empty line above the signature", () => {
     app.compose.windows.length = 0;
-    app.accounts = [accWith("b", "plain")];
-    app.settings = { ...settings(), default_account_id: "b" };
+    app.mailboxes.accounts = [accWith("b", "plain")];
+    app.settingsCtl.settings = { ...settings(), default_account_id: "b" };
     app.reader.opened = opened(row(1, { account_id: "b" }));
     app.replyTo(false);
     // Not an unfolded answer: the field is focused, the caret kept at the very top.
@@ -348,9 +348,9 @@ describe("saving one setting", () => {
     const s = new AppStore();
     await s.init();
     const keys = { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] };
-    await s.saveKeybindings(keys);
+    await s.settingsCtl.saveKeybindings(keys);
     expect(api.settingsPatch).toHaveBeenCalledWith({ keybindings: keys });
-    expect(s.settings.keybindings).toEqual(keys);
+    expect(s.settingsCtl.settings.keybindings).toEqual(keys);
   });
 
   // Every place that changes a setting patches its own keys: no part of the app writes the

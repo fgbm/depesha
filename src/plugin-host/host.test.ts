@@ -19,11 +19,13 @@ vi.mock("../../plugins", () => ({
 // and every patch is kept so a test can see it carries only the list that changed.
 vi.mock("../lib/store.svelte", () => ({
   app: {
-    settings,
-    patchSettings: (patch: { disabled_plugins?: string[]; enabled_plugins?: string[] }) => {
-      applied.push(patch);
-      if (patch.disabled_plugins) settings.disabled_plugins = patch.disabled_plugins;
-      if (patch.enabled_plugins) settings.enabled_plugins = patch.enabled_plugins;
+    settingsCtl: {
+      settings,
+      patchSettings: (patch: { disabled_plugins?: string[]; enabled_plugins?: string[] }) => {
+        applied.push(patch);
+        if (patch.disabled_plugins) settings.disabled_plugins = patch.disabled_plugins;
+        if (patch.enabled_plugins) settings.enabled_plugins = patch.enabled_plugins;
+      },
     },
   },
 }));

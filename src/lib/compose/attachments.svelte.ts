@@ -39,7 +39,7 @@ export class ComposeAttachments {
    *  one as `![alt](data:image/…)` (decision on #45). A large photo is made smaller first;
    *  one still too big goes as a file, as it would anyway. */
   async addPictures(found: FoundPicture[]) {
-    const { html, ready, tooBig, failed } = await picturesHtml(found, app.settings.image_max_px);
+    const { html, ready, tooBig, failed } = await picturesHtml(found, app.settingsCtl.settings.image_max_px);
     for (const p of await this.attachPictures(tooBig)) app.ui.toast(t("compose.picture.attachedBig", { name: p.name }));
     for (const e of failed) app.ui.fail(e);
     if (!ready.length) return;

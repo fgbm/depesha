@@ -77,7 +77,7 @@ class Hints {
       now: now(),
       typing,
       installedAt: this.since,
-      policy: { ...HINT_POLICY, enabled: app.settings.hints },
+      policy: { ...HINT_POLICY, enabled: app.settingsCtl.settings.hints },
     });
   }
 

@@ -129,7 +129,7 @@ describe("the tray menu's errands", () => {
     expect(write).toHaveBeenCalled();
     emit("tray-action", { action: "unread" });
     await flush();
-    expect(s.view).toEqual({ kind: "unified", role: "inbox", unread: true });
+    expect(s.list.view).toEqual({ kind: "unified", role: "inbox", unread: true });
     emit("tray-action", { action: "account", account_id: "a" });
     expect(s.ui.settingsOpen).toBe(true);
     expect(s.ui.settingsPage).toBe("account:a");

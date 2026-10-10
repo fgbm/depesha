@@ -37,12 +37,14 @@ function host(over: { role?: FolderInfo["role"] | null; total?: number; online?:
     fail: (e) => void toasts.push({ text: String((e as Error).message), error: true }),
   } satisfies Partial<UiController>;
   const h: ClearHost = {
-    view: { kind: "folder", account_id: "a", folder: f.name },
     windowOf: null,
-    composes: (over.windows ?? []) as never,
+    list: { view: { kind: "folder", account_id: "a", folder: f.name } } as ClearHost["list"],
+    compose: { windows: over.windows ?? [] } as unknown as ClearHost["compose"],
     ui: ui as unknown as ClearHost["ui"],
-    account: () => ({ id: "a", status: { state: state.online ? "online" : "error" } }) as AccountView,
-    folder: (acc, name) => (acc === "a" && name === f.name ? f : undefined),
+    mailboxes: {
+      account: () => ({ id: "a", status: { state: state.online ? "online" : "error" } }) as AccountView,
+      folder: (acc: string, name: string) => (acc === "a" && name === f.name ? f : undefined),
+    } as unknown as ClearHost["mailboxes"],
     holdUndo: (text, run) => {
       const u = { text, run, released: false };
       held.push(u);
@@ -285,7 +287,7 @@ describe("Clear on Drafts", () => {
 
   it("says so, and asks nothing, when it does not know what folder it clears", async () => {
     const x = host();
-    x.h.folder = () => undefined;
+    x.h.mailboxes.folder = () => undefined;
     await (x.clear as unknown as { run(a: string, n: string, b: number): Promise<void> }).run("a", "Trash", 11);
     expect(api.folderEmpty).not.toHaveBeenCalled();
     expect(x.toasts.at(-1)).toMatchObject({ text: t("clear.failed"), error: true });
@@ -296,7 +298,7 @@ describe("Clear on Drafts", () => {
     api.folderTotal.mockResolvedValue({ total: 5, bound: 11 });
     await x.clear.begin("a", "Drafts");
     // The folder list is being rebuilt (a sync, a rename): nothing is found between the question and the run.
-    x.h.folder = () => undefined;
+    x.h.mailboxes.folder = () => undefined;
     await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 100);
     expect(api.folderEmpty).toHaveBeenCalledWith("a", "Drafts", [7], 11);
     await flush();

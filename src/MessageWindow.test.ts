@@ -36,7 +36,7 @@ let view: ReturnType<typeof mount> | null = null;
 
 beforeEach(() => {
   i18n.lang = "ru";
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
   api.settings.mockResolvedValue(settings());
   api.language.mockResolvedValue("ru");
   api.people.mockResolvedValue([]);

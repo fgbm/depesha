@@ -22,12 +22,12 @@
   } = $props();
 
   function isMine(m: MessageRow): boolean {
-    const mine = app.accounts.map((a) => a.email.toLowerCase());
+    const mine = app.mailboxes.accounts.map((a) => a.email.toLowerCase());
     return !!m.from && mine.includes(m.from.email.toLowerCase());
   }
 
   function roleOf(m: MessageRow) {
-    return app.folder(m.account_id, m.folder)?.role;
+    return app.mailboxes.folder(m.account_id, m.folder)?.role;
   }
 </script>
 

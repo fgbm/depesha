@@ -43,7 +43,7 @@ beforeEach(async () => {
   api.people.mockResolvedValue([]);
   api.hints.mockResolvedValue([]);
   await peopleBook.refresh();
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
   props.msg = letter(1);
   target = document.createElement("div");
   document.body.append(target);

@@ -20,7 +20,7 @@ let view: ReturnType<typeof mount> | null = null;
 beforeEach(() => {
   resetFakes();
   i18n.lang = "ru";
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
 });
 afterEach(() => {
   if (view) unmount(view);

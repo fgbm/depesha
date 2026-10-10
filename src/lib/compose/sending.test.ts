@@ -6,8 +6,7 @@ const colors = vi.hoisted(() => ({ map: {} as Record<string, string> }));
 vi.mock("../store.svelte", async () => ({
   app: (await import("../testing")).appMock({
     ui: { confirm, fail: () => {}, toast: () => 0 },
-    account: () => undefined,
-    accountColor: (id) => colors.map[id] ?? "#000000",
+    mailboxes: { account: () => undefined, accountColor: (id) => colors.map[id] ?? "#000000" },
     send: async () => {},
     closeCompose: () => {},
   }),

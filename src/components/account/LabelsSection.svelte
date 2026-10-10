@@ -25,7 +25,7 @@
 
   // «Где хранится» — по свойствам папок (04, кадр 2); у Exchange колонки нет.
   const storage = $derived.by(() => {
-    const props = app.folders
+    const props = app.mailboxes.folders
       .filter((f) => f.account_id === account.id)
       .map((f) => app.labels.prop(account.id, f.name))
       .filter((p) => !!p);
@@ -91,7 +91,7 @@
 
   /** Нет прав в папке (#42, кадр 7): метку здесь не поставить. */
   const readOnlyFolder = $derived(
-    app.folders.some((f) => {
+    app.mailboxes.folders.some((f) => {
       if (f.account_id !== account.id) return false;
       const rights = app.labels.prop(account.id, f.name)?.rights;
       return !!rights && readOnly(rights);

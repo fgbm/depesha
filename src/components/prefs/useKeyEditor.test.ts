@@ -15,7 +15,7 @@ import { KeyEditor } from "./useKeyEditor.svelte";
 
 beforeEach(() => {
   resetFakes();
-  app.settings = settings();
+  app.settingsCtl.settings = settings();
 });
 
 /** The draft a settings window edits: a copy of the saved settings. */
@@ -24,8 +24,8 @@ const sent = (): Record<string, unknown> => api.settingsPatch.mock.calls.at(-1)?
 
 describe("a key changed on the «Keys» page", () => {
   it("is saved at once, without the shared «Save» button", async () => {
-    app.settings = { ...settings(), keybindings: { custom: { "core.reply": ["q"] }, dismissed: [] } };
-    const draft = draftOf(app.settings);
+    app.settingsCtl.settings = { ...settings(), keybindings: { custom: { "core.reply": ["q"] }, dismissed: [] } };
+    const draft = draftOf(app.settingsCtl.settings);
     const k = new KeyEditor(() => draft);
 
     k.reset("core.reply");
@@ -35,12 +35,12 @@ describe("a key changed on the «Keys» page", () => {
     expect((sent().keybindings as KeySettings).custom).toEqual({});
     // The page's own state follows the save, and the app's saved settings too.
     expect(draft.keybindings.custom).toEqual({});
-    expect(app.settings.keybindings.custom).toEqual({});
+    expect(app.settingsCtl.settings.keybindings.custom).toEqual({});
   });
 
   it("does not carry unsaved changes of other pages along", async () => {
-    app.settings = { ...settings(), keybindings: { custom: { "core.reply": ["q"] }, dismissed: [] } };
-    const draft = draftOf(app.settings);
+    app.settingsCtl.settings = { ...settings(), keybindings: { custom: { "core.reply": ["q"] }, dismissed: [] } };
+    const draft = draftOf(app.settingsCtl.settings);
     // Another page was edited but not saved: its change stays in the draft, out of the save.
     draft.language = "ru";
     draft.notify = "none";
@@ -56,16 +56,16 @@ describe("a key changed on the «Keys» page", () => {
   });
 
   it("applies «Reset all» at once and can be brought back at once", async () => {
-    app.settings = { ...settings(), keybindings: { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] } };
-    const draft = draftOf(app.settings);
+    app.settingsCtl.settings = { ...settings(), keybindings: { custom: { "core.reply-all": ["Shift+r"] }, dismissed: [] } };
+    const draft = draftOf(app.settingsCtl.settings);
     const k = new KeyEditor(() => draft);
 
     k.resetAll();
     await flush();
-    expect(app.settings.keybindings.custom).toEqual({});
+    expect(app.settingsCtl.settings.keybindings.custom).toEqual({});
 
     k.undoReset();
     await flush();
-    expect(app.settings.keybindings.custom).toEqual({ "core.reply-all": ["Shift+r"] });
+    expect(app.settingsCtl.settings.keybindings.custom).toEqual({ "core.reply-all": ["Shift+r"] });
   });
 });

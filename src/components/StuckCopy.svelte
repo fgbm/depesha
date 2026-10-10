@@ -12,7 +12,7 @@
 
   let busy = $state(false);
   const id = $derived(stuckId(task));
-  const acc = $derived(task.account_id ? app.account(task.account_id) : undefined);
+  const acc = $derived(task.account_id ? app.mailboxes.account(task.account_id) : undefined);
   // The task's label is «Copy not saved: «subject»»; the file is named after the subject.
   const subject = $derived(/«(.*)»/s.exec(task.label)?.[1] ?? "");
   // The server has the copy; what failed is the start of the wait for a reply (a local error).
@@ -59,7 +59,7 @@
   <div class="line">
     <span class="icon"><Pause size={14} /></span>
     <span class="label">{task.label}</span>
-    {#if acc && app.accounts.length > 1}<span class="muted small">{accountLabel(acc)}</span>{/if}
+    {#if acc && app.mailboxes.accounts.length > 1}<span class="muted small">{accountLabel(acc)}</span>{/if}
   </div>
   <p class="small text">{#if filed}{t("stuck.textFiled")}{:else}{t("stuck.text")}{/if}</p>
   {#if task.error?.message}<div class="reason small selectable">{task.error.message}</div>{/if}

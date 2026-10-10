@@ -30,7 +30,7 @@
   // The own limit as typed: the numbers follow the field before it is saved.
   const room = $derived(roomOf(view, { quota_limit_mb: limitMb(form.quotaLimitGb), ews: account.ews }));
   const pct = $derived(room ? percent(room) : 0);
-  const level = $derived(levelOf(pct, levels(app.settings.quota_levels)));
+  const level = $derived(levelOf(pct, levels(app.settingsCtl.settings.quota_levels)));
   const quota = $derived(info?.quota && info.quota.limit > 0 ? info.quota : null);
   const ownFirst = $derived(!!room && !!room.own && !!room.quota && room.own < room.quota);
   // Connecting is not offline: only a failed connection makes the numbers old.
@@ -45,7 +45,7 @@
   });
 
   function folderName(name: string): string {
-    return app.folder(account.id, name)?.display_name ?? name;
+    return app.mailboxes.folder(account.id, name)?.display_name ?? name;
   }
 
   function useQuota() {
@@ -66,7 +66,7 @@
   }
 
   async function openTrash() {
-    const trash = app.folders.find((f) => f.account_id === account.id && f.role === "trash");
+    const trash = app.mailboxes.folders.find((f) => f.account_id === account.id && f.role === "trash");
     if (!trash || !(await form.mayLeave())) return;
     app.ui.settingsOpen = false;
     app.selection.setView({ kind: "folder", account_id: account.id, folder: trash.name });

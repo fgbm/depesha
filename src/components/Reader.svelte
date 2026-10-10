@@ -31,13 +31,13 @@
 
   let { onReply, onForward }: { onReply: (all: boolean) => void; onForward: () => void } = $props();
 
-  const msg = $derived(app.opened);
+  const msg = $derived(app.reader.opened);
   /** The sender's photo from Exchange, or a brand logo when the message passed DMARC. */
   const picture = $derived(
     msg ? avatarOf(
         msg.row.account_id,
         msg.view.summary.from?.email,
-        msg.view.authenticated && app.settings.sender_logos && mayAskLogo(app.folder(msg.row.account_id, msg.row.folder)?.role)
+        msg.view.authenticated && app.settingsCtl.settings.sender_logos && mayAskLogo(app.mailboxes.folder(msg.row.account_id, msg.row.folder)?.role)
           ? msg.row.id
           : null,
       ) : null,
@@ -49,7 +49,7 @@
    */
   let waited = $state<0 | 1 | 2 | 3>(0);
   $effect(() => {
-    if (!app.opening) {
+    if (!app.reader.opening) {
       waited = 0;
       return;
     }
@@ -61,18 +61,18 @@
     ];
     return () => timers.forEach(clearTimeout);
   });
-  const showOpening = $derived(app.opening && waited > 0 && (!msg || app.openingRow?.id !== msg.row.id));
-  const account = $derived(msg ? app.account(msg.row.account_id) : undefined);
-  const isDraft = $derived(msg ? app.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
-  const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.allowRemote && !msg.trusted_sender);
+  const showOpening = $derived(app.reader.opening && waited > 0 && (!msg || app.reader.openingRow?.id !== msg.row.id));
+  const account = $derived(msg ? app.mailboxes.account(msg.row.account_id) : undefined);
+  const isDraft = $derived(msg ? app.mailboxes.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
+  const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.reader.allowRemote && !msg.trusted_sender);
   const bulk = $derived(app.selection.selected.size > 1);
   /** The letter with its toolbar is on screen, not a placeholder or an error. */
-  const showsLetter = $derived(!bulk && !app.openError && !showOpening && !(app.opening && !msg) && !!msg);
+  const showsLetter = $derived(!bulk && !app.reader.openError && !showOpening && !(app.reader.opening && !msg) && !!msg);
   /** Which state the pane shows when there is no letter: none of them is the letter. */
   const stateToShow = $derived.by((): "bulk" | "error" | "opening" | "placeholder" | null => {
     if (bulk) return "bulk";
-    if (app.openError) return "error";
-    if (showOpening || (app.opening && !msg)) return "opening";
+    if (app.reader.openError) return "error";
+    if (showOpening || (app.reader.opening && !msg)) return "opening";
     if (!msg) return "placeholder";
     return null;
   });
@@ -108,9 +108,9 @@
   // The conversation reads top to bottom around the opened letter, as in Gmail:
   // earlier letters fold into cards above it, later ones below, the middle of
   // each long side into its own "N more".
-  const at = $derived(msg ? app.conversation.findIndex((m) => m.id === msg.row.id) : -1);
-  const before = $derived(at > 0 ? app.conversation.slice(0, at) : []);
-  const after = $derived(at >= 0 ? app.conversation.slice(at + 1) : []);
+  const at = $derived(msg ? app.reader.conversation.findIndex((m) => m.id === msg.row.id) : -1);
+  const before = $derived(at > 0 ? app.reader.conversation.slice(0, at) : []);
+  const after = $derived(at >= 0 ? app.reader.conversation.slice(at + 1) : []);
   // The folds close again when another letter opens (not when the same one is loaded again).
   const letterId = $derived(msg?.row.id);
   let showAll = $derived.by(() => (void letterId, false));
@@ -138,7 +138,7 @@
 <!-- A narrow window shows the letter instead of the list: the way back and to the neighbours. -->
 {#snippet nav()}
   {#if layout.single && app.windowOf === null}
-    {@const list = viewTitle(app.view)}
+    {@const list = viewTitle(app.list.view)}
     <button class="btn back" onclick={() => layout.showList()} title={t("nav.backHint", { list })} aria-label={t("nav.back", { list })}>
       <ChevronLeft size={16} /><span class="back-lbl">{list}</span>
     </button>

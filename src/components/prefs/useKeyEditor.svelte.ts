@@ -106,14 +106,14 @@ export class KeyEditor {
     this.draft().keybindings = keybindings;
     // The keys take effect at once (#46): saved on their own, without the window's «Save»,
     // and the unsaved edits of other pages are left as they are.
-    void app.saveKeybindings(keybindings);
+    void app.settingsCtl.saveKeybindings(keybindings);
   }
 
   /** A plugin's notice is seen once, whether the settings are saved or not. */
   dismiss(l: Lost) {
     const keybindings = { custom: { ...this.custom }, dismissed: [...this.dismissed, `${l.id}:${l.key}`] };
     this.draft().keybindings = keybindings;
-    void app.saveKeybindings(keybindings);
+    void app.settingsCtl.saveKeybindings(keybindings);
   }
 
   async start(id: string, idx: number) {

@@ -9,7 +9,7 @@
   let { value = $bindable("") }: { value: ViewRule } = $props();
 
   /** What «as in the settings» means now, named as the settings page itself names it. */
-  const inherited = $derived(app.settings.letter_view === "sender" ? t("settings.letterView.sender") : t(`letterView.${app.settings.letter_view}`));
+  const inherited = $derived(app.settingsCtl.settings.letter_view === "sender" ? t("settings.letterView.sender") : t(`letterView.${app.settingsCtl.settings.letter_view}`));
 </script>
 
 <div class="field"><span>{t("settings.letterView")}</span>

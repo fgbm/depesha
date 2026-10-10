@@ -15,7 +15,7 @@
     label={t("wizard.composeFormat")}
     bind:value
     options={[
-      { value: "" as const, label: t("wizard.composeFormatInherit", { format: t(`format.${app.settings.compose_format ?? "plain"}`) }) },
+      { value: "" as const, label: t("wizard.composeFormatInherit", { format: t(`format.${app.settingsCtl.settings.compose_format ?? "plain"}`) }) },
       ...(["plain", "html", "markdown"] as const).map((f) => ({ value: f, label: t(`format.${f}`) })),
     ]}
   />

@@ -50,16 +50,6 @@ export class AppStore {
    */
   windowOf = $state<number | null>(null);
 
-  // State that lives in a module, read and written through the store as before.
-  get accounts() { return this.mailboxes.accounts; }
-  set accounts(v) { this.mailboxes.accounts = v; }
-  get folders() { return this.mailboxes.folders; }
-  get outbox() { return this.mailboxes.outbox; }
-  get version() { return this.mailboxes.version; }
-  get settings() { return this.settingsCtl.settings; }
-  set settings(v) { this.settingsCtl.settings = v; }
-  get update() { return this.settingsCtl.update; }
-  set update(v) { this.settingsCtl.update = v; }
   /** Asks the open letter's header to show the card of its sender. */
   openSenderCard() { bus.emit("reader.sender-card"); }
   /** Opens the address book in the main window, at a person and a filter; the settings window gives way. */
@@ -69,50 +59,11 @@ export class AppStore {
     await this.selection.setView({ kind: "people" });
   }
   /** Puts the focus into the search box of what the main window shows: the mail list or the address book. */
-  focusSearch() { bus.emit(this.view.kind === "people" ? "people.search" : "mail.search"); }
+  focusSearch() { bus.emit(this.list.view.kind === "people" ? "people.search" : "mail.search"); }
 
-  get view() { return this.list.view; }
-  get messages() { return this.list.messages; }
-  get exhausted() { return this.list.exhausted; }
-  get loadingMore() { return this.list.loadingMore; }
-  get serverSearching() { return this.list.serverSearching; }
-  /** Rows the server-side search found, kept across list reloads. */
-  get serverRows() { return this.list.serverRows; }
-  /** How many letters the search finds in the cache and their size. */
-  get searchTotals() { return this.list.totals; }
-  /** The last move that can be taken back with "z". */
-  get lastUndo() { return this.actions.lastUndo; }
-  /** Compositions in progress, oldest first; at most one is unfolded. */
-  get composes() { return this.compose.windows; }
-  get opened() { return this.reader.opened; }
-  get openError() { return this.reader.openError; }
-  get opening() { return this.reader.opening; }
-  /** The list row of the message being opened: its header shows at once, before the body arrives. */
-  get openingRow() { return this.reader.openingRow; }
-  get allowRemote() { return this.reader.allowRemote; }
-  /** The opened message's conversation, oldest first; empty for a lone message. */
-  get conversation() { return this.reader.conversation; }
 
-  // Settings, mailboxes, overlays and the selection.
-  loadLanguage() { return this.settingsCtl.loadLanguage(); }
-  loadSettings() { return this.settingsCtl.loadSettings(); }
-  patchSettings(patch: Record<string, unknown>) { return this.settingsCtl.patchSettings(patch); }
-  saveKeybindings(next: KeySettings) { return this.settingsCtl.saveKeybindings(next); }
-  savePluginSettings(plugin: string, values: Record<string, unknown>) { return this.settingsCtl.savePluginSettings(plugin, values); }
-  checkUpdates() { return this.settingsCtl.checkUpdates(); }
-  installUpdate() { return this.settingsCtl.installUpdate(); }
-  restartForUpdate() { this.settingsCtl.restartForUpdate(); }
-  loadAccounts() { return this.mailboxes.loadAccounts(); }
-  scheduleFolders() { this.mailboxes.scheduleFolders(); }
-  loadFolders() { return this.mailboxes.loadFolders(); }
-  loadOutbox() { return this.mailboxes.loadOutbox(); }
-  account(id: string) { return this.mailboxes.account(id); }
-  accountColor(id: string) { return this.mailboxes.accountColor(id); }
-  folder(accountId: string, name: string) { return this.mailboxes.folder(accountId, name); }
-  /** Where the app starts and comes back to: all inboxes, or the only account's inbox. */
-  home(): View { return this.mailboxes.home(); }
   /** Rows the user is on: the selection and the open letter. */
-  using(): number[] { return [...this.selection.selected, ...(this.opened ? [this.opened.row.id] : [])]; }
+  using(): number[] { return [...this.selection.selected, ...(this.reader.opened ? [this.reader.opened.row.id] : [])]; }
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
 
@@ -120,24 +71,24 @@ export class AppStore {
     this.mailboxes.initVersion();
     extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenMain(this);
-    await this.loadLanguage();
+    await this.settingsCtl.loadLanguage();
     // Each request that fails is told and does not hold up the others.
     const [accounts] = await Promise.all([
-      this.loadAccounts().then(() => true, (e) => (this.ui.fail(e), false)),
-      this.loadFolders(),
-      this.loadOutbox(),
-      this.loadSettings(),
+      this.mailboxes.loadAccounts().then(() => true, (e) => (this.ui.fail(e), false)),
+      this.mailboxes.loadFolders(),
+      this.mailboxes.loadOutbox(),
+      this.settingsCtl.loadSettings(),
       extensions.load(),
       hints.load(),
       peopleBook.load(),
       api.tasks().then((tasks) => (this.ui.tasks = tasks), (e) => this.ui.fail(e)),
-      api.updateStatus().then((u) => (this.update = u), (e) => this.ui.fail(e)),
+      api.updateStatus().then((u) => (this.settingsCtl.update = u), (e) => this.ui.fail(e)),
     ]);
-    this.list.view = this.home();
+    this.list.view = this.mailboxes.home();
     // Mailboxes filling up warn once the accounts and the settings are read.
     rooms.start(this);
     labels.start(this);
-    void Promise.all(this.accounts.map((a) => labels.load(a.id)));
+    void Promise.all(this.mailboxes.accounts.map((a) => labels.load(a.id)));
     await this.selection.reload();
     void tellMissed(this);
     // Drafts kept locally when the app last stopped: offered for restore (#71).
@@ -146,7 +97,7 @@ export class AppStore {
     // A toast click while the app was closed: the backend kept the URL for this window.
     void takePendingOpen(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
-    if (accounts && this.accounts.length === 0) this.ui.wizard = { account: null };
+    if (accounts && this.mailboxes.accounts.length === 0) this.ui.wizard = { account: null };
   }
 
   /** A separate window with one letter: no list, no background work of its own. */
@@ -154,8 +105,8 @@ export class AppStore {
     this.windowOf = id;
     extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenWindow(this);
-    await this.loadLanguage();
-    await Promise.all([this.loadAccounts().catch((e) => this.ui.fail(e)), this.loadFolders(), this.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
+    await this.settingsCtl.loadLanguage();
+    await Promise.all([this.mailboxes.loadAccounts().catch((e) => this.ui.fail(e)), this.mailboxes.loadFolders(), this.settingsCtl.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
     this.selection.selected = new Set([id]);
     await this.open(id);
   }
@@ -206,7 +157,7 @@ export class AppStore {
 
   /** A mailbox's page in the settings; the very first one is set up by the wizard alone. */
   accountSettings(acc: AccountView | null) {
-    if (this.accounts.length === 0) this.ui.wizard = { account: null };
+    if (this.mailboxes.accounts.length === 0) this.ui.wizard = { account: null };
     else this.ui.openSettings(acc ? `account:${acc.id}` : "account:new");
   }
 
@@ -244,13 +195,13 @@ export class AppStore {
 
   defaultAccount() {
     // A mailbox chosen as the default wins everywhere, the open folder included.
-    const chosen = this.settings.default_account_id;
-    const fixed = chosen ? this.account(chosen) : undefined;
+    const chosen = this.settingsCtl.settings.default_account_id;
+    const fixed = chosen ? this.mailboxes.account(chosen) : undefined;
     if (fixed) return fixed;
-    const v = this.view;
-    if (v.kind === "folder") return this.account(v.account_id);
-    if (this.opened) return this.account(this.opened.row.account_id);
-    return this.accounts[0];
+    const v = this.list.view;
+    if (v.kind === "folder") return this.mailboxes.account(v.account_id);
+    if (this.reader.opened) return this.mailboxes.account(this.reader.opened.row.account_id);
+    return this.mailboxes.accounts[0];
   }
 }
 

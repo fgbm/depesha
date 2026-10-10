@@ -2,6 +2,8 @@
 // the servers. The app store owns the reader (selection, the open letter) and hears from
 // here which rows the list shows after each reload.
 
+import type { MailboxController } from "./mailboxes.svelte";
+import type { SettingsController } from "./settings.svelte";
 import type { UiController } from "./ui.svelte";
 import type { SelectionController } from "./selection.svelte";
 import { api } from "./api";
@@ -33,10 +35,10 @@ export const RELOAD_CAP = 1000;
 
 /** What the list needs from the app store. */
 export interface ListHost {
+  readonly mailboxes: MailboxController;
+  readonly settingsCtl: SettingsController;
   readonly ui: UiController;
   readonly selection: SelectionController;
-  readonly settings: Settings;
-  folder(accountId: string, name: string): FolderInfo | undefined;
   /** Rows the user is on: the selection and the open letter. */
   using(): number[];
 }
@@ -79,7 +81,7 @@ export class ListController {
   inboxLike(): boolean {
     const v = this.view;
     if (v.kind === "unified") return v.role === "inbox";
-    if (v.kind === "folder") return this.host.folder(v.account_id, v.folder)?.role === "inbox";
+    if (v.kind === "folder") return this.host.mailboxes.folder(v.account_id, v.folder)?.role === "inbox";
     return false;
   }
 
@@ -100,7 +102,7 @@ export class ListController {
     const filter = registry.items("listFilters")[0];
     const key = this.listKey();
     if (!filter || !key || (v.kind !== "folder" && v.kind !== "unified")) return null;
-    const role = v.kind === "folder" ? this.host.folder(v.account_id, v.folder)?.role : v.role;
+    const role = v.kind === "folder" ? this.host.mailboxes.folder(v.account_id, v.folder)?.role : v.role;
     if (role === "sent" || role === "drafts") return null;
     return { filter, list: { key, inbox: this.inboxLike() } };
   }
@@ -108,14 +110,14 @@ export class ListController {
   /** The order of the current list: its own, or the common one. */
   sort(): SortKey[] {
     const key = this.listKey();
-    const s = this.host.settings;
+    const s = this.host.settingsCtl.settings;
     return (key && s.view_sorts?.[key]) || (key === "search:size" ? LARGEST_FIRST : s.list_sort) || [];
   }
 
   /** The current list has an order of its own. */
   ownSort(): boolean {
     const key = this.listKey();
-    return !!key && !!this.host.settings.view_sorts?.[key];
+    return !!key && !!this.host.settingsCtl.settings.view_sorts?.[key];
   }
 
   /** The user read or (un)flagged the row: the current view keeps it and its place. */
@@ -140,7 +142,7 @@ export class ListController {
   includes(accountId: string, folder: string): boolean {
     const v = this.view;
     if (v.kind === "folder") return v.account_id === accountId && v.folder === folder;
-    if (v.kind === "unified") return this.host.folder(accountId, folder)?.role === v.role || (v.role === "inbox" && folder === "INBOX");
+    if (v.kind === "unified") return this.host.mailboxes.folder(accountId, folder)?.role === v.role || (v.role === "inbox" && folder === "INBOX");
     return v.kind === "search" || v.kind === "plugin";
   }
 
@@ -153,9 +155,9 @@ export class ListController {
     // Pins matter only where the order looks at what they keep.
     const pins = sort.some((k) => k.by === "unread" || k.by === "flagged") ? [...this.pins.values()] : [];
     const shape = { ...filter, sort, pins };
-    const threads = this.host.settings.threads;
+    const threads = this.host.settingsCtl.settings.threads;
     if (v.kind === "folder") {
-      const drafts = this.host.folder(v.account_id, v.folder)?.role === "drafts";
+      const drafts = this.host.mailboxes.folder(v.account_id, v.folder)?.role === "drafts";
       return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts, ...shape, limit: PAGE, offset };
     }
     if (v.kind === "unified") {

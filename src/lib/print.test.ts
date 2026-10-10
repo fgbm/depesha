@@ -295,7 +295,7 @@ describe("printing a row without opening it", () => {
     await vi.waitFor(() => expect(frames()).toHaveLength(1));
     expect(api.open).toHaveBeenCalledWith(2, false);
     expect(frames()[0].srcdoc).toContain("<h1>Письмо 2</h1>");
-    expect(app.opened?.row.id).toBe(1);
+    expect(app.reader.opened?.row.id).toBe(1);
   });
 
   it("does not fetch the letter that is open", async () => {

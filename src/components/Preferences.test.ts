@@ -22,8 +22,8 @@ let view: ReturnType<typeof mount> | null = null;
 let target: HTMLElement;
 
 function open(page: string, accounts: AccountView[] = []) {
-  app.settings = settings();
-  app.accounts = accounts;
+  app.settingsCtl.settings = settings();
+  app.mailboxes.accounts = accounts;
   app.ui.settingsPage = page;
   app.ui.settingsOpen = true;
   target = document.createElement("div");

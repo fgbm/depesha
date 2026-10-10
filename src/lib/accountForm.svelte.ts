@@ -441,13 +441,13 @@ export class AccountForm {
       }
       await api.accountSave(acc, secret, this.grant);
       this.grant = null;
-      await app.loadAccounts();
+      await app.mailboxes.loadAccounts();
       // What was typed meanwhile (the name, a signature) is not lost with the page.
       if (this.afterConnection) await this.afterConnection();
       this.done();
       app.ui.toast(existing ? t("wizard.saved") : t("wizard.added", { email: acc.email }));
-      app.scheduleFolders();
-      if (!existing && app.accounts.length === 1) app.selection.setView(app.home());
+      app.mailboxes.scheduleFolders();
+      if (!existing && app.mailboxes.accounts.length === 1) app.selection.setView(app.mailboxes.home());
     } catch (e) {
       const error = asError(e);
       this.error = error;
@@ -487,9 +487,9 @@ export class AccountForm {
     if (!ok) return;
     try {
       await api.accountRemove(existing.id);
-      await Promise.all([app.loadAccounts(), app.loadFolders()]);
+      await Promise.all([app.mailboxes.loadAccounts(), app.mailboxes.loadFolders()]);
       this.done();
-      app.selection.setView(app.home());
+      app.selection.setView(app.mailboxes.home());
     } catch (e) {
       this.error = asError(e);
     }

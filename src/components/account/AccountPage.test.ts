@@ -33,8 +33,8 @@ let stored: Account;
 
 function open(over: Partial<Account> = {}) {
   stored = { ...acc, ...over };
-  app.settings = { ...settings(), compose_format: "html" };
-  app.accounts = [{ ...stored, status: null } as AccountView];
+  app.settingsCtl.settings = { ...settings(), compose_format: "html" };
+  app.mailboxes.accounts = [{ ...stored, status: null } as AccountView];
   api.accounts.mockImplementation(async () => [{ ...stored, status: null } as AccountView]);
   api.accountSave.mockImplementation(async (a: Account) => {
     stored = a;
@@ -46,7 +46,7 @@ function open(over: Partial<Account> = {}) {
   });
   target = document.createElement("div");
   document.body.append(target);
-  view = mount(AccountPage, { target, props: { account: app.accounts[0], onDone: vi.fn() } });
+  view = mount(AccountPage, { target, props: { account: app.mailboxes.accounts[0], onDone: vi.fn() } });
   flushSync();
 }
 

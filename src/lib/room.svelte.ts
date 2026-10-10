@@ -110,22 +110,22 @@ class Rooms {
 
   level(account: AccountView): Level {
     const r = this.room(account);
-    return r && this.app ? levelOf(percent(r), levels(this.app.settings.quota_levels)) : 0;
+    return r && this.app ? levelOf(percent(r), levels(this.app.settingsCtl.settings.quota_levels)) : 0;
   }
 
   /** Opens the large letters: the search with the threshold of large mail. */
   findLarge() {
-    this.app?.selection.setView({ kind: "search", text: largeMailSearch(this.app.settings.large_mb) });
+    this.app?.selection.setView({ kind: "search", text: largeMailSearch(this.app.settingsCtl.settings.large_mb) });
   }
 
   /** A toast once per level crossed (and a desktop notification when full and out of sight). */
   private warn() {
     const app = this.app;
     if (!app) return;
-    const s = app.settings;
+    const s = app.settingsCtl.settings;
     const warned = readWarned();
     const now = Date.now();
-    for (const acc of app.accounts) {
+    for (const acc of app.mailboxes.accounts) {
       const r = this.room(acc);
       const level = r && s.quota_warn !== false && acc.quota_warn !== false ? levelOf(percent(r), levels(s.quota_levels)) : 0;
       const { warn, next } = warning(warned[acc.id], level, now, s.quota_repeat);

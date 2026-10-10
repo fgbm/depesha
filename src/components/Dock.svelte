@@ -6,7 +6,7 @@
   import { t } from "../lib/i18n.svelte";
   import Compose from "./Compose.svelte";
 
-  const unfolded = $derived(app.composes.some((c) => c.mode === "open"));
+  const unfolded = $derived(app.compose.windows.some((c) => c.mode === "open"));
 </script>
 
 <div class="dock" class:stacked={!unfolded}>
@@ -21,9 +21,9 @@
       </div>
     {/each}
   </div>
-  {#if app.composes.length}
+  {#if app.compose.windows.length}
     <div class="windows">
-      {#each app.composes as c (c.id)}
+      {#each app.compose.windows as c (c.id)}
         <Compose {c} />
       {/each}
     </div>

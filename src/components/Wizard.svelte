@@ -106,7 +106,7 @@
   <div class="modal wizard" role="dialog" aria-label={t("wizard.label")}>
     <header>
       <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
-      {#if app.accounts.length > 0 || existing}
+      {#if app.mailboxes.accounts.length > 0 || existing}
         <button class="btn ghost" onclick={() => (app.ui.wizard = null)} disabled={form.busy}>×</button>
       {/if}
     </header>
