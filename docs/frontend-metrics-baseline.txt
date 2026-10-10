@@ -1,5 +1,5 @@
-component	src/App.svelte	335	213	76	46
-component	src/MessageWindow.svelte	136	98	33	5
+component	src/App.svelte	338	216	76	46
+component	src/MessageWindow.svelte	139	101	33	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	271	128	43	100
 component	src/components/Avatar.svelte	45	11	7	27
@@ -17,7 +17,7 @@ component	src/components/LabelMenu.svelte	41	25	12	4
 component	src/components/LabelPicker.svelte	229	73	64	92
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
-component	src/components/MailFrame.svelte	162	120	8	34
+component	src/components/MailFrame.svelte	189	147	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	48	7	8	33
 component	src/components/MessageList.svelte	808	233	132	443
@@ -31,7 +31,7 @@ component	src/components/Reader.svelte	336	136	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
-component	src/components/RowMenu.svelte	156	97	52	7
+component	src/components/RowMenu.svelte	161	99	55	7
 component	src/components/SearchBox.svelte	343	133	68	142
 component	src/components/Segments.svelte	49	6	11	32
 component	src/components/Select.svelte	121	48	31	42
@@ -82,10 +82,10 @@ component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	773	350	113	310
 component	src/components/reader/QuickReply.svelte	218	57	31	130
-component	src/components/reader/ReaderBody.svelte	183	104	43	36
+component	src/components/reader/ReaderBody.svelte	187	108	43	36
 component	src/components/reader/ReaderHeader.svelte	353	92	61	200
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
-component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
+component	src/components/reader/ReaderToolbar.svelte	172	70	52	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
 component	src/components/sidebar/FavouriteRow.svelte	72	40	24	8
@@ -270,8 +270,8 @@ function	src/App.svelte::drag	18
 function	src/App.svelte::refocusList	6
 function	src/App.svelte::labelTarget	4
 function	src/App.svelte::action	4
-function	src/App.svelte::onKey	55
-function	src/MessageWindow.svelte::onKey	30
+function	src/App.svelte::onKey	57
+function	src/MessageWindow.svelte::onKey	32
 function	src/MessageWindow.test.ts::people	1
 function	src/components/Accounts.svelte::arrange	14
 function	src/components/Accounts.svelte::look	8
@@ -338,10 +338,11 @@ function	src/components/LabelPicker.svelte::find	3
 function	src/components/LabelPicker.svelte::remove	13
 function	src/components/LabelPicker.test.ts::row	1
 function	src/components/LetterViewSwitch.svelte::pick	4
+function	src/components/MailFrame.keys.test.ts::frameOf	2
 function	src/components/MailFrame.svelte::themeCss	9
 function	src/components/MailFrame.svelte::markdownCss	9
 function	src/components/MailFrame.svelte::repaint	7
-function	src/components/MailFrame.svelte::attach	34
+function	src/components/MailFrame.svelte::attach	35
 function	src/components/MailFrame.test.ts::srcdoc	7
 function	src/components/MessageList.svelte::tagsOf	3
 function	src/components/MessageList.svelte::chipsOf	5
@@ -646,7 +647,7 @@ function	src/lib/clearFolder.svelte.ts::taskKey	3
 function	src/lib/clearFolder.svelte.ts::parseKey	5
 function	src/lib/clearFolder.test.ts::folder	11
 function	src/lib/clearFolder.test.ts::host	21
-function	src/lib/commands.ts::coreCommands	128
+function	src/lib/commands.ts::coreCommands	129
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
 function	src/lib/compose.test.ts::html	4
@@ -1018,6 +1019,29 @@ function	src/lib/pictureInput.ts::picturesHtml	26
 function	src/lib/pictureInput.ts::picturesFromFiles	13
 function	src/lib/pictureInput.ts::picturesFromBlobs	6
 function	src/lib/pictureInput.ts::clipboardPictures	12
+function	src/lib/platform.ts::isMac	3
+function	src/lib/print.test.ts::key	3
+function	src/lib/print.test.ts::message	1
+function	src/lib/print.test.ts::cmd#1	1
+function	src/lib/print.test.ts::from	7
+function	src/lib/print.test.ts::cmd#2	1
+function	src/lib/print.ts::rememberForm	3
+function	src/lib/print.ts::formOf	6
+function	src/lib/print.ts::labels	8
+function	src/lib/print.ts::clear	6
+function	src/lib/print.ts::printHtml	33
+function	src/lib/print.ts::printMessage	13
+function	src/lib/print.ts::failed	4
+function	src/lib/print.ts::printOpened	4
+function	src/lib/print.ts::printRow	5
+function	src/lib/print.ts::browserPrint	4
+function	src/lib/print.ts::inTextField	4
+function	src/lib/print.ts::printKey	13
+function	src/lib/printPage.test.ts::letter	12
+function	src/lib/printPage.test.ts::opened	1
+function	src/lib/printPage.ts::esc	3
+function	src/lib/printPage.ts::letterOf	17
+function	src/lib/printPage.ts::printPage	24
 function	src/lib/quota.test.ts::view	3
 function	src/lib/quota.ts::largeMailSearch	4
 function	src/lib/quota.ts::ownLimit	4

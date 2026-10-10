@@ -65,6 +65,7 @@ act.more
 act.moveTitle
 act.moveTo
 act.newWindow
+act.print
 act.read
 act.reply
 act.replyAll
