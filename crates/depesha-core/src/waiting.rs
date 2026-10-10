@@ -130,20 +130,29 @@ pub enum Found {
     Take(Parking),
 }
 
+/// The wait asking for its letters: the letter answered and when the wait began.
+#[derive(Clone, Copy)]
+pub struct Asking<'a> {
+    pub anchor: &'a str,
+    pub since: i64,
+}
+
 /// The letters a wait takes: the conversation of the letter answered, where it sits when the
 /// move comes (#109). In the inbox as a rule, and also after the user's "Undo" of an
 /// archival. In the archive only when the archival of an answer took it there: what the user
 /// archived by hand stays. While the archival of this conversation is under way the wait waits
-/// (`may_wait`), and other archivals of the mailbox do not hold it.
+/// (`may_wait`), and other archivals of the mailbox do not hold it. The archive's mark counts
+/// only if made since the wait began (`since`).
 pub fn find_parking(
     store: &Store,
     archivals: &Archivals,
     account_id: &str,
     inbox: &str,
     archive: Option<&str>,
-    anchor: &str,
+    ask: Asking<'_>,
     may_wait: bool,
 ) -> Result<Found> {
+    let Asking { anchor, since } = ask;
     let chain = store.inbox_chain(account_id, inbox, anchor)?;
     if may_wait && archivals.busy_with(account_id, anchor, &chain) {
         return Ok(Found::Later);
@@ -154,7 +163,7 @@ pub fn find_parking(
             chain,
         }));
     }
-    let Some(archive) = archive.filter(|_| store.archived_marked(account_id, anchor).unwrap_or(false)) else {
+    let Some(archive) = archive.filter(|_| store.archived_marked(account_id, anchor, since).unwrap_or(false)) else {
         return Ok(Found::Nothing);
     };
     let chain = store.inbox_chain(account_id, archive, anchor)?;
@@ -387,7 +396,10 @@ pub async fn take_in<Q: MailQueue>(
             &account.id,
             &job.from,
             archive.as_deref(),
-            &job.anchor,
+            Asking {
+                anchor: &job.anchor,
+                since: job.since,
+            },
             now - job.since < GIVE_UP_SECS,
         )?;
         match found {
@@ -801,7 +813,16 @@ mod tests {
     }
 
     fn found(store: &Store, archivals: &Archivals, anchor: &str, may_wait: bool) -> Found {
-        find_parking(store, archivals, "a", "INBOX", Some("Archive"), anchor, may_wait).unwrap()
+        find_parking(
+            store,
+            archivals,
+            "a",
+            "INBOX",
+            Some("Archive"),
+            Asking { anchor, since: 0 },
+            may_wait,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -874,7 +895,19 @@ mod tests {
         letter(&store, "INBOX", 2, "r@x");
         assert_eq!(found(&store, &reg, "r@x", true), take("INBOX", &["r@x"]));
         assert_eq!(
-            find_parking(&store, &reg, "a", "INBOX", None, "r@x", true).unwrap(),
+            find_parking(
+                &store,
+                &reg,
+                "a",
+                "INBOX",
+                None,
+                Asking {
+                    anchor: "r@x",
+                    since: 0
+                },
+                true
+            )
+            .unwrap(),
             take("INBOX", &["r@x"])
         );
     }
@@ -916,6 +949,30 @@ mod tests {
         drop(own);
         store.archived_mark("a", &["q@x".to_owned()], 1).unwrap();
         assert_eq!(found(&store, &reg, "q@x", true), take("Archive", &["q@x"]));
+    }
+
+    /// The archive's mark of an earlier answer does not belong to a wait that began after it.
+    #[test]
+    fn a_mark_older_than_the_wait_does_not_take_the_conversation_from_the_archive() {
+        let store = store();
+        let reg = Archivals::default();
+        letter(&store, "Archive", 5, "q@x");
+        store.archived_mark("a", &["q@x".to_owned()], 10).unwrap();
+        let find = |since| {
+            find_parking(
+                &store,
+                &reg,
+                "a",
+                "INBOX",
+                Some("Archive"),
+                Asking { anchor: "q@x", since },
+                true,
+            )
+            .unwrap()
+        };
+        assert_eq!(find(11), Found::Nothing, "the mark is older than the wait");
+        assert_eq!(find(10), take("Archive", &["q@x"]));
+        assert_eq!(find(5), take("Archive", &["q@x"]));
     }
 
     #[test]
@@ -1105,7 +1162,7 @@ mod tests {
         );
         assert!(not_marked.is_none());
         assert!(
-            store.archived_marked("a", "q@x").unwrap(),
+            store.archived_marked("a", "q@x", 0).unwrap(),
             "a wait may take it from the archive"
         );
         assert_eq!(queue.moves[0].to, "Archive");
@@ -1148,7 +1205,7 @@ mod tests {
             Archived::Failed(_)
         ));
         assert!(
-            !store.archived_marked("a", "q@x").unwrap(),
+            !store.archived_marked("a", "q@x", 0).unwrap(),
             "nothing moved, nothing marked"
         );
     }

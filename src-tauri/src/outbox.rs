@@ -358,7 +358,10 @@ pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdE
     let (account, held) = (&account, &copy);
     let failed = outbox::drop_with(&state.store, &copy, |item| async move {
         let Some(account) = account.as_ref() else {
-            return Ok(());
+            return Err(CmdError::new(
+                "not-found",
+                tr!("account not found", "учётная запись не найдена"),
+            ));
         };
         let done = finish_sent(state, account, &item, held.message_id.clone(), held.filed).await;
         state.copy_release(id);

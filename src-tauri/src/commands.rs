@@ -1457,7 +1457,10 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
         // for their time again.
         if n > 0 {
             // Back out of the archive: a wait no longer takes the conversation from there.
-            state.store.archived_unmark(&m.account_id, &m.message_ids)?;
+            // The mark is a hint for a later wait: failing to clear it must not stop the undo.
+            if let Err(e) = state.store.archived_unmark(&m.account_id, &m.message_ids) {
+                tracing::warn!(error = %e, "the archival mark was not cleared while undoing");
+            }
             for s in &m.snoozed {
                 state.store.snooze_add(s)?;
             }

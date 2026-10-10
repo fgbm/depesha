@@ -396,12 +396,13 @@ impl Store {
         Ok(())
     }
 
-    /// Whether an archival after an answer took the letter to the archive.
-    pub fn archived_marked(&self, account_id: &str, message_id: &str) -> Result<bool> {
+    /// Whether an archival after an answer took the letter to the archive, not before `since`
+    /// (the start of the wait asking): the mark of an earlier answer is not this wait's.
+    pub fn archived_marked(&self, account_id: &str, message_id: &str, since: i64) -> Result<bool> {
         Ok(self
             .conn()
-            .prepare_cached("SELECT 1 FROM archived_by_answer WHERE account_id = ?1 AND message_id = ?2")?
-            .exists(params![account_id, bare(message_id)])?)
+            .prepare_cached("SELECT 1 FROM archived_by_answer WHERE account_id = ?1 AND message_id = ?2 AND at >= ?3")?
+            .exists(params![account_id, bare(message_id), since])?)
     }
 
     /// The conversation a wait takes, found when its move comes (#109): where it sits and its
