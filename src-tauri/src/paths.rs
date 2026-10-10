@@ -175,7 +175,7 @@ fn within(root: &Path, path: &Path) -> bool {
 
 fn not_chosen(to: Use) -> CmdError {
     CmdError::new(
-        "not-chosen",
+        depesha_core::ErrorKind::NotChosen,
         match to {
             Use::Attach => tr!(
                 "this file was not chosen to attach; add it again",
@@ -255,7 +255,10 @@ mod tests {
     fn only_chosen_paths_pass() {
         let paths = Paths::default();
         let doc = abs("home/me/report.pdf");
-        assert_eq!(paths.check(Use::Attach, &doc).unwrap_err().kind, "not-chosen");
+        assert_eq!(
+            paths.check(Use::Attach, &doc).unwrap_err().kind,
+            depesha_core::ErrorKind::NotChosen
+        );
         paths.allow(Use::Attach, PathBuf::from(&doc));
         assert!(paths.check(Use::Attach, &doc).is_ok());
         // Attaching it again (autosave, sending) keeps working.

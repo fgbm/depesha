@@ -127,7 +127,7 @@ async fn ntlm_only_server_is_explained() {
     let err = smtp::send(&plain(port), &creds(), &smtp::build(&draft()).unwrap())
         .await
         .unwrap_err();
-    assert_eq!(err.kind(), "auth");
+    assert_eq!(err.kind(), depesha_core::ErrorKind::Auth);
     assert!(err.to_string().contains("GSSAPI NTLM"), "{err}");
 }
 
@@ -140,7 +140,7 @@ async fn rate_limit_is_transient() {
     let err = smtp::send(&plain(port), &creds(), &smtp::build(&draft()).unwrap())
         .await
         .unwrap_err();
-    assert_eq!(err.kind(), "rate-limited");
+    assert_eq!(err.kind(), depesha_core::ErrorKind::RateLimited);
     assert!(err.is_transient());
     // Worded for the user in either language, at display time.
     depesha_core::lang::pin(depesha_core::lang::Lang::Ru);
@@ -170,7 +170,7 @@ async fn size_limit_is_checked_before_sending() {
     let err = smtp::send(&plain(port), &creds(), &smtp::build(&d).unwrap())
         .await
         .unwrap_err();
-    assert_eq!(err.kind(), "too-large", "{err}");
+    assert_eq!(err.kind(), depesha_core::ErrorKind::TooLarge, "{err}");
 }
 
 #[tokio::test]

@@ -96,7 +96,7 @@ fn init_logging(dir: &std::path::Path) -> Option<tracing_appender::non_blocking:
 /// quit, instead of starting without the mail, outbox and reminders kept in it.
 fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-    tracing::error!(kind = e.kind(), "the cache did not open: {e}");
+    tracing::error!(kind = e.kind().as_str(), "the cache did not open: {e}");
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
     }

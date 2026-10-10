@@ -169,7 +169,7 @@ pub fn quotas(state: &AppState) -> CmdResult<Vec<QuotaView>> {
 pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
     if account.is_ews() {
         return Err(CmdError::new(
-            "input",
+            depesha_core::ErrorKind::Input,
             tr!(
                 "Exchange mailboxes are not counted yet",
                 "размер папок Exchange пока не считается"

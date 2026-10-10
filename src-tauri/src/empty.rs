@@ -119,7 +119,7 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
 pub fn role_of(state: &AppState, account_id: &str, folder: &str) -> std::result::Result<FolderRole, CmdError> {
     clear::clearable_role(&state.store, account_id, folder).ok_or_else(|| {
         CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!(
                 "only Trash, Spam and Drafts can be cleared",
                 "очистить можно только Корзину, Спам и Черновики"
@@ -144,7 +144,7 @@ pub async fn run(
     let drafts = role == FolderRole::Drafts;
     let Some(how) = Emptying::of(role, trash) else {
         return Err(CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!(
                 "there is no Trash to move the drafts to",
                 "нет Корзины, куда убрать черновики"
@@ -153,7 +153,7 @@ pub async fn run(
     };
     let held = state.bounds.bound(bound, account_id, folder).ok_or_else(|| {
         CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!(
                 "the list to clear is out of date, clear the folder again",
                 "список для очистки устарел, очистите папку заново"
@@ -222,7 +222,7 @@ pub fn require_online(state: &AppState, account_id: &str) -> std::result::Result
         return Ok(());
     }
     Err(CmdError::new(
-        "network",
+        depesha_core::ErrorKind::Network,
         tr!("no connection to the server", "нет соединения с сервером"),
     ))
 }

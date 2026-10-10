@@ -300,11 +300,11 @@ fn stuck_task(state: &AppState, copy: &StuckCopy) {
 
 /// The kind of the error of a copy the server has but whose finish failed; the interface tells
 /// it from a refusal by the server.
-const FILED_KIND: &str = "copy-filed";
+const FILED_KIND: depesha_core::ErrorKind = depesha_core::ErrorKind::CopyFiled;
 
 /// The title and the error kind of the task of a held copy. One the server has but whose wait
 /// for a reply could not start is a task of its own, and its error is ours, not the server's.
-fn stuck_label(copy: &StuckCopy) -> (String, &'static str) {
+fn stuck_label(copy: &StuckCopy) -> (String, depesha_core::ErrorKind) {
     let subject = if copy.subject.is_empty() {
         depesha_core::lang::pick("(no subject)", "(без темы)").to_owned()
     } else {
@@ -321,7 +321,7 @@ fn stuck_label(copy: &StuckCopy) -> (String, &'static str) {
     } else {
         (
             tr!("Copy not saved: «{subject}»", "Копия не сохранена: «{subject}»"),
-            "other",
+            depesha_core::ErrorKind::Other,
         )
     }
 }
@@ -351,7 +351,7 @@ pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdE
     let account = state.account(&copy.account_id).ok();
     if copy.pending.is_some() && account.is_some() && !state.copy_claim(id) {
         return Err(CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!("the copy is being filed just now", "копия сейчас отправляется"),
         ));
     }
@@ -359,7 +359,7 @@ pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdE
     let failed = outbox::drop_with(&state.store, &copy, |item| async move {
         let Some(account) = account.as_ref() else {
             return Err(CmdError::new(
-                "not-found",
+                depesha_core::ErrorKind::NotFound,
                 tr!("account not found", "учётная запись не найдена"),
             ));
         };
@@ -374,7 +374,7 @@ pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdE
         // The error is logged by its kind: its text may name the letter or its addresses.
         tracing::warn!(
             copy = id,
-            kind,
+            kind = kind.as_str(),
             "the wait for a reply did not start while dropping the copy"
         );
         state.emit(
@@ -422,6 +422,6 @@ mod tests {
         assert_eq!(kind, FILED_KIND);
         let (label, kind) = stuck_label(&held(false));
         assert!(label.contains("не сохранена") || label.contains("not saved"), "{label}");
-        assert_eq!(kind, "other");
+        assert_eq!(kind, depesha_core::ErrorKind::Other);
     }
 }

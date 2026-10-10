@@ -299,7 +299,7 @@ async fn wrong_password_is_auth_error() {
     let err = smtp::check(&smtp_server(), &Credentials::new("bob", "wrong"))
         .await
         .unwrap_err();
-    assert_eq!(err.kind(), "auth", "{err:?}");
+    assert_eq!(err.kind(), depesha_core::ErrorKind::Auth, "{err:?}");
 }
 
 #[tokio::test]
@@ -340,7 +340,11 @@ async fn untrusted_certificate_can_be_pinned() {
         } else {
             smtp::check(&server, &bob).await.unwrap_err()
         };
-        assert_eq!(err.kind(), "certificate", "another pin must not be accepted");
+        assert_eq!(
+            err.kind(),
+            depesha_core::ErrorKind::Certificate,
+            "another pin must not be accepted"
+        );
     }
 }
 

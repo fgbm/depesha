@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// not a failure to show: the newer print is the one the user asked for last. The frontend
 /// (`print.ts`) swallows it.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub const SUPERSEDED: &str = "superseded";
+pub const SUPERSEDED: depesha_core::ErrorKind = depesha_core::ErrorKind::Superseded;
 
 /// What `Loaded::take` found for a ticket.
 #[derive(Debug, PartialEq)]
@@ -77,7 +77,7 @@ impl<S> Loaded<S> {
 pub async fn print(_window: &tauri::WebviewWindow, _html: String) -> CmdResult<()> {
     use depesha_core::tr;
     Err(CmdError::new(
-        "unsupported",
+        depesha_core::ErrorKind::Unsupported,
         tr!(
             "printing a sheet is for macOS only",
             "печать листа через команду — только на macOS"
@@ -129,7 +129,7 @@ pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()>
         NoWindow,
     }
 
-    let failed = |what: String| CmdError::new("print", what);
+    let failed = |what: String| CmdError::new(depesha_core::ErrorKind::Print, what);
     let superseded = || {
         CmdError::new(
             SUPERSEDED,
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn the_superseded_kind_is_the_one_the_frontend_swallows() {
         // print.ts compares with this word.
-        assert_eq!(super::SUPERSEDED, "superseded");
+        assert_eq!(super::SUPERSEDED.as_str(), "superseded");
         let front = include_str!("../../src/lib/print.ts");
         assert!(front.contains("\"superseded\""), "print.ts does not know the kind");
     }

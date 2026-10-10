@@ -204,7 +204,7 @@ impl Manifest {
     fn validate(&self) -> CmdResult<()> {
         let bad = |what: String| {
             Err(CmdError::new(
-                "extension",
+                depesha_core::ErrorKind::Extension,
                 tr!("invalid manifest: {what}", "неверный манифест: {what}"),
             ))
         };
@@ -216,7 +216,7 @@ impl Manifest {
         }
         if !valid_main(&self.main) {
             return Err(CmdError::new(
-                "extension",
+                depesha_core::ErrorKind::Extension,
                 tr!(
                     "invalid manifest: main “{}” must be a plain file name in the plugin's folder, like main.js",
                     "неверный манифест: main «{}» должен быть простым именем файла в папке плагина, например main.js",
@@ -228,7 +228,7 @@ impl Manifest {
             if let Some(host) = p.strip_prefix("network:") {
                 if !public_host(host) {
                     return Err(CmdError::new(
-                        "extension",
+                        depesha_core::ErrorKind::Extension,
                         tr!(
                             "invalid manifest: permission “{p}”: a plugin may reach only public internet hosts by name, not IP addresses, localhost or names of a local network",
                             "неверный манифест: право «{p}»: плагину доступны только публичные хосты интернета по имени, а не IP-адреса, localhost или имена локальной сети"
@@ -264,7 +264,7 @@ fn root(app: &tauri::AppHandle) -> CmdResult<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| CmdError::new("io", e.to_string()))?
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?
         .join("extensions");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -278,24 +278,37 @@ struct Loaded {
 }
 
 fn load(dir: &Path) -> CmdResult<Loaded> {
-    let text = std::fs::read_to_string(dir.join("manifest.json"))
-        .map_err(|e| CmdError::new("extension", tr!("no manifest.json: {e}", "нет manifest.json: {e}")))?;
-    let manifest: Manifest = serde_json::from_str(&text)
-        .map_err(|e| CmdError::new("extension", tr!("invalid manifest: {e}", "неверный манифест: {e}")))?;
+    let text = std::fs::read_to_string(dir.join("manifest.json")).map_err(|e| {
+        CmdError::new(
+            depesha_core::ErrorKind::Extension,
+            tr!("no manifest.json: {e}", "нет manifest.json: {e}"),
+        )
+    })?;
+    let manifest: Manifest = serde_json::from_str(&text).map_err(|e| {
+        CmdError::new(
+            depesha_core::ErrorKind::Extension,
+            tr!("invalid manifest: {e}", "неверный манифест: {e}"),
+        )
+    })?;
     manifest.validate()?;
-    let no_script = || CmdError::new("extension", tr!("no script {}", "нет скрипта {}", manifest.main));
+    let no_script = || {
+        CmdError::new(
+            depesha_core::ErrorKind::Extension,
+            tr!("no script {}", "нет скрипта {}", manifest.main),
+        )
+    };
     let script = script_path(dir, &manifest.main).ok_or_else(no_script)?;
     let size = std::fs::metadata(&script).map_err(|_| no_script())?.len();
     if size > MAX_SCRIPT {
         return Err(CmdError::new(
-            "extension",
+            depesha_core::ErrorKind::Extension,
             tr!("the script is over 512 KB", "скрипт больше 512 КБ"),
         ));
     }
     let code = std::fs::read(&script).map_err(|_| no_script())?;
     if code.len() as u64 > MAX_SCRIPT {
         return Err(CmdError::new(
-            "extension",
+            depesha_core::ErrorKind::Extension,
             tr!("the script is over 512 KB", "скрипт больше 512 КБ"),
         ));
     }
@@ -432,7 +445,7 @@ fn inspect_in(root: &Path, from: &Path) -> CmdResult<Preview> {
 
 fn differs() -> CmdError {
     CmdError::new(
-        "extension",
+        depesha_core::ErrorKind::Extension,
         tr!(
             "the plugin's permissions differ from the ones agreed to; look at it again",
             "права плагина отличаются от тех, на которые дано согласие; посмотрите его ещё раз"
@@ -462,7 +475,8 @@ fn install_into(root: &Path, from: &Path, grant: Grant) -> CmdResult<Manifest> {
         std::fs::create_dir_all(&staging)?;
         std::fs::write(staging.join("manifest.json"), &text)?;
         std::fs::write(&script, &code)?;
-        let grant = serde_json::to_vec(&Grant::of(&manifest)).map_err(|e| CmdError::new("io", e.to_string()))?;
+        let grant = serde_json::to_vec(&Grant::of(&manifest))
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?;
         std::fs::write(staging.join(GRANT_FILE), grant)?;
         if to.exists() {
             std::fs::remove_dir_all(&to)?;
@@ -484,21 +498,22 @@ pub fn approve(app: &tauri::AppHandle, id: &str, grant: Grant) -> CmdResult<()> 
 
 fn approve_in(root: &Path, id: &str, grant: Grant) -> CmdResult<()> {
     if !valid_id(id) {
-        return Err(CmdError::new("extension", "bad id"));
+        return Err(CmdError::new(depesha_core::ErrorKind::Extension, "bad id"));
     }
     let dir = root.join(id);
     let manifest = load(&dir)?.manifest;
     if Grant::of(&manifest) != grant.normalized() {
         return Err(differs());
     }
-    let bytes = serde_json::to_vec(&Grant::of(&manifest)).map_err(|e| CmdError::new("io", e.to_string()))?;
+    let bytes = serde_json::to_vec(&Grant::of(&manifest))
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?;
     std::fs::write(dir.join(GRANT_FILE), bytes)?;
     Ok(())
 }
 
 pub fn remove(app: &tauri::AppHandle, id: &str) -> CmdResult<()> {
     if !valid_id(id) {
-        return Err(CmdError::new("extension", "bad id"));
+        return Err(CmdError::new(depesha_core::ErrorKind::Extension, "bad id"));
     }
     let dir = root(app)?.join(id);
     if dir.exists() {
@@ -512,7 +527,7 @@ fn storage_path(app: &tauri::AppHandle, id: &str) -> CmdResult<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| CmdError::new("io", e.to_string()))?
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?
         .join("extension-data");
     storage_file(&dir, id)
 }
@@ -520,7 +535,7 @@ fn storage_path(app: &tauri::AppHandle, id: &str) -> CmdResult<PathBuf> {
 /// The file an extension keeps its data in; an id that is not one never leaves the folder.
 fn storage_file(dir: &Path, id: &str) -> CmdResult<PathBuf> {
     if !valid_id(id) {
-        return Err(CmdError::new("extension", "bad id"));
+        return Err(CmdError::new(depesha_core::ErrorKind::Extension, "bad id"));
     }
     std::fs::create_dir_all(dir)?;
     Ok(dir.join(format!("{id}.json")))
@@ -538,10 +553,10 @@ pub fn storage_set(app: &tauri::AppHandle, id: &str, key: &str, value: serde_jso
     } else {
         map.insert(key.to_owned(), value);
     }
-    let bytes = serde_json::to_vec(&map).map_err(|e| CmdError::new("io", e.to_string()))?;
+    let bytes = serde_json::to_vec(&map).map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?;
     if bytes.len() > MAX_STORAGE {
         return Err(CmdError::new(
-            "extension",
+            depesha_core::ErrorKind::Extension,
             tr!("extension storage is over 1 MB", "данные расширения больше 1 МБ"),
         ));
     }

@@ -632,6 +632,6 @@ mod tests {
             s.read_to_string(&mut out).await.unwrap();
         };
         let (r, ()) = tokio::join!(wait_for_code(&listener, "good"), denied);
-        assert_eq!(r.unwrap_err().kind(), "auth");
+        assert_eq!(r.unwrap_err().kind(), crate::error::ErrorKind::Auth);
     }
 }

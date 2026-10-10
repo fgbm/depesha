@@ -90,9 +90,12 @@ pub async fn account_check(
         (AuthMethod::Password, _) => {
             let password = match password.filter(|p| !p.is_empty()) {
                 Some(p) => p,
-                None => secrets::get(&account.id)
-                    .await?
-                    .ok_or_else(|| CmdError::new("auth", tr!("enter the password", "введите пароль")))?,
+                None => secrets::get(&account.id).await?.ok_or_else(|| {
+                    CmdError::new(
+                        depesha_core::ErrorKind::Auth,
+                        tr!("enter the password", "введите пароль"),
+                    )
+                })?,
             };
             Credentials::new(account.username.clone(), password)
         }
@@ -104,7 +107,7 @@ pub async fn account_check(
 
 fn sign_in_again() -> CmdError {
     CmdError::new(
-        "auth",
+        depesha_core::ErrorKind::Auth,
         tr!(
             "the sign-in has expired, sign in again",
             "вход устарел, войдите ещё раз"
@@ -600,11 +603,11 @@ async fn raw_of(state: &AppState, row: &MessageRow, gate: Option<(String, u64)>)
         Output::Body(raw) => Ok(raw),
         // A newer open superseded this one: no body was fetched, and the window ignores it.
         Output::None => Err(CmdError::new(
-            "cancelled",
+            depesha_core::ErrorKind::Cancelled,
             tr!("the message is no longer open", "письмо уже не открыто"),
         )),
         _ => Err(CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!("the server did not return the message", "сервер не вернул письмо"),
         )),
     }
@@ -616,7 +619,7 @@ fn row(state: &AppState, id: i64) -> CmdResult<MessageRow> {
 
 pub(crate) fn gone() -> CmdError {
     CmdError::new(
-        "not-found",
+        depesha_core::ErrorKind::NotFound,
         tr!("the message was deleted or moved", "письмо уже удалено или перемещено"),
     )
 }
@@ -798,7 +801,7 @@ pub async fn folder_create(state: St<'_>, account_id: String, parent: Option<Str
     let name = name.trim();
     if name.is_empty() {
         return Err(CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!("the folder needs a name", "у папки должно быть имя"),
         ));
     }
@@ -826,7 +829,7 @@ async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name:
         .await?;
     state.store.folder_by_role(account_id, role)?.ok_or_else(|| {
         CmdError::new(
-            "not-found",
+            depesha_core::ErrorKind::NotFound,
             tr!(
                 "could not create the folder “{name}” on the server",
                 "не удалось создать папку «{name}» на сервере"
@@ -927,7 +930,7 @@ pub async fn label_check(
         .await?;
     let Output::LabelCheck(check) = out else {
         return Err(CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             pick("the label check gave no answer", "проверка меток не дала ответа"),
         ));
     };
@@ -975,7 +978,7 @@ pub fn label_save(
     let name = name.trim();
     if name.is_empty() {
         return Err(CmdError::new(
-            "input",
+            depesha_core::ErrorKind::Input,
             tr!("a label needs a name", "у метки должно быть название"),
         ));
     }
@@ -1040,12 +1043,15 @@ pub async fn label_rename(
     let to = to.trim();
     if to.is_empty() {
         return Err(CmdError::new(
-            "input",
+            depesha_core::ErrorKind::Input,
             tr!("a label needs a name", "у метки должно быть название"),
         ));
     }
     let Some(old) = state.store.labels(&account_id)?.into_iter().find(|l| l.name == from) else {
-        return Err(CmdError::new("input", tr!("no such label", "такой метки нет")));
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::Input,
+            tr!("no such label", "такой метки нет"),
+        ));
     };
     if state.account(&account_id)?.ews.is_some() {
         // A rename onto a name another category already carries would silently merge the
@@ -1057,7 +1063,7 @@ pub async fn label_rename(
             .any(|l| l.name != from && l.name.to_lowercase() == to.to_lowercase())
         {
             return Err(CmdError::new(
-                "input",
+                depesha_core::ErrorKind::Input,
                 tr!(
                     "a label with this name already exists; Exchange would merge the two categories",
                     "метка с таким названием уже есть; Exchange объединит две категории"
@@ -1166,7 +1172,7 @@ pub async fn folder_props(
     let out = worker.run(Work::FolderProps(folder.clone())).await?;
     let Output::Props(props) = out else {
         return Err(CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!(
                 "folder properties could not be read",
                 "не удалось прочитать свойства папки"
@@ -1330,7 +1336,7 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
         let (account_id, folder, _) = &key;
         let Some(snooze::Trackable { rows, batch }) = snooze::trackable(rows) else {
             return Err(CmdError::new(
-                "other",
+                depesha_core::ErrorKind::Other,
                 tr!(
                     "the message has no Message-ID and cannot be snoozed",
                     "у письма нет Message-ID, отложить его нельзя"
@@ -1409,7 +1415,7 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
     }
     if done.is_empty() {
         return Err(CmdError::new(
-            "not-found",
+            depesha_core::ErrorKind::NotFound,
             tr!("the message is not snoozed", "письмо не отложено"),
         ));
     }
@@ -1466,7 +1472,7 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
     // Nothing found where the action put it: say so instead of "undone".
     if back == 0 {
         return Err(CmdError::new(
-            "not-found",
+            depesha_core::ErrorKind::NotFound,
             tr!(
                 "the messages were not found where they were moved; they may have been moved again",
                 "письма не нашлись там, куда их перенесли: возможно, их уже переместили снова"
@@ -1605,7 +1611,7 @@ pub enum Unsubscribed {
 
 fn no_unsubscribe() -> CmdError {
     CmdError::new(
-        "not-found",
+        depesha_core::ErrorKind::NotFound,
         tr!(
             "the sender gave no way to unsubscribe",
             "отправитель не указал, как отписаться"
@@ -1617,7 +1623,7 @@ fn no_unsubscribe() -> CmdError {
 fn unsubscribe_unreadable(e: depesha_core::Error) -> CmdError {
     match e {
         depesha_core::Error::Unreadable => CmdError::new(
-            "other",
+            depesha_core::ErrorKind::Other,
             tr!(
                 "Could not read the unsubscribe data",
                 "Не удалось прочитать данные отписки"
@@ -1713,7 +1719,10 @@ pub async fn unsubscribe(state: St<'_>, id: i64, way: String) -> CmdResult<Unsub
             state.emit("outbox-changed", serde_json::json!({}));
             Ok(Unsubscribed::MailSent { to })
         }
-        _ => Err(CmdError::new("bad-request", format!("unknown unsubscribe way: {way}"))),
+        _ => Err(CmdError::new(
+            depesha_core::ErrorKind::BadRequest,
+            format!("unknown unsubscribe way: {way}"),
+        )),
     }
 }
 
@@ -1750,10 +1759,11 @@ pub fn settings_set(state: St<'_>, settings: Settings) -> CmdResult<()> {
 pub fn settings_patch(state: St<'_>, patch: serde_json::Value) -> CmdResult<()> {
     let before = state.settings();
     let after = state.update_settings(|settings| {
-        let mut value = serde_json::to_value(&*settings).map_err(|e| CmdError::new("other", e.to_string()))?;
+        let mut value = serde_json::to_value(&*settings)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::Other, e.to_string()))?;
         crate::config::merge(&mut value, patch);
-        let merged: Settings =
-            serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+        let merged: Settings = serde_json::from_value(value)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::BadRequest, e.to_string()))?;
         check_save_folder(state.inner(), &settings.attachments_dir, &merged.attachments_dir)?;
         *settings = merged;
         Ok(())
@@ -1860,7 +1870,7 @@ pub async fn folder_total(state: St<'_>, account_id: String, folder: String) -> 
             total,
             bound: state.bounds.hold(&account_id, &folder, bound),
         }),
-        _ => Err(CmdError::new("other", "no count")),
+        _ => Err(CmdError::new(depesha_core::ErrorKind::Other, "no count")),
     }
 }
 
@@ -1900,7 +1910,7 @@ pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<bool> {
     let state = state.inner().clone();
     if !state.store.sent_copy_resume(id)? {
         return Err(CmdError::new(
-            "not-found",
+            depesha_core::ErrorKind::NotFound,
             tr!("the copy is no longer kept", "копии больше нет"),
         ));
     }
@@ -1915,7 +1925,10 @@ pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<bool> {
     state.copy_release(id);
     done?;
     match state.store.sent_copy(id)? {
-        Some(left) => Err(CmdError::new("other", left.last_error.unwrap_or_default())),
+        Some(left) => Err(CmdError::new(
+            depesha_core::ErrorKind::Other,
+            left.last_error.unwrap_or_default(),
+        )),
         None => Ok(true),
     }
 }
@@ -1925,10 +1938,12 @@ pub async fn sent_copy_retry(state: St<'_>, id: i64) -> CmdResult<bool> {
 #[tauri::command]
 pub async fn sent_copy_save(state: St<'_>, id: i64, path: String) -> CmdResult<()> {
     let path = state.paths.check(Use::SaveFile, &path)?;
-    let copy = state
-        .store
-        .sent_copy(id)?
-        .ok_or_else(|| CmdError::new("not-found", tr!("the copy is no longer kept", "копии больше нет")))?;
+    let copy = state.store.sent_copy(id)?.ok_or_else(|| {
+        CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!("the copy is no longer kept", "копии больше нет"),
+        )
+    })?;
     tokio::fs::write(&path, &copy.raw).await?;
     Ok(())
 }
@@ -2250,7 +2265,7 @@ fn settings_folder(state: &AppState, row: &MessageRow) -> CmdResult<String> {
     let dir = dir.trim().to_owned();
     if dir.is_empty() {
         return Err(CmdError::new(
-            "save-folder",
+            depesha_core::ErrorKind::SaveFolder,
             tr!(
                 "no folder for attachments is chosen in Settings → Mail",
                 "папка для вложений не выбрана в Настройках → «Почта»"
@@ -2316,7 +2331,7 @@ async fn save_folder(dir: &str) -> CmdResult<PathBuf> {
 /// A folder that cannot be written to: what to do about it, not just the system's words.
 fn save_error(dir: &str, e: std::io::Error) -> CmdError {
     CmdError::new(
-        "save-folder",
+        depesha_core::ErrorKind::SaveFolder,
         tr!(
             "could not save into “{dir}”: {e}. Choose another folder in Settings → Mail or use “Save as…”",
             "не удалось сохранить в «{dir}»: {e}. Выберите другую папку в Настройках → «Почта» или «Сохранить как…»"
@@ -2354,7 +2369,9 @@ pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> Cm
         Some(args) => builder.additional_browser_args(&args),
         None => builder,
     };
-    builder.build().map_err(|e| CmdError::new("window", e.to_string()))?;
+    builder
+        .build()
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Window, e.to_string()))?;
     Ok(())
 }
 
@@ -2371,7 +2388,10 @@ pub async fn attachment_bytes(state: St<'_>, id: i64, index: u32) -> CmdResult<t
 #[tauri::command(async)]
 pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err(CmdError::new("bad-request", "expected the letter's bytes"));
+        return Err(CmdError::new(
+            depesha_core::ErrorKind::BadRequest,
+            "expected the letter's bytes",
+        ));
     };
     let mut view = message::parse_view(bytes, false)?;
     view.acts_on = draft_mark(bytes).acts_on;
@@ -2488,7 +2508,7 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
         .unwrap_or_default();
     if DANGEROUS.contains(&ext.as_str()) {
         return Err(CmdError::new(
-            "dangerous",
+            depesha_core::ErrorKind::Dangerous,
             tr!(
                 "“{name}” is a program. Opening it from mail is dangerous; save it if you are sure",
                 "«{name}» — исполняемый файл. Открывать его из письма опасно; сохраните его, если уверены"
@@ -2498,7 +2518,7 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
     let dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| CmdError::new("io", e.to_string()))?
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?
         .join("attachments")
         .join(id.to_string());
     tokio::fs::create_dir_all(&dir).await?;
@@ -2509,7 +2529,7 @@ pub async fn attachment_open(app: tauri::AppHandle, state: St<'_>, id: i64, inde
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| {
             CmdError::new(
-                "io",
+                depesha_core::ErrorKind::Io,
                 tr!("could not open the file: {e}", "не удалось открыть файл: {e}"),
             )
         })
@@ -2589,13 +2609,13 @@ pub fn open_link(app: tauri::AppHandle, url: String) -> CmdResult<()> {
     let lower = url.trim().to_ascii_lowercase();
     if !(lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("mailto:")) {
         return Err(CmdError::new(
-            "dangerous",
+            depesha_core::ErrorKind::Dangerous,
             tr!("links of this kind are not opened", "такие ссылки не открываются"),
         ));
     }
     app.opener()
         .open_url(url.trim(), None::<&str>)
-        .map_err(|e| CmdError::new("io", e.to_string()))
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -2653,7 +2673,7 @@ async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Dr
                 ensure_file(&checked).await?;
                 let data = tokio::fs::read(&path)
                     .await
-                    .map_err(|e| CmdError::new("io", format!("{path}: {e}")))?;
+                    .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, format!("{path}: {e}")))?;
                 let name = PathBuf::from(&path)
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
@@ -2688,7 +2708,7 @@ async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Dr
     }
     if total > MAX_ATTACHMENTS {
         return Err(CmdError::new(
-            "too-large",
+            depesha_core::ErrorKind::TooLarge,
             tr!(
                 "attachments over 50 MB: mail servers will not accept them",
                 "вложения больше 50 МБ — почтовые серверы такое не примут"
@@ -3131,7 +3151,7 @@ pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>>
         depesha_core::store::Withdrawn::Gone => None,
         depesha_core::store::Withdrawn::Sending => {
             return Err(CmdError::new(
-                "other",
+                depesha_core::ErrorKind::Other,
                 tr!(
                     "the letter is being sent just now and cannot be taken back: look in “Sent”",
                     "письмо отправляется прямо сейчас, вернуть его нельзя: проверьте «Отправленные»"
@@ -3160,11 +3180,13 @@ pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>>
 /// Saves attachments handed back by `outbox_cancel` to temp files so the composer can reuse them.
 #[tauri::command]
 pub async fn temp_attachment(app: tauri::AppHandle, state: St<'_>, name: String, data: String) -> CmdResult<String> {
-    let bytes = BASE64.decode(data).map_err(|e| CmdError::new("io", e.to_string()))?;
+    let bytes = BASE64
+        .decode(data)
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?;
     let dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| CmdError::new("io", e.to_string()))?
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?
         .join("compose")
         .join(chrono::Utc::now().timestamp_millis().to_string());
     tokio::fs::create_dir_all(&dir).await?;
@@ -3187,10 +3209,13 @@ async fn ensure_file(path: &Path) -> CmdResult<()> {
     match tokio::fs::metadata(path).await {
         Ok(meta) if meta.is_file() => Ok(()),
         Ok(_) => Err(CmdError::new(
-            "not-a-file",
+            depesha_core::ErrorKind::NotAFile,
             tr!("“{path}” is not a file", "«{path}» — не файл", path = path.display()),
         )),
-        Err(e) => Err(CmdError::new("io", format!("{}: {e}", path.display()))),
+        Err(e) => Err(CmdError::new(
+            depesha_core::ErrorKind::Io,
+            format!("{}: {e}", path.display()),
+        )),
     }
 }
 
@@ -3230,13 +3255,13 @@ pub async fn inline_image(window: tauri::Window, state: St<'_>, path: String) ->
         .unwrap_or_default();
     if !PICTURES.contains(&ext.as_str()) {
         return Err(CmdError::new(
-            "not-a-picture",
+            depesha_core::ErrorKind::NotAPicture,
             tr!("“{name}” is not a picture", "«{name}» — не картинка"),
         ));
     }
     if tokio::fs::metadata(&path).await?.len() > MAX_PICTURE_FILE {
         return Err(CmdError::new(
-            "too-large",
+            depesha_core::ErrorKind::TooLarge,
             tr!(
                 "“{name}” is too large to go into the text",
                 "«{name}» слишком большая, чтобы вставить её в текст"
@@ -3368,7 +3393,7 @@ pub async fn update_check(state: St<'_>) -> CmdResult<crate::updater::UpdateStat
 pub async fn update_install(state: St<'_>) -> CmdResult<crate::updater::UpdateStatus> {
     crate::updater::install(&state)
         .await
-        .map_err(|e| CmdError::new("update", e))
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Update, e))
 }
 
 #[tauri::command]
@@ -3579,7 +3604,7 @@ pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase
     let told = |event: &str, payload: serde_json::Value| {
         window
             .emit_to(tauri::EventTarget::webview(window.label()), event, payload)
-            .map_err(|e| CmdError::new("other", e.to_string()))
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::Other, e.to_string()))
     };
     match phase.as_str() {
         "enter" => told(
@@ -3591,7 +3616,12 @@ pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase
             let event = tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position });
             crate::drops::window_event(&window, &event, crate::drops::allow_in_state(&window, window.label()));
         }
-        other => return Err(CmdError::new("bad-request", format!("e2e_drop: unknown phase {other}"))),
+        other => {
+            return Err(CmdError::new(
+                depesha_core::ErrorKind::BadRequest,
+                format!("e2e_drop: unknown phase {other}"),
+            ));
+        }
     }
     Ok(())
 }
@@ -3823,7 +3853,7 @@ mod tests {
     #[test]
     fn an_unreadable_unsubscribe_is_told_in_the_users_words() {
         let e = unsubscribe_unreadable(depesha_core::Error::Unreadable);
-        assert_eq!(e.kind, "other");
+        assert_eq!(e.kind, depesha_core::ErrorKind::Other);
         assert!(
             e.message.contains("отписки") || e.message.contains("unsubscribe"),
             "{}",
@@ -3969,8 +3999,8 @@ mod tests {
         let ensure = |p: &Path| tauri::async_runtime::block_on(super::ensure_file(p));
         assert!(ensure(&file).is_ok());
         std::fs::remove_file(&file).unwrap();
-        assert_eq!(ensure(&file).unwrap_err().kind, "io");
-        assert_eq!(ensure(&dir).unwrap_err().kind, "not-a-file");
+        assert_eq!(ensure(&file).unwrap_err().kind, depesha_core::ErrorKind::Io);
+        assert_eq!(ensure(&dir).unwrap_err().kind, depesha_core::ErrorKind::NotAFile);
     }
 
     #[test]

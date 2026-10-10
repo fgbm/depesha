@@ -1499,7 +1499,7 @@ mod tests {
             lines: vec!["4.4.2 Message submission rate for this client has exceeded".into()],
         }
         .into_error();
-        assert_eq!(e.kind(), "rate-limited");
+        assert_eq!(e.kind(), crate::error::ErrorKind::RateLimited);
         assert!(e.is_transient());
         let e = Reply {
             code: 550,

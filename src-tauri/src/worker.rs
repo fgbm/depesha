@@ -660,7 +660,8 @@ fn note_move(unfinished: &mut HashSet<(String, String, u32)>, op: &Op<'_>, done:
 
 /// Errors that repeat until the user acts; retrying them may also lock an AD account.
 fn needs_user(e: &Error) -> bool {
-    matches!(e.kind(), "auth" | "certificate" | "no-tls" | "imap-unavailable")
+    use depesha_core::ErrorKind as K;
+    matches!(e.kind(), K::Auth | K::Certificate | K::NoTls | K::ImapUnavailable)
 }
 
 /// How long to send nothing after "server busy": the server's own word, within
@@ -1431,10 +1432,10 @@ impl Ops {
             // The quota is a number in the settings: not reading it is no account error, and
             // the next work logs in again if its connection was dropped.
             Err(e) if matches!(work, Work::Quota) => {
-                tracing::warn!(account = %account.id, kind = e.kind(), "quota not read: {e}");
+                tracing::warn!(account = %account.id, kind = e.kind().as_str(), "quota not read: {e}");
             }
             Err(e) => {
-                tracing::warn!(account = %account.id, kind = e.kind(), "operation failed: {e}");
+                tracing::warn!(account = %account.id, kind = e.kind().as_str(), "operation failed: {e}");
                 match work {
                     Work::SyncAll => state.task_failed(&self.sync_task(), CmdError::from(clone_error(e))),
                     Work::Prefetch => {

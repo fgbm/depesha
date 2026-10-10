@@ -36,7 +36,7 @@ fn reads_autodiscover() {
 fn explains_401() {
     let e = unauthorized(&["Digest realm=\"x\"".into(), "Kerberos".into()]);
     assert!(matches!(&e, Error::HttpAuth(m) if m == "Digest, Kerberos"), "{e:?}");
-    assert_eq!(e.kind(), "auth");
+    assert_eq!(e.kind(), crate::error::ErrorKind::Auth);
     assert_eq!(ntlm_scheme(&["Negotiate".into(), "NTLM".into()]), Some("NTLM"));
     assert_eq!(ntlm_scheme(&["Negotiate".into()]), Some("Negotiate"));
     assert_eq!(ntlm_scheme(&["Basic realm=\"x\"".into()]), None);
@@ -69,7 +69,7 @@ fn reads_soap_faults_and_errors() {
     let doc = parse(answer).unwrap();
     let r = responses(&doc);
     assert_eq!(r.len(), 2);
-    assert!(matches!(&r[0], Err(e) if e.kind() == "not-found"));
+    assert!(matches!(&r[0], Err(e) if e.kind() == crate::error::ErrorKind::NotFound));
     assert!(r[1].is_ok());
 }
 
@@ -81,7 +81,7 @@ fn reads_the_back_off_of_a_busy_server() {
     let e = fault(fault_xml);
     assert!(e.is_busy(), "{e:?}");
     assert_eq!(e.back_off(), Some(Duration::from_secs(30)));
-    assert_eq!(e.kind(), "network");
+    assert_eq!(e.kind(), crate::error::ErrorKind::Network);
     assert!(e.to_string().contains("30"), "{e}");
 
     // …and inside an answer with HTTP 200.

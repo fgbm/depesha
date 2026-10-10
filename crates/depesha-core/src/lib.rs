@@ -34,4 +34,4 @@ pub mod utf7;
 pub mod waiting;
 pub(crate) mod watchdog;
 
-pub use error::{Error, Result};
+pub use error::{Error, ErrorKind, Result};

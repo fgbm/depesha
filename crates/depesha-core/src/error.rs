@@ -82,6 +82,145 @@ pub enum Error {
     CopyRefused(String),
 }
 
+/// What the interface branches on when a call fails: the stable code of an error, the same
+/// string on the wire (`as_str`) as before it was an enum. Several belong to the interface
+/// alone (`Extension`, `Print`…); the core names them so the whole set is in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum ErrorKind {
+    #[serde(rename = "certificate")]
+    Certificate,
+    #[serde(rename = "no-tls")]
+    NoTls,
+    #[serde(rename = "auth")]
+    Auth,
+    #[serde(rename = "not-found")]
+    NotFound,
+    #[serde(rename = "too-large")]
+    TooLarge,
+    #[serde(rename = "imap-unavailable")]
+    ImapUnavailable,
+    #[serde(rename = "rate-limited")]
+    RateLimited,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "cache-too-new")]
+    CacheTooNew,
+    #[serde(rename = "folder-changed")]
+    FolderChanged,
+    #[serde(rename = "no-rights")]
+    NoRights,
+    #[serde(rename = "network")]
+    Network,
+    #[serde(rename = "other")]
+    Other,
+    #[serde(rename = "io")]
+    Io,
+    #[serde(rename = "extension")]
+    Extension,
+    #[serde(rename = "bad-request")]
+    BadRequest,
+    #[serde(rename = "input")]
+    Input,
+    #[serde(rename = "keyring")]
+    Keyring,
+    #[serde(rename = "save-folder")]
+    SaveFolder,
+    #[serde(rename = "dangerous")]
+    Dangerous,
+    #[serde(rename = "unsupported")]
+    Unsupported,
+    #[serde(rename = "print")]
+    Print,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "window")]
+    Window,
+    #[serde(rename = "not-a-file")]
+    NotAFile,
+    #[serde(rename = "not-a-picture")]
+    NotAPicture,
+    #[serde(rename = "update")]
+    Update,
+    #[serde(rename = "not-chosen")]
+    NotChosen,
+    #[serde(rename = "copy-filed")]
+    CopyFiled,
+    #[serde(rename = "superseded")]
+    Superseded,
+}
+
+impl ErrorKind {
+    /// Every kind, in the order of the enum.
+    pub const ALL: &'static [ErrorKind] = &[
+        Self::Certificate,
+        Self::NoTls,
+        Self::Auth,
+        Self::NotFound,
+        Self::TooLarge,
+        Self::ImapUnavailable,
+        Self::RateLimited,
+        Self::Paused,
+        Self::CacheTooNew,
+        Self::FolderChanged,
+        Self::NoRights,
+        Self::Network,
+        Self::Other,
+        Self::Io,
+        Self::Extension,
+        Self::BadRequest,
+        Self::Input,
+        Self::Keyring,
+        Self::SaveFolder,
+        Self::Dangerous,
+        Self::Unsupported,
+        Self::Print,
+        Self::Cancelled,
+        Self::Window,
+        Self::NotAFile,
+        Self::NotAPicture,
+        Self::Update,
+        Self::NotChosen,
+        Self::CopyFiled,
+        Self::Superseded,
+    ];
+
+    /// The code the interface receives.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Certificate => "certificate",
+            Self::NoTls => "no-tls",
+            Self::Auth => "auth",
+            Self::NotFound => "not-found",
+            Self::TooLarge => "too-large",
+            Self::ImapUnavailable => "imap-unavailable",
+            Self::RateLimited => "rate-limited",
+            Self::Paused => "paused",
+            Self::CacheTooNew => "cache-too-new",
+            Self::FolderChanged => "folder-changed",
+            Self::NoRights => "no-rights",
+            Self::Network => "network",
+            Self::Other => "other",
+            Self::Io => "io",
+            Self::Extension => "extension",
+            Self::BadRequest => "bad-request",
+            Self::Input => "input",
+            Self::Keyring => "keyring",
+            Self::SaveFolder => "save-folder",
+            Self::Dangerous => "dangerous",
+            Self::Unsupported => "unsupported",
+            Self::Print => "print",
+            Self::Cancelled => "cancelled",
+            Self::Window => "window",
+            Self::NotAFile => "not-a-file",
+            Self::NotAPicture => "not-a-picture",
+            Self::Update => "update",
+            Self::NotChosen => "not-chosen",
+            Self::CopyFiled => "copy-filed",
+            Self::Superseded => "superseded",
+        }
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
@@ -372,29 +511,29 @@ impl Error {
         }
     }
 
-    /// Short machine-readable kind for the GUI.
-    pub fn kind(&self) -> &'static str {
+    /// The code of the error for the interface.
+    pub fn kind(&self) -> ErrorKind {
         match self {
-            Self::Certificate(_) => "certificate",
-            Self::NoTls => "no-tls",
-            Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) => "auth",
-            Self::Ews { code, .. } if code == "ErrorItemNotFound" => "not-found",
-            Self::Ews { code, .. } if code == "ErrorMessageSizeExceeded" => "too-large",
-            Self::ImapUnavailable => "imap-unavailable",
+            Self::Certificate(_) => ErrorKind::Certificate,
+            Self::NoTls => ErrorKind::NoTls,
+            Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) => ErrorKind::Auth,
+            Self::Ews { code, .. } if code == "ErrorItemNotFound" => ErrorKind::NotFound,
+            Self::Ews { code, .. } if code == "ErrorMessageSizeExceeded" => ErrorKind::TooLarge,
+            Self::ImapUnavailable => ErrorKind::ImapUnavailable,
             Self::Smtp {
                 code: 421,
                 enhanced: Some(e),
                 ..
-            } if e == "4.4.2" => "rate-limited",
-            Self::TooLarge { .. } => "too-large",
-            Self::NotFound => "not-found",
-            Self::Paused => "paused",
-            Self::CacheTooNew { .. } => "cache-too-new",
-            Self::FolderChanged => "folder-changed",
+            } if e == "4.4.2" => ErrorKind::RateLimited,
+            Self::TooLarge { .. } => ErrorKind::TooLarge,
+            Self::NotFound => ErrorKind::NotFound,
+            Self::Paused => ErrorKind::Paused,
+            Self::CacheTooNew { .. } => ErrorKind::CacheTooNew,
+            Self::FolderChanged => ErrorKind::FolderChanged,
             // A refusal for lack of rights, not an error: the folder remembers it (#42).
-            e if e.no_rights() => "no-rights",
-            e if e.is_transient() => "network",
-            _ => "other",
+            e if e.no_rights() => ErrorKind::NoRights,
+            e if e.is_transient() => ErrorKind::Network,
+            _ => ErrorKind::Other,
         }
     }
 }
@@ -592,13 +731,59 @@ mod tests {
         assert!(!Error::Timeout("MYRIGHTS answer").no_rights());
     }
 
+    /// The strings the interface got before `ErrorKind` was an enum: each is one variant, and
+    /// no variant is left without its string.
+    #[test]
+    fn every_kind_the_interface_knew_is_one_variant() {
+        let known = [
+            "certificate",
+            "no-tls",
+            "auth",
+            "not-found",
+            "too-large",
+            "imap-unavailable",
+            "rate-limited",
+            "paused",
+            "cache-too-new",
+            "folder-changed",
+            "no-rights",
+            "network",
+            "other",
+            "io",
+            "extension",
+            "bad-request",
+            "input",
+            "keyring",
+            "save-folder",
+            "dangerous",
+            "unsupported",
+            "print",
+            "cancelled",
+            "window",
+            "not-a-file",
+            "not-a-picture",
+            "update",
+            "not-chosen",
+            "copy-filed",
+            "superseded",
+        ];
+        for s in known {
+            let hits = ErrorKind::ALL.iter().filter(|k| k.as_str() == s).count();
+            assert_eq!(hits, 1, "{s}");
+        }
+        assert_eq!(ErrorKind::ALL.len(), known.len());
+        for k in ErrorKind::ALL {
+            assert_eq!(serde_json::to_string(k).unwrap(), format!("\"{}\"", k.as_str()));
+        }
+    }
+
     #[test]
     fn a_rights_refusal_has_its_own_kind() {
         // The GUI shows one of three notices per kind (#42, frame 8): no rights, an error,
         // no answer. A refusal for lack of rights is told apart by the kind alone.
         assert_eq!(
             Error::Imap(E::No("code: Some(NOPERM), info: Some(\"no rights\")".into())).kind(),
-            "no-rights"
+            ErrorKind::NoRights
         );
         assert_eq!(
             Error::Ews {
@@ -607,15 +792,15 @@ mod tests {
                 back_off: None
             }
             .kind(),
-            "no-rights"
+            ErrorKind::NoRights
         );
         // A plain server error, and a network trouble, keep their own kinds.
         assert_eq!(
             Error::Imap(E::No("code: None, info: Some(\"Internal error\")".into())).kind(),
-            "other"
+            ErrorKind::Other
         );
-        assert_eq!(Error::Timeout("answer").kind(), "network");
-        assert_eq!(Error::Closed.kind(), "network");
+        assert_eq!(Error::Timeout("answer").kind(), ErrorKind::Network);
+        assert_eq!(Error::Closed.kind(), ErrorKind::Network);
     }
 
     #[test]

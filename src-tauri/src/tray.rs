@@ -432,7 +432,10 @@ pub fn refresh(app: &AppHandle) {
                 } else {
                     a.label.trim().to_owned()
                 },
-                auth: status.error.as_ref().is_none_or(|e| e.kind == "auth"),
+                auth: status
+                    .error
+                    .as_ref()
+                    .is_none_or(|e| e.kind == depesha_core::ErrorKind::Auth),
                 account_id: a.id,
             })
         })

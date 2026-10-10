@@ -1,21 +1,21 @@
 use depesha_core::tls::CertProblem;
-use depesha_core::tr;
+use depesha_core::{ErrorKind, tr};
 use serde::Serialize;
 
 /// Error as the GUI sees it: a kind to branch on, a Russian message to show,
 /// and certificate details when the user may decide to trust it.
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
-    pub kind: String,
+    pub kind: ErrorKind,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cert: Option<Box<CertProblem>>,
 }
 
 impl CmdError {
-    pub fn new(kind: &str, message: impl Into<String>) -> Self {
+    pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
-            kind: kind.into(),
+            kind,
             message: message.into(),
             cert: None,
         }
@@ -36,7 +36,7 @@ impl From<depesha_core::Error> for CmdError {
             _ => None,
         };
         Self {
-            kind: err.kind().into(),
+            kind: err.kind(),
             message: err.to_string(),
             cert,
         }
@@ -45,7 +45,7 @@ impl From<depesha_core::Error> for CmdError {
 
 impl From<std::io::Error> for CmdError {
     fn from(err: std::io::Error) -> Self {
-        Self::new("io", tr!("file: {err}", "файл: {err}"))
+        Self::new(ErrorKind::Io, tr!("file: {err}", "файл: {err}"))
     }
 }
 

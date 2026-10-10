@@ -520,7 +520,7 @@ async fn ews_mailbox_round_trip() {
 
     // A wrong password is a login error, not a protocol one.
     let wrong = ews::connect(&config, &Credentials::new("CORP\\me", "nope"), "me@corp.ru").await;
-    assert_eq!(wrong.err().unwrap().kind(), "auth");
+    assert_eq!(wrong.err().unwrap().kind(), depesha_core::ErrorKind::Auth);
 
     let creds = Credentials::new("CORP\\me", "secret");
     let mut s = ews::connect(&config, &creds, "me@corp.ru").await.unwrap();
@@ -708,7 +708,7 @@ async fn ews_mailbox_round_trip() {
     mailbox.lock().unwrap().windows_only = true;
     let wrong = ews::connect(&config, &Credentials::new("CORP\\me", "nope"), "me@corp.ru").await;
     let e = wrong.err().unwrap();
-    assert_eq!(e.kind(), "auth");
+    assert_eq!(e.kind(), depesha_core::ErrorKind::Auth);
     assert!(!e.to_string().contains("Basic"), "{e}");
     let mut s = ews::connect(&config, &creds, "me@corp.ru").await.unwrap();
     // Further requests go on the logged-in connection.
@@ -747,7 +747,7 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
     assert!(e.is_busy(), "{e:?}");
     assert_eq!(e.back_off(), Some(Duration::from_secs(2)));
     // Not a broken link and not a login error: the account is not paused for it.
-    assert_eq!(e.kind(), "network");
+    assert_eq!(e.kind(), depesha_core::ErrorKind::Network);
     let e = ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap_err();
     assert!(e.is_busy());
     assert_eq!(e.back_off(), None);

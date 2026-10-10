@@ -20,7 +20,7 @@ pub fn dir(app: &AppHandle) -> CmdResult<PathBuf> {
     Ok(app
         .path()
         .app_data_dir()
-        .map_err(|e| CmdError::new("io", e.to_string()))?
+        .map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?
         .join("drafts"))
 }
 
@@ -92,7 +92,7 @@ pub async fn drop_all(app: &AppHandle, keys: &[String]) -> CmdResult<()> {
 /// Writes one draft under `dir`, in a file named after its key.
 async fn write(dir: &std::path::Path, entry: &CachedDraft) -> CmdResult<()> {
     tokio::fs::create_dir_all(dir).await?;
-    let bytes = serde_json::to_vec(entry).map_err(|e| CmdError::new("io", e.to_string()))?;
+    let bytes = serde_json::to_vec(entry).map_err(|e| CmdError::new(depesha_core::ErrorKind::Io, e.to_string()))?;
     // Whole or not at all: a crash mid-write leaves the old file, never a cut one.
     let path = dir.join(safe_key(&entry.key));
     let tmp = dir.join(format!("{}.tmp", safe_key(&entry.key)));

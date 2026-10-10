@@ -5202,7 +5202,7 @@ mod tests {
             matches!(err, crate::Error::CacheTooNew { found: 99, known } if known == MIGRATIONS.len() as i64),
             "{err:?}"
         );
-        assert_eq!(err.kind(), "cache-too-new");
+        assert_eq!(err.kind(), crate::error::ErrorKind::CacheTooNew);
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         assert_eq!(
             std::fs::read_dir(dir.path()).unwrap().count(),

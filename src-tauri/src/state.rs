@@ -105,9 +105,11 @@ pub(crate) fn e2e_env<T: std::str::FromStr>(name: &str) -> Option<T> {
 /// two patches never lose each other's keys. Returns the settings as they are after it.
 pub fn patch_locked(config: &Mutex<Config>, path: &std::path::Path, patch: serde_json::Value) -> CmdResult<Settings> {
     update_locked(config, path, |settings| {
-        let mut value = serde_json::to_value(&*settings).map_err(|e| CmdError::new("other", e.to_string()))?;
+        let mut value = serde_json::to_value(&*settings)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::Other, e.to_string()))?;
         config::merge(&mut value, patch);
-        *settings = serde_json::from_value(value).map_err(|e| CmdError::new("bad-request", e.to_string()))?;
+        *settings = serde_json::from_value(value)
+            .map_err(|e| CmdError::new(depesha_core::ErrorKind::BadRequest, e.to_string()))?;
         Ok(())
     })
 }
@@ -136,11 +138,12 @@ pub fn patch_account_locked(
     change: impl FnOnce(&mut Account),
 ) -> CmdResult<Account> {
     let mut config = lock(config);
-    let at = config
-        .accounts
-        .iter()
-        .position(|a| a.id == id)
-        .ok_or_else(|| CmdError::new("not-found", tr!("account not found", "учётная запись не найдена")))?;
+    let at = config.accounts.iter().position(|a| a.id == id).ok_or_else(|| {
+        CmdError::new(
+            depesha_core::ErrorKind::NotFound,
+            tr!("account not found", "учётная запись не найдена"),
+        )
+    })?;
     let mut changed = config.accounts[at].clone();
     change(&mut changed);
     let before = std::mem::replace(&mut config.accounts[at], changed.clone());
@@ -213,7 +216,12 @@ impl AppState {
             .iter()
             .find(|a| a.id == id)
             .cloned()
-            .ok_or_else(|| CmdError::new("not-found", tr!("account not found", "учётная запись не найдена")))
+            .ok_or_else(|| {
+                CmdError::new(
+                    depesha_core::ErrorKind::NotFound,
+                    tr!("account not found", "учётная запись не найдена"),
+                )
+            })
     }
 
     pub fn save_account(&self, account: Account) -> CmdResult<()> {
@@ -318,7 +326,7 @@ impl AppState {
     {
         let creds = self.credentials(account).await?;
         match f(creds).await {
-            Err(e) if e.kind() == "auth" && account.auth.oauth_provider().is_some() => {
+            Err(e) if e.kind() == depesha_core::ErrorKind::Auth && account.auth.oauth_provider().is_some() => {
                 lock(&self.tokens).remove(&account.id);
                 let creds = self.credentials(account).await?;
                 f(creds).await
@@ -339,7 +347,7 @@ impl AppState {
     pub fn worker(&self, id: &str) -> CmdResult<Worker> {
         lock(&self.workers).get(id).cloned().ok_or_else(|| {
             CmdError::new(
-                "not-found",
+                depesha_core::ErrorKind::NotFound,
                 tr!("the account is not running", "учётная запись не запущена"),
             )
         })

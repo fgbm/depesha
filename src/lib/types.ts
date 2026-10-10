@@ -110,8 +110,17 @@ export interface CertProblem {
   not_after: number | null;
 }
 
+/** What a failed call is, as the backend names it (`ErrorKind` in `crates/depesha-core/src/error.rs`); `errorKind.test.ts` keeps the two lists equal. */
+export const ERROR_KINDS = [
+  "certificate", "no-tls", "auth", "not-found", "too-large", "imap-unavailable", "rate-limited",
+  "paused", "cache-too-new", "folder-changed", "no-rights", "network", "other", "io", "extension",
+  "bad-request", "input", "keyring", "save-folder", "dangerous", "unsupported", "print", "cancelled",
+  "window", "not-a-file", "not-a-picture", "update", "not-chosen", "copy-filed", "superseded",
+] as const;
+export type ErrorKind = (typeof ERROR_KINDS)[number];
+
 export interface CmdError {
-  kind: string;
+  kind: ErrorKind;
   message: string;
   cert?: CertProblem;
 }

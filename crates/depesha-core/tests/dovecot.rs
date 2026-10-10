@@ -1131,7 +1131,7 @@ async fn shared_folder_rights_and_refusals_over_starttls() {
         .await
         .expect_err("the server must refuse");
     assert!(err.no_rights(), "{err:?}");
-    assert_eq!(err.kind(), "no-rights");
+    assert_eq!(err.kind(), depesha_core::ErrorKind::NoRights);
     let still = imap::find_by_message_id(&mut conn, "shared/ReadOnly", "shared-ro@example.org")
         .await
         .unwrap();

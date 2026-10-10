@@ -108,7 +108,7 @@ pub fn due_by_account(store: &Store, now: i64) -> Result<BTreeMap<String, Vec<Ou
 /// How long a letter waits before the next try after a failure: 30 s, doubling to half an
 /// hour; a throttled Exchange named its pause, and not a moment sooner.
 fn retry_delay(attempts: u32, e: &crate::Error) -> i64 {
-    let delay = if e.kind() == "rate-limited" {
+    let delay = if e.kind() == crate::error::ErrorKind::RateLimited {
         65
     } else {
         (30_i64 << attempts.min(6)).min(1800)

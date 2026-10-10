@@ -85,7 +85,7 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
             state.task_failed(
                 &task,
                 CmdError::new(
-                    "network",
+                    depesha_core::ErrorKind::Network,
                     pick(
                         "The label is still being taken off; it will be tried again",
                         "Метку ещё снимаем; попробуем снова",
@@ -107,7 +107,7 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
             if skipped.is_empty() {
                 state.task_done(&task);
             } else {
-                state.task_failed(&task, CmdError::new("other", skipped.join("; ")));
+                state.task_failed(&task, CmdError::new(depesha_core::ErrorKind::Other, skipped.join("; ")));
             }
             tell(state, account_id);
             tracing::debug!(account = %account_id, "took a label off {count} letters");
