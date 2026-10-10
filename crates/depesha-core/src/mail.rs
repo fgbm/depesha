@@ -14,6 +14,7 @@ use crate::store::Store;
 use crate::sync::{self, FolderSync, SyncOptions};
 use crate::{Error, Result, ews, message, smtp};
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 
 pub enum Conn {
     Imap(imap::Conn),
@@ -744,9 +745,19 @@ pub async fn wait_for_changes(
     connected: Instant,
 ) -> std::result::Result<(Conn, IdleOutcome), Box<IdleDrop>> {
     let began = Instant::now();
+    let resync = pace.take_resync();
+    let mut worked = None;
     let (result, renew) = match conn {
+        // The connection is new after a drop: what came in meanwhile is read by a sync that
+        // starts after this SELECT, so the wait ends at once.
+        Conn::Imap(mut c) if resync => {
+            let r = imap::select_for_idle(&mut c, "INBOX").await;
+            (r.map(|()| (Conn::Imap(c), IdleOutcome::Changed)), None)
+        }
+        c @ Conn::Ews(_) if resync => (Ok((c, IdleOutcome::Changed)), None),
         Conn::Imap(c) => {
             let renew = pace.renew();
+            worked = Some(c.worked.clone());
             let r = imap::wait_for_changes(c, "INBOX", poll, renew).await;
             (r.map(|(c, o)| (Conn::Imap(c), o)), Some(renew))
         }
@@ -757,7 +768,7 @@ pub async fn wait_for_changes(
     };
     match result {
         Ok(done) => {
-            if renew.is_some() {
+            if !resync {
                 pace.renewed();
             }
             Ok(done)
@@ -768,6 +779,7 @@ pub async fn wait_for_changes(
                 since_wait: began.elapsed(),
                 since_connect: connected.elapsed(),
                 renew,
+                worked: pace.worked_since_drop() || worked.is_some_and(|w| w.load(Ordering::Relaxed)),
             };
             let dropped = (!error.is_busy()).then(|| pace.dropped(&info));
             Err(Box::new(IdleDrop {

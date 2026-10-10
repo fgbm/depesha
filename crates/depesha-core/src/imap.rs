@@ -118,6 +118,9 @@ pub struct Conn {
     /// `wait_for_changes` sets and reads it, so a connection that selects other folders
     /// between waits is not meant to carry it.
     pub idle_folder: Option<String>,
+    /// Set once an IDLE of this connection has started: it has worked, so a later break is
+    /// the server's way (a limit on age or idleness), not a connection that fails at once.
+    pub worked: Arc<AtomicBool>,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
@@ -159,6 +162,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         idling,
         receiver: Receiver::default(),
         idle_folder: None,
+        worked: Arc::new(AtomicBool::new(false)),
     })
 }
 
@@ -1495,6 +1499,7 @@ pub async fn wait_for_changes(
         let before = conn.session.select(folder).await?.exists;
         tokio::time::sleep(poll).await;
         conn.session.noop().await?;
+        conn.worked.store(true, Ordering::Relaxed);
         let after = conn.session.select(folder).await?.exists;
         let changed = drain_unsolicited(&conn.session) || before != after;
         return Ok((
@@ -1516,6 +1521,7 @@ pub async fn wait_for_changes(
         idling,
         receiver,
         idle_folder,
+        worked,
         ..
     } = conn;
     let queue = session.unsolicited_responses.clone();
@@ -1525,6 +1531,7 @@ pub async fn wait_for_changes(
     if let Err(e) = handle.init().await {
         return Err(e.into());
     }
+    worked.store(true, Ordering::Relaxed);
     // What the server told while the IDLE was being started (before its "+ idling").
     let early = drain_with(|| queue.try_recv().ok());
     let response = if early {
@@ -1550,7 +1557,12 @@ pub async fn wait_for_changes(
     }
     let session = handle.done().await?;
     let outcome = match response {
-        IdleResponse::NewData(_) => IdleOutcome::Changed,
+        // What came along with the news (RECENT, a second EXISTS) is the same news:
+        // left in the queue it would wake the next wait for a letter already told.
+        IdleResponse::NewData(_) => {
+            drain_unsolicited(&session);
+            IdleOutcome::Changed
+        }
         IdleResponse::Timeout | IdleResponse::ManualInterrupt => {
             if early || drain_unsolicited(&session) {
                 IdleOutcome::Changed
@@ -1570,9 +1582,19 @@ pub async fn wait_for_changes(
             idling,
             receiver,
             idle_folder,
+            worked,
         },
         outcome,
     ))
+}
+
+/// Selects the folder the next `wait_for_changes` will idle on, so that what came in
+/// before this SELECT is read by a sync made after it, and what comes later is told.
+pub async fn select_for_idle(conn: &mut Conn, folder: &str) -> Result<()> {
+    conn.session.select(folder).await?;
+    conn.idle_folder = Some(folder.to_owned());
+    drain_unsolicited(&conn.session);
+    Ok(())
 }
 
 fn drain_unsolicited(session: &Session) -> bool {

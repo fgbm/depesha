@@ -1773,11 +1773,11 @@ async fn the_pace_holds_a_link_cut_by_silence() {
     if !enabled() {
         return;
     }
-    let run = paced(Cut::Silence(Duration::from_secs(3)), Duration::from_secs(14)).await;
+    let run = paced(Cut::Silence(Duration::from_secs(3)), Duration::from_secs(18)).await;
     let causes: Vec<_> = run.drops.iter().map(|(_, c)| c.clone()).collect();
     assert_eq!(run.drops.len(), 2, "two drops teach, the rest is held: {causes:?}");
     assert!(run.pace.renew() < Duration::from_secs(3), "{:?}", run.pace.renew());
-    assert!(run.waits >= 3, "the renewals went through: {}", run.waits);
+    assert!(run.waits >= 2, "the renewals went through: {}", run.waits);
 }
 
 /// A link cut by the age of the connection: the renewal does not stick at the floor, the
@@ -1787,8 +1787,15 @@ async fn the_pace_does_not_stick_at_the_floor_when_the_age_cuts() {
     if !enabled() {
         return;
     }
-    let run = paced(Cut::Age(Duration::from_secs(4)), Duration::from_secs(34)).await;
-    assert!(run.drops.len() >= 5, "{}", run.drops.len());
+    let run = paced(Cut::Age(Duration::from_secs(6)), Duration::from_secs(24)).await;
+    assert!(run.drops.len() >= 3, "{}", run.drops.len());
+    // A connection that worked and was cut by its age is the server's way, not a failing link:
+    // the reconnect does not wait longer for it.
+    assert!(
+        run.drops.iter().all(|(d, _)| d.pause == quick().pause),
+        "{:?}",
+        run.drops.iter().map(|(d, _)| d.pause).collect::<Vec<_>>()
+    );
     assert_eq!(run.drops.iter().filter(|(d, _)| d.by_age).count(), 1);
     assert_eq!(run.pace.renew(), Tuning::default().max, "the renewal went back up");
     let told = run.drops.iter().find(|(d, _)| d.by_age).unwrap().0.drops;
@@ -1834,4 +1841,88 @@ async fn a_letter_arriving_between_two_idles_is_seen_by_the_next_one() {
         "{:?}",
         began.elapsed()
     );
+}
+
+/// One letter is one wake-up: what the server sent along with the news (RECENT, a second
+/// EXISTS) must not make the next wait report a change again, or the letter is synced twice.
+#[tokio::test]
+async fn one_letter_wakes_the_idle_once() {
+    if !enabled() {
+        return;
+    }
+    let idle = connect("once").await;
+    let waiter = tokio::spawn(async move {
+        let (idle, first) = imap::wait_for_changes(idle, "INBOX", Duration::from_secs(2), Duration::from_secs(20))
+            .await
+            .unwrap();
+        // The IDLE has just ended: the same letter must not be told again.
+        let (_, second) = imap::wait_for_changes(idle, "INBOX", Duration::from_secs(2), Duration::from_secs(1))
+            .await
+            .unwrap();
+        (first, second)
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut other = connect("once").await;
+    imap::append(&mut other, "INBOX", &mail("ONCE", 1), "").await.unwrap();
+    let (first, second) = tokio::time::timeout(Duration::from_secs(20), waiter)
+        .await
+        .expect("no wakeup")
+        .unwrap();
+    assert!(matches!(first, IdleOutcome::Changed));
+    assert!(matches!(second, IdleOutcome::Timeout), "the letter was told twice");
+}
+
+/// A letter that comes in while the connection is gone (the pause after a drop) is synced at
+/// once by the next connection: its first wait ends with `Changed` after the SELECT, and the
+/// one after it waits as usual.
+#[tokio::test]
+async fn the_connection_after_a_drop_is_synced_before_it_idles() {
+    if !enabled() {
+        return;
+    }
+    let port = cutting_proxy(Cut::Age(Duration::from_secs(1))).await;
+    let server = server_at(port).await;
+    let store = Store::open_in_memory().unwrap();
+    let mut pace = IdlePace::with(Tuning {
+        max: Duration::from_secs(2),
+        ..quick()
+    });
+    let conn = imap::connect(&server, &user("resync")).await.unwrap();
+    let err = mail::wait_for_changes(
+        mail::Conn::Imap(conn),
+        &store,
+        "d",
+        Duration::from_secs(2),
+        &mut pace,
+        std::time::Instant::now(),
+    )
+    .await
+    .err()
+    .expect("the proxy cuts the link");
+    assert!(err.dropped.is_some());
+
+    // While there is no connection a letter comes in.
+    let mut other = connect("resync").await;
+    imap::append(&mut other, "INBOX", &mail("PAUSE", 1), "").await.unwrap();
+
+    // The new connection goes straight to the stand: the proxy would cut it again.
+    let conn = connect("resync").await;
+    let connected = std::time::Instant::now();
+    let began = std::time::Instant::now();
+    let (conn, first) = mail::wait_for_changes(
+        mail::Conn::Imap(conn),
+        &store,
+        "d",
+        Duration::from_secs(2),
+        &mut pace,
+        connected,
+    )
+    .await
+    .unwrap_or_else(|d| panic!("selected: {:?}", d.error));
+    assert!(matches!(first, IdleOutcome::Changed), "no sync after the reconnect");
+    assert!(began.elapsed() < Duration::from_millis(800), "{:?}", began.elapsed());
+    let (_, second) = mail::wait_for_changes(conn, &store, "d", Duration::from_secs(2), &mut pace, connected)
+        .await
+        .unwrap_or_else(|d| panic!("idled: {:?}", d.error));
+    assert!(matches!(second, IdleOutcome::Timeout), "told twice");
 }

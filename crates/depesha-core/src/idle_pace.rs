@@ -79,6 +79,9 @@ pub struct DropInfo {
     pub since_connect: Duration,
     /// The renewal this IDLE was held under; `None` when the transport takes none (EWS).
     pub renew: Option<Duration>,
+    /// The connection did its work before it broke: an IDLE started on it. A break then is
+    /// the server's limit, and the reconnect does not wait longer for it.
+    pub worked: bool,
 }
 
 /// The numbers the pace works by; tests shrink them to seconds.
@@ -117,9 +120,13 @@ impl Default for Tuning {
 pub struct IdlePace {
     tune: Tuning,
     renew: Duration,
-    /// Drops in a row without a healthy connection between them.
+    /// Drops in a row without a healthy connection between them (for the log).
     drops: u32,
+    /// Connections in a row that broke before they did any work (for the pause).
+    failed: u32,
     survived: u32,
+    /// The next connection should be synced at once: letters came in while there was none.
+    resync: bool,
     /// The previous drop that taught: (since the last write, since the connect).
     mark: Option<(Duration, Duration)>,
     /// The age at which the connection is cut whatever is written, once told.
@@ -157,7 +164,9 @@ impl IdlePace {
             renew: tune.max,
             tune,
             drops: 0,
+            failed: 0,
             survived: 0,
+            resync: false,
             mark: None,
             lifetime: None,
         }
@@ -166,6 +175,17 @@ impl IdlePace {
     /// How long to hold one IDLE before renewing it.
     pub fn renew(&self) -> Duration {
         self.renew
+    }
+
+    /// The connection broke since the last time this was asked: it has to be synced anew,
+    /// for what came in during the pause. Asked once per connection, on its first wait.
+    pub fn take_resync(&mut self) -> bool {
+        std::mem::take(&mut self.resync)
+    }
+
+    /// A wait went through on the current connection since the last drop.
+    pub fn worked_since_drop(&self) -> bool {
+        self.survived > 0
     }
 
     /// A renewal went through with the connection alive.
@@ -179,12 +199,16 @@ impl IdlePace {
 
     pub fn dropped(&mut self, info: &DropInfo) -> Dropped {
         self.survived = 0;
-        if info.since_connect >= self.tune.healthy {
+        self.resync = true;
+        // Healthy by the age it had before this wait began: a wait that was cut at its own
+        // 600th second proves nothing about the connection before it.
+        if info.since_connect.saturating_sub(info.since_wait) >= self.tune.healthy {
             self.drops = 0;
             self.mark = None;
             self.lifetime = None;
         }
         self.drops += 1;
+        self.failed = if info.worked { 0 } else { self.failed + 1 };
         let mut shortened = None;
         let mut by_age = false;
         if let Some(renew) = info.renew.filter(|_| info.cause.teaches()) {
@@ -209,10 +233,11 @@ impl IdlePace {
             }
             self.mark = Some(now);
         }
+        // Only connections that broke before doing any work push the next try away.
         let pause = self
             .tune
             .pause
-            .saturating_mul(1 << (self.drops - 1).min(5))
+            .saturating_mul(1 << self.failed.saturating_sub(1).min(5))
             .min(self.tune.pause_max);
         Dropped {
             pause,
@@ -247,6 +272,7 @@ mod tests {
             since_wait: s(after),
             since_connect: s(after),
             renew: Some(pace.renew()),
+            worked: true,
         })
     }
 
@@ -259,6 +285,7 @@ mod tests {
             since_wait: s(if age < renew { age } else { age % renew }),
             since_connect: s(age),
             renew: Some(pace.renew()),
+            worked: true,
         }
     }
 
@@ -268,6 +295,7 @@ mod tests {
             since_wait: s(wait),
             since_connect: s(connect),
             renew: Some(pace.renew()),
+            worked: false,
         }
     }
 
@@ -305,7 +333,64 @@ mod tests {
             "{logged:?}"
         );
         assert_eq!(p.renew(), IDLE_RENEW, "the renewal does not stick at the floor");
-        assert_eq!(drops[11].pause, s(120), "the pause only grows");
+        assert!(
+            drops.iter().all(|d| d.pause == s(5)),
+            "a connection that worked is cut by the server, not failing: {drops:?}"
+        );
+    }
+
+    #[test]
+    fn a_probe_after_a_learned_cut_does_not_push_the_reconnect_away() {
+        let mut p = IdlePace::new();
+        p.dropped(&idle_cut(20, &p).unwrap());
+        p.dropped(&idle_cut(20, &p).unwrap());
+        let held = p.renew();
+        for _ in 0..p.tune.probe_after {
+            p.renewed();
+        }
+        assert!(p.renew() > held, "the probe tries a longer renewal");
+        for _ in 0..4 {
+            let d = p.dropped(&idle_cut(20, &p).expect("the long renewal is cut again"));
+            assert_eq!(d.pause, s(5));
+            for _ in 0..p.tune.probe_after {
+                p.renewed();
+            }
+        }
+    }
+
+    #[test]
+    fn a_connection_that_breaks_at_once_pushes_the_reconnect_away_up_to_the_limit() {
+        let mut p = IdlePace::new();
+        let pauses: Vec<_> = (0..9)
+            .map(|_| p.dropped(&drop_of(DropCause::Eof, 0, 0, &p)).pause)
+            .collect();
+        assert_eq!(pauses[8], s(120));
+        let worked = DropInfo {
+            worked: true,
+            ..drop_of(DropCause::Eof, 20, 20, &p)
+        };
+        assert_eq!(
+            p.dropped(&worked).pause,
+            s(5),
+            "the first connection that worked ends it"
+        );
+    }
+
+    #[test]
+    fn a_wait_cut_at_its_own_tenth_minute_does_not_make_the_connection_healthy() {
+        let mut p = IdlePace::new();
+        p.dropped(&drop_of(DropCause::Eof, 600, 600, &p));
+        p.dropped(&drop_of(DropCause::Eof, 600, 600, &p));
+        assert!(p.renew() < s(600), "{:?}", p.renew());
+    }
+
+    #[test]
+    fn after_a_drop_the_next_connection_is_synced_once() {
+        let mut p = IdlePace::new();
+        assert!(!p.take_resync());
+        p.dropped(&drop_of(DropCause::Eof, 20, 20, &p));
+        assert!(p.take_resync());
+        assert!(!p.take_resync());
     }
 
     #[test]
@@ -360,7 +445,11 @@ mod tests {
         // A renewal that went through is no proof the link is well: it may be cut by its age.
         p.renewed();
         assert_eq!(p.dropped(&drop_of(DropCause::Eof, 1, 1, &p)).drops, 2);
-        let d = p.dropped(&drop_of(DropCause::Eof, 20 * 60, 20 * 60, &p));
+        let lived = DropInfo {
+            worked: true,
+            ..drop_of(DropCause::Eof, 30, 20 * 60, &p)
+        };
+        let d = p.dropped(&lived);
         assert_eq!((d.drops, d.pause), (1, s(5)));
     }
 
