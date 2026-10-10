@@ -14,10 +14,10 @@ describe("applyRules", () => {
   it("tells when the new mail cannot be read, and runs no rule", async () => {
     extensions.list = [{ id: "r", enabled: true, hooks: ["newMail"] } as unknown as Extension];
     api.messagesById.mockRejectedValue(new Error("mail unreadable"));
-    const app = { folders: [], account: () => undefined, toast: vi.fn(), fail: vi.fn(), reload: vi.fn() };
+    const app = { folders: [], account: () => undefined, ui: { toast: vi.fn(), fail: vi.fn() }, selection: { reload: vi.fn() } };
     const newMail = vi.spyOn(extensions, "newMail");
     await applyRules(app as never, [1, 2]);
-    expect(app.fail).toHaveBeenCalledWith(expect.objectContaining({ message: "mail unreadable" }), expect.stringContaining("rules"));
+    expect(app.ui.fail).toHaveBeenCalledWith(expect.objectContaining({ message: "mail unreadable" }), expect.stringContaining("rules"));
     expect(newMail).not.toHaveBeenCalled();
   });
 });

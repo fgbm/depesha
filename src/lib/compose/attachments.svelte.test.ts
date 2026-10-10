@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("svelte", () => ({ onMount: () => {} }));
 const { fail, toast } = vi.hoisted(() => ({ fail: vi.fn(), toast: vi.fn() }));
-vi.mock("../store.svelte", () => ({ app: { ui: { fail, toast }, settings: { image_max_px: 1600 } } }));
+vi.mock("../store.svelte", async () => ({ app: (await import("../testing")).appMock({ ui: { fail, toast }, settings: { image_max_px: 1600 } }) }));
 vi.mock("../api", async (orig) => ({ ...(await orig<object>()), api: (await import("../testing")).api }));
 vi.mock("../pictureInput", () => ({
   picturesFromBlobs: async () => [{ name: "a.png", mime: "image/png", base64: "AAAA", dataUrl: "data:image/png;base64,AAAA" }],

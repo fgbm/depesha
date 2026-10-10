@@ -116,7 +116,15 @@ export class AppStore {
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
 
-  // What the controllers' hosts name: they cannot import the store, so it stays on `app`.
+  // Proxies kept only for the hosts of controllers, typed through `AppStore`; components do not
+  // call them (eslint `no-restricted-syntax` on src/components): they take `app.ui.*` and
+  // `app.selection.*`. The controllers the store itself builds (SettingsController,
+  // MailboxController, SelectionController, ListController, ActionRunner, ComposeManager,
+  // Reader, ClearFolder, and rules, labels, rooms and background that are started with it)
+  // cannot import the store: it imports them, so the import would be a cycle. They get the
+  // store as a narrow host instead, and a host names these members. `compose/*` (format,
+  // sending, attachments, autosave) is imported only by components and never by the store, so
+  // it may import `app` and `t` itself and keeps in its host just the window's own state.
   get confirmation() { return this.ui.confirmation; }
   set confirmation(v) { this.ui.confirmation = v; }
   get wizard() { return this.ui.wizard; }

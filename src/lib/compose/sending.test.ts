@@ -3,8 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { registry, type ComposeControl } from "../../plugin-host/registry.svelte";
 const { confirm } = vi.hoisted(() => ({ confirm: vi.fn(async () => true) }));
 const colors = vi.hoisted(() => ({ map: {} as Record<string, string> }));
-vi.mock("../store.svelte", () => ({
-  app: { ui: { confirm, fail: () => {}, toast: () => {} }, account: () => undefined, accountColor: (id: string) => colors.map[id] ?? "#000000", send: async () => {}, closeCompose: () => {} },
+vi.mock("../store.svelte", async () => ({
+  app: (await import("../testing")).appMock({
+    ui: { confirm, fail: () => {}, toast: () => {} },
+    account: () => undefined,
+    accountColor: (id) => colors.map[id] ?? "#000000",
+    send: async () => {},
+    closeCompose: () => {},
+  }),
 }));
 import { emptyDraft } from "../compose";
 import type { ComposeWindow } from "../composes.svelte";

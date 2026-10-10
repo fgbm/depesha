@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("svelte", async (orig) => ({ ...(await orig<object>()), onDestroy: () => {} }));
 const { fail } = vi.hoisted(() => ({ fail: vi.fn() }));
-vi.mock("../store.svelte", () => ({ app: { ui: { fail } } }));
+vi.mock("../store.svelte", async () => ({ app: (await import("../testing")).appMock({ ui: { fail } }) }));
 vi.mock("../api", async (orig) => ({ ...(await orig<object>()), api: (await import("../testing")).api }));
 
 import { emptyDraft } from "../compose";

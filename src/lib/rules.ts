@@ -6,12 +6,12 @@ import { t, tn } from "./i18n.svelte";
 import type { AppStore } from "./store.svelte";
 import type { MessageRow } from "./types";
 
-type RulesHost = Pick<AppStore, "folders" | "account" | "toast" | "fail" | "reload">;
+type RulesHost = Pick<AppStore, "folders" | "account" | "ui" | "selection">;
 
 /** Mail rules of extensions on newly arrived mail. */
 export async function applyRules(app: RulesHost, ids: number[]) {
   if (!extensions.enabled().some((e) => e.hooks.includes("newMail"))) return;
-  const rows = await api.messagesById(ids).catch((e) => (app.fail(e, t("rules.readFailed")), [] as MessageRow[]));
+  const rows = await api.messagesById(ids).catch((e) => (app.ui.fail(e, t("rules.readFailed")), [] as MessageRow[]));
   if (!rows.length) return;
   const results = await extensions.newMail(rows, (id) => app.account(id)?.email ?? "");
   for (const { ext, actions } of results) {
@@ -21,12 +21,12 @@ export async function applyRules(app: RulesHost, ids: number[]) {
         await applyMailAction(app, a, rows.find((r) => r.id === a.id)!);
         done++;
       } catch (e) {
-        app.fail(e, textOf(ext.name));
+        app.ui.fail(e, textOf(ext.name));
       }
     }
-    if (done) app.toast(tn("ext.ruleApplied", done, { name: textOf(ext.name) }));
+    if (done) app.ui.toast(tn("ext.ruleApplied", done, { name: textOf(ext.name) }));
   }
-  app.reload();
+  app.selection.reload();
 }
 
 async function applyMailAction(app: RulesHost, a: MailAction, row: MessageRow) {

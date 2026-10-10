@@ -6,6 +6,7 @@
 
 import { vi, type Mock } from "vitest";
 import type { api as realApi } from "./api";
+import type { AppStore } from "./store.svelte";
 import type { MessageRow, OpenedMessage, Settings } from "./types";
 
 type Api = typeof realApi;
@@ -191,3 +192,22 @@ export function deferred<T>() {
 export async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
+
+/**
+ * What a test puts in place of `app` (`vi.mock("../store.svelte", …)`): only the parts the code
+ * under test reads. Typed against the store, so a renamed member breaks the mock, not a run.
+ */
+export interface AppMock {
+  ui?: Partial<AppStore["ui"]>;
+  selection?: Partial<AppStore["selection"]>;
+  compose?: Partial<AppStore["compose"]>;
+  settings?: Partial<AppStore["settings"]>;
+  account?: AppStore["account"];
+  accountColor?: AppStore["accountColor"];
+  activeCompose?: AppStore["activeCompose"];
+  closeCompose?: AppStore["closeCompose"];
+  showCompose?: AppStore["showCompose"];
+  send?: AppStore["send"];
+}
+
+export const appMock = <T extends AppMock>(parts: T) => parts satisfies AppMock;
