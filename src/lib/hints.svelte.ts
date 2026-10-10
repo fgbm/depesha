@@ -3,6 +3,7 @@
 // tested there; this file only holds the state, talks to the backend and hands the answer's
 // rule to the address book. Time is the clock's, read once per call.
 import { api } from "./api";
+import { t } from "./i18n.svelte";
 import { app } from "./store.svelte";
 import {
   answer,
@@ -122,8 +123,8 @@ class Hints {
     if (!hint) return;
     this.active = null;
     this.states = answer(this.states, hint, what, now());
-    await this.persist(hint.id, what === "never-anyone" ? "" : hint.subject);
-    await this.clearCount(hint.id, hint.subject);
+    // One failure is told once: the counter stays until the answer is kept.
+    if (await this.persist(hint.id, what === "never-anyone" ? "" : hint.subject)) await this.clearCount(hint.id, hint.subject);
   }
 
   /** Accepts the shown hint: sets the rule with the mark «by a hint» and remembers the answer. */
@@ -206,13 +207,16 @@ class Hints {
     const row = { ...(this.counters[id] ?? {}) };
     delete row[sub];
     this.counters = { ...this.counters, [id]: row };
-    await api.clearHintCount(id, subject.trim().toLowerCase()).catch((e) => app.fail(e));
+    await api.clearHintCount(id, subject.trim().toLowerCase()).catch((e) => app.fail(e, t("hints.saveFailed")));
   }
 
-  private async persist(id: string, subject: string): Promise<void> {
+  private async persist(id: string, subject: string): Promise<boolean> {
     const state = this.states.find((s) => s.id === id && s.subject === subject.trim().toLowerCase());
-    if (!state) return;
-    await api.hintSave(state).catch((e) => app.fail(e));
+    if (!state) return true;
+    return api.hintSave(state).then(
+      () => true,
+      (e) => (app.fail(e, t("hints.saveFailed")), false),
+    );
   }
 
   /** Reads the decisions again, after «Ask them again» on the page «Hints». */

@@ -78,7 +78,7 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     api.hintSave.mockRejectedValue(new Error("disk full"));
     api.clearHintCount.mockResolvedValue(undefined);
     await hints.decide("never-this");
-    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "disk full" }));
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "disk full" }), expect.any(String));
   });
 
   it("tells when the counter could not be forgotten", async () => {
@@ -86,6 +86,19 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     api.hintSave.mockResolvedValue(undefined);
     api.clearHintCount.mockRejectedValue(new Error("db locked"));
     await hints.decide("never-this");
-    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "db locked" }));
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "db locked" }), expect.any(String));
+  });
+});
+
+describe("one failure, one toast (#147)", () => {
+  it("tells once when the decision cannot be kept, and keeps it in the states", async () => {
+    fail.mockClear();
+    hints.states = [];
+    hints.active = { id: "send-format", subject: "ivan@x", who: "Иван" } as Hint;
+    api.hintSave.mockRejectedValue(new Error("disk full"));
+    api.clearHintCount.mockRejectedValue(new Error("disk full"));
+    await hints.decide("never-this");
+    expect(fail).toHaveBeenCalledTimes(1);
+    expect(hints.states.some((s) => s.id === "send-format" && s.subject === "ivan@x")).toBe(true);
   });
 });

@@ -215,6 +215,8 @@ export const en = {
   "compose.picture.altTitle": "Picture description",
   "compose.picture.altHint": "Seen when pictures are off in the message and by screen readers. Not shown under the picture.",
   "compose.picture.describe": "Description",
+  "people.readFailed": "The address book could not be read",
+  "hints.saveFailed": "The answer to the hint could not be kept",
   "compose.localNotDropped": "The local copy of the letter could not be removed; it may be offered for restore at the next start",
   "compose.saveFailed": "The letter could not be kept",
   "compose.picture.attachedBig": "“{name}” is too large for the text and is attached as a file",

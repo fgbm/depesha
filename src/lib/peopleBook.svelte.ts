@@ -5,6 +5,8 @@
 // the primary, a merge, a split — are made by the backend and read back whole.
 import { emit } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { t } from "./i18n.svelte";
+import { app } from "./store.svelte";
 import { allMailQuery, blankPerson, findPerson, type Added, type Forgotten, type Merged, type Person, type Snapshot, type Split } from "./people";
 import { findDuplicates, mergeRequest, pairSubject, SAME_PERSON, type MergeChoice, type MergePlan } from "./peopleMerge";
 import type { HintState } from "./hints";
@@ -25,15 +27,23 @@ export class PeopleBook {
   /** Own changes already applied to the cache: their broadcast needs no re-read. */
   private ownChanges = 0;
 
-  /** Reads the book once; later callers get the cache. A failure leaves the previous list. */
+  /** A failed read was told: a series of failures is told once, not on every call. */
+  private failed = false;
+
+  /** Reads the book once; later callers get the cache. A failure is told once and leaves the previous
+   *  list (empty at first); the next call reads again. */
   load(): Promise<void> {
     if (this.loaded) return Promise.resolve();
     if (this.reading) return this.reading;
     this.reading = this.read()
       .then(() => {
         this.loaded = true;
+        this.failed = false;
       })
-      .catch(() => {}) // A failed read leaves the book empty; the next load reads it again.
+      .catch((e) => {
+        if (!this.failed) app.fail(e, t("people.readFailed"));
+        this.failed = true;
+      })
       .finally(() => {
         this.reading = null;
       });

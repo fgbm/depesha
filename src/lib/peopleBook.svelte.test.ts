@@ -6,12 +6,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventModule));
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 
+const { fail } = vi.hoisted(() => ({ fail: vi.fn() }));
+vi.mock("./store.svelte", () => ({ app: { fail } }));
+
 import { PeopleBook } from "./peopleBook.svelte";
 import { blankPerson } from "./people";
 import { api, deferred, resetFakes } from "./testing";
 import type { Person } from "./people";
 
-beforeEach(() => resetFakes());
+beforeEach(() => {
+  resetFakes();
+  fail.mockClear();
+});
 
 describe("the book of people", () => {
   it("is read once however often it is shown", async () => {
@@ -106,5 +112,20 @@ describe("the changes of a person's addresses", () => {
     await Promise.resolve();
     const { emit } = await import("@tauri-apps/api/event");
     expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("a book that cannot be read (#147)", () => {
+  it("is told once for a series of failures, and again after a read that worked", async () => {
+    api.people.mockRejectedValue(new Error("book broken"));
+    const book = new PeopleBook();
+    for (let i = 0; i < 3; i++) await book.load();
+    expect(api.people).toHaveBeenCalledTimes(3);
+    expect(fail).toHaveBeenCalledTimes(1);
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "book broken" }), expect.any(String));
+
+    api.people.mockResolvedValue([blankPerson("ivan@x")]);
+    await book.load();
+    expect(book.list).toHaveLength(1);
   });
 });
