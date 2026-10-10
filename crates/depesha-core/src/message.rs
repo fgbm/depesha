@@ -233,8 +233,12 @@ pub const ACT_HEADER: &str = "X-Depesha-Act";
 /// are still read and no longer written.
 pub const DRAFT_HEADER: &str = "X-Depesha-Draft";
 
-/// The longest `X-Depesha-Draft` value: a header line any server takes.
+/// The longest `X-Depesha-Draft` value: a header line any server takes. With the `1.` and the
+/// base64url of nonce (12), ciphertext and tag (16) it takes a mark of 640 bytes, the longest
+/// multiple of `DRAFT_PAD` that fits (704 would make 978 characters).
 pub const DRAFT_HEADER_MAX: usize = 900;
+
+const DRAFT_PAD: usize = 64;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DraftMark {
@@ -250,14 +254,26 @@ impl DraftMark {
         self.acts_on.is_none() && self.send_at.is_none()
     }
 
-    /// The bytes that are sealed into `DRAFT_HEADER`.
+    /// The bytes that are sealed into `DRAFT_HEADER`: the JSON padded with spaces to a
+    /// multiple of `DRAFT_PAD`, so the length of the line does not tell `waiting` or a time
+    /// from their absence. At most `DRAFT_PLAIN_MAX` bytes fit a line of `DRAFT_HEADER_MAX`.
     pub fn encode(&self) -> Option<Vec<u8>> {
-        serde_json::to_vec(self).ok()
+        let mut json = serde_json::to_vec(self).ok()?;
+        json.resize(json.len().div_ceil(DRAFT_PAD) * DRAFT_PAD, b' ');
+        Some(json)
     }
 
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         serde_json::from_slice(bytes).ok()
     }
+}
+
+/// What a sealed mark is bound to: the draft's own Message-ID, bare and trimmed, as the
+/// caller read it after the last change of the letter. None for a letter without one.
+pub fn draft_binding(raw: &[u8]) -> Option<String> {
+    let mid = parse_summary(raw).message_id?;
+    let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
+    (!bare.is_empty()).then(|| bare.to_owned())
 }
 
 /// The sealed value of `DRAFT_HEADER`, for the caller that holds the secret to open.

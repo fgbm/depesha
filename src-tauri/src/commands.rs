@@ -2933,7 +2933,7 @@ fn with_service_headers(
     mut raw: Vec<u8>,
     draft: &Draft,
     send_at: Option<i64>,
-    seal: impl Fn(&[u8]) -> Option<String>,
+    seal: impl Fn(&[u8], &str) -> Option<String>,
 ) -> Vec<u8> {
     // The draft's Message-ID says Depesha wrote it. Another client's draft keeps its own.
     if let Some(mid) = message::parse_summary(&raw).message_id
@@ -2942,15 +2942,22 @@ fn with_service_headers(
     {
         raw = replace_once(raw, mid.as_bytes(), own.as_bytes());
     }
-    let mark = message::DraftMark {
-        acts_on: draft.acts_on.clone(),
-        send_at,
-    };
-    let sealed = mark
-        .encode()
-        .filter(|_| !mark.is_empty())
-        .and_then(|plain| seal(&plain))
-        .filter(|v| v.len() <= message::DRAFT_HEADER_MAX);
+    // The whole mark; failing that, the time alone: a long folder name must not cost it.
+    let marks = [
+        message::DraftMark {
+            acts_on: draft.acts_on.clone(),
+            send_at,
+        },
+        message::DraftMark { acts_on: None, send_at },
+    ];
+    // Bound to the Message-ID the draft goes with from here on: sealed after the last change.
+    let sealed = message::draft_binding(&raw).and_then(|bound| {
+        marks.iter().filter(|m| !m.is_empty()).find_map(|mark| {
+            mark.encode()
+                .and_then(|plain| seal(&plain, &bound))
+                .filter(|v| v.len() <= message::DRAFT_HEADER_MAX)
+        })
+    });
     if let Some(sealed) = sealed {
         // A header line on top is as good as any other place for it.
         raw.splice(0..0, format!("{}: {sealed}\r\n", message::DRAFT_HEADER).into_bytes());
@@ -2972,7 +2979,8 @@ fn with_service_headers(
 /// installation did not seal, which names no letter.
 fn draft_mark(raw: &[u8]) -> message::DraftMark {
     message::sealed_draft_mark(raw)
-        .and_then(|value| crate::install_secret::open(&value))
+        .zip(message::draft_binding(raw))
+        .and_then(|(value, bound)| crate::install_secret::open(&value, &bound))
         .and_then(|plain| message::DraftMark::decode(&plain))
         .unwrap_or_else(|| message::DraftMark {
             acts_on: message::trusted_acts_on(raw, crate::install_secret::verify),
@@ -3677,11 +3685,32 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_whose_mark_is_too_long_still_tells_its_kind() {
+    fn a_draft_whose_mark_is_too_long_still_tells_its_kind_and_keeps_its_time() {
         let long = answer_draft(Act::Forward, &"п".repeat(900));
-        let raw = saved_with(&long, None);
-        assert!(!raw.contains(message::DRAFT_HEADER), "the mark does not fit a header");
+        let raw = saved_with(&long, Some(1_790_123_456));
+        // The letter it answers does not fit a line; the time of sending still does.
+        let mark = draft_mark(raw.as_bytes());
+        assert_eq!(mark.acts_on, None);
+        assert_eq!(mark.send_at, Some(1_790_123_456));
         assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
+        let none = saved_with(&long, None);
+        assert!(!none.contains(message::DRAFT_HEADER), "nothing to seal");
+        assert_eq!(message::draft_act(none.as_bytes()), Some(Act::Forward));
+    }
+
+    /// #157: what the mark holds does not show in the length of its line.
+    #[test]
+    fn the_sealed_line_is_as_long_whatever_the_mark_holds() {
+        let line = |waiting: bool, send_at: Option<i64>| {
+            let mut draft = answer_draft(Act::Reply, "INBOX");
+            draft.acts_on.as_mut().unwrap().waiting = waiting;
+            let raw = saved_with(&draft, send_at);
+            message::sealed_draft_mark(raw.as_bytes()).unwrap().len()
+        };
+        let base = line(false, None);
+        for (waiting, send_at) in [(true, None), (false, Some(1_790_123_456)), (true, Some(1_790_123_456))] {
+            assert_eq!(line(waiting, send_at), base, "waiting {waiting}, send_at {send_at:?}");
+        }
     }
 
     /// #157: nothing that names the mailbox, the folder or the plans is in a saved draft,
@@ -3729,6 +3758,35 @@ mod tests {
                 String::from_utf8_lossy(needle)
             );
         }
+    }
+
+    /// A mark sealed under another secret (a reinstall, the other machine) names nothing and
+    /// gives no time: `parse_view` takes the time from the old line only.
+    #[test]
+    fn a_mark_of_another_secret_names_nothing_and_gives_no_time() {
+        crate::install_secret::init_with([1u8; 32]);
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let raw = smtp::build(&draft).unwrap().formatted();
+        let raw = with_service_headers(raw, &draft, Some(1_790_123_456), |plain, bound| {
+            crate::install_secret::seal_with(&[200u8; 32], plain, bound)
+        });
+        assert!(message::sealed_draft_mark(&raw).is_some());
+        assert_eq!(draft_mark(&raw), message::DraftMark::default());
+        assert_eq!(message::parse_view(&raw, false).unwrap().send_at, None);
+    }
+
+    /// The mark is for the letter it was sealed in: its line put into another letter opens to nothing.
+    #[test]
+    fn a_mark_moved_into_another_letter_names_nothing() {
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let mine = saved_with(&draft, Some(1_790_123_456));
+        assert_ne!(draft_mark(mine.as_bytes()), message::DraftMark::default());
+        let sealed = message::sealed_draft_mark(mine.as_bytes()).unwrap();
+        let other = format!(
+            "{}: {sealed}\r\nMessage-ID: <other@depesha.local>\r\nFrom: me@x.ru\r\nTo: a@x.ru\r\nSubject: S\r\n\r\nt\r\n",
+            message::DRAFT_HEADER
+        );
+        assert_eq!(draft_mark(other.as_bytes()), message::DraftMark::default());
     }
 
     /// What the draft answers and when it goes come back when it is opened again.
