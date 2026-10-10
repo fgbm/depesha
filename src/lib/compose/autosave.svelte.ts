@@ -6,6 +6,7 @@
 import { onDestroy, untrack } from "svelte";
 import { api } from "../api";
 import { isDirty } from "../compose";
+import { t } from "../i18n.svelte";
 import type { ComposeWindow } from "../composes.svelte";
 import type { ComposeDraft } from "../types";
 
@@ -18,6 +19,8 @@ export interface ComposeAutosaveHost {
   clearError(): void;
   /** The message of a failed save. */
   draftNotSaved(error: string): string;
+  /** A failure that is told in a toast, with the context in front. */
+  fail(e: unknown, prefix?: string): void;
 }
 
 /** Drafts save themselves this long after typing stops. */
@@ -148,7 +151,8 @@ export class ComposeAutosave {
   async forgetLocal() {
     if (!this.localStored) return;
     this.localStored = false;
-    await api.draftCacheDrop(this.host.win.local_id).catch(() => {}); // A local copy left behind is offered for restore at the next start.
+    // A copy left behind is offered for restore at the next start: a letter already sent could go twice.
+    await api.draftCacheDrop(this.host.win.local_id).catch((e) => this.host.fail(e, t("compose.localNotDropped")));
   }
 
   /** The held-back save: runs once the minute since the last server save is up. */

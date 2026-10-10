@@ -10,10 +10,12 @@ import type { ComposeWindow } from "../composes.svelte";
 import { api } from "../testing";
 import { ComposeAutosave, type ComposeAutosaveHost } from "./autosave.svelte";
 
+const fail = vi.fn();
+
 function setup() {
   const draft = { ...emptyDraft({ name: "Me", email: "me@example.com" }), subject: "Привет" };
   const win = { id: 1, mode: "open", savedAt: null, local_id: "k", account_id: "a", draft, draft_id: null, unsaved: true } as unknown as ComposeWindow;
-  const host: ComposeAutosaveHost = { win, setError: () => {}, clearError: () => {}, draftNotSaved: (e) => e };
+  const host: ComposeAutosaveHost = { win, setError: () => {}, clearError: () => {}, draftNotSaved: (e) => e, fail };
   // Vitest runs Svelte as on the server: the constructor's $effect is a no-op there.
   const autosave = new ComposeAutosave(host);
   return autosave;
@@ -60,5 +62,16 @@ describe("the draft saves one at a time", () => {
     const autosave = setup();
     await Promise.all([autosave.save(), autosave.save()]);
     expect(most).toBe(1);
+  });
+});
+
+describe("a local copy that cannot be dropped (#147)", () => {
+  it("is told: it would be offered for restore again, and the letter could go twice", async () => {
+    const boom = new Error("disk locked");
+    api.draftCacheDrop.mockRejectedValue(boom);
+    const autosave = setup();
+    (autosave as unknown as { localStored: boolean }).localStored = true;
+    await autosave.forgetLocal();
+    expect(fail).toHaveBeenCalledWith(boom, expect.any(String));
   });
 });

@@ -130,3 +130,25 @@ describe("the «Sending…» toast", () => {
     }
   });
 });
+
+describe("a local copy that cannot be dropped (#147)", () => {
+  it("is told after the restore, as the copy would be offered again", async () => {
+    const boom = new Error("disk locked");
+    api.draftCacheDrop.mockRejectedValue(boom);
+    const fail = vi.fn();
+    const mgr = new ComposeManager({ windowOf: null, fail } as unknown as ComposeHost);
+    const draft = emptyDraft({ name: "Me", email: "me@example.com" });
+    await mgr.restoreLocal([{ key: "k1", account_id: "a", draft, draft_id: null, updated: 1 }]);
+    expect(mgr.windows).toHaveLength(1);
+    expect(fail).toHaveBeenCalledWith(boom, expect.any(String));
+  });
+
+  it("tells a saver that throws, and the close goes on", async () => {
+    const boom = new Error("saver broke");
+    const fail = vi.fn();
+    const mgr = new ComposeManager({ windowOf: null, fail } as unknown as ComposeHost);
+    mgr.onSaver(1, () => Promise.reject(boom));
+    await mgr.saveAll(1000);
+    expect(fail).toHaveBeenCalledWith(boom, expect.any(String));
+  });
+});

@@ -208,6 +208,8 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "compose.picture.altTitle": "Описание картинки",
   "compose.picture.altHint": "Его видят, если картинки в письме отключены, и программы чтения с экрана. Под картинкой не показывается.",
   "compose.picture.describe": "Описание",
+  "compose.localNotDropped": "Локальную копию письма не удалось удалить; при следующем запуске её могут предложить восстановить",
+  "compose.saveFailed": "Не удалось сохранить письмо",
   "compose.picture.attachedBig": "«{name}» слишком большая для текста — прикреплена файлом",
   "compose.picture.useCtrlV": "Вставьте картинку из буфера обмена прямо в текст",
   "compose.picture.noneInClipboard": "В буфере обмена нет картинки",

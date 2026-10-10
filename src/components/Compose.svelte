@@ -108,6 +108,7 @@
     setError: (m) => (error = m),
     clearError: () => (error = ""),
     draftNotSaved: (err) => t("compose.draftNotSaved", { error: err }),
+    fail: (e, prefix) => app.fail(e, prefix),
   });
 
   // A quit or a closing window saves this draft through the manager, before it goes (#71).

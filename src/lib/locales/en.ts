@@ -215,6 +215,8 @@ export const en = {
   "compose.picture.altTitle": "Picture description",
   "compose.picture.altHint": "Seen when pictures are off in the message and by screen readers. Not shown under the picture.",
   "compose.picture.describe": "Description",
+  "compose.localNotDropped": "The local copy of the letter could not be removed; it may be offered for restore at the next start",
+  "compose.saveFailed": "The letter could not be kept",
   "compose.picture.attachedBig": "“{name}” is too large for the text and is attached as a file",
   "compose.picture.useCtrlV": "Paste the picture from the clipboard straight into the text",
   "compose.picture.noneInClipboard": "There is no picture in the clipboard",
