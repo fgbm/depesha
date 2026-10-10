@@ -104,21 +104,6 @@ pub fn due_soon(items: &[OutboxItem], now: i64) -> Vec<&OutboxItem> {
         .collect()
 }
 
-/// A letter this late was not sent in time (the app was closed, the computer asleep):
-/// it waits for the user instead of leaving hours late.
-pub const MISSED_AFTER: i64 = 10 * 60;
-
-/// A letter is missed only when the app was not running since it was due: `awake_since`
-/// is when the app last (re)started or woke from sleep. A letter held back while the app
-/// ran — the queue is busy, the network is down — is not missed: it goes its usual way.
-pub fn missed(item: &OutboxItem, now: i64, awake_since: i64) -> bool {
-    !item.failed
-        && item.sending_started == 0
-        && item.attempts == 0
-        && item.next_attempt < awake_since
-        && now - item.next_attempt > MISSED_AFTER
-}
-
 /// What the background keeps between events: when the window lost the focus, letters
 /// held back because they missed their time, a round of sending under way, and the
 /// message windows holding letters nobody saved yet.
@@ -385,22 +370,9 @@ pub fn sync_autostart(app: &AppHandle, before: Option<&Settings>, now: &Settings
 /// `awake_since` is when the app last (re)started or woke: only a letter overdue from
 /// before that was missed — one held back while the app ran goes its usual way.
 pub fn hold_missed(state: &AppState, now: i64, awake_since: i64) -> depesha_core::Result<()> {
-    let late: Vec<i64> = state
-        .store
-        .outbox()?
-        .iter()
-        .filter(|i| missed(i, now, awake_since))
-        .map(|i| i.id)
-        .collect();
+    let late = depesha_core::outbox::hold_missed(&state.store, now, awake_since)?;
     if late.is_empty() {
         return Ok(());
-    }
-    let why = tr!(
-        "not sent on time: Depesha was closed or the computer was asleep",
-        "не ушло вовремя: Депеша была закрыта или компьютер спал"
-    );
-    for id in &late {
-        state.store.outbox_retry_later(*id, now, &why, true)?;
     }
     {
         let mut missed = lock(&state.background.missed);
@@ -584,35 +556,6 @@ mod tests {
         ];
         let ids: Vec<i64> = due_soon(&items, now).iter().map(|i| i.id).collect();
         assert_eq!(ids, vec![1, 2, 5]);
-    }
-
-    #[test]
-    fn a_letter_late_by_minutes_is_missed() {
-        let now = 1_000_000;
-        // The app just started: a letter due before that and long overdue was missed.
-        assert!(!missed(&item(1, now, 0, false), now, now));
-        assert!(!missed(&item(1, now - MISSED_AFTER, 0, false), now, now));
-        assert!(missed(&item(1, now - MISSED_AFTER - 1, 0, false), now, now));
-        // A retry after a network error keeps its turn; a refused one waits already.
-        assert!(!missed(&item(1, now - 3600, 2, false), now, now));
-        assert!(!missed(&item(1, now - 3600, 0, true), now, now));
-    }
-
-    #[test]
-    fn a_letter_held_back_while_the_app_ran_is_not_missed() {
-        let now = 1_000_000;
-        // The app has been running for two hours; a letter due an hour ago is overdue
-        // because the queue or the network held it, not because the app was away: it
-        // goes its usual way rather than waiting for the user.
-        let awake = now - 7200;
-        assert!(!missed(&item(1, now - 3600, 0, false), now, awake));
-        // One due before the app started (while it was closed) is missed.
-        assert!(missed(&item(1, now - 8000, 0, false), now, awake));
-        // A letter whose send was already started is never a miss: the restart asks the
-        // user to check «Sent» instead.
-        let mut sending = item(1, now - 8000, 0, false);
-        sending.sending_started = now - 9000;
-        assert!(!missed(&sending, now, awake));
     }
 
     #[test]

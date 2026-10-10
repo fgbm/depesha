@@ -527,6 +527,16 @@ impl depesha_core::port::MailQueue for Queue {
         self.run(Work::CreateFolder(name.to_owned())).await.map(drop)
     }
 
+    async fn copy_to_sent(&mut self, folder: &str, raw: &[u8], flags: &str, message_id: Option<&str>) -> Result<()> {
+        let work = Work::CopyToSent {
+            folder: folder.to_owned(),
+            raw: raw.to_vec(),
+            flags: flags.to_owned(),
+            message_id: message_id.map(str::to_owned),
+        };
+        self.run(work).await.map(drop)
+    }
+
     async fn set_flag(&mut self, folder: &str, message_id: &str, change: FlagChange) -> Result<()> {
         // The UID and the UIDVALIDITY it was read under are the cache's.
         let (row, validity) = self

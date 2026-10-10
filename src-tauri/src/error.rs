@@ -22,6 +22,13 @@ impl CmdError {
     }
 }
 
+/// The words the user sees: what a rule of the core logs or stores of a failure it was handed.
+impl std::fmt::Display for CmdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 impl From<depesha_core::Error> for CmdError {
     fn from(err: depesha_core::Error) -> Self {
         let cert = match &err {

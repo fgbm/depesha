@@ -79,6 +79,16 @@ pub trait MailQueue: Send {
     /// Makes a folder.
     fn create_folder(&mut self, name: &str) -> impl Future<Output = Result<()>> + Send;
 
+    /// Files the bytes of a sent letter in `folder` unless one with the same Message-ID is
+    /// there already.
+    fn copy_to_sent(
+        &mut self,
+        folder: &str,
+        raw: &[u8],
+        flags: &str,
+        message_id: Option<&str>,
+    ) -> impl Future<Output = Result<()>> + Send;
+
     /// Changes a flag of the letter `message_id` in `folder` (as the cache names it); the
     /// implementation finds the letter. `Error::NotFound` when it is not there.
     fn set_flag(
@@ -105,6 +115,9 @@ pub(crate) mod fake {
         /// The answers of `create_folder`; `Ok` once they run out.
         pub created: VecDeque<Result<()>>,
         pub flags: Vec<(String, String, crate::domain::FlagChange)>,
+        /// The answers of `copy_to_sent`; `Ok` once they run out.
+        pub copied: VecDeque<Result<()>>,
+        pub copies: Vec<(String, Vec<u8>)>,
         /// The answers of `set_flag`; `Ok` once they run out.
         pub flagged: VecDeque<Result<()>>,
     }
@@ -119,6 +132,18 @@ pub(crate) mod fake {
             self.moved.pop_front().unwrap_or(Ok(1))
         }
 
+        async fn copy_to_sent(
+            &mut self,
+            folder: &str,
+            raw: &[u8],
+            _flags: &str,
+            _message_id: Option<&str>,
+        ) -> Result<()> {
+            self.log.lock().unwrap().push(format!("copy {folder}"));
+            self.copies.push((folder.to_owned(), raw.to_vec()));
+            self.copied.pop_front().unwrap_or(Ok(()))
+        }
+
         async fn create_folder(&mut self, name: &str) -> Result<()> {
             self.log.lock().unwrap().push(format!("create {name}"));
             self.created.pop_front().unwrap_or(Ok(()))
@@ -128,6 +153,43 @@ pub(crate) mod fake {
             self.log.lock().unwrap().push(format!("flag {folder}"));
             self.flags.push((folder.to_owned(), message_id.to_owned(), change));
             self.flagged.pop_front().unwrap_or(Ok(()))
+        }
+    }
+}
+
+/// Sends a letter: SMTP, or Exchange Web Services, which files the copy in Sent Items itself.
+/// The implementation builds the message and holds the credentials; what comes back are the
+/// bytes that left, whose Message-ID the rules read.
+pub trait Sender: Send {
+    fn send(&mut self, draft: &crate::domain::Draft) -> impl Future<Output = Result<Vec<u8>>> + Send;
+}
+
+#[cfg(test)]
+pub(crate) mod fake_sender {
+    use super::*;
+    use std::collections::VecDeque;
+
+    type Probe = Box<dyn FnMut(&crate::domain::Draft) + Send>;
+
+    /// A sender for the tests of the rules: it answers from a script and lets a test look at
+    /// the world at the moment the letter leaves.
+    #[derive(Default)]
+    pub(crate) struct Sender {
+        /// The answers, in order; the bytes of a minimal letter once they run out.
+        pub results: VecDeque<Result<Vec<u8>>>,
+        pub sent: Vec<crate::domain::Draft>,
+        pub probe: Option<Probe>,
+    }
+
+    pub(crate) const RAW: &[u8] = b"Message-ID: <sent@x>\r\nSubject: s\r\n\r\nbody";
+
+    impl super::Sender for Sender {
+        async fn send(&mut self, draft: &crate::domain::Draft) -> Result<Vec<u8>> {
+            if let Some(probe) = self.probe.as_mut() {
+                probe(draft);
+            }
+            self.sent.push(draft.clone());
+            self.results.pop_front().unwrap_or_else(|| Ok(RAW.to_vec()))
         }
     }
 }

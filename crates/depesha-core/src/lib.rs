@@ -18,6 +18,7 @@ pub mod message;
 pub(crate) mod net;
 pub mod ntlm;
 pub mod oauth;
+pub mod outbox;
 pub mod port;
 pub mod query;
 pub mod quota;
