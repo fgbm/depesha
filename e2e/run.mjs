@@ -1084,14 +1084,19 @@ try {
       await d.until("snooze menu in the window", async () => (await textOf(".snooze .pop.main")).includes("Завтра"));
       await d.click(await d.until("snooze preset", () => d.xpath("//div[contains(@class,'snooze')]//button[contains(., 'Завтра')]")));
       await d.until("in Snoozed on server", async () => helper("count", "Отложенные", subj) === "1", 20000);
+      // The undo is offered in the main window, where the list is, and the toast is short-lived: it is clicked first. It puts
+      // things in order for the steps that follow. The snooze toast has no subject; the last one is this letter's.
+      await d.req("POST", d.s("/window"), { handle: main });
+      await d.click(await d.until("undo offered", () => d.xpath("(//div[contains(@class,'toast') and contains(., 'Отложено до')]//button[contains(., 'Отменить')])[last()]").catch(() => null)));
+      await d.until("undone on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
     } finally {
       // A failure must not leave the letter's window for the next step: it is closed if it is still open.
-      if ((await handles()).includes(other)) await d.req("DELETE", d.s("/window")).catch(() => {});
+      if ((await handles()).includes(other)) {
+        await d.req("POST", d.s("/window"), { handle: other });
+        await d.req("DELETE", d.s("/window")).catch(() => {});
+      }
       await d.req("POST", d.s("/window"), { handle: main });
     }
-    // The undo is offered in the main window, where the list is; the snooze toast (it has no subject; the last one is this letter's), not any other, puts things in order.
-    await d.click(await d.until("undo offered", () => d.xpath("(//div[contains(@class,'toast') and contains(., 'Отложено до')]//button[contains(., 'Отменить')])[last()]").catch(() => null)));
-    await d.until("undone on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
   });
 
   // A drop on a reply (#79): the backend makes the window report a drop of real files, the rest is the real path.
