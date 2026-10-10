@@ -14,6 +14,7 @@
 
 import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -379,17 +380,50 @@ async function sidebarText() {
   return d.exec("return document.querySelector('nav.side').innerText");
 }
 
-const driverProc = spawn(join(process.env.HOME, ".cargo/bin/tauri-driver"), ["--native-driver", nativeDriver], {
-  env,
-  stdio: ["ignore", "inherit", "inherit"],
-});
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Waits until the X server of `display` takes connections: CI starts Xvfb in the background a moment
+ *  before the run, and an app that meets no server panics in GTK ("Failed to initialize gtk backend"),
+ *  while tauri-driver keeps the session request waiting (#129). Only a local display (`:N`) is checked. */
+async function waitDisplay(display, timeoutMs = 30000) {
+  const n = /^:(\d+)/.exec(display)?.[1];
+  if (n === undefined) return;
+  await d.until(`X server ${display}`, () => new Promise((resolve) => {
+    const s = connect(`/tmp/.X11-unix/X${n}`);
+    s.once("connect", () => { s.destroy(); resolve(true); });
+    s.once("error", () => resolve(false));
+  }), timeoutMs, 200);
+}
+
+let driverProc;
+
+/** tauri-driver and the session: the driver is up when it answers `/status`; a session that does not
+ *  start in a minute (the app died on start, the driver waits for it for good) is tried again on a
+ *  fresh driver, three times. Only the start is repeated, never a step. */
+async function startSession() {
+  for (let attempt = 1; ; attempt++) {
+    driverProc = spawn(join(process.env.HOME, ".cargo/bin/tauri-driver"), ["--native-driver", nativeDriver], {
+      env,
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    try {
+      await d.until("tauri-driver", async () => (await fetch("http://127.0.0.1:4444/status", { signal: AbortSignal.timeout(2000) })).ok, 30000);
+      await d.start(app, {}, 60000);
+      return;
+    } catch (e) {
+      const gone = new Promise((r) => driverProc.once("exit", r));
+      driverProc.kill();
+      await gone;
+      if (attempt === 3) throw e;
+      console.error(`Старт сессии, попытка ${attempt} из 3: ${e.message}; драйвер запускается заново`);
+      await sleep(2000);
+    }
+  }
+}
 
 try {
-  await d.until("tauri-driver", async () => {
-    await fetch("http://127.0.0.1:4444/status");
-    return true;
-  }, 10000);
-  await d.start(app);
+  await waitDisplay(env.DISPLAY);
+  await startSession();
   console.log(`Профиль: ${profile}`);
 
   const stamp = new Date().toISOString().slice(11, 19);
@@ -2430,6 +2464,10 @@ try {
     await d.button("Входящие");
     await openBySubject("HTML-письмо с картинками");
     await intercept();
+    // The folder tree of the mailbox has been seen gone at the end of this step (#129): who folded it is kept here.
+    await d.exec(`window.__folds = [];
+      document.addEventListener('click', (e) => { if (e.target.closest?.('.account-name')) window.__folds.push({ trusted: e.isTrusted, x: e.clientX, y: e.clientY, detail: e.detail,
+        focus: document.activeElement?.className, at: Math.round(performance.now()) }); }, true);`);
     if (!(await ctrlP())) throw new Error("Ctrl+P не отнят у браузера: он напечатал бы весь интерфейс");
     let p = await sheet(1, "html");
     expectIn("лист HTML-письма", p.html, "<h1>HTML-письмо с картинками</h1>", "<dt>От</dt><dd>Рассылка &lt;news@example.org&gt;</dd>", "<dt>Кому</dt>", "<dt>Дата</dt>", "<dt>Вложения</dt><dd>report.pdf</dd>", "Новости", "data:image/png");
@@ -2502,7 +2540,11 @@ try {
     // 6. The letter's own window: the same function.
     const title = "Документы на проверку";
     const main = await d.req("GET", d.s("/window"));
-    await openFolder("Работа");
+    await openFolder("Работа").catch(async (e) => {
+      const seen = await d.exec(`return { folds: window.__folds, stored: localStorage.getItem('depesha.sidebar.collapsed'), at: Math.round(performance.now()),
+        side: document.querySelector('nav.side').innerText.slice(0, 300) }`);
+      throw new Error(`${e.message}; ящик: ${JSON.stringify(seen)}`);
+    });
     await rowBySubject(title);
     await d.exec(
       `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
@@ -4386,7 +4428,7 @@ try {
   results.push({ criteria: "-", name: "прогон", ok: false, error: e.message });
 } finally {
   await d.quit();
-  driverProc.kill();
+  driverProc?.kill();
   // Remove only the test account's password from the keyring.
   try {
     const cfg = JSON.parse(readFileSync(join(profile, "config/ru.depesha.mail/accounts.json"), "utf-8"));

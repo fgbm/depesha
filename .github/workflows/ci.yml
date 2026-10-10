@@ -136,6 +136,9 @@ jobs:
       - name: Run E2E with a session bus and an unlocked keyring
         run: |
           Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &
+          # The app panics in GTK when it starts before the X server takes connections (#129).
+          for i in $(seq 100); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
+          [ -S /tmp/.X11-unix/X99 ]
           dbus-run-session -- bash -c '
             echo -n "ci" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
             DEPESHA_E2E_SHARD=${{ matrix.shard }} WEBKIT_DRIVER=/usr/bin/WebKitWebDriver E2E_DISPLAY=:99 node e2e/run.mjs'

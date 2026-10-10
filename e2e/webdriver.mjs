@@ -8,11 +8,13 @@ export class Driver {
     this.session = null;
   }
 
-  async req(method, path, body) {
+  async req(method, path, body, timeoutMs) {
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      // Without it fetch waits 5 minutes for the headers (HeadersTimeoutError): a driver whose app never came up.
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -26,10 +28,10 @@ export class Driver {
     return `/session/${this.session}${path}`;
   }
 
-  async start(application, env = {}) {
+  async start(application, env = {}, timeoutMs) {
     const v = await this.req("POST", "/session", {
       capabilities: { alwaysMatch: { "tauri:options": { application, env } } },
-    });
+    }, timeoutMs);
     this.session = v.sessionId;
   }
 
