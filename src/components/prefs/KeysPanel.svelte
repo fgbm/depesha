@@ -11,7 +11,7 @@
   import { i18n, t, tn } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
   import { host } from "../../plugin-host/host.svelte";
-  import { keyText, type Group, type Problem } from "../../lib/keymap";
+  import { keyText, modName, type Group, type Problem } from "../../lib/keymap";
   import { shortcuts, type TitledCommand } from "../../lib/shortcuts.svelte";
   import type { Settings } from "../../lib/types";
   import Keys from "../Keys.svelte";
@@ -75,7 +75,7 @@
     return p === null ? null : p.kind === "noKey" ? t("keys.swapNoKey") : t("keys.swapBad", { key: text(p.key), other: p.other });
   }
 
-  const held = (m: string) => (m === "Mod" ? "Ctrl" : m);
+  const held = (m: string) => (m === "Mod" ? modName() : m);
 </script>
 
 <div class="tools">

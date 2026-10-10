@@ -8,6 +8,8 @@
 // the Russian "у" is "e" (docs/ux.md, principle 5); a character typed with Shift holds
 // it ("#" is Shift+3, not "Shift+3").
 
+import { isMac } from "./platform";
+
 /** A key press, as the DOM delivers it; the fields the key naming reads. */
 export interface KeyPress {
   key: string;
@@ -139,10 +141,16 @@ export interface Cap {
   legend?: string;
 }
 
-const NAMES: Record<string, string> = { Mod: "Ctrl", ArrowDown: "↓", ArrowUp: "↑", ArrowLeft: "←", ArrowRight: "→", Escape: "Esc" };
+const NAMES: Record<string, string> = { ArrowDown: "↓", ArrowUp: "↑", ArrowLeft: "←", ArrowRight: "→", Escape: "Esc" };
 
-function partName(p: string, lang: string): string {
+/** What "Mod" is called on this system: ⌘ on macOS, Ctrl elsewhere. Alt and Shift keep their words. */
+export function modName(mac = isMac()): string {
+  return mac ? "⌘" : "Ctrl";
+}
+
+function partName(p: string, lang: string, mac: boolean): string {
   if (p === "Space") return lang === "ru" ? "Пробел" : "Space";
+  if (p === "Mod") return modName(mac);
   return NAMES[p] ?? p;
 }
 
@@ -150,13 +158,13 @@ function partName(p: string, lang: string): string {
  * The key caps of a key. A single key and Shift+key get the Russian letter of the same
  * key as a second label (`e у`); with Ctrl or Alt it would only be noise.
  */
-export function caps(key: string, lang: string): Cap[] {
+export function caps(key: string, lang: string, mac = isMac()): Cap[] {
   const parts = key.split("+");
   // "Mod++" would be Ctrl and "+": the last part may itself be "+".
   const k = key.endsWith("++") ? "+" : (parts.pop() as string);
   if (key.endsWith("++")) parts.splice(-2);
-  const out: Cap[] = parts.map((m) => ({ main: partName(m, lang) }));
-  const main = k.length === 1 && /[a-z]/.test(k) && parts.length ? k.toUpperCase() : partName(k, lang);
+  const out: Cap[] = parts.map((m) => ({ main: partName(m, lang, mac) }));
+  const main = k.length === 1 && /[a-z]/.test(k) && parts.length ? k.toUpperCase() : partName(k, lang, mac);
   let legend = lang === "ru" && k.length === 1 && !parts.includes("Mod") && !parts.includes("Alt") ? RU[k] : undefined;
   if (legend === main) legend = undefined;
   if (legend && parts.length) legend = legend.toUpperCase();
@@ -165,8 +173,8 @@ export function caps(key: string, lang: string): Cap[] {
 }
 
 /** The key in one line, for tooltips and menus: "Ctrl+Shift+P", "e/у". */
-export function keyText(key: string, lang: string): string {
-  const c = caps(key, lang);
+export function keyText(key: string, lang: string, mac = isMac()): string {
+  const c = caps(key, lang, mac);
   const last = c[c.length - 1];
   return c.map((x) => x.main).join("+") + (last.legend ? `/${last.legend}` : "");
 }

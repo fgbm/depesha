@@ -7,6 +7,7 @@ import {
   findCommand,
   heldMods,
   keyText,
+  modName,
   matches,
   pressName,
   pressNames,
@@ -113,6 +114,15 @@ describe("labels", () => {
   it("leaves Ctrl and Alt combinations with one label", () => {
     expect(caps("Mod+l", "ru")).toEqual([{ main: "Ctrl" }, { main: "L" }]);
     expect(caps("Mod+Shift+p", "ru")).toEqual([{ main: "Ctrl" }, { main: "Shift" }, { main: "P" }]);
+  });
+
+  it("names Mod as Cmd on macOS and as Ctrl elsewhere", () => {
+    expect(caps("Mod+l", "ru", true)).toEqual([{ main: "⌘" }, { main: "L" }]);
+    expect(caps("Mod+Shift+p", "en", false)).toEqual([{ main: "Ctrl" }, { main: "Shift" }, { main: "P" }]);
+    expect(keyText("Mod+k", "ru", true)).toBe("⌘+K");
+    expect(keyText("Mod+k", "ru", false)).toBe("Ctrl+K");
+    expect(modName(true)).toBe("⌘");
+    expect(modName(false)).toBe("Ctrl");
   });
 
   it("names special keys readably", () => {
