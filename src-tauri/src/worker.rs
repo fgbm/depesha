@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use depesha_core::account::Account;
 use depesha_core::domain::{FlagChange, FolderRole};
-use depesha_core::idle_pace::IdlePace;
+use depesha_core::idle_pace::{Dropped, IdlePace};
 use depesha_core::imap::IdleOutcome;
 use depesha_core::mail::{self, Conn};
 use depesha_core::store::ListQuery;
@@ -1935,38 +1935,30 @@ async fn idle_loop(
             }
         };
         backoff = Duration::from_secs(5);
+        let connected = Instant::now();
         loop {
-            let waiting_since = Instant::now();
             tokio::select! {
-                r = mail::wait_for_changes(conn, &state.store, &account.id, POLL_WITHOUT_IDLE, pace.renew()) => match r {
+                r = mail::wait_for_changes(conn, &state.store, &account.id, POLL_WITHOUT_IDLE, &mut pace, connected) => match r {
                     Ok((c, outcome)) => {
                         conn = c;
-                        pace.renewed();
                         if matches!(outcome, IdleOutcome::Changed) {
                             queue(&tx, &queued, Work::SyncFolder("INBOX".into())).await;
                         }
                     }
-                    Err(e) => {
+                    Err(d) => {
                         // A link that breaks at once (a proxy cutting long answers) must not spin;
-                        // a busy Exchange gets the pause it asked for. A server or proxy that cuts
-                        // an idle link every N seconds makes the next IDLEs shorter than N.
-                        let wait = if e.is_busy() {
-                            tracing::debug!(account = %account.id, "idle dropped: {e}");
-                            busy_pause(e.back_off(), 0)
-                        } else {
-                            let lived = waiting_since.elapsed();
-                            let d = pace.dropped(lived);
-                            let renew = pace.renew();
-                            if d.log {
-                                tracing::warn!(
-                                    account = %account.id,
-                                    "idle dropped after {}s: {e} (in a row: {}, renewing IDLE every {}s, pause {}s)",
-                                    lived.as_secs(), d.drops, renew.as_secs(), d.pause.as_secs()
-                                );
-                            } else {
-                                tracing::debug!(account = %account.id, "idle dropped after {}s: {e} (in a row: {})", lived.as_secs(), d.drops);
+                        // a busy Exchange gets the pause it asked for. The pace learns from a
+                        // server or proxy that cuts an idle link every N seconds, and keeps the
+                        // log to a line per power of two of a series.
+                        let wait = match &d.dropped {
+                            Some(p) => {
+                                log_idle_drop(&account.id, &d, p);
+                                p.pause
                             }
-                            d.pause
+                            None => {
+                                tracing::debug!(account = %account.id, "idle dropped: {}", d.error);
+                                busy_pause(d.error.back_off(), 0)
+                            }
                         };
                         tokio::time::sleep(wait).await;
                         break;
@@ -1979,6 +1971,37 @@ async fn idle_loop(
                 }
             }
         }
+    }
+}
+
+/// The line for a dropped subscription: the cause the server gave and both times (since the
+/// last write and since the connect) say who cuts, so the first of a series and every
+/// power of two after it are `warn`, the rest `debug`.
+fn log_idle_drop(account: &str, d: &depesha_core::mail::IdleDrop, p: &Dropped) {
+    let renew = match d.renew {
+        Some(r) => format!(", renewing IDLE every {}s", r.as_secs()),
+        None => String::new(),
+    };
+    let note = match (p.by_age, p.shortened) {
+        (true, _) => "; the connection is cut by its age, not by idleness: renewal kept",
+        (_, Some(_)) => "; cut after the same idle time twice: renewal shortened",
+        _ => "",
+    };
+    let line = format!(
+        "idle dropped ({}) after {}s of the wait, {}s of the connection: {} (in a row: {}{}, pause {}s){}",
+        d.cause,
+        d.since_wait.as_secs(),
+        d.since_connect.as_secs(),
+        d.error,
+        p.drops,
+        renew,
+        p.pause.as_secs(),
+        note
+    );
+    if p.log {
+        tracing::warn!(account = %account, "{line}");
+    } else {
+        tracing::debug!(account = %account, "{line}");
     }
 }
 

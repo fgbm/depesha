@@ -1,12 +1,13 @@
 //! One interface over the two kinds of server: IMAP with SMTP, and Exchange Web
 //! Services. The cache, the worker and the GUI see the same folders and UIDs.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::account::{Account, Credentials};
 use crate::avatar::Receiver;
 use crate::clear::{self, Clearing, EMPTY_BATCH, Emptied, Emptying, Forgot, Performed};
 use crate::domain::{FlagChange, Folder};
+use crate::idle_pace::{DropCause, DropInfo, Dropped, IdlePace};
 use crate::imap::{self, IdleOutcome};
 use crate::port::{Count, MailServer};
 use crate::store::Store;
@@ -716,23 +717,67 @@ pub async fn load_older(conn: &mut Conn, store: &Store, account_id: &str, folder
     }
 }
 
-/// Waits for changes in the inbox (IMAP IDLE, EWS streaming notifications, or polling)
-/// and gives the connection back.
+/// A subscription that broke: the error, how it broke and what the pace makes of it.
+#[derive(Debug)]
+pub struct IdleDrop {
+    pub error: Error,
+    pub cause: DropCause,
+    /// Since the last thing the client wrote (the start of this wait).
+    pub since_wait: Duration,
+    /// Since the connect.
+    pub since_connect: Duration,
+    /// The renewal this IDLE was held under; `None` for a transport that takes none (EWS).
+    pub renew: Option<Duration>,
+    /// What the pace says to do next; `None` for a busy server, whose own pause is kept.
+    pub dropped: Option<Dropped>,
+}
+
+/// Waits for changes in the inbox (IMAP IDLE renewed as the `pace` says, EWS streaming
+/// notifications, or polling) and gives the connection back. `connected` is when the
+/// connection was made. A break comes back with its cause and the pace's verdict.
 pub async fn wait_for_changes(
     conn: Conn,
     store: &Store,
     account_id: &str,
     poll: Duration,
-    renew: Duration,
-) -> Result<(Conn, IdleOutcome)> {
-    match conn {
+    pace: &mut IdlePace,
+    connected: Instant,
+) -> std::result::Result<(Conn, IdleOutcome), Box<IdleDrop>> {
+    let began = Instant::now();
+    let (result, renew) = match conn {
         Conn::Imap(c) => {
-            let (c, outcome) = imap::wait_for_changes(c, "INBOX", poll, renew).await?;
-            Ok((Conn::Imap(c), outcome))
+            let renew = pace.renew();
+            let r = imap::wait_for_changes(c, "INBOX", poll, renew).await;
+            (r.map(|(c, o)| (Conn::Imap(c), o)), Some(renew))
         }
         Conn::Ews(mut s) => {
-            let outcome = ews::wait_for_changes(&mut s, store, account_id, poll).await?;
-            Ok((Conn::Ews(s), outcome))
+            let r = ews::wait_for_changes(&mut s, store, account_id, poll).await;
+            (r.map(|o| (Conn::Ews(s), o)), None)
+        }
+    };
+    match result {
+        Ok(done) => {
+            if renew.is_some() {
+                pace.renewed();
+            }
+            Ok(done)
+        }
+        Err(error) => {
+            let info = DropInfo {
+                cause: DropCause::of(&error),
+                since_wait: began.elapsed(),
+                since_connect: connected.elapsed(),
+                renew,
+            };
+            let dropped = (!error.is_busy()).then(|| pace.dropped(&info));
+            Err(Box::new(IdleDrop {
+                error,
+                cause: info.cause,
+                since_wait: info.since_wait,
+                since_connect: info.since_connect,
+                renew,
+                dropped,
+            }))
         }
     }
 }

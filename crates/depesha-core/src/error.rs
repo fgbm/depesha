@@ -34,6 +34,8 @@ pub enum Error {
     Compose(String),
     Store(rusqlite::Error),
     Closed,
+    /// The server said `* BYE` with this text (sent as it was worded) and closed the connection.
+    Bye(String),
     Protocol(String),
     NotFound,
     Parse,
@@ -129,6 +131,11 @@ impl std::fmt::Display for Error {
             Self::Compose(m) => tr!("the message could not be built: {m}", "письмо не собрано: {m}"),
             Self::Store(e) => tr!("local database: {e}", "локальная база: {e}"),
             Self::Closed => tr!("the server closed the connection", "сервер закрыл соединение"),
+            Self::Bye(text) => tr!(
+                "the server closed the connection: {}",
+                "сервер закрыл соединение: {}",
+                text
+            ),
             Self::Paused => tr!(
                 "the mailbox is paused until its settings are fixed",
                 "ящик приостановлен, пока не исправлены его настройки"
@@ -232,7 +239,7 @@ impl Error {
     /// Worth retrying later without user action: network trouble and SMTP 4xx.
     pub fn is_transient(&self) -> bool {
         match self {
-            Self::Io(_) | Self::Timeout(_) | Self::Closed => true,
+            Self::Io(_) | Self::Timeout(_) | Self::Closed | Self::Bye(_) => true,
             Self::Smtp { code, .. } | Self::SmtpHello { code, .. } => (400..500).contains(code),
             Self::Ews { code, .. } => matches!(
                 code.as_str(),

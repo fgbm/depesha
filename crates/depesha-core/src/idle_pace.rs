@@ -1,35 +1,129 @@
 //! The pace of the inbox subscription (IMAP IDLE): how often to renew it and how long to
 //! wait before reconnecting. RFC 2177 asks for a renewal at least every 29 minutes, but a
-//! proxy, a firewall or a corporate server may cut an idle connection far sooner (a
-//! reported Exchange 2019 does it every ~20 seconds). A cut shows up as a dropped
-//! connection, never as a timeout of ours: the silence watchdog stands down during IDLE.
-//! The pace learns from the cuts: renew IDLE well inside the observed lifetime (the DONE and
-//! the new IDLE are traffic, which resets such an idle timer) and back off while
-//! connections keep breaking at once.
+//! proxy, a firewall or a corporate server may cut a connection far sooner (a reported
+//! Exchange 2019 does it every ~20 seconds). A cut shows up as a dropped connection, never
+//! as a timeout of ours: the silence watchdog stands down during IDLE.
+//!
+//! Two kinds of cut look alike and need opposite answers. A cut of an *idle* link comes N
+//! seconds after the client last wrote: renewing IDLE (DONE and the new IDLE are traffic)
+//! inside N keeps the link. A cut by the connection's *age* comes N seconds after the
+//! connect whatever is written: renewing does nothing, and a short renewal only burns
+//! traffic. The pace learns the first kind from two drops in a row at the same mark after
+//! the last write, tells the second by a drop at the same age of the connection under a
+//! different renewal, and for that one only backs the reconnects off.
 
+use std::fmt;
 use std::time::Duration;
 
+use crate::Error;
 use crate::imap::IDLE_RENEW;
 
-/// The first pause after a drop; doubles while drops follow each other.
-const PAUSE: Duration = Duration::from_secs(5);
-const PAUSE_MAX: Duration = Duration::from_secs(120);
-/// A connection that lived this long before it dropped counts as healthy.
-const HEALTHY: Duration = Duration::from_secs(5 * 60);
-/// A drop sooner than this after the start is not a timeout of an idle link
-/// (refused at once, a proxy cutting long answers): it only backs the pause off.
-const TOO_SOON: Duration = Duration::from_secs(10);
-/// The shortest renewal: below this IDLE would turn into polling.
-const RENEW_MIN: Duration = Duration::from_secs(10);
-/// Renewals in a row that survived before the learned interval is tried longer again.
-const PROBE_AFTER: u32 = 20;
+/// Why a connection broke, as far as the error says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DropCause {
+    /// The server said `* BYE` (with this text) before it closed.
+    Bye(String),
+    /// The server closed the connection (FIN).
+    Eof,
+    /// The connection was reset or the pipe broke (RST).
+    Reset,
+    /// Something timed out: the network changed, a VPN fell, TCP keepalive gave up.
+    TimedOut,
+    Other,
+}
+
+impl DropCause {
+    pub fn of(e: &Error) -> Self {
+        use async_imap::error::Error as I;
+        use std::io::ErrorKind as K;
+        let io = |e: &std::io::Error| match e.kind() {
+            K::UnexpectedEof => Self::Eof,
+            K::ConnectionReset | K::ConnectionAborted | K::BrokenPipe => Self::Reset,
+            K::TimedOut => Self::TimedOut,
+            _ => Self::Other,
+        };
+        match e {
+            Error::Bye(text) => Self::Bye(text.clone()),
+            Error::Closed | Error::Imap(I::ConnectionLost) => Self::Eof,
+            Error::Io(e) | Error::Imap(I::Io(e)) => io(e),
+            Error::Timeout(_) => Self::TimedOut,
+            _ => Self::Other,
+        }
+    }
+
+    /// Only a close by the other side says anything about when it closes.
+    fn teaches(&self) -> bool {
+        matches!(self, Self::Bye(_) | Self::Eof | Self::Reset)
+    }
+}
+
+impl fmt::Display for DropCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bye(text) => write!(f, "BYE {text:?}"),
+            Self::Eof => f.write_str("EOF"),
+            Self::Reset => f.write_str("reset"),
+            Self::TimedOut => f.write_str("timeout"),
+            Self::Other => f.write_str("error"),
+        }
+    }
+}
+
+/// A connection that broke: how, when, and under which renewal.
+#[derive(Debug, Clone)]
+pub struct DropInfo {
+    pub cause: DropCause,
+    /// Since the last thing the client wrote (the start of the IDLE that failed).
+    pub since_wait: Duration,
+    /// Since the connect.
+    pub since_connect: Duration,
+    /// The renewal this IDLE was held under; `None` when the transport takes none (EWS).
+    pub renew: Option<Duration>,
+}
+
+/// The numbers the pace works by; tests shrink them to seconds.
+#[derive(Debug, Clone, Copy)]
+pub struct Tuning {
+    /// The longest renewal, and the first one.
+    pub max: Duration,
+    /// The shortest renewal: below this IDLE would turn into polling.
+    pub floor: Duration,
+    /// A drop sooner than this after the last write is not a cut of an idle link.
+    pub too_soon: Duration,
+    /// A connection that lived this long counts as healthy and ends a series of drops.
+    pub healthy: Duration,
+    /// The first pause after a drop; doubles while drops follow each other.
+    pub pause: Duration,
+    pub pause_max: Duration,
+    /// Renewals that went through before a learned renewal is tried longer again.
+    pub probe_after: u32,
+}
+
+impl Default for Tuning {
+    fn default() -> Self {
+        Self {
+            max: IDLE_RENEW,
+            floor: Duration::from_secs(10),
+            too_soon: Duration::from_secs(10),
+            healthy: Duration::from_secs(5 * 60),
+            pause: Duration::from_secs(5),
+            pause_max: Duration::from_secs(120),
+            probe_after: 20,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct IdlePace {
+    tune: Tuning,
     renew: Duration,
     /// Drops in a row without a healthy connection between them.
     drops: u32,
     survived: u32,
+    /// The previous drop that taught: (since the last write, since the connect).
+    mark: Option<(Duration, Duration)>,
+    /// The age at which the connection is cut whatever is written, once told.
+    lifetime: Option<Duration>,
 }
 
 /// What to do after a drop.
@@ -38,19 +132,34 @@ pub struct Dropped {
     pub pause: Duration,
     /// Drops in a row, this one included.
     pub drops: u32,
-    /// Whether this drop is worth a line in the log: the first of a series and then
-    /// every power of two, so a link that breaks all day does not fill the log.
+    /// Whether this drop is worth a line in the log: every power of two of a series, and
+    /// the one that found the cut by age, so a link that breaks all day does not fill it.
     pub log: bool,
-    /// The renewal was shortened by this drop.
-    pub shortened: bool,
+    /// The renewal this drop shortened to.
+    pub shortened: Option<Duration>,
+    /// This drop showed that the cut comes by the age of the connection: set once per series.
+    pub by_age: bool,
+}
+
+/// Two marks are the same moment if they differ by less than a fifth (and 2 s).
+fn near(a: Duration, b: Duration) -> bool {
+    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+    hi - lo <= (hi / 5).max(Duration::from_secs(2))
 }
 
 impl IdlePace {
     pub fn new() -> Self {
+        Self::with(Tuning::default())
+    }
+
+    pub fn with(tune: Tuning) -> Self {
         Self {
-            renew: IDLE_RENEW,
+            renew: tune.max,
+            tune,
             drops: 0,
             survived: 0,
+            mark: None,
+            lifetime: None,
         }
     }
 
@@ -62,31 +171,55 @@ impl IdlePace {
     /// A renewal went through with the connection alive.
     pub fn renewed(&mut self) {
         self.survived += 1;
-        self.drops = 0;
-        if self.survived >= PROBE_AFTER && self.renew < IDLE_RENEW {
+        if self.survived >= self.tune.probe_after && self.renew < self.tune.max {
             self.survived = 0;
-            self.renew = (self.renew * 2).min(IDLE_RENEW);
+            self.renew = (self.renew * 2).min(self.tune.max);
         }
     }
 
-    /// The connection broke `lived` after the start of the wait that failed.
-    pub fn dropped(&mut self, lived: Duration) -> Dropped {
+    pub fn dropped(&mut self, info: &DropInfo) -> Dropped {
         self.survived = 0;
-        if lived >= HEALTHY {
+        if info.since_connect >= self.tune.healthy {
             self.drops = 0;
+            self.mark = None;
+            self.lifetime = None;
         }
         self.drops += 1;
-        let mut shortened = false;
-        if (TOO_SOON..self.renew).contains(&lived) {
-            self.renew = (lived * 2 / 3).max(RENEW_MIN);
-            shortened = true;
+        let mut shortened = None;
+        let mut by_age = false;
+        if let Some(renew) = info.renew.filter(|_| info.cause.teaches()) {
+            let now = (info.since_wait, info.since_connect);
+            match (self.lifetime, self.mark) {
+                (Some(age), _) if near(info.since_connect, age) => {}
+                (_, Some((wait, age))) if near(info.since_connect, age) && !near(info.since_wait, wait) => {
+                    // The same age under another renewal: the age cuts, not the idleness.
+                    // The shortening it was misled into is taken back.
+                    self.lifetime = Some(info.since_connect);
+                    self.renew = self.tune.max;
+                    by_age = true;
+                }
+                (_, Some((wait, _))) if near(info.since_wait, wait) && info.since_wait < renew => {
+                    if info.since_wait >= self.tune.too_soon {
+                        self.renew = (info.since_wait * 2 / 3).max(self.tune.floor);
+                        shortened = Some(self.renew);
+                    }
+                    self.lifetime = None;
+                }
+                _ => self.lifetime = None,
+            }
+            self.mark = Some(now);
         }
-        let pause = PAUSE.saturating_mul(1 << (self.drops - 1).min(5)).min(PAUSE_MAX);
+        let pause = self
+            .tune
+            .pause
+            .saturating_mul(1 << (self.drops - 1).min(5))
+            .min(self.tune.pause_max);
         Dropped {
             pause,
             drops: self.drops,
-            log: self.drops.is_power_of_two(),
+            log: self.drops.is_power_of_two() || by_age,
             shortened,
+            by_age,
         }
     }
 }
@@ -105,65 +238,165 @@ mod tests {
         Duration::from_secs(n)
     }
 
+    /// What a server that cuts a link after `after` seconds of the client's silence does:
+    /// the first wait on a connection is held for the renewal, and it is cut if the renewal
+    /// is longer.
+    fn idle_cut(after: u64, pace: &IdlePace) -> Option<DropInfo> {
+        (pace.renew() > s(after)).then(|| DropInfo {
+            cause: DropCause::Eof,
+            since_wait: s(after),
+            since_connect: s(after),
+            renew: Some(pace.renew()),
+        })
+    }
+
+    /// A server that cuts the connection `age` seconds after the connect, whatever is
+    /// written: the wait that is on at that moment began at the last multiple of the renewal.
+    fn age_cut(age: u64, pace: &IdlePace) -> DropInfo {
+        let renew = pace.renew().as_secs();
+        DropInfo {
+            cause: DropCause::Eof,
+            since_wait: s(if age < renew { age } else { age % renew }),
+            since_connect: s(age),
+            renew: Some(pace.renew()),
+        }
+    }
+
+    fn drop_of(cause: DropCause, wait: u64, connect: u64, pace: &IdlePace) -> DropInfo {
+        DropInfo {
+            cause,
+            since_wait: s(wait),
+            since_connect: s(connect),
+            renew: Some(pace.renew()),
+        }
+    }
+
     #[test]
     fn a_fresh_pace_renews_inside_the_rfc_limit() {
         assert!(IdlePace::new().renew() <= s(29 * 60));
     }
 
     #[test]
-    fn a_link_cut_every_twenty_seconds_gets_a_renewal_inside_that_time() {
+    fn a_link_cut_after_twenty_seconds_of_silence_gets_a_renewal_that_holds_it() {
         let mut p = IdlePace::new();
-        let d = p.dropped(s(20));
-        assert!(d.shortened);
-        assert!(p.renew() < s(20) && p.renew() >= RENEW_MIN, "{:?}", p.renew());
+        let first = p.dropped(&idle_cut(20, &p).unwrap());
+        assert_eq!(first.shortened, None, "one drop is no proof");
+        assert_eq!(p.renew(), IDLE_RENEW);
+        let second = p.dropped(&idle_cut(20, &p).unwrap());
+        assert!(second.shortened.is_some());
+        assert!(p.renew() < s(20) && p.renew() >= s(10), "{:?}", p.renew());
+        assert!(idle_cut(20, &p).is_none(), "the link now survives");
     }
 
     #[test]
-    fn drops_in_a_row_back_the_pause_off_and_are_logged_rarely() {
+    fn a_link_cut_by_the_age_of_the_connection_keeps_the_long_renewal_and_logs_rarely() {
         let mut p = IdlePace::new();
-        let drops: Vec<_> = (0..9).map(|_| p.dropped(s(1))).collect();
-        assert_eq!(drops[0].pause, s(5));
-        assert_eq!(drops[1].pause, s(10));
-        assert_eq!(drops[2].pause, s(20));
-        assert_eq!(drops[8].pause, PAUSE_MAX);
+        let drops: Vec<_> = (0..12)
+            .map(|_| {
+                let info = age_cut(15, &p);
+                p.dropped(&info)
+            })
+            .collect();
+        assert_eq!(drops.iter().filter(|d| d.by_age).count(), 1, "told once: {drops:?}");
         let logged: Vec<_> = drops.iter().filter(|d| d.log).map(|d| d.drops).collect();
-        assert_eq!(logged, [1, 2, 4, 8]);
+        let told_at = drops.iter().find(|d| d.by_age).unwrap().drops;
+        assert!(
+            logged.iter().all(|n| n.is_power_of_two() || *n == told_at),
+            "{logged:?}"
+        );
+        assert_eq!(p.renew(), IDLE_RENEW, "the renewal does not stick at the floor");
+        assert_eq!(drops[11].pause, s(120), "the pause only grows");
+    }
+
+    #[test]
+    fn a_timeout_teaches_nothing() {
+        let mut p = IdlePace::new();
+        p.dropped(&drop_of(DropCause::TimedOut, 330, 330, &p));
+        assert_eq!(p.renew(), IDLE_RENEW);
+        for _ in 0..3 {
+            p.dropped(&drop_of(DropCause::TimedOut, 20, 20, &p));
+        }
+        assert_eq!(p.renew(), IDLE_RENEW);
+    }
+
+    #[test]
+    fn a_bye_and_a_reset_teach_like_a_close() {
+        for cause in [DropCause::Bye("Idle timeout".into()), DropCause::Reset] {
+            let mut p = IdlePace::new();
+            p.dropped(&drop_of(cause.clone(), 20, 20, &p));
+            p.dropped(&drop_of(cause, 20, 20, &p));
+            assert!(p.renew() < s(20));
+        }
+    }
+
+    #[test]
+    fn a_cut_without_a_renewal_to_shorten_changes_nothing() {
+        let mut p = IdlePace::new();
+        for _ in 0..3 {
+            let info = DropInfo {
+                renew: None,
+                ..drop_of(DropCause::Eof, 20, 20, &p)
+            };
+            p.dropped(&info);
+        }
+        assert_eq!(p.renew(), IDLE_RENEW);
+    }
+
+    #[test]
+    fn drops_in_a_row_back_the_pause_off() {
+        let mut p = IdlePace::new();
+        let pauses: Vec<_> = (0..9)
+            .map(|_| p.dropped(&drop_of(DropCause::Eof, 1, 1, &p)).pause)
+            .collect();
+        assert_eq!(&pauses[..3], [s(5), s(10), s(20)]);
+        assert_eq!(pauses[8], s(120));
         assert_eq!(p.renew(), IDLE_RENEW, "an instant drop says nothing about idle time");
     }
 
     #[test]
-    fn a_healthy_connection_ends_the_series() {
+    fn only_a_connection_that_lived_long_ends_the_series() {
         let mut p = IdlePace::new();
-        p.dropped(s(1));
-        p.dropped(s(1));
-        let d = p.dropped(s(20 * 60));
-        assert_eq!((d.drops, d.pause), (1, PAUSE));
-        assert!(d.log);
-    }
-
-    #[test]
-    fn a_renewal_that_went_through_ends_the_series() {
-        let mut p = IdlePace::new();
-        p.dropped(s(1));
+        p.dropped(&drop_of(DropCause::Eof, 1, 1, &p));
+        // A renewal that went through is no proof the link is well: it may be cut by its age.
         p.renewed();
-        assert_eq!(p.dropped(s(1)).pause, PAUSE);
+        assert_eq!(p.dropped(&drop_of(DropCause::Eof, 1, 1, &p)).drops, 2);
+        let d = p.dropped(&drop_of(DropCause::Eof, 20 * 60, 20 * 60, &p));
+        assert_eq!((d.drops, d.pause), (1, s(5)));
     }
 
     #[test]
     fn the_renewal_is_never_shorter_than_the_floor() {
         let mut p = IdlePace::new();
-        p.dropped(s(12));
-        assert_eq!(p.renew(), RENEW_MIN);
+        p.dropped(&drop_of(DropCause::Eof, 12, 12, &p));
+        p.dropped(&drop_of(DropCause::Eof, 12, 12, &p));
+        assert_eq!(p.renew(), s(10));
     }
 
     #[test]
     fn a_long_run_without_cuts_tries_a_longer_renewal() {
         let mut p = IdlePace::new();
-        p.dropped(s(30));
+        p.dropped(&drop_of(DropCause::Eof, 30, 30, &p));
+        p.dropped(&drop_of(DropCause::Eof, 30, 30, &p));
         let short = p.renew();
-        for _ in 0..PROBE_AFTER {
+        for _ in 0..p.tune.probe_after {
             p.renewed();
         }
         assert_eq!(p.renew(), short * 2);
+    }
+
+    #[test]
+    fn the_cause_is_read_from_the_error() {
+        use async_imap::error::Error as I;
+        let kind = |k| Error::Io(std::io::Error::from(k));
+        assert_eq!(DropCause::of(&Error::Bye("x".into())), DropCause::Bye("x".into()));
+        assert_eq!(DropCause::of(&Error::Imap(I::ConnectionLost)), DropCause::Eof);
+        assert_eq!(DropCause::of(&kind(std::io::ErrorKind::UnexpectedEof)), DropCause::Eof);
+        assert_eq!(DropCause::of(&kind(std::io::ErrorKind::BrokenPipe)), DropCause::Reset);
+        assert_eq!(
+            DropCause::of(&kind(std::io::ErrorKind::ConnectionReset)),
+            DropCause::Reset
+        );
+        assert_eq!(DropCause::of(&kind(std::io::ErrorKind::TimedOut)), DropCause::TimedOut);
+        assert_eq!(DropCause::of(&Error::Timeout("operation")), DropCause::TimedOut);
     }
 }

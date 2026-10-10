@@ -4,12 +4,14 @@
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
 use depesha_core::domain::{FlagChange, FolderRole};
+use depesha_core::idle_pace::{DropCause, Dropped, IdlePace, Tuning};
 use depesha_core::imap::{self, Conn, IdleOutcome};
 use depesha_core::query::{self, SearchQuery};
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::{self, SyncOptions};
 use depesha_core::{Error, mail, utf7};
 use futures::TryStreamExt;
+use std::time::Duration;
 
 fn enabled() -> bool {
     std::env::var("DEPESHA_IT").is_ok_and(|v| v == "1")
@@ -1623,10 +1625,18 @@ async fn clearing_a_folder_without_uidplus() {
     clears_a_folder(conn, "B").await;
 }
 
-/// A transparent TCP proxy in front of the stand that cuts a connection which the client
-/// has not written to for `idle`: what a firewall or a corporate server does to a
-/// quiet IDLE (#114). TLS passes through, so the pinned certificate still fits.
-async fn cutting_proxy(idle: std::time::Duration) -> u16 {
+/// How the proxy of the stand cuts a connection (#114).
+#[derive(Clone, Copy)]
+enum Cut {
+    /// After this long without a write from the client: what a firewall does to a quiet link.
+    Silence(Duration),
+    /// This long after the connect, whatever is written: a server that limits the age of a session.
+    Age(Duration),
+}
+
+/// A transparent TCP proxy in front of the stand that cuts connections by `cut`. TLS passes
+/// through, so the pinned certificate still fits. Returns its port.
+async fn cutting_proxy(cut: Cut) -> u16 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -1644,26 +1654,38 @@ async fn cutting_proxy(idle: std::time::Duration) -> u16 {
                 let up = async {
                     let mut buf = [0u8; 4096];
                     loop {
-                        match tokio::time::timeout(idle, cr.read(&mut buf)).await {
+                        let read = cr.read(&mut buf);
+                        let n = match cut {
+                            Cut::Silence(idle) => tokio::time::timeout(idle, read).await,
+                            Cut::Age(_) => Ok(read.await),
+                        };
+                        match n {
                             Ok(Ok(n)) if n > 0 => uw.write_all(&buf[..n]).await?,
                             _ => return std::io::Result::Ok(()),
                         }
                     }
                 };
                 let down = tokio::io::copy(&mut ur, &mut cw);
-                tokio::select! { _ = up => {}, _ = down => {} }
+                let age = async {
+                    match cut {
+                        Cut::Age(age) => tokio::time::sleep(age).await,
+                        Cut::Silence(_) => std::future::pending().await,
+                    }
+                };
+                tokio::select! { _ = up => {}, _ = down => {}, _ = age => {} }
             });
         }
     });
     port
 }
 
-async fn wait_through_cuts(renew: std::time::Duration) -> Result<(), Error> {
-    let port = cutting_proxy(std::time::Duration::from_secs(3)).await;
+/// One wait on a connection that a proxy cuts, held as long as the renewal says.
+async fn wait_through_cuts(renew: Duration) -> Result<(), Error> {
+    let port = cutting_proxy(Cut::Silence(Duration::from_secs(3))).await;
     let mut conn = imap::connect(&server_at(port).await, &user("cut")).await?;
     let began = std::time::Instant::now();
-    while began.elapsed() < std::time::Duration::from_secs(10) {
-        conn = imap::wait_for_changes(conn, "INBOX", std::time::Duration::from_secs(2), renew)
+    while began.elapsed() < Duration::from_secs(10) {
+        conn = imap::wait_for_changes(conn, "INBOX", Duration::from_secs(2), renew)
             .await?
             .0;
     }
@@ -1686,7 +1708,130 @@ async fn idle_renewed_inside_the_cut_time_survives_it() {
     if !enabled() {
         return;
     }
-    wait_through_cuts(std::time::Duration::from_secs(1))
-        .await
-        .expect("no drop");
+    wait_through_cuts(Duration::from_secs(1)).await.expect("no drop");
+}
+
+/// The tuning for the tests: the same logic, seconds instead of minutes.
+fn quick() -> Tuning {
+    Tuning {
+        floor: Duration::from_millis(500),
+        too_soon: Duration::from_secs(1),
+        healthy: Duration::from_secs(60),
+        pause: Duration::from_millis(100),
+        pause_max: Duration::from_millis(400),
+        ..Tuning::default()
+    }
+}
+
+struct Run {
+    pace: IdlePace,
+    drops: Vec<(Dropped, DropCause)>,
+    waits: usize,
+}
+
+/// What the worker does: wait with `mail::wait_for_changes` under one pace, reconnect after a
+/// drop, for `run` — against a proxy that cuts by `cut`.
+async fn paced(cut: Cut, run: Duration) -> Run {
+    let port = cutting_proxy(cut).await;
+    let server = server_at(port).await;
+    let store = Store::open_in_memory().unwrap();
+    let mut out = Run {
+        pace: IdlePace::with(quick()),
+        drops: Vec::new(),
+        waits: 0,
+    };
+    let began = std::time::Instant::now();
+    'connections: while began.elapsed() < run {
+        let conn = imap::connect(&server, &user("paced")).await.unwrap();
+        let connected = std::time::Instant::now();
+        let mut conn = mail::Conn::Imap(conn);
+        loop {
+            if began.elapsed() >= run {
+                break 'connections;
+            }
+            match mail::wait_for_changes(conn, &store, "d", Duration::from_secs(2), &mut out.pace, connected).await {
+                Ok((c, _)) => {
+                    conn = c;
+                    out.waits += 1;
+                }
+                Err(d) => {
+                    let dropped = d.dropped.expect("a link cut is not a busy server");
+                    tokio::time::sleep(dropped.pause).await;
+                    out.drops.push((dropped, d.cause));
+                    continue 'connections;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A link cut after 3 s of silence: two drops teach the renewal, then the link is held over
+/// several cut periods (#114).
+#[tokio::test]
+async fn the_pace_holds_a_link_cut_by_silence() {
+    if !enabled() {
+        return;
+    }
+    let run = paced(Cut::Silence(Duration::from_secs(3)), Duration::from_secs(14)).await;
+    let causes: Vec<_> = run.drops.iter().map(|(_, c)| c.clone()).collect();
+    assert_eq!(run.drops.len(), 2, "two drops teach, the rest is held: {causes:?}");
+    assert!(run.pace.renew() < Duration::from_secs(3), "{:?}", run.pace.renew());
+    assert!(run.waits >= 3, "the renewals went through: {}", run.waits);
+}
+
+/// A link cut by the age of the connection: the renewal does not stick at the floor, the
+/// cut is told once, and the log lines stay at powers of two.
+#[tokio::test]
+async fn the_pace_does_not_stick_at_the_floor_when_the_age_cuts() {
+    if !enabled() {
+        return;
+    }
+    let run = paced(Cut::Age(Duration::from_secs(4)), Duration::from_secs(34)).await;
+    assert!(run.drops.len() >= 5, "{}", run.drops.len());
+    assert_eq!(run.drops.iter().filter(|(d, _)| d.by_age).count(), 1);
+    assert_eq!(run.pace.renew(), Tuning::default().max, "the renewal went back up");
+    let told = run.drops.iter().find(|(d, _)| d.by_age).unwrap().0.drops;
+    assert!(
+        run.drops
+            .iter()
+            .filter(|(d, _)| d.log)
+            .all(|(d, _)| d.drops.is_power_of_two() || d.drops == told)
+    );
+}
+
+/// A letter that arrives in the gap between two IDLEs (after DONE, before the next IDLE)
+/// must be seen at once: the renewal does not forget what it was told on the way.
+#[tokio::test]
+async fn a_letter_arriving_between_two_idles_is_seen_by_the_next_one() {
+    if !enabled() {
+        return;
+    }
+    let idle = connect("gap").await;
+    let (idle, first) = imap::wait_for_changes(
+        idle,
+        "INBOX",
+        std::time::Duration::from_secs(2),
+        std::time::Duration::from_secs(1),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(first, IdleOutcome::Timeout));
+    let mut other = connect("gap").await;
+    imap::append(&mut other, "INBOX", &mail("GAP", 1), "").await.unwrap();
+    let began = std::time::Instant::now();
+    let (_, second) = imap::wait_for_changes(
+        idle,
+        "INBOX",
+        std::time::Duration::from_secs(2),
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(second, IdleOutcome::Changed), "the letter was missed");
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(3),
+        "{:?}",
+        began.elapsed()
+    );
 }

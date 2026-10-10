@@ -113,6 +113,11 @@ pub struct Conn {
     /// Whose `Authentication-Results` the headers it fetches are believed by (#108); set
     /// by `mail::connect`, empty (never vouches) on a connection made without an account.
     pub receiver: Receiver,
+    /// The folder the last `wait_for_changes` left selected: the next wait on it skips the
+    /// SELECT (it would hide a letter that came in the gap between two IDLEs). Only
+    /// `wait_for_changes` sets and reads it, so a connection that selects other folders
+    /// between waits is not meant to carry it.
+    pub idle_folder: Option<String>,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
@@ -153,6 +158,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         enabled: None,
         idling,
         receiver: Receiver::default(),
+        idle_folder: None,
     })
 }
 
@@ -1472,9 +1478,20 @@ pub async fn wait_for_changes(
     poll: Duration,
     renew: Duration,
 ) -> Result<(Conn, IdleOutcome)> {
-    conn.session.select(folder).await?;
-    drain_unsolicited(&conn.session);
+    // A connection that is already on the folder is not selected again: the answer to a
+    // SELECT is not an unsolicited EXISTS, so a letter that came in the gap since the last
+    // IDLE would be swallowed. What came in the gap is queued, and told below.
+    let selected = conn.idle_folder.as_deref() == Some(folder);
+    if !selected {
+        conn.session.select(folder).await?;
+        conn.idle_folder = Some(folder.to_owned());
+    }
+    let gap = drain_unsolicited(&conn.session);
+    if selected && gap {
+        return Ok((conn, IdleOutcome::Changed));
+    }
     if !conn.caps.idle {
+        conn.idle_folder = None;
         let before = conn.session.select(folder).await?.exists;
         tokio::time::sleep(poll).await;
         conn.session.noop().await?;
@@ -1498,24 +1515,44 @@ pub async fn wait_for_changes(
         enabled,
         idling,
         receiver,
+        idle_folder,
         ..
     } = conn;
+    let queue = session.unsolicited_responses.clone();
     let mut handle = session.idle();
     // The `+ idling` wait is an ordinary command answer and stays under the silence
     // watchdog; the watchdog stands down only once the server is actually idling.
     if let Err(e) = handle.init().await {
         return Err(e.into());
     }
-    idling.store(true, Ordering::Relaxed);
-    let (wait, _stop) = handle.wait_with_timeout(renew);
-    let response = wait.await;
-    idling.store(false, Ordering::Relaxed);
-    let response = response?;
+    // What the server told while the IDLE was being started (before its "+ idling").
+    let early = drain_with(|| queue.try_recv().ok());
+    let response = if early {
+        IdleResponse::ManualInterrupt
+    } else {
+        idling.store(true, Ordering::Relaxed);
+        let (wait, _stop) = handle.wait_with_timeout(renew);
+        let response = wait.await;
+        idling.store(false, Ordering::Relaxed);
+        response?
+    };
+    // A BYE is the server's own word on why it closes: keep it for the log.
+    if let IdleResponse::NewData(data) = &response
+        && let async_imap::imap_proto::Response::Data {
+            status: async_imap::imap_proto::Status::Bye,
+            outcome,
+            ..
+        } = data.parsed()
+    {
+        return Err(Error::Bye(
+            outcome.information.as_deref().unwrap_or_default().to_owned(),
+        ));
+    }
     let session = handle.done().await?;
     let outcome = match response {
         IdleResponse::NewData(_) => IdleOutcome::Changed,
         IdleResponse::Timeout | IdleResponse::ManualInterrupt => {
-            if drain_unsolicited(&session) {
+            if early || drain_unsolicited(&session) {
                 IdleOutcome::Changed
             } else {
                 IdleOutcome::Timeout
@@ -1532,17 +1569,21 @@ pub async fn wait_for_changes(
             enabled,
             idling,
             receiver,
+            idle_folder,
         },
         outcome,
     ))
 }
 
-/// Empties the unsolicited response queue; returns whether it had mailbox changes.
-/// VANISHED stands for EXPUNGE on a session with QRESYNC enabled.
 fn drain_unsolicited(session: &Session) -> bool {
+    drain_with(|| session.unsolicited_responses.try_recv().ok())
+}
+
+/// Whether anything queued says the folder changed; empties the queue.
+fn drain_with(mut next: impl FnMut() -> Option<UnsolicitedResponse>) -> bool {
     use async_imap::imap_proto::Response;
     let mut changed = false;
-    while let Ok(r) = session.unsolicited_responses.try_recv() {
+    while let Some(r) = next() {
         changed |= match &r {
             UnsolicitedResponse::Exists(_) | UnsolicitedResponse::Expunge(_) | UnsolicitedResponse::Recent(_) => true,
             UnsolicitedResponse::Other(data) => matches!(data.parsed(), Response::Vanished { .. }),
