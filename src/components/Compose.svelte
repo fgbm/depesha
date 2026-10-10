@@ -38,7 +38,6 @@
   import type { Hint } from "../lib/hints";
   import AddressInput from "./AddressInput.svelte";
   import Popover from "./Popover.svelte";
-  import { keyLabel } from "../lib/composeKeys";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { ComposeFormat } from "../lib/compose/format.svelte";
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";

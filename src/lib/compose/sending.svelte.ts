@@ -80,11 +80,15 @@ export class ComposeSending {
   /** The context each plugin's controls get: the same window, its own name on what it registers. */
   private contexts = new Map<string, ComposeContext>();
 
-  /** A plugin's control answers the key of its action; one owner for each action, so a second
-   *  plugin asking for the same key is refused. Returns the way to stop answering. */
+  /** A plugin's control answers the key of its action; one owner for each action. A key already
+   *  answered by another, or asked for without a name, is refused with a warning, and the way to
+   *  stop answering does nothing. Returns the way to stop answering. */
   onAction(action: "park" | "remind", run: () => void, owner = ""): () => void {
     const taken = this.pluginKeys.get(action);
-    if (taken && taken.owner !== owner) throw new Error(`The key of «${action}» is answered by ${taken.owner || "the window"} already`);
+    if (!owner || (taken && taken.owner !== owner)) {
+      console.warn(`The key of «${action}» is not given to ${owner || "a caller without a name"}: ${taken ? `${taken.owner} answers it` : "the owner is not known"}`);
+      return () => {};
+    }
     const mine = { owner, run };
     this.pluginKeys.set(action, mine);
     return () => {

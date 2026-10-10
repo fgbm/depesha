@@ -1,5 +1,5 @@
 import type { Component } from "svelte";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registry, type ComposeControl } from "../../plugin-host/registry.svelte";
 import { emptyDraft } from "../compose";
 import type { ComposeWindow } from "../composes.svelte";
@@ -103,14 +103,16 @@ describe("the Alt keys of the window (#103)", () => {
   });
 
   it("hands «out of the inbox» and the reminder to the plugin that has them, and lets the key go without one", () => {
+    registry.add("composeControls", "one", control("line"));
     const sending = new ComposeSending({ ...host(win("a"), {}), openPart: () => {} } as unknown as ComposeSendHost);
     let prevented = 0;
     const press = (key: string, code: string) => sending.onKey({ ...alt(key, code), preventDefault: () => prevented++ } as KeyboardEvent);
     press("r", "KeyR");
     expect(prevented).toBe(0);
     const ran: string[] = [];
-    const stop = sending.composeCtx.onAction("remind", () => ran.push("remind"));
-    sending.composeCtx.onAction("park", () => ran.push("park"));
+    const [one] = sending.controls.map((c) => sending.contextFor(c));
+    const stop = one.onAction("remind", () => ran.push("remind"));
+    one.onAction("park", () => ran.push("park"));
     press("r", "KeyR");
     press("i", "KeyI");
     expect(ran).toEqual(["remind", "park"]);
@@ -118,23 +120,41 @@ describe("the Alt keys of the window (#103)", () => {
     stop();
     press("r", "KeyR");
     expect(ran).toEqual(["remind", "park"]);
+    registry.removeOwner("one");
   });
 });
 
 describe("one owner for each Alt key of a plugin (#103)", () => {
-  it("refuses a second plugin that asks for a key another answers, and lets the owner ask again", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("refuses, with a warning, a second plugin that asks for a key another answers, and lets the owner ask again", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     registry.add("composeControls", "one", control("line"));
     registry.add("composeControls", "two", control("line"));
     const sending = new ComposeSending(host(win("a"), {}));
     const [one, two] = sending.controls.map((c) => sending.contextFor(c));
     expect(sending.contextFor(sending.controls[0])).toBe(one);
-    one.onAction("remind", () => {});
-    expect(() => two.onAction("remind", () => {})).toThrow(/already/);
+    const ran: string[] = [];
+    one.onAction("remind", () => ran.push("one"));
+    expect(() => two.onAction("remind", () => ran.push("two"))).not.toThrow();
+    expect(warn).toHaveBeenCalledTimes(1);
+    // The refused one has nothing to stop: the owner's answer stays.
+    two.onAction("remind", () => {})();
+    sending.onKey({ key: "r", code: "KeyR", altKey: true, ctrlKey: false, shiftKey: false, metaKey: false, preventDefault: () => {} } as KeyboardEvent);
+    expect(ran).toEqual(["one"]);
     const stop = one.onAction("remind", () => {});
     stop();
-    expect(() => two.onAction("remind", () => {})).not.toThrow();
+    two.onAction("remind", () => {});
+    expect(warn).toHaveBeenCalledTimes(2);
     registry.removeOwner("one");
     registry.removeOwner("two");
+  });
+
+  it("refuses a caller without a name", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sending = new ComposeSending(host(win("a"), {}));
+    sending.composeCtx.onAction("park", () => {})();
+    expect(warn).toHaveBeenCalled();
   });
 });
 
