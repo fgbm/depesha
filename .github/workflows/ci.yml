@@ -231,11 +231,11 @@ jobs:
             e2e/logs
 
   # Printing a letter's sheet on macOS (#70): the sheet is printed into a PDF through the code the
-  # app prints with, and the header's text is looked for in the file. Not on pull requests: a macOS
-  # runner is slow; it runs on pushes to main and release/**, and by hand (`gh workflow run ci.yml`).
+  # app prints with, and the header's text is looked for in the file. A platform job: see `changes`.
   mac-print:
     name: Print a sheet (macOS)
-    if: github.event_name != 'pull_request' && !inputs.windows_only
+    needs: changes
+    if: ${{ needs.changes.outputs.platform == 'true' && !inputs.windows_only }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
