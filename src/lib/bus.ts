@@ -9,9 +9,13 @@
 // kept for a component that is not there yet; what must outlive the moment is state, not an event).
 // Data that only has to be read again is not sent here: it is `$state` and `$derived`.
 
-/** What `emit` of an event hands to its subscribers: a collector of the answers they owe. */
+/**
+ * What `emit` of an event hands to its subscribers: a collector of the answers they owe.
+ * A subscriber adds its answer synchronously, inside the handler: the collector is closed when
+ * `emit` returns (see `collect`), and a later `add` throws instead of being waited for by no one.
+ */
 export interface Gather<T> {
-  /** Adds an answer; the one who emitted waits for all of them. */
+  /** Adds an answer; the one who emitted waits for all of them. Only while the handler runs. */
   add(answer: Promise<T>): void;
 }
 
@@ -79,6 +83,23 @@ export function createBus<M>(): Bus<M> {
     },
     count: (name) => handlers.get(name)?.size ?? 0,
   };
+}
+
+/** Emits an event that carries a `Gather` and returns the answers added while it ran; the collector is closed after. */
+export function collect<T>(emit: (all: Gather<T>) => void): Promise<T>[] {
+  const answers: Promise<T>[] = [];
+  let open = true;
+  try {
+    emit({
+      add(answer) {
+        if (!open) throw new Error("Gather.add after emit returned: answers are added synchronously, in the handler");
+        answers.push(answer);
+      },
+    });
+  } finally {
+    open = false;
+  }
+  return answers;
 }
 
 export const bus: Bus<UiEvents> = createBus<UiEvents>();

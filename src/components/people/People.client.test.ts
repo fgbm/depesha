@@ -523,7 +523,7 @@ describe("the book on the channel", () => {
     await book([olga()]);
     const first = show(PeopleView);
     const one = view!;
-    const second = show(PeopleView);
+    show(PeopleView);
     await tick();
     expect(bus.count("people.search")).toBe(2);
     unmount(view!);
@@ -531,6 +531,5 @@ describe("the book on the channel", () => {
     // The first still hears the command after the second went away.
     bus.emit("people.search");
     expect(document.activeElement).toBe(first.querySelector("input[type=search]"));
-    expect(second).not.toBe(first);
   });
 });

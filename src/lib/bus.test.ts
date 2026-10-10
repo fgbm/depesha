@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { bus, createBus } from "./bus";
+import { bus, collect, createBus } from "./bus";
 
 interface Events {
   ping: void;
@@ -99,11 +99,28 @@ describe("a round of the channel", () => {
   });
 
   it("gathers the answers the subscribers owe", async () => {
-    const answers: Promise<boolean>[] = [];
     const offs = [bus.on("compose.save-all", (all) => all.add(Promise.resolve(true))), bus.on("compose.save-all", (all) => all.add(Promise.resolve(false)))];
-    bus.emit("compose.save-all", { add: (p) => answers.push(p) });
-    expect(await Promise.all(answers)).toEqual([true, false]);
-    offs.forEach((off) => off());
+    try {
+      const answers = collect<boolean>((all) => bus.emit("compose.save-all", all));
+      expect(await Promise.all(answers)).toEqual([true, false]);
+    } finally {
+      offs.forEach((off) => off());
+    }
     expect(bus.count("compose.save-all")).toBe(0);
+  });
+
+  it("closes the collector when emit returns: a late add throws", async () => {
+    let late: (() => void) | null = null;
+    const off = bus.on("compose.save-all", (all) => {
+      late = () => all.add(Promise.resolve(true));
+    });
+    try {
+      const answers = collect<boolean>((all) => bus.emit("compose.save-all", all));
+      expect(answers).toHaveLength(0);
+      expect(late).not.toBeNull();
+      expect(() => late!()).toThrow(/after emit returned/);
+    } finally {
+      off();
+    }
   });
 });

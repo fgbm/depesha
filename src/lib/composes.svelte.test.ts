@@ -24,23 +24,29 @@ describe("keeping the drafts of a window", () => {
       bus.on("compose.save-all", (all) => all.add((saved.push(1), Promise.resolve(true)))),
       bus.on("compose.save-all", (all) => all.add((saved.push(2), Promise.resolve(true)))),
     ];
-    await mgr.saveAll(1000);
-    expect(saved.sort()).toEqual([1, 2]);
-    // A closed composition is no longer saved.
-    offs[0]();
-    saved.length = 0;
-    await mgr.saveAll(1000);
-    expect(saved).toEqual([2]);
-    offs[1]();
+    try {
+      await mgr.saveAll(1000);
+      expect(saved.sort()).toEqual([1, 2]);
+      // A closed composition is no longer saved.
+      offs[0]();
+      saved.length = 0;
+      await mgr.saveAll(1000);
+      expect(saved).toEqual([2]);
+    } finally {
+      offs.forEach((off) => off());
+    }
   });
 
   it("does not wait for a save past the limit", async () => {
     const mgr = manager();
     const off = bus.on("compose.save-all", (all) => all.add(new Promise(() => {})));
-    const started = Date.now();
-    await mgr.saveAll(30);
-    off();
-    expect(Date.now() - started).toBeLessThan(1000);
+    try {
+      const started = Date.now();
+      await mgr.saveAll(30);
+      expect(Date.now() - started).toBeLessThan(1000);
+    } finally {
+      off();
+    }
   });
 
   it("opens the drafts kept locally when the app last stopped", async () => {

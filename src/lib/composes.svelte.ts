@@ -2,7 +2,7 @@
 // through the outbox and taking a queued letter back.
 
 import { api } from "./api";
-import { bus } from "./bus";
+import { bus, collect } from "./bus";
 import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
 import { emptyDraft, formatFor, forward, isForward, reply } from "./compose";
@@ -85,8 +85,7 @@ export class ComposeManager {
   async saveAll(ms: number): Promise<void> {
     // Each open window's component answers "compose.save-all" with its save; a saver answers
     // false on a failed save (the window says so itself), it does not throw.
-    const saves: Promise<boolean | undefined>[] = [];
-    bus.emit("compose.save-all", { add: (p) => saves.push(within(p, ms)) });
+    const saves = collect<boolean>((all) => bus.emit("compose.save-all", all)).map((p) => within(p, ms));
     await Promise.all(saves);
   }
 
