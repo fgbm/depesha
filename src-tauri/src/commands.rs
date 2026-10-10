@@ -28,7 +28,7 @@ use crate::config::Settings;
 use crate::error::{CmdError, CmdResult};
 use crate::paths::Use;
 use crate::secrets;
-use crate::state::{AccountStatus, AppState};
+use crate::state::{AccountStatus, AppState, lock};
 use crate::worker::{self, Output, Work};
 use depesha_core::lang::pick;
 use depesha_core::tr;
@@ -78,10 +78,7 @@ pub async fn account_check(
     }
     let creds = match (&account.auth, grant) {
         (AuthMethod::OAuth { .. }, Some(grant)) => {
-            let token = state
-                .grants
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
+            let token = lock(&state.grants)
                 .get(&grant)
                 .map(|g| g.tokens.access_token.clone())
                 .ok_or_else(sign_in_again)?;
@@ -287,11 +284,11 @@ pub async fn account_save(
         .map(|a| a.attachments_dir)
         .unwrap_or_default();
     check_save_folder(&state, &before, &account.attachments_dir)?;
-    let grant = grant.and_then(|g| state.grants.lock().unwrap_or_else(|e| e.into_inner()).remove(&g));
+    let grant = grant.and_then(|g| lock(&state.grants).remove(&g));
     match (&account.auth, grant) {
         (AuthMethod::OAuth { .. }, Some(grant)) => {
             secrets::set(&account.id, grant.tokens.refresh_token.clone()).await?;
-            state.tokens.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            lock(&state.tokens).insert(
                 account.id.clone(),
                 (grant.tokens.access_token.clone(), grant.tokens.expires_at),
             );
@@ -405,7 +402,7 @@ pub async fn oauth_sign_in(
         imap,
         smtp,
     };
-    state.grants.lock().unwrap_or_else(|e| e.into_inner()).insert(id, grant);
+    lock(&state.grants).insert(id, grant);
     Ok(view)
 }
 
@@ -3203,7 +3200,13 @@ async fn dialog_answer<T: Send + 'static>(open: impl FnOnce(Box<dyn FnOnce(Optio
     open(Box::new(move |answer| {
         let _ = tx.send(answer);
     }));
-    rx.await.ok().flatten()
+    match rx.await {
+        Ok(answer) => answer,
+        Err(_) => {
+            tracing::debug!("a dialog ended without an answer");
+            None
+        }
+    }
 }
 
 /// Files to attach, picked in the open dialog. Empty when the dialog was closed.

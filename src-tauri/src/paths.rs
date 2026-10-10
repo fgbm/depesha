@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use depesha_core::tr;
 
 use crate::error::{CmdError, CmdResult};
+use crate::state::lock;
 
 /// What a path was chosen for: a file picked to attach is not a place to save into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,16 +41,16 @@ impl Paths {
     }
 
     pub fn allow(&self, to: Use, path: PathBuf) {
-        self.lock().insert((to, key(&path)));
+        lock(&self.granted).insert((to, key(&path)));
     }
 
     /// The path, if the user chose it for this use; a save target is used up by the check.
     pub fn check(&self, to: Use, path: &str) -> CmdResult<PathBuf> {
         let path = PathBuf::from(path);
         let granted = if to == Use::SaveFile {
-            self.lock().remove(&(to, key(&path)))
+            lock(&self.granted).remove(&(to, key(&path)))
         } else {
-            self.lock().contains(&(to, key(&path)))
+            lock(&self.granted).contains(&(to, key(&path)))
         };
         if granted || self.trusted.iter().any(|root| within(root, &path)) {
             return Ok(path);
@@ -79,7 +80,7 @@ impl Paths {
                 .to_lowercase()
         };
         let asked = loose(path);
-        let granted = self.lock();
+        let granted = lock(&self.granted);
         let mut same_name = 0;
         let mut spelled = false;
         for (_, other) in granted.iter().filter(|(u, _)| *u == to) {
@@ -89,10 +90,6 @@ impl Paths {
             }
         }
         (same_name, spelled)
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashSet<(Use, PathBuf)>> {
-        self.granted.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

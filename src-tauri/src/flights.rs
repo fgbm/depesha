@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::OnceCell;
 
+use crate::state::lock;
+
 pub struct Flights<T> {
     running: Mutex<HashMap<String, Arc<OnceCell<T>>>>,
 }
@@ -27,15 +29,9 @@ impl<T: Clone> Flights<T> {
         F: FnOnce() -> Fut,
         Fut: Future<Output = T>,
     {
-        let cell = self
-            .running
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(key.to_owned())
-            .or_default()
-            .clone();
+        let cell = lock(&self.running).entry(key.to_owned()).or_default().clone();
         let answer = cell.get_or_init(work).await.clone();
-        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        let mut running = lock(&self.running);
         if running.get(key).is_some_and(|c| Arc::ptr_eq(c, &cell)) {
             running.remove(key);
         }

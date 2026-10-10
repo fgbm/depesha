@@ -75,6 +75,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: scripts/lock-guard.sh
+      - run: scripts/lock-guard.test.sh
       - run: cargo fmt --all --check
       - run: npm run build
       - run: cargo clippy --workspace --all-targets -- -D warnings

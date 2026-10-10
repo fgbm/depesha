@@ -22,7 +22,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::error::CmdError;
-use crate::state::{AccountStatus, AppState};
+use crate::state::{AccountStatus, AppState, lock};
 use depesha_core::tr;
 
 const FULL_SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -214,11 +214,11 @@ fn sync_key(work: &Work) -> Option<String> {
 }
 
 fn hold(queued: &Queued, key: &str) -> bool {
-    queued.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_owned())
+    lock(queued).insert(key.to_owned())
 }
 
 fn release(queued: &Queued, key: &str) {
-    queued.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
+    lock(queued).remove(key);
 }
 
 /// Queues background work unless the same sync already waits there.

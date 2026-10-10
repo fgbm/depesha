@@ -85,6 +85,7 @@ if [[ "${1:-}" == "--changed" ]]; then
   if [[ -n $rust ]]; then
     step "единственный lock"
     scripts/lock-guard.sh
+    scripts/lock-guard.test.sh
     step "rustfmt"
     cargo fmt --all --check
     step "clippy"
@@ -140,6 +141,7 @@ fi
 
 step "единственный lock"
 scripts/lock-guard.sh
+scripts/lock-guard.test.sh
 step "rustfmt"
 cargo fmt --all --check
 step "clippy"
