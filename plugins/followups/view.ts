@@ -17,7 +17,7 @@ export function registerView(ctx: PluginContext) {
         followups.count = c.followups;
         followups.closed = c.followups_closed ?? 0;
       })
-      .catch(() => {});
+      .catch(() => {}); // The counter is a sidebar nicety; the next refresh reads it again.
   refresh();
   ctx.onBackend("counters-changed", () => {
     refresh();

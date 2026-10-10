@@ -16,7 +16,7 @@ interface FilesDropped {
 
 /** The backend log hears of the drop (a count, no names); a failing log is not worth a drop. */
 function heard(count: number) {
-  api.dropSeen(count).catch(() => {});
+  api.dropSeen(count).catch(() => {}); // A failing log is not worth a drop.
 }
 
 /**
@@ -42,14 +42,14 @@ function outcome(
   const { x, y } = pos.toLogical(scale);
   api
     .dropOutcome({ outcome: kind, attached, inline, zone: zone ?? "none", x, y, width: window.innerWidth, height: window.innerHeight })
-    .catch(() => {});
+    .catch(() => {}); // A failing log is not worth a drop.
 }
 
 /** A pointer the page cannot place is a miss; the files are still attached. */
 function zoneOrNull(zoneAt: (pos: PhysicalPosition) => DropZone | null, pos: PhysicalPosition): DropZone | null {
   try {
     return zoneAt(pos);
-  } catch {
+  } catch { // A zone lookup that throws is no zone.
     return null;
   }
 }

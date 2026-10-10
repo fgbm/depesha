@@ -157,7 +157,7 @@ export class ClearFolder {
     }
     // A copy that never reached the server stays, and so does the one of an open window.
     const openKeys = new Set(this.host.composes.map((w) => w.local_id));
-    const lonely = (await api.draftCacheList().catch(() => []))
+    const lonely = (await api.draftCacheList().catch(() => [])) // Only the number in the warning: the copies stay in any case.
       .filter((c) => c.account_id === account_id && c.draft_id == null && !openKeys.has(c.key)).length;
     const items = [
       ...(opened ? [tn("clear.keptOpen", opened)] : []),
@@ -243,7 +243,7 @@ export class ClearFolder {
   async retryTask(task: Pick<Task, "key" | "account_id">): Promise<void> {
     const parsed = parseKey(task);
     if (!parsed) return;
-    await api.taskDismiss(task.key).catch(() => {});
+    await api.taskDismiss(task.key).catch(() => {}); // A task not dismissed is replaced by the new run.
     const bound = this.bounds.get(`${parsed.account_id}\0${parsed.folder}`);
     if (bound === undefined) return this.begin(parsed.account_id, parsed.folder);
     await this.run(parsed.account_id, parsed.folder, bound);

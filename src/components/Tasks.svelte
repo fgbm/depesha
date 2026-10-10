@@ -18,7 +18,7 @@
   let syncing = $state<Record<string, boolean>>({});
 
   async function loadOverview() {
-    overview = await api.syncOverview().catch(() => []);
+    overview = await api.syncOverview().catch(() => []); // The overview is a nicety next to the tasks; an empty one is shown when it cannot be read.
   }
 
   onMount(() => {
@@ -68,7 +68,7 @@
   }
 
   function retry(task: Task) {
-    api.taskDismiss(task.key).catch(() => {});
+    api.taskDismiss(task.key).catch(() => {}); // A task that cannot be dismissed stays listed; the retry goes on.
     if (task.account_id && (task.kind === "sync" || task.kind === "prefetch")) syncNow(task.account_id);
   }
 

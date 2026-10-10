@@ -88,7 +88,7 @@ export class Reader {
   }
 
   private async loadConversation(id: number, seq: number, epoch: number, folder: string, wasUnread: boolean) {
-    const conversation = await api.thread(id).catch(() => [] as MessageRow[]);
+    const conversation = await api.thread(id).catch((e) => (this.host.fail(e), [] as MessageRow[]));
     if (seq !== this.openSeq) return;
     this.conversation = shownConversation(conversation, id, folder);
     extensions.showing(this.showing());
@@ -158,7 +158,7 @@ export class Reader {
     const opened = this.opened;
     if (!opened) return;
     const seq = this.openSeq;
-    const rows = await api.thread(opened.row.id).catch(() => []);
+    const rows = await api.thread(opened.row.id).catch(() => []); // The shown conversation stays as it is; it is read again on the next open.
     // A letter moved or deleted meanwhile keeps its conversation until opened again.
     if (seq !== this.openSeq || rows.length === 0) return;
     const next = shownConversation(rows, opened.row.id, opened.row.folder);
@@ -174,7 +174,7 @@ export class Reader {
   async checkStillThere() {
     const id = this.opened?.row.id ?? this.host.windowOf;
     if (id === null) return;
-    const rows = await api.messagesById([id]).catch(() => null);
+    const rows = await api.messagesById([id]).catch(() => null); // A failed check leaves the letter shown; it is repeated on the next sync.
     if (rows && rows.length === 0) {
       this.opened = null;
       this.openError = { kind: "not-found", message: t("window.gone") };

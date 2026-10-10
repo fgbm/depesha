@@ -48,7 +48,7 @@ class Hints {
         this.states = states;
         this.counters = bySubject(counts);
       })
-      .catch(() => {})
+      .catch(() => {}) // A failure leaves hints off (see above).
       .finally(() => {
         this.reading = null;
       });
@@ -63,7 +63,7 @@ class Hints {
       const at = now();
       localStorage.setItem(SINCE, String(at));
       return at;
-    } catch {
+    } catch { // No localStorage: counted as the first run, which keeps hints quiet.
       return 0;
     }
   }
@@ -196,7 +196,7 @@ class Hints {
       const sub = subject.trim().toLowerCase();
       this.counters = { ...this.counters, [id]: { ...(this.counters[id] ?? {}), [sub]: n } };
       return n;
-    } catch {
+    } catch { // A counter that cannot be kept only delays a suggestion.
       return 0;
     }
   }
@@ -206,13 +206,13 @@ class Hints {
     const row = { ...(this.counters[id] ?? {}) };
     delete row[sub];
     this.counters = { ...this.counters, [id]: row };
-    await api.clearHintCount(id, subject.trim().toLowerCase()).catch(() => {});
+    await api.clearHintCount(id, subject.trim().toLowerCase()).catch((e) => app.fail(e));
   }
 
   private async persist(id: string, subject: string): Promise<void> {
     const state = this.states.find((s) => s.id === id && s.subject === subject.trim().toLowerCase());
     if (!state) return;
-    await api.hintSave(state).catch(() => {});
+    await api.hintSave(state).catch((e) => app.fail(e));
   }
 
   /** Reads the decisions again, after «Ask them again» on the page «Hints». */

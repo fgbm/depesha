@@ -114,7 +114,7 @@ export function listenMain(app: AppStore) {
       app.reload();
     }),
     listen<View>("window-view", (e) => {
-      getCurrentWindow().setFocus().catch(() => {});
+      getCurrentWindow().setFocus().catch(() => {}); // Focus is cosmetic.
       app.setView(e.payload);
     }),
     // The closed window, quitting, the tray menu, a click on a notification (#4, #63).
@@ -141,11 +141,11 @@ function quitDrafts(app: AppStore) {
       const settle = app.settingsSettle?.();
       const patience = new Promise<void>((r) => setTimeout(r, 4000));
       await Promise.allSettled([app.saveComposes(4000), settle && Promise.race([settle, patience])]);
-      if (quit === mine) await api.composeSaved().catch(() => {});
+      if (quit === mine) await api.composeSaved().catch(() => {}); // The backend asks again at the next quit.
     },
     cancel() {
       quit++;
-      void api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {});
+      void api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {}); // Only tells the backend whether a quit must ask; the next change tells again.
     },
   };
 }

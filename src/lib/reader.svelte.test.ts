@@ -141,3 +141,16 @@ describe("`s` by the letter's own state", () => {
     expect(api.setFlag).toHaveBeenCalledWith([2], { flag: "flagged", value: true });
   });
 });
+
+describe("a failing backend is told, not swallowed (#147)", () => {
+  it("tells when the conversation of the opened letter cannot be read", async () => {
+    api.messages.mockResolvedValue(rows(1, 3));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockRejectedValue(new Error("thread broken"));
+    const s = new AppStore();
+    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.open(1);
+    await flush();
+    expect(s.toasts.some((x) => x.error && x.text.includes("thread broken"))).toBe(true);
+  });
+});

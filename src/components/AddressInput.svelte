@@ -82,7 +82,7 @@
         suggestions = found.filter((a) => !a.emails.every((e) => value.some((v) => v.email.toLowerCase() === e.toLowerCase())));
         which = suggestions.map(() => 0);
         active = 0;
-      } catch {
+      } catch { // A failing lookup offers no suggestions; typing goes on.
         suggestions = [];
       }
     }, 120);

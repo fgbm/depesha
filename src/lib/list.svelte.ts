@@ -259,7 +259,7 @@ export class ListController {
   private async countFound(text: string): Promise<SearchTotals | null> {
     try {
       return (await api.searchTotals(text)) ?? null;
-    } catch {
+    } catch { // The total is a nicety next to the found letters.
       return null;
     }
   }

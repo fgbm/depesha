@@ -16,7 +16,7 @@ export class RecentSearches {
     try {
       const saved = JSON.parse(storage.get() ?? "[]");
       if (Array.isArray(saved)) this.list = saved.filter((s): s is string => typeof s === "string").slice(0, RECENT_MAX);
-    } catch {
+    } catch { // A broken stored list starts empty.
       this.list = [];
     }
   }

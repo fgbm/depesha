@@ -24,7 +24,7 @@ const FOLDED_KEY = "depesha.sidebar.folded";
 function readBooleans(key: string): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem(key) ?? "{}");
-  } catch {
+  } catch { // A broken stored value starts from nothing.
     return {};
   }
 }

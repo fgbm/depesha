@@ -88,7 +88,7 @@ export class ComposeManager {
 
   /** Keeps every composition, waiting for each at most `ms`; a slow server does not hold a close. */
   async saveAll(ms: number): Promise<void> {
-    const saves = [...this.savers.values()].map((s) => within(s().catch(() => false), ms));
+    const saves = [...this.savers.values()].map((s) => within(s().catch(() => false), ms)); // A failed save only means «not kept»; a close must not hang on it.
     await Promise.all(saves);
   }
 
@@ -96,7 +96,7 @@ export class ComposeManager {
   async restoreLocal(drafts: CachedDraft[]) {
     for (const d of drafts) {
       this.open({ account_id: d.account_id, draft: d.draft, draft_id: d.draft_id ?? null, draft_message_id: d.draft_message_id ?? null, unsaved: true });
-      await api.draftCacheDrop(d.key).catch(() => {});
+      await api.draftCacheDrop(d.key).catch(() => {}); // A copy that stays is offered again at the next start.
     }
   }
 
@@ -280,7 +280,7 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 function decoded(s: string): string {
   try {
     return decodeURIComponent(s);
-  } catch {
+  } catch { // A malformed escape stays as it is.
     return s;
   }
 }

@@ -40,7 +40,7 @@
       .then(({ highlightDocument, HL_CSS }) => {
         if (!gone) marked = HL_CSS + highlightDocument(html);
       })
-      .catch(() => {
+      .catch(() => { // Without highlighting the plain source is shown.
         if (!gone) marked = html;
       });
     return () => {

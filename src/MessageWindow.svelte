@@ -52,7 +52,7 @@
 
   // A quit asks this window first when a letter is being written here.
   $effect(() => {
-    api.composeUnsaved(app.composes.length > 0).catch(() => {});
+    api.composeUnsaved(app.composes.length > 0).catch(() => {}); // Only tells the backend whether a quit must ask; the next change tells again.
   });
 
   // Plugins add their buttons and banners to the reader here as in the main window.
@@ -64,7 +64,7 @@
 
   $effect(() => {
     const subject = app.opened?.view.summary.subject;
-    if (subject !== undefined) win.setTitle(subject || t("noSubject")).catch(() => {});
+    if (subject !== undefined) win.setTitle(subject || t("noSubject")).catch(() => {}); // The window title is cosmetic.
   });
 
   function onKey(e: KeyboardEvent) {

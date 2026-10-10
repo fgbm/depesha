@@ -5,12 +5,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
-vi.mock("./store.svelte", () => ({ app: { settings: { hints: true }, toast: () => {}, fail: () => {} } }));
+const { fail } = vi.hoisted(() => ({ fail: vi.fn() }));
+vi.mock("./store.svelte", () => ({ app: { settings: { hints: true }, toast: () => {}, fail } }));
 
 import { hints } from "./hints.svelte";
 import { peopleBook } from "./peopleBook.svelte";
 import { blankPerson } from "./people";
 import { api } from "./testing";
+import type { Hint } from "./hints";
 import type { ComposeDraft } from "./types";
 
 const draft = (format: ComposeDraft["format"], email: string): ComposeDraft =>
@@ -65,5 +67,25 @@ describe("the send-format detector", () => {
     peopleBook.list = [{ ...blankPerson("ivan@x"), send_format: "markdown" }];
     await hints.recordSend(draft("markdown", "ivan@x"));
     expect(api.countHint).not.toHaveBeenCalled();
+  });
+});
+
+describe("a failing backend is told, not swallowed (#147)", () => {
+  const shown = { id: "send-format", subject: "ivan@x", who: "Иван" } as Hint;
+
+  it("tells when the decision of the user could not be kept", async () => {
+    hints.active = shown;
+    api.hintSave.mockRejectedValue(new Error("disk full"));
+    api.clearHintCount.mockResolvedValue(undefined);
+    await hints.decide("never-this");
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "disk full" }));
+  });
+
+  it("tells when the counter could not be forgotten", async () => {
+    hints.active = shown;
+    api.hintSave.mockResolvedValue(undefined);
+    api.clearHintCount.mockRejectedValue(new Error("db locked"));
+    await hints.decide("never-this");
+    expect(fail).toHaveBeenCalledWith(expect.objectContaining({ message: "db locked" }));
   });
 });

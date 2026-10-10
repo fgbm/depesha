@@ -52,7 +52,7 @@
         });
         field = editor.field;
       })
-      .catch(() => (failed = true));
+      .catch(() => (failed = true)); // `failed` switches to the plain field.
     return () => {
       gone = true;
       editor?.destroy();

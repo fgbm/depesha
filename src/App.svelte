@@ -208,7 +208,7 @@
 
   // A quit asks this window to keep its drafts: it says whether it holds any (#71).
   $effect(() => {
-    api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {});
+    api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {}); // Only tells the backend whether a quit must ask; the next change tells again.
   });
 
   $effect(() => {

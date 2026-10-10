@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  if (view) await Promise.resolve(unmount(view)).catch(() => {});
+  if (view) await Promise.resolve(unmount(view)).catch(() => {}); // Teardown: a view that is already gone is fine.
   view = null;
   document.body.innerHTML = "";
 });

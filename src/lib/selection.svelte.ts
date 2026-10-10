@@ -94,7 +94,7 @@ export class SelectionController {
     // my answer in Sent) is not a row of a grouped list. Closed only when it left the cache.
     const opened = this.host.reader.opened;
     if (opened && !ids.has(opened.row.id) && !search) {
-      const rows = await api.messagesById([opened.row.id]).catch(() => null);
+      const rows = await api.messagesById([opened.row.id]).catch(() => null); // A failed check keeps the letter open; it is repeated on the next list change.
       if (rows?.length === 0 && this.host.reader.opened === opened) this.host.reader.opened = null;
     }
   }
@@ -127,7 +127,7 @@ export class SelectionController {
     this.cancelSync();
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
-      void this.host.track(api.syncNow(accountId, folder)).catch(() => {});
+      void this.host.track(api.syncNow(accountId, folder)).catch(() => {}); // A failing sync is shown by the tasks of the backend (tasks-changed), not here.
     }, 300);
   }
 

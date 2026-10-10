@@ -89,7 +89,7 @@ export class ComposeAttachments {
   async insertPictureFiles(paths: string[]) {
     const { found, refused } = await picturesFromFiles(paths);
     for (const path of refused) {
-      const info = await api.fileInfo(path).catch(() => null);
+      const info = await api.fileInfo(path).catch(() => null); // Without the file info the picture is only announced, not attached.
       if (info) this.host.win.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
       this.host.toastBig(info?.name ?? path);
     }

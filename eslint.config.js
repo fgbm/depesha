@@ -5,6 +5,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import svelte from "eslint-plugin-svelte";
 import tseslint from "typescript-eslint";
+import silentCatch from "./scripts/eslint-silent-catch.js";
 
 export default tseslint.config(
   {
@@ -65,6 +66,7 @@ export default tseslint.config(
   {
     // Стражники размера и сложности, общие для .ts и .svelte.
     files: ["**/*.{js,ts,svelte}"],
+    plugins: { depesha: silentCatch },
     rules: {
       // Ни одна функция не длиннее 60 строк (AC13). Пустые строки и
       // комментарии не считаем: они не создают логической длины.
@@ -84,6 +86,8 @@ export default tseslint.config(
       ],
       // Типы и руны проверяет svelte-check/tsc; no-undef в TS только мешает.
       "no-undef": "off",
+      // Ошибку не глотают молча (#147): app.fail, журнал или комментарий «почему можно».
+      "depesha/no-silent-catch": "error",
     },
   },
 );

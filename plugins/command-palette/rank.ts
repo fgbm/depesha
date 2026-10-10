@@ -23,7 +23,7 @@ export class Recency {
       if (saved && typeof saved === "object") {
         for (const [id, at] of Object.entries(saved)) if (typeof at === "number") this.used[id] = at;
       }
-    } catch {
+    } catch { // A broken saved list starts the ranking afresh.
       this.used = {};
     }
   }

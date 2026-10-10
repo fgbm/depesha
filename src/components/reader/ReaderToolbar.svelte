@@ -55,7 +55,7 @@
   );
   const messageCommands = $derived(extensions.commands().filter((c) => c.message));
   const pluginActions = $derived(
-    registry.items("messageActions").filter((a) => { try { return !a.when || a.when(msg); } catch { return false; } }),
+    registry.items("messageActions").filter((a) => { try { return !a.when || a.when(msg); } catch { /* a faulty plugin hides its item */ return false; } }),
   );
   /** Метки в папке письма: известный запрет гасит пункт с подсказкой (#42, кадр 7). */
   const canLabel = $derived(app.labels.writable([msg.row]));

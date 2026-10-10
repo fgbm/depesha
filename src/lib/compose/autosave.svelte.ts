@@ -148,7 +148,7 @@ export class ComposeAutosave {
   async forgetLocal() {
     if (!this.localStored) return;
     this.localStored = false;
-    await api.draftCacheDrop(this.host.win.local_id).catch(() => {});
+    await api.draftCacheDrop(this.host.win.local_id).catch(() => {}); // A local copy left behind is offered for restore at the next start.
   }
 
   /** The held-back save: runs once the minute since the last server save is up. */

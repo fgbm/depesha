@@ -27,7 +27,7 @@ export function rememberForm(id: number, view: BodyView) {
 /** The form on screen; for a letter that is not open, the one the settings would show. */
 async function formOf(msg: OpenedMessage): Promise<BodyView> {
   if (shown?.id === msg.row.id) return shown.view;
-  await peopleBook.load().catch(() => {});
+  await peopleBook.load().catch(() => {}); // Without the book the preference of the account or the settings applies.
   const person = peopleBook.find(msg.view.summary.from?.email ?? "");
   return preferredView(msg.view, effectivePref(person?.view, app.account(msg.row.account_id)?.letter_view, app.settings.letter_view));
 }

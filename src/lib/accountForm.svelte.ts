@@ -164,7 +164,7 @@ export class AccountForm {
       this.showLimit(e.quota_limit_mb ?? 0);
     }
     this.initial = JSON.stringify(this.account());
-    api.oauthProviders().then((p) => (this.providers = p)).catch(() => {});
+    api.oauthProviders().then((p) => (this.providers = p)).catch(() => {}); // Without the list of providers the form just offers no sign-in buttons.
   }
 
   /** Something was changed and not saved: a field, a password typed or a sign-in made. */
