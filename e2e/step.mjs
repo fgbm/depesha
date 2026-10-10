@@ -22,13 +22,19 @@ export function createFailFirst(spec) {
 
 /**
  * Closes what a failed step left open (menus, the viewer, dialogs): the Escape starts at the settings
- * window, the focused element or the body (these listen on themselves, not on the window) and then goes to
- * the window too, for a handler that stopped it on the way.
+ * window, the focused element or the body (these listen on themselves, not on the window). It goes to the
+ * window too only if it did not get there by itself, for a handler that stopped it on the way: a second
+ * one would close a second layer. The listener on the window is the bubbling one, the phase in which the
+ * app's own handlers on the window run, so "got there" means what the app would have seen.
  */
 export const ESCAPE_SCRIPT = `const t = document.querySelector('.modal.prefs') ?? document.activeElement ?? document.body;
   const escape = () => new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+  let reached = false;
+  const seen = () => { reached = true; };
+  window.addEventListener('keydown', seen);
   t.dispatchEvent(escape());
-  window.dispatchEvent(escape());`;
+  window.removeEventListener('keydown', seen);
+  if (!reached) window.dispatchEvent(escape());`;
 
 /**
  * `hooks`: `screenshot(name)`, `tidyUp()` and `log(line)`. `results` gets one record per step,

@@ -82,18 +82,28 @@ export async function run() {
     }
   });
 
-  await step("2", "«Отложить»: письмо ждёт в «Отложенных» и возвращается непрочитанным", async () => {
+  await step("2", "«Отложить»: меню у письма; письмо, отложенное на сейчас, возвращается планировщиком непрочитанным", async () => {
     await d.button("Входящие");
     await openBySubject("Скидки недели");
     await press("h");
     await d.until("snooze menu", async () => (await textOf(".snooze .pop")).includes("Завтра"));
     await screenshot("snooze-menu");
     await press("Escape");
-    // The offered times are hours away; the same command with a time 5 seconds ahead.
-    await invoke("snooze", { ids: [await idOf("Скидки недели")], until: Math.floor(Date.now() / 1000) + 5 });
-    await d.until("in Snoozed on server", async () => helper("count", "Отложенные", "Скидки недели") === "1", 20000);
-    await d.until("back unread", async () =>
-      helper("count", "INBOX", "Скидки недели") === "1" && !helper("flags", "INBOX", "Скидки недели").includes("\\Seen"), 45000, 1000);
+    // The offered times are hours away, and the time is a rule of the core (`return_due`, `due_by_account`),
+    // not waited for here: the same command for this very moment. What stays is the chain that nothing else
+    // covers: the snooze wakes the scheduler, it brings the letter back through the queue (`return_snoozes`).
+    // The letter was read; it is unread only if the move cleared the flag on the server
+    // (`a_move_with_unseen_brings_the_letter_back_unread`). Away and back: in the inbox, not in «Отложенные».
+    await invoke("snooze", { ids: [await idOf("Скидки недели")], until: Math.floor(Date.now() / 1000) });
+    await d.until(
+      "back unread",
+      async () =>
+        helper("count", "INBOX", "Скидки недели") === "1" &&
+        helper("count", "Отложенные", "Скидки недели") === "0" &&
+        !helper("flags", "INBOX", "Скидки недели").includes("\\Seen"),
+      45000,
+      500,
+    );
   });
 
   await step("2.3", "«Отложить» цепочку: в «Отложенных» одна строка и единица в счётчике", async () => {

@@ -18,7 +18,7 @@ ensureStandLock();
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const app = process.env.DEPESHA_APP ?? join(root, "target/debug/depesha");
-export const nativeDriver = process.env.WEBKIT_DRIVER ?? join(process.env.HOME, ".local/depesha-testenv/root/usr/bin/WebKitWebDriver");
+const nativeDriver = process.env.WEBKIT_DRIVER ?? join(process.env.HOME, ".local/depesha-testenv/root/usr/bin/WebKitWebDriver");
 export const screens = join(root, "e2e/screens");
 mkdirSync(screens, { recursive: true });
 
@@ -47,7 +47,7 @@ export const env = {
 };
 
 export const results = [];
-export let shot = 0;
+let shot = 0;
 export const d = new Driver();
 
 export function helper(...args) {
@@ -67,14 +67,14 @@ export async function screenshot(name, { toasts = false } = {}) {
 export const retried = [];
 
 /** Only a step marked `{ retry: true }` is restarted (see e2e/step.mjs); `critical` aborts the run. */
-export const runStep = createStepRunner({ screenshot, tidyUp, log: console.log, results, retried });
+const runStep = createStepRunner({ screenshot, tidyUp, log: console.log, results, retried });
 
 /** DEPESHA_E2E_SHARD=2/3 (or a list of sections): this run is one part of the scenario (e2e/shard.mjs); the steps of the other parts are not run. */
 export const { section, gate } = createSectionGate(selectSections(process.env.DEPESHA_E2E_SHARD));
 export const step = gate(runStep);
 
 /** Closes what a failed step left open (`ESCAPE_SCRIPT`): it would cover the next step's clicks. */
-export async function tidyUp() {
+async function tidyUp() {
   for (let i = 0; i < 3; i++) {
     await d.exec(ESCAPE_SCRIPT).catch(() => {});
     await new Promise((r) => setTimeout(r, 100));
@@ -345,7 +345,7 @@ export async function sidebarText() {
   return d.exec("return document.querySelector('nav.side').innerText");
 }
 
-export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Waits until the X server of `display` takes connections: CI starts Xvfb in the background a moment
  *  before the run, and an app that meets no server panics in GTK ("Failed to initialize gtk backend"),

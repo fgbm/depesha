@@ -2001,3 +2001,67 @@ async fn a_folder_is_made_under_a_cyrillic_parent_with_a_dot_delimiter() {
         .await
         .unwrap();
 }
+
+/// Snoozed mail comes back unread, others as they were: `unseen` clears `\Seen` before the move, on the
+/// server, and the flag travels with the letter.
+#[tokio::test]
+async fn a_move_with_unseen_brings_the_letter_back_unread() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("unseen").await;
+    conn.session.create("Back").await.unwrap();
+    for (n, mid) in ["u1", "u2"].into_iter().enumerate() {
+        let raw = format!(
+            "From: Тест <test@example.org>\r\nTo: me@example.org\r\nSubject: Прочитанное {n}\r\n\
+             Message-ID: <{mid}@example.org>\r\nDate: Fri, 2 Oct 2026 10:00:0{n} +0300\r\n\
+             Content-Type: text/plain; charset=utf-8\r\n\r\nтело\r\n"
+        )
+        .replace("             ", "");
+        // Both are read when they are moved.
+        imap::append(&mut conn, "INBOX", raw.as_bytes(), "(\\Seen)")
+            .await
+            .unwrap();
+    }
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "u").await.unwrap();
+    sync::sync_folder(&mut conn, &store, "u", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    let mut conn = mail::Conn::Imap(conn);
+    let unread = vec!["u1@example.org".to_owned()];
+    let as_it_was = vec!["u2@example.org".to_owned()];
+    assert_eq!(
+        mail::move_by_message_id(&mut conn, &store, "u", "INBOX", &unread, "Back", true)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        mail::move_by_message_id(&mut conn, &store, "u", "INBOX", &as_it_was, "Back", false)
+            .await
+            .unwrap(),
+        1
+    );
+    let mail::Conn::Imap(mut imap_conn) = conn else {
+        unreachable!()
+    };
+    sync::sync_folder(&mut imap_conn, &store, "u", "Back", SyncOptions::default())
+        .await
+        .unwrap();
+    let rows = store
+        .list(&ListQuery {
+            account_id: Some("u".into()),
+            folder: Some("Back".into()),
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    let seen = |mid: &str| {
+        rows.iter()
+            .find(|r| r.message_id.as_deref().is_some_and(|m| m.contains(mid)))
+            .map(|r| r.flags.seen)
+    };
+    assert_eq!(seen("u1@"), Some(false), "unread after the move: {rows:?}");
+    assert_eq!(seen("u2@"), Some(true), "a plain move keeps the flag");
+}

@@ -1164,6 +1164,10 @@ mod tests {
         )
         .await
         .unwrap();
+        // No wait starts and nothing goes to the waiting folder: the answer only archives.
+        assert!(!sent.parks);
+        assert_eq!(store.followups_count().unwrap().active, 0);
+        assert!(store.park_jobs().unwrap().is_empty());
         let archiving = sent.archive.unwrap();
         assert_eq!(
             (archiving.folder.as_str(), archiving.message_id.as_str()),

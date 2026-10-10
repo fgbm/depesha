@@ -78,11 +78,29 @@ describe("DEPESHA_E2E_FAIL_FIRST", () => {
 });
 
 describe("tidy up", () => {
-  /** Runs the script against a stand-in for the page: who got the Escape. */
+  /** Runs the script against a stand-in for the page: who got the Escape, and how many times. */
   function run(shielded) {
     const got = [];
-    const target = { name: "target", dispatchEvent: (e) => (shielded ? true : got.push(["target", e.key])) };
-    const window = { dispatchEvent: (e) => got.push(["window", e.key]) };
+    const listeners = [];
+    const bubble = (e) => listeners.forEach((f) => f(e));
+    const target = {
+      dispatchEvent(e) {
+        got.push("target");
+        // A handler that stops the event on the way keeps it from the window; otherwise it bubbles up.
+        if (!shielded) bubble(e);
+      },
+    };
+    const window = {
+      addEventListener: (type, f, capture) => {
+        expect(capture).toBeFalsy();
+        listeners.push(f);
+      },
+      removeEventListener: (type, f) => listeners.splice(listeners.indexOf(f), 1),
+      dispatchEvent(e) {
+        got.push("window");
+        bubble(e);
+      },
+    };
     const document = { querySelector: () => null, activeElement: target, body: target };
     class KeyboardEvent {
       constructor(type, init) {
@@ -90,15 +108,14 @@ describe("tidy up", () => {
       }
     }
     new Function("document", "window", "KeyboardEvent", ESCAPE_SCRIPT)(document, window, KeyboardEvent);
+    expect(listeners).toHaveLength(0);
     return got;
   }
 
-  it("sends the Escape to the window too, for a handler that stopped it on the way", () => {
+  it("sends the Escape to the window only when the first one did not get there", () => {
     // The focused element's handler stops the event: only the window can still close the dialog.
-    expect(run(true)).toEqual([["window", "Escape"]]);
-    expect(run(false)).toEqual([
-      ["target", "Escape"],
-      ["window", "Escape"],
-    ]);
+    expect(run(true)).toEqual(["target", "window"]);
+    // It bubbled up to the window by itself: one Escape, not two (the second would close a second layer).
+    expect(run(false)).toEqual(["target"]);
   });
 });

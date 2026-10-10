@@ -180,7 +180,7 @@ export async function run() {
       Number(await d.exec("return [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Черновики')?.querySelector('.count')?.innerText ?? 0")) >= 1);
   });
 
-  await step("8", "цепочка: три письма — одна строка, в письме видна вся переписка", async () => {
+  await step("4.9.1", "цепочка: три письма — одна строка, в письме видна вся переписка", async () => {
     await d.button("Входящие");
     const threadRow = () =>
       d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes('Бюджет на ноябрь')).map(r => r.querySelector('.count')?.innerText.trim() ?? '1')`);
@@ -193,7 +193,7 @@ export async function run() {
     await screenshot("conversation");
   }, { retry: true });
 
-  await step("8.2", "письмо, открытое из карточки беседы, не закрывается, когда список обновляется", async () => {
+  await step("4.9.2", "письмо, открытое из карточки беседы, не закрывается, когда список обновляется", async () => {
     // The first letter of the conversation: not a row of the grouped list.
     await d.click((await d.findAll(".thread .card"))[0]);
     await d.until("older letter open", async () => (await textOf(".reader .body")).includes("Предлагаю обсудить"));
