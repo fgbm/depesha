@@ -11,7 +11,7 @@ import type { AccountView, FolderInfo, OutboxItem } from "./types";
 
 /** What the mailboxes need from the app store. */
 export interface MailboxHost {
-  readonly ui: UiController;
+  readonly ui: Pick<UiController, "fail">;
 }
 
 export class MailboxController {

@@ -1,4 +1,4 @@
-import type { UiController } from "./ui.svelte";
+import type { ComposeWindow } from "./composes.svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
@@ -20,38 +20,44 @@ const folder = (role: FolderInfo["role"] | null, total = 128): FolderInfo => ({
   unread: 0,
 });
 
-/** The host with one mailbox, a toast log and a dialog the test answers. */
-function host(over: { role?: FolderInfo["role"] | null; total?: number; online?: boolean; windows?: { account_id: string; draft_id: number | null; local_id: string }[]; tasks?: Task[] } = {}) {
-  const f = folder("role" in over ? over.role! : "trash", over.total);
-  const state = { online: over.online ?? true, answer: true };
-  const toasts: { text: string; error: boolean; action?: { label: string; run: () => void }; ms?: number }[] = [];
-  const asked: unknown[] = [];
-  const held: { text: string; run: () => Promise<void>; released: boolean }[] = [];
-  const ui = {
-    tasks: over.tasks ?? [],
+type Toasts = { text: string; error: boolean; action?: { label: string; run: () => void }; ms?: number }[];
+
+/** The overlays of the host: a toast log, and a dialog that answers as `state` says. */
+function fakeUi(tasks: Task[], toasts: Toasts, asked: unknown[], state: { answer: boolean }): ClearHost["ui"] {
+  return {
+    tasks,
     toast: (text, error = false, action, ms) => toasts.push({ text, error, action, ms }),
     retext: () => true,
     dismiss: () => {},
     confirm: async (q) => (asked.push(q), state.answer),
     track: (p) => p,
     fail: (e) => void toasts.push({ text: String((e as Error).message), error: true }),
-  } satisfies Partial<UiController>;
+  };
+}
+
+/** The host with one mailbox, a toast log and a dialog the test answers. */
+function host(over: { role?: FolderInfo["role"] | null; total?: number; online?: boolean; windows?: { account_id: string; draft_id: number | null; local_id: string }[]; tasks?: Task[] } = {}) {
+  const f = folder("role" in over ? over.role! : "trash", over.total);
+  const state = { online: over.online ?? true, answer: true };
+  const toasts: Toasts = [];
+  const asked: unknown[] = [];
+  const held: { text: string; run: () => Promise<void>; released: boolean }[] = [];
   const h: ClearHost = {
     windowOf: null,
-    list: { view: { kind: "folder", account_id: "a", folder: f.name } } as ClearHost["list"],
-    compose: { windows: over.windows ?? [] } as unknown as ClearHost["compose"],
-    ui: ui as unknown as ClearHost["ui"],
+    list: { view: { kind: "folder", account_id: "a", folder: f.name } },
+    compose: { windows: (over.windows ?? []) as ComposeWindow[] },
+    ui: fakeUi(over.tasks ?? [], toasts, asked, state),
     mailboxes: {
       account: () => ({ id: "a", status: { state: state.online ? "online" : "error" } }) as AccountView,
-      folder: (acc: string, name: string) => (acc === "a" && name === f.name ? f : undefined),
-    } as unknown as ClearHost["mailboxes"],
+      folder: (acc, name) => (acc === "a" && name === f.name ? f : undefined),
+    },
     actions: {
-      hold: (text: string, run: () => Promise<void>) => {
+      hold: (text, run) => {
         const u = { text, run, released: false };
         held.push(u);
         return () => void (u.released = true);
       },
-    } as unknown as ClearHost["actions"],
+    },
   };
   return { h, f, state, toasts, asked, held, clear: new ClearFolder(h) };
 }

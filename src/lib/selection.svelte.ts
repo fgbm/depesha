@@ -15,11 +15,11 @@ import type { MessageRow, SortKey } from "./types";
 
 /** What the list view and the selection need from the app store. */
 export interface SelectionHost {
-  readonly mailboxes: MailboxController;
-  readonly settingsCtl: SettingsController;
-  readonly list: ListController;
-  readonly reader: Reader;
-  readonly ui: UiController;
+  readonly mailboxes: Pick<MailboxController, "folder">;
+  readonly settingsCtl: Pick<SettingsController, "patchSettings" | "settings">;
+  readonly list: Pick<ListController, "collapse" | "inboxLike" | "listFilter" | "listKey" | "loadMore" | "mark" | "messages" | "ownSort" | "reload" | "remove" | "reset" | "scheduleReload" | "searchServer" | "sort" | "unpin">;
+  readonly reader: Pick<Reader, "close" | "conversation" | "flagEpoch" | "open" | "openError" | "opened" | "openingRow" | "showing">;
+  readonly ui: Pick<UiController, "fail" | "track">;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
   /** A folder was opened: read its rights and labels (#42); quietly from the cache, from the server when never checked. */

@@ -35,10 +35,10 @@ export const RELOAD_CAP = 1000;
 
 /** What the list needs from the app store. */
 export interface ListHost {
-  readonly mailboxes: MailboxController;
-  readonly settingsCtl: SettingsController;
-  readonly ui: UiController;
-  readonly selection: SelectionController;
+  readonly mailboxes: Pick<MailboxController, "folder">;
+  readonly settingsCtl: Pick<SettingsController, "settings">;
+  readonly ui: Pick<UiController, "fail" | "track">;
+  readonly selection: Pick<SelectionController, "listed" | "showing">;
   /** Rows the user is on: the selection and the open letter. */
   using(): number[];
 }

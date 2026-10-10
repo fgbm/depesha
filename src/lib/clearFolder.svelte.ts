@@ -26,11 +26,11 @@ const isClearable = (role: FolderInfo["role"]): role is Role => role === "trash"
 
 /** What the clearing needs from the app store. */
 export interface ClearHost {
-  readonly actions: ActionRunner;
-  readonly mailboxes: MailboxController;
-  readonly compose: ComposeManager;
-  readonly list: ListController;
-  readonly ui: UiController;
+  readonly actions: Pick<ActionRunner, "hold">;
+  readonly mailboxes: Pick<MailboxController, "account" | "folder">;
+  readonly compose: Pick<ComposeManager, "windows">;
+  readonly list: Pick<ListController, "view">;
+  readonly ui: Pick<UiController, "confirm" | "dismiss" | "fail" | "retext" | "tasks" | "toast" | "track">;
   /** The letter of a separate message window; the command lives in the main window only. */
   readonly windowOf: number | null;
   /** "z" takes `run` back while the wait lasts; the returned function lets go of it. */

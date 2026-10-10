@@ -17,10 +17,10 @@ import type { View } from "./list.svelte";
 
 /** What the background needs from the app store. */
 export interface BackgroundHost extends ArrivalsHost {
-  readonly compose: ComposeManager;
-  readonly settingsCtl: SettingsController;
-  readonly ui: UiController;
-  readonly selection: SelectionController;
+  readonly compose: Pick<ComposeManager, "newMessage">;
+  readonly settingsCtl: Pick<SettingsController, "patchSettings">;
+  readonly ui: Pick<UiController, "choose" | "confirmation" | "fail" | "openSettings" | "settingsOpen" | "tasksOpen" | "toast">;
+  readonly selection: Pick<SelectionController, "select" | "setView">;
 }
 
 /** Letters late are worth a longer look than the usual toast. */

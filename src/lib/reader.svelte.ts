@@ -15,9 +15,9 @@ const SEEN_MS = 1000;
 
 /** What the reader needs from the app store. */
 export interface ReaderHost {
-  readonly mailboxes: MailboxController;
-  readonly list: ListController;
-  readonly ui: UiController;
+  readonly mailboxes: Pick<MailboxController, "account">;
+  readonly list: Pick<ListController, "mark" | "messages">;
+  readonly ui: Pick<UiController, "fail">;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
 }

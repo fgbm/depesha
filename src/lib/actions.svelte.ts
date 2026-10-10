@@ -32,11 +32,11 @@ export interface Undoable {
 
 /** What actions need from the app store. */
 export interface ActionHost {
-  readonly mailboxes: MailboxController;
-  readonly settingsCtl: SettingsController;
-  readonly reader: Reader;
-  readonly ui: UiController;
-  readonly selection: SelectionController;
+  readonly mailboxes: Pick<MailboxController, "folders">;
+  readonly settingsCtl: Pick<SettingsController, "settings">;
+  readonly reader: Pick<Reader, "opened" | "saw">;
+  readonly ui: Pick<UiController, "fail" | "toast" | "track">;
+  readonly selection: Pick<SelectionController, "reload" | "selectedIds" | "takeOut">;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
   readonly list: ListController;

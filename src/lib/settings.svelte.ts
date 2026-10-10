@@ -13,8 +13,8 @@ import type { KeySettings, Settings, UpdateStatus } from "./types";
 
 /** What the settings need from the app store. */
 export interface SettingsHost {
-  readonly ui: UiController;
-  readonly selection: SelectionController;
+  readonly ui: Pick<UiController, "fail" | "toast">;
+  readonly selection: Pick<SelectionController, "reload">;
 }
 
 export class SettingsController {

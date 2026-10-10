@@ -23,12 +23,14 @@ export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
 export type { Toast, Confirmation, WizardState } from "./ui.svelte";
 
-// The list (./list.svelte), the reader (./reader.svelte), actions with their undo
-// (./actions.svelte), compositions (./composes.svelte), the settings (./settings.svelte),
-// the mailboxes (./mailboxes.svelte), the overlays (./ui.svelte) and the list view with
-// the selection (./selection.svelte) live in modules of their own; the events of the
-// backend are in ./events. The store ties them together and keeps `app.*` as the
-// interface's one way in. Every module declares a narrow host.
+// The controllers (list, reader, actions, compositions, settings, mailboxes, overlays, the list
+// view with its selection, "Clear" for folders) live in modules of their own, and `app` hands
+// them out: components and the modules that may import the store take `app.<controller>.*`
+// directly. A controller the store builds cannot import the store (it imports them, so that
+// would be a cycle): it gets the store as its host, and the host declares a slice of each
+// controller it uses (`Pick<UiController, "fail" | "track">`), nothing more. What stays on
+// the store itself is what ties controllers together: the start-up, the open window's id,
+// and the few actions that join several of them.
 
 export class AppStore {
   readonly settingsCtl: SettingsController = new SettingsController(this);

@@ -37,10 +37,10 @@ export interface ComposeWindow extends ComposeState {
 
 /** What compositions need from the app store. */
 export interface ComposeHost {
-  readonly mailboxes: MailboxController;
-  readonly settingsCtl: SettingsController;
-  readonly reader: Reader;
-  readonly ui: UiController;
+  readonly mailboxes: Pick<MailboxController, "account" | "outbox">;
+  readonly settingsCtl: Pick<SettingsController, "settings">;
+  readonly reader: Pick<Reader, "opened" | "saw">;
+  readonly ui: Pick<UiController, "fail" | "retext" | "toast" | "wizard">;
   /** The letter of a separate message window, where compositions open full screen; null in the main window. */
   readonly windowOf: number | null;
   /** The letters are acted on: their read mark lands at once (#71). */

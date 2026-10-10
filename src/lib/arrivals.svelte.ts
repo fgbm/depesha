@@ -29,9 +29,9 @@ export const FLASH_MS = 1500;
 
 /** What a click on a notification needs from the app store. */
 export interface ArrivalsHost {
-  readonly list: ListController;
-  readonly ui: UiController;
-  readonly selection: SelectionController;
+  readonly list: Pick<ListController, "messages" | "view">;
+  readonly ui: Pick<UiController, "confirmation" | "settingsOpen" | "tasksOpen" | "toast">;
+  readonly selection: Pick<SelectionController, "select" | "setView">;
 }
 
 export class Arrivals {
