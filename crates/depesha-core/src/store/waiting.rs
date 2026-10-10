@@ -410,11 +410,12 @@ impl Store {
     }
 
     /// The letters of the wait `key` are in `folder` now. A wait the user closed while the
-    /// move was still running (`done`) has its letters brought back, not left there.
+    /// move was still running (`done`) has its letters brought back, not left there: after the
+    /// hold `stop` set (the undo toast), and to the place the stop named.
     pub fn followup_parked(&self, account_id: &str, key: &str, folder: &str) -> Result<()> {
         self.conn().execute(
             "UPDATE followups SET park = CASE WHEN park = 'done' THEN 'back' ELSE 'parked' END, park_folder = ?3,
-                park_since = CASE WHEN park = 'done' THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
+                park_since = CASE WHEN park = 'done' THEN MAX(CAST(strftime('%s','now') AS INTEGER), park_since) ELSE park_since END
              WHERE account_id = ?1 AND message_id = ?2 AND park IN ('pending', 'done')",
             params![account_id, bare(key), folder],
         )?;
@@ -432,7 +433,7 @@ impl Store {
         )?;
         tx.execute(
             "UPDATE followups SET park = CASE WHEN park = 'back' AND status = 'answered' THEN 'returned' ELSE 'done' END,
-                stop_to = NULL
+                stop_to = NULL, stop_from = 'gone'
              WHERE account_id = ?1 AND message_id = ?2 AND park IN ('back', 'undo')",
             params![account_id, bare(key)],
         )?;
@@ -477,15 +478,28 @@ impl Store {
 
     fn stop(&self, account_id: &str, message_id: &str, now: i64, to: Option<&str>, hold: i64) -> Result<bool> {
         // `stop_from`: where the wait's move stood, for `followup_resume`; `stop_to`: where the
-        // letters go, kept with the wait until they are there (a restart does not lose it).
-        let n = self.conn().execute(
+        // letters go, kept with the wait until they are there (a restart does not lose it). A move
+        // in that still runs (`pending`) keeps both: `followup_parked` turns it back, no sooner
+        // than `park_since`.
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let n = tx.execute(
             "UPDATE followups SET status = 'closed', ended = ?3, stop_from = park,
-                stop_to = CASE WHEN park = 'parked' THEN ?5 ELSE NULL END,
+                stop_to = CASE WHEN park IN ('parked', 'pending') THEN ?5 ELSE NULL END,
                 park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END,
-                park_since = CASE WHEN park = 'parked' THEN ?3 + ?4 ELSE park_since END
+                park_since = CASE WHEN park IN ('parked', 'pending') THEN ?3 + ?4 ELSE park_since END
              WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting'",
             params![account_id, bare(message_id), now, hold, to],
         )?;
+        // A wait closed a moment ago, its letters on the way to the place that stop named: a
+        // stop again says where they go now ("Back to the inbox" within the toast's time).
+        tx.execute(
+            "UPDATE followups SET stop_to = ?3
+             WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed'
+               AND park = 'back' AND stop_to IS NOT NULL",
+            params![account_id, bare(message_id), to],
+        )?;
+        tx.commit()?;
         Ok(n > 0)
     }
 
@@ -495,7 +509,8 @@ impl Store {
     /// that the stop cut short goes on with its plan; letters the return already took are
     /// taken in again, the plan forgotten. Only what this stop moved is touched: a wait that was
     /// «done» before it (kept in the inbox) stays so. False when nothing was resumed: the wait
-    /// ended another way since, or is waiting already.
+    /// ended another way since, or is waiting already, or its letters are back or lost (`stop_from`
+    /// is then `gone`: nothing is moved behind the user's back).
     pub fn followup_resume(&self, account_id: &str, message_id: &str, ended: i64) -> Result<bool> {
         let n = self.conn().execute(
             "UPDATE followups SET status = 'waiting', ended = NULL, stop_to = NULL,
@@ -506,6 +521,7 @@ impl Store {
                 park_since = CASE WHEN park = 'done' AND stop_from IN ('pending', 'parked')
                                   THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
              WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed' AND ended = ?3
+               AND stop_from <> 'gone'
                AND NOT EXISTS (SELECT 1 FROM followups
                  WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting')",
             params![account_id, bare(message_id), ended],
@@ -623,7 +639,7 @@ impl Store {
     /// stops trying, and the user is told to return them by hand.
     pub fn followup_return_failed(&self, account_id: &str, key: &str) -> Result<()> {
         self.conn().execute(
-            "UPDATE followups SET park = 'done', stop_to = NULL WHERE account_id = ?1 AND message_id = ?2 AND park IN ('back', 'undo')",
+            "UPDATE followups SET park = 'done', stop_to = NULL, stop_from = 'gone' WHERE account_id = ?1 AND message_id = ?2 AND park IN ('back', 'undo')",
             params![account_id, bare(key)],
         )?;
         Ok(())
@@ -1134,16 +1150,12 @@ mod tests {
         store.followup_stop_undoable("a", "q2@x", ended + 100, None).unwrap();
         assert_eq!(store.park_jobs().unwrap()[0].to, "INBOX");
 
-        // Undone after the letters went back: the move in is owed again.
+        // Not any more after the letters went back: nothing is moved behind the user's back.
         moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
         store.followup_moved_back("a", "r@x").unwrap();
         assert!(store.park_jobs().unwrap().is_empty());
-        assert!(store.followup_resume("a", "q2@x", ended + 100).unwrap());
-        let jobs = store.park_jobs().unwrap();
-        assert_eq!(
-            (jobs.len(), jobs[0].kind, jobs[0].message_ids.is_empty()),
-            (1, ParkKind::In, true)
-        );
+        assert!(!store.followup_resume("a", "q2@x", ended + 100).unwrap());
+        assert!(store.park_jobs().unwrap().is_empty());
     }
 
     #[test]
@@ -1216,6 +1228,80 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_during_the_move_in_returns_after_the_undo_toast_to_the_place_it_said() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &letter("Счёт", 90_000, "q@x", None, "maria@example.org"),
+            true,
+        );
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: Vec::new(),
+        };
+        assert!(
+            store
+                .followup_start(&answer("r@x", SENT, SENT + 500), Some("q@x"), Some(&park))
+                .unwrap()
+        );
+        let found = Parking {
+            from: "INBOX".into(),
+            chain: vec!["q@x".into()],
+        };
+        store.followup_park_plan("a", "r@x", &found).unwrap();
+        let stopped = chrono::Utc::now().timestamp();
+        assert!(
+            store
+                .followup_stop_undoable("a", "r@x", stopped, Some("Archive"))
+                .unwrap()
+        );
+        store.followup_parked("a", "r@x", WAIT).unwrap();
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!((jobs[0].kind, jobs[0].to.as_str()), (ParkKind::Back, "Archive"));
+        assert!(
+            jobs[0].since >= stopped + UNDO_SECS,
+            "the undo toast has its time: {} < {}",
+            jobs[0].since,
+            stopped + UNDO_SECS
+        );
+        // Undone while the letters were still in the folder: they stay, the return is gone.
+        assert!(store.followup_resume("a", "r@x", stopped).unwrap());
+        assert!(store.park_jobs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_undo_is_refused_once_the_letters_are_back_or_the_return_failed() {
+        let store = mailbox();
+        let (first, second) = waiting(&store, 0);
+        let ended = SENT + 10;
+        store.followup_stop_undoable("a", "q2@x", ended, None).unwrap();
+        moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        assert!(!store.followup_resume("a", "q2@x", ended).unwrap());
+        assert!(store.park_jobs().unwrap().is_empty());
+
+        let store = mailbox();
+        waiting(&store, 0);
+        store.followup_stop_undoable("a", "q2@x", ended, None).unwrap();
+        store.followup_return_failed("a", "r@x").unwrap();
+        assert!(!store.followup_resume("a", "q2@x", ended).unwrap());
+        assert!(store.park_jobs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn back_to_the_inbox_right_after_a_stop_to_the_archive_goes_to_the_inbox() {
+        let store = mailbox();
+        waiting(&store, 0);
+        store
+            .followup_stop_undoable("a", "q2@x", SENT + 10, Some("Archive"))
+            .unwrap();
+        assert!(!store.followup_stop("a", "q2@x", SENT + 11, None).unwrap());
+        assert_eq!(store.park_jobs().unwrap()[0].to, "INBOX");
+    }
+
+    #[test]
     fn the_place_a_stop_sends_letters_to_survives_a_restart_and_is_forgotten_with_them() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mail.sqlite");
@@ -1245,19 +1331,8 @@ mod tests {
             .query_row("SELECT stop_to FROM followups", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stop_to, None);
-        assert!(store.followup_resume("a", "q2@x", SENT + 10).unwrap());
-        store.followup_parked("a", "r@x", WAIT).unwrap();
-        store.followup_stop("a", "q2@x", SENT + 20, None).unwrap();
-        assert_eq!(
-            store
-                .park_jobs()
-                .unwrap()
-                .iter()
-                .filter(|j| j.kind == ParkKind::Back)
-                .map(|j| j.to.as_str())
-                .collect::<Vec<_>>(),
-            ["INBOX"]
-        );
+        assert!(!store.followup_resume("a", "q2@x", SENT + 10).unwrap());
+        assert!(store.park_jobs().unwrap().is_empty());
     }
 
     #[test]
