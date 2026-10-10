@@ -3146,7 +3146,7 @@ pub fn open_drafts(state: St<'_>, account_id: String) -> usize {
 
 #[tauri::command(async)]
 pub fn outbox(state: St<'_>) -> CmdResult<Vec<OutboxItem>> {
-    let mut items = state.store.outbox()?;
+    let mut items = depesha_core::outbox::listed(&state.store, &crate::localize::Phrases)?;
     for item in &mut items {
         // The GUI only needs names and sizes, not the bytes.
         for a in &mut item.draft.attachments {

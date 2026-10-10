@@ -96,7 +96,7 @@ pub enum Ended {
     Finished {
         /// Letters that lost the label.
         count: usize,
-        skipped: Vec<String>,
+        skipped: Vec<(String, crate::Error)>,
         not_cleaned: Vec<crate::Error>,
     },
     /// A pause, an offline mailbox, a busy server or a locked folder: the debt stays (the row
@@ -143,7 +143,7 @@ pub async fn strip<Q: MailQueue>(
     }
     let mut count = 0usize;
     let mut retry = false;
-    let mut skipped: Vec<String> = Vec::new();
+    let mut skipped: Vec<(String, crate::Error)> = Vec::new();
     let mut done = 0u64;
     for folder in &folders {
         let Some(queue) = queue.as_deref_mut() else {
@@ -156,7 +156,7 @@ pub async fn strip<Q: MailQueue>(
             // and keep the debt so the label is not removed with its keyword still on.
             Err(e) if e.retry_later() => retry = true,
             // No rights or a refusal: skip the folder and remember it; the rest is cleaned.
-            Err(e) => skipped.push(format!("{folder}: {e}")),
+            Err(e) => skipped.push((folder.clone(), e)),
         }
         done += 1;
         if !quiet {
@@ -303,7 +303,8 @@ mod tests {
             panic!("{ended:?}");
         };
         assert_eq!(skipped.len(), 1);
-        assert!(skipped[0].starts_with("INBOX: "), "{skipped:?}");
+        assert_eq!(skipped[0].0, "INBOX");
+        assert!(matches!(&skipped[0].1, Error::Protocol(_)), "{skipped:?}");
         assert!(
             store.labels("a").unwrap().is_empty(),
             "what refused is told, the label still goes"

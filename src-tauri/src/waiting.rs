@@ -164,8 +164,10 @@ async fn take_in(state: &AppState, job: &ParkJob) -> CmdResult<()> {
         &state.refused,
         &account,
         job,
-        now,
-        crate::lang::pick("Waiting for reply", "Ждут ответа"),
+        &depesha_core::waiting::Round {
+            now,
+            words: &crate::localize::Phrases,
+        },
     )
     .await?;
     match taken {

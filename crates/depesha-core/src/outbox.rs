@@ -46,6 +46,10 @@ pub trait Words: Sync {
     fn not_on_time(&self) -> String;
     /// The mailbox of a letter was removed.
     fn account_removed(&self) -> String;
+    /// A queued letter whose draft cannot be read.
+    fn damaged(&self) -> String;
+    /// The name of the folder a wait parks its letters in when the mailbox names none.
+    fn waiting_folder(&self) -> String;
 }
 
 /// The words in English, as the log has them.
@@ -64,6 +68,22 @@ impl Words for English {
     fn account_removed(&self) -> String {
         "the account was removed".to_owned()
     }
+    fn damaged(&self) -> String {
+        "the letter is damaged and cannot be read".to_owned()
+    }
+    fn waiting_folder(&self) -> String {
+        "Waiting for reply".to_owned()
+    }
+}
+
+/// The queue as the user sees it: a letter that cannot be read says so in the user's words, not
+/// in the English the cache keeps for it.
+pub fn listed(store: &Store, words: &dyn Words) -> Result<Vec<OutboxItem>> {
+    let mut items = store.outbox()?;
+    for item in items.iter_mut().filter(|i| i.broken) {
+        item.last_error = Some(words.damaged());
+    }
+    Ok(items)
 }
 
 /// Hours late (the app was closed, the computer asleep), a letter waits for the user. The ids
@@ -178,12 +198,13 @@ pub struct Progress<'a> {
     pub starting: &'a mut (dyn FnMut() + Send),
     /// Once started, the cache failed and `attempt` gives its error: the task is over.
     pub aborted: &'a mut (dyn FnMut() + Send),
+    /// The words the attempt stores for the user when it holds or fails the letter.
+    pub words: &'a dyn Words,
 }
 
 /// One letter: the steps in the order that keeps it from being sent twice or lost. `blocked`:
 /// an earlier letter of this mailbox was refused, and the rest wait for the user. `sender` makes
 /// the port of the account's kind.
-#[allow(clippy::too_many_arguments)]
 pub async fn attempt<S: Sender>(
     store: &Store,
     item: &OutboxItem,
@@ -191,9 +212,9 @@ pub async fn attempt<S: Sender>(
     blocked: bool,
     now: i64,
     progress: Progress<'_>,
-    words: &dyn Words,
     sender: impl FnOnce(&Account) -> S,
 ) -> Result<Attempt> {
+    let words = progress.words;
     if item.failed || item.next_attempt > now || blocked {
         return Ok(Attempt::Skipped);
     }
@@ -539,8 +560,9 @@ mod tests {
         let progress = Progress {
             starting: &mut || started += 1,
             aborted: &mut || aborted += 1,
+            words: &English,
         };
-        let got = attempt(store, item, account, blocked, now, progress, &English, |_| &mut *sender)
+        let got = attempt(store, item, account, blocked, now, progress, |_| &mut *sender)
             .await
             .unwrap();
         assert_eq!(aborted, 0);
@@ -1297,11 +1319,9 @@ mod tests {
         let progress = Progress {
             starting: &mut || started += 1,
             aborted: &mut || aborted += 1,
+            words: &English,
         };
-        let first = attempt(&store, &item, Some(&acct), false, 100, progress, &English, |_| {
-            &mut sender
-        })
-        .await;
+        let first = attempt(&store, &item, Some(&acct), false, 100, progress, |_| &mut sender).await;
         assert!(first.is_err(), "the failure is the caller's");
         assert_eq!((started, aborted), (1, 1), "the task the user saw is told it is over");
         assert_eq!(sender.sent.len(), 1);
@@ -1311,12 +1331,11 @@ mod tests {
         let progress = Progress {
             starting: &mut || {},
             aborted: &mut || {},
+            words: &English,
         };
-        let second = attempt(&store, &row, Some(&acct), false, 200, progress, &English, |_| {
-            &mut sender
-        })
-        .await
-        .unwrap();
+        let second = attempt(&store, &row, Some(&acct), false, 200, progress, |_| &mut sender)
+            .await
+            .unwrap();
         assert!(matches!(second, Attempt::Held(Hold::PossiblySent)), "{second:?}");
         assert_eq!(sender.sent.len(), 1, "sent once");
         assert!(

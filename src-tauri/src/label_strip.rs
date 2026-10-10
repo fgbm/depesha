@@ -107,7 +107,10 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
             if skipped.is_empty() {
                 state.task_done(&task);
             } else {
-                state.task_failed(&task, CmdError::new(depesha_core::ErrorKind::Other, skipped.join("; ")));
+                state.task_failed(
+                    &task,
+                    CmdError::new(depesha_core::ErrorKind::Other, skipped_text(&skipped)),
+                );
             }
             tell(state, account_id);
             tracing::debug!(account = %account_id, "took a label off {count} letters");
@@ -115,7 +118,45 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
     }
 }
 
+/// The folders that refused and why, in the language of the interface.
+fn skipped_text(skipped: &[(String, depesha_core::Error)]) -> String {
+    skipped
+        .iter()
+        .map(|(folder, e)| format!("{folder}: {}", crate::localize::error_now(e)))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 fn tell(state: &AppState, account_id: &str) {
     state.emit("labels-changed", json!({ "account_id": account_id }));
     state.emit("mail-changed", json!({ "account_id": account_id }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::{self, Lang};
+    use depesha_core::Error;
+
+    #[test]
+    fn a_folder_that_refused_is_told_in_the_language_of_the_interface() {
+        let ended = depesha_core::label_strip::Ended::Finished {
+            count: 3,
+            skipped: vec![(
+                "Shared/Team".into(),
+                Error::Imap(async_imap::error::Error::No("code: Some(NOPERM)".into())),
+            )],
+            not_cleaned: Vec::new(),
+        };
+        let depesha_core::label_strip::Ended::Finished { skipped, .. } = ended else {
+            unreachable!()
+        };
+        lang::pin(Lang::Ru);
+        assert_eq!(
+            skipped_text(&skipped),
+            "Shared/Team: IMAP: сервер отказал: code: Some(NOPERM)"
+        );
+        lang::pin(Lang::En);
+        assert_eq!(skipped_text(&skipped), "Shared/Team: IMAP: refused: code: Some(NOPERM)");
+    }
 }

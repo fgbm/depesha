@@ -351,6 +351,15 @@ impl Words for Phrases {
     fn account_removed(&self) -> String {
         crate::tr!("the account was removed", "учётная запись удалена")
     }
+    fn waiting_folder(&self) -> String {
+        crate::tr!("Waiting for reply", "Ждут ответа")
+    }
+    fn damaged(&self) -> String {
+        crate::tr!(
+            "the letter is damaged and cannot be read",
+            "письмо повреждено и не читается"
+        )
+    }
 }
 
 /// The words of the pages the browser shows when a sign-in comes back.
@@ -705,5 +714,21 @@ mod tests {
             assert_eq!(source_and_notes(Some(&source), &[], Lang::Ru).0, ru);
         }
         assert_eq!(source_and_notes(None, &[], Lang::Ru).0, "");
+    }
+
+    #[test]
+    fn the_words_of_a_damaged_letter_follow_the_language() {
+        lang::pin(Lang::Ru);
+        assert_eq!(Phrases.damaged(), "письмо повреждено и не читается");
+        lang::pin(Lang::En);
+        assert_eq!(Phrases.damaged(), "the letter is damaged and cannot be read");
+    }
+
+    #[test]
+    fn the_default_folder_of_a_wait_follows_the_language() {
+        lang::pin(Lang::Ru);
+        assert_eq!(Phrases.waiting_folder(), "Ждут ответа");
+        lang::pin(Lang::En);
+        assert_eq!(Phrases.waiting_folder(), "Waiting for reply");
     }
 }

@@ -1,7 +1,7 @@
 // The kinds of error the frontend knows are the kinds the backend has (#142).
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ERROR_KINDS } from "./types";
+import { CERT_WHY, ERROR_KINDS } from "./types";
 
 describe("ErrorKind", () => {
   it("lists the same codes as the backend enum", () => {
@@ -10,5 +10,13 @@ describe("ErrorKind", () => {
     const rust = [...body.matchAll(/Self::\w+ => "([a-z-]+)"/g)].map((m) => m[1]);
     expect(rust.length).toBeGreaterThan(0);
     expect([...ERROR_KINDS].sort()).toEqual([...rust].sort());
+  });
+
+  it("lists the same certificate reasons as the backend enum", () => {
+    const source = readFileSync("crates/depesha-core/src/tls.rs", "utf8");
+    const body = source.split("pub enum CertWhy {")[1]?.split("\n}\n")[0] ?? "";
+    const rust = [...body.matchAll(/^\s{4}([A-Z]\w+),$/gm)].map((m) => m[1]);
+    expect(rust.length).toBeGreaterThan(0);
+    expect([...CERT_WHY].sort()).toEqual([...rust].sort());
   });
 });

@@ -184,6 +184,43 @@ mod tests {
         assert_eq!(rows(&store, "outbox"), 2, "nothing is deleted on the way");
     }
 
+    /// The words of a user who reads Russian: only what the test looks at.
+    struct Russian;
+    impl crate::outbox::Words for Russian {
+        fn failure(&self, e: &crate::Error) -> String {
+            e.to_string()
+        }
+        fn possibly_sent(&self) -> String {
+            String::new()
+        }
+        fn not_on_time(&self) -> String {
+            String::new()
+        }
+        fn account_removed(&self) -> String {
+            String::new()
+        }
+        fn damaged(&self) -> String {
+            "письмо повреждено и не читается".to_owned()
+        }
+        fn waiting_folder(&self) -> String {
+            String::new()
+        }
+    }
+
+    #[test]
+    fn the_queue_tells_a_damaged_letter_in_the_users_words() {
+        let store = mailbox();
+        broken_draft(&store);
+        let item = crate::outbox::listed(&store, &Russian).unwrap().remove(0);
+        assert!(item.broken && item.failed);
+        assert_eq!(item.last_error.as_deref(), Some("письмо повреждено и не читается"));
+        // The cache keeps the English; only the listing words it.
+        assert_eq!(
+            store.outbox().unwrap()[0].last_error.as_deref(),
+            Some("the letter is damaged and cannot be read")
+        );
+    }
+
     #[test]
     fn a_damaged_letter_is_logged_once() {
         let store = mailbox();

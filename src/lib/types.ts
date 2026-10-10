@@ -101,9 +101,14 @@ export interface EwsDetection {
   notes: string[];
 }
 
+/** What a certificate is rejected for, when the program words it itself (`CertWhy` in the core); `other`: `reason` is the verifier's own. */
+export const CERT_WHY = ["Expired", "NotYetValid", "UnknownIssuer", "WrongName", "Revoked", "Failed", "Other"] as const;
+export type CertWhy = (typeof CERT_WHY)[number];
+
 export interface CertProblem {
   host: string;
   reason: string;
+  why: CertWhy;
   sha256: string;
   subject: string;
   issuer: string;

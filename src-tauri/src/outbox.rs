@@ -120,20 +120,14 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
         let progress = outbox::Progress {
             starting: &mut starting,
             aborted: &mut aborted,
+            words: &crate::localize::Phrases,
         };
-        let attempt = outbox::attempt(
-            &state.store,
-            &item,
-            account.as_ref(),
-            blocked,
-            now,
-            progress,
-            &crate::localize::Phrases,
-            |a| MailSender {
+        let attempt = outbox::attempt(&state.store, &item, account.as_ref(), blocked, now, progress, |a| {
+            MailSender {
                 state: state.clone(),
                 account: a.clone(),
-            },
-        )
+            }
+        })
         .await?;
         match attempt {
             Attempt::Skipped => continue,

@@ -379,9 +379,14 @@ pub enum Taken {
     },
 }
 
+/// The time and the words of one round of the moves a wait owes.
+pub struct Round<'a> {
+    pub now: i64,
+    pub words: &'a dyn crate::outbox::Words,
+}
+
 /// Takes the conversation of an answer from where it sits to the folder the mailbox waits in,
 /// making the folder when there is none. The state of the wait follows what came of it.
-#[allow(clippy::too_many_arguments)]
 pub async fn take_in<Q: MailQueue>(
     store: &Store,
     queue: &mut Q,
@@ -389,9 +394,9 @@ pub async fn take_in<Q: MailQueue>(
     refused: &Refused,
     account: &Account,
     job: &ParkJob,
-    now: i64,
-    default_folder: &str,
+    round: &Round<'_>,
 ) -> Result<Taken> {
+    let now = round.now;
     // The conversation is found now (#109): a wait put off for the archival of its own
     // conversation comes round again; one made before that carries its letters already.
     let (from, message_ids) = if job.message_ids.is_empty() {
@@ -430,7 +435,8 @@ pub async fn take_in<Q: MailQueue>(
             error,
         })
     };
-    let default = default_folder;
+    let default = round.words.waiting_folder();
+    let default = default.as_str();
     let folders: Vec<(String, String)> = store
         .folders(Some(&account.id))?
         .into_iter()
@@ -1237,8 +1243,10 @@ mod tests {
             &Refused::default(),
             &waits_in_wait(),
             job,
-            now,
-            "Waiting for reply",
+            &Round {
+                now,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap()
@@ -1352,8 +1360,10 @@ mod tests {
             &Refused::default(),
             &account,
             &job,
-            110,
-            "Waiting for reply",
+            &Round {
+                now: 110,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap();
@@ -1366,8 +1376,10 @@ mod tests {
             &Refused::default(),
             &account,
             &job,
-            100 + GIVE_UP_SECS,
-            "Waiting for reply",
+            &Round {
+                now: 100 + GIVE_UP_SECS,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap();
@@ -1396,8 +1408,10 @@ mod tests {
             &refused,
             &account,
             &job,
-            110,
-            "Waiting for reply",
+            &Round {
+                now: 110,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap();
@@ -1422,8 +1436,10 @@ mod tests {
             &refused,
             &account,
             &job,
-            210,
-            "Waiting for reply",
+            &Round {
+                now: 210,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap();
@@ -1454,8 +1470,10 @@ mod tests {
             &refused,
             &account,
             &job,
-            110,
-            "Waiting for reply",
+            &Round {
+                now: 110,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap();
@@ -1468,8 +1486,10 @@ mod tests {
             &refused,
             &account,
             &job,
-            100 + GIVE_UP_SECS,
-            "Waiting for reply",
+            &Round {
+                now: 100 + GIVE_UP_SECS,
+                words: &crate::outbox::English,
+            },
         )
         .await
         .unwrap();

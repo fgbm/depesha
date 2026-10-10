@@ -2011,6 +2011,26 @@ async fn resumed_from_sleep() {
 
 #[cfg(test)]
 mod tests {
+    /// A merged batch answers each caller with the error as it was (#142): before, the copy
+    /// each got was "an unexpected answer", and a refusal for lack of rights looked like any error.
+    #[test]
+    fn every_caller_of_a_merged_move_gets_the_kind_of_the_error() {
+        let refusal = || {
+            Error::Imap(async_imap::error::Error::No(
+                "code: Some(NOPERM), info: Some(\"no rights\")".into(),
+            ))
+        };
+        let (txs, mut rxs): (Vec<_>, Vec<_>) = (0..3).map(|_| oneshot::channel()).unzip();
+        answer_all(txs, Err(refusal()));
+        for rx in &mut rxs {
+            let got = rx.try_recv().unwrap();
+            let e = got.err().expect("the error reaches the caller");
+            assert_eq!(e.kind(), depesha_core::ErrorKind::NoRights);
+            assert!(e.no_rights());
+            assert_eq!(e.to_string(), refusal().to_string());
+        }
+    }
+
     use super::*;
 
     #[test]
