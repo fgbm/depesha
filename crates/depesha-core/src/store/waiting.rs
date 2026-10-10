@@ -657,6 +657,9 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    /// The clock of the tests: a moment they name, not the time they run at.
+    const NOW: i64 = 1_800_000_000;
+
     use super::super::tests::{folder, from_to, put, with_ids};
     use super::*;
     use crate::account::Waiting;
@@ -963,7 +966,7 @@ mod tests {
         let (first, second) = waiting(&store, 0);
         let reply = letter("Re: Счёт", SENT + 600, "a1@x", Some("r@x"), "maria@example.org");
         put(&store, "INBOX", 10, &reply, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
 
         let jobs = store.park_jobs().unwrap();
         assert_eq!(jobs.len(), 1);
@@ -1030,7 +1033,7 @@ mod tests {
         let mut auto = letter("Автоответ: Счёт", SENT + 60, "auto@x", Some("r@x"), "maria@example.org");
         auto.bulk = true;
         put(&store, "INBOX", 10, &auto, false);
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         assert!(store.park_jobs().unwrap().is_empty());
         // It is told, or the letter would wait with no reason seen.
         assert_eq!(the_wait(&store, FollowupFilter::Active).auto_reply, Some(SENT + 60));
@@ -1042,7 +1045,7 @@ mod tests {
             &letter("Re: Счёт", SENT + 900, "a1@x", Some("r@x"), "maria@example.org"),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert_eq!(the_wait(&store, FollowupFilter::Closed).ended, Some(SENT + 900));
     }
 
@@ -1058,7 +1061,7 @@ mod tests {
             &letter("Re: Счёт", SENT - 3_600, "c@x", Some("q2@x"), "petr@example.org"),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         // Maria wrote again in the conversation after my answer: the letter comes back.
         put(
             &store,
@@ -1067,7 +1070,7 @@ mod tests {
             &letter("Re: Счёт", SENT + 3_600, "c2@x", Some("q2@x"), "maria@example.org"),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert_eq!(store.park_jobs().unwrap()[0].kind, ParkKind::Back);
     }
 
@@ -1093,7 +1096,7 @@ mod tests {
             &letter("Re: Счёт", SENT + 60_000, "a@x", Some("r2@x"), "maria@example.org"),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
     }
 
     #[test]
@@ -1251,7 +1254,7 @@ mod tests {
             chain: vec!["q@x".into()],
         };
         store.followup_park_plan("a", "r@x", &found).unwrap();
-        let stopped = chrono::Utc::now().timestamp();
+        let stopped = NOW;
         assert!(
             store
                 .followup_stop_undoable("a", "r@x", stopped, Some("Archive"))
@@ -1305,7 +1308,7 @@ mod tests {
         let kinds = |store: &Store| -> Vec<ParkKind> { store.park_jobs().unwrap().iter().map(|j| j.kind).collect() };
         assert_eq!(kinds(&store), [ParkKind::In]);
         // The round has the job in hand; stop, then undo, before the move reports.
-        let stopped = chrono::Utc::now().timestamp();
+        let stopped = NOW;
         assert!(store.followup_stop_undoable("a", "r@x", stopped, None).unwrap());
         assert!(kinds(&store).is_empty(), "a closed wait is not moved in");
         assert!(store.followup_resume("a", "r@x", stopped).unwrap());
@@ -1337,7 +1340,7 @@ mod tests {
                 .followup_start(&answer("r@x", SENT, SENT + 500), Some("q@x"), Some(&park))
                 .unwrap()
         );
-        let stopped = chrono::Utc::now().timestamp();
+        let stopped = NOW;
         assert!(store.followup_stop_undoable("a", "r@x", stopped, None).unwrap());
         store.followup_parked("a", "r@x", WAIT).unwrap();
         assert!(store.followup_resume("a", "r@x", stopped).unwrap());
@@ -1526,7 +1529,7 @@ mod tests {
             &letter("Re: Счёт", SENT + 600, "a1@x", Some("r@x"), "maria@example.org"),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
     }
 
     #[test]
@@ -1685,7 +1688,7 @@ mod tests {
             &letter("Re: Счёт", SENT + 60, "a1@x", Some("r@x"), "maria@example.org"),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert!(store.park_jobs().unwrap().is_empty());
         assert_eq!(the_wait(&store, FollowupFilter::Closed).park, "done");
     }

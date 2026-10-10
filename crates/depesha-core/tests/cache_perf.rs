@@ -22,6 +22,9 @@ const CONVERSATIONS: usize = 1500;
 /// Questions in Sent nobody answered: reminders that stay.
 const WAITING: usize = 150;
 
+/// The clock of the measurement: a moment it names.
+const NOW: i64 = 1_800_000_000;
+
 fn folder(name: &str, role: FolderRole) -> Folder {
     Folder {
         name: name.into(),
@@ -363,12 +366,12 @@ fn large_cache() {
     });
     assert!(!found.is_empty());
 
-    store.followups_resolve().unwrap();
+    store.followups_resolve(NOW).unwrap();
     // Conversations of two letters end with mine: nobody answered them either.
     let unanswered = WAITING + (0..30usize).filter(|c| c.is_multiple_of(9)).count();
     assert_eq!(store.followups_count().unwrap().active as usize, unanswered);
     let (resolve, resolved) = time(&store, "followups_resolve", &mut longest, || {
-        store.followups_resolve().unwrap()
+        store.followups_resolve(NOW).unwrap()
     });
     assert_eq!(resolved, 0);
 

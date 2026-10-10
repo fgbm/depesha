@@ -6153,7 +6153,10 @@ mod tests {
                 "bodies_missing",
                 plans(&store, || store.bodies_missing("a", 0, true, 25)),
             ),
-            ("followups_resolve", plans(&store, || store.followups_resolve())),
+            (
+                "followups_resolve",
+                plans(&store, || store.followups_resolve(1_800_000_000)),
+            ),
             ("followups_due", plans(&store, || store.followups_due(1))),
             ("followups_prune", plans(&store, || store.followups_prune(1, 90))),
             (

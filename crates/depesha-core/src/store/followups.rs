@@ -374,9 +374,8 @@ impl Store {
     /// The answer's date, sender and Message-ID are kept; the date is the sender's word,
     /// so it is kept between sending and now: a bogus one must not make the history look
     /// older (and pruned at once) or newer. Letters waiting in the folder are set to go
-    /// back (`park_jobs`). Returns how many were answered.
-    pub fn followups_resolve(&self) -> Result<usize> {
-        let now = chrono::Utc::now().timestamp();
+    /// back (`park_jobs`). `now` is the caller's clock. Returns how many were answered.
+    pub fn followups_resolve(&self, now: i64) -> Result<usize> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         type Waiting = (i64, String, String, String, i64, i64, String);
@@ -525,6 +524,9 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    /// The clock of the tests: a moment they name, not the time they run at.
+    const NOW: i64 = 1_800_000_000;
+
     use super::super::tests::{from_to, mailbox, put, with_ids};
     use super::*;
     use crate::store::{ListQuery, MessageRow};
@@ -611,7 +613,7 @@ mod tests {
             &with_ids("Re: Вопрос", 150, "q2@x", Some("q@x")),
             true,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         let answer = put(
             &store,
             "INBOX",
@@ -619,7 +621,7 @@ mod tests {
             &with_ids("Re: Вопрос", 200, "r@x", Some("q@x")),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert!(listed(&store, FollowupFilter::Active).is_empty());
         // The answer itself is a click away.
         assert_eq!(info(&store, FollowupFilter::Closed, "Вопрос").answer, Some(answer));
@@ -639,20 +641,20 @@ mod tests {
             s.references = vec!["root@x".into(), other.into()];
             put(&store, "INBOX", uid, &s, false);
         }
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         // In References, even not the last one.
         let mut s = with_ids("Re: Вопрос", 300, "r3@x", None);
         s.references = vec!["a_b@x".into(), "later@x".into()];
         put(&store, "INBOX", 3, &s, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         // In In-Reply-To alone.
         waiting();
         store.remove_uids("a", "INBOX", &[3]).unwrap();
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         let mut s = with_ids("Re: Вопрос", 400, "r4@x", None);
         s.in_reply_to = Some("a_b@x".into());
         put(&store, "INBOX", 4, &s, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
     }
 
     #[test]
@@ -694,7 +696,7 @@ mod tests {
             &with_ids("Re: Вопрос", 2_100, "r@x", Some("q@x")),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert!(store.followups_due(10_000).unwrap().is_empty());
     }
 
@@ -734,7 +736,7 @@ mod tests {
     fn stopping_to_wait_is_taken_back_with_the_same_time() {
         let store = mailbox();
         put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q@x", None), true);
-        let now = chrono::Utc::now().timestamp();
+        let now = NOW;
         wait_for(&store, "q@x", now + 86_400, |f| {
             f.kind = "Каждые 3 дня".into();
             f.repeat_secs = 259_200;
@@ -791,7 +793,7 @@ mod tests {
             "me@x",
         );
         put(&store, "INBOX", 1, &colleague, false);
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         assert_eq!(store.followups_count().unwrap().active, 1);
         // The awaited one answers the colleague, not the letter: not linked to it.
         let unlinked = from_to(
@@ -800,7 +802,7 @@ mod tests {
             "me@x",
         );
         put(&store, "INBOX", 2, &unlinked, false);
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         // Linked by References, the address spelled in capitals.
         let mut s = from_to(
             with_ids("Re: Вопрос", 400, "r3@x", Some("r1@x")),
@@ -809,7 +811,7 @@ mod tests {
         );
         s.references = vec!["q@x".into(), "r1@x".into()];
         put(&store, "INBOX", 3, &s, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         let f = info(&store, FollowupFilter::Closed, "Вопрос");
         assert_eq!((f.status, f.ended), (FollowupStatus::Answered, Some(400)));
         assert_eq!(f.answered_by.unwrap().email, "Boss@Example.org");
@@ -821,7 +823,7 @@ mod tests {
         put(&store, "Sent", 1, &with_ids("Вопрос", 100, "q1@x", None), true);
         put(&store, "Sent", 2, &with_ids("Смета", 110, "q2@x", None), true);
         put(&store, "Sent", 3, &with_ids("Отчёт", 120, "q3@x", None), true);
-        let now = chrono::Utc::now().timestamp();
+        let now = NOW;
         wait_for(&store, "q1@x", now + 86_400, |f| f.kind = "Каждые 3 дня".into());
         wait_for(&store, "q2@x", now - 60, |_| {});
         wait_for(&store, "q3@x", now + 3_600, |f| f.deadline = now + 90_000);
@@ -840,8 +842,8 @@ mod tests {
         );
         s.from.as_mut().unwrap().name = Some("Иван".into());
         put(&store, "INBOX", 1, &s, false);
-        assert_eq!(store.followups_resolve().unwrap(), 1);
-        assert_eq!(store.followups_resolve().unwrap(), 0, "once");
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0, "once");
         // Closed by hand.
         store.followup_close("a", "<q2@x>", 700).unwrap();
         assert_eq!(subjects(&store, FollowupFilter::Active), ["Отчёт"]);
@@ -881,7 +883,7 @@ mod tests {
         assert_eq!(info(&store, FollowupFilter::Active, "Отчёт").due, now + 7_200);
         // An answered one too: the answer that came before does not end it again.
         store.followup_reopen("a", "q1@x", now + 7_200, now).unwrap();
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         let f = info(&store, FollowupFilter::Active, "Вопрос");
         assert_eq!(
             (f.status, f.answered_by, f.answer),
@@ -895,7 +897,7 @@ mod tests {
             &with_ids("Re: Вопрос", now - 300, "r2@x", Some("q1@x")),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert_eq!(info(&store, FollowupFilter::Closed, "Вопрос").ended, Some(now - 300));
     }
 
@@ -913,13 +915,13 @@ mod tests {
             &with_ids("Re: Вопрос", 5, "r1@x", Some("q@x")),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         assert_eq!(info(&store, FollowupFilter::Closed, "Вопрос").ended, Some(100_000));
         assert_eq!(store.followups_prune(100_000 + 86_400, 90).unwrap(), 0);
         // Taken up again right away: the answer that ended it does not end it again, even
         // though "now" is within a clock's lag of it.
         store.followup_reopen("a", "q@x", 300_000, 100_100).unwrap();
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
         // Dated in the future: it ended by now, not later.
         put(
             &store,
@@ -928,9 +930,9 @@ mod tests {
             &with_ids("Re: Вопрос", i64::MAX / 2, "r2@x", Some("q@x")),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         let ended = info(&store, FollowupFilter::Closed, "Вопрос").ended.unwrap();
-        assert!(ended <= chrono::Utc::now().timestamp());
+        assert!(ended <= NOW);
 
         // An answer a minute before "wait again" is within a clock's lag, yet it is the one
         // that ended the wait: not counted again.
@@ -943,9 +945,9 @@ mod tests {
             &with_ids("Re: Смета", 100_040, "r3@x", Some("s@x")),
             false,
         );
-        assert_eq!(store.followups_resolve().unwrap(), 1);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 1);
         store.followup_reopen("a", "s@x", 300_000, 100_100).unwrap();
-        assert_eq!(store.followups_resolve().unwrap(), 0);
+        assert_eq!(store.followups_resolve(NOW).unwrap(), 0);
     }
 
     #[test]
