@@ -430,6 +430,18 @@ impl Folder {
     }
 }
 
+/// A LIST on a connection that died mid-way ends as an empty stream, not as an error, and
+/// the cache would take the empty list for "every folder is gone" and wipe the account's
+/// folders with all their letters. Every mailbox has an INBOX: a list without one is a
+/// broken connection.
+fn require_inbox(folders: &[Folder]) -> Result<()> {
+    if folders.iter().any(|f| f.name.eq_ignore_ascii_case("INBOX")) {
+        Ok(())
+    } else {
+        Err(Error::Imap(async_imap::error::Error::ConnectionLost))
+    }
+}
+
 pub async fn list_folders(conn: &mut Conn) -> Result<Vec<Folder>> {
     let names: Vec<_> = conn.session.list(Some(""), Some("*")).await?.try_collect().await?;
     let mut folders: Vec<Folder> = names
@@ -462,6 +474,7 @@ pub async fn list_folders(conn: &mut Conn) -> Result<Vec<Folder>> {
             }
         })
         .collect();
+    require_inbox(&folders)?;
     let from_server: Vec<bool> = folders.iter().map(|f| f.role.is_some()).collect();
 
     // Hide non-mail folders together with everything below them.
@@ -1686,6 +1699,28 @@ pub fn uid_set(uids: &[u32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn folder(name: &str) -> Folder {
+        Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role: None,
+            selectable: true,
+            hidden: false,
+        }
+    }
+
+    #[test]
+    fn a_list_without_inbox_is_a_lost_connection() {
+        // The empty list of a connection that died mid-LIST must not reach `replace_folders`.
+        assert!(matches!(
+            require_inbox(&[]),
+            Err(Error::Imap(async_imap::error::Error::ConnectionLost))
+        ));
+        assert!(require_inbox(&[folder("Sent")]).is_err());
+        assert!(require_inbox(&[folder("Sent"), folder("inbox")]).is_ok());
+    }
 
     /// A connection that records what `expunge_keeping` asks and fails the clearing of one batch.
     #[derive(Default)]
