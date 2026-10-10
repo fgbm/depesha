@@ -238,7 +238,11 @@ def demo_seed(version=""):
     v8 = version == "0.8.0"
     c = conn()
     # Start clean: these also drop the 620 letters of the acceptance seed.
-    for folder in ("INBOX", "Sent", "Drafts", "Trash", "Архив", "Отложенные", "Работа", "Работа.Сметы", "Отчёты"):
+    # The 0.8 set has no folder tree: what a picture shows is the standard folders only.
+    folders = ("INBOX", "Sent", "Drafts", "Trash", "Архив", "Отложенные")
+    if not v8:
+        folders += ("Работа", "Работа.Сметы", "Отчёты")
+    for folder in folders:
         typ, _ = c.select(imaplib_utf7(folder))
         if typ != "OK":
             c.create(imaplib_utf7(folder))
@@ -248,7 +252,8 @@ def demo_seed(version=""):
 
     base = 1_788_000_000  # 2026-08-28 10:40 UTC
     day = 86_400
-    me = "carol@example.org"
+    # The owner of the mailbox: in the 0.8 pictures an everyday made-up name, not a test one.
+    owner, me = ("Анна Крылова", "anna@example.org") if v8 else ("Кэрол Тестова", "carol@example.org")
 
     def put(folder, subject, sender, body, when, mid, refs=None, extra="", seen=True, attach=None):
         reply = f"In-Reply-To: <{refs[-1]}>\r\nReferences: {' '.join(f'<{r}>' for r in refs)}\r\n" if refs else ""
@@ -285,6 +290,14 @@ def demo_seed(version=""):
                  "Протокол разногласий.docx", "Графики поставки.xlsx", "Реквизиты.txt", "Схема склада.png", "Фото упаковки.png"]
         append(c, "INBOX", demo_files("Пакет документов по поставке", ("Отдел закупок", "buy@example.org"), base - 4 * day,
                                       "pack-1@example.org", me, names), "(\\Seen)", base - 4 * day)
+        # Two spellings of one person, each with letters (the merge dialog counts them, the card lists them).
+        for subj, who, text, ago, mid in [
+            ("Согласование графика отпусков", "Ольга Смирнова <olga.smirnova@example.org>", "Прошу согласовать график отпусков склада на ноябрь.", 6, "olga-1"),
+            ("Планёрка в четверг", "Ольга Смирнова <olga.smirnova@example.org>", "Планёрка в четверг в 11:00, приходите с цифрами по поставкам.", 9, "olga-2"),
+            ("Акт приёмки оборудования", "Смирнова Ольга <smirnova.o@example.net>", "Акт приёмки оборудования подписан, оригинал пришлю почтой.", 7, "olga-3"),
+            ("Реквизиты для оплаты", "Смирнова Ольга <smirnova.o@example.net>", "Реквизиты для оплаты поставки во вложении письма ниже.", 11, "olga-4"),
+        ]:
+            put("INBOX", subj, who, text, base - ago * day, f"{mid}@example.org")
         # «Корзина» with a round number of letters for the «Очистить» dialog.
         for i, subj in enumerate(["Напоминание о собрании", "Re: График отпусков", "Опрос по обеду", "Акция недели",
                                   "Приглашение на вебинар", "Re: Заявка на пропуск", "Итоги квартала"]):
@@ -293,12 +306,12 @@ def demo_seed(version=""):
 
     # «Отправленные»: answers the user waits for (the wait itself is added by shots.mjs).
     now = int(time.time())
-    put("Sent", "Проверка датчиков на складе", f"Кэрол Тестова <{me}>",
+    put("Sent", "Проверка датчиков на складе", f"{owner} <{me}>",
         "Коллеги, когда закончите проверку датчиков?", now - 10 * day, "f-done@example.org")
-    put("Sent", "Заявка на пропуск для подрядчиков", f"Кэрол Тестова <{me}>",
+    put("Sent", "Заявка на пропуск для подрядчиков", f"{owner} <{me}>",
         "Прошу продлить пропуска для подрядчиков на ноябрь.", now - 5400, "f-wait@example.org")
     # A draft, as if a letter were being written and left for later.
-    put("Drafts", "Re: Смета на монтаж", f"Кэрол Тестова <{me}>",
+    put("Drafts", "Re: Смета на монтаж", f"{owner} <{me}>",
         "Коллеги, посмотрела смету — по-моему, завышена доставка.", now - 3 * day, "draft-1@example.org")
     c.logout()
 

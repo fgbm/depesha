@@ -131,9 +131,9 @@ async function discardCompose() {
 /** Fills the login wizard, as the E2E does, and saves. */
 async function addAccount() {
   await d.until("wizard", async () => (await d.bodyText()).includes("Добавить почтовый ящик"), 30000);
-  await setInput(".wizard input[placeholder='Иван Петров']", "Кэрол Тестова");
+  await setInput(".wizard input[placeholder='Иван Петров']", v8 ? "Анна Крылова" : "Кэрол Тестова");
   // The 0.8 pictures show the address (the mailbox in a letter's title), so it is a tidy one.
-  await setInput(".wizard input[type=email]", v8 ? "carol@example.org" : "carol@local.test");
+  await setInput(".wizard input[type=email]", v8 ? "anna@example.org" : "carol@local.test");
   await setInput(".wizard input[type=password]", "secret");
   await d.button("Далее");
   await d.until("settings step", async () => (await d.bodyText()).includes("Входящая почта (IMAP)"), 30000);
@@ -205,17 +205,18 @@ async function shoot080() {
   const text = await d.until("body", () => d.find(".compose .body-area [contenteditable], .compose .body-area textarea").catch(() => null), 10000);
   await d.click(text);
   await d.type(text, "Пётр, добрый день! Во вложении смета, схема склада и договор поставки. Посмотрите до пятницы.");
+  // Full screen first: the strip then holds every file, and the count below is the whole set.
+  await d.click(await d.find(".compose [aria-label='Во весь экран']"));
+  await sleep(500);
   const files = mkdtempSync(join(tmpdir(), "depesha-shots-"));
   const names = ["Смета на монтаж.pdf", "Схема склада.png", "Договор поставки.docx", "Прайс-лист.xlsx", "Заметки к встрече.md"];
   for (const name of names) writeFileSync(join(files, name), `${name}\n`);
   await dropOn(d, names.map((n) => join(files, n)), { zone: "attach" });
-  await d.until("attachments", async () => (await d.findAll(".compose .files .file")).length >= 1, 10000).catch(async (e) => {
+  await d.until("attachments", async () => (await d.findAll(".compose .files .file")).length === names.length, 15000).catch(async (e) => {
     console.log("compose:", (await textOf(".compose")).slice(0, 600), "| toasts:", await textOf(".toasts"));
     throw e;
   });
   rmSync(files, { recursive: true, force: true });
-  await d.click(await d.find(".compose [aria-label='Во весь экран']"));
-  await sleep(500);
   await d.click(await d.find(".compose footer button[aria-label='Ещё']"));
   await d.click(await menuItem("Высокая важность"));
   await d.until("importance chip", async () => (await d.findAll(".compose footer .scheduled.important")).length === 1);
@@ -285,7 +286,7 @@ try {
   await d.start(app);
   await addAccount();
   console.log(`Профиль: ${profile}`);
-  await d.until("folders", async () => (await sidebarText()).includes("Отчёты"), 60000);
+  await d.until("folders", async () => (await sidebarText()).includes(v8 ? "Корзина" : "Отчёты"), 60000);
   await d.until("demo mail synced", async () => String(await d.exec("return document.querySelector('.list').dataset.count ?? ''")) !== "", 60000);
   await d.button("Входящие");
   await sleep(1500);
@@ -294,8 +295,10 @@ try {
   // The labels themselves are read by the labels store at the next start; the keywords
   // (the chips in the rows) are put in later, in the shooting session, so the two list
   // pictures differ.
-  await invoke("label_save", { accountId: account, name: "Срочно", color: "#d0658f" });
-  await invoke("label_save", { accountId: account, name: "Клиенты", color: "#4a90d9" });
+  if (!v8) {
+    await invoke("label_save", { accountId: account, name: "Срочно", color: "#d0658f" });
+    await invoke("label_save", { accountId: account, name: "Клиенты", color: "#4a90d9" });
+  }
 
   const now = Math.floor(Date.now() / 1000);
   if (!v8) db(`INSERT OR REPLACE INTO marks (account_id, message_id, reply, reply_all, forward, answer) VALUES
@@ -304,12 +307,13 @@ try {
       ('${account}', 'weekly-44@example.org', NULL, ${now - 10800}, NULL, NULL);`);
 
   if (v8) {
-    // The mailbox gets a name and a colour; two spellings of one person are put in the book
-    // (to be merged on a picture); the logos are in the cache as if the lookup had found them.
+    // The mailbox gets a name and a colour; one of the two spellings of a person (both have letters,
+    // to be merged on a picture) gets a note; the logos are in the cache as if the lookup had found them.
     await invoke("account_patch_own", { id: account, patch: { label: "Работа", color: "#3d7ea6" } });
-    for (const [email, name] of [["olga.smirnova@example.org", "Ольга Смирнова"], ["smirnova.o@example.net", "Смирнова Ольга"]]) {
-      await invoke("person_save", { person: { email, name, manual: true } });
-    }
+    await invoke("person_save", {
+      person: { email: "olga.smirnova@example.org", name: "Ольга Смирнова", note: "Согласует графики поставок. Пишет с двух адресов; лучше звонить до обеда." },
+    });
+    await invoke("person_save", { person: { email: "smirnova.o@example.net", name: "Смирнова Ольга" } });
     for (const [domain, svg] of Object.entries(LOGOS)) {
       db(`INSERT OR REPLACE INTO avatars (key, uri, fetched) VALUES ('bimi:${domain}', 'data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}', ${now});`);
     }
@@ -320,7 +324,7 @@ try {
 
   // --- Session B: the pictures ---
   await d.start(app);
-  await d.until("folders again", async () => (await sidebarText()).includes("Отчёты"), 60000);
+  await d.until("folders again", async () => (await sidebarText()).includes(v8 ? "Корзина" : "Отчёты"), 60000);
   await d.until("mail again", async () => String(await d.exec("return document.querySelector('.list').dataset.count ?? ''")) !== "", 60000);
   await d.button("Входящие");
   await sleep(1500);

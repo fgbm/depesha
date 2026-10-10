@@ -14,12 +14,11 @@ cd "$(dirname "$0")/.."
 
 step() { printf '\n== %s\n' "$*"; }
 
+# Fresh containers, as check.sh makes them: no folders or labels left by other runs in the
+# pictures. Take the stand's lock first (flock ${DEPESHA_STAND_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock}).
 step "GreenMail"
-docker compose -f compose.test.yaml up -d
-for _ in $(seq 30); do
-  python3 -c "import imaplib; imaplib.IMAP4('127.0.0.1', 3143).logout(); imaplib.IMAP4('127.0.0.1', 31143).logout()" 2>/dev/null && break
-  sleep 1
-done
+docker compose -f compose.test.yaml up -d --force-recreate
+python3 scripts/wait-stand.py
 
 step "демо-данные"
 # GreenMail accepts connections a moment before its users exist.
