@@ -91,6 +91,8 @@
       if (document.querySelector(".pop, .modal, .palette")) return;
       onClose();
     } else if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      // A menu open over the viewer (the list of the letter's files) keeps its arrows: → goes to a row's «Save».
+      if (document.querySelector(".pop") || target?.closest?.(".pop")) return;
       go(e.key === "ArrowLeft" ? -1 : 1);
     } else if (!typing && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
       onSave(a);

@@ -6,7 +6,8 @@
   import Download from "@lucide/svelte/icons/download";
   import FolderOutput from "@lucide/svelte/icons/folder-output";
   import { size } from "../../lib/format";
-  import { t } from "../../lib/i18n.svelte";
+  import { i18n, t } from "../../lib/i18n.svelte";
+  import { onMount, tick } from "svelte";
   import { foldChips } from "../../lib/attachFold";
   import type { AttachmentInfo } from "../../lib/types";
   import AttachmentMenu, { type RowAction } from "../AttachmentMenu.svelte";
@@ -38,22 +39,39 @@
   /** The strip's width: the rows are counted for it. */
   let avail = $state(0);
   let listOpen = $state(false);
+  let moreButton = $state<HTMLElement | null>(null);
   let measureBox = $state<HTMLElement | null>(null);
   /** The chips' widths, taken once from an unseen copy of all of them; they do not depend on the pane. */
-  let measured = $state<{ key: string; widths: number[] } | null>(null);
+  let measured = $state<{ key: string; widths: number[]; more: number; saveAll: number } | null>(null);
+  /** The page's fonts came in after the first measure: the widths are taken again. */
+  let fonts = $state(0);
+  onMount(() => {
+    void document.fonts?.ready.then(() => fonts++);
+  });
 
-  const key = $derived(`${saveDir ? 1 : 0}|${files.map((f) => `${f.index}:${f.name}:${f.size}`).join("|")}`);
-  const widths = $derived(measured?.key === key ? measured.widths : null);
+  const key = $derived(`${i18n.lang}|${fonts}|${saveDir ? 1 : 0}|${files.map((f) => `${f.index}:${f.name}:${f.size}`).join("|")}`);
+  const fit = $derived(measured?.key === key ? measured : null);
 
   $effect(() => {
     if (!measureBox || measured?.key === key) return;
-    measured = { key, widths: [...measureBox.children].map((c) => Math.ceil(c.getBoundingClientRect().width)) };
+    // The files' chips, then «+N more» and «Save all», each as wide as it is drawn.
+    const w = [...measureBox.children].map((c) => Math.ceil(c.getBoundingClientRect().width));
+    measured = { key, widths: w.slice(0, files.length), more: w[files.length], saveAll: w[files.length + 1] };
   });
 
-  const shown = $derived(widths ? foldChips(widths, avail) : files.length);
+  const shown = $derived(fit ? foldChips(fit.widths, avail, { more: fit.more, saveAll: fit.saveAll }) : files.length);
   const hidden = $derived(files.length - shown);
   /** The shown file is among the folded ones: the button of the list says so. */
   const hiddenCurrent = $derived(viewing && viewingAt >= shown);
+
+  /** A file chosen in the list is shown; the focus follows it into the viewer, or back to the button. */
+  async function pick(i: number) {
+    listOpen = false;
+    onViewAttachment(files[i]);
+    await tick();
+    const viewer = moreButton?.closest(".scroll")?.querySelector<HTMLElement>(".viewer");
+    (viewer ?? moreButton)?.focus({ preventScroll: true });
+  }
 
   const actions = $derived<RowAction[]>([
     { label: t("file.save"), icon: Download, run: (i) => onSaveAttachment(files[i]) },
@@ -78,7 +96,7 @@
     {#each files.slice(0, shown) as a (a.index)}{@render chip(a, false)}{/each}
     {#if hidden > 0}
       <span class="anchor">
-        <button class="more" class:current={hiddenCurrent} onclick={() => (listOpen = !listOpen)} aria-haspopup="menu" aria-expanded={listOpen}>
+        <button class="more" bind:this={moreButton} class:current={hiddenCurrent} onclick={() => (listOpen = !listOpen)} aria-haspopup="menu" aria-expanded={listOpen}>
           {t("compose.attach.more", { n: hidden })} ›
         </button>
         <AttachmentMenu
@@ -88,7 +106,8 @@
           current={viewing ? viewingAt : -1}
           rowTitle={t("file.open")}
           {actions}
-          onPick={(i) => { listOpen = false; onViewAttachment(files[i]); }}
+          start={shown}
+          onPick={pick}
         >
           {#snippet footer()}
             <button class="mi" role="menuitem" onclick={() => { listOpen = false; onSaveAll(); }}>{t("file.saveAll")}</button>
@@ -99,10 +118,12 @@
       <button class="btn ghost small-btn" onclick={onSaveAll}>{t("file.saveAll")}</button>
     {/if}
   </div>
-  {#if !widths}
+  {#if !fit}
     <!-- Every chip once, out of sight, to know how wide each is. -->
     <div class="measure" bind:this={measureBox} aria-hidden="true">
       {#each files as a (a.index)}{@render chip(a, true)}{/each}
+      <button class="more">{t("compose.attach.more", { n: files.length })} ›</button>
+      <button class="btn ghost small-btn">{t("file.saveAll")}</button>
     </div>
   {/if}
 {/if}

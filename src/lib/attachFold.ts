@@ -8,11 +8,19 @@ export const STRIP_ROWS = 2;
 /** The gap between two chips, across and down. */
 export const CHIP_GAP_PX = 6;
 
-/** What «+N more ›» keeps free at the end of the last row. */
+/** What «+N more ›» keeps free at the end of the last row, unless its width was measured. */
 export const MORE_RESERVE_PX = 96;
 
-/** What «Save all» keeps free at the end of the last row when nothing is folded. */
+/** What «Save all» keeps free at the end of the last row when nothing is folded, unless measured. */
 export const SAVE_ALL_RESERVE_PX = 124;
+
+export interface FoldOptions {
+  rows?: number;
+  /** The measured width of «+N more ›». */
+  more?: number;
+  /** The measured width of «Save all». */
+  saveAll?: number;
+}
 
 /** The rows and the place left on the last one after the widths are laid out like a wrapping line. */
 function lay(widths: number[], avail: number): { rows: number; used: number } {
@@ -36,12 +44,13 @@ function lay(widths: number[], avail: number): { rows: number; used: number } {
  * the rest are behind «+N more». `widths.length` when everything fits together with the
  * «Save all» button, so nothing is folded then. At least one chip is always in sight.
  */
-export function foldChips(widths: number[], avail: number, rows = STRIP_ROWS): number {
+export function foldChips(widths: number[], avail: number, { rows = STRIP_ROWS, more = MORE_RESERVE_PX, saveAll = SAVE_ALL_RESERVE_PX }: FoldOptions = {}): number {
   const n = widths.length;
   if (n === 0 || avail <= 0) return n;
-  if (lay([...widths, SAVE_ALL_RESERVE_PX], avail).rows <= rows) return n;
+  // A single file has no «Save all».
+  if (lay(n > 1 ? [...widths, saveAll] : widths, avail).rows <= rows) return n;
   for (let k = n - 1; k > 1; k--) {
-    if (lay([...widths.slice(0, k), MORE_RESERVE_PX], avail).rows <= rows) return k;
+    if (lay([...widths.slice(0, k), more], avail).rows <= rows) return k;
   }
   return 1;
 }

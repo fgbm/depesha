@@ -23,6 +23,7 @@
     title,
     files,
     current = -1,
+    start = 0,
     rowTitle = "",
     hint,
     actions = [],
@@ -35,6 +36,8 @@
     files: { name: string; size: number }[];
     /** The row of the file shown now (the opened letter's viewer). */
     current?: number;
+    /** The row the cursor starts on when no file is shown: the first folded one. */
+    start?: number;
     /** The tooltip of a row: what Enter does to it. */
     rowTitle?: string;
     /** The grey text at the row's end; the file's size by default. */
@@ -48,12 +51,13 @@
   } = $props();
 
   // The list takes no focus while it is not yet shown (the Popover's own try comes a frame too early):
-  // the file shown now, or the first one, gets it a frame later, and ↑↓ go on from there.
+  // the file shown now, or the `start` one, gets it a frame later, and ↑↓ go on from there.
+  let box = $state<HTMLElement | null>(null);
   $effect(() => {
-    if (!open) return;
+    if (!open || !box) return;
     const frame = requestAnimationFrame(() => {
-      const row = document.querySelector<HTMLElement>(`.pop [data-att="${Math.max(current, 0)}"]`);
-      if (row && document.activeElement !== row) row.focus({ preventScroll: true });
+      const row = box?.querySelector<HTMLElement>(`[data-att="${current >= 0 ? current : start}"]`);
+      if (row && document.activeElement !== row) row.focus();
     });
     return () => cancelAnimationFrame(frame);
   });
@@ -77,6 +81,7 @@
 </script>
 
 <Popover bind:open align="left">
+  <div class="list" bind:this={box}>
   <div class="mt">{title}</div>
   {#each files as a, i (i)}
     <div class="menu-row" data-menu-row onkeydown={(e) => onKey(e, i)} role="presentation">
@@ -92,9 +97,15 @@
     <hr />
     {@render footer()}
   {/if}
+  </div>
 </Popover>
 
 <style>
+  /* No box of its own: the rows stay items of the popover's column. */
+  .list {
+    display: contents;
+  }
+
   .menu-row {
     display: flex;
     align-items: center;

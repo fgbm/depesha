@@ -857,8 +857,11 @@ try {
     const dir = process.env.E2E_SHOTS_DIR;
     const shotTo = async (name) => {
       if (!dir) return;
+      // A toast in the frame is not what the picture is about.
+      await d.exec("document.querySelector('.toasts')?.style.setProperty('visibility', 'hidden')").catch(() => {});
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, `${name}.png`), await d.screenshot());
+      await d.exec("document.querySelector('.toasts')?.style.removeProperty('visibility')").catch(() => {});
     };
     const strip = () =>
       d.exec(`
@@ -922,46 +925,71 @@ try {
       await d.until("wide again", async () => (await strip()).width === wide.width);
       check(await strip(), "широкая панель снова");
 
-      // By Tab the last chip is followed by «+N ещё ›», which opens the list of every file.
+      // By Tab the last chip is followed by «+N more ›», which opens the list of every file.
+      const [TAB, ENTER, UP, DOWN, LEFT, RIGHT, END, ESC] = ["\uE004", "\uE007", "\uE013", "\uE015", "\uE012", "\uE014", "\uE010", "\uE00C"];
       const active = (js) => d.exec(`const a = document.activeElement; return ${js};`);
-      await d.exec("const f = [...document.querySelectorAll('.reader .files .file')].pop(); f.querySelectorAll('button')[f.querySelectorAll('button').length - 1].focus();");
-      await d.pressKey("");
-      if (!(await active("a.classList.contains('more')"))) throw new Error("после последней фишки Tab не на «+N ещё ›»");
-      await d.pressKey("");
-      await d.until("list of 29", async () => (await d.findAll(".pop [data-att]")).length === 29);
-      await d.until("focus on the first file", () => active("a.dataset.att === '0'"));
-      await d.pressKey("");
-      if (!(await active("a.dataset.att === '1'"))) throw new Error("↓ не на втором файле");
-      await d.pressKey("");
-      if (!(await active("a.dataset.act !== undefined"))) throw new Error("→ не на «Сохранить» у файла");
-      await d.pressKey("");
-      if (!(await active("a.dataset.att === '2'"))) throw new Error("↓ от «Сохранить» не на следующем файле");
-      // On to the first file that is behind «+N more»: Enter shows it, as a click on its chip does.
+      const onMore = () => active("a.classList.contains('more')");
+      const listOf = (n) => d.until(`list of ${n}`, async () => (await d.findAll(".pop [data-att]")).length === n);
       const folded = (await strip()).chips;
-      for (let n = 2; n < folded; n++) await d.pressKey("");
-      if (!(await active(`a.dataset.att === '${folded}'`))) throw new Error(`↓ не дошла до первого свёрнутого файла ${folded}`);
-      // Enter on a file shows it, as a click on its chip does.
-      await d.pressKey("");
+      await d.exec("const f = [...document.querySelectorAll('.reader .files .file')].pop(); f.querySelectorAll('button')[f.querySelectorAll('button').length - 1].focus();");
+      await d.pressKey(TAB);
+      if (!(await onMore())) throw new Error("после последней фишки Tab не на «+N ещё ›»");
+      await d.pressKey(ENTER);
+      await listOf(29);
+      // It opens from the top, the cursor on the first folded file (nothing is shown yet).
+      await d.until("cursor on the first folded file", () => active(`a.dataset.att === '${folded}'`));
+      const top = await d.exec("return document.querySelector('.pop').scrollTop");
+      if (top !== 0) throw new Error(`список открылся прокрученным на ${top} px`);
+      await shotTo("list-paper");
+      await theme("night");
+      await shotTo("list-night");
+      await theme("paper");
+      await d.pressKey(DOWN);
+      if (!(await active(`a.dataset.att === '${folded + 1}'`))) throw new Error("↓ не на следующем файле");
+      await d.pressKey(RIGHT);
+      if (!(await active("a.dataset.act !== undefined"))) throw new Error("→ не на «Сохранить» у файла");
+      await d.pressKey(DOWN);
+      if (!(await active(`a.dataset.att === '${folded + 2}'`))) throw new Error("↓ от «Сохранить» не на следующем файле");
+      await d.pressKey(UP);
+      await d.pressKey(UP);
+      if (!(await active(`a.dataset.att === '${folded}'`))) throw new Error("↑ не вернула на первый свёрнутый файл");
+      // Enter on a file shows it, as a click on its chip does; the focus goes to the viewer.
+      await d.pressKey(ENTER);
       await d.until("viewer from the list", async () => (await d.findAll(".reader .viewer")).length === 1);
+      if (!(await active("a.classList.contains('viewer')"))) throw new Error("после Enter в списке фокус не на просмотре");
       if ((await d.findAll(".pop [data-att]")).length) throw new Error("список остался после просмотра");
       const viewerHeight = await d.exec("return document.querySelector('.reader .viewer').getBoundingClientRect().height");
       if (viewerHeight < 160) throw new Error(`просмотр сжат до ${viewerHeight} px`);
       if ((await d.findAll(".reader .files .more.current")).length !== 1) throw new Error("«+N ещё ›» не показывает, что открыт свёрнутый файл");
-      await press("Escape");
-      await d.until("viewer closed", async () => (await d.findAll(".reader .viewer")).length === 0);
 
-      // «Save all» ends the list; Esc closes it.
-      await d.exec("document.querySelector('.reader .files .more').click()");
-      await d.until("list again", async () => (await d.findAll(".pop [data-att]")).length === 29);
-      await d.pressKey("\uE010");
-      if (!(await active("a.innerText.trim() === 'Сохранить все'"))) throw new Error("«Сохранить все» не последнее в списке");
-      await shotTo("list-paper");
-      await theme("night");
-      if (!(await d.findAll(".pop [data-att]")).length) throw new Error("список закрылся при смене темы");
-      await shotTo("list-night");
-      await theme("paper");
-      await d.pressKey("");
+      // The viewer open: the list opens on the shown file, and → goes to the row's «Save», not to the next file.
+      const shown = () => textOf(".reader .viewer .name");
+      const name = await shown();
+      await d.exec("document.querySelector('.reader .files .more').focus()");
+      await d.pressKey(ENTER);
+      await listOf(29);
+      await d.until("cursor on the shown file", () => active(`a.dataset.att === '${folded}'`));
+      await d.pressKey(DOWN);
+      if (!(await active(`a.dataset.att === '${folded + 1}'`))) throw new Error("↓ при открытом просмотре не на следующем файле");
+      await d.pressKey(RIGHT);
+      if (!(await active("a.dataset.act !== undefined"))) throw new Error("→ при открытом просмотре не на «Сохранить»: просмотр перехватил стрелку");
+      if ((await shown()) !== name) throw new Error(`просмотр сменился: «${name}» → «${await shown()}»`);
+      await d.pressKey(ESC);
       await d.until("list closed", async () => (await d.findAll(".pop [data-att]")).length === 0);
+      if (!(await onMore())) throw new Error("после Esc из списка фокус не на «+N ещё ›»");
+      if ((await d.findAll(".reader .viewer")).length !== 1) throw new Error("Esc из списка закрыл и просмотр");
+      await d.pressKey(ESC);
+      await d.until("viewer closed", async () => (await d.findAll(".reader .viewer")).length === 0);
+      if (!(await onMore())) throw new Error("после Esc из просмотра фокус не на «+N ещё ›»");
+
+      // «Save all» ends the list; Esc closes it and gives the focus back.
+      await d.pressKey(ENTER);
+      await listOf(29);
+      await d.pressKey(END);
+      if (!(await active("a.innerText.trim() === 'Сохранить все'"))) throw new Error("«Сохранить все» не последнее в списке");
+      await d.pressKey(ESC);
+      await d.until("list closed", async () => (await d.findAll(".pop [data-att]")).length === 0);
+      if (!(await onMore())) throw new Error("после Esc из списка фокус не на «+N ещё ›»");
     } finally {
       await invoke("settings_set", { settings });
       await d.setRect(rect.width, rect.height);

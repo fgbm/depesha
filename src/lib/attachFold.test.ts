@@ -47,6 +47,30 @@ describe("the fold of many attachments (two rows and «+N more»)", () => {
     expect(k).toBeLessThan(8);
   });
 
+  it("shows two files whole when they fit, and folds one of them when «Save all» has no room", () => {
+    expect(foldChips(chips(2), 700)).toBe(2);
+    expect(foldChips(chips(2), 210)).toBe(1);
+  });
+
+  it("reserves nothing for «Save all» with a single file: it has no such button", () => {
+    // One 200 px chip in 210 px: «Save all» (124 px) would not fit beside or under it, but there is none.
+    expect(foldChips([200], 210)).toBe(1);
+    expect(foldChips([200, 200, 200, 200], 2 * 200 + CHIP_GAP_PX)).toBe(3);
+  });
+
+  it("folds when exactly n chips fill two rows and «Save all» would need a third", () => {
+    const avail = 2 * 200 + CHIP_GAP_PX;
+    expect(foldChips(chips(4), avail)).toBe(3);
+    expect(foldChips(chips(3), avail)).toBe(3);
+  });
+
+  it("takes the widths of «+N more» and «Save all» as measured", () => {
+    // Two rows of 200 px chips in 420 px: «+N more» of 250 px takes a row's end only after one chip.
+    expect(foldChips(chips(9), 420, { more: 250 })).toBe(2);
+    expect(foldChips(chips(3), 420, { saveAll: 10 })).toBe(3);
+    expect(foldChips(chips(3), 420, { saveAll: 300 })).toBeLessThan(3);
+  });
+
   it("clamps a chip wider than the pane to the pane", () => {
     expect(foldChips([900, 900, 900], 400)).toBe(1);
   });
