@@ -115,18 +115,17 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
                 0,
             );
         };
-        let attempt = outbox::attempt(
-            &state.store,
-            &item,
-            account.as_ref(),
-            blocked,
-            now,
-            &mut starting,
-            |a| Smtp {
+        let mut aborted = || state.task_done(&key);
+        let progress = outbox::Progress {
+            starting: &mut starting,
+            aborted: &mut aborted,
+        };
+        let attempt = outbox::attempt(&state.store, &item, account.as_ref(), blocked, now, progress, |a| {
+            MailSender {
                 state: state.clone(),
                 account: a.clone(),
-            },
-        )
+            }
+        })
         .await?;
         match attempt {
             Attempt::Skipped => continue,
@@ -138,7 +137,7 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             Attempt::Delivered(sent) => {
                 state.task_done(&key);
                 let account = account.expect("a delivered letter had its mailbox");
-                if sent.copy_unsaved {
+                if !sent.letter_cached {
                     state.emit("app-error", json!({ "message": tr!("sent, but the Sent folder is unknown: the copy was not saved", "письмо отправлено, но папка «Отправленные» неизвестна: копия не сохранена") }));
                 }
                 // A letter going to wait says so once it has moved ("parked"), in one toast. One
@@ -188,12 +187,12 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
 /// The port of the sender over SMTP, or Exchange Web Services when the mailbox is one: the
 /// message is built here, and the credentials (kept in the keyring, or refreshed for OAuth)
 /// are the app's.
-struct Smtp {
+struct MailSender {
     state: Arc<AppState>,
     account: Account,
 }
 
-impl depesha_core::port::Sender for Smtp {
+impl depesha_core::port::Sender for MailSender {
     async fn send(&mut self, draft: &depesha_core::domain::Draft) -> depesha_core::Result<Vec<u8>> {
         let msg = smtp::build(draft)?;
         let account = &self.account;
@@ -262,7 +261,7 @@ pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Resu
         queue.as_mut(),
         copy,
         chrono::Utc::now().timestamp(),
-        &refusal_delay,
+        refusal_delay,
         |item, cached| async move {
             if !cached {
                 state.emit("app-error", json!({ "message": tr!("sent, but the copy was not saved to Sent yet: it will be filed later", "письмо отправлено, но копия в «Отправленные» пока не сохранена: её положат позже") }));
@@ -350,7 +349,7 @@ pub(crate) async fn drop_copy(state: &Arc<AppState>, id: i64) -> Result<(), CmdE
         return Ok(());
     };
     let account = state.account(&copy.account_id).ok();
-    if outbox::wait_before_drop(&copy).is_some() && account.is_some() && !state.copy_claim(id) {
+    if copy.pending.is_some() && account.is_some() && !state.copy_claim(id) {
         return Err(CmdError::new(
             "other",
             tr!("the copy is being filed just now", "копия сейчас отправляется"),

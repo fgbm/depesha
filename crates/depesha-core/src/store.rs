@@ -573,6 +573,16 @@ pub struct ModSeqMark {
     pub uid_next: u32,
 }
 
+/// What taking a letter back out of the outbox came to.
+#[derive(Debug)]
+pub enum Withdrawn {
+    Draft(Box<Draft>),
+    /// Its send has started: it may have left.
+    Sending,
+    /// It is not in the outbox (it left, or was taken back already).
+    Gone,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboxItem {
     pub id: i64,
@@ -1191,6 +1201,12 @@ impl Store {
             Some(read) => read.lock().unwrap_or_else(|e| e.into_inner()),
             None => self.conn.lock().unwrap_or_else(|e| e.into_inner()),
         }
+    }
+
+    /// Runs `sql` on the cache to break it, for the tests of what the rules do when it fails.
+    #[cfg(test)]
+    pub(crate) fn break_for_test(&self, sql: &str) {
+        self.conn().execute_batch(sql).unwrap();
     }
 
     fn conn(&self) -> ConnGuard<'_> {
@@ -2447,14 +2463,22 @@ impl Store {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Marks that the send of `id` has started (`started > 0`) or ended (0): a send cut
-    /// short by a quit leaves the mark, and the restart offers no automatic repeat.
-    pub fn outbox_sending(&self, id: i64, started: i64) -> Result<()> {
-        self.conn().execute(
-            "UPDATE outbox SET sending_started = ?2 WHERE id = ?1",
-            params![id, started],
-        )?;
-        Ok(())
+    /// Takes the letter `id` to send: marks that its send has started (`started`) and gives
+    /// the draft as the cache has it now, in one step. A send cut short by a quit leaves the
+    /// mark, and the restart offers no automatic repeat. `None`: the letter is not there to
+    /// take (the user took it back after the round read the queue), is being sent already, or
+    /// waits for the user. Two rounds, or a round and a cancel, cannot both have the letter.
+    pub fn outbox_sending(&self, id: i64, started: i64) -> Result<Option<Draft>> {
+        let draft: Option<String> = self
+            .conn()
+            .query_row(
+                "UPDATE outbox SET sending_started = ?2
+                 WHERE id = ?1 AND sending_started = 0 AND failed = 0 RETURNING draft",
+                params![id, started],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(draft.map(|d| serde_json::from_str(&d).unwrap_or_default()))
     }
 
     pub fn outbox_retry_later(&self, id: i64, next_attempt: i64, error: &str, permanent: bool) -> Result<()> {
@@ -2471,6 +2495,27 @@ impl Store {
             params![id, now],
         )?;
         Ok(())
+    }
+
+    /// Takes a letter out of the outbox back into editing, unless its send has started: then
+    /// the letter may have left, and it stays for the round that holds it to settle.
+    pub fn outbox_withdraw(&self, id: i64) -> Result<Withdrawn> {
+        let conn = self.conn();
+        let draft: Option<String> = conn
+            .query_row(
+                "DELETE FROM outbox WHERE id = ?1 AND sending_started = 0 RETURNING draft",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(draft) = draft {
+            return Ok(serde_json::from_str(&draft).map_or(Withdrawn::Gone, |d| Withdrawn::Draft(Box::new(d))));
+        }
+        let there = conn
+            .query_row("SELECT 1 FROM outbox WHERE id = ?1", [id], |_| Ok(()))
+            .optional()?
+            .is_some();
+        Ok(if there { Withdrawn::Sending } else { Withdrawn::Gone })
     }
 
     pub fn outbox_remove(&self, id: i64) -> Result<Option<Draft>> {
@@ -3639,7 +3684,7 @@ mod tests {
             .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
             .unwrap();
         // Marked as sending: a restart reading the cache can see the send was cut short.
-        store.outbox_sending(id, 150).unwrap();
+        assert!(store.outbox_sending(id, 150).unwrap().is_some());
         assert_eq!(store.outbox().unwrap()[0].sending_started, 150);
         // A retry later ends the send and clears the mark.
         store.outbox_retry_later(id, 200, "network", false).unwrap();

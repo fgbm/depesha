@@ -135,10 +135,9 @@ pub struct Delivered {
     pub client_copy: bool,
     /// A wait for a reply needs its letter in the cache: it starts when the copy has landed.
     pub defer_wait: bool,
-    /// The letter is in the cache, which a wait for a reply needs.
+    /// The letter is in the cache, which a wait for a reply needs. Not when the copy is the
+    /// client's to file and cannot be made: there is no Sent folder yet. The user is told.
     pub letter_cached: bool,
-    /// The copy cannot be made: there is no Sent folder yet. The user is told.
-    pub copy_unsaved: bool,
 }
 
 #[derive(Debug)]
@@ -155,17 +154,24 @@ pub enum Attempt {
     },
 }
 
+/// What `attempt` tells its caller as it goes, for the task the user sees.
+pub struct Progress<'a> {
+    /// The letter is certain to be sent and is about to leave.
+    pub starting: &'a mut (dyn FnMut() + Send),
+    /// Once started, the cache failed and `attempt` gives its error: the task is over.
+    pub aborted: &'a mut (dyn FnMut() + Send),
+}
+
 /// One letter: the steps in the order that keeps it from being sent twice or lost. `blocked`:
-/// an earlier letter of this mailbox was refused, and the rest wait for the user. `starting`
-/// is told once the letter is certain to be sent, before it leaves. `sender` makes the port
-/// of the account's kind.
+/// an earlier letter of this mailbox was refused, and the rest wait for the user. `sender` makes
+/// the port of the account's kind.
 pub async fn attempt<S: Sender>(
     store: &Store,
     item: &OutboxItem,
     account: Option<&Account>,
     blocked: bool,
     now: i64,
-    starting: &mut (dyn FnMut() + Send),
+    progress: Progress<'_>,
     sender: impl FnOnce(&Account) -> S,
 ) -> Result<Attempt> {
     if item.failed || item.next_attempt > now || blocked {
@@ -186,20 +192,29 @@ pub async fn attempt<S: Sender>(
         )?;
         return Ok(Attempt::Held(Hold::NoAccount));
     };
-    starting();
-    // Marked before the letter leaves: a quit between here and the removal leaves the mark,
-    // and the next start asks the user to check «Sent» instead of sending again.
-    store.outbox_sending(item.id, now)?;
-    let sent = sender(account).send(&item.draft).await;
-    match sent {
-        Ok(raw) => Ok(Attempt::Delivered(delivered(store, item, account, &raw)?)),
-        Err(error) => {
-            let transient = error.is_transient();
-            let delay = retry_delay(item.attempts, &error);
-            store.outbox_retry_later(item.id, now + delay, &error.to_string(), !transient)?;
-            Ok(Attempt::Failed { error, transient })
+    // Taken before the letter leaves, with the draft as the cache has it: a quit between here
+    // and the removal leaves the mark, and the next start asks the user to check «Sent» instead
+    // of sending again; a letter the user took back, or another round took, is not sent.
+    let Some(draft) = store.outbox_sending(item.id, now)? else {
+        return Ok(Attempt::Skipped);
+    };
+    (progress.starting)();
+    let settled = async {
+        match sender(account).send(&draft).await {
+            Ok(raw) => Ok(Attempt::Delivered(delivered(store, item, account, &raw)?)),
+            Err(error) => {
+                let transient = error.is_transient();
+                let delay = retry_delay(item.attempts, &error);
+                store.outbox_retry_later(item.id, now + delay, &error.to_string(), !transient)?;
+                Ok(Attempt::Failed { error, transient })
+            }
         }
     }
+    .await;
+    if settled.is_err() {
+        (progress.aborted)();
+    }
+    settled
 }
 
 /// The letter left: its row is removed, and its copy kept. The client-side copy is work of its
@@ -216,7 +231,6 @@ fn delivered(store: &Store, item: &OutboxItem, account: &Account, raw: &[u8]) ->
         client_copy,
         defer_wait: false,
         letter_cached: true,
-        copy_unsaved: false,
     };
     match sent_folder.as_deref() {
         Some(folder) if client_copy => {
@@ -238,10 +252,7 @@ fn delivered(store: &Store, item: &OutboxItem, account: &Account, raw: &[u8]) ->
             store.outbox_remove(item.id)?;
             // No Sent folder yet: the copy cannot be made, so a wait could neither be shown nor
             // cancelled. Say so and leave it out.
-            if client_copy {
-                out.letter_cached = false;
-                out.copy_unsaved = true;
-            }
+            out.letter_cached = !client_copy;
         }
     }
     Ok(out)
@@ -294,7 +305,7 @@ pub fn settle_copy(
     copy: &SentCopy,
     outcome: &Result<()>,
     now: i64,
-    delay: &(dyn Fn(u32) -> i64 + Sync),
+    delay: fn(u32) -> i64,
 ) -> Result<Settled> {
     match outcome {
         Ok(()) => {
@@ -327,7 +338,7 @@ pub fn settle_failed_finish(
     failure: &str,
     filed: bool,
     now: i64,
-    delay: &(dyn Fn(u32) -> i64 + Sync),
+    delay: fn(u32) -> i64,
 ) -> Result<Settled> {
     if !filed {
         let failed = Err(crate::Error::CopyRefused(failure.to_owned()));
@@ -357,7 +368,7 @@ pub async fn deliver_copy<Q, E, F, Fut>(
     queue: Option<&mut Q>,
     copy: &SentCopy,
     now: i64,
-    delay: &(dyn Fn(u32) -> i64 + Sync),
+    delay: fn(u32) -> i64,
     finish: F,
 ) -> Result<CopyTry<E>>
 where
@@ -406,12 +417,6 @@ where
     })
 }
 
-/// The wait for a reply that «Don't keep» must start before the copy goes: one still held for
-/// the copy.
-pub fn wait_before_drop(copy: &SentCopy) -> Option<&OutboxItem> {
-    copy.pending.as_ref()
-}
-
 /// «Don't keep the copy»: starts the wait held for the copy with `finish`, without the copy, so
 /// that dropping the copy never cancels the wait in silence; then drops the copy whatever came
 /// of it. When the wait cannot start the copy is dropped all the same, or its task would come
@@ -421,7 +426,7 @@ where
     F: FnOnce(OutboxItem) -> Fut,
     Fut: Future<Output = std::result::Result<(), E>>,
 {
-    let failed = match wait_before_drop(copy) {
+    let failed = match copy.pending.as_ref() {
         Some(item) => finish(item.clone()).await.err(),
         None => None,
     };
@@ -448,9 +453,9 @@ mod tests {
     use crate::domain::{Draft, Folder};
     use crate::port::fake::Queue;
     use crate::port::fake_sender::{RAW, Sender as FakeSender};
-    use crate::store::{FollowupPlan, StuckCopy};
+    use crate::store::{FollowupPlan, StuckCopy, Withdrawn};
 
-    const DELAY: &(dyn Fn(u32) -> i64 + Sync) = &refusal_delay;
+    const DELAY: fn(u32) -> i64 = refusal_delay;
 
     fn account(save_copy: bool, ews: bool) -> Account {
         Account {
@@ -515,12 +520,15 @@ mod tests {
         blocked: bool,
         now: i64,
     ) -> Attempt {
-        let mut started = 0;
-        let got = attempt(store, item, account, blocked, now, &mut || started += 1, |_| {
-            std::mem::take(sender)
-        })
-        .await
-        .unwrap();
+        let (mut started, mut aborted) = (0, 0);
+        let progress = Progress {
+            starting: &mut || started += 1,
+            aborted: &mut || aborted += 1,
+        };
+        let got = attempt(store, item, account, blocked, now, progress, |_| &mut *sender)
+            .await
+            .unwrap();
+        assert_eq!(aborted, 0);
         // `starting` is told only for a letter that is going to leave.
         let leaves = matches!(got, Attempt::Delivered(_) | Attempt::Failed { .. });
         assert_eq!(started, usize::from(leaves));
@@ -593,7 +601,7 @@ mod tests {
         let Attempt::Delivered(d) = got else {
             panic!("{got:?}");
         };
-        assert!(d.client_copy && d.letter_cached && !d.defer_wait && !d.copy_unsaved);
+        assert!(d.client_copy && d.letter_cached && !d.defer_wait);
         assert_eq!(d.sent_folder.as_deref(), Some("Sent"));
         assert!(d.message_id.as_deref().is_some_and(|m| m.contains("sent@x")));
         // The row is gone in the very step that kept the bytes of the copy.
@@ -630,7 +638,7 @@ mod tests {
         let Attempt::Delivered(d) = got else {
             panic!("{got:?}");
         };
-        assert!(!d.client_copy && !d.defer_wait && d.letter_cached && !d.copy_unsaved);
+        assert!(!d.client_copy && !d.defer_wait && d.letter_cached);
         assert!(store.outbox().unwrap().is_empty() && store.sent_copies().unwrap().is_empty());
         // Exchange files the copy itself.
         let item = queued(&store, 5, 0);
@@ -649,7 +657,7 @@ mod tests {
         let Attempt::Delivered(d) = got else {
             panic!("{got:?}");
         };
-        assert!(d.copy_unsaved && !d.letter_cached && d.sent_folder.is_none());
+        assert!(!d.letter_cached && d.sent_folder.is_none());
         assert!(bare.outbox().unwrap().is_empty() && bare.sent_copies().unwrap().is_empty());
     }
 
@@ -1091,16 +1099,6 @@ mod tests {
         assert_eq!(held.last_error.as_deref(), Some("no database"));
     }
 
-    /// «Don't keep» finds the wait still held for the copy, so it starts it before the copy goes.
-    #[test]
-    fn dropping_a_copy_does_not_lose_the_wait_held_for_it() {
-        let store = Store::open_in_memory().unwrap();
-        let copy = sent_pending(&store);
-        assert!(wait_before_drop(&copy).is_some());
-        let plain = sent(&Store::open_in_memory().unwrap());
-        assert!(wait_before_drop(&plain).is_none());
-    }
-
     /// A wait that cannot start does not keep the copy: it is dropped, so that its task is
     /// not left to come back after every start.
     #[tokio::test]
@@ -1205,6 +1203,101 @@ mod tests {
         assert!(
             kept.filed && kept.refusals == 1,
             "the server has it: only the finish is repeated"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_letter_taken_back_after_the_queue_was_read_is_not_sent() {
+        let store = store();
+        let acct = account(true, false);
+        // The round read the queue; meanwhile the user took the letter back into editing.
+        let snapshot = queued(&store, 5, 0);
+        assert!(matches!(
+            store.outbox_withdraw(snapshot.id).unwrap(),
+            Withdrawn::Draft(_)
+        ));
+        let mut sender = FakeSender::default();
+        let got = go(&store, &mut sender, &snapshot, Some(&acct), false, 100).await;
+        assert!(matches!(got, Attempt::Skipped), "{got:?}");
+        assert!(sender.sent.is_empty(), "a letter the user took back does not leave");
+        assert!(store.sent_copies().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_draft_that_leaves_is_the_stored_one_and_a_letter_claimed_is_not_claimed_twice() {
+        let store = store();
+        let acct = account(true, false);
+        let item = queued(&store, 5, 0);
+        // A snapshot with another text than the stored one: the stored one is sent.
+        let stale = OutboxItem {
+            draft: Draft {
+                subject: "stale".into(),
+                ..Draft::default()
+            },
+            ..item.clone()
+        };
+        let mut sender = FakeSender::default();
+        go(&store, &mut sender, &stale, Some(&acct), false, 100).await;
+        assert_eq!(sender.sent[0].subject, "Contract");
+        // Two rounds hold the same snapshot: only the first claims the letter.
+        let item = queued(&store, 5, 0);
+        assert!(store.outbox_sending(item.id, 100).unwrap().is_some());
+        assert!(store.outbox_sending(item.id, 101).unwrap().is_none(), "already claimed");
+        store.outbox_retry_later(item.id, 0, "no", true).unwrap();
+        assert!(
+            store.outbox_sending(item.id, 102).unwrap().is_none(),
+            "a refused letter waits for the user"
+        );
+    }
+
+    #[test]
+    fn a_letter_being_sent_cannot_be_taken_back() {
+        let store = store();
+        let item = queued(&store, 5, 0);
+        store.outbox_sending(item.id, 100).unwrap();
+        assert!(matches!(store.outbox_withdraw(item.id).unwrap(), Withdrawn::Sending));
+        assert_eq!(store.outbox().unwrap().len(), 1, "and it is not lost");
+        // One that waits, or was refused, can; one that is not there is gone.
+        let waiting = queued(&store, 500, 0);
+        let Withdrawn::Draft(draft) = store.outbox_withdraw(waiting.id).unwrap() else {
+            panic!("taken back");
+        };
+        assert_eq!(draft.subject, "Contract");
+        assert!(matches!(store.outbox_withdraw(waiting.id).unwrap(), Withdrawn::Gone));
+    }
+
+    #[tokio::test]
+    async fn a_copy_that_could_not_be_kept_after_a_good_send_never_sends_the_letter_again() {
+        let store = store();
+        let acct = account(true, false);
+        let item = queued(&store, 5, 0);
+        // The cache fails to keep the copy after the letter left.
+        store.break_for_test("DROP TABLE sent_copies");
+        let mut sender = FakeSender::default();
+        let (mut started, mut aborted) = (0, 0);
+        let progress = Progress {
+            starting: &mut || started += 1,
+            aborted: &mut || aborted += 1,
+        };
+        let first = attempt(&store, &item, Some(&acct), false, 100, progress, |_| &mut sender).await;
+        assert!(first.is_err(), "the failure is the caller's");
+        assert_eq!((started, aborted), (1, 1), "the task the user saw is told it is over");
+        assert_eq!(sender.sent.len(), 1);
+        // The row stays, marked: the next round does not send it again.
+        let row = store.outbox().unwrap().remove(0);
+        assert_eq!(row.sending_started, 100);
+        let progress = Progress {
+            starting: &mut || {},
+            aborted: &mut || {},
+        };
+        let second = attempt(&store, &row, Some(&acct), false, 200, progress, |_| &mut sender)
+            .await
+            .unwrap();
+        assert!(matches!(second, Attempt::Held(Hold::PossiblySent)), "{second:?}");
+        assert_eq!(sender.sent.len(), 1, "sent once");
+        assert!(
+            store.outbox().unwrap()[0].failed,
+            "and it waits for the user, who checks «Sent»"
         );
     }
 }

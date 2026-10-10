@@ -3060,7 +3060,20 @@ pub fn outbox_cancel(state: St<'_>, id: i64) -> CmdResult<Option<ReturnedDraft>>
         .into_iter()
         .find(|i| i.id == id)
         .map(|i| i.account_id);
-    let draft = state.store.outbox_remove(id)?;
+    // A letter whose send has started may have left: it is not taken back.
+    let draft = match state.store.outbox_withdraw(id)? {
+        depesha_core::store::Withdrawn::Draft(draft) => Some(*draft),
+        depesha_core::store::Withdrawn::Gone => None,
+        depesha_core::store::Withdrawn::Sending => {
+            return Err(CmdError::new(
+                "other",
+                tr!(
+                    "the letter is being sent just now and cannot be taken back: look in “Sent”",
+                    "письмо отправляется прямо сейчас, вернуть его нельзя: проверьте «Отправленные»"
+                ),
+            ));
+        }
+    };
     state.emit("outbox-changed", serde_json::json!({}));
     Ok(match (account_id, draft) {
         (Some(account_id), Some(mut draft)) => {

@@ -193,3 +193,9 @@ pub(crate) mod fake_sender {
         }
     }
 }
+
+impl<T: Sender> Sender for &mut T {
+    fn send(&mut self, draft: &crate::domain::Draft) -> impl Future<Output = Result<Vec<u8>>> + Send {
+        (**self).send(draft)
+    }
+}
