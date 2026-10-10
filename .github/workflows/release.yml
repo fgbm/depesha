@@ -80,3 +80,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --draft=false --latest
+      # The release is published and marked latest by the step above, so the site
+      # builds from the version installed copies will actually get. A tag push always
+      # produces an ordinary release (the draft is published with --latest, never
+      # --prerelease), so there is no prerelease case to filter out here.
+      - name: Rebuild the site
+        continue-on-error: true
+        env:
+          # Fine-grained PAT for fgbm/depesha-site with Contents: Read and write.
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::SITE_DISPATCH_TOKEN is not set; skipping the site rebuild."
+            exit 0
+          fi
+          gh api -X POST repos/fgbm/depesha-site/dispatches \
+            -f event_type=depesha-release \
+            -f "client_payload[tag]=$GITHUB_REF_NAME"
