@@ -76,13 +76,11 @@ async function zonePlace(d, paths, zone) {
 }
 
 /**
- * With a signed Markdown letter open and its text scrolled down, the zones of a drag are in
+ * With a signed Markdown letter open, long enough to scroll, and its text scrolled down, the zones of a drag are in
  * view: they lie on the frame of the text, not in the scrolled area (the scroll carried them away).
  * The scroll is back where it was once the drag leaves.
  */
 export async function zonesStayInView(d, fix) {
-  const filled = "x\n".repeat(80);
-  await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, arguments[0]);", filled);
   const top = await d.until("text scrolled", async () => {
     const n = await d.exec("const a = document.querySelector('.compose .body-area.signed'); a.scrollTop = a.scrollHeight; return a.scrollTop;");
     return n > 0 ? n : null;

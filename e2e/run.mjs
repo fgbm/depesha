@@ -1782,6 +1782,8 @@ try {
   await step("2.9", "зоны броска в Markdown-письме с подписью видны, когда текст прокручен", async () => {
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    // Long enough to scroll, typed while the letter is plain, then switched to Markdown.
+    await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, 'x\\n'.repeat(80));");
     await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
     await menuItem("Markdown");
     await d.until("markdown signature", async () => (await d.findAll(".compose .sig-html")).length === 1);
