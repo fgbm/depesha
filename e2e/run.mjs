@@ -2392,7 +2392,7 @@ try {
       await d.type(await d.find(".compose textarea"), "Жду.");
       await d.button("Отправить");
       // The letter waits in the folder of the mailbox, out of the inbox.
-      const folder = await d.until("the waiting folder", async () => (await invoke("folders")).find((f) => f.display_name === "Ждут ответа")?.name ?? null, 60000, 1000);
+      const folder = "Ждут ответа";
       await d.until("letter parked", async () => helper("count", folder, subj) === "1" && helper("count", "INBOX", subj) === "0", 60000, 1000);
       await d.button("Ждут ответа");
       await openBySubject(subj);
