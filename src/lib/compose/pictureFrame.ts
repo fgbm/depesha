@@ -20,14 +20,25 @@ export const BAR_GAP = 6;
  * Places the frame and the panel of the picture `pic`, seen through `view` (the letter's scrolled
  * area, without its scrollbar), in the editor's box `wrap`. Nothing when the picture is out of
  * sight. The panel sits under the picture; when that edge is scrolled out of sight it sticks to
- * the bottom of `view`, so it is always there to be clicked while the picture shows.
+ * the bottom of `view`, so it is always there to be clicked while the picture shows; it never
+ * leaves `view` on the right either.
  */
-export function placePicture(pic: Box, view: Box, wrap: Box, barHeight: number): PicturePlace | null {
+export function placePicture(pic: Box, view: Box, wrap: Box, barHeight: number, barWidth: number): PicturePlace | null {
   if (pic.bottom <= view.top || pic.top >= view.bottom || pic.right <= view.left || pic.left >= view.right) return null;
   const barTop = Math.max(view.top, Math.min(pic.bottom + BAR_GAP, view.bottom - barHeight));
   return {
     clip: { left: view.left - wrap.left, top: view.top - wrap.top, width: view.right - view.left, height: view.bottom - view.top },
     frame: { left: pic.left - view.left, top: pic.top - view.top, width: pic.right - pic.left, height: pic.bottom - pic.top },
-    bar: { left: Math.max(pic.left, view.left) - wrap.left, top: barTop - wrap.top },
+    bar: { left: Math.max(view.left, Math.min(pic.left, view.right - barWidth)) - wrap.left, top: barTop - wrap.top },
   };
+}
+
+/**
+ * What a key does with the picked picture `place` (null: out of sight). Delete and Backspace remove
+ * a picture the user sees; one scrolled away is kept, or a key press would erase what is not on the
+ * screen. Any other key lets go of the picture.
+ */
+export function pictureKey(key: string, place: PicturePlace | null): "remove" | "keep" | "release" {
+  if (key !== "Delete" && key !== "Backspace") return "release";
+  return place ? "remove" : "keep";
 }

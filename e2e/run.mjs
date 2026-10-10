@@ -278,7 +278,7 @@ async function newMessage(to, subject, text) {
 }
 
 /**
- * A tall picture is picked and the text is scrolled until its top is out of sight (#122): the frame and the panel must stay inside the text box, not climb over the fields and the toolbar above it. The clipped rectangle is read the way the eye sees it: the frame's box cut by every ancestor that clips.
+ * A tall picture is picked and the text is scrolled until its top is out of sight: the frame and the panel must stay inside the text box, not climb over the fields and the toolbar above it. The clipped rectangle is read the way the eye sees it: the frame's box cut by every ancestor that clips.
  */
 async function pictureFrameInSight(label) {
   const seen = () =>
@@ -314,6 +314,9 @@ async function pictureFrameInSight(label) {
   await d.until("frame", async () => (await d.findAll(".compose .rich-wrap .frame")).length === 1);
   await d.until("panel", async () => (await d.findAll(".compose .rich-wrap .picture-bar")).length === 1);
   await screenshot(`picture-frame-${label}-whole`);
+  // The picture runs below the text, so the panel sticks to its lower edge: measured, not guessed, it fits.
+  const whole = await seen();
+  if (!whole.bar || !inside(whole.bar, whole.view)) throw new Error(`${label}: плашка сразу после выделения выходит из поля текста: ${JSON.stringify({ bar: whole.bar, view: whole.view })}`);
   // The top of the picture goes 150 px past the upper edge of the text.
   await d.exec("const r = document.querySelector('.compose .rich'); const img = r.querySelector('img'); r.scrollTop += img.getBoundingClientRect().top - r.getBoundingClientRect().top + 150;");
   const s = await d.until("scrolled", async () => {
@@ -330,6 +333,13 @@ async function pictureFrameInSight(label) {
     return now.imgBottom < now.view.top ? now : null;
   }, 5000);
   if (gone.frame || gone.bar) throw new Error(`${label}: картинки не видно, а рамка или плашка на месте: ${JSON.stringify(gone)}`);
+  // A picture nobody sees is not deleted by a key.
+  const count = async () => (await d.findAll(".compose .rich img")).length;
+  const pictures = await count();
+  for (const key of ["Backspace", "Delete"]) {
+    await pressIn(".compose .rich", key);
+    if ((await count()) !== pictures) throw new Error(`${label}: ${key} стёр картинку, которой не видно`);
+  }
 }
 
 async function composeClosed() {
@@ -3156,7 +3166,7 @@ try {
     await closeSettings();
   });
 
-  await step("7.29", "картинка в тексте выделена и прокручена за край: рамка и плашка не выходят из поля текста, в обычном и «Во весь экран» (#122)", async () => {
+  await step("7.29", "картинка в тексте выделена и прокручена за край: рамка и плашка не выходят из поля текста, в обычном и «Во весь экран»; Delete и Backspace не стирают невидимую картинку", async () => {
     await d.button("Написать");
     try {
       await d.until("compose", async () => (await d.findAll(".compose")).length === 1);

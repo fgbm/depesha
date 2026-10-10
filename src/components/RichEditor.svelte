@@ -2,13 +2,13 @@
   // The visual editor of a letter: an editable block, formatting by the browser's own
   // editing commands. What comes in is cleaned (lib/sanitize.ts); the HTML goes out as typed.
   // A picture in the text is picked by a click and gets a small panel: two sizes, delete.
-  import { onMount, type Snippet } from "svelte";
+  import { onMount, untrack, type Snippet } from "svelte";
   import { cleanEditorHtml, cleanPastedHtml } from "../lib/sanitize";
   import { escapeHtml } from "../lib/richtext";
   import { isPictureType } from "../lib/images";
   import { t } from "../lib/i18n.svelte";
   import { inSight, placeLockedBlock, type BlockPlace } from "../lib/compose/lockedBlock";
-  import { placePicture, type PicturePlace } from "../lib/compose/pictureFrame";
+  import { pictureKey, placePicture, type PicturePlace } from "../lib/compose/pictureFrame";
 
   let {
     html = $bindable(""),
@@ -238,10 +238,13 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (picked && (e.key === "Delete" || e.key === "Backspace")) {
-      e.preventDefault();
-      removePicked();
-      return;
+    if (picked) {
+      const action = pictureKey(e.key, frame);
+      if (action !== "release") {
+        e.preventDefault();
+        if (action === "remove") removePicked();
+        return;
+      }
     }
     picked = null;
   }
@@ -250,6 +253,7 @@
   let picked = $state<HTMLImageElement | null>(null);
   let frame = $state<PicturePlace | null>(null);
   let pictureBarHeight = $state(32);
+  let pictureBarWidth = $state(0);
   const fits = $derived(!!picked && frame !== null && picked.style.width === "100%");
 
   // The locked block: where it stands, and whether the pointer is over it.
@@ -280,8 +284,15 @@
       return;
     }
     // Cut to the letter's area in sight, as the locked block is: a picture scrolled half away must not draw over the fields above.
-    frame = el ? placePicture(picked.getBoundingClientRect(), inSight(el), wrap.getBoundingClientRect(), pictureBarHeight) : null;
+    frame = el ? placePicture(picked.getBoundingClientRect(), inSight(el), wrap.getBoundingClientRect(), pictureBarHeight, pictureBarWidth) : null;
   }
+
+  // The panel is measured after it is drawn: its real size moves it, so the picture is placed again.
+  $effect(() => {
+    void pictureBarHeight;
+    void pictureBarWidth;
+    untrack(place);
+  });
 
   function setSize(fit: boolean) {
     if (!picked) return;
@@ -344,7 +355,7 @@
     <div class="frame-clip" style="left:{frame.clip.left}px;top:{frame.clip.top}px;width:{frame.clip.width}px;height:{frame.clip.height}px" aria-hidden="true">
       <div class="frame" style="left:{frame.frame.left}px;top:{frame.frame.top}px;width:{frame.frame.width}px;height:{frame.frame.height}px"></div>
     </div>
-    <div class="picture-bar" role="toolbar" aria-label={t("compose.picture.title")} style="left:{frame.bar.left}px;top:{frame.bar.top}px" bind:offsetHeight={pictureBarHeight}>
+    <div class="picture-bar" role="toolbar" aria-label={t("compose.picture.title")} style="left:{frame.bar.left}px;top:{frame.bar.top}px" bind:offsetHeight={pictureBarHeight} bind:offsetWidth={pictureBarWidth}>
       <button class:on={fits} aria-pressed={fits} onmousedown={(e) => e.preventDefault()} onclick={() => setSize(true)}>{t("compose.picture.fit")}</button>
       <button class:on={!fits} aria-pressed={!fits} onmousedown={(e) => e.preventDefault()} onclick={() => setSize(false)}>{t("compose.picture.natural")}</button>
       <button onmousedown={(e) => e.preventDefault()} onclick={removePicked}>{t("act.delete")}</button>
