@@ -2983,6 +2983,7 @@ pub async fn draft_save(
     draft: ComposeDraft,
     replace: Option<i64>,
     replace_message_id: Option<String>,
+    generation: Option<u64>,
 ) -> CmdResult<Option<SavedDraft>> {
     let account = state.account(&account_id)?;
     // A mailbox without Drafts gets one, as it gets an Archive for "Done".
@@ -3052,7 +3053,8 @@ pub async fn draft_save(
     };
     // The window's composition now is this copy: «Clear» in Drafts spares it (#74). Said before
     // the old copy goes, so that no moment holds the composition without a draft to spare.
-    if let Some(local_id) = local_id {
+    // A save of a page that was reloaded since says nothing: its compositions are gone.
+    if let Some(local_id) = local_id.filter(|_| state.clearing.current(window.label(), generation)) {
         match &saved {
             Some(s) => state
                 .clearing
@@ -3076,8 +3078,8 @@ pub fn draft_open(window: tauri::Window, state: St<'_>, local_id: String, draft_
 
 /// A window's page was loaded anew: the drafts it reported belong to a page that is gone.
 #[tauri::command]
-pub fn draft_open_reset(window: tauri::Window, state: St<'_>) {
-    state.clearing.draft_reset(window.label());
+pub fn draft_open_reset(window: tauri::Window, state: St<'_>) -> u64 {
+    state.clearing.draft_reset(window.label())
 }
 
 /// How many drafts of the mailbox windows have open: the number «Clear» says will stay.

@@ -190,7 +190,8 @@ export class ComposeManager {
 
   close(id: number) {
     const gone = this.windows.find((w) => w.id === id);
-    if (gone?.draft_id != null) void api.draftOpen(gone.local_id, null).catch(() => {});
+    // Told even of a window without a draft yet: a save still on its way must not register one.
+    if (gone) void api.draftOpen(gone.local_id, null).catch(() => {});
     this.windows = this.windows.filter((w) => w.id !== id);
   }
 

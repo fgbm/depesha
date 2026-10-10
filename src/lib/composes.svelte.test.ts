@@ -90,12 +90,14 @@ describe("the drafts the backend spares when Drafts are cleared (#74)", () => {
     expect(api.draftOpenReset).toHaveBeenCalledTimes(1);
   });
 
-  it("says nothing of a window without a server draft", () => {
+  it("tells the backend a window without a server draft closed too, so a save on its way registers nothing", () => {
     const mgr = manager();
     api.draftOpen.mockClear();
     const id = mgr.open({ account_id: "a", draft: emptyDraft({ name: "Me", email: "me@example.com" }), draft_id: null });
+    const local = mgr.windows[0].local_id;
     mgr.close(id);
-    expect(api.draftOpen).not.toHaveBeenCalled();
+    expect(api.draftOpen).toHaveBeenCalledTimes(1);
+    expect(api.draftOpen).toHaveBeenCalledWith(local, null);
   });
 });
 

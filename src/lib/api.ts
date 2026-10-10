@@ -70,6 +70,9 @@ function wireDraft(d: ComposeDraft) {
   };
 }
 
+/** The number the backend gave this page's compositions at load (`draftOpenReset`): its saves carry it. */
+let draftGeneration: number | null = null;
+
 export const api = {
   accounts: () => call<AccountView[]>("accounts"),
   detect: (email: string) => call<Detection>("detect", { email }),
@@ -166,7 +169,9 @@ export const api = {
   openDrafts: (accountId: string) => call<number>("open_drafts", { accountId }),
   /** A window says which server draft its composition is (null: none, or closed). */
   draftOpen: (localId: string, draftId: number | null) => call<void>("draft_open", { localId, draftId }),
-  draftOpenReset: () => call<void>("draft_open_reset"),
+  draftOpenReset: async () => {
+    draftGeneration = await call<number>("draft_open_reset");
+  },
   stuckCopies: () => call<StuckCopy[]>("stuck_copies"),
   sentCopyRetry: (id: number) => call<boolean>("sent_copy_retry", { id }),
   sentCopySave: (id: number, path: string) => call<void>("sent_copy_save", { id, path }),
@@ -217,7 +222,7 @@ export const api = {
   send: (accountId: string, draft: ComposeDraft, discardDraft: number | null, discardMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) =>
     call<{ id: number; at: number }>("send", { accountId, draft: wireDraft(draft), discardDraft, discardMessageId, at, followupSecs, followup }),
   draftSave: (accountId: string, draft: ComposeDraft, replace: number | null, replaceMessageId: string | null, localId: string | null = null) =>
-    call<{ id: number; message_id: string | null } | null>("draft_save", { accountId, draft: wireDraft(draft), replace, replaceMessageId, localId }),
+    call<{ id: number; message_id: string | null } | null>("draft_save", { accountId, draft: wireDraft(draft), replace, replaceMessageId, localId, generation: draftGeneration }),
   draftDiscard: (accountId: string, id: number, messageId: string | null) => call<void>("draft_discard", { accountId, id, messageId }),
   /** The local copy of a draft, kept on every typing pause as a fallback for a crash (#71). */
   draftCachePut: (key: string, accountId: string, draft: ComposeDraft, draftId: number | null = null, draftMessageId: string | null = null) =>

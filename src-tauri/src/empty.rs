@@ -67,6 +67,9 @@ pub struct Clearing {
     open: Mutex<HashMap<String, Vec<OpenDraft>>>,
     /// Compositions that closed: a save still on its way must not register one again.
     closed: Mutex<VecDeque<String>>,
+    /// The page of each window by its load: a save of a page that is gone (an older number) is
+    /// not heard.
+    generations: Mutex<HashMap<String, u64>>,
     bounds: Mutex<HashMap<u64, HeldBound>>,
     seq: AtomicU64,
 }
@@ -135,9 +138,19 @@ impl Clearing {
         lock(&self.open).remove(label);
     }
 
-    /// The page of the window was loaded anew: what it said before belongs to a page that is gone.
-    pub fn draft_reset(&self, label: &str) {
+    /// The page of the window was loaded anew: what it said before belongs to a page that is
+    /// gone. Answers the number of the new page, which its saves carry (`current`).
+    pub fn draft_reset(&self, label: &str) -> u64 {
+        let generation = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
+        lock(&self.generations).insert(label.to_owned(), generation);
         lock(&self.open).remove(label);
+        generation
+    }
+
+    /// Whether a save that carries `generation` comes from the page the window has now. A save
+    /// without a number (the page had not heard its own yet) is taken.
+    pub fn current(&self, label: &str, generation: Option<u64>) -> bool {
+        generation.is_none_or(|g| lock(&self.generations).get(label) == Some(&g))
     }
 
     /// The cache ids of the drafts open in any window.
@@ -771,6 +784,30 @@ mod tests {
         assert!(c.open_ids().is_empty());
         c.draft_set("main", "k2", Some(10), None);
         assert_eq!(c.open_ids(), [10]);
+    }
+
+    #[test]
+    fn a_window_closed_without_a_draft_is_not_registered_by_a_late_save() {
+        let c = Clearing::default();
+        // The composition never had a server draft; closing says so all the same.
+        c.draft_set("main", "k1", None, None);
+        c.draft_set("main", "k1", Some(8), Some("x@depesha.local".into()));
+        assert!(c.open_ids().is_empty());
+    }
+
+    #[test]
+    fn a_save_of_a_page_that_was_reloaded_registers_nothing() {
+        let c = Clearing::default();
+        let old = c.draft_reset("main");
+        assert!(c.current("main", Some(old)));
+        // The page is loaded anew; the save of the old one comes late with its number.
+        let new = c.draft_reset("main");
+        assert_ne!(old, new);
+        assert!(!c.current("main", Some(old)));
+        assert!(c.current("main", Some(new)));
+        // Another window's numbers are its own, and a save that has none yet is taken.
+        assert!(!c.current("message-3", Some(new)));
+        assert!(c.current("main", None));
     }
 
     #[test]
