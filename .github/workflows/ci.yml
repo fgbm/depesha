@@ -138,7 +138,10 @@ jobs:
         if: always()
         with:
           name: e2e-screens-${{ strategy.job-index }}
-          path: e2e/screens
+          path: |
+            e2e/screens
+            e2e/logs
+          if-no-files-found: ignore
 
   # Files dropped on a letter being written (#79) on a real Windows: the backend makes the
   # window report a drop of real files (`e2e_drop`), the rest of the path is the real one.

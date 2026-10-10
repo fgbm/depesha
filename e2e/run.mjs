@@ -3852,6 +3852,10 @@ try {
       execFileSync("secret-tool", ["clear", "service", "ru.depesha.mail", "username", a.id]);
     }
   } catch {}
+  // The log of the app goes to the artifact of a CI run: a step that failed leaves its cause there.
+  try {
+    cpSync(join(profile, "data", "ru.depesha.mail", "logs"), join(root, "e2e/logs"), { recursive: true });
+  } catch {}
   rmSync(profile, { recursive: true, force: true });
 }
 
