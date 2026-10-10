@@ -2646,8 +2646,10 @@ try {
     await invoke("snooze", { ids: [id], until: Math.floor(Date.now() / 1000) + 86400 });
     const rows = () =>
       d.exec(`const items = [...document.querySelectorAll('nav.side .item')];
-        const at = (name) => items.find((b) => b.querySelector('.name')?.innerText.trim() === name)?.getBoundingClientRect().top ?? null;
-        return { loading: !!window.__before, snoozed: at('Отложенные'), inbox: at('Входящие') };`);
+        const at = (list, name) => list.find((b) => b.querySelector('.name')?.innerText.trim() === name)?.getBoundingClientRect().top ?? null;
+        // The row of the smart sections above the mailboxes; the folder of the same name is in the tree.
+        const smart = [...(document.querySelector('nav.side .scroll .group')?.querySelectorAll('.item') ?? [])];
+        return { loading: !!window.__before, snoozed: at(smart, 'Отложенные'), inbox: at(items, 'Входящие') };`);
     try {
       await d.until("snoozed row", async () => (await rows()).snoozed !== null, 20000);
       // A launch: the page is read anew, and the first frame that has the folder tree is taken.
