@@ -2975,6 +2975,7 @@ pub struct SavedDraft {
 /// Saves the draft into the server's Drafts folder, replacing the previous version.
 /// Returns the saved copy, for the next save to replace it.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn draft_save(
     window: tauri::Window,
     state: St<'_>,
