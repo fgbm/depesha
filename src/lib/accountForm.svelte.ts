@@ -143,7 +143,7 @@ export class AccountForm {
       this.mode = e.ews ? "ews" : e.auth?.kind === "oauth" ? "oauth" : "imap";
       this.provider = e.auth?.kind === "oauth" ? e.auth.provider : null;
       this.ewsUrl = e.ews?.url ?? "";
-      this.ewsCert = e.ews?.trusted_cert;
+      this.ewsCert = e.ews?.trusted_cert ?? undefined;
       this.step = "settings";
       this.label = e.label ?? "";
       this.color = e.color ?? "";
@@ -213,7 +213,7 @@ export class AccountForm {
     this.mode = e.ews ? "ews" : e.auth?.kind === "oauth" ? "oauth" : "imap";
     this.provider = e.auth?.kind === "oauth" ? e.auth.provider : null;
     this.ewsUrl = e.ews?.url ?? "";
-    this.ewsCert = e.ews?.trusted_cert;
+    this.ewsCert = e.ews?.trusted_cert ?? undefined;
     this.username = e.username;
     this.imap = { ...e.imap };
     this.smtp = { ...e.smtp };

@@ -12,7 +12,8 @@ function fakeContext(opened: OpenedMessage | null = null, selected: number[] = [
   let banner: (msg: OpenedMessage) => Banner | null = () => null;
   const texts: string[] = [];
   const moved: Moved[] = [
-    { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<1@example.com>"], snoozed: [{ subject: "Счёт" }] },
+    { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<1@example.com>"], unseen: [], waits: [],
+      snoozed: [{ account_id: "a", message_id: "<1@example.com>", folder: "Snoozed", return_to: "INBOX", until: 5000, subject: "Счёт" }] },
   ];
   const backend = vi.fn(async (command: string) => (command === "unsnooze" ? moved : { snoozed: 0 }));
   const ctx = {

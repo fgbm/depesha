@@ -434,7 +434,7 @@ describe("an answer that takes its letter to the archive (#106)", () => {
     const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["q@x"] };
     emit("archived-after-send", { subject: "Счёт", moved });
     const toast = s.ui.toasts.at(-1)!;
-    const other = { moved: [{ account_id: "a", from: "INBOX", to: "Trash", message_ids: ["z@x"] }], text: "другое" };
+    const other = { moved: [{ account_id: "a", from: "INBOX", to: "Trash", message_ids: ["z@x"], unseen: [], snoozed: [], waits: [] }], text: "другое" };
     s.actions.lastUndo = other;
     api.undo.mockResolvedValue(undefined);
     toast.action!.run();

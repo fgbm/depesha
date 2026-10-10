@@ -28,7 +28,7 @@ describe("the labels picker (#42, frame 10)", () => {
   });
 
   it("lists the mailbox's labels with a checkbox", () => {
-    labels.all = { a: [{ name: "Счета", keyword: "depesha-scheta", color: "#d0573f" }] };
+    labels.all = { a: [{ name: "Счета", keyword: "depesha-scheta", color: "#d0573f", stripping: false }] };
     const { body } = render(LabelPicker, { props: { rows: [row("a", "INBOX", ["depesha-scheta"])] } });
     expect(body).toContain("Счета");
     expect(body).toContain("checked");

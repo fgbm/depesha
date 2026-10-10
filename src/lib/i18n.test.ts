@@ -7,6 +7,7 @@ import { putSignatureText, splitPlain, withSignature } from "./signatures";
 import { when } from "./later";
 import { size } from "./format";
 import type { OpenedMessage } from "./types";
+import { rowDefaults, summaryDefaults } from "./testing";
 
 const me = { name: "Jane", email: "jane@corp.example" };
 
@@ -14,15 +15,16 @@ function msg(): OpenedMessage {
   const summary = {
     message_id: "m1@x", in_reply_to: null, references: [], subject: "Budget", date: 1790000000,
     from: { name: "Bob", email: "bob@x.example" }, to: [me], cc: [], reply_to: [], has_attachments: false,
-    bulk: false, unsubscribe: null,
+    bulk: false, unsubscribe: null, ...summaryDefaults,
   };
   return {
     row: { id: 1, account_id: "a", folder: "INBOX", uid: 1, message_id: "m1@x", in_reply_to: null, references: [],
       subject: "Budget", from: summary.from, to: [me], cc: [], reply_to: [], date: 1790000000, size: 1,
-      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false }, has_attachments: false,
-      thread: "m1@x", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null },
-    view: { summary, text: "Numbers attached.", html: null, has_remote_content: false, authenticated: false, attachments: [] },
+      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false, forwarded: false, answered_all: false }, has_attachments: false,
+      thread: "m1@x", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null, ...rowDefaults },
+    view: { summary, text: "Numbers attached.", html: null, has_remote_content: false, authenticated: false, attachments: [], send_at: null, format: null, acts_on: null, markdown: null, views: ["text"], },
     trusted_sender: false,
+    sender_unverified: false,
   };
 }
 

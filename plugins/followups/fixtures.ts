@@ -54,7 +54,7 @@ export function letter(f: FollowupInfo | null): MessageRow {
     reply_to: [],
     date: 100,
     size: 1,
-    flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false },
+    flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false, forwarded: false, answered_all: false },
     has_attachments: false,
     thread: "q@example.org",
     bulk: false,
@@ -65,6 +65,14 @@ export function letter(f: FollowupInfo | null): MessageRow {
     snoozed_until: null,
     followup_due: f?.status === "waiting" ? f.due : null,
     followup: f,
+    thread_size: 1,
+    marks: [],
+    my_answer: null,
+    outgoing: null,
+    answer_came: false,
+    dmarc: false,
+    importance: "normal",
+    thread_voices: [],
   };
 }
 

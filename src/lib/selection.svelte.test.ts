@@ -74,7 +74,7 @@ describe("archiving through the list", () => {
     const gone = new Set<number>();
     api.archive.mockImplementation(async (ids: number[]) => {
       for (const id of ids) gone.add(id);
-      return [{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ids.map(String) }];
+      return [{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ids.map(String), unseen: [], snoozed: [], waits: [] }];
     });
     api.messages.mockImplementation(async () => rows(1, 30).filter((m) => !gone.has(m.id)));
     vi.useFakeTimers();

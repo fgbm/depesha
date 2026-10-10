@@ -112,11 +112,27 @@ export function resetFakes() {
   api.syncNow.mockResolvedValue(undefined);
   api.undo.mockResolvedValue(undefined);
   for (const a of ["archive", "remove", "spam", "move"] as const) {
-    api[a].mockImplementation(async (ids: number[]) => [{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ids.map(String) }]);
+    api[a].mockImplementation(async (ids: number[]) => [{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ids.map(String), unseen: [], snoozed: [], waits: [] }]);
   }
   // The extension host listens to its frames on the window; there is no DOM here.
   vi.stubGlobal("window", { addEventListener: () => {} });
 }
+
+/** What the backend always sends of a row and a fixture does not care about. */
+export const rowDefaults = {
+  thread_size: 1,
+  followup: null,
+  marks: [],
+  my_answer: null,
+  outgoing: null,
+  answer_came: false,
+  dmarc: false,
+  importance: "normal" as const,
+  thread_voices: [],
+};
+
+/** The same for a summary. */
+export const summaryDefaults = { importance: "normal" as const, thread_index: null, dmarc: false };
 
 export function row(id: number, extra: Partial<MessageRow> = {}): MessageRow {
   return {
@@ -134,7 +150,7 @@ export function row(id: number, extra: Partial<MessageRow> = {}): MessageRow {
     reply_to: [],
     date: 1_000_000 - id,
     size: 1,
-    flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false },
+    flags: { seen: false, flagged: false, answered: false, draft: false, deleted: false, forwarded: false, answered_all: false },
     has_attachments: false,
     thread: `t${id}`,
     bulk: false,
@@ -144,6 +160,8 @@ export function row(id: number, extra: Partial<MessageRow> = {}): MessageRow {
     thread_draft: false,
     snoozed_until: null,
     followup_due: null,
+    ...rowDefaults,
+    thread_size: extra.size ?? 1,
     ...extra,
   };
 }
@@ -169,14 +187,21 @@ export function opened(r: MessageRow): OpenedMessage {
         has_attachments: r.has_attachments,
         bulk: r.bulk,
         unsubscribe: null,
+        ...summaryDefaults,
       },
       text: "",
       html: null,
       has_remote_content: false,
       authenticated: false,
       attachments: [],
+      send_at: null,
+      format: null,
+      acts_on: null,
+      markdown: null,
+      views: ["text"],
     },
     trusted_sender: false,
+    sender_unverified: false,
   };
 }
 

@@ -177,23 +177,23 @@ describe("метки: ключи и ярлыки", () => {
 
   it("ключи письма превращаются в названия меток; незнакомые ключи остаются как есть", () => {
     const labels: Label[] = [
-      { name: "Счета", keyword: keywordForName("Счета"), color: "#d0573f" },
-      { name: "Клиент Север", keyword: keywordForName("Клиент Север"), color: "#3f7fd0" },
+      { name: "Счета", keyword: keywordForName("Счета"), color: "#d0573f", stripping: false },
+      { name: "Клиент Север", keyword: keywordForName("Клиент Север"), color: "#3f7fd0", stripping: false },
     ];
     const chips = labelChips([keywordForName("Счета"), "$Forwarded"], labels, false);
     expect(chips).toEqual([{ name: "Счета", color: "#d0573f", local: false }]);
   });
 
   it("локальная метка помечена, даже когда ключ совпадает с серверным", () => {
-    const labels: Label[] = [{ name: "Личное", keyword: keywordForName("Личное"), color: "#8a5ad0" }];
+    const labels: Label[] = [{ name: "Личное", keyword: keywordForName("Личное"), color: "#8a5ad0", stripping: false }];
     const chips = labelChips([keywordForName("Личное")], labels, true);
     expect(chips).toEqual([{ name: "Личное", color: "#8a5ad0", local: true }]);
   });
 
   it("labelNames отдаёт названия без дублей", () => {
     const labels: Label[] = [
-      { name: "Счета", keyword: keywordForName("Счета"), color: "#d0573f" },
-      { name: "Счета", keyword: keywordForName("Счета"), color: "#d0573f" },
+      { name: "Счета", keyword: keywordForName("Счета"), color: "#d0573f", stripping: false },
+      { name: "Счета", keyword: keywordForName("Счета"), color: "#d0573f", stripping: false },
     ];
     expect(labelNames(["$Forwarded"], labels)).toEqual([]);
     expect(labelNames([keywordForName("Счета")], labels)).toEqual(["Счета"]);

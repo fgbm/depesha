@@ -19,6 +19,7 @@ import { putSignatureHtml, putSignatureText, replySignature, sigHtml, withSignat
 import { htmlLetterText, htmlToText, splitHtmlQuote } from "./richtext";
 import { linkify, parseAddr, pluralRu } from "./format";
 import type { OpenedMessage, Signature } from "./types";
+import { rowDefaults, summaryDefaults } from "./testing";
 
 const me = { name: "Влад", email: "me@example.com" };
 
@@ -41,24 +42,27 @@ function msg(over: Partial<OpenedMessage["view"]["summary"]> = {}): OpenedMessag
     has_attachments: true,
     bulk: false,
     unsubscribe: null,
+    ...summaryDefaults,
     ...over,
   };
   return {
     row: { id: 7, account_id: "a", folder: "INBOX", uid: 1, message_id: summary.message_id, in_reply_to: null, references: [],
       subject: summary.subject, from: summary.from, to: summary.to, cc: summary.cc, reply_to: [], date: 1790000000, size: 1,
-      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false }, has_attachments: true,
-      thread: "m1@example.org", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null },
+      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false, forwarded: false, answered_all: false }, has_attachments: true,
+      thread: "m1@example.org", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null, ...rowDefaults },
     view: {
       summary,
       text: "Добрый день!\n> старая цитата",
       html: null,
       has_remote_content: false, authenticated: false,
+      send_at: null, format: null, acts_on: null, markdown: null, views: ["text"],
       attachments: [
         { index: 0, name: "счёт.pdf", mime: "application/pdf", size: 10, content_id: null, inline: false },
         { index: 1, name: "logo.png", mime: "image/png", size: 5, content_id: "logo", inline: true },
       ],
     },
     trusted_sender: false,
+    sender_unverified: false,
   };
 }
 

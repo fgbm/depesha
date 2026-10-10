@@ -25,7 +25,7 @@ beforeEach(() => {
 
 describe("the label section of a mailbox's page (#42, frame 2)", () => {
   it("lists the labels with their colour, approximate count and actions", () => {
-    labels.all = { a: [{ name: "Счета", keyword: "depesha-scheta", color: "#d0573f" }] };
+    labels.all = { a: [{ name: "Счета", keyword: "depesha-scheta", color: "#d0573f", stripping: false }] };
     labels.counts = { a: { "depesha-scheta": 47 } };
     const { body } = render(LabelsSection, { props: { account, form } });
     expect(body).toContain("Счета");
@@ -42,7 +42,7 @@ describe("the label section of a mailbox's page (#42, frame 2)", () => {
   });
 
   it("hides the «where it is kept» column on Exchange (#42, frame 7)", () => {
-    labels.all = { a: [{ name: "Проект", keyword: "Проект", color: "#3f7fd0" }] };
+    labels.all = { a: [{ name: "Проект", keyword: "Проект", color: "#3f7fd0", stripping: false }] };
     const { body } = render(LabelsSection, { props: { account: { ...account, ews: true } as unknown as AccountView, form } });
     expect(body).toContain("Проект");
     expect(body).not.toContain("Где хранится");

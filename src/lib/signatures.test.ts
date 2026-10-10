@@ -21,6 +21,7 @@ import {
   withSignature,
 } from "./signatures";
 import type { OpenedMessage, Signature } from "./types";
+import { rowDefaults, summaryDefaults } from "./testing";
 
 const me = { name: "Мария", email: "maria@example.com" };
 const LOGO = "data:image/png;base64,iVBORw0KGgo=";
@@ -41,15 +42,16 @@ function msg(): OpenedMessage {
   const summary = {
     message_id: "m2@example.org", in_reply_to: null, references: [], subject: "Смета",
     from: { name: "Иван", email: "ivan@example.org" }, to: [me], cc: [], reply_to: [], date: 1790000000,
-    has_attachments: false, bulk: false, unsubscribe: null,
+    has_attachments: false, bulk: false, unsubscribe: null, ...summaryDefaults,
   };
   return {
     row: { id: 7, account_id: "a", folder: "INBOX", uid: 1, message_id: summary.message_id, in_reply_to: null, references: [],
       subject: summary.subject, from: summary.from, to: summary.to, cc: [], reply_to: [], date: 1790000000, size: 1,
-      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false }, has_attachments: false,
-      thread: "m2@example.org", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null },
-    view: { summary, text: "Добрый день!", html: "<p>Добрый <b>день</b>!</p>", has_remote_content: false, authenticated: false, attachments: [] },
+      flags: { seen: true, answered: false, flagged: false, draft: false, deleted: false, forwarded: false, answered_all: false }, has_attachments: false,
+      thread: "m2@example.org", bulk: false, thread_count: 1, thread_date: 0, thread_senders: [], thread_draft: false, snoozed_until: null, followup_due: null, ...rowDefaults },
+    view: { summary, text: "Добрый день!", html: "<p>Добрый <b>день</b>!</p>", has_remote_content: false, authenticated: false, attachments: [], send_at: null, format: null, acts_on: null, markdown: null, views: ["text"], },
     trusted_sender: false,
+    sender_unverified: false,
   };
 }
 

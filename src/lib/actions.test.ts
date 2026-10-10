@@ -10,7 +10,7 @@ import { AppStore } from "./store.svelte";
 import { t } from "./i18n.svelte";
 import { labels } from "./labels.svelte";
 import { api, deferred, flush, resetFakes, row } from "./testing";
-import type { MessageRow } from "./types";
+import type { Moved, MessageRow } from "./types";
 
 const ids = (s: AppStore) => s.list.messages.map((m) => m.id);
 
@@ -128,7 +128,7 @@ describe("undo", () => {  it("takes back the last action that went through", asy
   it("of a letter brought back from the snoozed mail snoozes it again for the same time (#93)", async () => {
     const s = await inbox();
     const snoozed = { account_id: "a", message_id: "<4@example.com>", folder: "Snoozed", return_to: "INBOX", until: 5000, subject: "Счёт" };
-    const moved = { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<4@example.com>"], snoozed: [snoozed] };
+    const moved = { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<4@example.com>"], snoozed: [snoozed], unseen: [], waits: [] };
     const text = vi.fn((m: { to: string }[]) => `Возвращено во «${m[0].to}»: Счёт`);
     await s.actions.perform(text, [4], async () => [moved], "fail");
     expect(s.ui.toasts.some((x) => x.text === "Возвращено во «INBOX»: Счёт")).toBe(true);
@@ -139,11 +139,11 @@ describe("undo", () => {  it("takes back the last action that went through", asy
 
   it("pressed while the action is on its way waits for it", async () => {
     const s = await inbox();
-    const answer = deferred<{ account_id: string; from: string; to: string; message_ids: string[] }[]>();
+    const answer = deferred<Moved[]>();
     api.archive.mockReturnValue(answer.promise);
     void s.actions.archive([4]);
     const undone = s.actions.undo();
-    answer.resolve([{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ["4"] }]);
+    answer.resolve([{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ["4"], unseen: [], snoozed: [], waits: [] }]);
     await undone;
     expect(api.undo).toHaveBeenCalledTimes(1);
   });

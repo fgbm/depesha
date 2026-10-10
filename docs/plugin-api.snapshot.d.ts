@@ -4,13 +4,13 @@
 
 import type { Component, Snippet } from "svelte";
 
-export interface ActsOn {
+export type ActsOn = {
     account_id: string;
     message_id: string;
     folder: string;
     act: Act;
     waiting: boolean;
-}
+};
 
 export interface Anchor {
     x: number;
@@ -65,23 +65,9 @@ export interface ComposeContext {
     send(at?: number | null): void;
 }
 
-export interface ComposeDraft {
-    from: Addr | null;
-    to: Addr[];
-    cc: Addr[];
-    bcc: Addr[];
-    subject: string;
-    text: string;
-    html?: string | null;
-    signature?: string | null;
-    format?: BodyFormat;
-    in_reply_to: string | null;
-    references: string[];
+export type ComposeDraft = Loose<Omit<ComposeDraftWire, "attachments"> & {
     attachments: AttachmentSource[];
-    send_at?: number | null;
-    acts_on?: ActsOn | null;
-    importance?: Importance;
-}
+}, "html" | "signature" | "format" | "send_at" | "acts_on" | "importance">;
 
 export declare const DEFAULT_WORK_TIME: WorkTime;
 
@@ -98,19 +84,19 @@ export interface FileViewer {
     props?: Record<string, unknown>;
 }
 
-export interface FolderInfo {
+export type FolderInfo = {
     account_id: string;
+    total: number;
+    unread: number;
     name: string;
     display_name: string;
     delimiter: string | null;
     role: FolderRole | null;
     selectable: boolean;
     hidden: boolean;
-    total: number;
-    unread: number;
-}
+};
 
-export interface FollowupInfo {
+export type FollowupInfo = {
     status: FollowupStatus;
     due: number;
     deadline: number;
@@ -121,23 +107,14 @@ export interface FollowupInfo {
     ended: number | null;
     answered_by: Addr | null;
     answer: number | null;
-    reminded: number[];
+    reminded: Array<number>;
     sent: number;
     park: string;
     park_folder: string;
     auto_reply: number | null;
-}
+};
 
-export interface FollowupPlan {
-    deadline_secs: number;
-    due_at?: number;
-    deadline_at?: number;
-    repeat_secs: number;
-    expect: string;
-    kind: string;
-    park?: boolean | null;
-    archive?: boolean | null;
-}
+export type FollowupPlan = Loose<FollowupPlanWire, "due_at" | "deadline_at" | "park" | "archive">;
 
 export interface KeyBinding {
     id: string;
@@ -177,23 +154,7 @@ export interface ListFilter {
     query: (list: ListScope) => Partial<ListQuery>;
 }
 
-export interface ListQuery {
-    account_id?: string | null;
-    folder?: string | null;
-    role?: FolderRole | null;
-    unread_only?: boolean;
-    flagged_only?: boolean;
-    keep_ids?: number[];
-    bulk?: boolean | null;
-    threads?: boolean;
-    snoozed_only?: boolean;
-    followups_only?: boolean;
-    followup_status?: "active" | "closed";
-    sort?: SortKey[];
-    pins?: Pin[];
-    limit?: number;
-    offset?: number;
-}
+export type ListQuery = Partial<ListQueryWire>;
 
 export interface ListScope {
     key: string;
@@ -209,60 +170,59 @@ export interface MessageAction {
     run: (msg: OpenedMessage) => void;
 }
 
-export interface MessageRow {
+export type MessageRow = {
     id: number;
     account_id: string;
     folder: string;
     uid: number;
     message_id: string | null;
     in_reply_to: string | null;
-    references: string[];
+    references: Array<string>;
     subject: string;
     from: Addr | null;
-    to: Addr[];
-    cc: Addr[];
-    reply_to: Addr[];
+    to: Array<Addr>;
+    cc: Array<Addr>;
+    reply_to: Array<Addr>;
     date: number;
     size: number;
     flags: Flags;
-    keywords?: string[];
+    keywords?: Array<string>;
     has_attachments: boolean;
     thread: string;
     bulk: boolean;
     thread_count: number;
     thread_date: number;
-    thread_senders: Addr[];
+    thread_size: number;
+    thread_senders: Array<Addr>;
     thread_draft: boolean;
-    thread_size?: number;
     snoozed_until: number | null;
     followup_due: number | null;
-    followup?: FollowupInfo | null;
-    marks?: Mark[];
-    my_answer?: number | null;
-    outgoing?: Outgoing | null;
-    answer_came?: boolean;
-    dmarc?: boolean;
-    thread_voices?: Voice[];
-    importance?: Importance;
-}
+    followup: FollowupInfo | null;
+    marks: Array<Mark>;
+    my_answer: number | null;
+    outgoing: Outgoing | null;
+    answer_came: boolean;
+    dmarc: boolean;
+    importance: Importance;
+    thread_voices: Array<Voice>;
+};
 
-export interface Moved {
+export type Moved = {
     account_id: string;
     from: string;
     to: string;
-    message_ids: string[];
-    unseen?: string[];
-    snoozed?: {
-        subject: string;
-    }[];
-}
+    message_ids: Array<string>;
+    waits: Array<string>;
+    unseen: Array<string>;
+    snoozed: Array<Snooze>;
+};
 
-export interface OpenedMessage {
+export type OpenedMessage = {
     row: MessageRow;
     view: MessageView;
     trusted_sender: boolean;
-    sender_unverified?: boolean;
-}
+    sender_unverified: boolean;
+};
 
 export interface Placed {
     left: number;
@@ -491,11 +451,11 @@ export interface ViewedFile {
     fail(e: unknown): void;
 }
 
-export interface Waiting {
+export type Waiting = {
     park: boolean;
     folder: string;
     stop_to_archive: boolean;
-}
+};
 
 export interface WhenExtras {
     none: boolean;
@@ -560,31 +520,32 @@ export declare function whenMenuRequest(): WhenMenuRequest | null;
 
 type Act = "reply" | "reply_all" | "forward";
 
-interface Addr {
+type Addr = {
     name: string | null;
     email: string;
-}
+};
 
-interface AttachmentInfo {
+type AttachmentInfo = {
     index: number;
     name: string;
     mime: string;
     size: number;
     content_id: string | null;
     inline: boolean;
-}
+};
 
-type AttachmentSource = {
-    kind: "file";
-    path: string;
+type AttachmentSource = AttachmentSourceWire & {
     name: string;
     size: number;
+};
+
+type AttachmentSourceWire = {
+    "kind": "file";
+    path: string;
 } | {
-    kind: "message";
+    "kind": "message";
     id: number;
     index: number;
-    name: string;
-    size: number;
 };
 
 type BodyFormat = "plain" | "html" | "markdown";
@@ -598,90 +559,152 @@ interface Box {
     bottom: number;
 }
 
-interface Flags {
+type ComposeDraftWire = {
+    from: Addr | null;
+    to: Array<Addr>;
+    cc: Array<Addr>;
+    bcc: Array<Addr>;
+    subject: string;
+    text: string;
+    html: string | null;
+    signature: string | null;
+    format: BodyFormat;
+    in_reply_to: string | null;
+    references: Array<string>;
+    attachments: Array<AttachmentSourceWire>;
+    send_at: number | null;
+    acts_on: ActsOn | null;
+    importance: Importance;
+};
+
+type Flags = {
     seen: boolean;
     answered: boolean;
     flagged: boolean;
     draft: boolean;
     deleted: boolean;
-    forwarded?: boolean;
-    answered_all?: boolean;
-}
+    forwarded: boolean;
+    answered_all: boolean;
+};
 
 type FolderRole = "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "snoozed";
+
+type FollowupFilter = "active" | "closed";
+
+type FollowupPlanWire = {
+    deadline_secs: number;
+    due_at: number;
+    deadline_at: number;
+    repeat_secs: number;
+    expect: string;
+    kind: string;
+    park: boolean | null;
+    archive: boolean | null;
+};
 
 type FollowupStatus = "waiting" | "answered" | "closed";
 
 type Importance = "low" | "normal" | "high";
 
-interface Mark {
+type ListQueryWire = {
+    account_id: string | null;
+    folder: string | null;
+    role: FolderRole | null;
+    unread_only: boolean;
+    flagged_only: boolean;
+    keep_ids: Array<number>;
+    bulk: boolean | null;
+    threads: boolean;
+    snoozed_only: boolean;
+    followups_only: boolean;
+    followup_status: FollowupFilter;
+    sort: Array<SortKey>;
+    pins: Array<Pin>;
+    limit: number;
+    offset: number;
+};
+
+type Loose<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
+type Mark = {
     act: Act;
     at: number | null;
-}
+};
 
-interface MessageView {
+type MessageView = {
     summary: Summary;
     text: string | null;
     html: string | null;
     has_remote_content: boolean;
     authenticated: boolean;
-    attachments: AttachmentInfo[];
-    send_at?: number | null;
-    format?: BodyFormat | null;
-    acts_on?: ActsOn | null;
-    markdown?: string | null;
-    views?: BodyView[];
-}
+    attachments: Array<AttachmentInfo>;
+    send_at: number | null;
+    format: BodyFormat | null;
+    acts_on: ActsOn | null;
+    markdown: string | null;
+    views: Array<BodyView>;
+};
 
-interface Outgoing {
+type Outgoing = {
     act: Act;
     at: number;
     park: boolean;
     scheduled: boolean;
-}
+};
 
-interface Pin {
+type Pin = {
     id: number;
     unread: boolean;
     flagged: boolean;
-}
+};
 
 interface Size {
     w: number;
     h: number;
 }
 
+type Snooze = {
+    account_id: string;
+    message_id: string;
+    folder: string;
+    return_to: string;
+    until: number;
+    subject: string;
+};
+
 type SortField = "date" | "unread" | "flagged" | "people" | "sender" | "subject" | "size" | "attachments" | "relevance";
 
-interface SortKey {
+type SortKey = {
     by: SortField;
     desc: boolean;
-}
+};
 
-interface Summary {
+type Summary = {
     message_id: string | null;
     in_reply_to: string | null;
-    references: string[];
+    references: Array<string>;
     subject: string;
     from: Addr | null;
-    to: Addr[];
-    cc: Addr[];
-    reply_to: Addr[];
+    to: Array<Addr>;
+    cc: Array<Addr>;
+    reply_to: Array<Addr>;
     date: number | null;
     has_attachments: boolean;
     bulk: boolean;
     unsubscribe: Unsubscribe | null;
-    importance?: Importance;
-}
+    thread_index: string | null;
+    dmarc: boolean;
+    importance: Importance;
+};
 
-interface Unsubscribe {
+type Unsubscribe = {
     one_click: string | null;
     http: string | null;
     mailto: string | null;
-}
+};
 
-interface Voice {
+type Voice = {
     from: Addr;
     dmarc: boolean;
     id: number;
-}
+};

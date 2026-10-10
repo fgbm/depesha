@@ -31,7 +31,7 @@ describe("the form a letter is shown in", () => {
   });
 
   it("keeps letters read before forms were told apart as they were", () => {
-    const old: Forms = { html: "<p>x</p>", text: "x", markdown: undefined, views: undefined };
+    const old = { html: "<p>x</p>", text: "x", markdown: undefined, views: undefined } as unknown as Forms;
     expect(preferredView(old, "sender")).toBe("html");
     expect(preferredView(old, "markdown")).toBe("html");
     expect(preferredView({ ...old, html: null }, "sender")).toBe("text");

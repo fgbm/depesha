@@ -10,7 +10,7 @@ beforeEach(() => {
   i18n.lang = "ru";
   labels.all = {};
   labels.counts = {};
-  api.labelRename.mockResolvedValue({ name: "Счёты", keyword: "depesha-scheta", color: "#d0573f" });
+  api.labelRename.mockResolvedValue({ name: "Счёты", keyword: "depesha-scheta", color: "#d0573f", stripping: false });
   api.labels.mockResolvedValue([]);
   api.labelCounts.mockResolvedValue([]);
   api.labelStrip.mockResolvedValue(undefined);

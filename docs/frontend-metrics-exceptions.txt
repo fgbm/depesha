@@ -16,3 +16,10 @@ component	src/components/sidebar/FavouriteRow.svelte	73	строка импор�
 component	src/components/sidebar/FolderRow.svelte	105	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/Labels.svelte	61	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/Outbox.svelte	94	ветка {#if item.broken} выбирает строку повреждённого письма; сама строка вынесена в OutboxBroken.svelte (#146)
+function	plugins/followups/fixtures.ts::letter	37	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	plugins/snooze/index.test.ts::fakeContext	45	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/compose.test.ts::msg	37	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/i18n.test.ts::msg	16	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/signatures.test.ts::msg	16	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/testing.ts::row	31	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
+function	src/lib/testing.ts::opened	34	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
