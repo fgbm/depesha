@@ -47,19 +47,25 @@ export async function stopWaiting(ctx: PluginContext, rows: Stopped[], hooks: St
   return true;
 }
 
-/** "Undo" of the toast: each wait stopped waits again; one that cannot (its letters came back, or it changed some other way since) is told. */
+/**
+ * "Undo" of the toast: each wait stopped waits again. One that cannot (its letters came back, or it
+ * changed some other way since), or a backend error, makes it throw: the app tells that once, as a
+ * failed undo, and does not say "Undone".
+ */
 async function resumeWaiting(ctx: PluginContext, ended: { row: Stopped; at: number }[], hooks: StopHooks) {
   let lost = false;
+  let error: unknown = null;
   for (const { row, at } of ended) {
     try {
       if (!(await ctx.backend<boolean>("followup_resume", { id: row.id, ended: at }))) lost = true;
     } catch (e) {
-      ctx.fail(e);
+      error ??= e;
     }
   }
-  if (lost) ctx.toast(ctx.t(S.resumeFailed), { error: true });
-  else hooks.undone?.();
   ctx.mail.reload();
+  if (error) throw error;
+  if (lost) throw new Error(ctx.t(S.resumeFailed));
+  hooks.undone?.();
 }
 
 /** A wait that is still on: what the line over the letter offers "Stop waiting" for. */

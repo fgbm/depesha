@@ -95,9 +95,14 @@ describe("«Stop waiting» tells so and can be taken back, as «Bring back now»
     expect(offerUndo).toHaveBeenCalledTimes(1);
     expect(offerUndo.mock.calls[0][0]).toBe("Не ждём ответа: 2 письма");
     backend.mockImplementation(async () => false);
-    void offerUndo.mock.calls[0][1]();
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(1));
-    expect(toast.mock.calls[0][1]).toEqual({ error: true });
-    expect(toast.mock.calls[0][0]).toBe("Не удалось вернуть: ожидание уже изменилось");
+    // Too late: the undo throws, so that the app tells it once as a failed undo (not «Undone», not twice).
+    await expect(offerUndo.mock.calls[0][1]()).rejects.toThrow("Не удалось вернуть: ожидание уже изменилось");
+    expect(toast).not.toHaveBeenCalled();
+    // A backend error is passed on as it is, and told by the app, not by the plugin.
+    backend.mockImplementation(async () => {
+      throw new Error("нет связи");
+    });
+    await expect(offerUndo.mock.calls[0][1]()).rejects.toThrow("нет связи");
+    expect(toast).not.toHaveBeenCalled();
   });
 });
