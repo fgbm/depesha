@@ -8,6 +8,7 @@ use roxmltree::Node;
 
 use super::{Session, child, children, desc, escape, parse, responses, single, text};
 use crate::avatar::Receiver;
+use crate::blocking::off_runtime_thread;
 use crate::domain::{Addr, Importance};
 use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
 use crate::imap::IdleOutcome;
@@ -784,10 +785,16 @@ async fn add_items(
         })
         .collect();
     // A commit per batch, not per item; batches keep the cache free for the window between.
-    for batch in items.chunks(WRITE_BATCH) {
-        store.ews_insert_items(account_id, folder, batch)?;
-    }
+    insert_batches(store, account_id, folder, &items)?;
     Ok(items.len())
+}
+
+/// Writes items in batches of `WRITE_BATCH`, each one off the runtime's worker thread.
+fn insert_batches(store: &Store, account_id: &str, folder: &str, items: &[(NewMessage<'_>, &str, i64)]) -> Result<()> {
+    for batch in items.chunks(WRITE_BATCH) {
+        off_runtime_thread(|| store.ews_insert_items(account_id, folder, batch))?;
+    }
+    Ok(())
 }
 
 /// UIDs for items found outside the synced window: below every UID in use.
@@ -860,7 +867,7 @@ pub async fn sync_folder(
         .iter()
         .filter_map(|i| known.get(i.id.as_str()).map(|uid| (*uid, i.flags)))
         .collect();
-    report.updated = store.update_flags(account_id, folder, &flags)?;
+    report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &flags))?;
     let keywords: Vec<(u32, Vec<String>)> = seen
         .iter()
         .filter_map(|i| known.get(i.id.as_str()).map(|uid| (*uid, i.categories.clone())))
@@ -873,7 +880,7 @@ pub async fn sync_folder(
         .filter(|(_, id, received)| *received >= new_window && !seen_ids.contains(id.as_str()))
         .map(|(uid, _, _)| *uid)
         .collect();
-    report.removed = store.remove_uids(account_id, folder, &gone)?;
+    report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
     store.ews_items_remove(account_id, folder, &gone)?;
 
     let mut fresh: Vec<&Scanned> = seen
@@ -1799,6 +1806,40 @@ pub async fn wait_for_changes(s: &mut Session, store: &Store, account_id: &str, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn items_are_written_in_batches_from_a_runtime_task() {
+        tokio::spawn(async {
+            let store = Store::open_in_memory().unwrap();
+            let folder = Folder {
+                name: "INBOX".into(),
+                display_name: "INBOX".into(),
+                delimiter: Some("/".into()),
+                role: Some(FolderRole::Inbox),
+                selectable: true,
+                hidden: false,
+            };
+            store.replace_folders("a", &[folder]).unwrap();
+            let summary = Summary::default();
+            let items: Vec<_> = (1..=WRITE_BATCH as u32 + 5)
+                .map(|uid| {
+                    let msg = NewMessage {
+                        uid,
+                        summary: &summary,
+                        fallback_date: 1,
+                        size: 1,
+                        flags: Flags::default(),
+                        keywords: Vec::new(),
+                    };
+                    (msg, "id", 1)
+                })
+                .collect();
+            insert_batches(&store, "a", "INBOX", &items).unwrap();
+            assert_eq!(store.known_uids("a", "INBOX").unwrap().len(), WRITE_BATCH + 5);
+        })
+        .await
+        .unwrap();
+    }
 
     #[test]
     fn a_folder_tree_without_the_inbox_is_a_broken_answer() {

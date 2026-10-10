@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 
+use crate::blocking::off_runtime_thread;
 use crate::imap::{self, Conn};
 
 use crate::domain::Folder;
@@ -146,7 +147,7 @@ pub async fn sync_folder(
     let mut report = FolderSync::default();
     if mailbox.exists == 0 {
         let known = store.known_uids(account_id, folder)?;
-        report.removed = store.remove_uids(account_id, folder, &known)?;
+        report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &known))?;
         store.set_folder_state(account_id, folder, uidvalidity, last_uid)?;
         store.set_modseq_mark(account_id, folder, mark)?;
         return Ok(report);
@@ -179,9 +180,9 @@ pub async fn sync_folder(
                     let known = store.known_uids(account_id, folder)?;
                     gone.extend(known.into_iter().filter(|u| changes.vanished(*u)));
                 }
-                report.updated = store.update_flags(account_id, folder, &flags)?;
+                report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &flags))?;
                 store.update_keywords(account_id, folder, &changes.keywords)?;
-                report.removed = store.remove_uids(account_id, folder, &gone)?;
+                report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
             }
             None => {
                 // A cached UID the server no longer returns was expunged.
@@ -206,10 +207,10 @@ pub async fn sync_folder(
                         }
                     }
                 }
-                report.updated = store.update_flags(account_id, folder, &flags)?;
+                report.updated = off_runtime_thread(|| store.update_flags(account_id, folder, &flags))?;
                 store.update_keywords(account_id, folder, &keywords)?;
                 let gone: Vec<u32> = known.iter().copied().filter(|u| !alive.contains(u)).collect();
-                report.removed = store.remove_uids(account_id, folder, &gone)?;
+                report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))?;
             }
         }
     }
@@ -301,7 +302,7 @@ async fn remove_expunged(conn: &mut Conn, store: &Store, account_id: &str, folde
         .into_iter()
         .filter(|u| !alive.contains(u))
         .collect();
-    store.remove_uids(account_id, folder, &gone)
+    off_runtime_thread(|| store.remove_uids(account_id, folder, &gone))
 }
 
 /// Extends the synced window `count` messages further into the past. Returns how many
@@ -337,17 +338,6 @@ pub async fn load_older(conn: &mut Conn, store: &Store, account_id: &str, folder
     fetch_headers(conn, store, account_id, folder, &missing).await?;
     store.set_window_start(account_id, folder, new_start)?;
     Ok(uids.len())
-}
-
-/// Runs a heavy call of the cache on a multi-thread runtime without keeping the worker thread:
-/// a batch of 200 headers holds the writer for about 100 ms on the first sync of a big mailbox
-/// (`tests/cache_perf.rs`, #149), and the tasks queued on that thread would wait it out.
-fn off_runtime_thread<T>(f: impl FnOnce() -> T) -> T {
-    use tokio::runtime::{Handle, RuntimeFlavor};
-    match Handle::try_current() {
-        Ok(h) if h.runtime_flavor() == RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
-        _ => f(),
-    }
 }
 
 async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder: &str, uids: &[u32]) -> Result<usize> {
@@ -529,29 +519,6 @@ mod tests {
 
     fn listed(names: &[&str]) -> Vec<Folder> {
         names.iter().map(|n| folder(n)).collect()
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn heavy_call_leaves_the_worker_thread_to_other_tasks() {
-        let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let flag = ran.clone();
-        tokio::spawn(async move { flag.store(true, std::sync::atomic::Ordering::SeqCst) });
-        let seen = off_runtime_thread(|| {
-            let t = std::time::Instant::now();
-            while !ran.load(std::sync::atomic::Ordering::SeqCst) && t.elapsed() < std::time::Duration::from_secs(5) {
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            ran.load(std::sync::atomic::Ordering::SeqCst)
-        });
-        assert!(
-            seen,
-            "a task queued on the only worker did not run during the heavy call"
-        );
-    }
-
-    #[tokio::test]
-    async fn heavy_call_runs_on_a_current_thread_runtime() {
-        assert_eq!(off_runtime_thread(|| 7), 7);
     }
 
     #[tokio::test]

@@ -5,6 +5,7 @@ pub mod account;
 pub mod acl;
 pub mod autodetect;
 pub mod avatar;
+mod blocking;
 pub mod clear;
 pub mod domain;
 pub(crate) mod error;
