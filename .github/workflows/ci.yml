@@ -24,7 +24,7 @@ env:
 
 jobs:
   # What the heavy platform jobs (Windows, macOS) are run for. main, release/** and a manual run: always.
-  # A branch: only when it touches what those jobs test (the shell of the app, the drop code, their scripts, this file).
+  # A branch: only when it touches what those jobs test (the core and the shell of the app, dependencies, the drop code, their scripts, this file).
   changes:
     name: Which platforms
     runs-on: ubuntu-24.04
@@ -39,7 +39,7 @@ jobs:
         env:
           ALWAYS: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
         run: |
-          paths='^(src-tauri/|src/lib/drops\.ts|e2e/(drops\.mjs|drop-steps\.mjs|native-drop\.ps1|windows-display\.ps1)|\.github/workflows/ci\.yml)'
+          paths='^(crates/|src-tauri/|Cargo\.(toml|lock)$|package(-lock)?\.json$|src/lib/drops\.ts|e2e/(drops\.mjs|drop-steps\.mjs|native-drop\.ps1|windows-display\.ps1)|\.github/workflows/ci\.yml)'
           platform=false
           if [ "$ALWAYS" = true ]; then
             platform=true
