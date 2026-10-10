@@ -187,6 +187,18 @@ export class ActionRunner {
     }, ms);
   }
 
+  /**
+   * Makes `run` what "z" takes back for as long as something else counts down (a clearing's wait):
+   * "z" always means the latest action. The returned function lets go of it, unless a newer action took the place.
+   */
+  hold(text: string, run: () => Promise<void>): () => void {
+    const u: Undoable = { moved: [], text, run };
+    this.lastUndo = u;
+    return () => {
+      if (this.lastUndo === u) this.lastUndo = null;
+    };
+  }
+
   /** Takes back the last move; waits for an action still on its way. */
   async undo() {
     if (!this.lastUndo && this.pending) await this.pending;

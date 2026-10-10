@@ -42,7 +42,8 @@ export async function stopWaiting(ctx: PluginContext, rows: Stopped[], hooks: St
   }
   hooks.done?.();
   const what = ended.length === 1 ? ended[0].row.subject || ctx.t(S.noSubject) : ctx.plural(ended.length, S.stoppedMany);
-  ctx.toast(ctx.t(S.stopped, { what }), { action: { label: ctx.t(S.undo), run: () => void resumeWaiting(ctx, ended, hooks) } });
+  // Not a plain toast: "z" takes back the latest action, and this is it.
+  ctx.mail.offerUndo(ctx.t(S.stopped, { what }), () => resumeWaiting(ctx, ended, hooks));
   return true;
 }
 

@@ -25,6 +25,7 @@ function host(over: { role?: FolderInfo["role"] | null; total?: number; online?:
   const state = { online: over.online ?? true, answer: true };
   const toasts: { text: string; error: boolean; action?: { label: string; run: () => void }; ms?: number }[] = [];
   const asked: unknown[] = [];
+  const held: { text: string; run: () => Promise<void>; released: boolean }[] = [];
   const h: ClearHost = {
     view: { kind: "folder", account_id: "a", folder: f.name },
     windowOf: null,
@@ -38,8 +39,13 @@ function host(over: { role?: FolderInfo["role"] | null; total?: number; online?:
     confirm: async (q) => (asked.push(q), state.answer),
     track: (p) => p,
     fail: (e) => toasts.push({ text: String((e as Error).message), error: true }),
+    holdUndo: (text, run) => {
+      const u = { text, run, released: false };
+      held.push(u);
+      return () => void (u.released = true);
+    },
   };
-  return { h, f, state, toasts, asked, clear: new ClearFolder(h) };
+  return { h, f, state, toasts, asked, held, clear: new ClearFolder(h) };
 }
 
 beforeEach(() => {
@@ -118,6 +124,24 @@ describe("Clear: the delay after the question", () => {
     expect(api.folderEmpty).toHaveBeenCalledWith("a", "Trash", [], 11);
     await flush();
     expect(x.toasts.at(-1)?.text).toBe(t("clear.done.trash", { n: 128 }));
+  });
+
+  it("is what «z» takes back during the wait, and lets go of it when the wait ends", async () => {
+    const x = host();
+    await x.clear.begin("a", "Trash");
+    expect(x.held).toHaveLength(1);
+    expect(x.held[0].text).toBe(t("clear.trash"));
+    expect(x.held[0].released).toBe(false);
+    await x.held[0].run();
+    expect(x.held[0].released).toBe(true);
+    await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 1000);
+    expect(api.folderEmpty).not.toHaveBeenCalled();
+
+    const y = host();
+    await y.clear.begin("a", "Trash");
+    await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 100);
+    expect(y.held[0].released).toBe(true);
+    expect(api.folderEmpty).toHaveBeenCalledTimes(1);
   });
 
   it("changes nothing when the delay is cancelled", async () => {

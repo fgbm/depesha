@@ -255,6 +255,8 @@ export interface PluginContext {
     folders(): FolderInfo[];
     /** Takes messages out of the list, runs `run`, offers undo of the moves it returns. */
     perform(text: string | ((moved: Moved[]) => string), ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string): Promise<void>;
+    /** Offers to take back something that is not a move: a toast with a button, and "z" does the same. */
+    offerUndo(text: string, run: () => Promise<void>): void;
     reload(): void;
     /** Like `reload`, but for backend events in bursts: waits out the burst, then reloads once. */
     scheduleReload(): void;

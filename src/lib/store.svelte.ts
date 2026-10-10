@@ -273,6 +273,7 @@ export class AppStore {
   spam(ids = this.selectedIds()) { return this.actions.spam(ids); }
   undo() { return this.actions.undo(); }
   offerUndo(text: string, run: () => Promise<void>) { return this.actions.offer(text, run); }
+  holdUndo(text: string, run: () => Promise<void>) { return this.actions.hold(text, run); }
 
   /** Queues the composition; it leaves after the undo delay or at `at`. */
   send(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {

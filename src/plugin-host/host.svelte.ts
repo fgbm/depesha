@@ -90,6 +90,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       accounts: () => app.accounts,
       folders: () => app.folders,
       perform: (text, ids, run, failText) => app.perform(text, ids, run, failText),
+      offerUndo: (text, run) => app.offerUndo(text, run),
       reload: () => app.reload(), scheduleReload: () => app.scheduleReload(),
       showView: (view) => app.setView({ kind: "plugin", id: view }),
       viewing: (view) => app.view.kind === "plugin" && app.view.id === view,

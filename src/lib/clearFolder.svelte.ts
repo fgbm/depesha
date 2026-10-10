@@ -35,6 +35,8 @@ export interface ClearHost {
   confirm(q: Omit<Confirmation, "resolve">): Promise<boolean>;
   track<T>(p: Promise<T>): Promise<T>;
   fail(e: unknown, prefix?: string): void;
+  /** "z" takes `run` back while the wait lasts; the returned function lets go of it. */
+  holdUndo(text: string, run: () => Promise<void>): () => void;
 }
 
 /** The folder the command is offered for in the current view. */
@@ -180,7 +182,10 @@ export class ClearFolder {
     const left = () => Math.max(1, Math.ceil((end - Date.now()) / 1000));
     return new Promise((resolve) => {
       let toastId: number | void = undefined;
+      // "z" means the latest action, and during the wait that is this one.
+      const release = this.host.holdUndo(this.title(role), async () => done(false));
       const done = (go: boolean) => {
+        release();
         clearTimeout(timer);
         clearInterval(ticker);
         if (typeof toastId === "number") this.host.dismiss(toastId);

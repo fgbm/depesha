@@ -10,20 +10,21 @@ function fakeContext(opened: OpenedMessage | null) {
   const backend = vi.fn(async (command: string): Promise<unknown> => (command === "followup_cancel" ? 1_800_000_000 : command === "followup_resume" ? true : undefined));
   const reload = vi.fn();
   const toast = vi.fn();
+  const offerUndo = vi.fn();
   const say = sayIn("ru");
   const ctx = {
     ...say,
     backend,
     toast,
     fail: vi.fn(),
-    mail: { opened: () => opened, reload, viewing: () => false },
+    mail: { opened: () => opened, reload, offerUndo, viewing: () => false },
     ui: {
       keybinding: (b: KeyBinding) => keys.push(b),
       rowAction: (a: RowAction) => actions.push(a),
     },
   } as unknown as PluginContext;
   registerStop(ctx);
-  return { keys, actions, backend, reload, toast };
+  return { keys, actions, backend, reload, toast, offerUndo };
 }
 
 const opened = (status: "waiting" | "closed") => ({ row: letter(wait({ status })) }) as OpenedMessage;
@@ -55,47 +56,48 @@ describe("«Stop waiting» on the key shared with bringing snoozed mail back (#9
 });
 
 describe("«Stop waiting» tells so and can be taken back, as «Bring back now» can (#98)", () => {
-  it("shows a toast with the subject and «Отменить»", async () => {
+  it("offers the undo (so that «z» takes it back) with the subject", async () => {
     const msg = opened("waiting");
-    const { keys, toast } = fakeContext(msg);
+    const { keys, offerUndo, toast } = fakeContext(msg);
     keys.find((k) => k.id === "core.release")!.run();
-    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
-    expect(toast.mock.calls[0][0]).toBe(`Не ждём ответа: ${msg.row.subject}`);
-    expect(toast.mock.calls[0][1].action.label).toBe("Отменить");
+    await vi.waitFor(() => expect(offerUndo).toHaveBeenCalled());
+    expect(offerUndo.mock.calls[0][0]).toBe(`Не ждём ответа: ${msg.row.subject}`);
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("takes the wait back with the moment it was closed at, and reloads the list", async () => {
-    const { keys, toast, backend, reload } = fakeContext(opened("waiting"));
+    const { keys, offerUndo, backend, reload } = fakeContext(opened("waiting"));
     keys.find((k) => k.id === "core.release")!.run();
-    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
+    await vi.waitFor(() => expect(offerUndo).toHaveBeenCalled());
     reload.mockClear();
-    toast.mock.calls[0][1].action.run();
+    void offerUndo.mock.calls[0][1]();
     await vi.waitFor(() => expect(reload).toHaveBeenCalled());
     expect(backend).toHaveBeenCalledWith("followup_resume", { id: expect.any(Number), ended: 1_800_000_000 });
   });
 
   it("says nothing when the wait had ended meanwhile", async () => {
-    const { keys, toast, backend, reload } = fakeContext(opened("waiting"));
+    const { keys, toast, offerUndo, backend, reload } = fakeContext(opened("waiting"));
     backend.mockImplementation(async () => null);
     keys.find((k) => k.id === "core.release")!.run();
     await vi.waitFor(() => expect(backend).toHaveBeenCalledWith("followup_cancel", { id: expect.any(Number) }));
     await new Promise((r) => setTimeout(r, 20));
     expect(toast).not.toHaveBeenCalled();
+    expect(offerUndo).not.toHaveBeenCalled();
     expect(reload).toHaveBeenCalled();
   });
 
   it("says so, once, when many rows are stopped, and tells when an undo is too late", async () => {
-    const { actions, toast, backend } = fakeContext(null);
+    const { actions, toast, offerUndo, backend } = fakeContext(null);
     const item = actions.find((a) => a.id === "followups.stop")!;
     item.when?.([7, 8], [{ ...letter(wait()), id: 7, subject: "Один" }, { ...letter(wait()), id: 8, subject: "Два" }]);
     item.run?.([7, 8]);
-    await vi.waitFor(() => expect(toast).toHaveBeenCalled());
-    expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast.mock.calls[0][0]).toBe("Не ждём ответа: 2 письма");
+    await vi.waitFor(() => expect(offerUndo).toHaveBeenCalled());
+    expect(offerUndo).toHaveBeenCalledTimes(1);
+    expect(offerUndo.mock.calls[0][0]).toBe("Не ждём ответа: 2 письма");
     backend.mockImplementation(async () => false);
-    toast.mock.calls[0][1].action.run();
-    await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(2));
-    expect(toast.mock.calls[1][1]).toEqual({ error: true });
-    expect(toast.mock.calls[1][0]).toBe("Не удалось вернуть: ожидание уже изменилось");
+    void offerUndo.mock.calls[0][1]();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(1));
+    expect(toast.mock.calls[0][1]).toEqual({ error: true });
+    expect(toast.mock.calls[0][0]).toBe("Не удалось вернуть: ожидание уже изменилось");
   });
 });

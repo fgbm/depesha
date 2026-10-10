@@ -179,3 +179,27 @@ describe("an offer to take back something that is not a move (#104)", () => {
     }
   });
 });
+
+describe("an undo held while something else counts down", () => {
+  it("is what z takes back instead of the older move, and goes when released", async () => {
+    const s = await inbox();
+    await s.archive([1]);
+    expect(s.lastUndo?.moved.length).toBeGreaterThan(0);
+    const run = vi.fn(async () => {});
+    const release = s.holdUndo("Очистка Корзины", run);
+    expect(s.lastUndo?.text).toBe("Очистка Корзины");
+    await s.undo();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(api.undo).not.toHaveBeenCalled();
+
+    const again = s.holdUndo("Ещё", run);
+    again();
+    expect(s.lastUndo).toBeNull();
+    // A release after something newer took the place does not remove the newer one.
+    const old = s.holdUndo("Старое", run);
+    s.offerUndo("Новое", run);
+    old();
+    expect(s.lastUndo?.text).toBe("Новое");
+    release();
+  });
+});
