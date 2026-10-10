@@ -114,6 +114,7 @@ const COMMANDS: &[&str] = &[
     "send",
     "draft_save",
     "draft_open",
+    "draft_open_reset",
     "open_drafts",
     "draft_discard",
     "outbox",

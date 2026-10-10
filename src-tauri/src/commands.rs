@@ -3039,9 +3039,6 @@ pub async fn draft_save(
             message_id: None,
         })
         .await?;
-    if let Some(old) = replace {
-        let _ = discard(&state, &account.id, old, replace_message_id.as_deref()).await;
-    }
     // The append synced the folder: the copy is in the cache unless the server hides it.
     let saved = match message_id {
         Some(mid) => state
@@ -3053,11 +3050,19 @@ pub async fn draft_save(
             }),
         None => None,
     };
-    // The window's composition now is this copy: «Clear» in Drafts spares it (#74).
+    // The window's composition now is this copy: «Clear» in Drafts spares it (#74). Said before
+    // the old copy goes, so that no moment holds the composition without a draft to spare.
     if let Some(local_id) = local_id {
-        state
-            .clearing
-            .draft_set(window.label(), &local_id, saved.as_ref().map(|s| s.id));
+        match &saved {
+            Some(s) => state
+                .clearing
+                .draft_set(window.label(), &local_id, Some(s.id), s.message_id.clone()),
+            // The server hides the copy: there is nothing to spare, but the composition is still open.
+            None => state.clearing.draft_forget(window.label(), &local_id),
+        }
+    }
+    if let Some(old) = replace {
+        let _ = discard(&state, &account.id, old, replace_message_id.as_deref()).await;
     }
     Ok(saved)
 }
@@ -3066,7 +3071,13 @@ pub async fn draft_save(
 /// so that «Clear» in Drafts, run from any window, leaves it in place (#74).
 #[tauri::command]
 pub fn draft_open(window: tauri::Window, state: St<'_>, local_id: String, draft_id: Option<i64>) {
-    state.clearing.draft_set(window.label(), &local_id, draft_id);
+    state.clearing.draft_set(window.label(), &local_id, draft_id, None);
+}
+
+/// A window's page was loaded anew: the drafts it reported belong to a page that is gone.
+#[tauri::command]
+pub fn draft_open_reset(window: tauri::Window, state: St<'_>) {
+    state.clearing.draft_reset(window.label());
 }
 
 /// How many drafts of the mailbox windows have open: the number «Clear» says will stay.

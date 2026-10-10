@@ -84,6 +84,12 @@ describe("the drafts the backend spares when Drafts are cleared (#74)", () => {
     expect(api.draftOpen).toHaveBeenLastCalledWith(local, null);
   });
 
+  it("tells the backend to forget the drafts of an earlier page when a page loads", () => {
+    api.draftOpenReset.mockClear();
+    manager();
+    expect(api.draftOpenReset).toHaveBeenCalledTimes(1);
+  });
+
   it("says nothing of a window without a server draft", () => {
     const mgr = manager();
     api.draftOpen.mockClear();

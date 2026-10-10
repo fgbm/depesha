@@ -166,6 +166,7 @@ export const api = {
   openDrafts: (accountId: string) => call<number>("open_drafts", { accountId }),
   /** A window says which server draft its composition is (null: none, or closed). */
   draftOpen: (localId: string, draftId: number | null) => call<void>("draft_open", { localId, draftId }),
+  draftOpenReset: () => call<void>("draft_open_reset"),
   stuckCopies: () => call<StuckCopy[]>("stuck_copies"),
   sentCopyRetry: (id: number) => call<boolean>("sent_copy_retry", { id }),
   sentCopySave: (id: number, path: string) => call<void>("sent_copy_save", { id, path }),

@@ -389,6 +389,7 @@ pub fn run() {
             commands::send,
             commands::draft_save,
             commands::draft_open,
+            commands::draft_open_reset,
             commands::open_drafts,
             commands::draft_discard,
             commands::outbox,

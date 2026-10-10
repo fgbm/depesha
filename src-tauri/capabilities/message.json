@@ -69,6 +69,7 @@
     "allow-send",
     "allow-draft-save",
     "allow-draft-open",
+    "allow-draft-open-reset",
     "allow-draft-discard",
     "allow-outbox-cancel",
     "allow-temp-attachment",

@@ -56,7 +56,10 @@ export class ComposeManager {
   windows = $state<ComposeWindow[]>([]);
   private seq = 0;
 
-  constructor(private host: ComposeHost) {}
+  constructor(private host: ComposeHost) {
+    // A page loaded anew has no compositions: what the backend was told by the page before is stale (#74).
+    void api.draftOpenReset().catch(() => {});
+  }
 
   /** Opens a composition window; the others fold into bars, as in Gmail. */
   open(c: ComposeState, mode: ComposeWindow["mode"] = this.host.windowOf !== null ? "max" : "open"): number {

@@ -127,6 +127,7 @@
     "allow-send",
     "allow-draft-save",
     "allow-draft-open",
+    "allow-draft-open-reset",
     "allow-open-drafts",
     "allow-draft-discard",
     "allow-outbox",
