@@ -1,119 +1,124 @@
 <p align="center"><img src="src-tauri/icons/128x128.png" width="96" alt=""></p>
 
-<h1 align="center">Depesha</h1>
+<h1 align="center">Депеша</h1>
 
-<p align="center">A fast, private desktop mail client for any IMAP/SMTP server — built for Exchange 2019 as much as for Gmail.<br>Rust · Tauri 2 · Svelte 5. <a href="README.ru.md">Читать по-русски</a>.</p>
+<p align="center">Быстрый почтовый клиент для компьютера. Работает с любым IMAP/SMTP-сервером — от Gmail до корпоративного Exchange 2019.<br>Rust · Tauri 2 · Svelte 5. <a href="README.en.md">English</a>.</p>
 
-<p align="center"><img src="docs/screenshots/english.png" width="860" alt="Depesha main window"></p>
+<p align="center"><img src="docs/screenshots/main.png" width="860" alt="Главное окно Депеши"></p>
 
-> English and Russian. The language follows your system and can be changed in Settings.
+## Зачем ещё один клиент
 
-## Why
+Чтобы просто читать почту через свой веб-интерфейс, нужно держать PHP, базу данных и веб-сервер. Привычные почтовые программы либо тянут за собой груз двадцатилетней давности, либо по умолчанию считают, что у вас Gmail. Депеша — одна программа без лишних зависимостей. Ей достаточно IMAP и SMTP, и с корпоративным Exchange она уживается без сюрпризов: понимает русские названия папок, прячет календари и контакты, соблюдает лимиты на отправку, доверяет внутренним сертификатам.
 
-Webmail you have to host (PHP, a database, a web server) is a lot of moving parts for reading mail. Desktop clients either drag decades of baggage or quietly assume Gmail. Depesha is a single native app that speaks plain IMAP and SMTP and behaves well with corporate Exchange: Russian folder names, non-mail folders, rate limits, internal certificates and all.
+## Что умеет
 
-## Features
+Всё построено на том, как с почтой работают на самом деле. Откуда взялись решения — в [docs/ux.md](docs/ux.md).
 
-Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for the research and the reasoning):
+- **Входящие как список дел.** `e` — письмо готово и уходит в архив, `h` — отложить, `#` — удалить, `!` — в спам. Следующее письмо открывается само. Любое действие можно отменить клавишей `z` или кнопкой «Отменить» во всплывающем сообщении.
+- **Вернуться к письму позже.** Отложите его до вечера, до утра, до понедельника или на любое время. Пока оно ждёт, оно лежит в обычной папке на сервере (её видно и в OWA), а в срок вернётся во входящие непрочитанным.
+- **Не забыть про ответ.** При отправке можно попросить напомнить, если вам не ответят. Такие письма собраны в разделе «Ждут ответа»; как только ответ придёт, напоминание исчезнет само.
+- **Отправить и не пожалеть.** Десять секунд, чтобы передумать. Можно отправить письмо по расписанию. Перед отправкой Депеша проверит: не забыли ли вложение, о котором пишете, нет ли среди коллег случайного внешнего адреса, не слишком ли много получателей, есть ли тема.
+- **Переписка целиком.** Вся цепочка — одна строка в списке. Откройте её — и увидите все письма разговора, свои ответы тоже.
+- **Сначала люди.** Рассылки и уведомления роботов Депеша узнаёт по заголовкам и показывает отдельно. Отписаться можно в один клик (RFC 8058), письмом или на странице отправителя. Оповещения приходят только о письмах от людей, а на время работы их можно выключить совсем.
+- **Свой порядок.** Меню «Вид» над списком: сначала новые, важное наверху (непрочитанные, письма людей, с флагом), по отправителю, по теме, крупные сначала — или свои ключи один за другим. У каждого списка может быть свой порядок и свой выбор «Люди / Рассылки». Только что прочитанное письмо остаётся на месте, пока вы не ушли из списка.
+- **Найти любое письмо.** Полнотекстовый поиск, который понимает русский язык, и уточнения `от:` `кому:` `тема:` `есть:вложение` `is:unread` `до:` `после:` `в:`, а для крупных писем `больше:25М` `старше:1г` `год:2024` `в:Папка/*` `ящик:`. Старую почту, которой нет на компьютере, Депеша ищет прямо на сервере. Все письма от одного человека — одним щелчком. Крупные письма — готовыми запросами в подсказках поиска и в Ctrl+K, с количеством и суммарным размером найденного.
+- **Всё с клавиатуры.** `Ctrl+K` открывает палитру команд: наберите пару букв — и выполните любое действие или перейдите в любую папку.
+- **Любой сервер.** Несколько ящиков и общие входящие. Настройки сервера Депеша находит сама. Новая почта приходит сразу (IMAP IDLE), а после обрыва связи или сна ноутбука соединение восстанавливается. Учтены особенности Exchange: русские названия папок, скрытые календари и контакты, лимит в пять писем в минуту.
+- **Вход через Google, Яндекс и Microsoft.** OAuth 2.0 в системном браузере (PKCE, ответ на 127.0.0.1); IMAP и SMTP входят по XOAUTH2, токен обновления хранится в связке ключей. OAuth-клиенты вшиваются при сборке из `DEPESHA_GOOGLE_CLIENT_ID`/`_SECRET`, `DEPESHA_YANDEX_CLIENT_ID`/`_SECRET` и `DEPESHA_MICROSOFT_CLIENT_ID`.
+- **Exchange, у которого есть только OWA.** Если IMAP и SMTP закрыты, Депеша работает через Exchange Web Services: Autodiscover или адрес OWA, вход по Basic или NTLM (с channel binding для Extended Protection), папки, синхронизация, флаги, перемещение, поиск, отправка с копией в «Отправленных» силами сервера, новая почта через streaming notifications.
+- **По-русски и по-английски.** Язык берётся из системы, его можно сменить в настройках — без перезапуска. Переведено всё: меню, ошибки, даты, строка «… пишет:» над цитатой.
+- **Повседневное.** Ответ, ответ всем, пересылка с вложениями, письма обычным текстом, с оформлением (HTML с картинками прямо в тексте) или в Markdown, несколько подписей на ящик (в том числе оформленных, с логотипом), шаблоны, подсказка адресов, действия сразу с несколькими письмами, чтение без интернета, светлая и тёмная тема.
+- **Узкое окно.** На ноутбуке боковая панель сворачивается в полосу значков с кружками ящиков, а список и письмо показываются по очереди — то же окно остаётся рабочим и на половине экрана. Избранные папки ящика выносятся наверх и остаются под рукой, даже когда ящик свёрнут.
+- **Порядок в ящике.** Раздел «Сервер» показывает, что умеет ваш IMAP-сервер и что из этого использует Депеша (IDLE, MOVE, CONDSTORE, QRESYNC, QUOTA и другое), с техническими подробностями для письма в поддержку. Раздел «Хранилище» — сколько места ящик занимает на сервере и на этом компьютере, с предупреждением у порога.
+- **Входящие бывают в Markdown.** Если отправитель прислал письмо в Markdown, его можно прочитать как Markdown, HTML или текст; свои письма тоже можно писать в Markdown.
+- **Люди.** Адресная книга в главном окне, рядом с папками. У человека может быть несколько адресов; дубли Депеша находит сама и предлагает объединить, а объединение можно отменить. «Все письма» человека показывают письма от него по всем адресам.
+- **Аватары и логотипы.** В списке писем слева кружок отправителя: логотип компании, иначе фото, иначе инициалы. Логотипы запрашиваются из сети уже при показе письма в списке; выключить их можно в настройках («Чтение и список» → «Список писем» → «Загружать логотипы компаний»). Поддельное письмо чужого логотипа не получает.
+- **Важные письма.** Письма, помеченные отправителем как важные, отмечены в списке значком «!», найти их можно поиском `это:важное`. Свою важность можно поставить и самому.
+- **Очистить.** В Корзине, Спаме и Черновиках есть кнопка «Очистить»: диалог называет число писем, пять секунд идёт отсчёт, в который всё ещё можно отменить. Черновики не стираются, а уходят в Корзину.
+- **Печать.** Открытое письмо можно напечатать или сохранить в PDF через системный диалог печати, в том числе на macOS.
+- **Настройки по задачам.** Окно настроек разложено на «Почту» и «Программу», изменения сохраняются сразу, последнее можно отменить. Настройки работают слоями: общие, затем ящик, затем человек.
+- **Окно письма.** Служебные полосы не съедают место: поле текста не ниже 160 пикселей, даже когда вложений много. Когда вложений много, они занимают две строки, остальные прячутся за «+N ещё ›».
 
-- **Triage the inbox like a to-do list.** `e` marks a message done and moves it to the archive, `h` snoozes it, `#` deletes, `!` reports spam, and the next message opens by itself. Every move can be taken back with `z` or the toast's "Undo".
-- **Come back to it later.** Snooze until tonight, tomorrow morning, Monday or any time. Snoozed mail waits in a real server folder (visible in webmail too) and returns unread when due.
-- **Don't lose track of answers.** Ask for a reminder when sending; "Waiting for reply" lists sent mail nobody answered, and the reminder clears itself when the answer arrives.
-- **Send without regrets.** Ten seconds to take a message back, scheduled sending, and a check before sending: a mentioned but missing attachment, colleagues and outsiders on one letter, a huge recipient list, no subject.
-- **Conversations, not piles.** A thread is one row; open it and see every letter of it, your answers from Sent included.
-- **People first.** Newsletters and robots are recognised by their headers (`List-Id`, `List-Unsubscribe`, `Precedence`, `Auto-Submitted`) and shown apart. Unsubscribe in one click (RFC 8058), by mail, or via the sender's page. Notifications come only for mail from people; Do Not Disturb silences everything.
-- **Your order.** A "View" menu above the list: newest first, important on top (unread, people, flagged), by sender, by subject or largest first, or keys of your own one after another. Each list may keep its own order and its own People / Newsletters choice. A letter you just read stays where it was until you leave the list.
-- **Find anything.** Full-text search that understands Russian, operators (`from:` `to:` `subject:` `has:attachment` `is:unread` `before:` `after:` `in:`, and for large mail `larger:25M` `older:1y` `year:2024` `in:Folder/*` `account:`, with Russian synonyms), ready queries for large mail in the search suggestions and Ctrl+K with the count and total size of what they find, server-side search for mail older than the cache, "all mail from this sender" in one click.
-- **Keyboard and command palette.** `Ctrl+K` runs any action or opens any folder by a few letters of its name.
-- **Any server.** Multiple accounts and a unified inbox; settings discovery (known providers, autoconfig, MX, SRV); IMAP IDLE with reconnects; Exchange quirks handled: Russian folder names, hidden calendars and contacts, the 5-messages-per-minute limit.
-- **Sign in with Google, Yandex or Microsoft.** OAuth 2.0 in the system browser (PKCE, loopback redirect); IMAP and SMTP log in with XOAUTH2, the refresh token stays in the OS keyring. Builds take their OAuth clients from `DEPESHA_GOOGLE_CLIENT_ID`/`_SECRET`, `DEPESHA_YANDEX_CLIENT_ID`/`_SECRET` and `DEPESHA_MICROSOFT_CLIENT_ID`.
-- **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services: Autodiscover or the OWA address, Basic or NTLM login (with channel binding for Extended Protection), folders, sync, flags, moves, search, sending with the copy kept by the server, new mail through streaming notifications.
-- **English and Russian.** The interface, error messages, dates and quote headers follow the system language; Settings switch it on the fly.
-- **Everyday tools.** Reply, reply all, forward with attachments, letters in plain text, formatted HTML with pictures inline, or Markdown; several signatures per account (styled ones with a logo included), templates, address completion, bulk actions, offline reading, light and dark theme.
-- **Narrow windows.** On a laptop the sidebar folds into a strip of icons with account circles and the list and letter take turns — the same window stays usable at half screen. An account's favourite folders sit at the top and stay within reach even when the account is folded.
-- **What your mailbox is made of.** The "Server" section shows what your IMAP server can do and what Depesha uses of it (IDLE, MOVE, CONDSTORE, QRESYNC, QUOTA and more), with technical details to paste into a support ticket. "Storage" shows how much room the mailbox takes on the server and on this computer, with a warning near the limit.
-- **Markdown in and out.** A letter that arrives in Markdown can be read as Markdown, HTML or plain text, and your own letters can be written in Markdown too.
+<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="Редактор письма: строка оформления и подпись"> <img src="docs/screenshots/signatures.png" width="420" alt="Подписи в настройках ящика"></p>
+<p align="center"><img src="docs/screenshots/followups.png" width="420" alt="«Ждут ответа»"> <img src="docs/screenshots/snooze.png" width="420" alt="Меню «Отложить»"></p>
+<p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Проверка перед отправкой"> <img src="docs/screenshots/dark.png" width="420" alt="Тёмная тема, переписка"></p>
+<p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="Узкое окно: боковая полоса и список"> <img src="docs/screenshots/narrow-message.png" width="300" alt="Узкое окно: письмо"></p>
+<p align="center"><img src="docs/screenshots/certificate.png" width="420" alt="Доверие сертификату по отпечатку"></p>
 
-<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="The compose editor with the formatting bar and a signature"> <img src="docs/screenshots/signatures.png" width="420" alt="Signatures in the mailbox settings"></p>
-<p align="center"><img src="docs/screenshots/followups.png" width="420" alt="Waiting for reply"> <img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"></p>
-<p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"> <img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"></p>
-<p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="A narrow window: the sidebar as a strip, the list"> <img src="docs/screenshots/narrow-message.png" width="300" alt="A narrow window: the letter"></p>
-<p align="center"><img src="docs/screenshots/certificate.png" width="420" alt="Trusting a certificate by fingerprint"></p>
+## Плагины
 
-## Plugins
+Депеша устроена как Obsidian: в основе только то, без чего почты нет, — ящики, синхронизация, список писем, чтение, новое письмо, поиск и исходящие. Остальное из списка выше — отложенные письма, «Ждут ответа», разделение на людей и рассылки, отправка по расписанию, шаблоны, проверка перед отправкой, палитра команд — встроенные плагины. Не нужно — выключите в разделе «Плагины» окна настроек (шестерёнка внизу боковой панели или `Ctrl+,`), и вместе с плагином пропадут его кнопки, клавиши, разделы и проверки.
 
-Like Obsidian, Depesha keeps the core small: accounts, sync, the list, the reader, compose, search and the outbox. Everything else on the list above — snooze, waiting for reply, people and newsletters, send later, templates, the check before sending, the command palette — is a built-in plugin you can switch off on the **Plugins** page of the settings (`Ctrl+,`); its buttons, keys, sidebar entries and checks go with it.
+Свои плагины пишутся на обычном JavaScript. В манифесте плагин заранее перечисляет, что ему нужно: читать письма, раскладывать их по папкам, хранить свои данные, ходить на конкретный сайт. Ничего сверх этого он не получит. Каждый плагин работает в отдельной песочнице, без доступа к самой программе, и запускается только тогда, когда понадобился. Если плагин долго не отвечает, Депеша его останавливает, поэтому даже зависший плагин не подвесит окно.
 
-Community plugins are plain JavaScript with a manifest of permissions (`messages.read`, `messages.modify`, `storage`, `network:<host>`). Each runs in a Web Worker inside a sandboxed frame with no way to the app, starts only when one of its hooks is needed, and is stopped if it does not answer in time, so a broken plugin cannot freeze the window. Examples and the full contract are in [plugins/README.md](plugins/README.md).
+В репозитории есть три примера: предупреждение о письмах с чужого домена, время чтения письма и правила, которые раскладывают новую почту по папкам. Как написать свой — в [plugins/README.md](plugins/README.md).
 
-## Security
+## Безопасность
 
-- Passwords live only in the OS keyring (Secret Service, Keychain, Credential Manager). They never touch files or logs.
-- After a rejected login the account pauses instead of retrying, so a wrong password cannot lock out an Active Directory account.
-- Certificates are verified against the system trust store. A self-signed or internal certificate is accepted only when you explicitly trust its SHA-256 fingerprint, and you are asked again if it changes.
-- No password is sent over a connection without TLS. Plaintext connections need an explicit opt-in with a warning.
-- Message HTML is sanitized (`ammonia`) and rendered in a script-less sandboxed iframe. Remote images and tracking pixels are blocked by default. Links open only after a confirmation that shows the real address, and executable attachments are never opened.
+- Пароли хранятся только в системном хранилище ключей и никогда не попадают ни в файлы, ни в журналы.
+- Если сервер не принял пароль, ящик встаёт на паузу и не пробует снова, так что опечатка в пароле не заблокирует доменную учётную запись.
+- Сертификат сервера сверяется с системным хранилищем. Самоподписанному или внутреннему сертификату Депеша поверит, только если вы сами подтвердите его отпечаток SHA-256, а если сертификат сменится — спросит ещё раз.
+- Пароль никогда не уходит по незашифрованному соединению. Работа без TLS включается только вручную и с предупреждением.
+- HTML писем очищается и показывается без скриптов. Картинки из интернета и счётчики открытий по умолчанию не загружаются. Прежде чем открыть ссылку, Депеша покажет, куда она ведёт на самом деле. Исполняемые вложения не открываются.
 
-Found a vulnerability? See [SECURITY.md](SECURITY.md).
+Нашли уязвимость — напишите, как описано в [SECURITY.md](SECURITY.md).
 
-## Install
+## Установка
 
-Grab a build from [Releases](../../releases): `.deb`, `.rpm` and AppImage for Linux, `.msi` for Windows, `.dmg` for macOS. Builds are not code-signed yet, so Windows SmartScreen and macOS Gatekeeper will warn on first launch.
+Готовые сборки — на странице [Releases](../../releases): `.deb`, `.rpm` и AppImage для Linux, `.msi` для Windows, `.dmg` для macOS. Цифровой подписи у сборок пока нет, поэтому при первом запуске Windows и macOS предупредят о неизвестном издателе. В Linux нужна служба Secret Service — GNOME Keyring, KWallet или KeePassXC; в большинстве окружений она уже работает.
 
-On Linux you need a Secret Service provider (GNOME Keyring, KWallet or KeePassXC), which most desktops already run.
+## Обновления
 
-## Updates
+Депеша проверяет новую версию при запуске и потом раз в шесть часов. В настройках можно выбрать: ставить обновления сами (так по умолчанию), только сообщать о них или не проверять вовсе.
 
-Like OpenCode's `autoupdate`, Depesha checks for a new version at start and every six hours, with three modes in Settings: install automatically (default), only notify, or never check.
+- **AppImage и macOS** обновляются в фоне. Новая версия заработает после перезапуска — кнопка для этого появится в боковой панели.
+- **Windows** скачивает обновление в фоне и ставит его, когда вы перезапускаете или закрываете программу.
+- **deb и rpm** только сообщают о новой версии: для установки нужен пароль администратора, поэтому ставится она по вашей команде.
 
-- **AppImage and macOS** install in the background; the new version runs after a restart, offered by a button in the sidebar.
-- **Windows** downloads in the background and installs when you restart or quit (the installer closes the app).
-- **deb and rpm** only notify: installing needs the administrator password, so it happens on your click.
+Каждое обновление подписано при сборке, и Депеша проверяет подпись тем ключом, который зашит в неё саму. Файл без подписи или с изменённым содержимым она откажется ставить, а установленная версия останется как была (оба случая проверяет `scripts/test-update.py`). В версиях до 0.3.0 обновлений нет — 0.3.0 нужно один раз поставить вручную.
 
-Every update is signed in the release pipeline, and the app checks the signature against the public key it was built with: an unsigned or modified file is refused and the installed copy stays untouched (`scripts/test-update.py` checks both cases). Versions before 0.3.0 have no updater: install 0.3.0 once by hand.
+## На чём проверено
 
-## Tested against
-
-| Server | How |
+| Сервер | Как |
 | --- | --- |
-| Dovecot 2.4 | integration tests: STARTTLS, MOVE, fallbacks without MOVE/UIDPLUS, IDLE, server search with Russian operators, the Snoozed folder |
-| GreenMail | integration tests and a 45-step end-to-end GUI run, every feature above included |
-| Exchange 2019 (behaviour) | a scripted SMTP server with Exchange replies; Russian Exchange folder layout |
-| Exchange 2019 EWS (behaviour) | a scripted EWS server with Exchange 2019 answers (`tests/ews.rs`) |
-| 50 000-message mailbox | first sync 0.4 s, re-sync 0.2–0.4 s, full header load 18 s, a page of conversations 80 ms, search 4–17 ms |
+| Dovecot 2.4 | интеграционные тесты: STARTTLS, MOVE, сервер без MOVE и UIDPLUS, IDLE, поиск на сервере по-русски, папка «Отложенные» |
+| GreenMail | интеграционные тесты и сквозной тест интерфейса из 45 шагов — все возможности выше, включая плагины и песочницу |
+| Exchange 2019 (поведение) | тестовый SMTP-сервер, который отвечает как Exchange; раскладка папок русского Exchange |
+| Exchange 2019 EWS (поведение) | тестовый EWS-сервер с ответами Exchange 2019 (`tests/ews.rs`) |
+| Ящик на 50 000 писем | первая синхронизация 0,4 с, повторная 0,2–0,4 с, все заголовки 18 с, страница переписок 80 мс, поиск 4–17 мс |
 
-Validation against a live Exchange 2019 mailbox is still pending. If you run one, an issue with your results is very welcome.
+На живом Exchange 2019 Депеша ещё не проверялась. Если у вас он есть, расскажите в issue, как всё прошло, — это очень поможет.
 
-## Build from source
+## Сборка из исходников
 
 ```
 npm install
-npx tauri dev          # development
-npx tauri build        # packages in target/release/bundle/
+npx tauri dev          # разработка
+npx tauri build        # пакеты в target/release/bundle/
 ```
 
-Linux build dependencies:
+Зависимости для сборки в Linux:
 
 ```
 sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev build-essential
 ```
 
-## Architecture
+## Устройство
 
-- `crates/depesha-core` — the engine, no GUI. IMAP (`async-imap`); its own SMTP client (EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE, Exchange status codes); SQLite cache with FTS5; MIME parsing (`mail-parser`); TLS (`rustls`, platform verifier, fingerprint pinning); settings discovery.
-- `src-tauri` — the app. Each account runs two IMAP connections (operations and IDLE), and an outbox task sends mail.
-- `src` — the Svelte 5 interface; `src/plugin-api` is the contract plugins see, `src/plugin-host` runs them.
-- `plugins` — built-in plugins, one folder each, and examples of community plugins in `plugins/community`.
+- `crates/depesha-core` — ядро без интерфейса. IMAP (`async-imap`); собственный SMTP-клиент (EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE, коды ответов Exchange); кэш в SQLite с FTS5; разбор MIME (`mail-parser`); TLS (`rustls`, проверка средствами платформы, закрепление отпечатка); поиск настроек сервера.
+- `src-tauri` — приложение. На каждый ящик два IMAP-соединения (операции и IDLE), отправкой занимается задача исходящих.
+- `src` — интерфейс на Svelte 5; `src/plugin-api` — договор, который видят плагины, `src/plugin-host` их запускает.
+- `plugins` — встроенные плагины, по папке на каждый, и примеры сторонних в `plugins/community`.
 
-## Development
+## Разработка
 
 ```
-scripts/check.sh --fast   # rustfmt, clippy, svelte-check, vitest, unit tests
-scripts/check.sh          # plus GreenMail/Dovecot integration and the GUI end-to-end run
+scripts/check.sh --fast   # rustfmt, clippy, svelte-check, vitest, модульные тесты
+scripts/check.sh          # плюс интеграционные тесты на GreenMail/Dovecot и сквозной прогон интерфейса
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [e2e/README.md](e2e/README.md).
+Подробности — в [CONTRIBUTING.md](CONTRIBUTING.md) и [e2e/README.md](e2e/README.md). Требования к релизу — в [docs/acceptance.md](docs/acceptance.md), результаты их проверки — в [docs/acceptance-report.md](docs/acceptance-report.md).
 
-## License
+## Лицензия
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+MIT или Apache-2.0 — на ваш выбор.
