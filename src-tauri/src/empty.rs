@@ -361,6 +361,7 @@ pub fn keep_uids(store: &Store, clearing: &Clearing, account_id: &str, folder: &
             uids.push(r.uid);
         }
     }
+    uids.sort_unstable();
     uids
 }
 
