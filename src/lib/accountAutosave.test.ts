@@ -346,3 +346,72 @@ describe("a text typed and not left (#120, 3)", () => {
     expect(stored().label).toBe("Typed");
   });
 });
+
+describe("the exit does not outrun the write (#120, ревью 1)", () => {
+  it("a text being written is typing until the write is done, left by a click or by the exit", async () => {
+    const { form, own } = open();
+    const write = deferred<Account>();
+    api.accountPatchOwn.mockReturnValue(write.promise);
+    form.label = "Typed";
+    own.typed();
+    own.commit();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(own.typing).toBe(true);
+    write.resolve({ ...base, label: "Typed" } as Account);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(own.typing).toBe(false);
+  });
+
+  it("settled() lets the exit go only after the write", async () => {
+    const { form, own } = open();
+    const write = deferred<Account>();
+    api.accountPatchOwn.mockReturnValue(write.promise);
+    form.label = "Typed";
+    own.typed();
+    const settled = own.settled();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(own.typing).toBe(true);
+    write.resolve({ ...base, label: "Typed" } as Account);
+    await settled;
+    expect(own.typing).toBe(false);
+  });
+});
+
+describe("a write that fails does not stop the next ones (#120, ревью 2)", () => {
+  it("is told, and the following change is still written", async () => {
+    const { form, own, stored } = open();
+    const fail = vi.spyOn(app, "fail").mockImplementation(() => {});
+    api.accounts.mockRejectedValueOnce(new Error("no answer"));
+    form.label = "One";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fail).toHaveBeenCalled();
+    form.composeFormat = "html";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(stored().compose_format).toBe("html");
+    fail.mockRestore();
+  });
+});
+
+describe("a key changed again during a check (#120, ревью 5)", () => {
+  it("goes to the last group: Ctrl+Z takes back that change, not the first", async () => {
+    const { form, own, stored } = open();
+    const check = deferred<void>();
+    api.accountCheck.mockReturnValue(check.promise);
+    form.smtp.port = 25;
+    const saving = form.checkAndSave();
+    await vi.advanceTimersByTimeAsync(0);
+    form.label = "Home";
+    own.touch();
+    form.composeFormat = "html";
+    own.touch();
+    form.label = "Home 2";
+    own.touch();
+    expect(await own.undo()).toBe(true);
+    expect(stored().label).toBe("Work");
+    expect(stored().compose_format).toBe("html");
+    check.resolve();
+    await saving;
+  });
+});

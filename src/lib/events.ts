@@ -137,7 +137,10 @@ function quitDrafts(app: AppStore) {
     async save() {
       const mine = ++quit;
       // The text typed in a mailbox's page is written with the drafts: a quit does not wait for the focus to leave.
-      await Promise.all([app.saveComposes(4000), app.settingsSettle?.()]);
+      // Neither a refused write nor a hung one holds the quit: it waits four seconds at most.
+      const settle = app.settingsSettle?.();
+      const patience = new Promise<void>((r) => setTimeout(r, 4000));
+      await Promise.allSettled([app.saveComposes(4000), settle && Promise.race([settle, patience])]);
       if (quit === mine) await api.composeSaved().catch(() => {});
     },
     cancel() {

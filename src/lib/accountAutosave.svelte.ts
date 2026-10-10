@@ -81,6 +81,10 @@ export class AccountAutosave {
    * one change to take back.
    */
   private batches: string[][] = [];
+  /** The value each key had when it joined a group: a key changed again leaves its group for a new, last one. */
+  private seen: Record<string, unknown> = {};
+  /** The writes started and not done: while there are any, the text is still «not saved» to a quit. */
+  private inflight = $state(0);
   /**
    * What the fields said when they were last in step with the saved mailbox. A field that still
    * says it is not a change: opening the page saves nothing, and a value the backend wrote down
@@ -144,7 +148,7 @@ export class AccountAutosave {
 
   /** A text is typed in a field of the page and not yet left. */
   get typing(): boolean {
-    return this.typingNow;
+    return this.typingNow || this.inflight > 0;
   }
 
   /** A text is typed in a field of the page. */
@@ -163,8 +167,16 @@ export class AccountAutosave {
     clearTimeout(this.timer);
     const changed = this.diff();
     if (changed) {
-      const known = new Set(this.batches.flat());
-      const fresh = Object.keys(changed).filter((key) => !known.has(key));
+      const fresh: string[] = [];
+      for (const [key, value] of Object.entries(changed)) {
+        if (key in this.seen && same(this.seen[key], value)) continue;
+        for (const group of this.batches) {
+          const at = group.indexOf(key);
+          if (at >= 0) group.splice(at, 1);
+        }
+        this.seen[key] = value;
+        fresh.push(key);
+      }
       if (fresh.length) this.batches.push(fresh);
     }
     if (this.typingNow || !changed) return;
@@ -175,17 +187,24 @@ export class AccountAutosave {
   /** Saves what is not saved now, one write after another; not during a check of the connection, which sends it after. */
   flush(force = false): Promise<void> {
     clearTimeout(this.timer);
-    this.chain = this.chain.then(async () => {
-      if (this.form.busy && !force) return;
-      const patch = this.diff();
-      if (!patch) {
+    this.inflight++;
+    // One failed write is told and is not the next one's: the chain goes on.
+    this.chain = this.chain
+      .then(async () => {
+        if (this.form.busy && !force) return;
+        const patch = this.diff();
+        if (!patch) {
+          this.batches = [];
+          this.seen = {};
+          return;
+        }
+        const groups = this.batches;
         this.batches = [];
-        return;
-      }
-      const groups = this.batches;
-      this.batches = [];
-      for (const part of split(patch, groups)) await this.save(part);
-    });
+        this.seen = {};
+        for (const part of split(patch, groups)) await this.save(part);
+      })
+      .catch((e) => app.fail(e))
+      .finally(() => this.inflight--);
     return this.chain;
   }
 
@@ -203,9 +222,10 @@ export class AccountAutosave {
 
   /** Everything typed is written and every write is done. */
   async settled(): Promise<void> {
-    this.typingNow = false;
+    // Typing ends only when the text is written: a quit that sees it end lets the window go.
     await this.flush(true);
     await this.auto.settled();
+    this.typingNow = false;
   }
 
   /** Takes the last change back, after what is typed is written: the last change is the one the user just made. */

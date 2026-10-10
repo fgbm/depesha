@@ -208,3 +208,50 @@ describe("snoozed letters that did not all come back (#101)", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("Snoozed"), true);
   });
 });
+
+describe("a quit while a text is being written (#120, ревью 1 и 2)", () => {
+  const typing = (settle: () => Promise<void>) =>
+    ({ composes: [], saveComposes: vi.fn(async () => {}), settingsSettle: settle, settingsTyping: true, settings: {}, accounts: [] }) as unknown as AppStore;
+
+  it("does not say the window is free while the write is under way", async () => {
+    let done = () => {};
+    const app = typing(() => new Promise<void>((r) => (done = r)));
+    api.composeSaved.mockReset();
+    api.composeUnsaved.mockReset();
+    await listenMain(app);
+    emit("save-drafts");
+    await flush();
+    expect(api.composeUnsaved).not.toHaveBeenCalledWith(false);
+    expect(api.composeSaved).not.toHaveBeenCalled();
+    done();
+    await flush();
+    expect(api.composeSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("still lets the quit go when the write is refused", async () => {
+    const app = typing(async () => {
+      throw new Error("refused");
+    });
+    api.composeSaved.mockReset();
+    await listenMain(app);
+    emit("save-drafts");
+    await flush();
+    expect(api.composeSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not wait for a write longer than four seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      const app = typing(() => new Promise<void>(() => {}));
+      api.composeSaved.mockReset();
+      await listenMain(app);
+      emit("save-drafts");
+      await vi.advanceTimersByTimeAsync(3900);
+      expect(api.composeSaved).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(api.composeSaved).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
