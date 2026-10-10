@@ -11,6 +11,7 @@ function lastCount(): number {
     const n = Number(localStorage.getItem(COUNT_KEY));
     return Number.isInteger(n) && n > 0 ? n : 0;
   } catch {
+    // An unreadable or broken stored value starts from nothing.
     return 0;
   }
 }

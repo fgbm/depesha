@@ -11,6 +11,7 @@ function lastCounts(): { count: number; closed: number } {
     const ok = (n: unknown) => typeof n === "number" && Number.isInteger(n) && n > 0;
     return v ? { count: ok(v.count) ? v.count : 0, closed: ok(v.closed) ? v.closed : 0 } : none;
   } catch {
+    // An unreadable or broken stored value starts from nothing.
     return none;
   }
 }
