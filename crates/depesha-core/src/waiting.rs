@@ -827,7 +827,7 @@ mod tests {
             "a",
             "INBOX",
             Some("Archive"),
-            Asking { anchor, since: 0 },
+            Asking { anchor, since: WAIT },
             may_wait,
         )
         .unwrap()
@@ -911,7 +911,7 @@ mod tests {
                 None,
                 Asking {
                     anchor: "r@x",
-                    since: 0
+                    since: WAIT
                 },
                 true
             )
