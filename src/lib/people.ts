@@ -42,6 +42,8 @@ export interface Person {
   via: string;
   /** Letters carrying any of the addresses. */
   uses: number;
+  /** An address is in the correspondence: forgetting the person then only takes the mark off (the backend's say, not the count of letters). */
+  heard: boolean;
 }
 
 /** What a merge asks the backend for (see `mergeRequest`). */
@@ -105,6 +107,7 @@ export function blankPerson(email: string): Person {
     manual: false,
     via: "",
     uses: 0,
+    heard: false,
   };
 }
 

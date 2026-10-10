@@ -29,6 +29,7 @@ const person = (name: string, emails: string[], fields: Partial<Person> = {}): P
   name,
   emails: emails.map((email, i) => ({ email, primary: i === 0, uses: 3, name: "" })),
   uses: 3 * emails.length,
+  heard: true,
   ...fields,
 });
 
@@ -410,8 +411,22 @@ describe("removing a person added by hand", () => {
     choose.mockRestore();
   });
 
+  it("asks by the backend's mark, not by the count of letters (#121, 3)", async () => {
+    // The address is in the correspondence though no letter is counted: the backend only unmarks the person, and the question says so.
+    const quiet = person("Вручную", ["mine@example.org"], { manual: true, uses: 0, emails: [{ email: "mine@example.org", primary: true, uses: 0, name: "" }] });
+    await book([quiet]);
+    api.personForget.mockResolvedValue({ removed: false, unmarked: true, undo: { persons: [] } });
+    const asked: { text: string }[] = [];
+    const choose = vi.spyOn(app, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
+    const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
+    rowOf(root, "delete").click();
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0].text).toContain("останется в книге");
+    choose.mockRestore();
+  });
+
   it("says everything goes when no address is in the letters", async () => {
-    const lone = person("Вручную", ["mine@example.org"], { manual: true, emails: [{ email: "mine@example.org", primary: true, uses: 0, name: "" }] });
+    const lone = person("Вручную", ["mine@example.org"], { manual: true, heard: false, emails: [{ email: "mine@example.org", primary: true, uses: 0, name: "" }] });
     await book([lone]);
     api.personForget.mockResolvedValue({ removed: true, unmarked: false, undo: { persons: [] } });
     const asked: { text: string }[] = [];
@@ -438,6 +453,21 @@ describe("the list after a merge", () => {
     peopleOps.merge([a, b]);
     await peopleOps.confirm();
     await vi.waitFor(() => expect(document.activeElement).toBe(list));
+  });
+
+  it("says what went wrong when the follow-up of the caller throws, instead of dropping it silently (#121, 4)", async () => {
+    const a = person("Ольга Смирнова", ["olga@example.org"]);
+    const b = person("Смирнова Ольга", ["o.smirnova@example.net"]);
+    await book([a, b]);
+    api.personMerge.mockResolvedValue({ person: a, undo: {} });
+    const fail = vi.spyOn(app, "fail").mockImplementation(() => {});
+    const boom = new Error("после слияния");
+    peopleOps.merge([a, b], () => {
+      throw boom;
+    });
+    await peopleOps.confirm();
+    expect(fail).toHaveBeenCalledWith(boom);
+    fail.mockRestore();
   });
 
   it("does not offer a pair when the other person is filtered out", async () => {

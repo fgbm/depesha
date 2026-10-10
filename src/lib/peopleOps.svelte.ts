@@ -46,7 +46,12 @@ class PeopleOps {
     try {
       const merged = await this.join(open);
       if (!merged) return;
-      open.after?.(merged);
+      // The merge is done and can be taken back: what the caller does after it must not hide that.
+      try {
+        open.after?.(merged);
+      } catch (e) {
+        app.fail(e);
+      }
     } finally {
       await tick();
       this.done?.();

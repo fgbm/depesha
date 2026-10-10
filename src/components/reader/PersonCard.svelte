@@ -274,7 +274,7 @@
   async function removePerson() {
     if (!person) return;
     // With an address in the correspondence the person stays and only the mark comes off: the question says which.
-    const kept = person.emails.some((a) => a.uses > 0);
+    const kept = person.heard;
     const who = person.name || person.email;
     const { answer } = await app.choose({
       title: t(kept ? "people.unmarkTitle" : "people.deleteTitle", { name: who }),

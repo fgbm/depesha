@@ -30,6 +30,9 @@ pub struct PersonAddress {
     /// The name the letters give this address; empty when they give none. Kept apart from
     /// the person's own name: it is what an address gets back when it leaves the person.
     pub name: String,
+    /// The address is in the correspondence (a letter carries it), whatever the count of letters:
+    /// the key a forgetting reads to tell «gone» from «only unmarked».
+    pub heard: bool,
 }
 
 /// A person of the address book, as the page lists them. The record's own fields stand over
@@ -63,6 +66,9 @@ pub struct Person {
     pub saved: i64,
     /// Letters carrying any of the addresses; read from the cache, not kept here.
     pub uses: i64,
+    /// Any of the addresses is in the correspondence: forgetting the person only unmarks them
+    /// then (see `forget_person`).
+    pub heard: bool,
 }
 
 /// What a merge asks for: the people to join (any one address of each), and what the dialog
@@ -116,6 +122,10 @@ pub struct Snapshot {
     /// they are the snapshot's too, though no row of theirs is in it.
     #[serde(default)]
     pub loose: Vec<String>,
+    /// The operation only took the mark «added by hand» off (a forgetting of a person the
+    /// correspondence knows): a restore puts the mark back and leaves what was written since.
+    #[serde(default)]
+    pub unmarked: bool,
 }
 
 /// The outcome of a merge: the joint person and the way back.
@@ -419,6 +429,7 @@ fn addresses_with_mail(rows: Vec<AddressRow>, mail: &MailIndex) -> Vec<PersonAdd
                 primary: a.primary,
                 uses,
                 name,
+                heard: mail.contains_key(&a.key),
             }
         })
         .collect()
@@ -429,6 +440,7 @@ fn addresses_with_mail(rows: Vec<AddressRow>, mail: &MailIndex) -> Vec<PersonAdd
 fn finish(p: &mut Person) {
     p.email = p.emails.first().map(|a| a.email.clone()).unwrap_or_default();
     p.uses = p.emails.iter().map(|a| a.uses).sum();
+    p.heard = p.emails.iter().any(|a| a.heard);
     if p.name.is_empty() {
         p.name = letters_name(&p.emails);
     }
@@ -675,6 +687,7 @@ impl Store {
                     primary: true,
                     uses: *uses,
                     name: name.clone(),
+                    heard: true,
                 }],
                 ..Default::default()
             };
@@ -778,7 +791,7 @@ impl Store {
         if !rows.first().is_some_and(|p| p.manual) {
             return Ok(none);
         }
-        let undo = Snapshot {
+        let mut undo = Snapshot {
             persons: rows,
             addresses: address_rows(&tx, id)?,
             ..Default::default()
@@ -792,6 +805,7 @@ impl Store {
             )?;
         }
         if heard {
+            undo.unmarked = true;
             tx.execute("UPDATE persons SET manual = 0 WHERE id = ?1", [id])?;
         } else {
             tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
@@ -1078,16 +1092,49 @@ impl Store {
             .map(|a| a.key.as_str())
             .chain(undo.loose.iter().map(String::as_str))
             .collect();
+        if undo.unmarked {
+            // Only the mark came off: it goes back, and the record keeps whatever was written since.
+            // A record that no longer holds the snapshot's addresses is not that person: the general way.
+            let mut left = Vec::new();
+            for p in &undo.persons {
+                let theirs = address_rows(&tx, p.id)?;
+                if theirs.iter().any(|a| known.contains(a.key.as_str())) {
+                    tx.execute("UPDATE persons SET manual = ?2 WHERE id = ?1", params![p.id, p.manual])?;
+                } else {
+                    left.push(p.clone());
+                }
+            }
+            if left.is_empty() {
+                tx.commit()?;
+                return Ok(());
+            }
+            return Self::restore_into(
+                tx,
+                &Snapshot {
+                    persons: left,
+                    ..undo.clone()
+                },
+                &known,
+            );
+        }
+        Self::restore_into(tx, undo, &known)
+    }
+
+    /// The general way back: the records of the snapshot are put as it holds them.
+    fn restore_into(
+        tx: rusqlite::Transaction<'_>,
+        undo: &Snapshot,
+        known: &std::collections::HashSet<&str>,
+    ) -> Result<()> {
         let mut affected: Vec<i64> = undo.persons.iter().map(|p| p.id).collect();
         affected.extend(&undo.created);
         for id in &affected {
             let theirs: Vec<AddressRow> = address_rows(&tx, *id)?;
-            if theirs.iter().all(|a| known.contains(a.key.as_str())) {
+            // A record that holds an address of the snapshot, or none, is the snapshot's own, whatever
+            // it gained since (an address added to the joint person goes back to the correspondence
+            // with it). One that holds none of them is a stranger under the key: it stays.
+            if theirs.is_empty() || theirs.iter().any(|a| known.contains(a.key.as_str())) {
                 tx.execute("DELETE FROM persons WHERE id = ?1", [id])?;
-            } else {
-                for a in theirs.iter().filter(|a| known.contains(a.key.as_str())) {
-                    tx.execute("DELETE FROM person_addresses WHERE key = ?1", [&a.key])?;
-                }
             }
         }
         let mut placed: HashMap<i64, i64> = HashMap::new();
@@ -1127,6 +1174,13 @@ impl Store {
                     },
                 )?;
             }
+        }
+        // A person whose every address another person took meanwhile has no address to be reached by.
+        for new in placed.values() {
+            tx.execute(
+                "DELETE FROM persons WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM person_addresses WHERE person_id = ?1)",
+                [new],
+            )?;
         }
         for subject in &undo.hints {
             tx.execute(
@@ -2142,5 +2196,128 @@ mod tests {
         let left = store.hint_counts().unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].id, "incoming-view");
+    }
+
+    /// A person forgotten (unmarked) and then edited within the ten seconds of the undo: taking the
+    /// unmarking back puts the mark back and leaves what was written since alone.
+    #[test]
+    fn taking_back_an_unmarking_leaves_what_was_written_since() {
+        let store = mailbox();
+        put(&store, "INBOX", 1, &wrote("heard@example.org", "Слышанный"), true);
+        store
+            .save_person(&person("heard@example.org", |p| {
+                p.manual = true;
+                p.note = "было".into();
+            }))
+            .unwrap();
+        let gone = store.forget_person("heard@example.org").unwrap();
+        assert!(gone.unmarked);
+        store
+            .save_person(&person("heard@example.org", |p| {
+                p.note = "стало".into();
+                p.send_format = "plain".into();
+            }))
+            .unwrap();
+        store.person_restore(&gone.undo).unwrap();
+        let back = store.person("heard@example.org").unwrap().unwrap();
+        assert!(back.manual, "the mark is back");
+        assert_eq!(back.note, "стало", "the note written since is kept");
+        assert_eq!(back.send_format, "plain");
+    }
+
+    /// An address added to the joint person after a merge is not the snapshot's: it goes back to the
+    /// correspondence, and the joint record (the joined note and all) does not stay beside the two.
+    #[test]
+    fn taking_back_a_merge_does_not_leave_the_joint_record_that_gained_an_address() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Б".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        store.person_add_address("a@example.org", "y@example.org").unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        assert_eq!(store.person("a@example.org").unwrap().unwrap().note, "А");
+        assert_eq!(store.person("b@example.org").unwrap().unwrap().note, "Б");
+        assert!(
+            store.person("y@example.org").unwrap().is_none(),
+            "the address is back in the correspondence"
+        );
+        assert_eq!(count(&store.conn(), "SELECT COUNT(*) FROM persons"), 2);
+        assert_eq!(count(&store.conn(), "SELECT COUNT(*) FROM person_addresses"), 2);
+    }
+
+    /// A person of the snapshot whose every address another person has taken meanwhile is not put
+    /// back empty: an empty record would only be a name nobody can reach.
+    #[test]
+    fn taking_back_a_merge_does_not_put_back_a_person_without_addresses() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Б".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        let split = store.person_split("b@example.org").unwrap().unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        assert_eq!(
+            count(
+                &store.conn(),
+                "SELECT COUNT(*) FROM persons p WHERE NOT EXISTS (SELECT 1 FROM person_addresses WHERE person_id = p.id)"
+            ),
+            0
+        );
+        assert_eq!(store.person("b@example.org").unwrap().unwrap().id, split.person.id);
+        assert_eq!(store.person("a@example.org").unwrap().unwrap().note, "А");
+    }
+
+    /// One mark for «in the correspondence», from the backend: the question before forgetting and
+    /// the forgetting itself read the same thing, whatever the count of letters says.
+    #[test]
+    fn a_person_knows_whether_their_address_is_in_the_correspondence() {
+        let store = mailbox();
+        // An address of the letters whose count fell to nothing is still in the correspondence.
+        store
+            .conn()
+            .execute(
+                "INSERT INTO addresses (email, name, uses) VALUES ('old@example.org', '', 0)",
+                [],
+            )
+            .unwrap();
+        store
+            .save_person(&person("old@example.org", |p| p.manual = true))
+            .unwrap();
+        store
+            .save_person(&person("mine@example.org", |p| p.manual = true))
+            .unwrap();
+        let old = store.person("old@example.org").unwrap().unwrap();
+        assert_eq!(old.uses, 0);
+        assert!(old.heard && old.emails[0].heard);
+        assert!(!store.person("mine@example.org").unwrap().unwrap().heard);
+        let listed = store.people("").unwrap();
+        assert!(listed.iter().find(|p| p.email == "old@example.org").unwrap().heard);
+        assert!(!listed.iter().find(|p| p.email == "mine@example.org").unwrap().heard);
+        // The forgetting agrees with the mark.
+        assert!(store.forget_person("old@example.org").unwrap().unmarked);
+        assert!(store.forget_person("mine@example.org").unwrap().removed);
     }
 }
