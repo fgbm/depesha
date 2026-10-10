@@ -75,7 +75,7 @@ if [[ "${1:-}" == "--changed" ]]; then
   fi
   pick() { grep -E "$1" <<<"$changed" || true; }
   rust=$(pick '^(crates/|src-tauri/|Cargo\.(toml|lock)$|rustfmt\.toml$)')
-  front=$(pick '^(src/|plugins/|public/|index\.html$|package(-lock)?\.json$|vite\.config|svelte\.config|tsconfig|eslint|docs/frontend-|scripts/(frontend-|check\.sh))')
+  front=$(pick '^(src/|plugins/|public/|index\.html$|package(-lock)?\.json$|vite\.config|svelte\.config|tsconfig|eslint|docs/(frontend-|plugin-api)|scripts/(frontend-|plugin-api-|check\.sh))')
   # Config that changes how every file is linted: the whole tree, not the list of changed files.
   lintconf=$(pick '^(eslint|package(-lock)?\.json$|tsconfig|vite\.config)')
   e2e=$(pick '^e2e/')
@@ -104,6 +104,8 @@ if [[ "${1:-}" == "--changed" ]]; then
     scripts/frontend-metrics.sh
     step "инварианты фронтенда"
     scripts/frontend-invariants.sh
+    step "API плагинов против снимка"
+    node scripts/plugin-api-snapshot.mjs
     step "baseline против main"
     git fetch -q --no-tags origin main 2>/dev/null || true
     scripts/frontend-baseline-guard.sh
@@ -148,6 +150,8 @@ step "метрики фронтенда"
 scripts/frontend-metrics.sh
 step "инварианты фронтенда"
 scripts/frontend-invariants.sh
+step "API плагинов против снимка"
+node scripts/plugin-api-snapshot.mjs
 step "baseline против main"
 git fetch -q --no-tags origin main 2>/dev/null || true
 scripts/frontend-baseline-guard.sh

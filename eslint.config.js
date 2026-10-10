@@ -91,4 +91,50 @@ export default tseslint.config(
       "depesha/no-silent-catch": "error",
     },
   },
+  {
+    // Плагин видит ядро только через `@depesha/plugin-api` (plugins/README.md). Правило ловит
+    // нарушение при вводе; `src/plugin-api/boundary.test.ts` проверяет то же по файлам и
+    // заодно не пускает плагин в папку другого плагина.
+    files: ["plugins/**/*.{ts,svelte}"],
+    ignores: ["plugins/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(?!@depesha/plugin-api$|svelte(/|$)|@lucide/svelte/icons/|\\.{1,2}/)",
+              message: "Плагин импортирует только @depesha/plugin-api, svelte, @lucide/svelte/icons/* и свои файлы.",
+            },
+            {
+              regex: "^(\\.\\./){2,}",
+              message: "Внутренности ядра (src/lib, src/components) не часть контракта: нужное — через @depesha/plugin-api.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Тесты плагинов могут тянуть тестовую обвязку ядра (фальшивый backend, i18n, раскладку
+    // клавиш): они проверяют плагин в сборе с ядром. Всё остальное — как у плагина.
+    files: ["plugins/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(?!@depesha/plugin-api$|svelte(/|$)|@lucide/svelte/icons/|vitest$|node:|\\.{1,2}/)",
+              message: "Тест плагина импортирует только @depesha/plugin-api, svelte, vitest и свои файлы.",
+            },
+            {
+              regex: "^(\\.\\./){2,}(?!src/lib/(testing|i18n\\.svelte|keymap)$)",
+              message: "Из ядра тест плагина берёт только src/lib/testing, i18n.svelte и keymap.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

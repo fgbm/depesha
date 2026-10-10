@@ -3,7 +3,7 @@
 // (`available` says it is there); the plugin that asks only names where it hangs, what a chosen moment
 // does and the words. Covered by the menu tests of the snooze plugin and the followups'.
 
-import type { Anchor } from "./anchor";
+import type { Anchor } from "../lib/anchor";
 
 /** Two rows under the moments of the menu: whether no choice is made now, and the words of both. */
 export interface WhenExtras {

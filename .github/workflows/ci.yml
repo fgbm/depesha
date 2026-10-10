@@ -81,6 +81,8 @@ jobs:
       - run: npm run lint
       - run: scripts/frontend-metrics.sh
       - run: scripts/frontend-invariants.sh
+      - name: Plugin API against its snapshot
+        run: node scripts/plugin-api-snapshot.mjs
       - name: Baseline against main
         run: |
           git fetch --no-tags --depth=1 origin main

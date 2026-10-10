@@ -11,6 +11,8 @@
     "test": "vitest run",
     "metrics": "scripts/frontend-metrics.sh",
     "invariants": "scripts/frontend-invariants.sh",
+    "plugin-api": "node scripts/plugin-api-snapshot.mjs",
+    "plugin-api:update": "node scripts/plugin-api-snapshot.mjs --update",
     "tauri": "tauri"
   },
   "dependencies": {

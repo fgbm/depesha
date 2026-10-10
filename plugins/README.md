@@ -37,7 +37,8 @@ export default {
 
 Rules:
 
-- **Import only `@depesha/plugin-api`**, `svelte`, `@lucide/svelte/icons/*` and files of your own folder. `src/plugin-api/boundary.test.ts` fails on anything else: that is what lets a plugin move out of the repository later.
+- **Import only `@depesha/plugin-api`**, `svelte`, `@lucide/svelte/icons/*` and files of your own folder. `src/plugin-api/boundary.test.ts` and the eslint rule `no-restricted-imports` fail on anything else: that is what lets a plugin move out of the repository later. (A plugin's test may also take the core's test helpers `src/lib/testing`, `i18n.svelte` and `keymap`, because it tests the plugin together with the core.)
+- **The API is a snapshot.** `docs/plugin-api.snapshot.d.ts` lists every export of `@depesha/plugin-api` with its signature and the types it uses. CI fails when the API differs from it; after a deliberate change run `npm run plugin-api:update` and note it in [`CHANGELOG.md`](CHANGELOG.md).
 - **Carry your own strings** as `{ en, ru }` objects and translate them with `ctx.t` and `ctx.plural`. The core's dictionaries are not part of the contract.
 - **Everything goes through `ctx`.** What a plugin registers with `ctx.ui.*`, the backend events it subscribes to with `ctx.onBackend`, and the function `activate` returns are undone when the plugin is switched off; nothing has to be cleaned up by hand.
 - **Settings are per plugin**: `ctx.settings.get(key, fallback)` and `ctx.settings.set(key, value)` keep a JSON object under the plugin's id in the app settings.
