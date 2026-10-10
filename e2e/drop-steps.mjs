@@ -126,7 +126,7 @@ const names = async (d) => {
  * is the scale the run was started for: the step fails if the page sees another.
  */
 export async function dropSteps({ d, step, refused, openCompose, closeCompose, fix, expectDpr = null, minDpr = null, nativeDrop = null, inLetterWindow = null, log = console.log }) {
-  await step("2.9", "перетаскивание: масштаб окна и файл вне доверенных папок", async () => {
+  await step("2.9-d1", "перетаскивание: масштаб окна и файл вне доверенных папок", async () => {
     const dpr = await d.exec("return window.devicePixelRatio");
     log(`    devicePixelRatio=${dpr}`);
     if (expectDpr && Math.abs(dpr - expectDpr) > 0.01) throw new Error(`масштаб ${dpr}, а ждали ${expectDpr}`);
@@ -135,7 +135,7 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
     await refused("file_info", { path: fix.stray });
   });
 
-  await step("2.9", "бросок PDF и картинки на «Прикрепить»: оба файла во вложениях", async () => {
+  await step("2.9-d2", "бросок PDF и картинки на «Прикрепить»: оба файла во вложениях", async () => {
     await openCompose();
     await dropOn(d, [fix.pdf, fix.png], { zone: "attach" });
     const got = await d.until("attachments", async () => {
@@ -149,14 +149,14 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
     await closeCompose();
   });
 
-  await step("2.9", "бросок PDF мимо зон: вложение появилось", async () => {
+  await step("2.9-d3", "бросок PDF мимо зон: вложение появилось", async () => {
     await openCompose();
     await dropOn(d, [fix.pdf], { css: ".compose" });
     await d.until("attachment", async () => (await names(d)).some((n) => n.includes("Договор №1 (копия).pdf")), 10000);
     await closeCompose();
   });
 
-  await step("2.9", "бросок картинки на «Вставить в текст»: картинка в тексте, вложений нет", async () => {
+  await step("2.9-d4", "бросок картинки на «Вставить в текст»: картинка в тексте, вложений нет", async () => {
     await openCompose();
     const before = await d.exec("return document.querySelectorAll('.compose .rich img').length");
     await dropOn(d, [fix.png], { zone: "inline" });
@@ -168,7 +168,7 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
   // The system's own drag (Windows CI only): files carried by the mouse from another window.
   // The zone is found first by making the page lay it out, then the drag goes there for real.
   if (nativeDrop) {
-    await step("2.9", "настоящий бросок (OLE) PDF и картинки на «Прикрепить»: оба файла во вложениях", async () => {
+    await step("2.9-d5", "настоящий бросок (OLE) PDF и картинки на «Прикрепить»: оба файла во вложениях", async () => {
       await openCompose();
       const paths = [fix.pdf, fix.png];
       const to = await zonePlace(d, paths, "attach");
@@ -184,7 +184,7 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
       await closeCompose();
     });
 
-    await step("2.9", "настоящий бросок (OLE) картинки на «Вставить в текст»: картинка в тексте", async () => {
+    await step("2.9-d6", "настоящий бросок (OLE) картинки на «Вставить в текст»: картинка в тексте", async () => {
       await openCompose();
       const before = await d.exec("return document.querySelectorAll('.compose .rich img').length");
       const to = await zonePlace(d, [fix.png], "inline");
@@ -197,7 +197,7 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
 
   // A reply written in a letter's own window (`message-*`): it hears drops by itself (#107).
   if (inLetterWindow) {
-    await step("2.9", "бросок в ответ в окне письма (message-*): оба файла во вложениях", async () => {
+    await step("2.9-d7", "бросок в ответ в окне письма (message-*): оба файла во вложениях", async () => {
       await inLetterWindow(async ({ openReply }) => {
         await openReply();
         await dropOn(d, [fix.pdf, fix.png], { zone: "attach" });
@@ -207,7 +207,7 @@ export async function dropSteps({ d, step, refused, openCompose, closeCompose, f
     });
 
     if (nativeDrop) {
-      await step("2.9", "настоящий бросок (OLE) в ответ в окне письма: оба файла во вложениях", async () => {
+      await step("2.9-d8", "настоящий бросок (OLE) в ответ в окне письма: оба файла во вложениях", async () => {
         await inLetterWindow(async ({ openReply, title }) => {
           await openReply();
           const paths = [fix.pdf, fix.png];
