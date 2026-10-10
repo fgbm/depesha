@@ -1,3 +1,9 @@
+#![allow(
+    clippy::let_underscore_must_use,
+    reason = "`#[tauri::command]` on an async fn expands to `let _ = …` in its glue; the commands' own code has none: it goes through `best_effort`"
+)]
+
+use depesha_core::{best_effort, unheard};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -942,7 +948,7 @@ pub async fn set_flag(state: St<'_>, ids: Vec<i64>, change: FlagChange) -> CmdRe
             crate::server::changed(&state, &account_id);
         }
         if done.is_ok() {
-            let _ = state.store.clear_refusal(&account_id, &folder);
+            best_effort("forget the refusal", state.store.clear_refusal(&account_id, &folder));
         }
         done?;
     }
@@ -1154,7 +1160,10 @@ pub async fn label_rename(
             {
                 tracing::warn!(account = %account_id, "renaming a category failed: {e}");
                 if state.store.rename_label(&account_id, &t, &f).is_ok() {
-                    let _ = state.store.rename_keyword(&account_id, &t, &f);
+                    best_effort(
+                        "rename the keyword in the cache",
+                        state.store.rename_keyword(&account_id, &t, &f),
+                    );
                     state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
                 }
             }
@@ -1216,7 +1225,7 @@ pub async fn set_label(state: St<'_>, ids: Vec<i64>, name: String, value: bool) 
             crate::server::changed(&state, &account_id);
         }
         if done.is_ok() {
-            let _ = state.store.clear_refusal(&account_id, &folder);
+            best_effort("forget the refusal", state.store.clear_refusal(&account_id, &folder));
         }
         done?;
     }
@@ -1275,7 +1284,7 @@ async fn flag_group(
     state.store.settle_flags(account_id, folder, uids);
     if done.is_ok() {
         // The action went through: whatever refusal was remembered here is over (#42).
-        let _ = state.store.clear_refusal(account_id, folder);
+        best_effort("forget the refusal", state.store.clear_refusal(account_id, folder));
     }
     done.map(|_| ())
 }
@@ -2408,8 +2417,8 @@ fn save_error(dir: &str, e: std::io::Error) -> CmdError {
 pub async fn message_window(app: tauri::AppHandle, id: i64, title: String) -> CmdResult<()> {
     let label = format!("message-{id}");
     if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        best_effort("unminimize the window", w.unminimize());
+        best_effort("focus the window", w.set_focus());
         return Ok(());
     }
     let title = if title.trim().is_empty() {
@@ -2552,7 +2561,10 @@ async fn mark_from_internet(path: &std::path::Path) {
     #[cfg(windows)]
     {
         let stream = format!("{}:Zone.Identifier", path.display());
-        let _ = tokio::fs::write(stream, b"[ZoneTransfer]\r\nZoneId=3\r\n").await;
+        best_effort(
+            "mark the file as from the internet",
+            tokio::fs::write(stream, b"[ZoneTransfer]\r\nZoneId=3\r\n").await,
+        );
     }
     #[cfg(not(windows))]
     let _ = path;
@@ -2660,10 +2672,15 @@ fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
         Some((s, e)) => (s.to_owned(), format!(".{e}")),
         None => (name.to_owned(), String::new()),
     };
-    (1..)
-        .map(|i| dir.join(format!("{stem} ({i}){ext}")))
-        .find(|p| !p.exists())
-        .expect("some free name")
+    // A free name is found: the numbers do not run out before the names do.
+    let mut i = 1;
+    loop {
+        let numbered = dir.join(format!("{stem} ({i}){ext}"));
+        if !numbered.exists() {
+            return numbered;
+        }
+        i += 1;
+    }
 }
 
 /// Links from mail open in the system browser; only web and mail links.
@@ -2868,7 +2885,10 @@ pub struct Queued {
 /// rest of that wait: a deadline, repeats, the awaited recipient, the choice's name.
 /// `discard_draft` removes the server draft it came from.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command: the page passes these arguments by name, and a struct would change the wire format and every call site in the page"
+)]
 pub async fn send(
     window: tauri::Window,
     state: St<'_>,
@@ -2900,7 +2920,10 @@ pub async fn send(
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {
-        let _ = discard(&state, &account.id, d, discard_message_id.as_deref()).await;
+        best_effort(
+            "drop the draft of the sent letter",
+            discard(&state, &account.id, d, discard_message_id.as_deref()).await,
+        );
     }
     Ok(Queued { id, at: at.max(now) })
 }
@@ -3097,7 +3120,10 @@ pub struct SavedDraft {
 /// Saves the draft into the server's Drafts folder, replacing the previous version.
 /// Returns the saved copy, for the next save to replace it.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command: the page passes these arguments by name, and a struct would change the wire format and every call site in the page"
+)]
 pub async fn draft_save(
     window: tauri::Window,
     state: St<'_>,
@@ -3156,7 +3182,10 @@ pub async fn draft_save(
         }
     }
     if let Some(old) = replace {
-        let _ = discard(&state, &account.id, old, replace_message_id.as_deref()).await;
+        best_effort(
+            "drop the draft this one replaces",
+            discard(&state, &account.id, old, replace_message_id.as_deref()).await,
+        );
     }
     Ok(saved)
 }
@@ -3382,7 +3411,7 @@ fn dialog(window: &tauri::Window, title: String) -> tauri_plugin_dialog::FileDia
 async fn dialog_answer<T: Send + 'static>(open: impl FnOnce(Box<dyn FnOnce(Option<T>) + Send>)) -> Option<T> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     open(Box::new(move |answer| {
-        let _ = tx.send(answer);
+        unheard(tx.send(answer));
     }));
     match rx.await {
         Ok(answer) => answer,
@@ -3654,7 +3683,10 @@ pub enum DropZoneChosen {
 /// into the text, the zone, and the pointer and the window in logical pixels. Numbers only,
 /// never file names.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command: the page passes these arguments by name, and a struct would change the wire format and every call site in the page"
+)]
 pub fn drop_outcome(
     window: tauri::WebviewWindow,
     outcome: DropOutcome,
@@ -4078,7 +4110,7 @@ mod tests {
         let saved = crate::state::patch_account_locked(&config, &path, "a", |a| apply_own(a, patch)).unwrap();
         assert_eq!(saved.label, "Work");
         assert_eq!(crate::config::load(&path).accounts[0].label, "Work");
-        let _ = std::fs::remove_dir_all(&dir);
+        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
     }
 
     /// The look is changed under the config lock like the other patches: a read of the mailbox and

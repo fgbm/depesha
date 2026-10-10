@@ -1,3 +1,4 @@
+use crate::best_effort;
 use std::fmt::Debug;
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -202,7 +203,7 @@ fn greeting_line(resp: &Response<'_>) -> Option<String> {
 /// Checks that an IMAP server answers on this address with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<()> {
     let (mut client, _, _) = open(server).await?;
-    let _ = client.run_command_and_check_ok("LOGOUT", None).await;
+    best_effort("log out", client.run_command_and_check_ok("LOGOUT", None).await);
     Ok(())
 }
 
@@ -707,7 +708,10 @@ pub async fn check_labels(
     subject: &str,
 ) -> Result<LabelCheck> {
     // A letter an interrupted run left behind goes first, before a new one is added.
-    let _ = cleanup_test_messages(conn, folder).await;
+    best_effort(
+        "remove the test letters an interrupted run left",
+        cleanup_test_messages(conn, folder).await,
+    );
     // Without UIDPLUS the test letter cannot be expunged by UID: it would stay marked
     // \Deleted until the whole folder is cleaned. Depesha does not check there, and says
     // so instead of leaving something behind.
@@ -731,7 +735,7 @@ pub async fn check_labels(
     };
     // From here the test letter must go away whatever happens.
     let outcome = labels_round(conn, folder, uid, keyword).await;
-    let _ = remove_uids(conn, folder, &[uid]).await;
+    best_effort("remove the test letter", remove_uids(conn, folder, &[uid]).await);
     outcome
 }
 
@@ -822,7 +826,7 @@ async fn labels_round(conn: &mut Conn, folder: &str, uid: u32, keyword: &str) ->
 
 /// Removes messages for good, tolerating their absence (the check's test letter).
 async fn remove_uids(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> {
-    let _ = conn.session.select(folder).await;
+    best_effort("select the folder of the removal", conn.session.select(folder).await);
     let set = uid_set(uids);
     let _: Vec<_> = conn
         .session
@@ -1072,7 +1076,7 @@ async fn expunge_keeping(conn: &mut impl Expunging, ours: &str, kept: &[u32]) ->
         }
     }
     if failure.is_some() {
-        let _ = conn.mark(ours.to_owned(), false).await;
+        best_effort("take the mark off", conn.mark(ours.to_owned(), false).await);
     }
     failure.map_or(Ok(()), Err)
 }
@@ -1373,13 +1377,11 @@ pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Re
             segments.push((std::mem::take(&mut line), value));
         }
     }
-    if segments.is_empty() {
+    let mut parts = segments.into_iter();
+    let Some((first, mut literal)) = parts.next() else {
         let id = conn.session.run_command(line).await?;
         return read_search(conn, id, search_refused).await;
-    }
-
-    let mut parts = segments.into_iter();
-    let (first, mut literal) = parts.next().expect("one segment at least");
+    };
     let id = conn.session.run_command(first).await?;
     loop {
         // Wait for "+ go ahead" before every synchronizing literal.

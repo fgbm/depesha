@@ -251,6 +251,10 @@ impl OAuthProvider {
     }
 
     /// IMAP and SMTP servers that accept this provider's tokens.
+    #[allow(
+        clippy::expect_used,
+        reason = "the three domains are in the provider table; `oauth_servers_are_known` asks for each"
+    )]
     pub fn servers(self) -> (ServerConfig, ServerConfig) {
         let domain = match self {
             Self::Google => "gmail.com",
@@ -381,6 +385,14 @@ pub fn find<'a>(accounts: &'a [Account], name: &str) -> Option<&'a Account> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oauth_servers_are_known() {
+        for provider in [OAuthProvider::Google, OAuthProvider::Yandex, OAuthProvider::Microsoft] {
+            let (imap, smtp) = provider.servers();
+            assert!(!imap.host.is_empty() && !smtp.host.is_empty());
+        }
+    }
 
     #[test]
     fn going_to_wait_after_an_answer_is_off_until_switched_on() {

@@ -37,13 +37,14 @@ pub fn init(path: &Path) {
             random()
         }
     };
-    let _ = SECRET.set(secret);
+    // The first secret stays: a second `set` only means one was already chosen, and the refused one must not be logged.
+    SECRET.set(secret).ok();
 }
 
 /// The secret the tests sign and verify with, without touching the disk.
 #[cfg(test)]
 pub(crate) fn init_with(secret: [u8; 32]) {
-    let _ = SECRET.set(secret);
+    SECRET.set(secret).ok();
 }
 
 /// Signs `bytes`; the URL-safe base64 of the HMAC-SHA256 tag, empty when no secret is set.
@@ -124,6 +125,10 @@ impl hkdf::KeyType for Key32 {
 
 /// HKDF-SHA256 of the secret under its own `info`: the key of the draft cipher is nothing
 /// `sign` can be made to give (the signatures of 0.8.0 stay as they were).
+#[allow(
+    clippy::expect_used,
+    reason = "the key is 32 bytes, a tenth of what HKDF-SHA256 can give"
+)]
 fn draft_key_bytes(secret: &[u8; 32]) -> Vec<u8> {
     let mut key = vec![0u8; 32];
     hkdf::Salt::new(hkdf::HKDF_SHA256, &[])
@@ -177,6 +182,10 @@ fn load_or_create(path: &Path) -> std::io::Result<[u8; 32]> {
     Ok(secret)
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "the system's random source is what TLS stands on: a host without it cannot run the app at all"
+)]
 fn random() -> [u8; 32] {
     let mut secret = [0u8; 32];
     SystemRandom::new()

@@ -407,6 +407,10 @@ mod tests {
     /// Every phrase the core words itself, as the user read it before: wrapped in what the old
     /// kind of error put around it, in both languages.
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "a golden table of phrases: one row for each, side by side"
+    )]
     fn the_phrases_of_the_core_read_as_they_always_did() {
         use OAuthProvider::{Google, Yandex};
         let s = String::from;

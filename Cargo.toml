@@ -8,3 +8,12 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fgbm/depesha"
 homepage = "https://github.com/fgbm/depesha"
+
+# The rules of #152. CI runs clippy with `-D warnings`, so `warn` fails there; an exception is
+# a local `#[allow(…, reason = "…")]` that says why, never a switch-off here.
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+let_underscore_must_use = "warn"
+allow_attributes_without_reason = "warn"
+too_many_lines = "warn"

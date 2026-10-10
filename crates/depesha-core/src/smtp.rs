@@ -1,6 +1,7 @@
 //! Message building (lettre) and our own SMTP submission client: we need the
 //! EHLO capabilities, certificate pinning and the exact server replies.
 
+use crate::best_effort;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -138,8 +139,7 @@ pub fn build(draft: &Draft) -> Result<Message> {
     } else {
         let mut mixed = body.add_to(MultiPart::mixed().build());
         for a in &draft.attachments {
-            let ct = ContentType::parse(&a.mime)
-                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").expect("valid mime"));
+            let ct = ContentType::parse(&a.mime).unwrap_or_else(|_| literal_type("application/octet-stream"));
             mixed = mixed.singlepart(Attachment::new(a.name.clone()).body(a.data.clone(), ct));
         }
         builder.multipart(mixed)
@@ -303,7 +303,7 @@ fn forward_at(head: &str) -> Option<usize> {
 /// The Markdown a letter was written in (RFC 7763, the variant by RFC 7764).
 fn markdown_part(text: String) -> SinglePart {
     SinglePart::builder()
-        .header(ContentType::parse(MARKDOWN_TYPE).expect("valid mime"))
+        .header(literal_type(MARKDOWN_TYPE))
         .header(ContentTransferEncoding::QuotedPrintable)
         .body(text)
 }
@@ -325,8 +325,7 @@ fn html_body(html: &str, extra: Vec<InlineImage>) -> Part {
     }
     let related = MultiPart::related().singlepart(part);
     Part::Many(images.into_iter().enumerate().fold(related, |m, (i, image)| {
-        let ct =
-            ContentType::parse(&image.mime).unwrap_or_else(|_| ContentType::parse("image/png").expect("valid mime"));
+        let ct = ContentType::parse(&image.mime).unwrap_or_else(|_| literal_type("image/png"));
         let name = format!("image{}.{}", i + 1, image.extension());
         m.singlepart(Attachment::new_inline_with_name(image.cid, name).body(image.data, ct))
     }))
@@ -413,9 +412,22 @@ fn inline_images_in(html: &str, images: &mut Vec<InlineImage>) -> String {
     out
 }
 
+/// A media type written in this file as a literal.
+#[allow(
+    clippy::expect_used,
+    reason = "the literals passed are valid media types; `literal_types_parse` tries each"
+)]
+fn literal_type(text: &str) -> ContentType {
+    ContentType::parse(text).expect("valid mime")
+}
+
 fn random_token() -> String {
     use ring::rand::{SecureRandom, SystemRandom};
     let mut bytes = [0u8; 12];
+    #[allow(
+        clippy::expect_used,
+        reason = "the system's random source is what TLS stands on: a host without it cannot run the app at all"
+    )]
     SystemRandom::new().fill(&mut bytes).expect("system RNG");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -856,14 +868,14 @@ async fn login(conn: &mut Conn, caps: &SmtpCaps, creds: &Credentials) -> Result<
 /// Checks that an SMTP server answers with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<SmtpCaps> {
     let (mut conn, caps) = open(server, None).await?;
-    let _ = conn.command("QUIT").await;
+    best_effort("say QUIT", conn.command("QUIT").await);
     Ok(caps)
 }
 
 /// Checks connection, TLS and login without sending anything.
 pub async fn check(server: &ServerConfig, creds: &Credentials) -> Result<SmtpCaps> {
     let (mut conn, caps) = open(server, Some(creds)).await?;
-    let _ = conn.command("QUIT").await;
+    best_effort("say QUIT", conn.command("QUIT").await);
     Ok(caps)
 }
 
@@ -895,7 +907,7 @@ pub async fn send(server: &ServerConfig, creds: &Credentials, message: &Message)
     if reply.code != 250 {
         return Err(reply.into_error());
     }
-    let _ = conn.command("QUIT").await;
+    best_effort("say QUIT", conn.command("QUIT").await);
     Ok(raw)
 }
 
@@ -920,6 +932,13 @@ fn dot_stuff(raw: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn literal_types_parse() {
+        for text in ["application/octet-stream", "image/png", MARKDOWN_TYPE] {
+            drop(literal_type(text));
+        }
+    }
     use crate::domain::OutgoingAttachment;
 
     fn addr(email: &str) -> Addr {

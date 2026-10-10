@@ -32,9 +32,11 @@ pub async fn after_sent(
         queue.as_mut(),
         &state.archivals,
         account,
-        item,
-        message_id,
-        letter_cached,
+        waiting::Dispatched {
+            item,
+            message_id,
+            letter_cached,
+        },
         chrono::Utc::now().timestamp(),
     )
     .await?;

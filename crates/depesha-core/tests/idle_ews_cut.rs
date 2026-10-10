@@ -2,6 +2,12 @@
 //! was opened with 200, so the connection has worked and the reconnect does not wait longer
 //! with every drop. A fake Exchange on a local socket; no stand needed.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::time::{Duration, Instant};
 
 use depesha_core::account::{Credentials, EwsConfig};
@@ -54,13 +60,15 @@ async fn fake_exchange() -> u16 {
                         let w = r.get_mut();
                         let head = "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nTransfer-Encoding: chunked\r\n\r\n";
                         let beat = "<Heartbeat/>";
-                        let _ = w
-                            .write_all(format!("{head}{:x}\r\n{beat}\r\n", beat.len()).as_bytes())
-                            .await;
+                        depesha_core::best_effort(
+                            "write the heartbeat",
+                            w.write_all(format!("{head}{:x}\r\n{beat}\r\n", beat.len()).as_bytes())
+                                .await,
+                        );
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         // A reset, not a close: the proxy killed the connection.
-                        #[allow(deprecated)] // SO_LINGER 0 is the reset this test needs
-                        let _ = w.set_linger(Some(Duration::ZERO));
+                        #[allow(deprecated, reason = "SO_LINGER 0 is the reset this test needs")]
+                        depesha_core::best_effort("reset the connection", w.set_linger(Some(Duration::ZERO)));
                         return;
                     }
                     let reply = if body.contains("Subscribe") {

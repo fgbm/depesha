@@ -2,6 +2,12 @@
 //! (src/lib/markdown/dialect.ts) is checked against the same examples, so what the
 //! editor draws is what the recipient gets.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use depesha_core::message::markdown_html;
 
 /// The elements of the HTML in order of their opening tags; a task's box as `task`.

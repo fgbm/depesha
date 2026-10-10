@@ -1,3 +1,4 @@
+use crate::best_effort;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -97,6 +98,10 @@ fn ext_props(item: Node<'_, '_>) -> HashMap<u32, String> {
         .collect()
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "called only with the `PR_*` constants above; `tags_parse` runs them all"
+)]
 fn tag(t: &str) -> u32 {
     u32::from_str_radix(t.trim_start_matches("0x"), 16).expect("constant tag")
 }
@@ -1800,13 +1805,28 @@ pub async fn wait_for_changes(s: &mut Session, store: &Store, account_id: &str, 
         "<m:Unsubscribe><m:SubscriptionId>{}</m:SubscriptionId></m:Unsubscribe>",
         escape(&subscription)
     );
-    let _ = s.call(&unsubscribe).await;
+    // The subscription runs out by itself when it is not renewed.
+    best_effort("unsubscribe from the folder events", s.call(&unsubscribe).await);
     Ok(outcome)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tags_parse() {
+        for t in [
+            PR_TRANSPORT_HEADERS,
+            PR_MESSAGE_FLAGS,
+            PR_LAST_VERB,
+            PR_LAST_VERB_TIME,
+            PR_FLAG_STATUS,
+            PR_MESSAGE_SIZE_EXTENDED,
+        ] {
+            assert_ne!(tag(t), 0, "{t}");
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn items_are_written_in_batches_from_a_runtime_task() {

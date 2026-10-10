@@ -1,6 +1,12 @@
 //! EWS against a scripted server that answers like Exchange 2019: login errors,
 //! folder names, the synced window, flags, moves, sending with Bcc.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -808,11 +814,13 @@ async fn clearing_exchange_folders() {
         &mut conn,
         &store,
         ACCOUNT,
-        junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        500,
+        mail::Wipe {
+            folder: junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 500,
+        },
         &mut |d, t| {
             seen.push((d, t));
             true
@@ -840,11 +848,13 @@ async fn clearing_exchange_folders() {
         &mut conn,
         &store,
         ACCOUNT,
-        junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        500,
+        mail::Wipe {
+            folder: junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 500,
+        },
         &mut |_, _| true,
     )
     .await
@@ -870,11 +880,13 @@ async fn clearing_exchange_folders() {
         &mut conn,
         &store,
         ACCOUNT,
-        junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[keep_uid],
-        500,
+        mail::Wipe {
+            folder: junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[keep_uid],
+            batch: 500,
+        },
         &mut |_, _| true,
     )
     .await
@@ -900,11 +912,13 @@ async fn clearing_exchange_folders() {
         &mut conn,
         &store,
         ACCOUNT,
-        junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        500,
+        mail::Wipe {
+            folder: junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 500,
+        },
         &mut |_, _| true,
     )
     .await
@@ -925,11 +939,13 @@ async fn clearing_exchange_folders() {
             &mut conn,
             &store,
             ACCOUNT,
-            junk,
-            &depesha_core::clear::Emptying::Erase,
-            &bound,
-            &[],
-            500,
+            mail::Wipe {
+                folder: junk,
+                how: &depesha_core::clear::Emptying::Erase,
+                bound: &bound,
+                keep: &[],
+                batch: 500,
+            },
             &mut |_, _| true,
         )
         .await
@@ -958,11 +974,13 @@ async fn clearing_exchange_folders() {
         &mut conn,
         &store,
         ACCOUNT,
-        junk,
-        &depesha_core::clear::Emptying::Erase,
-        &mail::Bound::Imap(mail::ImapBound { validity: 1, next: 1 }),
-        &[],
-        500,
+        mail::Wipe {
+            folder: junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &mail::Bound::Imap(mail::ImapBound { validity: 1, next: 1 }),
+            keep: &[],
+            batch: 500,
+        },
         &mut |_, _| true,
     )
     .await;

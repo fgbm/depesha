@@ -61,9 +61,11 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
         &state.store,
         &state.label_strip,
         queue.as_mut(),
-        account_id,
-        name,
-        keyword,
+        label_strip::LabelKey {
+            account_id,
+            name,
+            keyword,
+        },
         &|| chrono::Utc::now().timestamp(),
         &mut |done, total| {
             state.task(

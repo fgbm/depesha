@@ -2,6 +2,12 @@
 //! server that keeps mod-sequences like Dovecot does, and the fallbacks when a server
 //! or a folder has none. Needs no network beyond localhost; always runs.
 
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+#![cfg(test)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

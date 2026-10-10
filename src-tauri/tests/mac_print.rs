@@ -68,7 +68,7 @@ fn main() {
     };
     let pdf_in = |name: &str| -> PathBuf {
         let pdf = std::env::temp_dir().join(format!("depesha-sheet-{}-{name}.pdf", std::process::id()));
-        let _ = std::fs::remove_file(&pdf);
+        depesha_core::best_effort("remove the pdf", std::fs::remove_file(&pdf));
         pdf
     };
     // The print runs on a thread of its own: spin the loop until the file is there and stops growing.
@@ -152,6 +152,6 @@ fn main() {
             );
         }
         println!("the sheet {name} printed: {size} bytes of PDF");
-        let _ = std::fs::remove_file(pdf);
+        depesha_core::best_effort("remove the pdf", std::fs::remove_file(pdf));
     }
 }

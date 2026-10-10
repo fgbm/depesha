@@ -885,6 +885,10 @@ impl Store {
     /// correspondence alone, are folded into it. The name, primary address and rules are
     /// what the dialog settled; the notes are joined by an empty line, in the order given.
     /// None when fewer than two people were named. The snapshot restores it all.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one transaction whose steps (pick the record, fold the others, settle the fields, snapshot) read in the order they run"
+    )]
     pub fn person_merge(&self, req: &Merge) -> Result<Option<Merged>> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -1121,6 +1125,10 @@ impl Store {
     }
 
     /// The general way back: the records of the snapshot are put as it holds them.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "puts back, table by table, what the snapshot holds: one step per table, in the order the keys allow"
+    )]
     fn restore_into(
         tx: rusqlite::Transaction<'_>,
         undo: &Snapshot,

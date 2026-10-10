@@ -317,6 +317,10 @@ const MESSAGE_REFS: &str = "
 /// 5: what the frequent questions look up kept beside the messages, so they are not
 /// answered by reading every message: addresses for completion, References for the
 /// answers awaited, the window of offline reading.
+#[allow(
+    clippy::too_many_lines,
+    reason = "a migration step: its SQL, in the order it runs, is the function"
+)]
 fn v5_lookups(conn: &Connection) -> Result<()> {
     conn.execute_batch(&format!(
         "-- Senders and To recipients of cached mail, each spelling with the count of
@@ -864,6 +868,10 @@ struct SearchSql {
     words: bool,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one pass over the parts of the query: every branch appends to the same conditions and arguments, so a piece taken out would have to share both"
+)]
 fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
     // `account:` is resolved to an id by the caller; without one it would be no filter.
     if q.account.is_some() && account_id.is_none() {
@@ -1014,6 +1022,71 @@ fn search_sql(q: &SearchQuery, account_id: Option<&str>) -> Option<SearchSql> {
 /// A letter of a conversation for its row in a list: id, Message-ID, sender, a draft, back
 /// from waiting with the reply and not opened since.
 type Letter = (i64, Option<String>, Option<String>, bool, bool, bool);
+
+/// The letters of the conversations `keys` name (account, thread), each with its conversation's key,
+/// oldest first: drafts and letters that came back from waiting are told apart from the rest.
+fn thread_letters(conn: &Connection, keys: &[(&str, &str)]) -> Result<Vec<((String, String), Letter)>> {
+    Ok(conn
+        .prepare_cached(
+            "SELECT m.account_id, m.thread, m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts',
+                EXISTS (SELECT 1 FROM followups fu WHERE fu.park = 'returned' AND fu.noticed = 0
+                    AND fu.account_id = m.account_id AND (fu.anchor = m.message_id OR fu.answer_id = m.message_id)),
+                m.dmarc
+             FROM json_each(?1) k
+             CROSS JOIN messages m ON m.account_id = k.value ->> 0 AND m.thread = k.value ->> 1
+             JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+             WHERE COALESCE(f.role, '') NOT IN ('trash', 'junk')
+             ORDER BY k.key, m.date, m.id",
+        )?
+        .query_map([json_list(keys)], |r| {
+            Ok((
+                (r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+                (
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, bool>(5)?,
+                    r.get::<_, bool>(6)?,
+                    r.get::<_, bool>(7)?,
+                ),
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// What a list row says of its conversation: how many letters, who wrote and in what order,
+/// whether a draft is in it and whether an answer came back from waiting.
+fn describe_thread(row: &mut MessageRow, found: Vec<Letter>) {
+    let mut seen = HashSet::new();
+    let (mut count, mut draft) = (0, false);
+    let mut senders: Vec<Addr> = Vec::new();
+    let mut voices: Vec<Voice> = Vec::new();
+    for (id, mid, from, is_draft, came, dmarc) in found {
+        // Back from waiting with the reply, not opened since: the conversation says so.
+        row.answer_came |= came;
+        if is_draft {
+            draft = true;
+            continue;
+        }
+        // A letter to oneself sits in Inbox and in Sent: one letter.
+        if !seen.insert(mid.unwrap_or_else(|| format!("#{id}"))) {
+            continue;
+        }
+        count += 1;
+        if let Some(a) = json_opt::<Addr>("messages", "from_addr", id, from.as_deref()) {
+            if !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email)) {
+                senders.push(a.clone());
+            }
+            // Oldest first: a writer who wrote again moves to the end.
+            voices.retain(|v| !v.from.email.eq_ignore_ascii_case(&a.email));
+            voices.push(Voice { from: a, dmarc, id });
+        }
+    }
+    row.thread_count = count.max(1);
+    row.thread_senders = senders;
+    row.thread_voices = voices;
+    row.thread_draft = draft;
+}
 
 /// Keys that are a column of the message itself.
 fn message_sort_column(by: SortField) -> Option<&'static str> {
@@ -1630,32 +1703,54 @@ impl Store {
         let (cond, mut args) = list_filter(q);
         args.push(i64::from(if q.limit == 0 { 100 } else { q.limit }).into());
         args.push(i64::from(q.offset).into());
+        // The list is the heaviest read: on the read connection, off the writer's lock.
+        let conn = self.read();
+        if q.threads {
+            Self::list_threads(&conn, q, &cond, args)
+        } else {
+            Self::list_messages(&conn, q, &cond, args)
+        }
+    }
 
+    /// The list as letters, one row each.
+    fn list_messages(
+        conn: &Connection,
+        q: &ListQuery,
+        cond: &str,
+        args: Vec<rusqlite::types::Value>,
+    ) -> Result<Vec<MessageRow>> {
         let from = "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
         let unread = pinned(&q.pins, |p| p.unread, "(m.seen = 0)");
         let flagged = pinned(&q.pins, |p| p.flagged, "m.flagged");
-        // The list is the heaviest read: on the read connection, off the writer's lock.
-        let conn = self.read();
-        if !q.threads {
-            let order = order_by(
-                &q.sort,
-                |by| {
-                    Some(match by {
-                        SortField::Date => "m.date".into(),
-                        SortField::Unread => unread.clone(),
-                        SortField::Flagged => flagged.clone(),
-                        SortField::Relevance => return None,
-                        other => message_sort_column(other)?.into(),
-                    })
-                },
-                "m.date",
-                "m.id",
-            );
-            let sql = format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY {order} LIMIT ? OFFSET ?");
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params_from_iter(args), message_row)?;
-            return Ok(rows.collect::<Result<_, _>>()?);
-        }
+        let order = order_by(
+            &q.sort,
+            |by| {
+                Some(match by {
+                    SortField::Date => "m.date".into(),
+                    SortField::Unread => unread.clone(),
+                    SortField::Flagged => flagged.clone(),
+                    SortField::Relevance => return None,
+                    other => message_sort_column(other)?.into(),
+                })
+            },
+            "m.date",
+            "m.id",
+        );
+        let sql = format!("SELECT {COLUMNS} FROM {from} WHERE {cond} ORDER BY {order} LIMIT ? OFFSET ?");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(args), message_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The list as conversations: one row for each, stood for by its newest letter.
+    fn list_threads(
+        conn: &Connection,
+        q: &ListQuery,
+        cond: &str,
+        args: Vec<rusqlite::types::Value>,
+    ) -> Result<Vec<MessageRow>> {
+        let unread = pinned(&q.pins, |p| p.unread, "(m.seen = 0)");
+        let flagged = pinned(&q.pins, |p| p.flagged, "m.flagged");
         // The newest message stands for its conversation: SQLite takes bare columns
         // from the row that holds the MAX, as long as it is the only MIN/MAX in the
         // query (hence SUM for flags). The row is unread or flagged when any message is.
@@ -1738,68 +1833,15 @@ impl Store {
             .map(|r| (r.account_id.as_str(), r.thread.as_str()))
             .collect();
         let mut letters: HashMap<(String, String), Vec<Letter>> = HashMap::new();
-        let found = conn
-            .prepare_cached(
-                "SELECT m.account_id, m.thread, m.id, m.message_id, m.from_addr, COALESCE(f.role, '') = 'drafts',
-                    EXISTS (SELECT 1 FROM followups fu WHERE fu.park = 'returned' AND fu.noticed = 0
-                        AND fu.account_id = m.account_id AND (fu.anchor = m.message_id OR fu.answer_id = m.message_id)),
-                    m.dmarc
-                 FROM json_each(?1) k
-                 CROSS JOIN messages m ON m.account_id = k.value ->> 0 AND m.thread = k.value ->> 1
-                 JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
-                 WHERE COALESCE(f.role, '') NOT IN ('trash', 'junk')
-                 ORDER BY k.key, m.date, m.id",
-            )?
-            .query_map([json_list(&keys)], |r| {
-                Ok((
-                    (r.get::<_, String>(0)?, r.get::<_, String>(1)?),
-                    (
-                        r.get::<_, i64>(2)?,
-                        r.get::<_, Option<String>>(3)?,
-                        r.get::<_, Option<String>>(4)?,
-                        r.get::<_, bool>(5)?,
-                        r.get::<_, bool>(6)?,
-                        r.get::<_, bool>(7)?,
-                    ),
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let found = thread_letters(conn, &keys)?;
         for (key, letter) in found {
             letters.entry(key).or_default().push(letter);
         }
         for row in &mut rows {
-            let mut seen = HashSet::new();
-            let (mut count, mut draft) = (0, false);
-            let mut senders: Vec<Addr> = Vec::new();
-            let mut voices: Vec<Voice> = Vec::new();
             let found = letters
                 .remove(&(row.account_id.clone(), row.thread.clone()))
                 .unwrap_or_default();
-            for (id, mid, from, is_draft, came, dmarc) in found {
-                // Back from waiting with the reply, not opened since: the conversation says so.
-                row.answer_came |= came;
-                if is_draft {
-                    draft = true;
-                    continue;
-                }
-                // A letter to oneself sits in Inbox and in Sent: one letter.
-                if !seen.insert(mid.unwrap_or_else(|| format!("#{id}"))) {
-                    continue;
-                }
-                count += 1;
-                if let Some(a) = json_opt::<Addr>("messages", "from_addr", id, from.as_deref()) {
-                    if !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email)) {
-                        senders.push(a.clone());
-                    }
-                    // Oldest first: a writer who wrote again moves to the end.
-                    voices.retain(|v| !v.from.email.eq_ignore_ascii_case(&a.email));
-                    voices.push(Voice { from: a, dmarc, id });
-                }
-            }
-            row.thread_count = count.max(1);
-            row.thread_senders = senders;
-            row.thread_voices = voices;
-            row.thread_draft = draft;
+            describe_thread(row, found);
         }
         Ok(rows)
     }
@@ -2516,7 +2558,8 @@ impl Store {
                 params![id, why],
             )? == 1;
             if first {
-                let _ = json_col::<Draft>("outbox", "draft", id, &raw);
+                // Reading it logs a row that is not valid JSON; the value itself is not needed here.
+                drop(json_col::<Draft>("outbox", "draft", id, &raw));
             }
             if let Some(item) = items.iter_mut().find(|i| i.id == id) {
                 item.failed = true;
@@ -3303,6 +3346,10 @@ fn addr_text(a: &Addr) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "a test reads from its first line to its last: its steps are its length"
+)]
 mod tests {
     use super::*;
 

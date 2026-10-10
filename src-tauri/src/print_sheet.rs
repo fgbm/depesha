@@ -8,12 +8,18 @@ use std::collections::HashMap;
 /// The error kind of a print that another print from the same window took the place of. It is
 /// not a failure to show: the newer print is the one the user asked for last. The frontend
 /// (`print.ts`) swallows it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only the macOS build prints through it")
+)]
 pub const SUPERSEDED: depesha_core::ErrorKind = depesha_core::ErrorKind::Superseded;
 
 /// What `Loaded::take` found for a ticket.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only the macOS build prints through it")
+)]
 pub enum Taken<S> {
     Mine(S),
     /// Another print's sheet stands there now (it was left), or none: this print was replaced.
@@ -22,17 +28,26 @@ pub enum Taken<S> {
 
 /// The sheets loaded and not yet printed, by the label of the window they are printed from, each
 /// with the ticket of the print that loaded it. A newer print from a window takes its place.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only the macOS build prints through it")
+)]
 pub struct Loaded<S>(HashMap<String, (u64, S)>);
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only the macOS build prints through it")
+)]
 impl<S> Default for Loaded<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "macos"),
+    allow(dead_code, reason = "only the macOS build prints through it")
+)]
 impl<S> Loaded<S> {
     pub fn new() -> Self {
         Self(HashMap::new())
@@ -115,10 +130,13 @@ pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()>
         fn drop(&mut self) {
             if self.armed {
                 let (label, ticket) = (self.label.clone(), self.ticket);
-                let _ = self.window.run_on_main_thread(move || {
-                    let sheet = LOADED.with(|l| l.borrow_mut().forget(&label, ticket));
-                    drop(sheet);
-                });
+                depesha_core::best_effort(
+                    "run on the main thread",
+                    self.window.run_on_main_thread(move || {
+                        let sheet = LOADED.with(|l| l.borrow_mut().forget(&label, ticket));
+                        drop(sheet);
+                    }),
+                );
             }
         }
     }
@@ -163,7 +181,7 @@ pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()>
                 let old = LOADED.with(|l| l.borrow_mut().insert(&key, ticket, sheet));
                 drop(old);
             }
-            let _ = loaded.send(ok);
+            depesha_core::unheard(loaded.send(ok));
         })
         .map_err(|e| failed(e.to_string()))?;
     if !started.await.unwrap_or(false) {
@@ -178,7 +196,7 @@ pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()>
         window
             .run_on_main_thread(move || {
                 let state = LOADED.with(|l| l.borrow().get(&key, ticket).map(Sheet::loading));
-                let _ = tx.send(state);
+                depesha_core::unheard(tx.send(state));
             })
             .map_err(|e| failed(e.to_string()))?;
         match rx.await {
@@ -207,7 +225,7 @@ pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()>
                 },
                 Taken::Superseded => Outcome::Superseded,
             };
-            let _ = done.send(outcome);
+            depesha_core::unheard(done.send(outcome));
         })
         .map_err(|e| failed(e.to_string()))?;
     // Out of `LOADED` one way or the other: nothing left for the guard to do.

@@ -4,6 +4,7 @@
 //! work: a full sync is a pass taken one folder at a time, and actions sent
 //! meanwhile run between its folders.
 
+use depesha_core::unheard;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -263,7 +264,10 @@ fn offer(tx: &mpsc::Sender<Work>, queued: &Queued, work: Work) {
 /// waits in `deferred` in its place, so the order the user asked for is kept (a move, then
 /// a flag on a letter, then a move of it must not run as one move and a stale store).
 /// Returns how many moves were merged.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the queues and the three outputs are separate borrows of the loop's locals: a struct would only bundle them for this one call"
+)]
 fn drain_moves(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
@@ -374,7 +378,10 @@ fn compact_flags(series: &[(u32, FlagChange)]) -> Vec<(FlagChange, Vec<u32>)> {
 /// The same for labels: a continuous series of `SetLabels` of one folder with the same
 /// labels becomes one request for all the UIDs. Another kind of work stops the series and
 /// waits its turn.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the same borrows as `drain_moves`: the queues and the outputs of the loop, which a struct would only bundle"
+)]
 fn drain_labels(
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
     deferred: &mut VecDeque<(Work, Reply)>,
@@ -448,12 +455,12 @@ fn answer_all(replies: Vec<Reply>, result: Result<Output>) {
     match result {
         Ok(_) => {
             for reply in replies {
-                let _ = reply.send(Ok(Output::None));
+                unheard(reply.send(Ok(Output::None)));
             }
         }
         Err(e) => {
             for reply in replies {
-                let _ = reply.send(Err(e.clone()));
+                unheard(reply.send(Err(e.clone())));
             }
         }
     }
@@ -792,7 +799,10 @@ enum Next {
 /// (`stepping`), one folder per call, and other background work last. Actions taken out of
 /// `urgent` but not run yet wait in `deferred` and go before it. While a busy server asks to
 /// wait (`busy_until`), only user actions are taken: they get their answer at once.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one receiver for each priority plus the loop's state, each borrowed apart from the rest of `Ops`; a struct would only bundle them for this one call"
+)]
 async fn next(
     reads: &mut mpsc::Receiver<(Work, Reply)>,
     urgent: &mut mpsc::Receiver<(Work, Reply)>,
@@ -907,6 +917,10 @@ struct Ops {
 }
 
 impl Ops {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the worker's loop and its dispatch: one arm for each kind of work, in the order the queues are served"
+    )]
     async fn run(
         mut self,
         mut reads: mpsc::Receiver<(Work, Reply)>,
@@ -1057,7 +1071,7 @@ impl Ops {
                         other => {
                             let result = self.user(&other).await;
                             self.report(&other, &result, true);
-                            let _ = reply.send(result);
+                            unheard(reply.send(result));
                         }
                     }
                 }
@@ -1066,7 +1080,7 @@ impl Ops {
                 Next::Quiet(work, reply) => {
                     let result = self.serve(&work, false).await;
                     self.report(&work, &result, true);
-                    let _ = reply.send(result);
+                    unheard(reply.send(result));
                 }
                 Next::Step => self.step().await,
                 Next::Background(work) => {
@@ -1166,6 +1180,7 @@ impl Ops {
                     }
                 }
             }
+            #[allow(clippy::expect_used, reason = "the branch above sets `conn` or returns")]
             let c = self.conn.as_mut().expect("connected above");
             let retry = attempt > 0 || is_unfinished(&self.unfinished_moves, &op);
             let outcome = match tokio::time::timeout(
@@ -1262,7 +1277,7 @@ impl Ops {
         }
         if let Some(wait) = self.busy_left() {
             offer(&self.background, &self.queued, Work::SyncAll);
-            let _ = reply.send(Err(Error::Busy { wait, retrying: true }));
+            unheard(reply.send(Err(Error::Busy { wait, retrying: true })));
             return;
         }
         self.start_pass(Some(reply)).await;
@@ -1321,17 +1336,17 @@ impl Ops {
                 self.state.task_done(&key);
                 offer(&self.background, &self.queued, Work::SyncAll);
                 if let Some(reply) = reply {
-                    let _ = reply.send(Err(Error::Busy {
+                    unheard(reply.send(Err(Error::Busy {
                         wait: pause,
                         retrying: true,
-                    }));
+                    })));
                 }
             }
             Err(e) => {
                 let result = Err(e);
                 self.report(&Work::SyncAll, &result, reply.is_some());
                 if let Some(reply) = reply {
-                    let _ = reply.send(result);
+                    unheard(reply.send(result));
                 }
             }
         }
@@ -1345,7 +1360,7 @@ impl Ops {
         if self.paused.load(Ordering::Relaxed) {
             // A user action ran into an error only the user can fix: background work waits.
             for reply in pass.waiting.drain(..) {
-                let _ = reply.send(Err(Error::Paused));
+                unheard(reply.send(Err(Error::Paused)));
             }
             self.pass = None;
             self.state.task_done(&key);
@@ -1385,7 +1400,7 @@ impl Ops {
                 self.report(&Work::SyncAll, &result, false);
                 if let Err(e) = &result {
                     for reply in waiting {
-                        let _ = reply.send(Err(e.clone()));
+                        unheard(reply.send(Err(e.clone())));
                     }
                 }
             }
@@ -1404,7 +1419,7 @@ impl Ops {
         // hold up or fail the sync.
         offer(&self.background, &self.queued, Work::Quota);
         for reply in pass.waiting {
-            let _ = reply.send(Ok(Output::None));
+            unheard(reply.send(Ok(Output::None)));
         }
     }
 
@@ -1500,6 +1515,10 @@ async fn refresh_quota(state: &AppState, account_id: &str, conn: &mut Conn) -> R
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one match with an arm for each kind of work: the arms are independent and read best side by side"
+)]
 async fn perform(
     state: &AppState,
     account: &Account,

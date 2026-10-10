@@ -9,7 +9,7 @@ async fn main() {
         println!(
             "{email} ({:.1} с): {}",
             started.elapsed().as_secs_f32(),
-            serde_json::to_string_pretty(&d).unwrap()
+            serde_json::to_string_pretty(&d).unwrap_or_else(|e| e.to_string())
         );
     }
 }

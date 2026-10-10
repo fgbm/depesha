@@ -3,6 +3,7 @@
 //! network; a check on request; the folder sizes counted at the user's request as a
 //! background task in the tasks window.
 
+use depesha_core::{best_effort, unheard};
 use std::sync::Arc;
 
 use crate::tr;
@@ -90,7 +91,7 @@ pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<
         changed(state, &account.id);
         return Ok(());
     }
-    let _ = conn.session.logout().await;
+    best_effort("log out", conn.session.logout().await);
     changed(state, &account.id);
     Ok(())
 }
@@ -216,7 +217,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
     let (go, ready) = tokio::sync::oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
         let state = task_state;
-        let _ = ready.await;
+        best_effort("the start signal", ready.await);
         let result = async {
             let Conn::Imap(mut conn) = state.connect(&account).await? else {
                 return Err(Error::NotFound);
@@ -258,7 +259,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
         changed(&state, &id);
     });
     if state.keep_count(&id_kept, generation, handle.abort_handle()) {
-        let _ = go.send(());
+        unheard(go.send(()));
     } else {
         // A stop arrived between the claim and the spawn: the count must not run. Its task
         // is gone already: the stop took it away, or it was never announced (above).

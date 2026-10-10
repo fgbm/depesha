@@ -1,5 +1,11 @@
 //! A copy of an error is the same error (#142): the interface and the status of a mailbox get a
 //! copy of what the caller also gets, and it must be told apart as before.
+
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
 use depesha_core::Error;
 
 include!("../../../src-tauri/src/error_samples.in");

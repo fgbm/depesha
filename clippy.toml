@@ -1,0 +1,3 @@
+# `unwrap` and `expect` are for tests: a panic there is the failure the test reports.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

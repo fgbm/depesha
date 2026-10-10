@@ -2,6 +2,12 @@
 //! Dovecot refuses cleartext login, so everything goes through STARTTLS with
 //! its self-signed certificate pinned. Skipped unless DEPESHA_IT=1.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use depesha_core::account::{Credentials, Security, ServerConfig};
 use depesha_core::domain::{FlagChange, FolderRole};
 use depesha_core::idle_pace::{DropCause, Dropped, IdlePace, Tuning};
@@ -181,7 +187,8 @@ async fn a_resumed_move_does_not_copy_again() {
         return;
     }
     let mut conn = connect("resume").await;
-    let _ = imap::create_folder(&mut conn, "Trash").await;
+    // The folder may exist already.
+    depesha_core::best_effort("create Trash", imap::create_folder(&mut conn, "Trash").await);
     let raw = mail("Resume", 7);
     let mid = "7.Resume@example.org";
     imap::append(&mut conn, "INBOX", &raw, "").await.unwrap();
@@ -217,7 +224,8 @@ async fn a_resumed_move_copies_when_the_target_holds_another_letter() {
         return;
     }
     let mut conn = connect("resume-cross").await;
-    let _ = imap::create_folder(&mut conn, "Trash").await;
+    // The folder may exist already.
+    depesha_core::best_effort("create Trash", imap::create_folder(&mut conn, "Trash").await);
     let raw = mail("Cross", 8);
     let mid = "8.Cross@example.org";
     imap::append(&mut conn, "INBOX", &raw, "").await.unwrap();
@@ -1387,11 +1395,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut progress,
     )
     .await
@@ -1418,11 +1428,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut progress,
     )
     .await
@@ -1445,11 +1457,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut |_, _| true,
     )
     .await
@@ -1479,11 +1493,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &stale,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &stale,
+            keep: &[],
+            batch: 3,
+        },
         &mut |_, _| true,
     )
     .await;
@@ -1495,11 +1511,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut |_, _| true,
     )
     .await

@@ -3,6 +3,12 @@
 //!   docker compose -f compose.test.yaml up -d dovecot && scripts/perf-fill.py
 //!   DEPESHA_IT=1 cargo test --release -p depesha-core --test perf -- --ignored --nocapture
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::time::Instant;
 
 use depesha_core::Error;

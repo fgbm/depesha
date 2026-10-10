@@ -240,21 +240,32 @@ pub struct Archiving {
     pub guard: Archival,
 }
 
-/// The letter `item` answered or forwarded, marked now that it left as `message_id`; the
-/// wait it asked for started. `letter_cached`: the letter is in the cache, which a reminder
-/// needs. `queue`: the mailbox's, to ask the server for the mark; none when it is not running
-/// (the mark Depesha keeps does not depend on the server's, a refusal is only not seen).
-#[allow(clippy::too_many_arguments)]
+/// A letter of the outbox that has gone out.
+pub struct Dispatched<'a> {
+    pub item: &'a OutboxItem,
+    /// The `Message-ID` it left as.
+    pub message_id: Option<String>,
+    /// The letter is in the cache, which a reminder needs.
+    pub letter_cached: bool,
+}
+
+/// The letter `sent.item` answered or forwarded, marked now that it left as `sent.message_id`;
+/// the wait it asked for started. `queue`: the mailbox's, to ask the server for the mark; none
+/// when it is not running (the mark Depesha keeps does not depend on the server's, a refusal is
+/// only not seen).
 pub async fn record_sent<Q: MailQueue>(
     store: &Store,
     queue: Option<&mut Q>,
     archivals: &Arc<Archivals>,
     account: &Account,
-    item: &OutboxItem,
-    message_id: Option<String>,
-    letter_cached: bool,
+    letter: Dispatched<'_>,
     now: i64,
 ) -> Result<Sent> {
+    let Dispatched {
+        item,
+        message_id,
+        letter_cached,
+    } = letter;
     let mut sent = Sent {
         counters: false,
         parks: false,
@@ -806,9 +817,11 @@ mod tests {
             Some(&mut queue),
             &Arc::default(),
             &waits_in_wait(),
-            &parks(),
-            Some("<s@x>".into()),
-            true,
+            Dispatched {
+                item: &parks(),
+                message_id: Some("<s@x>".into()),
+                letter_cached: true,
+            },
             now,
         )
         .await
@@ -1053,9 +1066,11 @@ mod tests {
             Some(&mut queue),
             &Arc::default(),
             &waits_in_wait(),
-            &parks(),
-            Some("<s@x>".into()),
-            true,
+            Dispatched {
+                item: &parks(),
+                message_id: Some("<s@x>".into()),
+                letter_cached: true,
+            },
             50,
         )
         .await
@@ -1079,9 +1094,11 @@ mod tests {
             Some(&mut queue),
             &archivals,
             &waits_in_wait(),
-            &parks(),
-            Some("<s@x>".into()),
-            true,
+            Dispatched {
+                item: &parks(),
+                message_id: Some("<s@x>".into()),
+                letter_cached: true,
+            },
             50,
         )
         .await
@@ -1103,9 +1120,11 @@ mod tests {
             None,
             &archivals,
             &waits_in_wait(),
-            &parks(),
-            Some("<s@x>".into()),
-            true,
+            Dispatched {
+                item: &parks(),
+                message_id: Some("<s@x>".into()),
+                letter_cached: true,
+            },
             50,
         )
         .await
@@ -1124,9 +1143,20 @@ mod tests {
             let (store, archivals, item) = (&store, &archivals, item.clone());
             let mid = mid.map(str::to_owned);
             async move {
-                record_sent::<Queue>(store, None, archivals, &waits_in_wait(), &item, mid, cached, 10)
-                    .await
-                    .unwrap()
+                record_sent::<Queue>(
+                    store,
+                    None,
+                    archivals,
+                    &waits_in_wait(),
+                    Dispatched {
+                        item: &item,
+                        message_id: mid,
+                        letter_cached: cached,
+                    },
+                    10,
+                )
+                .await
+                .unwrap()
             }
         };
         // The letter left but its Message-ID is unknown, or it is not in the cache: no reminder.
@@ -1157,9 +1187,11 @@ mod tests {
             None,
             &archivals,
             &waits_in_wait(),
-            &item,
-            Some("<s@x>".into()),
-            false,
+            Dispatched {
+                item: &item,
+                message_id: Some("<s@x>".into()),
+                letter_cached: false,
+            },
             1,
         )
         .await

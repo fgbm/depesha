@@ -1,3 +1,4 @@
+use depesha_core::best_effort;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -187,7 +188,10 @@ impl AppState {
         let lang = self.settings().lang();
         crate::lang::set(lang);
         if let Some(w) = self.app.get_webview_window("main") {
-            let _ = w.set_title(crate::lang::pick("Depesha", "Депеша"));
+            best_effort(
+                "set the window title",
+                w.set_title(crate::lang::pick("Depesha", "Депеша")),
+            );
         }
     }
 
@@ -380,9 +384,12 @@ impl AppState {
         lock(&self.statuses).insert(id.to_owned(), status.clone());
         // A mailbox that needs the user is named in the tray menu.
         crate::tray::refresh_soon(self);
-        let _ = self.app.emit(
-            "account-status",
-            serde_json::json!({ "account_id": id, "status": status }),
+        best_effort(
+            "tell the window",
+            self.app.emit(
+                "account-status",
+                serde_json::json!({ "account_id": id, "status": status }),
+            ),
         );
     }
 
@@ -403,12 +410,12 @@ impl AppState {
         if event == "mail-changed" {
             self.scheduler_notify.notify_one();
         }
-        let _ = self.app.emit(event, payload);
+        best_effort("tell the window", self.app.emit(event, payload));
     }
 
     /// An event only the main window handles (a letter's window never answers it).
     pub fn emit_main(&self, event: &str, payload: serde_json::Value) {
-        let _ = self.app.emit_to("main", event, payload);
+        best_effort("tell the window", self.app.emit_to("main", event, payload));
     }
 
     /// Keeps the `depesha://` URL the app was started with, for the main window to take.
@@ -474,7 +481,7 @@ mod tests {
         let saved = config::load(&path);
         assert_eq!(saved.settings.undo_send_secs, settings.undo_send_secs);
         assert_eq!(saved.settings.dnd_until, settings.dnd_until);
-        let _ = std::fs::remove_dir_all(&dir);
+        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
     }
 
     /// A write that fails (the folder cannot be made) is not a change: the mailbox in memory stays
@@ -502,7 +509,7 @@ mod tests {
             "",
             "a write that failed stayed in memory"
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
     }
 
     /// Removing a mailbox clears it as the default under the same lock a patch uses, so the
@@ -537,6 +544,6 @@ mod tests {
             "the clear rolled back a key it did not name"
         );
         assert_eq!(settings.dnd_until, 42, "a patch written before the clear was lost");
-        let _ = std::fs::remove_dir_all(&dir);
+        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
     }
 }

@@ -5,6 +5,7 @@ pub mod account;
 pub mod acl;
 pub mod autodetect;
 pub mod avatar;
+mod best_effort;
 mod blocking;
 pub mod clear;
 pub mod domain;
@@ -34,5 +35,6 @@ pub mod utf7;
 pub mod waiting;
 pub(crate) mod watchdog;
 
+pub use best_effort::{best_effort, unheard};
 pub use error::{Error, ErrorKind, EwsMeaning, ImapFault, Result, SmtpMeaning, seconds};
 pub use say::{Class, Say, Xoauth2Detail};

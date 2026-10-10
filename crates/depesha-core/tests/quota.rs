@@ -2,6 +2,12 @@
 //! or RFC822.SIZE added up) against a scripted IMAP server. Needs no network beyond
 //! localhost; always runs.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

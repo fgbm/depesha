@@ -3,6 +3,7 @@
 //! no network except the hosts the manifest names. It reaches Depesha only through
 //! messages, and the host checks every request against the declared permissions.
 
+use depesha_core::best_effort;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -493,7 +494,7 @@ fn install_into(root: &Path, from: &Path, grant: Grant) -> CmdResult<Manifest> {
         Ok(())
     };
     if let Err(e) = copy() {
-        let _ = std::fs::remove_dir_all(&staging);
+        best_effort("remove a temporary folder", std::fs::remove_dir_all(&staging));
         return Err(e);
     }
     Ok(manifest)
@@ -527,7 +528,7 @@ pub fn remove(app: &tauri::AppHandle, id: &str) -> CmdResult<()> {
     if dir.exists() {
         std::fs::remove_dir_all(dir)?;
     }
-    let _ = std::fs::remove_file(storage_path(app, id)?);
+    best_effort("remove a temporary file", std::fs::remove_file(storage_path(app, id)?));
     Ok(())
 }
 
@@ -579,14 +580,19 @@ fn load_storage(app: &tauri::AppHandle, id: &str) -> CmdResult<BTreeMap<String, 
     }
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "a fixed status and an empty body: nothing in them can be invalid"
+)]
+fn not_found() -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(404)
+        .body(Vec::new())
+        .expect("static response")
+}
+
 /// `ext:` scheme: `/<id>/` is the sandbox page of an installed, enabled extension.
 pub fn serve(app: &tauri::AppHandle, path: &str, disabled: &[String]) -> tauri::http::Response<Vec<u8>> {
-    let not_found = || {
-        tauri::http::Response::builder()
-            .status(404)
-            .body(Vec::new())
-            .expect("static response")
-    };
     let id = path.trim_matches('/');
     if !valid_id(id) || disabled.iter().any(|d| d == id) {
         return not_found();
@@ -637,7 +643,8 @@ pub fn serve(app: &tauri::AppHandle, path: &str, disabled: &[String]) -> tauri::
         .header("Content-Type", "text/html; charset=utf-8")
         .header("Content-Security-Policy", csp)
         .body(html.into_bytes())
-        .expect("valid response")
+        // A header value the builder refuses (the policy is built from the page's own parts) is a page not served.
+        .unwrap_or_else(|_| not_found())
 }
 
 fn nonce() -> String {
@@ -720,7 +727,7 @@ mod tests {
 
     impl Drop for Temp {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            best_effort("remove a temporary folder", std::fs::remove_dir_all(&self.0));
         }
     }
 

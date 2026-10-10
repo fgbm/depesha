@@ -2,6 +2,12 @@
 //! on a local socket answers just enough, idles, and then says `* BYE` with a reason, or
 //! closes without a word. No stand needed.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::time::Duration;
 
 use depesha_core::account::{Credentials, Security, ServerConfig};

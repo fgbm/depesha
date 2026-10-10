@@ -9,6 +9,7 @@
 //! subject, several by a summary (#4/#63 decisions, frames 10A and 11В). A notification
 //! still on screen is replaced, not joined by another one.
 
+use depesha_core::best_effort;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -342,6 +343,19 @@ pub struct Live {
     pub letters: Vec<Letter>,
 }
 
+/// Where a notification stands among those on screen: the letters it tells about when it is new
+/// mail, the notification it replaces and the ones it takes over. Only Linux keeps them apart.
+#[derive(Debug, Default)]
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux replaces and closes notifications")
+)]
+struct Placing {
+    mail: Option<Live>,
+    replaces: Option<usize>,
+    absorbs: Vec<usize>,
+}
+
 /// How fresh letters join the notifications on screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Merge {
@@ -396,7 +410,10 @@ const BATCH: Duration = Duration::from_millis(1500);
 
 /// A notification on screen: its id with the notification server, what it is about.
 /// Kept on Linux only: elsewhere a notification is not replaced or closed by the app.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux keeps the notifications it replaces and closes")
+)]
 struct Note {
     id: u32,
     /// For new mail: the mailbox or `*`, and its letters; none for other notifications.
@@ -411,7 +428,10 @@ struct Note {
 pub struct Notifier {
     pending: Mutex<Vec<Letter>>,
     batching: AtomicBool,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "only Linux keeps the notifications it replaces and closes")
+    )]
     notes: Mutex<Vec<Note>>,
 }
 
@@ -498,9 +518,11 @@ impl Notifier {
             &shown.title,
             &shown.body,
             Some(shown.target),
-            Some(mail),
-            replaces,
-            &absorbs,
+            Placing {
+                mail: Some(mail),
+                replaces,
+                absorbs,
+            },
         );
     }
 
@@ -510,7 +532,7 @@ impl Notifier {
             return;
         }
         let mut notes = lock(&self.notes);
-        show(app, &mut notes, title, body, target, None, None, &[]);
+        show(app, &mut notes, title, body, target, Placing::default());
     }
 
     /// The app quits: its notifications go with it, a click on them could do nothing.
@@ -626,7 +648,7 @@ fn signed_text(route: &Route) -> String {
 
 /// The `depesha://` URL of a link body, with the signature of its route. Without a secret the
 /// signature is empty and the URL goes out unsigned (it will only bring the window forward).
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code, reason = "only the Windows build uses it"))]
 fn signed_url(core: &str, route: &Route) -> String {
     let sig = crate::install_secret::sign(signed_text(route).as_bytes());
     if sig.is_empty() {
@@ -766,7 +788,7 @@ fn query(u: &url::Url, key: &str) -> Option<String> {
 }
 
 /// Percent-encodes a value for a `depesha://` URL (everything outside the unreserved set).
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code, reason = "only the Windows build uses it"))]
 fn enc(value: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(value.len());
@@ -812,7 +834,10 @@ fn hex(b: u8) -> Option<u8> {
 }
 
 /// `&`, `<`, `>` as entities: what a server drawing markup reads as text, not as tags.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux keeps the notifications it replaces and closes")
+)]
 fn entities(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -846,17 +871,12 @@ fn marks_up() -> bool {
 }
 
 #[cfg(target_os = "linux")]
-#[allow(clippy::too_many_arguments)]
-fn show(
-    app: &AppHandle,
-    notes: &mut Vec<Note>,
-    title: &str,
-    body: &str,
-    target: Option<Target>,
-    mail: Option<Live>,
-    replaces: Option<usize>,
-    absorbs: &[usize],
-) {
+fn show(app: &AppHandle, notes: &mut Vec<Note>, title: &str, body: &str, target: Option<Target>, placing: Placing) {
+    let Placing {
+        mail,
+        replaces,
+        absorbs,
+    } = placing;
     // A server that draws markup (body-markup, body-hyperlinks) would turn `<a href>` in a
     // subject into a link, or a `<img>` into a picture, inside Depesha's own notification:
     // there the text goes out with its `&`, `<`, `>` as entities.
@@ -891,18 +911,21 @@ fn show(
     if old != Some(id) {
         let app = app.clone();
         std::thread::spawn(move || {
-            let _ = notify_rust::handle_action(id, |response| {
-                let Some(state) = app.try_state::<Arc<AppState>>() else {
-                    return;
-                };
-                let note = {
-                    let mut notes = lock(&state.notifier.notes);
-                    notes.iter().position(|n| n.id == id).map(|i| notes.remove(i))
-                };
-                if let notify_rust::ActionResponse::Custom("default") = response {
-                    clicked(&app, note.and_then(|n| n.target));
-                }
-            });
+            best_effort(
+                "the toast listener",
+                notify_rust::handle_action(id, |response| {
+                    let Some(state) = app.try_state::<Arc<AppState>>() else {
+                        return;
+                    };
+                    let note = {
+                        let mut notes = lock(&state.notifier.notes);
+                        notes.iter().position(|n| n.id == id).map(|i| notes.remove(i))
+                    };
+                    if let notify_rust::ActionResponse::Custom("default") = response {
+                        clicked(&app, note.and_then(|n| n.target));
+                    }
+                }),
+            );
         });
     }
     match replaces {
@@ -921,32 +944,12 @@ fn show(
 }
 
 #[cfg(windows)]
-#[allow(clippy::too_many_arguments)]
-fn show(
-    app: &AppHandle,
-    _notes: &mut Vec<Note>,
-    title: &str,
-    body: &str,
-    target: Option<Target>,
-    _mail: Option<Live>,
-    _replaces: Option<usize>,
-    _absorbs: &[usize],
-) {
+fn show(app: &AppHandle, _notes: &mut Vec<Note>, title: &str, body: &str, target: Option<Target>, _placing: Placing) {
     windows_toast::show(app, title, body, target);
 }
 
 #[cfg(target_os = "macos")]
-#[allow(clippy::too_many_arguments)]
-fn show(
-    _app: &AppHandle,
-    _notes: &mut Vec<Note>,
-    title: &str,
-    body: &str,
-    _target: Option<Target>,
-    _mail: Option<Live>,
-    _replaces: Option<usize>,
-    _absorbs: &[usize],
-) {
+fn show(_app: &AppHandle, _notes: &mut Vec<Note>, title: &str, body: &str, _target: Option<Target>, _placing: Placing) {
     // macOS is not supported: a plain notification, without a click back.
     if let Err(e) = notify_rust::Notification::new().summary(title).body(body).show() {
         tracing::debug!("notification failed: {e}");
@@ -955,12 +958,12 @@ fn show(
 
 /// Windows refuses a toast whose `launch` is over 512 characters, so a summary's letters go
 /// in only while they fit.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code, reason = "only the Windows build uses it"))]
 const LAUNCH_MAX: usize = 500;
 /// What a signed URL adds around its body: `depesha://`, `&sig=`, and the 43 characters of
 /// the URL-safe base64 of a 32-byte HMAC tag (reserved so the id list cannot push the
 /// signature over the limit).
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code, reason = "only the Windows build uses it"))]
 const SIGNED_OVERHEAD: usize = "depesha://".len() + "&sig=".len() + 43;
 
 /// The `depesha://` URL a click opens: a letter by its id and Message-ID, a summary by its
@@ -970,7 +973,7 @@ const SIGNED_OVERHEAD: usize = "depesha://".len() + "&sig=".len() + 43;
 /// link the app made opens mail; a summary signs the letters that went into the URL, not all
 /// of them. Windows opens it as a new process; single-instance hands it to the running app,
 /// and with the app closed it starts Depesha.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code, reason = "only the Windows build uses it"))]
 fn launch_url(target: Option<&Target>) -> String {
     let Some(t) = target else {
         return signed_url("open", &Route::Window);

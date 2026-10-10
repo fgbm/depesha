@@ -1,5 +1,6 @@
 //! Socket options the mail transports share.
 
+use crate::best_effort;
 use std::time::Duration;
 
 use tokio::net::TcpStream;
@@ -12,5 +13,8 @@ pub fn keepalive(tcp: &TcpStream) {
     let keep = socket2::TcpKeepalive::new()
         .with_time(Duration::from_secs(60))
         .with_interval(Duration::from_secs(30));
-    let _ = socket2::SockRef::from(tcp).set_tcp_keepalive(&keep);
+    best_effort(
+        "set TCP keep-alive",
+        socket2::SockRef::from(tcp).set_tcp_keepalive(&keep),
+    );
 }

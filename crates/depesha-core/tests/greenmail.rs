@@ -1,6 +1,12 @@
 //! End-to-end check against GreenMail, see compose.test.yaml.
 //! Skipped unless DEPESHA_IT=1.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use depesha_core::account::{Credentials, Security, ServerConfig};
 use depesha_core::domain::Addr;
 use depesha_core::domain::{Draft, FlagChange, FolderRole, OutgoingAttachment};
@@ -61,7 +67,8 @@ async fn send_sync_read_flag_move() {
 
     // Keep a copy in Alice's Sent, as the GUI does after sending.
     let mut alice_conn = imap::connect(&imap_server(), &alice).await.expect("alice login");
-    let _ = alice_conn.session.create("Sent").await;
+    // The folder may exist already.
+    depesha_core::best_effort("create Sent", alice_conn.session.create("Sent").await);
     imap::append(&mut alice_conn, "Sent", &raw_sent, "(\\Seen)")
         .await
         .expect("append to Sent");
@@ -77,8 +84,9 @@ async fn send_sync_read_flag_move() {
 
     let store = Store::open_in_memory().unwrap();
     let mut conn = imap::connect(&imap_server(), &bob).await.expect("bob login");
-    let _ = conn.session.create("Trash").await;
-    let _ = conn.session.create("Calendar").await;
+    // The folders may exist already.
+    depesha_core::best_effort("create Trash", conn.session.create("Trash").await);
+    depesha_core::best_effort("create Calendar", conn.session.create("Calendar").await);
     let folders = sync::sync_folder_list(&mut conn, &store, "bob").await.unwrap();
     assert!(folders.iter().any(|f| f.role == Some(FolderRole::Inbox)));
     assert!(folders.iter().any(|f| f.name == "Calendar" && f.hidden), "{folders:?}");
@@ -225,7 +233,10 @@ async fn exchange_russian_folder_layout() {
         "Проекты",
     ];
     for n in names {
-        let _ = conn.session.create(depesha_core::utf7::encode(n)).await;
+        depesha_core::best_effort(
+            "create the folder",
+            conn.session.create(depesha_core::utf7::encode(n)).await,
+        );
     }
     let folders = imap::list_folders(&mut conn).await.unwrap();
     let role = |n: &str| folders.iter().find(|f| f.display_name == n).and_then(|f| f.role);
@@ -421,11 +432,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut progress,
     )
     .await
@@ -452,11 +465,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut progress,
     )
     .await
@@ -479,11 +494,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut |_, _| true,
     )
     .await
@@ -513,11 +530,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &stale,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &stale,
+            keep: &[],
+            batch: 3,
+        },
         &mut |_, _| true,
     )
     .await;
@@ -529,11 +548,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &mut conn,
         &store,
         "a",
-        &junk,
-        &depesha_core::clear::Emptying::Erase,
-        &bound,
-        &[],
-        3,
+        mail::Wipe {
+            folder: &junk,
+            how: &depesha_core::clear::Emptying::Erase,
+            bound: &bound,
+            keep: &[],
+            batch: 3,
+        },
         &mut |_, _| true,
     )
     .await

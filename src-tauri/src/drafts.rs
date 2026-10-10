@@ -7,6 +7,7 @@
 //! draft does not rewrite the others, and two windows never race over one file. The file
 //! goes as soon as the draft reaches the server (or is thrown away).
 
+use depesha_core::best_effort;
 use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
@@ -84,7 +85,10 @@ async fn remove(dir: &std::path::Path, key: &str) -> CmdResult<()> {
 pub async fn drop_all(app: &AppHandle, keys: &[String]) -> CmdResult<()> {
     let dir = dir(app)?;
     for key in keys {
-        let _ = tokio::fs::remove_file(dir.join(safe_key(key))).await;
+        best_effort(
+            "remove a temporary file",
+            tokio::fs::remove_file(dir.join(safe_key(key))).await,
+        );
     }
     Ok(())
 }
@@ -105,7 +109,7 @@ async fn write(dir: &std::path::Path, entry: &CachedDraft) -> CmdResult<()> {
     }
     .await;
     if let Err(e) = written {
-        let _ = tokio::fs::remove_file(&tmp).await;
+        best_effort("remove a temporary file", tokio::fs::remove_file(&tmp).await);
         return Err(e.into());
     }
     Ok(())
@@ -134,6 +138,7 @@ pub async fn read_all(dir: &std::path::Path) -> CmdResult<Vec<CachedDraft>> {
 #[cfg(test)]
 mod tests {
     use super::{CachedDraft, read_all, remove, safe_key, write};
+    use depesha_core::best_effort;
     use serde_json::json;
 
     fn entry(key: &str, updated: i64) -> CachedDraft {
@@ -170,7 +175,7 @@ mod tests {
     #[tokio::test]
     async fn a_draft_is_written_and_found_again_after_a_crash() {
         let dir = std::env::temp_dir().join(format!("depesha-drafts-{}", std::process::id()));
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
         // A draft written on a pause, then another: both survive a restart.
         write(&dir, &entry("one", 10)).await.unwrap();
         write(&dir, &entry("two", 20)).await.unwrap();
@@ -185,16 +190,19 @@ mod tests {
         assert_eq!(found.len(), 2);
         assert_eq!(found.iter().find(|d| d.key == "one").unwrap().updated, 30);
         // The draft reached the server: its file goes, the other stays.
-        let _ = tokio::fs::remove_file(dir.join(safe_key("one"))).await;
+        best_effort(
+            "remove a temporary file",
+            tokio::fs::remove_file(dir.join(safe_key("one"))).await,
+        );
         let found = read_all(&dir).await.unwrap();
         assert_eq!(found.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(), vec!["two"]);
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
     }
 
     #[tokio::test]
     async fn a_failed_write_leaves_the_previous_copy_whole() {
         let dir = std::env::temp_dir().join(format!("depesha-drafts-atomic-{}", std::process::id()));
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
         write(&dir, &entry("one", 10)).await.unwrap();
         // The temporary file cannot be created (a folder stands in its place): the write fails.
         tokio::fs::create_dir(dir.join("one.tmp")).await.unwrap();
@@ -203,7 +211,7 @@ mod tests {
         let found = read_all(&dir).await.unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].updated, 10);
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
     }
 
     #[tokio::test]
@@ -211,7 +219,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("depesha-drafts-gone-{}", std::process::id()));
         tokio::fs::create_dir_all(&dir).await.unwrap();
         remove(&dir, "never-written").await.unwrap();
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
     }
 
     /// A copy left behind would be offered for restore at the next start, and a letter already
@@ -221,7 +229,7 @@ mod tests {
     async fn a_copy_that_cannot_be_removed_is_an_error() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("depesha-drafts-ro-{}", std::process::id()));
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
         write(&dir, &entry("one", 10)).await.unwrap();
         tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555))
             .await
@@ -233,6 +241,6 @@ mod tests {
         assert!(dropped.is_err());
         // Still there: nothing was lost by the failed drop.
         assert_eq!(read_all(&dir).await.unwrap().len(), 1);
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+        best_effort("remove a temporary folder", tokio::fs::remove_dir_all(&dir).await);
     }
 }

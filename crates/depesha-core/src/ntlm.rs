@@ -139,7 +139,7 @@ impl Challenge {
             return Err(bad());
         }
         let flags = u32_at(m, 20);
-        let server_challenge = m[24..32].try_into().expect("8 bytes");
+        let server_challenge = le(&m[24..32]);
         let len = u16_at(m, 40) as usize;
         let offset = u32_at(m, 44) as usize;
         let info = m.get(offset..offset + len).ok_or_else(bad)?;
@@ -165,7 +165,7 @@ impl Challenge {
         self.av
             .iter()
             .find(|(id, v)| *id == AV_TIMESTAMP && v.len() == 8)
-            .map(|(_, v)| u64::from_le_bytes(v[..8].try_into().expect("8 bytes")))
+            .map(|(_, v)| u64::from_le_bytes(le(v)))
     }
 }
 
@@ -180,7 +180,7 @@ fn target_info(server: &[(u16, Vec<u8>)], mic: bool, host: &str, cert: Option<&[
     let mut flags = server
         .iter()
         .find(|(id, v)| *id == AV_FLAGS && v.len() == 4)
-        .map(|(_, v)| u32::from_le_bytes(v[..4].try_into().expect("4 bytes")))
+        .map(|(_, v)| u32::from_le_bytes(le(v)))
         .unwrap_or(0);
     if mic {
         flags |= MIC_PRESENT;
@@ -254,6 +254,10 @@ fn lm_response(key: &[u8; 16], server: &[u8; 8], client: &[u8; 8]) -> Vec<u8> {
 }
 
 fn hmac_md5(key: &[u8], parts: &[&[u8]]) -> [u8; 16] {
+    #[allow(
+        clippy::expect_used,
+        reason = "HMAC accepts a key of any length: `new_from_slice` fails for none"
+    )]
     let mut mac = <Hmac<Md5> as KeyInit>::new_from_slice(key).expect("HMAC takes any key");
     for p in parts {
         mac.update(p);
@@ -265,12 +269,21 @@ fn utf16(s: &str) -> Vec<u8> {
     s.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
+/// The first `N` bytes of a slice the caller has measured.
+#[allow(
+    clippy::expect_used,
+    reason = "every caller has checked that the slice holds at least N bytes"
+)]
+fn le<const N: usize>(b: &[u8]) -> [u8; N] {
+    b[..N].try_into().expect("measured by the caller")
+}
+
 fn u16_at(b: &[u8], i: usize) -> u16 {
     u16::from_le_bytes([b[i], b[i + 1]])
 }
 
 fn u32_at(b: &[u8], i: usize) -> u32 {
-    u32::from_le_bytes(b[i..i + 4].try_into().expect("4 bytes"))
+    u32::from_le_bytes(le(&b[i..]))
 }
 
 /// Tenths of microseconds since 1601, as Windows counts time.

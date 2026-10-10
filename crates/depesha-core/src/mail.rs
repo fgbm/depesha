@@ -1,6 +1,7 @@
 //! One interface over the two kinds of server: IMAP with SMTP, and Exchange Web
 //! Services. The cache, the worker and the GUI see the same folders and UIDs.
 
+use crate::best_effort;
 use std::time::{Duration, Instant};
 
 use crate::account::{Account, Credentials};
@@ -44,7 +45,7 @@ pub async fn check(account: &Account, creds: &Credentials) -> Result<(), (&'stat
         return Ok(());
     }
     let mut conn = imap::connect(&account.imap, creds).await.map_err(|e| ("IMAP", e))?;
-    let _ = conn.session.logout().await;
+    best_effort("log out", conn.session.logout().await);
     smtp::check(&account.smtp, creds).await.map_err(|e| ("SMTP", e))?;
     Ok(())
 }
@@ -386,20 +387,32 @@ pub async fn folder_count(conn: &mut Conn, store: &Store, account_id: &str, fold
     }
 }
 
+/// What `empty_folder` wipes and how: the folder, the way, what the dialog counted, the UIDs
+/// that stay. `batch` is the size of an IMAP request; Exchange takes its own.
+pub struct Wipe<'a> {
+    pub folder: &'a str,
+    pub how: &'a Emptying,
+    pub bound: &'a Bound,
+    pub keep: &'a [u32],
+    pub batch: usize,
+}
+
 /// Empties the folder on the server (`clear::empty_folder`) over the port of the connection's
-/// kind. `batch` is the size of an IMAP request; Exchange takes its own.
-#[allow(clippy::too_many_arguments)]
+/// kind.
 pub async fn empty_folder(
     conn: &mut Conn,
     store: &Store,
     account_id: &str,
-    folder: &str,
-    how: &Emptying,
-    bound: &Bound,
-    keep: &[u32],
-    batch: usize,
+    wipe: Wipe<'_>,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
 ) -> Result<Emptied> {
+    let Wipe {
+        folder,
+        how,
+        bound,
+        keep,
+        batch,
+    } = wipe;
     match (conn, bound) {
         (Conn::Imap(c), Bound::Imap(b)) => {
             clear::empty_folder(&mut ImapServer::new(c, batch), folder, how, b, keep, progress).await
@@ -412,7 +425,6 @@ pub async fn empty_folder(
 }
 
 /// Runs a queued «Clear» (`clear::perform`) over the port of the connection's kind.
-#[allow(clippy::too_many_arguments)]
 pub async fn clear_folder(
     conn: &mut Conn,
     store: &Store,

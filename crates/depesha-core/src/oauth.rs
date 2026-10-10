@@ -3,6 +3,7 @@
 //! interface, and PKCE (RFC 7636) protects the code. IMAP and SMTP then log in
 //! with the access token (SASL XOAUTH2); the refresh token lives in the keyring.
 
+use crate::best_effort;
 use std::future::Future;
 use std::time::Duration;
 
@@ -153,6 +154,10 @@ fn challenge_of(verifier: &str) -> String {
 fn random_bytes<const N: usize>() -> [u8; N] {
     use ring::rand::{SecureRandom, SystemRandom};
     let mut bytes = [0u8; N];
+    #[allow(
+        clippy::expect_used,
+        reason = "the system's random source is what TLS stands on: a host without it cannot run the app at all"
+    )]
     SystemRandom::new().fill(&mut bytes).expect("system RNG");
     bytes
 }
@@ -194,6 +199,10 @@ pub fn authorize_url(
     if let Some(hint) = login_hint.filter(|h| !h.trim().is_empty()) {
         params.push(("login_hint", hint.trim()));
     }
+    #[allow(
+        clippy::expect_used,
+        reason = "`http::form` percent-encodes everything outside ASCII"
+    )]
     let query = String::from_utf8(http::form(&params)).expect("ASCII");
     format!("{}?{query}", ep.auth)
 }
@@ -254,14 +263,17 @@ async fn wait_for_code(listener: &TcpListener, state: &str, words: &PageWords) -
             continue;
         };
         if !target.starts_with(CALLBACK_PATH) {
-            let _ = respond(&mut stream, "404 Not Found", "").await;
+            best_effort("answer the browser", respond(&mut stream, "404 Not Found", "").await);
             continue;
         }
         let params = http::query_params(&target);
         let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         if get("state").as_deref() != Some(state) {
             // Not our request (an old tab, another program): ignore it.
-            let _ = respond(&mut stream, "400 Bad Request", &words.unexpected).await;
+            best_effort(
+                "answer the browser",
+                respond(&mut stream, "400 Bad Request", &words.unexpected).await,
+            );
             continue;
         }
         if let Some(error) = get("error") {
@@ -272,7 +284,10 @@ async fn wait_for_code(listener: &TcpListener, state: &str, words: &PageWords) -
             } else {
                 format!("{error} {detail}").trim().to_owned()
             };
-            let _ = respond(&mut stream, "200 OK", &page(words, false, &text)).await;
+            best_effort(
+                "answer the browser",
+                respond(&mut stream, "200 OK", &page(words, false, &text)).await,
+            );
             return Err(Error::Said(if denied {
                 Say::ProviderDenied
             } else {
@@ -280,10 +295,13 @@ async fn wait_for_code(listener: &TcpListener, state: &str, words: &PageWords) -
             }));
         }
         let Some(code) = get("code").filter(|c| !c.is_empty()) else {
-            let _ = respond(&mut stream, "400 Bad Request", "").await;
+            best_effort("answer the browser", respond(&mut stream, "400 Bad Request", "").await);
             continue;
         };
-        let _ = respond(&mut stream, "200 OK", &page(words, true, "")).await;
+        best_effort(
+            "answer the browser",
+            respond(&mut stream, "200 OK", &page(words, true, "")).await,
+        );
         return Ok(code);
     }
 }

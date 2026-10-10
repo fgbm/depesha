@@ -2,6 +2,7 @@
 //! for IMAP and SMTP. One `Connection` is one TCP connection: NTLM authenticates
 //! the connection, not the request, so the caller must control reuse.
 
+use crate::best_effort;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
@@ -164,7 +165,7 @@ impl Connection {
             .map_err(http_error)?;
         // Errors of the connection surface on the next request.
         let task = tokio::spawn(async move {
-            let _ = conn.await;
+            best_effort("the connection task", conn.await);
         });
         Ok(Self {
             sender,

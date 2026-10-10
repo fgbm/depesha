@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [lib]
 name = "depesha_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

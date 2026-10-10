@@ -111,50 +111,17 @@ async fn apply_folder_list<P: imap::Probing>(
     }
 }
 
-/// Brings one folder of the cache in line with the server: new headers,
-/// changed flags, removed messages. UIDVALIDITY change drops the folder cache.
-/// With CONDSTORE only flags changed since the last pass are fetched (`FlagPass`).
-pub async fn sync_folder(
+/// Flags of the cached messages. \Deleted counts as gone (servers without UIDPLUS keep them).
+/// Returns whether this pass learned of every expunged cached message by itself.
+async fn sync_flags(
     conn: &mut Conn,
     store: &Store,
     account_id: &str,
     folder: &str,
-    opts: SyncOptions,
-) -> Result<FolderSync> {
-    let mailbox = imap::select_for_sync(conn, folder).await?;
-    if let Some(enabled) = conn.enabled.take() {
-        store.save_server_enable(account_id, &enabled, chrono::Utc::now().timestamp())?;
-    }
-    let uidvalidity = mailbox.uid_validity.unwrap_or(0);
-    let (known_validity, mut last_uid) = store.folder_state(account_id, folder)?;
-    if known_validity != uidvalidity {
-        // Forgets the mod-sequence too: the next pass is full.
-        store.clear_folder(account_id, folder)?;
-        // The new number at once: the cache never has UIDs of one UIDVALIDITY under
-        // another, and actions read before the change are refused (`imap::set_flag`).
-        store.set_folder_state(account_id, folder, uidvalidity, 0)?;
-        last_uid = 0;
-    }
-    let saved = store.modseq_mark(account_id, folder)?;
-    let mark = ModSeqMark {
-        // Dovecot sends HIGHESTMODSEQ to a plain SELECT too once the mailbox keeps
-        // mod-sequences; CHANGEDSINCE goes only to a server that announced CONDSTORE.
-        modseq: mailbox.highest_modseq.filter(|_| conn.caps.condstore).unwrap_or(0),
-        exists: mailbox.exists,
-        uid_next: mailbox.uid_next.unwrap_or(0),
-    };
-
-    let mut report = FolderSync::default();
-    if mailbox.exists == 0 {
-        let known = store.known_uids(account_id, folder)?;
-        report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &known))?;
-        store.set_folder_state(account_id, folder, uidvalidity, last_uid)?;
-        store.set_modseq_mark(account_id, folder, mark)?;
-        return Ok(report);
-    }
-
-    // Flags of cached messages. \Deleted counts as gone (servers without UIDPLUS keep them).
-    // Whether this pass learns of every expunged cached message by itself.
+    saved: ModSeqMark,
+    mark: ModSeqMark,
+    report: &mut FolderSync,
+) -> Result<bool> {
     let mut expunges_known = true;
     if let Some((min, max)) = store.uid_range(account_id, folder)? {
         let range = format!("{min}:{max}");
@@ -214,6 +181,53 @@ pub async fn sync_folder(
             }
         }
     }
+    Ok(expunges_known)
+}
+
+/// Brings one folder of the cache in line with the server: new headers,
+/// changed flags, removed messages. UIDVALIDITY change drops the folder cache.
+/// With CONDSTORE only flags changed since the last pass are fetched (`FlagPass`).
+pub async fn sync_folder(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    opts: SyncOptions,
+) -> Result<FolderSync> {
+    let mailbox = imap::select_for_sync(conn, folder).await?;
+    if let Some(enabled) = conn.enabled.take() {
+        store.save_server_enable(account_id, &enabled, chrono::Utc::now().timestamp())?;
+    }
+    let uidvalidity = mailbox.uid_validity.unwrap_or(0);
+    let (known_validity, mut last_uid) = store.folder_state(account_id, folder)?;
+    if known_validity != uidvalidity {
+        // Forgets the mod-sequence too: the next pass is full.
+        store.clear_folder(account_id, folder)?;
+        // The new number at once: the cache never has UIDs of one UIDVALIDITY under
+        // another, and actions read before the change are refused (`imap::set_flag`).
+        store.set_folder_state(account_id, folder, uidvalidity, 0)?;
+        last_uid = 0;
+    }
+    let saved = store.modseq_mark(account_id, folder)?;
+    let mark = ModSeqMark {
+        // Dovecot sends HIGHESTMODSEQ to a plain SELECT too once the mailbox keeps
+        // mod-sequences; CHANGEDSINCE goes only to a server that announced CONDSTORE.
+        modseq: mailbox.highest_modseq.filter(|_| conn.caps.condstore).unwrap_or(0),
+        exists: mailbox.exists,
+        uid_next: mailbox.uid_next.unwrap_or(0),
+    };
+
+    let mut report = FolderSync::default();
+    if mailbox.exists == 0 {
+        let known = store.known_uids(account_id, folder)?;
+        report.removed = off_runtime_thread(|| store.remove_uids(account_id, folder, &known))?;
+        store.set_folder_state(account_id, folder, uidvalidity, last_uid)?;
+        store.set_modseq_mark(account_id, folder, mark)?;
+        return Ok(report);
+    }
+
+    // Flags of cached messages. \Deleted counts as gone (servers without UIDPLUS keep them).
+    let expunges_known = sync_flags(conn, store, account_id, folder, saved, mark, &mut report).await?;
 
     // New messages: everything above last_uid, or the newest N on the first run. Without
     // VANISHED the same answer tells whether anything the last pass saw was expunged.

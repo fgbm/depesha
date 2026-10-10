@@ -4,6 +4,12 @@
 //! with a second account reading its list and opening its letters meanwhile.
 //! Skipped unless DEPESHA_IT=1, see compose.test.yaml.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

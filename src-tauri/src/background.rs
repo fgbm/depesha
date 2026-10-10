@@ -2,6 +2,7 @@
 //! starting at login and quitting for real. The window hides instead of closing: the
 //! mail rules and plugins live in its page and keep running.
 
+use depesha_core::best_effort;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -135,18 +136,21 @@ impl Background {
 
     /// Waits for a round of sending to end, at most `limit`.
     pub async fn wait_sending(&self, limit: Duration) {
-        let _ = tokio::time::timeout(limit, async {
-            loop {
-                let notified = self.sent_idle.notified();
-                tokio::pin!(notified);
-                notified.as_mut().enable();
-                if !self.sending.load(Ordering::Acquire) {
-                    return;
+        best_effort(
+            "the wait for sending to end",
+            tokio::time::timeout(limit, async {
+                loop {
+                    let notified = self.sent_idle.notified();
+                    tokio::pin!(notified);
+                    notified.as_mut().enable();
+                    if !self.sending.load(Ordering::Acquire) {
+                        return;
+                    }
+                    notified.await;
                 }
-                notified.await;
-            }
-        })
-        .await;
+            })
+            .await,
+        );
     }
 
     /// The window now holds (or no longer holds) letters being written.
@@ -181,9 +185,9 @@ impl Background {
 /// Brings the main window forward: from the tray, a notification, a second launch.
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        best_effort("show the window", w.show());
+        best_effort("unminimize the window", w.unminimize());
+        best_effort("focus the window", w.set_focus());
     }
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         crate::tray::refresh_soon(&state);
@@ -201,7 +205,7 @@ pub fn main_hidden(app: &AppHandle) -> bool {
 /// Hides the main window; the app works on.
 pub fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
+        best_effort("hide the window", w.hide());
     }
     if let Some(state) = app.try_state::<Arc<AppState>>() {
         crate::tray::refresh_soon(&state);
@@ -304,9 +308,9 @@ fn quit_windows(app: &AppHandle) {
             continue;
         }
         if let Some(w) = app.get_webview_window(label) {
-            let _ = w.show();
-            let _ = w.set_focus();
-            let _ = w.close();
+            best_effort("show the window", w.show());
+            best_effort("focus the window", w.set_focus());
+            best_effort("close the window", w.close());
         }
     }
 }

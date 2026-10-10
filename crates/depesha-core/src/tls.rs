@@ -1,4 +1,3 @@
-use std::fmt::Write as _;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
@@ -164,7 +163,7 @@ fn describe(host: &str, cert: &CertificateDer<'_>, sha256: String, err: &rustls:
 pub(crate) fn sha256_hex(der: &[u8]) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA256, der);
     digest.as_ref().iter().fold(String::with_capacity(64), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
+        s.push_str(&format!("{b:02x}"));
         s
     })
 }

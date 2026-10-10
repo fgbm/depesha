@@ -2,6 +2,12 @@
 //! including a misconfigured client connector (587 without STARTTLS, AUTH GSSAPI NTLM only).
 //! Needs no network beyond localhost; always runs.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use depesha_core::account::{Credentials, Security, ServerConfig};
 use depesha_core::domain::Addr;
 use depesha_core::domain::Draft;

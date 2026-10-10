@@ -2,6 +2,7 @@
 //! click that brings the window or hides it. On Linux the icon goes through
 //! StatusNotifierItem (ksni): a left click arrives as activation, the menu is on the right.
 
+use depesha_core::best_effort;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -406,7 +407,7 @@ pub fn refresh(app: &AppHandle) {
     let count = if settings.tray_count { unread } else { 0 };
     if let Some(w) = app.get_webview_window("main") {
         // Docks that count (Ubuntu Dock, KDE) show it too; Windows has no such badge.
-        let _ = w.set_badge_count((count > 0).then_some(count as i64));
+        best_effort("set the badge", w.set_badge_count((count > 0).then_some(count as i64)));
     }
     let Some(icon) = lock(&state.tray.icon).clone() else {
         return;
@@ -415,7 +416,10 @@ pub fn refresh(app: &AppHandle) {
         .get_webview_window("main")
         .and_then(|w| w.is_visible().ok())
         .unwrap_or(false);
-    let _ = icon.set_visible(settings.tray_always || !window_shown);
+    best_effort(
+        "set the tray icon visibility",
+        icon.set_visible(settings.tray_always || !window_shown),
+    );
 
     let now = chrono::Utc::now().timestamp();
     let clock = |t: i64| {
@@ -459,7 +463,7 @@ pub fn refresh(app: &AppHandle) {
     if old_menu.as_ref() != Some(&model) {
         match build_menu(app, &model) {
             Ok(m) => {
-                let _ = icon.set_menu(Some(m));
+                best_effort("set the tray menu", icon.set_menu(Some(m)));
             }
             Err(e) => tracing::warn!("tray menu: {e}"),
         }
@@ -467,10 +471,13 @@ pub fn refresh(app: &AppHandle) {
     if old_badge.as_ref() != Some(&badge)
         && let Some((rgba, size)) = base_icon()
     {
-        let _ = icon.set_icon(Some(Image::new_owned(badge_icon(&rgba, size, count), size, size)));
+        best_effort(
+            "set the tray icon",
+            icon.set_icon(Some(Image::new_owned(badge_icon(&rgba, size, count), size, size))),
+        );
     }
     if old_hint.as_ref() != Some(&hint) {
-        let _ = icon.set_tooltip(Some(&hint));
+        best_effort("set the tray tooltip", icon.set_tooltip(Some(&hint)));
     }
     *shown = Some((model, badge, hint));
 }

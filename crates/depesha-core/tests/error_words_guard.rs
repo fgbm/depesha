@@ -4,6 +4,12 @@
 //! outside a log call is listed here with why it is safe, and a new one fails the test until it is
 //! reasoned about (carry the error itself, as `Ended::Finished.skipped` does, or word it through
 //! `outbox::Words`).
+
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
 use std::fs;
 use std::path::Path;
 

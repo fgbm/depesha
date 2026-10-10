@@ -1,5 +1,6 @@
 // Samples of every wording the core's `Error` has, shared by the golden test of the user's
 // texts (#142). No `use`: the includer has `depesha_core::Error` in scope as `Error`.
+#[allow(clippy::too_many_lines, reason = "a list of samples, one line each: the list is the function")]
 fn samples() -> Vec<(String, Error)> {
     use async_imap::error::Error as I;
     use std::io::{Error as IoErr, ErrorKind as K};

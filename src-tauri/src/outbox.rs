@@ -138,6 +138,10 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             Attempt::Held(Hold::NoAccount) => continue,
             Attempt::Delivered(sent) => {
                 state.task_done(&key);
+                #[allow(
+                    clippy::expect_used,
+                    reason = "`attempt` delivers only with a mailbox: without one it answers `Held(NoAccount)`"
+                )]
                 let account = account.expect("a delivered letter had its mailbox");
                 if !sent.letter_cached {
                     state.emit("app-error", json!({ "message": tr!("sent, but the Sent folder is unknown: the copy was not saved", "письмо отправлено, но папка «Отправленные» неизвестна: копия не сохранена") }));

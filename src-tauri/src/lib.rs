@@ -30,6 +30,7 @@ mod updater;
 mod waiting;
 mod worker;
 
+use depesha_core::best_effort;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -102,7 +103,7 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
     tracing::error!(kind = e.kind().as_str(), "the cache did not open: {e}");
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
+        best_effort("hide the window", w.hide());
     }
     let handle = app.handle().clone();
     app.dialog()
@@ -113,6 +114,14 @@ fn refuse_to_start(app: &tauri::App, e: &depesha_core::Error) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[allow(
+    clippy::expect_used,
+    reason = "the app cannot go on without its event loop: ending the process is the only answer"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "the Tauri builder: plugins, handlers and setup in the order they register; each step is one line of a list"
+)]
 pub fn run() {
     // Mesa's GBM frees a device twice when WebKitWebProcess exits and the process dies with
     // SEGV (#73); without the DMA-BUF renderer WebKit does not go there. A value the user set,
@@ -240,8 +249,8 @@ pub fn run() {
             if !background::starts_hidden(&args, &settings)
                 && let Some(w) = app.get_webview_window("main")
             {
-                let _ = w.show();
-                let _ = w.set_focus();
+                best_effort("show the window", w.show());
+                best_effort("focus the window", w.set_focus());
             }
             background::sync_autostart(app.handle(), None, &settings);
             tray::start(app.handle());

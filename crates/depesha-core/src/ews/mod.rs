@@ -65,14 +65,6 @@ impl Session {
         self.receiver = receiver;
     }
 
-    async fn ensure_conn(&mut self) -> Result<()> {
-        if self.conn.as_ref().is_none_or(Connection::is_closed) {
-            self.conn = Some(Connection::open(&self.url, self.pinned.as_deref()).await?);
-            self.conn_ready = false;
-        }
-        Ok(())
-    }
-
     fn headers(&self) -> Vec<(&'static str, String)> {
         let mut h = vec![
             ("Content-Type", "text/xml; charset=utf-8".into()),
@@ -87,9 +79,16 @@ impl Session {
 
     /// Sends one request on the session's connection, logging it in first under NTLM.
     async fn send(&mut self, body: Vec<u8>) -> Result<crate::http::Response> {
-        self.ensure_conn().await?;
         let mut headers = self.headers();
-        let conn = self.conn.as_mut().expect("opened above");
+        // A connection that is gone or was closed is opened afresh, and the NTLM login with it is forgotten.
+        let conn = match self.conn.take() {
+            Some(c) if !c.is_closed() => c,
+            _ => {
+                self.conn_ready = false;
+                Connection::open(&self.url, self.pinned.as_deref()).await?
+            }
+        };
+        let conn = self.conn.insert(conn);
         if let Auth::Ntlm(scheme) = self.auth
             && !self.conn_ready
         {

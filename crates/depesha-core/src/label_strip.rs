@@ -111,22 +111,31 @@ pub enum Ended {
     },
 }
 
+/// The label to take off: the mailbox, its name in the list and the keyword on the letters.
+pub struct LabelKey<'a> {
+    pub account_id: &'a str,
+    pub name: &'a str,
+    pub keyword: &'a str,
+}
+
 /// Takes the keyword off every selectable folder of the mailbox, one work per folder.
 /// `progress(done, total)` is told at the start and after each folder, unless the try repeats
 /// one that came to nothing (the tasks window is left as it was). `queue`: the mailbox's, none
 /// when it is not running (a mailbox gone mid-walk is a retry too). `now` is the caller's clock,
 /// read once the walk is over: a stall is stamped when the try ended, not when it began.
-#[allow(clippy::too_many_arguments)]
 pub async fn strip<Q: MailQueue>(
     store: &Store,
     stripping: &Stripping,
     mut queue: Option<&mut Q>,
-    account_id: &str,
-    name: &str,
-    keyword: &str,
+    label: LabelKey<'_>,
     now: &(dyn Fn() -> i64 + Sync),
     progress: &mut (dyn FnMut(u64, u64) + Send),
 ) -> Result<Ended> {
+    let LabelKey {
+        account_id,
+        name,
+        keyword,
+    } = label;
     let folders: Vec<String> = store
         .folders(Some(account_id))
         .unwrap_or_default()
@@ -246,9 +255,11 @@ mod tests {
             store,
             stripping,
             queue,
-            "a",
-            "Счета",
-            &keyword_of("Счета"),
+            LabelKey {
+                account_id: "a",
+                name: "Счета",
+                keyword: &keyword_of("Счета"),
+            },
             &|| now,
             &mut |d, t| seen.push((d, t)),
         )
@@ -435,9 +446,11 @@ mod tests {
             &store,
             &stripping,
             Some(&mut queue),
-            "a",
-            "Счета",
-            &keyword_of("Счета"),
+            LabelKey {
+                account_id: "a",
+                name: "Счета",
+                keyword: &keyword_of("Счета"),
+            },
             &|| clock.load(std::sync::atomic::Ordering::SeqCst),
             &mut |_, _| {
                 clock.fetch_add(500, std::sync::atomic::Ordering::SeqCst);

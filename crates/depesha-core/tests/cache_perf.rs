@@ -7,6 +7,12 @@
 //! `DEPESHA_PERF_N` sets the size of the mailbox (default 50 000); with `DEPESHA_PERF_KEEP`
 //! the cache file stays for a look in the sqlite3 shell.
 
+#![cfg(test)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "a scenario test reads from the first line to the last: its steps are its length"
+)]
+
 use std::time::{Duration, Instant};
 
 use depesha_core::domain::Addr;

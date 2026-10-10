@@ -144,6 +144,10 @@ const COMMANDS: &[&str] = &[
     "draft_cache_drop",
 ];
 
+#[allow(
+    clippy::expect_used,
+    reason = "a build script has nobody to hand an error to: failing the build is what it must do"
+)]
 fn main() {
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),
