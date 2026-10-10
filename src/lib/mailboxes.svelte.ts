@@ -30,8 +30,14 @@ export class MailboxController {
     getVersion().then((v) => (this.version = v), () => {});
   }
 
-  async loadAccounts() {
-    this.accounts = await api.accounts();
+  /**
+   * `after`: the settings' first read. The mailboxes, and the tree under them, are put in after it: the plugins
+   * add the sidebar's smart rows then, and a tree drawn before them is pushed down under the pointer (#158).
+   */
+  async loadAccounts(after?: Promise<unknown>) {
+    const accounts = await api.accounts();
+    await after;
+    this.accounts = accounts;
   }
 
   scheduleFolders() {

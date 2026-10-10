@@ -74,11 +74,12 @@ export class AppStore {
     extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenMain(this);
     await this.settingsCtl.loadLanguage();
+    const settings = this.settingsCtl.loadFirst();
     // Each request that fails is told and does not hold up the others.
     const [accounts] = await Promise.all([
-      this.mailboxes.loadAccounts().then(() => true, (e) => (this.ui.fail(e), false)),
+      this.mailboxes.loadAccounts(settings).then(() => true, (e) => (this.ui.fail(e), false)),
       this.mailboxes.loadFoldersAndOutbox(),
-      this.settingsCtl.loadFirst(),
+      settings,
       extensions.load(),
       hints.load(),
       peopleBook.load(),

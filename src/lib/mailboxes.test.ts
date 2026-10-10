@@ -18,6 +18,28 @@ function later<T>() {
   return { promise, resolve, reject };
 }
 
+describe("the mailboxes at the start (#158)", () => {
+  it("come in after the settings: the smart rows the plugins add are there before the tree", async () => {
+    const settings = later<void>();
+    api.accounts.mockResolvedValue([{ id: "a" }]);
+    const boxes = new MailboxController({ ui: { fail: vi.fn() } });
+    const read = boxes.loadAccounts(settings.promise);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(boxes.accounts).toEqual([]);
+    settings.resolve();
+    await read;
+    expect(boxes.accounts).toEqual([{ id: "a" }]);
+  });
+
+  it("come in at once without a settings read to wait for", async () => {
+    api.accounts.mockResolvedValue([{ id: "a" }]);
+    const boxes = new MailboxController({ ui: { fail: vi.fn() } });
+    await boxes.loadAccounts();
+    expect(boxes.accounts).toEqual([{ id: "a" }]);
+  });
+});
+
 describe("the first read of the sidebar's data (#158)", () => {
   const fail = vi.fn();
   beforeEach(() => vi.clearAllMocks());

@@ -39,6 +39,8 @@ beforeEach(() => {
   app.settingsCtl.settings = settings();
   api.settings.mockResolvedValue(settings());
   api.language.mockResolvedValue("ru");
+  // The plugins start after the settings are read, by which time the window has taken its accounts.
+  api.accounts.mockResolvedValue([]);
   api.people.mockResolvedValue([]);
   api.hints.mockResolvedValue([]);
   const target = document.createElement("div");
