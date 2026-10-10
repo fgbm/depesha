@@ -3221,7 +3221,10 @@ try {
     await d.until("carol inbox filled", async () => {
       const rows = await invoke("messages", { query: { account_id: carol.id, folder: "INBOX", limit: 200 } });
       return rows.length >= 50;
-    }, 60000);
+    }, 60000).catch(async (e) => {
+      const all = await invoke("messages", { query: { account_id: carol.id, folder: "INBOX", limit: 2000 } });
+      throw new Error(`${e.message} (в кэше входящих ${all.length}, на сервере ${helper("count", "INBOX", "Массовое письмо")})`);
+    });
     await d.until("a row to select", async () => (await d.exec("return document.querySelectorAll('.list .row').length")) > 0, 15000);
     await d.click(await d.find(".list .row"));
     const inboxQuery = { account_id: carol.id, folder: "INBOX", limit: 200 };
