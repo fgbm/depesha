@@ -79,10 +79,11 @@ if [[ "${1:-}" == "--changed" ]]; then
   # Config that changes how every file is linted: the whole tree, not the list of changed files.
   lintconf=$(pick '^(eslint|package(-lock)?\.json$|tsconfig|vite\.config)')
   e2e=$(pick '^e2e/')
+  ipcguard=$(pick '^scripts/ipc-callers')
   # Files that exist (not deleted); an array, so that names with spaces survive.
   mapfile -t lintable < <(pick '\.(ts|js|mjs|svelte)$' | while IFS= read -r f; do [[ -f $f ]] && printf '%s\n' "$f"; done)
 
-  if [[ -n $rust$front$e2e ]]; then
+  if [[ -n $rust$front$e2e$ipcguard ]]; then
     step "у каждой IPC-команды есть вызов"
     node scripts/ipc-callers.mjs
   fi
