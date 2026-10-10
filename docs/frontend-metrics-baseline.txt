@@ -4,7 +4,7 @@ component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	272	129	43	100
 component	src/components/AttachmentMenu.svelte	158	9	99	50
 component	src/components/Avatar.svelte	46	12	7	27
-component	src/components/Compose.svelte	1268	399	337	532
+component	src/components/Compose.svelte	1131	262	337	532
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -26,9 +26,9 @@ component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	235	128	33	74
-component	src/components/Preferences.svelte	577	225	80	272
+component	src/components/Preferences.svelte	575	223	80	272
 component	src/components/QuotaLine.svelte	119	29	13	77
-component	src/components/Reader.svelte	338	138	97	103
+component	src/components/Reader.svelte	335	135	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	545	316	50	179
@@ -41,10 +41,10 @@ component	src/components/SignaturePicker.svelte	122	31	31	60
 component	src/components/StuckCopy.svelte	123	55	18	50
 component	src/components/Tasks.svelte	340	87	104	149
 component	src/components/ViewMenu.svelte	257	56	61	140
-component	src/components/Viewer.svelte	256	104	42	110
+component	src/components/Viewer.svelte	254	102	42	110
 component	src/components/WindowControls.svelte	57	16	11	30
 component	src/components/Wizard.svelte	233	27	92	114
-component	src/components/account/AccountPage.svelte	298	97	53	148
+component	src/components/account/AccountPage.svelte	295	94	53	148
 component	src/components/account/AttachmentsDirField.svelte	12	6	6	0
 component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	65	7	16	42
@@ -60,7 +60,7 @@ component	src/components/account/LettersSection.svelte	20	11	9	0
 component	src/components/account/ServerSection.svelte	368	46	84	238
 component	src/components/account/SignatureEditor.svelte	258	101	44	113
 component	src/components/account/SignaturesField.svelte	259	109	52	98
-component	src/components/account/StorageSection.svelte	491	77	173	241
+component	src/components/account/StorageSection.svelte	487	73	173	241
 component	src/components/account/WaitingField.svelte	83	18	28	37
 component	src/components/people/MergeDialog.svelte	244	65	93	86
 component	src/components/people/PeopleView.svelte	578	230	126	222
@@ -68,7 +68,7 @@ component	src/components/people/PickPerson.svelte	128	54	23	51
 component	src/components/prefs/AccountsPanel.svelte	29	18	11	0
 component	src/components/prefs/FolderProps.svelte	415	19	179	217
 component	src/components/prefs/HintsList.svelte	84	32	23	29
-component	src/components/prefs/KeysPanel.svelte	684	78	164	442
+component	src/components/prefs/KeysPanel.svelte	683	77	164	442
 component	src/components/prefs/LayerMark.svelte	44	6	6	32
 component	src/components/prefs/PluginsPanel.svelte	43	8	11	24
 component	src/components/prefs/RowControl.svelte	126	50	67	9
@@ -84,8 +84,8 @@ component	src/components/reader/AttachmentStrip.svelte	249	81	52	116
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	774	351	113	310
 component	src/components/reader/QuickReply.svelte	212	56	31	125
-component	src/components/reader/ReaderBody.svelte	188	109	43	36
-component	src/components/reader/ReaderHeader.svelte	259	90	46	123
+component	src/components/reader/ReaderBody.svelte	185	106	43	36
+component	src/components/reader/ReaderHeader.svelte	256	87	46	123
 component	src/components/reader/ReaderStates.svelte	243	36	77	130
 component	src/components/reader/ReaderToolbar.svelte	172	70	52	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
@@ -112,6 +112,7 @@ function	plugins/command-palette/Palette.svelte::configure	4
 function	plugins/command-palette/Palette.svelte::run	6
 function	plugins/command-palette/Palette.svelte::person	7
 function	plugins/command-palette/Palette.svelte::onKey	19
+function	plugins/command-palette/Palette.test.ts::lit	2
 function	plugins/command-palette/keys.test.ts::cmd	1
 function	plugins/command-palette/keys.ts::editTarget	3
 function	plugins/command-palette/rank.test.ts::cmd	1
@@ -276,6 +277,7 @@ function	src/App.svelte::action	4
 function	src/App.svelte::onKey	57
 function	src/MessageWindow.svelte::onKey	32
 function	src/MessageWindow.test.ts::people	1
+function	src/MessageWindow.test.ts::press	1
 function	src/components/Accounts.svelte::arrange	14
 function	src/components/Accounts.svelte::look	8
 function	src/components/Accounts.svelte::saveName	6
@@ -293,9 +295,7 @@ function	src/components/AddressInput.test.ts::show	7
 function	src/components/AddressInput.test.ts::key	6
 function	src/components/AddressInput.test.ts::type	8
 function	src/components/AttachmentMenu.svelte::onKey	15
-function	src/components/Compose.svelte::formatLabel	3
 function	src/components/Compose.svelte::commitAll	4
-function	src/components/Compose.svelte::name	2
 function	src/components/Compose.svelte::openCopyField	17
 function	src/components/Compose.svelte::openPart	17
 function	src/components/Compose.svelte::dropFile	12
@@ -393,6 +393,8 @@ function	src/components/QuotaLine.svelte::open	4
 function	src/components/Reader.svelte::bannerAction	4
 function	src/components/Reader.svelte::trustSender	6
 function	src/components/Reader.svelte::reply	8
+function	src/components/Reader.svelte.test.ts::row	1
+function	src/components/Reader.svelte.test.ts::opened	5
 function	src/components/RecipientRule.svelte::take	4
 function	src/components/RecipientRule.svelte::back	6
 function	src/components/Recipients.svelte::list	3
@@ -433,6 +435,7 @@ function	src/components/SearchBox.svelte::pick	8
 function	src/components/SearchBox.svelte::clear	5
 function	src/components/SearchBox.svelte::onKey	21
 function	src/components/SearchBox.svelte::addOperator	6
+function	src/components/SearchBox.svelte.test.ts::type	5
 function	src/components/Select.svelte::pick	7
 function	src/components/Select.svelte::onKey	7
 function	src/components/SignaturePicker.svelte::pick	4
@@ -455,6 +458,8 @@ function	src/components/ViewMenu.svelte::add	3
 function	src/components/Viewer.svelte::load	7
 function	src/components/Viewer.svelte::go	4
 function	src/components/Viewer.svelte::onKey	20
+function	src/components/Viewer.svelte.test.ts::file	1
+function	src/components/Viewer.svelte.test.ts::giveUp	1
 function	src/components/account/AccountPage.svelte::track	6
 function	src/components/account/AccountPage.svelte::go	4
 function	src/components/account/AccountPage.svelte::scrollTo	5
@@ -501,7 +506,9 @@ function	src/components/people/People.client.test.ts::olga	1
 function	src/components/people/People.client.test.ts::book	5
 function	src/components/people/People.client.test.ts::press	6
 function	src/components/people/People.client.test.ts::show	7
+function	src/components/people/People.client.test.ts::type	5
 function	src/components/people/People.client.test.ts::manual	1
+function	src/components/people/PeopleView.svelte::narrow	5
 function	src/components/people/PeopleView.svelte::select	3
 function	src/components/people/PeopleView.svelte::move	5
 function	src/components/people/PeopleView.svelte::toggleMark	6
@@ -589,10 +596,13 @@ function	src/components/reader/QuickReply.svelte::nudge	8
 function	src/components/reader/ReaderBody.svelte::setView	4
 function	src/components/reader/ReaderBody.svelte::setRule	9
 function	src/components/reader/ReaderBody.svelte::link	7
+function	src/components/reader/ReaderBody.svelte.test.ts::letter	12
+function	src/components/reader/ReaderBody.svelte.test.ts::on	5
 function	src/components/reader/ReaderHeader.svelte::fromSender	4
 function	src/components/reader/ReaderHeader.test.ts::opened	8
 function	src/components/reader/ReaderHeader.test.ts::draw	11
 function	src/components/reader/ReaderToolbar.svelte::editDraft	8
+function	src/components/reader/useAttachmentViewer.svelte.test.ts::letter	1
 function	src/components/reader/useAttachmentViewer.svelte.ts::useAttachmentViewer	3
 function	src/components/reader/useQuickReply.svelte.ts::useQuickReply	3
 function	src/components/sidebar/DndButton.svelte::setDnd	4
@@ -652,12 +662,15 @@ function	src/lib/background.svelte.ts::tellMissed	16
 function	src/lib/background.test.ts::started	6
 function	src/lib/banner.test.ts::run	1
 function	src/lib/banner.ts::foldBanner	13
+function	src/lib/bus.ts::createBus	35
+function	src/lib/bus.ts::collect	15
 function	src/lib/clearFolder.svelte.ts::text	1
 function	src/lib/clearFolder.svelte.ts::left	22
 function	src/lib/clearFolder.svelte.ts::taskKey	3
 function	src/lib/clearFolder.svelte.ts::parseKey	5
 function	src/lib/clearFolder.test.ts::folder	11
-function	src/lib/clearFolder.test.ts::host	27
+function	src/lib/clearFolder.test.ts::fakeUi	11
+function	src/lib/clearFolder.test.ts::host	25
 function	src/lib/commands.ts::coreCommands	129
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
@@ -691,6 +704,8 @@ function	src/lib/compose.ts::losesFormatting	3
 function	src/lib/compose.ts::head	2
 function	src/lib/compose/autosave.svelte.test.ts::setup	8
 function	src/lib/compose/autosave.svelte.ts::serverDue	3
+function	src/lib/compose/format.svelte.test.ts::letter	5
+function	src/lib/compose/format.svelte.ts::formatLabel	3
 function	src/lib/compose/format.svelte.ts::ruleReturnPlan	3
 function	src/lib/compose/format.svelte.ts::weigh	4
 function	src/lib/compose/layout.ts::visibleChips	5
@@ -712,7 +727,7 @@ function	src/lib/compose/sending.test.ts::win	3
 function	src/lib/compose/sending.test.ts::host	7
 function	src/lib/compose/sending.test.ts::alt	1
 function	src/lib/compose/sending.test.ts::press	1
-function	src/lib/compose/sending.test.ts::sendingHost	19
+function	src/lib/compose/sending.test.ts::sendingHost	14
 function	src/lib/composeKeys.test.ts::press	8
 function	src/lib/composeKeys.test.ts::alt	1
 function	src/lib/composeKeys.ts::composeAction	4
@@ -1225,7 +1240,7 @@ function	src/lib/store.test.ts::acc	2
 function	src/lib/store.test.ts::accWith	7
 function	src/lib/store.test.ts::typing	9
 function	src/lib/store.test.ts::noAnimation	5
-function	src/lib/store.test.ts::caret	21
+function	src/lib/store.test.ts::caret	15
 function	src/lib/store.test.ts::walk	9
 function	src/lib/store.test.ts::started	6
 function	src/lib/stuckCopies.test.ts::task	10
@@ -1253,22 +1268,26 @@ function	src/lib/viewer.ts::blobType	4
 function	src/lib/viewer.ts::decodeText	13
 function	src/lib/viewer.ts::parseCsv	34
 function	src/lib/viewers.ts::registerCoreViewers	3
+function	src/lib/workTime.ts::parseClock	7
+function	src/lib/workTime.ts::formatClock	3
+function	src/lib/workTime.ts::workTimeFrom	8
+function	src/lib/workTime.ts::cleanWorkTime	11
+function	src/plugin-api/boundary.test.ts::files	7
+function	src/plugin-api/boundary.test.ts::imports	4
+function	src/plugin-api/boundary.test.ts::wrong	10
+function	src/plugin-api/boundary.test.ts::bad	8
+function	src/plugin-api/boundary.test.ts::one	1
 function	src/plugin-api/whenMenu.svelte.test.ts::request	9
 function	src/plugin-api/whenMenu.svelte.ts::whenMenuAvailable	3
 function	src/plugin-api/whenMenu.svelte.ts::provideWhenMenu	3
 function	src/plugin-api/whenMenu.svelte.ts::whenMenuRequest	3
 function	src/plugin-api/whenMenu.svelte.ts::openWhenMenu	5
 function	src/plugin-api/whenMenu.svelte.ts::closeWhenMenu	3
-function	src/lib/workTime.ts::parseClock	7
-function	src/lib/workTime.ts::formatClock	3
-function	src/lib/workTime.ts::workTimeFrom	8
-function	src/lib/workTime.ts::cleanWorkTime	11
-function	src/plugin-api/boundary.test.ts::files	7
-function	src/plugin-api/boundary.test.ts::imports	5
 function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
 function	src/plugin-host/host.svelte.ts::sharedCounters	21
 function	src/plugin-host/host.svelte.ts::allCommands	3
+function	src/plugin-host/host.svelte.ts::keybindingRun	3
 function	src/plugin-host/host.svelte.ts::context	80
 function	src/plugin-host/host.svelte.ts::rest#1	2
 function	src/plugin-host/host.svelte.ts::rest#2	2
