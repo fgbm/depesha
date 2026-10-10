@@ -78,6 +78,7 @@ const MIGRATIONS: &[Step] = &[
     people::v23_persons_and_addresses,
     v24_sender_verdict,
     v25_importance,
+    v26_backfills,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -455,11 +456,27 @@ fn v24_sender_verdict(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high.
+/// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high,
+/// NULL not read yet: a letter cached before this step has no importance until its headers
+/// are read (`Store::backfill_importance`, opening it) and an unknown one is the only kind
+/// a search by importance on the server may mark (`Store::set_importance`).
 /// Only the column: reading the headers of the letters already cached is `Store::backfill_importance`,
 /// run in small batches after the start, not here, where it would hold the window back.
 fn v25_importance(conn: &Connection) -> Result<()> {
-    add_column(conn, "messages", "importance", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "messages", "importance", "INTEGER")?;
+    Ok(())
+}
+
+/// 26: where a slow, once-only reading of the cache stopped (`Store::backfill_importance`).
+/// A table of the cache, made by a step, not by the code that uses it.
+fn v26_backfills(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS backfills (
+            name   TEXT PRIMARY KEY,
+            cursor INTEGER NOT NULL DEFAULT 0,
+            done   INTEGER NOT NULL DEFAULT 0
+        );",
+    )?;
     Ok(())
 }
 
@@ -2436,48 +2453,58 @@ impl Store {
     /// the end are kept (`backfills`), so a restart goes on and a finished one is not redone.
     /// Returns true when there is nothing left.
     pub fn backfill_importance(&self, batch: u32) -> Result<bool> {
-        let conn = self.conn();
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS backfills (
-                name   TEXT PRIMARY KEY,
-                cursor INTEGER NOT NULL DEFAULT 0,
-                done   INTEGER NOT NULL DEFAULT 0
-            )",
-        )?;
-        let (cursor, done): (i64, bool) = conn
-            .query_row(
-                "SELECT cursor, done FROM backfills WHERE name = 'importance'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?
-            .unwrap_or((0, false));
-        if done {
-            return Ok(true);
-        }
-        let found: Vec<(i64, Vec<u8>)> = conn
-            .prepare(
-                "SELECT message_id, substr(raw, 1, 65536) FROM bodies WHERE message_id > ?1
-                 ORDER BY message_id LIMIT ?2",
-            )?
-            .query_map(params![cursor, batch], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        let last = found.last().map(|f| f.0);
-        for (id, head) in &found {
-            let importance = crate::message::parse_summary(head).importance;
-            if importance != Importance::Normal {
-                conn.execute(
-                    "UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance = 0",
-                    params![id, importance.to_db()],
-                )?;
+        // Under the lock only the choice of the batch: the first 16 KB of each letter hold its
+        // headers. Reading them takes no lock, and the write is one short transaction.
+        let (cursor, found) = {
+            let conn = self.conn();
+            let (cursor, done): (i64, bool) = conn
+                .query_row(
+                    "SELECT cursor, done FROM backfills WHERE name = 'importance'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?
+                .unwrap_or((0, false));
+            if done {
+                return Ok(true);
+            }
+            let found: Vec<(i64, Vec<u8>)> = conn
+                .prepare(
+                    "SELECT message_id, substr(raw, 1, 16384) FROM bodies WHERE message_id > ?1
+                     ORDER BY message_id LIMIT ?2",
+                )?
+                .query_map(params![cursor, batch], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            (cursor, found)
+        };
+        let high_or_low: Vec<(i64, i64)> = found
+            .iter()
+            .map(|(id, head)| (*id, crate::message::parse_summary(head).importance.to_db()))
+            .collect();
+        let finished = found.len() < batch as usize;
+        let last = found.last().map_or(cursor, |f| f.0);
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        {
+            let mut set = tx.prepare("UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance IS NULL")?;
+            for (id, importance) in high_or_low {
+                set.execute(params![id, importance])?;
             }
         }
-        let finished = found.len() < batch as usize;
-        conn.execute(
+        tx.execute(
             "INSERT OR REPLACE INTO backfills (name, cursor, done) VALUES ('importance', ?1, ?2)",
-            params![last.unwrap_or(cursor), finished],
+            params![last, finished],
         )?;
+        tx.commit()?;
         Ok(finished)
+    }
+
+    /// A letter as cached before importance was read (tests of other modules).
+    #[cfg(test)]
+    pub(crate) fn forget_importance(&self, id: i64) {
+        self.conn()
+            .execute("UPDATE messages SET importance = NULL WHERE id = ?1", [id])
+            .unwrap();
     }
 
     /// What opening a letter learned about its importance (#72). A letter whose MIME says
@@ -2488,21 +2515,29 @@ impl Store {
             return Ok(());
         }
         self.conn().execute(
-            "UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance != ?2",
+            "UPDATE messages SET importance = ?2 WHERE id = ?1 AND importance IS NOT ?2",
             params![id, importance.to_db()],
         )?;
         Ok(())
     }
 
-    /// Letters the server found by their importance (`is:important`) are high, whatever
-    /// the cache knew: a letter cached before the importance was read is not lost (#72).
-    pub fn mark_important(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<()> {
+    /// Letters the server found by their importance (`is:important`) are high (#72). With
+    /// `only_unknown` — IMAP, which searches the headers by a substring — only letters whose
+    /// headers the cache has not read are marked: a summary that was read is believed over
+    /// a substring (`X-Priority: 1` is also in «10»). Without it — Exchange, which found them
+    /// by the property itself — the word of the server is the importance.
+    pub fn set_high(&self, account_id: &str, folder: &str, uids: &[u32], only_unknown: bool) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         {
-            let mut set = tx.prepare(
-                "UPDATE messages SET importance = 1 WHERE account_id = ?1 AND folder = ?2 AND uid = ?3 AND importance != 1",
-            )?;
+            let mut set = tx.prepare(&format!(
+                "UPDATE messages SET importance = 1 WHERE account_id = ?1 AND folder = ?2 AND uid = ?3 AND {}",
+                if only_unknown {
+                    "importance IS NULL"
+                } else {
+                    "importance IS NOT 1"
+                }
+            ))?;
             for uid in uids {
                 set.execute(params![account_id, folder, uid])?;
             }
@@ -2936,7 +2971,7 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
         ORDER BY o.id DESC LIMIT 1),
     EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.anchor = m.message_id
         AND fu.park = 'returned' AND fu.noticed = 0),
-    m.dmarc, m.importance";
+    m.dmarc, COALESCE(m.importance, 0)";
 const COLUMN_COUNT: usize = 31;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
@@ -3731,6 +3766,53 @@ mod tests {
         assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::High);
         store.note_importance(urgent_id, Importance::Low).unwrap();
         assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::Low);
+    }
+
+    #[test]
+    fn the_table_of_the_backfills_belongs_to_a_step_of_the_cache() {
+        let store = mailbox();
+        let conn = store.conn();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM pragma_table_info('backfills')"), 3);
+        // The importance of a letter is unknown (NULL) until its headers are read.
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'importance' AND \"notnull\" = 0"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn a_batch_of_the_backfill_holds_the_cache_for_a_moment() {
+        let store = mailbox();
+        let big = format!("Importance: High\r\nSubject: x\r\n\r\n{}", "тело ".repeat(40_000)).into_bytes();
+        for uid in 1..=100u32 {
+            let id = put(&store, "INBOX", uid, &summary("Письмо", 100 + i64::from(uid)), false);
+            store
+                .conn()
+                .execute(
+                    "INSERT INTO bodies (message_id, raw) VALUES (?1, ?2)",
+                    params![id, big.clone()],
+                )
+                .unwrap();
+            store.forget_importance(id);
+        }
+        store.take_longest_lock();
+        store.backfill_importance(100).unwrap();
+        let held = store.take_longest_lock();
+        assert!(
+            held < Duration::from_millis(250),
+            "the batch held the cache for {held:?}"
+        );
+        // Only the head of a letter is read: the 400 KB of body stay where they are.
+        let high = store
+            .list(&ListQuery::default())
+            .unwrap()
+            .iter()
+            .filter(|r| r.importance == Importance::High)
+            .count();
+        assert_eq!(high, 100);
     }
 
     /// The step only adds the column: the headers of the letters cached before it are read

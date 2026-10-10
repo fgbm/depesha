@@ -506,6 +506,8 @@ struct Scanned {
     /// The item's Exchange categories, as the letter's labels (#42): the sync brings them
     /// into the cache, so a category set in Outlook shows up.
     categories: Vec<String>,
+    /// Exchange's `Importance` of the item (#72): what a search by importance trusts.
+    importance: Importance,
 }
 
 struct Page {
@@ -517,9 +519,10 @@ struct Page {
 
 fn scan_shape() -> String {
     format!(
-        "<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}</t:AdditionalProperties></m:ItemShape>",
+        "<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}{}</t:AdditionalProperties></m:ItemShape>",
         field("item:DateTimeReceived"),
         field("item:Categories"),
+        field("item:Importance"),
         ext(PR_MESSAGE_FLAGS, "Integer"),
         ext(PR_FLAG_STATUS, "Integer"),
         ext(PR_LAST_VERB, "Integer"),
@@ -555,18 +558,28 @@ async fn find_page(
     let total = child(resp, "RootFolder")
         .and_then(|r| r.attribute("TotalItemsInView"))
         .and_then(|v| v.trim().parse().ok());
-    let items = items(resp)
-        .into_iter()
-        .filter_map(|it| {
-            Some(Scanned {
-                id: item_id(it)?,
-                received: text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0),
-                flags: flags_of(&ext_props(it)),
-                categories: categories_of(it),
-            })
-        })
-        .collect();
+    let items = items(resp).into_iter().filter_map(scanned).collect();
     Ok(Page { items, last, total })
+}
+
+fn scanned(it: Node<'_, '_>) -> Option<Scanned> {
+    Some(Scanned {
+        id: item_id(it)?,
+        received: text(it, "DateTimeReceived").and_then(parse_time).unwrap_or(0),
+        flags: flags_of(&ext_props(it)),
+        categories: categories_of(it),
+        importance: text(it, "Importance").map(Importance::from_word).unwrap_or_default(),
+    })
+}
+
+/// What a search by importance keeps of a page: only the items whose own `Importance` is
+/// High. Words of the query may match others; they are not important (#72).
+fn found_by_importance<'a>(items: &'a [Scanned], q: &SearchQuery) -> Vec<&'a Scanned> {
+    items
+        .iter()
+        .filter(|i| !q.flagged || i.flags.flagged)
+        .filter(|i| !q.important || i.importance == Importance::High)
+        .collect()
 }
 
 /// Headers of items for the cache, built from the transport headers when the
@@ -1666,13 +1679,13 @@ pub async fn search_server(
         Some(r) => find_page(s, &fid, 0, 300, Some(r), None).await?,
         None => find_page(s, &fid, 0, 300, None, Some(&query)).await?,
     };
-    let found: Vec<&Scanned> = page.items.iter().filter(|i| !q.flagged || i.flags.flagged).collect();
+    let found = found_by_importance(&page.items, &q);
     let ids: Vec<String> = found.iter().map(|i| i.id.clone()).collect();
     let (fresh, uids) = low_uids(store, account_id, folder, &ids)?;
     add_items(s, store, account_id, folder, &fresh).await?;
-    // Found by importance: high, whatever the cache knew (a letter cached before it was read).
+    // Found by the item's own property: high, whatever the cache knew.
     if q.important {
-        store.mark_important(account_id, folder, &uids)?;
+        store.set_high(account_id, folder, &uids, false)?;
     }
     let mut rows = Vec::with_capacity(uids.len());
     for uid in uids {
@@ -1777,6 +1790,40 @@ mod tests {
             (tag(PR_MESSAGE_FLAGS), "1".to_owned()),
             (tag(PR_LAST_VERB), v.to_owned()),
         ]))
+    }
+
+    #[test]
+    fn a_search_by_importance_keeps_only_the_items_the_server_calls_high() {
+        let page = |importances: &[&str]| {
+            let items: String = importances
+                .iter()
+                .enumerate()
+                .map(|(i, w)| {
+                    format!(
+                        r#"<Message><ItemId Id="id{i}" ChangeKey="k"/><DateTimeReceived>2026-10-01T10:00:00Z</DateTimeReceived><Importance>{w}</Importance></Message>"#
+                    )
+                })
+                .collect();
+            format!(r#"<Items xmlns="http://schemas.microsoft.com/exchange/services/2006/types">{items}</Items>"#)
+        };
+        // A query with words: the server matched the words, and the one it calls Normal is no answer.
+        let xml = page(&["Normal", "High", "Low"]);
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let scanned: Vec<Scanned> = doc
+            .root_element()
+            .children()
+            .filter(|n| n.is_element())
+            .filter_map(super::scanned)
+            .collect();
+        assert_eq!(scanned.len(), 3);
+        let q = SearchQuery::parse("отчёт is:important");
+        let ids: Vec<&str> = found_by_importance(&scanned, &q)
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(ids, ["id1"]);
+        // Without the operator nothing is dropped.
+        assert_eq!(found_by_importance(&scanned, &SearchQuery::parse("отчёт")).len(), 3);
     }
 
     #[test]

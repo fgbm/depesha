@@ -354,16 +354,18 @@ pub async fn search_server(
     found_rows(store, account_id, folder, &q, &uids)
 }
 
-/// The cached rows of the UIDs the server found, newest first. What it found by importance
-/// is high whatever the cache knew: a letter cached before importance was read stays found.
+/// The cached rows of the UIDs the server found, newest first. A letter found by importance
+/// whose headers the cache never read is high from now on; one it read keeps what it read,
+/// and a substring of the server that was wrong drops out of the results.
 fn found_rows(store: &Store, account_id: &str, folder: &str, q: &SearchQuery, uids: &[u32]) -> Result<Vec<i64>> {
     if q.important {
-        store.mark_important(account_id, folder, uids)?;
+        store.set_high(account_id, folder, uids, true)?;
     }
     let mut ids = Vec::with_capacity(uids.len());
     for uid in uids.iter().rev() {
         if let Some(row) = store.find_by_uid(account_id, folder, *uid)?
             && (!q.has_attachment || row.has_attachments)
+            && (!q.important || row.importance == message::Importance::High)
         {
             ids.push(row.id);
         }
@@ -417,11 +419,38 @@ mod tests {
             keywords: Vec::new(),
         };
         let id = store.insert_message("a", "INBOX", &msg).unwrap();
+        // Cached before the importance was read: unknown.
+        store.forget_importance(id);
         assert_eq!(store.get(id).unwrap().unwrap().importance, message::Importance::Normal);
         let q = SearchQuery::parse("is:important");
-        // The cache says normal, the server found it by its headers: it is in the results, high from now on.
+        // The cache never read it, the server found it by its headers: it is in the results, high from now on.
         assert_eq!(found_rows(&store, "a", "INBOX", &q, &[7]).unwrap(), [id]);
         assert_eq!(store.get(id).unwrap().unwrap().importance, message::Importance::High);
+
+        // A letter whose summary was read says normal: the substring of the server is not believed.
+        let calm = message::Summary {
+            subject: "Обычное".into(),
+            ..Default::default()
+        };
+        let known = store
+            .insert_message(
+                "a",
+                "INBOX",
+                &NewMessage {
+                    uid: 8,
+                    summary: &calm,
+                    fallback_date: 2,
+                    size: 1,
+                    flags: Flags::default(),
+                    keywords: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert!(found_rows(&store, "a", "INBOX", &q, &[8]).unwrap().is_empty());
+        assert_eq!(
+            store.get(known).unwrap().unwrap().importance,
+            message::Importance::Normal
+        );
         // An ordinary search leaves the cache alone.
         let ordinary = SearchQuery::parse("срочное");
         assert_eq!(found_rows(&store, "a", "INBOX", &ordinary, &[7]).unwrap(), [id]);

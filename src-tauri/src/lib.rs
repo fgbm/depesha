@@ -451,7 +451,7 @@ pub fn run() {
 /// time with a pause between, so the window and the sync are not held back. The end is
 /// recorded in the cache: the next start finds it done and returns at once.
 async fn read_importance_of_cached(state: std::sync::Arc<state::AppState>) {
-    const BATCH: u32 = 200;
+    const BATCH: u32 = 100;
     loop {
         let st = state.clone();
         let done = tauri::async_runtime::spawn_blocking(move || st.store.backfill_importance(BATCH)).await;
