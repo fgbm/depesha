@@ -49,13 +49,22 @@
     // What is typed is written, and a connection changed and not checked is asked about, before the settings turn elsewhere.
     const leave = () => form.mayLeave();
     const undo = () => own.undo();
+    const settle = () => own.settled();
     app.settingsLeave = leave;
     app.settingsUndo = undo;
+    app.settingsSettle = settle;
     return () => {
       if (app.settingsLeave === leave) app.settingsLeave = null;
       if (app.settingsUndo === undo) app.settingsUndo = null;
+      if (app.settingsSettle === settle) app.settingsSettle = null;
+      app.settingsTyping = false;
       void own.flush();
     };
+  });
+
+  // A quit asks the window first while a text is typed and not left (App.svelte reports it to the backend).
+  $effect(() => {
+    app.settingsTyping = own.typing;
   });
 
   /** A text field: saved when it is left or Enter is pressed. A list, a box or a colour is a pick: saved at once. */
@@ -87,6 +96,9 @@
     });
   });
 </script>
+
+<!-- The window losing the focus (hidden, switched away from) leaves the field like a click elsewhere does. -->
+<svelte:window onblur={() => own.commit()} />
 
 <!-- The events of the fields bubble here: the page decides when a text is committed. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

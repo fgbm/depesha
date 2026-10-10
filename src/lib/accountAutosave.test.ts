@@ -8,7 +8,7 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AccountForm } from "./accountForm.svelte";
 import { AccountAutosave } from "./accountAutosave.svelte";
-import { i18n } from "./i18n.svelte";
+import { i18n, t } from "./i18n.svelte";
 import { app } from "./store.svelte";
 import { api, deferred, resetFakes } from "./testing";
 import type { Account, AccountView } from "./types";
@@ -230,5 +230,119 @@ describe("a field the backend refuses (#102)", () => {
     own.touch();
     await vi.advanceTimersByTimeAsync(100);
     expect(form.fieldErrors.attachments_dir).toBeUndefined();
+  });
+});
+
+describe("what piled up during a check is taken back change by change (#120, 1)", () => {
+  it("Ctrl+Z during «Проверить и сохранить» takes back the last change, not all that was typed", async () => {
+    const { form, own, stored } = open();
+    const check = deferred<void>();
+    api.accountCheck.mockReturnValue(check.promise);
+    form.smtp.port = 25;
+    const saving = form.checkAndSave();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(form.busy).toBe(true);
+    form.label = "Home";
+    own.touch();
+    form.composeFormat = "html";
+    own.touch();
+    expect(await own.undo()).toBe(true);
+    expect(stored().compose_format).toBeUndefined();
+    expect(stored().label).toBe("Home");
+    expect(form.label).toBe("Home");
+    check.resolve();
+    await saving;
+  });
+});
+
+describe("a partly refused write (#120, 2)", () => {
+  it("taking back the other field leaves the refused text and its error where they are", async () => {
+    const { form, own, stored } = open();
+    const write = api.accountPatchOwn.getMockImplementation()!;
+    api.accountPatchOwn.mockImplementation(async (id: string, patch: Record<string, unknown>) => {
+      if (patch.attachments_dir === "/etc") throw { kind: "io", message: "not a folder you picked" };
+      return write(id, patch);
+    });
+    form.attachmentsDir = "/etc";
+    form.composeFormat = "html";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(stored().compose_format).toBe("html");
+    expect(await own.undo()).toBe(true);
+    expect(stored().compose_format).toBeUndefined();
+    expect(form.attachmentsDir).toBe("/etc");
+    expect(form.fieldErrors.attachments_dir).toBe("not a folder you picked");
+  });
+
+  it("names only what was written in the toast", async () => {
+    app.toasts.splice(0);
+    const { form, own } = open();
+    const write = api.accountPatchOwn.getMockImplementation()!;
+    api.accountPatchOwn.mockImplementation(async (id: string, patch: Record<string, unknown>) => {
+      if (patch.attachments_dir === "/etc") throw { kind: "io", message: "no" };
+      return write(id, patch);
+    });
+    form.attachmentsDir = "/etc";
+    form.composeFormat = "html";
+    own.touch();
+    await vi.advanceTimersByTimeAsync(100);
+    const text = app.toasts.map((x) => x.text).join("\n");
+    expect(text).toContain(t("wizard.composeFormat"));
+    expect(text).not.toContain(t("wizard.attachmentsDir"));
+  });
+});
+
+describe("a limit that is not a number (#120, 4)", () => {
+  it("is not saved as the last good prefix when the field is left", async () => {
+    const { form, own } = open();
+    // The page reads the fields at every key (its effect), so «5» is remembered as the last good limit.
+    form.quotaLimitGb = "5";
+    own.typed();
+    form.account();
+    own.touch();
+    form.quotaLimitGb = "5,";
+    form.account();
+    own.touch();
+    own.commit();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(form.limitError).not.toBeNull();
+    expect(api.accountPatchOwn).not.toHaveBeenCalled();
+    form.quotaLimitGb = "5,5";
+    own.commit();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(api.accountPatchOwn).toHaveBeenCalledWith("a", { quota_limit_mb: 5632 });
+  });
+});
+
+describe("a name the backend turns into the address (#120, 5)", () => {
+  it("emptied is written once, not at every focusout", async () => {
+    const { form, own } = open({ ...base, display_name: base.email });
+    // The real backend: an empty name becomes the address.
+    api.accountPatchOwn.mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+      const name = patch.display_name === "" ? base.email : (patch.display_name as string);
+      return { ...base, display_name: name } as Account;
+    });
+    form.name = "";
+    for (let i = 0; i < 3; i++) {
+      own.typed();
+      own.commit();
+      await vi.advanceTimersByTimeAsync(200);
+    }
+    expect(api.accountPatchOwn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a text typed and not left (#120, 3)", () => {
+  it("is known as typing until the field is left, and settled writes it", async () => {
+    const { form, own, stored } = open();
+    form.label = "Typed";
+    own.typed();
+    own.touch();
+    expect(own.typing).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(stored().label).not.toBe("Typed");
+    await own.settled();
+    expect(own.typing).toBe(false);
+    expect(stored().label).toBe("Typed");
   });
 });

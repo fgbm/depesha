@@ -137,15 +137,15 @@
           <span class="anchor">
             <button class="btn ghost icon" aria-haspopup="menu" aria-expanded={menu === sig.id} title={t("account.signatures.menu", { name: sig.name })} aria-label={t("account.signatures.menu", { name: sig.name })} onclick={() => (menu = menu === sig.id ? null : sig.id)}><Ellipsis size={15} /></button>
             <Popover bind:open={() => menu === sig.id, (v) => (menu = v ? sig.id : menu === sig.id ? null : menu)}>
-              <button class="mi" onclick={() => edit(sig.id)}>{t("account.signatures.edit")}<span class="hint">Enter</span></button>
-              <button class="mi" onclick={() => edit(sig.id, true)}>{t("account.signatures.rename")}<span class="hint">F2</span></button>
+              <button class="mi" onclick={() => edit(sig.id)}>{t("account.signatures.edit")}</button>
+              <button class="mi" onclick={() => edit(sig.id, true)}>{t("account.signatures.rename")}</button>
               <button class="mi" disabled={form.defaultSignature === sig.id} onclick={() => { menu = null; form.defaultSignature = sig.id; }}>{t("account.signatures.makeDefault")}</button>
               <button class="mi" disabled={form.replySignature === sig.id} onclick={() => { menu = null; form.replySignature = sig.id; }}>{t("account.signatures.makeReplyDefault")}</button>
               <hr />
               <button class="mi" disabled={i === 0} onclick={() => move(sig.id, -1)}>{t("account.signatures.up")}</button>
               <button class="mi" disabled={i === form.signatures.length - 1} onclick={() => move(sig.id, 1)}>{t("account.signatures.down")}</button>
               <hr />
-              <button class="mi danger-text" onclick={() => remove(sig.id)}>{t("act.delete")}<span class="hint">Del</span></button>
+              <button class="mi danger-text" onclick={() => remove(sig.id)}>{t("act.delete")}</button>
             </Popover>
           </span>
         </div>

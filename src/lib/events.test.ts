@@ -30,6 +30,32 @@ describe("quit, cancel, quit", () => {
   });
 });
 
+describe("a quit while a text is typed in a mailbox's page (#120, 3)", () => {
+  it("writes the text with the drafts before it says the window is through", async () => {
+    const order: string[] = [];
+    const saveComposes = vi.fn(async () => void order.push("drafts"));
+    const settingsSettle = vi.fn(async () => void order.push("settings"));
+    const app = { composes: [], saveComposes, settingsSettle, settingsTyping: true, settings: {}, accounts: [] } as unknown as AppStore;
+    api.composeSaved.mockReset();
+    api.composeSaved.mockImplementation(async () => void order.push("through"));
+    await listenMain(app);
+
+    emit("save-drafts");
+    await flush();
+    expect(order.at(-1)).toBe("through");
+    expect(order).toContain("settings");
+  });
+
+  it("is still reported as unsaved after a cancel while the text is not left", async () => {
+    const app = { composes: [], saveComposes: vi.fn(async () => {}), settingsTyping: true, settings: {}, accounts: [] } as unknown as AppStore;
+    api.composeUnsaved.mockReset();
+    await listenMain(app);
+    emit("quit-cancelled");
+    await flush();
+    expect(api.composeUnsaved).toHaveBeenCalledWith(true);
+  });
+});
+
 describe("a quit called off while the drafts are being saved (#91)", () => {
   it("does not report the window as through after the cancel", async () => {
     let finish = () => {};

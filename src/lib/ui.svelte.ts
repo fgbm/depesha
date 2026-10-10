@@ -81,6 +81,10 @@ export class UiController {
   settingsLeave: (() => Promise<boolean>) | null = null;
   /** Takes back the last change of the open mailbox's page (Ctrl+Z); that page saves apart from the rows. */
   settingsUndo: (() => Promise<boolean>) | null = null;
+  /** Writes what is typed in the open mailbox's page and waits for it: a quit or a hidden window must not lose it. */
+  settingsSettle: (() => Promise<void>) | null = null;
+  /** A text is being typed in the open mailbox's page and not saved yet: a quit asks this window first. */
+  settingsTyping = $state(false);
   /** Focuses the search box; set by the window that owns it. */
   focusSearch: () => void = () => {};
 

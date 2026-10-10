@@ -136,12 +136,13 @@ function quitDrafts(app: AppStore) {
   return {
     async save() {
       const mine = ++quit;
-      await app.saveComposes(4000);
+      // The text typed in a mailbox's page is written with the drafts: a quit does not wait for the focus to leave.
+      await Promise.all([app.saveComposes(4000), app.settingsSettle?.()]);
       if (quit === mine) await api.composeSaved().catch(() => {});
     },
     cancel() {
       quit++;
-      void api.composeUnsaved(app.composes.length > 0).catch(() => {});
+      void api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {});
     },
   };
 }

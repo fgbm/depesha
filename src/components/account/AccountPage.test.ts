@@ -113,3 +113,24 @@ describe("a mailbox's page (#102, 1.7 Б and 3.1 В)", () => {
     }
   });
 });
+
+describe("a text typed in a mailbox's page and not left (#120)", () => {
+  it("tells the app that a text is typed until the field is left, and gives it a way to write it (#120, 3)", async () => {
+    vi.useFakeTimers();
+    try {
+      open();
+      const input = target.querySelectorAll<HTMLInputElement>(".grid input")[0];
+      input.focus();
+      input.value = "Home";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      flushSync();
+      expect(app.settingsTyping).toBe(true);
+      // A quit does not wait for the focus to leave: it asks the page to write what is typed.
+      await app.settingsSettle!();
+      expect(stored.label).toBe("Home");
+      expect(app.settingsTyping).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

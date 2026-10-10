@@ -54,12 +54,33 @@ export function ownOf(a: Account): Record<string, unknown> {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** The patch in the groups its keys were changed in; keys no group names go last, together. */
+function split(patch: Record<string, unknown>, groups: string[][]): Record<string, unknown>[] {
+  const left = new Set(Object.keys(patch));
+  const parts: Record<string, unknown>[] = [];
+  for (const group of [...groups, [...left]]) {
+    const part: Record<string, unknown> = {};
+    for (const key of group) {
+      if (!left.delete(key)) continue;
+      part[key] = patch[key];
+    }
+    if (Object.keys(part).length) parts.push(part);
+  }
+  return parts;
+}
+
 export class AccountAutosave {
   readonly auto: SettingsAutosave;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private chain: Promise<void> = Promise.resolve();
   /** A text is being typed: it is saved when the field is left or Enter is pressed, not at every pause. */
-  private typing = false;
+  private typingNow = $state(false);
+  /**
+   * The keys in the order they were changed, one group for the keys one change moved: a check of
+   * the connection holds the writes back, and what piled up goes in the same groups, so each is
+   * one change to take back.
+   */
+  private batches: string[][] = [];
   /**
    * What the fields said when they were last in step with the saved mailbox. A field that still
    * says it is not a change: opening the page saves nothing, and a value the backend wrote down
@@ -110,6 +131,8 @@ export class AccountAutosave {
     const saved = ownOf(this.saved());
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(OWN)) {
+      // A limit that is not a number yet («5,») is not a limit: the form would give the last good one back.
+      if (key === "quota_limit_mb" && this.form.limitError) continue;
       if (key in this.refused) {
         if (same(mine[key], this.refused[key])) continue;
         this.clear(key);
@@ -119,21 +142,32 @@ export class AccountAutosave {
     return Object.keys(out).length ? out : null;
   }
 
+  /** A text is typed in a field of the page and not yet left. */
+  get typing(): boolean {
+    return this.typingNow;
+  }
+
   /** A text is typed in a field of the page. */
   typed() {
-    this.typing = true;
+    this.typingNow = true;
   }
 
   /** The field was left or Enter was pressed: what was typed is saved now. */
   commit() {
-    this.typing = false;
+    this.typingNow = false;
     void this.flush();
   }
 
   /** The fields changed: a pick is saved at once, a text when it is committed. */
   touch() {
     clearTimeout(this.timer);
-    if (this.typing || !this.diff()) return;
+    const changed = this.diff();
+    if (changed) {
+      const known = new Set(this.batches.flat());
+      const fresh = Object.keys(changed).filter((key) => !known.has(key));
+      if (fresh.length) this.batches.push(fresh);
+    }
+    if (this.typingNow || !changed) return;
     // A moment, so the keys one pick changes together go in one write.
     this.timer = setTimeout(() => void this.flush(), BATCH_MS);
   }
@@ -144,18 +178,32 @@ export class AccountAutosave {
     this.chain = this.chain.then(async () => {
       if (this.form.busy && !force) return;
       const patch = this.diff();
-      if (!patch) return;
-      const names = [...new Set(Object.keys(patch).map((k) => t(OWN[k])))].join(", ");
-      if (await this.auto.commit("account", patch, t("account.autosaved", { names }), names)) {
-        for (const key of Object.keys(patch)) if (!(key in this.refused)) this.baseline[key] = patch[key];
+      if (!patch) {
+        this.batches = [];
+        return;
       }
+      const groups = this.batches;
+      this.batches = [];
+      for (const part of split(patch, groups)) await this.save(part);
     });
     return this.chain;
   }
 
+  /** One change: written, said, and the fields that stand as written are in step with the mailbox. */
+  private async save(patch: Record<string, unknown>) {
+    const names = (keys: string[]) => [...new Set(keys.map((k) => t(OWN[k])))].join(", ");
+    await this.auto.commitWords("account", patch, (keys) => t("account.autosaved", { names: names(keys) }), names);
+    for (const key of Object.keys(patch)) {
+      if (key in this.refused) continue;
+      // Written, or turned into something else by the backend (a name left empty is the address):
+      // the field still says what it said, which is not a change to send again at every focusout.
+      this.baseline[key] = patch[key];
+    }
+  }
+
   /** Everything typed is written and every write is done. */
   async settled(): Promise<void> {
-    this.typing = false;
+    this.typingNow = false;
     await this.flush(true);
     await this.auto.settled();
   }
@@ -173,24 +221,30 @@ export class AccountAutosave {
     await api.accountPatchOwn(this.id, wire);
   }
 
-  private async write(patch: Record<string, unknown>) {
+  /** Writes the patch; answers the keys the backend refused. */
+  private async write(patch: Record<string, unknown>): Promise<string[]> {
+    const refused: string[] = [];
     try {
       await this.send(patch);
     } catch (e) {
       const keys = Object.keys(patch);
       // One refused field must not hold the rest back: each is sent by itself to find which.
-      if (keys.length === 1) this.refuse(keys[0], patch[keys[0]], e);
-      else {
+      if (keys.length === 1) {
+        this.refuse(keys[0], patch[keys[0]], e);
+        refused.push(keys[0]);
+      } else {
         for (const key of keys) {
           try {
             await this.send({ [key]: patch[key] });
           } catch (err) {
             this.refuse(key, patch[key], err);
+            refused.push(key);
           }
         }
       }
     }
     await app.loadAccounts();
+    return refused;
   }
 
   private refuse(key: string, value: unknown, e: unknown) {

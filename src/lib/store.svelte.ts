@@ -97,6 +97,10 @@ export class AppStore {
   set settingsLeave(v) { this.ui.settingsLeave = v; }
   get settingsUndo() { return this.ui.settingsUndo; }
   set settingsUndo(v) { this.ui.settingsUndo = v; }
+  get settingsSettle() { return this.ui.settingsSettle; }
+  set settingsSettle(v) { this.ui.settingsSettle = v; }
+  get settingsTyping() { return this.ui.settingsTyping; }
+  set settingsTyping(v) { this.ui.settingsTyping = v; }
   get focusSearch() { return this.ui.focusSearch; }
   set focusSearch(v) { this.ui.focusSearch = v; }
 
