@@ -1,10 +1,11 @@
 // Files and pictures going into a letter: attached from a dialog, or put into the text
-// of an HTML letter from files, a paste or a drop. The window (Compose.svelte) owns the
-// wording of the toasts and the markup, so every `t("…")` of these actions stays in a
-// component.
+// of an HTML letter from files, a paste or a drop. The window (Compose.svelte) hands over
+// only its letter and the body; the store and the words are reached directly.
 
 import { onMount } from "svelte";
 import { api } from "../api";
+import { app } from "../store.svelte";
+import { t } from "../i18n.svelte";
 import { dataUrlSize, isPictureName } from "../images";
 import { clipboardPictures, picturesFromBlobs, picturesFromFiles, picturesHtml, type FoundPicture } from "../pictureInput";
 import type { ComposeWindow } from "../composes.svelte";
@@ -15,25 +16,6 @@ export interface ComposeAttachHost {
   readonly win: ComposeWindow;
   /** The letter's body and editor: pictures "into the text" go there. */
   readonly format: ComposeFormat;
-  fail(e: unknown, prefix?: string): void;
-  /** A picture too heavy went as a file instead: the toast says so. */
-  toastBig(name: string): void;
-  /** The clipboard does not give its pictures to the page: Ctrl+V does it. */
-  useCtrlV(): void;
-  /** The clipboard holds no picture. */
-  noneInClipboard(): void;
-  /** A picture in the text is shrunk to this many pixels on its long side (Settings → Writing). */
-  imageMaxPx(): number;
-  /** The title of the dialog that picks picture files. */
-  pickTitle(): string;
-  /** The title of the dialog that picks attachments. */
-  attachTitle(): string;
-  /** Files dragged over a window: the two zones and the one under the pointer, if any. */
-  readonly dragging: { zones: boolean } | null;
-  /** The window that takes dropped files: the unfolded one, else the newest. */
-  activeComposeId(): number | undefined;
-  /** Where this window puts pictures dropped "into the text". */
-  pictureTarget(id: number, insert: ((paths: string[]) => Promise<void>) | null): void;
 }
 
 export class ComposeAttachments {
@@ -41,8 +23,8 @@ export class ComposeAttachments {
     // Dropped files go to the window's zones: "into the text" or "attach" (App.svelte).
     onMount(() => {
       const id = this.host.win.id;
-      this.host.pictureTarget(id, (paths) => this.insertPictureFiles(paths));
-      return () => this.host.pictureTarget(id, null);
+      app.compose.pictureTarget(id, (paths) => this.insertPictureFiles(paths));
+      return () => app.compose.pictureTarget(id, null);
     });
   }
 
@@ -50,16 +32,16 @@ export class ComposeAttachments {
   get zones(): boolean {
     const win = this.host.win;
     const format = this.host.format.format;
-    return (format === "html" || format === "markdown") && win.mode !== "min" && !!this.host.dragging?.zones && this.host.activeComposeId() === win.id;
+    return (format === "html" || format === "markdown") && win.mode !== "min" && !!app.compose.dragging?.zones && app.activeCompose()?.id === win.id;
   }
 
   /** Pictures in the text of a letter. An HTML one takes them as `data:` images; a Markdown
    *  one as `![alt](data:image/…)` (decision on #45). A large photo is made smaller first;
    *  one still too big goes as a file, as it would anyway. */
   async addPictures(found: FoundPicture[]) {
-    const { html, ready, tooBig, failed } = await picturesHtml(found, this.host.imageMaxPx());
-    for (const p of await this.attachPictures(tooBig)) this.host.toastBig(p.name);
-    for (const e of failed) this.host.fail(e);
+    const { html, ready, tooBig, failed } = await picturesHtml(found, app.settings.image_max_px);
+    for (const p of await this.attachPictures(tooBig)) app.ui.toast(t("compose.picture.attachedBig", { name: p.name }));
+    for (const e of failed) app.ui.fail(e);
     if (!ready.length) return;
     if (this.host.format.format === "html") {
       if (html) this.host.format.rich?.insertHtml(html);
@@ -79,7 +61,7 @@ export class ComposeAttachments {
         this.host.win.draft.attachments.push({ kind: "file", path, name: p.name, size: dataUrlSize(p.dataUrl) });
         done.push(p);
       } catch (e) {
-        this.host.fail(e);
+        app.ui.fail(e);
       }
     }
     return done;
@@ -92,10 +74,10 @@ export class ComposeAttachments {
       try {
         const info = await api.fileInfo(path);
         this.host.win.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
-        this.host.toastBig(info.name);
+        app.ui.toast(t("compose.picture.attachedBig", { name: info.name }));
       } catch (e) {
         // Not attached: the toast must not say it was.
-        this.host.fail(e, path.split(/[\\/]/).pop() ?? path);
+        app.ui.fail(e, path.split(/[\\/]/).pop() ?? path);
       }
     }
     await this.addPictures(found);
@@ -103,11 +85,11 @@ export class ComposeAttachments {
 
   async pictureFromFile() {
     try {
-      const files = await api.pickFiles(this.host.pickTitle(), true);
+      const files = await api.pickFiles(t("compose.picture.pickTitle"), true);
       for (const f of files.filter((f) => !isPictureName(f.name))) this.host.win.draft.attachments.push({ kind: "file", ...f });
       await this.insertPictureFiles(files.filter((f) => isPictureName(f.name)).map((f) => f.path));
     } catch (e) {
-      this.host.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -118,16 +100,16 @@ export class ComposeAttachments {
 
   async pictureFromClipboard() {
     const blobs = await clipboardPictures();
-    if (blobs === null) return this.host.useCtrlV();
-    if (!blobs.length) return this.host.noneInClipboard();
+    if (blobs === null) return app.ui.toast(t("compose.picture.useCtrlV"));
+    if (!blobs.length) return app.ui.toast(t("compose.picture.noneInClipboard"));
     await this.pastedPictures(blobs);
   }
 
   async attach() {
     try {
-      for (const f of await api.pickFiles(this.host.attachTitle())) this.host.win.draft.attachments.push({ kind: "file", ...f });
+      for (const f of await api.pickFiles(t("compose.attachTitle"))) this.host.win.draft.attachments.push({ kind: "file", ...f });
     } catch (e) {
-      this.host.fail(e);
+      app.ui.fail(e);
     }
   }
 }

@@ -201,12 +201,6 @@ function caret(): { focus: number; at: number | null } {
   };
   const fmt = new ComposeFormat({
     win: app.compose.windows.at(-1)!,
-    windowOf: null,
-    account: (id) => app.account(id),
-    openSettings: () => {},
-    fail: () => {},
-    confirmToPlain: async () => true,
-    formatChanged: () => {},
   });
   fmt.body = field as unknown as HTMLTextAreaElement;
   (fmt as unknown as { placeCaret(): void }).placeCaret();

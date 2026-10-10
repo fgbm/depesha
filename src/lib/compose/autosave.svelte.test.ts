@@ -3,6 +3,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("svelte", async (orig) => ({ ...(await orig<object>()), onDestroy: () => {} }));
+const { fail } = vi.hoisted(() => ({ fail: vi.fn() }));
+vi.mock("../store.svelte", () => ({ app: { ui: { fail } } }));
 vi.mock("../api", async (orig) => ({ ...(await orig<object>()), api: (await import("../testing")).api }));
 
 import { emptyDraft } from "../compose";
@@ -10,12 +12,11 @@ import type { ComposeWindow } from "../composes.svelte";
 import { api } from "../testing";
 import { ComposeAutosave, type ComposeAutosaveHost } from "./autosave.svelte";
 
-const fail = vi.fn();
 
 function setup() {
   const draft = { ...emptyDraft({ name: "Me", email: "me@example.com" }), subject: "Привет" };
   const win = { id: 1, mode: "open", savedAt: null, local_id: "k", account_id: "a", draft, draft_id: null, unsaved: true } as unknown as ComposeWindow;
-  const host: ComposeAutosaveHost = { win, setError: () => {}, clearError: () => {}, draftNotSaved: (e) => e, fail };
+  const host: ComposeAutosaveHost = { win, setError: () => {}, clearError: () => {} };
   // Vitest runs Svelte as on the server: the constructor's $effect is a no-op there.
   const autosave = new ComposeAutosave(host);
   return autosave;

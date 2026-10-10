@@ -1,6 +1,11 @@
 import type { Component } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registry, type ComposeControl } from "../../plugin-host/registry.svelte";
+const { confirm } = vi.hoisted(() => ({ confirm: vi.fn(async () => true) }));
+const colors = vi.hoisted(() => ({ map: {} as Record<string, string> }));
+vi.mock("../store.svelte", () => ({
+  app: { ui: { confirm, fail: () => {}, toast: () => {} }, account: () => undefined, accountColor: (id: string) => colors.map[id] ?? "#000000", send: async () => {}, closeCompose: () => {} },
+}));
 import { emptyDraft } from "../compose";
 import type { ComposeWindow } from "../composes.svelte";
 import { ComposeSending, withArchive, type ComposeSendHost } from "./sending.svelte";
@@ -21,10 +26,10 @@ function win(accountId: string): ComposeWindow {
 }
 
 /** Only the parts the context reads; the rest would be the window's own. */
-function host(w: ComposeWindow, colors: Record<string, string>): ComposeSendHost {
+function host(w: ComposeWindow, mailboxColors: Record<string, string>): ComposeSendHost {
+  colors.map = mailboxColors;
   return {
     win: w,
-    accountColor: (id: string) => colors[id] ?? "#000000",
     format: { insertText: () => {} },
   } as unknown as ComposeSendHost;
 }
@@ -184,11 +189,6 @@ describe("the local copy of a letter that left or was discarded (#147)", () => {
       commitAll: () => true,
       clearError: () => {},
       setError: () => {},
-      sendApp: async () => {},
-      closeCompose: () => {},
-      confirmDiscard: async () => true,
-      account: () => undefined,
-      accountColor: () => "#000000",
       format: { insertText: () => {} },
     } as unknown as ComposeSendHost;
     return { sending: new ComposeSending(h), forgetLocal };

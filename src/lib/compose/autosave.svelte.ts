@@ -1,10 +1,11 @@
 // A draft saves itself a moment after typing stops, as in Gmail and Yandex Mail: closing
 // or folding the window never loses the letter. One save at a time; the content as it was
-// last saved tells whether anything changed. The window (Compose.svelte) owns the wording
-// of a failed save and the markup, so its `t("…")` stays in a component.
+// last saved tells whether anything changed. The window (Compose.svelte) hands over
+// only the letter and its error line.
 
 import { onDestroy, untrack } from "svelte";
 import { api } from "../api";
+import { app } from "../store.svelte";
 import { isDirty } from "../compose";
 import { t } from "../i18n.svelte";
 import type { ComposeWindow } from "../composes.svelte";
@@ -17,10 +18,6 @@ export interface ComposeAutosaveHost {
   setError(message: string): void;
   /** A save that worked: the window's error goes. */
   clearError(): void;
-  /** The message of a failed save. */
-  draftNotSaved(error: string): string;
-  /** A failure that is told in a toast, with the context in front. */
-  fail(e: unknown, prefix?: string): void;
 }
 
 /** Drafts save themselves this long after typing stops. */
@@ -126,7 +123,7 @@ export class ComposeAutosave {
         await this.forgetLocal();
         return true;
       } catch (e) {
-        this.host.setError(this.host.draftNotSaved((e as { message: string }).message));
+        this.host.setError(t("compose.draftNotSaved", { error: (e as { message: string }).message }));
         return false;
       } finally {
         this.saving = null;
@@ -160,7 +157,7 @@ export class ComposeAutosave {
       // Told once per window, not at every autosave.
       if (this.dropTold) return;
       this.dropTold = true;
-      this.host.fail(e, t(`compose.localKept.${reason}`));
+      app.ui.fail(e, t(`compose.localKept.${reason}`));
     }
   }
 

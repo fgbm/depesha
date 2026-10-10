@@ -2,11 +2,12 @@
 // of a reply, all in the letter's own format. Switching the format rewrites the letter
 // (HTML, Markdown or plain text) and the window asks first when the change loses
 // something. The state, the effects and the order are the component's of old; the
-// window (Compose.svelte) owns the markup and supplies the wording of its dialogs, so
-// every `t("…")` of the letter stays in a component.
+// window (Compose.svelte) owns the markup; the store and the words are reached directly.
 
 import { onMount, untrack } from "svelte";
 import { api } from "../api";
+import { app } from "../store.svelte";
+import { t } from "../i18n.svelte";
 import { convertDraft, leavingHtml, losesFormatting } from "../compose";
 import { GAP, QUOTE_CLASS, SIGNATURE_CLASS, htmlHasOwnText, htmlToText, letterText, splitHtmlQuote } from "../richtext";
 import { pictureName, picturesSize, type Picture } from "../images";
@@ -31,15 +32,11 @@ import type { MarkdownField } from "../markdown/types";
 /** What the letter's body and format need from the window. */
 export interface ComposeFormatHost {
   readonly win: ComposeWindow;
-  /** The letter of a separate message window; null in the main window. */
-  readonly windowOf: number | null;
-  account(id: string): AccountView | undefined;
-  openSettings(page?: string, section?: string | null): void;
-  fail(e: unknown, prefix?: string): void;
-  /** Asks before HTML formatting is dropped for plain text. */
-  confirmToPlain(): Promise<boolean>;
-  /** The format changed: a toast says what was lost and offers to undo (frame 8 of the mockup). */
-  formatChanged(from: BodyFormat, to: BodyFormat, undo: () => void): void;
+}
+
+/** The format as the button and the toast show it. */
+export function formatLabel(format: BodyFormat): string {
+  return format === "html" ? t("format.short.html") : format === "markdown" ? t("format.short.markdown") : t("format.plain");
 }
 
 /** The pictures of an HTML letter are weighed this long after typing pauses. */
@@ -103,9 +100,9 @@ export class ComposeFormat {
 
   constructor(host: ComposeFormatHost) {
     this.host = host;
-    this.signatures = $derived(signaturesOf(host.account(host.win.account_id)));
+    this.signatures = $derived(signaturesOf(app.account(host.win.account_id)));
     const { draft } = host.win;
-    this.signature = untrack(() => signatureIn(draft, signaturesOf(host.account(host.win.account_id))));
+    this.signature = untrack(() => signatureIn(draft, signaturesOf(app.account(host.win.account_id))));
     const parts = untrack(() => splitPlain(draft.text));
     this.head = parts.body;
     this.quote = parts.rest;
@@ -275,7 +272,7 @@ export class ComposeFormat {
 
   /** The mailbox's signatures in the settings; a letter's own window has no settings. */
   get signatureSettings(): (() => void) | undefined {
-    return this.host.windowOf === null ? () => this.host.openSettings(`account:${this.host.win.account_id}`, "letters") : undefined;
+    return app.windowOf === null ? () => app.ui.openSettings(`account:${this.host.win.account_id}`, "letters") : undefined;
   }
 
   private plainOf(html: string): string {
@@ -334,7 +331,7 @@ export class ComposeFormat {
    * letter, since only those two carry it.
    */
   setAccount(id: string) {
-    const acc = this.host.account(id);
+    const acc = app.account(id);
     if (!acc) return;
     this.putSignature(this.host.win.draft.in_reply_to ? replySignature(acc) : defaultSignature(acc));
     this.host.win.account_id = id;
@@ -344,7 +341,12 @@ export class ComposeFormat {
   /** Asks what the switch to this format would lose; false when the user said no. */
   private async confirmSwitch(next: BodyFormat): Promise<boolean> {
     const draft = $state.snapshot(this.host.win.draft) as ComposeDraft;
-    if (losesFormatting(draft, next) && !(await this.host.confirmToPlain())) return false;
+    if (losesFormatting(draft, next) && !(await app.ui.confirm({
+        title: t("compose.format.toPlainTitle"),
+        text: t("compose.format.loseHtml"),
+        okLabel: t("compose.format.toPlain"),
+        cancelLabel: t("compose.format.stayHtml"),
+      }))) return false;
     // Markdown keeps pictures in the text now (decision on #45, frame 8): nothing to ask.
     return true;
   }
@@ -380,9 +382,9 @@ export class ComposeFormat {
       win.draft.format = d.format;
       // Frame 8 of the 0.7 mockup: only HTML → text asks first (in `confirmSwitch`); any
       // other change is undone by a toast that names what was lost, or by Ctrl+Z.
-      this.host.formatChanged(from, d.format ?? next, () => this.restore({ ...before, parts: d.parts }));
+      app.ui.toast(t("compose.format.changed", { format: formatLabel(d.format ?? next) }), false, { label: t("undo"), run: () => this.restore({ ...before, parts: d.parts }) });
     } catch (e) {
-      this.host.fail(e);
+      app.ui.fail(e);
     } finally {
       this.switching = false;
     }
@@ -428,7 +430,7 @@ export class ComposeFormat {
         const path = await api.tempAttachment(name, p.base64);
         this.host.win.draft.attachments.push({ kind: "file", path, name, size: Math.floor((p.base64.length * 3) / 4) });
       } catch (e) {
-        this.host.fail(e);
+        app.ui.fail(e);
       }
     }
   }

@@ -1,8 +1,12 @@
 // Sending a letter: the checks before it goes, the send options plugins set, the keys of
-// the window, closing, discarding and folding. The window (Compose.svelte) owns the
-// wording of its messages and its markup, so every `t("…")` stays in a component.
+// the window, closing, discarding and folding. The window (Compose.svelte) hands over only
+// what is its own: the letter, the fields and the error line; the store and the words are
+// reached directly.
 
 import { api } from "../api";
+import { app } from "../store.svelte";
+import { t } from "../i18n.svelte";
+import { hints } from "../hints.svelte";
 import { sendWarnings } from "../sendChecks";
 import { composeAction } from "../composeKeys";
 import { isDirty } from "../compose";
@@ -20,27 +24,11 @@ export interface ComposeSendHost {
   readonly format: ComposeFormat;
   /** The draft saves itself; sending waits for the save it started. */
   readonly autosave: ComposeAutosave;
-  account(id: string): AccountView | undefined;
-  /** The colour marking a mailbox, from the store; changes when the mailbox does. */
-  accountColor(id: string): string;
-  fail(e: unknown, prefix?: string): void;
-  toast(text: string): void;
-  /** Sends the letter through the outbox and closes the window when it is queued. */
-  sendApp(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null): Promise<void>;
-  closeCompose(id: number): void;
-  showCompose(id: number, mode?: "open" | "max"): void;
   /** The address fields were committed; false when something could not be parsed. */
   commitAll(): boolean;
   /** A failed send shows its message in the window; a new send clears it. */
   setError(message: string): void;
   clearError(): void;
-  badAddresses(): string;
-  noRecipients(): string;
-  draftSaved(): string;
-  /** Asks before closing with unsaved changes; true when the user keeps the draft. */
-  confirmClose(): Promise<boolean>;
-  /** Asks before discarding the draft; true when the user agreed. */
-  confirmDiscard(): Promise<boolean>;
   /** The Alt keys of the window (#103): open or switch the part of the letter the key stands for. */
   openPart(part: WindowPart): void;
 }
@@ -132,15 +120,15 @@ export class ComposeSending {
     const { win } = this.host;
     this.host.clearError();
     if (!this.host.commitAll()) {
-      this.host.setError(this.host.badAddresses());
+      this.host.setError(t("compose.badAddresses"));
       return;
     }
     if (win.draft.to.length + win.draft.cc.length + win.draft.bcc.length === 0) {
-      this.host.setError(this.host.noRecipients());
+      this.host.setError(t("compose.noRecipients"));
       return;
     }
     if (!force) {
-      const email = this.host.account(win.account_id)?.email ?? "";
+      const email = app.account(win.account_id)?.email ?? "";
       const draft = $state.snapshot(win.draft);
       this.busy = true;
       let found: string[];
@@ -162,10 +150,13 @@ export class ComposeSending {
       // The saved draft goes away once the letter is sent: the latest copy must be known.
       this.host.autosave.cancel();
       await this.host.autosave.settled();
-      await this.host.sendApp(win.account_id, $state.snapshot(win.draft), win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withArchive(this.options.followup, this.park));
+      const draft = $state.snapshot(win.draft);
+      // The detector of #69 counts a Markdown letter sent to a person without a rule.
+      void hints.recordSend(draft);
+      await app.send(win.account_id, draft, win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withArchive(this.options.followup, this.park));
       // The letter left: its local copy is done with.
       await this.host.autosave.forgetLocal("sent");
-      this.host.closeCompose(win.id);
+      app.closeCompose(win.id);
     } catch (e) {
       this.host.setError((e as { message: string }).message);
     } finally {
@@ -179,23 +170,23 @@ export class ComposeSending {
     this.host.commitAll();
     // The draft is kept before the window goes; a slow server is not waited for past the limit.
     if (this.host.autosave.changed() && !(await within(this.host.autosave.save(true), CLOSE_SAVE_MS))) {
-      if (!(await this.host.confirmClose())) return;
+      if (!(await app.ui.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }))) return;
     }
-    if (win.draft_id !== null) this.host.toast(this.host.draftSaved());
-    this.host.closeCompose(win.id);
+    if (win.draft_id !== null) app.ui.toast(t("compose.draftSaved"));
+    app.closeCompose(win.id);
   }
 
   async discard() {
     const { win } = this.host;
     if (this.busy) return;
     if (isDirty(win.draft)) {
-      if (!(await this.host.confirmDiscard())) return;
+      if (!(await app.ui.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true }))) return;
     }
     this.host.autosave.cancel();
     await this.host.autosave.settled();
     await this.host.autosave.forgetLocal("discard");
-    if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id, win.draft_message_id ?? null).catch((e) => this.host.fail(e));
-    this.host.closeCompose(win.id);
+    if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id, win.draft_message_id ?? null).catch((e) => app.ui.fail(e));
+    app.closeCompose(win.id);
   }
 
   minimize() {
@@ -221,7 +212,7 @@ export class ComposeSending {
 
   toggleMax() {
     if (this.host.win.mode === "max") this.host.win.mode = "open";
-    else this.host.showCompose(this.host.win.id, "max");
+    else app.showCompose(this.host.win.id, "max");
   }
 
   /** The window's keys come from one table (lib/composeKeys.ts); Ctrl+K is left to the palette. */
@@ -329,9 +320,9 @@ function makeContext(host: ComposeSendHost, me: ComposeSending): ComposeContext 
     get draft() {
       return host.win.draft;
     },
-    accountEmail: () => host.account(host.win.account_id)?.email ?? "",
+    accountEmail: () => app.account(host.win.account_id)?.email ?? "",
     accountId: () => host.win.account_id,
-    accountColor: () => host.accountColor(host.win.account_id),
+    accountColor: () => app.accountColor(host.win.account_id),
     insertText: (text: string) => host.format.insertText(text),
     options: me.options,
     onAction: (action, run) => me.onAction(action, run),

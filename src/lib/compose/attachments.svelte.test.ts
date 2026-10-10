@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("svelte", () => ({ onMount: () => {} }));
+const { fail, toast } = vi.hoisted(() => ({ fail: vi.fn(), toast: vi.fn() }));
+vi.mock("../store.svelte", () => ({ app: { ui: { fail, toast }, settings: { image_max_px: 1600 } } }));
 vi.mock("../api", async (orig) => ({ ...(await orig<object>()), api: (await import("../testing")).api }));
 vi.mock("../pictureInput", () => ({
   picturesFromBlobs: async () => [{ name: "a.png", mime: "image/png", base64: "AAAA", dataUrl: "data:image/png;base64,AAAA" }],
@@ -19,10 +21,6 @@ describe("pasted pictures", () => {
     const host = {
       win: { draft: { attachments } },
       format: { format: "markdown", insertPictures },
-      imageMaxPx: () => 1600,
-      fail: (e: unknown) => {
-        throw e;
-      },
     } as unknown as ComposeAttachHost;
     await new ComposeAttachments(host).pastedPictures([new Blob(["x"])]);
     expect(insertPictures).toHaveBeenCalledTimes(1);
@@ -35,12 +33,12 @@ describe("a picture that cannot go into the text (#147)", () => {
     const boom = new Error("file gone");
     api.fileInfo.mockRejectedValue(boom);
     const attachments: unknown[] = [];
-    const fail = vi.fn();
-    const toastBig = vi.fn();
-    const host = { win: { draft: { attachments } }, format: {}, imageMaxPx: () => 1600, fail, toastBig } as unknown as ComposeAttachHost;
+    fail.mockClear();
+    toast.mockClear();
+    const host = { win: { draft: { attachments } }, format: {} } as unknown as ComposeAttachHost;
     await new ComposeAttachments(host).insertPictureFiles(["/tmp/big.png"]);
     expect(attachments).toHaveLength(0);
     expect(fail).toHaveBeenCalledWith(boom, "big.png");
-    expect(toastBig).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 });

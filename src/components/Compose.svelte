@@ -41,7 +41,7 @@
   import Popover from "./Popover.svelte";
   import AttachmentMenu from "./AttachmentMenu.svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
-  import { ComposeFormat } from "../lib/compose/format.svelte";
+  import { ComposeFormat, formatLabel } from "../lib/compose/format.svelte";
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
   import { ComposeAttachments } from "../lib/compose/attachments.svelte";
@@ -69,11 +69,6 @@
   let fromOpen = $state(false);
   let filesOpen = $state(false);
 
-  /** The format as the button's label shows it. */
-  function formatLabel(format: BodyFormat): string {
-    return format === "html" ? t("format.short.html") : format === "markdown" ? t("format.short.markdown") : t("format.plain");
-  }
-
   function commitAll(): boolean {
     const ok = [toInput, ccInput, bccInput].map((i) => i?.commit() ?? true);
     return ok.every(Boolean);
@@ -83,23 +78,6 @@
     get win() {
       return c;
     },
-    get windowOf() {
-      return app.windowOf;
-    },
-    account: (id) => app.account(id),
-    openSettings: (page, section) => app.ui.openSettings(page, section),
-    fail: (e, prefix) => app.ui.fail(e, prefix),
-    confirmToPlain: () =>
-      app.ui.confirm({
-        title: t("compose.format.toPlainTitle"),
-        text: t("compose.format.loseHtml"),
-        okLabel: t("compose.format.toPlain"),
-        cancelLabel: t("compose.format.stayHtml"),
-      }),
-    formatChanged: (from, to, undo) => {
-      const name = (f: BodyFormat) => (f === "html" ? t("format.short.html") : f === "markdown" ? t("format.short.markdown") : t("format.plain"));
-      app.ui.toast(t("compose.format.changed", { format: name(to) }), false, { label: t("undo"), run: undo });
-    },
   });
 
   const auto = new ComposeAutosave({
@@ -108,8 +86,6 @@
     },
     setError: (m) => (error = m),
     clearError: () => (error = ""),
-    draftNotSaved: (err) => t("compose.draftNotSaved", { error: err }),
-    fail: (e, prefix) => app.ui.fail(e, prefix),
   });
 
   // A quit or a closing window saves this draft through the manager, before it goes (#71).
@@ -121,25 +97,9 @@
     },
     format: fmt,
     autosave: auto,
-    account: (id) => app.account(id),
-    accountColor: (id) => app.accountColor(id),
-    fail: (e, prefix) => app.ui.fail(e, prefix),
-    toast: (text) => app.ui.toast(text),
-    sendApp: (a, d, id, mid, at, secs, f) => {
-      // The detector of #69 counts a Markdown letter sent to a person without a rule.
-      void hints.recordSend(d);
-      return app.send(a, d, id, mid, at, secs, f);
-    },
-    closeCompose: (id) => app.closeCompose(id),
-    showCompose: (id, mode) => app.showCompose(id, mode),
     commitAll,
     setError: (m) => (error = m),
     clearError: () => (error = ""),
-    badAddresses: () => t("compose.badAddresses"),
-    noRecipients: () => t("compose.noRecipients"),
-    draftSaved: () => t("compose.draftSaved"),
-    confirmClose: () => app.ui.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }),
-    confirmDiscard: () => app.ui.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true }),
     openPart: (part) => void openPart(part),
   });
 
@@ -148,105 +108,12 @@
       return c;
     },
     format: fmt,
-    fail: (e, prefix) => app.ui.fail(e, prefix),
-    toastBig: (name) => app.ui.toast(t("compose.picture.attachedBig", { name })),
-    useCtrlV: () => app.ui.toast(t("compose.picture.useCtrlV")),
-    noneInClipboard: () => app.ui.toast(t("compose.picture.noneInClipboard")),
-    pickTitle: () => t("compose.picture.pickTitle"),
-    attachTitle: () => t("compose.attachTitle"),
-    get dragging() {
-      return app.compose.dragging;
-    },
-    activeComposeId: () => app.activeCompose()?.id,
-    pictureTarget: (id, insert) => app.compose.pictureTarget(id, insert),
-    imageMaxPx: () => app.settings.image_max_px,
   });
 
-  // What the markup reads and writes: the window's own state, the letter's (fmt) and the
-  // controllers' — one name for each, as the markup always had.
-  const m = {
-    get width() { return width; },
-    set width(v: number) { width = v; },
-    get error() { return error; },
-    get showCc() { return showCc; },
-    set showCc(v: boolean) { showCc = v; },
-    get showBcc() { return showBcc; },
-    set showBcc(v: boolean) { showBcc = v; },
-    get toInput() { return toInput; },
-    set toInput(v: AddressInput | null) { toInput = v; },
-    get ccInput() { return ccInput; },
-    set ccInput(v: AddressInput | null) { ccInput = v; },
-    get bccInput() { return bccInput; },
-    set bccInput(v: AddressInput | null) { bccInput = v; },
-    get rich() { return fmt.rich; },
-    set rich(v: RichEditor | null) { fmt.rich = v; },
-    get bar() { return fmt.bar; },
-    set bar(v: FormatBar | null) { fmt.bar = v; },
-    get body() { return fmt.body; },
-    set body(v: HTMLTextAreaElement | MarkdownField | null) { fmt.body = v; },
-    get areaWidth() { return fmt.areaWidth; },
-    set areaWidth(v: number) { fmt.areaWidth = v; },
-    get head() { return fmt.head; },
-    set head(v: string) { fmt.head = v; },
-    get htmlBody() { return fmt.htmlBody; },
-    set htmlBody(v: string) { fmt.htmlBody = v; },
-    get quote() { return fmt.quote; },
-    set quote(v: string) { fmt.quote = v; },
-    get quoteOpen() { return fmt.quoteOpen; },
-    set quoteOpen(v: boolean) { fmt.quoteOpen = v; },
-    get markup() { return fmt.markup; },
-    set markup(v: boolean) { fmt.markup = v; },
-    get format() { return fmt.format; },
-    get switching() { return fmt.switching; },
-    get signature() { return fmt.signature; },
-    get signatureView() { return signatureShown(fmt.format, fmt.signature); },
-    get signatures() { return fmt.signatures; },
-    get quoteHeader() { return fmt.quoteHeader; },
-    get signatureSettings() { return fmt.signatureSettings; },
-    get textPictures() { return fmt.textPictures; },
-    get total() { return c.draft.attachments.reduce((n, a) => n + a.size, 0) + fmt.pictures; },
-    get zones() { return files.zones; },
-    get savedText() { return c.savedAt ? t("compose.savedAt", { time: listDate(Math.floor(c.savedAt / 1000)) }) : ""; },
-    get savingNow() { return auto.savingNow; },
-    get busy() { return sending.busy; },
-    get warnings() { return sending.warnings; },
-    set warnings(v: string[] | null) { sending.warnings = v; },
-    get pendingAt() { return sending.pendingAt; },
-    get options() { return sending.options; },
-    get controls() { return sending.controls; },
-    get FORMATS() { return FORMATS; },
-    putSignature: (sig: Signature | null) => fmt.putSignature(sig),
-    setAccount: (id: string) => fmt.setAccount(id),
-    setFormat: (next: BodyFormat) => fmt.setFormat(next),
-    onBodyFocus: () => fmt.onBodyFocus(),
-    onKey: (e: KeyboardEvent) => sending.onKey(e),
-    close: () => sending.close(),
-    discard: () => sending.discard(),
-    saveDraft: () => sending.saveDraft(),
-    get important() { return c.draft.importance === "high"; },
-    toggleImportance: () => sending.toggleImportance(),
-    get menuOpen() { return menuOpen; },
-    set menuOpen(v: boolean) { menuOpen = v; },
-    get moreOpen() { return moreOpen; },
-    set moreOpen(v: boolean) { moreOpen = v; },
-    get fromOpen() { return fromOpen; },
-    set fromOpen(v: boolean) { fromOpen = v; },
-    get filesOpen() { return filesOpen; },
-    set filesOpen(v: boolean) { filesOpen = v; },
-    minimize: () => sending.minimize(),
-    toggleMax: () => sending.toggleMax(),
-    send: (at: number | null = null, force = false) => sending.send(at, force),
-    pictureFromFile: () => files.pictureFromFile(),
-    pictureFromClipboard: () => files.pictureFromClipboard(),
-    pastedPictures: (blobs: Blob[]) => files.pastedPictures(blobs),
-    attach: () => files.attach(),
-  };
-
-  const FORMATS: { value: BodyFormat; label: () => string }[] = [
-    { value: "plain", label: () => t("format.plain") },
-    { value: "html", label: () => t("format.short.html") },
-    { value: "markdown", label: () => t("format.short.markdown") },
-  ];
+  const FORMATS: BodyFormat[] = ["plain", "html", "markdown"];
+  const important = $derived(c.draft.importance === "high");
+  const total = $derived(c.draft.attachments.reduce((n, a) => n + a.size, 0) + fmt.pictures);
+  const savedText = $derived(c.savedAt ? t("compose.savedAt", { time: listDate(Math.floor(c.savedAt / 1000)) }) : "");
 
   peopleBook.load();
 
@@ -308,7 +175,7 @@
   // scrolled out of sight under the strips, and a drop target must be where the pointer can reach it.
   // Once the zones are gone (the drag left, or dropped) the letter is scrolled back to where it was.
   $effect(() => {
-    if (!m.zones || !bodyFrame) return;
+    if (!files.zones || !bodyFrame) return;
     const scroller = bodyFrame.closest<HTMLElement>(".scroll");
     const was = scroller?.scrollTop ?? 0;
     bodyFrame.scrollIntoView({ block: "nearest" });
@@ -398,7 +265,7 @@
 
 
 {#snippet signatureChip()}
-  <SignaturePicker variant="chip" signatures={m.signatures} current={m.signature} onpick={m.putSignature} onsettings={m.signatureSettings} />
+  <SignaturePicker variant="chip" signatures={fmt.signatures} current={fmt.signature} onpick={(sig: Signature | null) => fmt.putSignature(sig)} onsettings={fmt.signatureSettings} />
 {/snippet}
 
 {#snippet formatIcon(format: BodyFormat)}
@@ -419,38 +286,38 @@
   class:max={c.mode === "max"}
   data-compose={c.id}
   style:--min-body="{MIN_BODY_PX}px"
-  bind:clientWidth={m.width}
+  bind:clientWidth={width}
   role="dialog"
   aria-label={c.draft.subject.trim() || t("compose.newMessage")}
   tabindex="-1"
-  onkeydown={m.onKey}
+  onkeydown={(e: KeyboardEvent) => sending.onKey(e)}
 >
   <!-- The mailbox is in the title (#103, 1.1 Б): there is no «From» row. A plugin that names the
        mailbox colour puts it on this bar through `--row-tint` (account-color). -->
   <header>
-    {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
-    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.draft.subject.trim() || (c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold"))}>
+    {#each sending.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
+    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : sending.minimize())} title={c.draft.subject.trim() || (c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold"))}>
       {c.draft.subject.trim() || t("compose.newMessage")}
     </button>
     {#if c.mode !== "min"}
-      <span class="saved" aria-live="polite">{m.savingNow ? t("compose.saving") : m.savedText}</span>
+      <span class="saved" aria-live="polite">{auto.savingNow ? t("compose.saving") : savedText}</span>
       {#if fromAccount}
         <span class="anchor mailbox-anchor">
           {#if app.accounts.length > 1}
             <button
               class="mailbox"
-              onclick={() => (m.fromOpen = !m.fromOpen)}
+              onclick={() => (fromOpen = !fromOpen)}
               title={t("compose.mailbox.change", { name: fromFull })}
               aria-label={t("compose.mailbox.change", { name: fromFull })}
               aria-haspopup="menu"
-              aria-expanded={m.fromOpen}
+              aria-expanded={fromOpen}
             >
               <i class="dot" style:background={app.accountColor(c.account_id)}></i><span class="mb-name">{mailboxName(fromAccount)}</span><ChevronDown size={12} />
             </button>
-            <Popover bind:open={m.fromOpen}>
+            <Popover bind:open={fromOpen}>
               <div class="mt">{t("compose.fwd.from")}</div>
               {#each app.accounts as a (a.id)}
-                <button class="mi" role="menuitemradio" aria-checked={a.id === c.account_id} data-value={a.id} onclick={() => { m.fromOpen = false; m.setAccount(a.id); }}>
+                <button class="mi" role="menuitemradio" aria-checked={a.id === c.account_id} data-value={a.id} onclick={() => { fromOpen = false; fmt.setAccount(a.id); }}>
                   <span class="tick">{#if a.id === c.account_id}<Check size={14} />{/if}</span>
                   <i class="dot" style:background={app.accountColor(a.id)}></i>
                   {(a.label?.trim() ? `${accountLabel(a)} — ` : "") + (a.display_name ? `${a.display_name} <${a.email}>` : a.email)}
@@ -465,30 +332,30 @@
         </span>
       {/if}
     {/if}
-    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.mode === "min" ? t("compose.restore") : shortcuts.titled(t("compose.minimize"), "compose.fold")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
+    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : sending.minimize())} title={c.mode === "min" ? t("compose.restore") : shortcuts.titled(t("compose.minimize"), "compose.fold")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
       <Minus size={15} />
     </button>
-    <button class="hb" onclick={m.toggleMax} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>
+    <button class="hb" onclick={() => sending.toggleMax()} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>
       {#if c.mode === "max"}<Minimize size={14} />{:else}<Maximize size={14} />{/if}
     </button>
-    <button class="hb" onclick={m.close} title={t("compose.closeHint")} aria-label={t("close")}><X size={15} /></button>
+    <button class="hb" onclick={() => sending.close()} title={t("compose.closeHint")} aria-label={t("close")}><X size={15} /></button>
   </header>
 
   <div class="panel" hidden={c.mode === "min"}>
     <!-- The text keeps its least height (160 px): a window too low for the strips scrolls here. -->
     <div class="scroll">
       <div class="fields">
-        <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={m.toInput} autofocus={c.draft.to.length === 0} card={personCard}>
+        <AddressInput label={t("compose.fwd.to")} bind:value={c.draft.to} bind:this={toInput} autofocus={c.draft.to.length === 0} card={personCard}>
           {#snippet trailing()}
-            {#if !m.showCc}<button class="lnk" onclick={() => void openPart("cc")}>{t("compose.fwd.cc")}</button>{/if}
-            {#if !m.showBcc}<button class="lnk" onclick={() => void openPart("bcc")}>{t("compose.bcc")}</button>{/if}
+            {#if !showCc}<button class="lnk" onclick={() => void openPart("cc")}>{t("compose.fwd.cc")}</button>{/if}
+            {#if !showBcc}<button class="lnk" onclick={() => void openPart("bcc")}>{t("compose.bcc")}</button>{/if}
           {/snippet}
         </AddressInput>
-        {#if m.showCc}
-          <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={m.ccInput} card={personCard} />
+        {#if showCc}
+          <AddressInput label={t("compose.fwd.cc")} bind:value={c.draft.cc} bind:this={ccInput} card={personCard} />
         {/if}
-        {#if m.showBcc}
-          <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={m.bccInput} card={personCard} />
+        {#if showBcc}
+          <AddressInput label={t("compose.bcc")} bind:value={c.draft.bcc} bind:this={bccInput} card={personCard} />
         {/if}
         <div class="row">
           <span class="label">{t("compose.fwd.subject")}</span>
@@ -496,60 +363,60 @@
         </div>
       </div>
 
-      {#if m.format !== "plain"}
+      {#if fmt.format !== "plain"}
         <FormatBar
-          bind:this={m.bar}
-          format={m.format}
-          width={m.width}
-          rich={m.rich}
-          field={m.body}
-          onpicturefile={m.pictureFromFile}
-          onpictureclipboard={m.pictureFromClipboard}
+          bind:this={fmt.bar}
+          format={fmt.format}
+          width={width}
+          rich={fmt.rich}
+          field={fmt.body}
+          onpicturefile={() => files.pictureFromFile()}
+          onpictureclipboard={() => files.pictureFromClipboard()}
         />
       {/if}
 
       <!-- The frame does not scroll: the drop zones lie on it, and stay in view when a signed letter's text is scrolled. -->
-      <div class="body-frame" bind:this={bodyFrame} class:signed={m.format !== "html" && !!m.signature}>
-      <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
-        {#if m.format === "html"}
+      <div class="body-frame" bind:this={bodyFrame} class:signed={fmt.format !== "html" && !!fmt.signature}>
+      <div class="body-area" bind:clientWidth={fmt.areaWidth} class:signed={fmt.format !== "html" && !!fmt.signature}>
+        {#if fmt.format === "html"}
           <RichEditor
-            bind:this={m.rich}
-            bind:html={m.htmlBody}
+            bind:this={fmt.rich}
+            bind:html={fmt.htmlBody}
             class="body"
             label={t("compose.body")}
             placeholder={t("compose.bodyPlaceholder")}
-            onselection={() => m.bar?.refresh()}
-            onpictures={m.pastedPictures}
+            onselection={() => fmt.bar?.refresh()}
+            onpictures={(b: Blob[]) => files.pastedPictures(b)}
             locked={SIGNATURE_CLASS}
-            lockedBar={m.signature ? signatureChip : undefined}
-            readonly={m.switching}
+            lockedBar={fmt.signature ? signatureChip : undefined}
+            readonly={fmt.switching}
           />
         {:else}
-          {#if m.format === "markdown"}
+          {#if fmt.format === "markdown"}
             <MarkdownEditor
-              bind:field={() => (m.body && "apply" in m.body ? m.body : null), (v) => (m.body = v)}
-              bind:value={m.head}
-              markup={m.markup}
-              readonly={m.switching}
+              bind:field={() => (fmt.body && "apply" in fmt.body ? fmt.body : null), (v) => (fmt.body = v)}
+              bind:value={fmt.head}
+              markup={fmt.markup}
+              readonly={fmt.switching}
               label={t("compose.body")}
               placeholder={t("compose.markdownPlaceholder")}
-              onfocus={m.onBodyFocus}
-              onselection={() => m.bar?.refresh()}
-              onpictures={m.pastedPictures}
+              onfocus={() => fmt.onBodyFocus()}
+              onselection={() => fmt.bar?.refresh()}
+              onpictures={(b: Blob[]) => files.pastedPictures(b)}
             />
           {:else}
             <textarea
-              bind:this={m.body}
-              bind:value={m.head}
-              onfocus={m.onBodyFocus}
-              readonly={m.switching}
+              bind:this={fmt.body}
+              bind:value={fmt.head}
+              onfocus={() => fmt.onBodyFocus()}
+              readonly={fmt.switching}
               spellcheck="true"
               aria-label={t("compose.body")}
               placeholder={t("compose.bodyPlaceholder")}
             ></textarea>
           {/if}
-          {#if m.signature}
-            {@const shown = m.signatureView}
+          {#if fmt.signature}
+            {@const shown = signatureShown(fmt.format, fmt.signature)}
             <!-- The signature under the text, shown, not edited: formatted in an HTML or
                  Markdown letter (frame 13 of #45), its text under "-- " in a plain one. -->
             <div class="sig-plain" role="group" aria-label={t("compose.signature.title")}>
@@ -563,13 +430,13 @@
             </div>
           {/if}
         {/if}
-        {#if !m.signature && m.signatures.length}
+        {#if !fmt.signature && fmt.signatures.length}
           <div class="sig-none">
-            <SignaturePicker variant="line" signatures={m.signatures} current={null} onpick={m.putSignature} onsettings={m.signatureSettings} />
+            <SignaturePicker variant="line" signatures={fmt.signatures} current={null} onpick={(sig: Signature | null) => fmt.putSignature(sig)} onsettings={fmt.signatureSettings} />
           </div>
         {/if}
       </div>
-        {#if m.zones}
+        {#if files.zones}
           <div class="zones">
             <div class="zone inline" class:hover={app.compose.dragging?.zone === "inline"} data-drop-zone="inline">
               <ImageIcon size={22} />
@@ -597,24 +464,24 @@
         />
       {/if}
 
-      <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={m.format} empty={!fmt.hasOwnText} quote={fmt.hasHtmlQuote} onFormat={(f) => void fmt.ruleFormat(f)} onBack={(f) => fmt.ruleReturn(f)} />
+      <RecipientRule accountId={c.account_id} to={c.draft.to} cc={c.draft.cc} bcc={c.draft.bcc} format={fmt.format} empty={!fmt.hasOwnText} quote={fmt.hasHtmlQuote} onFormat={(f) => void fmt.ruleFormat(f)} onBack={(f) => fmt.ruleReturn(f)} />
 
       <!-- One line of state (#103, 3.1 А): the quote, then the wait's box and the reminder of the plugin. -->
       {#if hasQuote || hasState}
         <div class="state" role="group" aria-label={t("compose.state")}>
           {#if hasQuote}
-            <button class="chip-btn quote-chip" class:on={m.quoteOpen} onclick={() => (m.quoteOpen = !m.quoteOpen)} aria-expanded={m.quoteOpen} title={m.quoteHeader}>
-              <CornerUpLeft size={13} />{t("compose.quote")}{#if m.quoteOpen}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
+            <button class="chip-btn quote-chip" class:on={fmt.quoteOpen} onclick={() => (fmt.quoteOpen = !fmt.quoteOpen)} aria-expanded={fmt.quoteOpen} title={fmt.quoteHeader}>
+              <CornerUpLeft size={13} />{t("compose.quote")}{#if fmt.quoteOpen}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
             </button>
           {/if}
-          {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
+          {#each sending.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
         </div>
       {/if}
-      {#if hasQuote && m.quoteOpen}
-        <textarea class="quote-text" bind:value={m.quote} readonly={m.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
+      {#if hasQuote && fmt.quoteOpen}
+        <textarea class="quote-text" bind:value={fmt.quote} readonly={fmt.switching} spellcheck="false" aria-label={t("compose.quote")}></textarea>
       {/if}
 
-      {#if c.draft.attachments.length || m.textPictures}
+      {#if c.draft.attachments.length || fmt.textPictures}
         <div class="files" class:full={c.mode === "max"} style:--rows={FULL_STRIP_ROWS}>
           {#each c.draft.attachments.slice(0, chips) as a, i (i)}
             <span class="file" title={`${a.name} · ${size(a.size)}`}><Paperclip size={12} /><span class="fname">{a.name}</span> <span class="muted">{size(a.size)}</span>
@@ -622,12 +489,12 @@
           {/each}
           <span class="anchor">
             {#if c.draft.attachments.length > chips}
-              <button class="more" onclick={() => (m.filesOpen = !m.filesOpen)} aria-haspopup="menu" aria-expanded={m.filesOpen}>
+              <button class="more" onclick={() => (filesOpen = !filesOpen)} aria-haspopup="menu" aria-expanded={filesOpen}>
                 {t("compose.attach.more", { n: c.draft.attachments.length - chips })} ›
               </button>
             {/if}
             <AttachmentMenu
-              bind:open={m.filesOpen}
+              bind:open={filesOpen}
               title={t("compose.attach.list", { n: c.draft.attachments.length })}
               files={c.draft.attachments}
               rowTitle={t("remove")}
@@ -636,96 +503,96 @@
               onRowKey={onFileKey}
             >
               {#snippet footer()}
-                <button class="mi" role="menuitem" onclick={() => { m.filesOpen = false; m.attach(); }}>{t("compose.attach.add")}</button>
+                <button class="mi" role="menuitem" onclick={() => { filesOpen = false; files.attach(); }}>{t("compose.attach.add")}</button>
               {/snippet}
             </AttachmentMenu>
           </span>
-          <span class="muted total" class:danger-text={m.total > 25 * 1024 * 1024}>
-            {t("compose.total", { size: size(m.total) })}{m.total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
+          <span class="muted total" class:danger-text={total > 25 * 1024 * 1024}>
+            {t("compose.total", { size: size(total) })}{total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
           </span>
         </div>
       {/if}
     </div>
 
-    {#if m.error}<div class="error danger-text selectable">{m.error}</div>{/if}
+    {#if error}<div class="error danger-text selectable">{error}</div>{/if}
 
-    {#if m.warnings}
+    {#if sending.warnings}
       <div class="warnings" role="alert">
         <TriangleAlert size={18} />
         <div class="list">
-          {#each m.warnings as w, i (i)}<div>{w}</div>{/each}
+          {#each sending.warnings as w, i (i)}<div>{w}</div>{/each}
         </div>
-        <button class="btn" onclick={() => (m.warnings = null)}>{t("compose.fix")}</button>
-        <button class="btn primary" onclick={() => m.send(m.pendingAt, true)}>{t("compose.sendAnyway")}</button>
+        <button class="btn" onclick={() => (sending.warnings = null)}>{t("compose.fix")}</button>
+        <button class="btn primary" onclick={() => sending.send(sending.pendingAt, true)}>{t("compose.sendAnyway")}</button>
       </div>
     {/if}
 
     <footer>
       <span class="split-btn anchor">
-        <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")}</button>
-        {#each m.controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
+        <button class="btn primary main" onclick={() => sending.send()} disabled={sending.busy}>{sending.options.at ? t("compose.schedule") : t("compose.send")}</button>
+        {#each sending.controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
       </span>
-      {#if m.options.at}
+      {#if sending.options.at}
         <span class="scheduled">
           <Clock size={14} />
-          {t("compose.scheduledFor", { when: shortDateTime(m.options.at) })}
-          <button class="btn ghost icon" onclick={() => (m.options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
+          {t("compose.scheduledFor", { when: shortDateTime(sending.options.at) })}
+          <button class="btn ghost icon" onclick={() => (sending.options.at = null)} title={t("compose.unschedule")} aria-label={t("compose.unschedule")}><X size={13} /></button>
         </span>
       {/if}
-      {#if m.important}
+      {#if important}
         <!-- The state of the letter, as the schedule above: a chip that takes it off (#72, 4.1 А). -->
         <span class="scheduled important">
           <span class="bang" aria-hidden="true">!</span>
           {t("compose.importance")}
-          <button class="btn ghost icon" onclick={m.toggleImportance} title={t("compose.importance.off")} aria-label={t("compose.importance.off")}><X size={13} /></button>
+          <button class="btn ghost icon" onclick={() => sending.toggleImportance()} title={t("compose.importance.off")} aria-label={t("compose.importance.off")}><X size={13} /></button>
         </span>
       {/if}
-      <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
-      {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
+      <button class="btn" onclick={() => files.attach()} disabled={sending.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if width >= 460} {t("compose.files")}{/if}</button>
+      {#each sending.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
       <span class="spacer"></span>
       <!-- The format of this letter, the only place it is shown (#103, 3.2 А): a button whose
            label says the current one. In a narrow window only its icon shows. -->
       <span class="anchor">
         <button
           class="btn ghost fmt"
-          onclick={() => (m.menuOpen = !m.menuOpen)}
-          disabled={m.busy}
-          title={t("compose.format.current", { format: formatLabel(m.format) })}
+          onclick={() => (menuOpen = !menuOpen)}
+          disabled={sending.busy}
+          title={t("compose.format.current", { format: formatLabel(fmt.format) })}
           aria-label={t("compose.format.title")}
           aria-haspopup="menu"
-          aria-expanded={m.menuOpen}
+          aria-expanded={menuOpen}
         >
-          {@render formatIcon(m.format)}
-          {#if m.width >= 460}<span>{formatLabel(m.format)}</span>{/if}
+          {@render formatIcon(fmt.format)}
+          {#if width >= 460}<span>{formatLabel(fmt.format)}</span>{/if}
           <ChevronDown size={12} />
         </button>
-        <Popover bind:open={m.menuOpen}>
+        <Popover bind:open={menuOpen}>
           <div class="mt">{t("compose.format.title")}</div>
-          {#each m.FORMATS as f (f.value)}
-            <button class="mi" role="menuitemradio" aria-checked={m.format === f.value} onclick={() => { m.menuOpen = false; void m.setFormat(f.value); }}>
-              <span class="tick">{#if m.format === f.value}<Check size={14} />{/if}</span>{f.label()}
+          {#each FORMATS as f (f)}
+            <button class="mi" role="menuitemradio" aria-checked={fmt.format === f} onclick={() => { menuOpen = false; void fmt.setFormat(f); }}>
+              <span class="tick">{#if fmt.format === f}<Check size={14} />{/if}</span>{formatLabel(f)}
             </button>
           {/each}
-          {#if m.format === "markdown"}
+          {#if fmt.format === "markdown"}
             <hr />
-            <button class="mi" role="menuitemcheckbox" aria-checked={m.markup} onclick={() => { m.menuOpen = false; m.markup = !m.markup; }}>
-              <span class="tick">{#if m.markup}<Check size={14} />{/if}</span>{t("compose.markdown.showMarkup")}
+            <button class="mi" role="menuitemcheckbox" aria-checked={fmt.markup} onclick={() => { menuOpen = false; fmt.markup = !fmt.markup; }}>
+              <span class="tick">{#if fmt.markup}<Check size={14} />{/if}</span>{t("compose.markdown.showMarkup")}
             </button>
             {#if app.settings.markdown_parts_note}<MarkdownPartsNote onclose={closePartsNote} />{/if}
           {/if}
         </Popover>
       </span>
       <span class="anchor">
-        <button class="btn ghost icon" onclick={() => (m.moreOpen = !m.moreOpen)} disabled={m.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={m.moreOpen}><Ellipsis size={15} /></button>
-        <Popover bind:open={m.moreOpen}>
-          <button class="mi" role="menuitemcheckbox" aria-checked={m.important} onclick={() => { m.moreOpen = false; m.toggleImportance(); }}>
-            <span class="tick">{#if m.important}<Check size={14} />{/if}</span>{t("compose.importance")}
+        <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} disabled={sending.busy} title={t("act.more")} aria-label={t("act.more")} aria-haspopup="menu" aria-expanded={moreOpen}><Ellipsis size={15} /></button>
+        <Popover bind:open={moreOpen}>
+          <button class="mi" role="menuitemcheckbox" aria-checked={important} onclick={() => { moreOpen = false; sending.toggleImportance(); }}>
+            <span class="tick">{#if important}<Check size={14} />{/if}</span>{t("compose.importance")}
           </button>
-          <button class="mi" onclick={() => { m.moreOpen = false; m.saveDraft(); }}>{t("compose.saveDraft")}</button>
-          <button class="mi danger-text" onclick={() => { m.moreOpen = false; m.discard(); }}>{t("compose.discardDraft")}</button>
+          <button class="mi" onclick={() => { moreOpen = false; sending.saveDraft(); }}>{t("compose.saveDraft")}</button>
+          <button class="mi danger-text" onclick={() => { moreOpen = false; sending.discard(); }}>{t("compose.discardDraft")}</button>
         </Popover>
       </span>
-      <button class="btn ghost icon" onclick={m.discard} disabled={m.busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
+      <button class="btn ghost icon" onclick={() => sending.discard()} disabled={sending.busy} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
     </footer>
   </div>
 </div>
