@@ -25,6 +25,7 @@
   import { recentSearches } from "../lib/recentSearches.svelte";
   import { rowMarks } from "../lib/marks";
   import { mayAskLogo, rowAvatar } from "../lib/listAvatar";
+  import { cursorId } from "../lib/cursor";
   import { labelChips, readOnly } from "../lib/labels";
   import { labels as labelsCtl } from "../lib/labels.svelte";
   import type { Addr, MessageRow } from "../lib/types";
@@ -164,10 +165,13 @@
     return name ? name.split(/\s+/)[0] : a.email.split("@")[0];
   }
 
-  // Keep the opened message visible when moving with the keyboard.
+  /** The row with the cursor bar: it moves with the key, not with the answer of the server (#108). */
+  const cursor = $derived(cursorId(app.selected, app.openingRow?.id, app.opened?.row.id));
+
+  // Keep the row with the cursor visible when moving with the keyboard.
   $effect(() => {
-    const id = app.opened?.row.id;
-    if (!viewport || id === undefined) return;
+    const id = cursor;
+    if (!viewport || id === null) return;
     const i = app.messages.findIndex((m) => m.id === id);
     if (i < 0) return;
     const top = i * ROW;
@@ -279,7 +283,7 @@
           class="row"
           class:unread={!m.flags.seen}
           class:selected={chosen(m.id)}
-          class:opened={app.opened?.row.id === m.id}
+          class:cursor={cursor === m.id}
           class:avatars
           class:flash={arrivals.flash === m.id}
           class:fresh={arrivals.isFresh(app.view, m.id)}
@@ -525,7 +529,7 @@
     background: var(--selected);
   }
 
-  .row.opened::before,
+  .row.cursor::before,
   .row:focus-visible::before {
     content: "";
     position: absolute;

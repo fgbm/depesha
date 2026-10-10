@@ -127,6 +127,45 @@ describe("chosen rows and the open letter (#108, 2.5 Б)", () => {
   });
 });
 
+describe("the cursor bar moves with the key (#108, 2.5 Б)", () => {
+  const cursors = (t: HTMLElement) => [...t.querySelectorAll(".row")].map((r) => r.classList.contains("cursor"));
+
+  it("stands on the one selected row at once, though the letter is not open yet", () => {
+    const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
+    // j: the old letter is still open, the new one only selected.
+    app.reader.opened = { row: row(1, "a@cur.example") } as never;
+    app.selected = new Set([1]);
+    flushSync();
+    expect(cursors(t)).toEqual([true, false, false]);
+    app.selected = new Set([2]);
+    flushSync();
+    expect(cursors(t)).toEqual([false, true, false]);
+    app.reader.opened = null;
+  });
+
+  it("stays on the selected row when the open failed, and on a row a Shift click left alone", () => {
+    const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example")]);
+    app.reader.opened = null;
+    app.reader.openingRow = null;
+    app.selected = new Set([2]);
+    flushSync();
+    expect(cursors(t)).toEqual([false, true]);
+  });
+
+  it("follows the letter being opened, then the open one, with several chosen", () => {
+    const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
+    app.selected = new Set([1, 2]);
+    app.reader.opened = { row: row(1, "a@cur.example") } as never;
+    flushSync();
+    expect(cursors(t)).toEqual([true, false, false]);
+    app.reader.openingRow = row(2, "b@cur.example");
+    flushSync();
+    expect(cursors(t)).toEqual([false, true, false]);
+    app.reader.opened = null;
+    app.reader.openingRow = null;
+  });
+});
+
 describe("the logos by folder (#108)", () => {
   it("asks for no logo of a letter in Spam or in Trash, in the list (#108)", async () => {
     app.mailboxes.folders = [

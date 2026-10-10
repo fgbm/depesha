@@ -507,7 +507,7 @@ try {
     const OPEN = 6;
     const rowAt = (i) => `document.querySelectorAll('.list .row')[${i}]`;
     const ctrlClick = (i) => d.exec(`${rowAt(i)}.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))`);
-    const state = (i) => d.exec(`const r = ${rowAt(i)}; return { pic: !!r.querySelector('.pic'), pick: !!r.querySelector('.pick'), selected: r.classList.contains('selected'), opened: r.classList.contains('opened') }`);
+    const state = (i) => d.exec(`const r = ${rowAt(i)}; return { pic: !!r.querySelector('.pic'), pick: !!r.querySelector('.pick'), selected: r.classList.contains('selected'), cursor: r.classList.contains('cursor') }`);
     const theme = async (name) => {
       await invoke("settings_set", { settings: { ...settings, theme: name, list_avatars: shotAvatars } });
       await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
@@ -519,7 +519,7 @@ try {
       await theme("paper");
       // The letter that is open: the circle stays, the bar stands at the left, no ground, no tick.
       await d.exec(`${rowAt(OPEN)}.click()`);
-      await d.until("opened row", async () => (await state(OPEN)).opened, 10000);
+      await d.until("opened row", async () => (await state(OPEN)).cursor, 10000);
       let s = await state(OPEN);
       if (s.pick || s.selected) throw new Error(`открытое письмо показано как выбранное: ${JSON.stringify(s)}`);
       if (avatars && !s.pic) throw new Error("у открытого письма пропал круг");
@@ -541,6 +541,23 @@ try {
       await d.until("one again", async () => !(await state(OPEN + 1)).selected, 10000);
     }
     await invoke("settings_set", { settings });
+  }, { retry: true });
+
+  await step("108.3", "полоса курсора переезжает на j сразу, до ответа сервера (#108, 2.5 Б)", async () => {
+    await d.button("Входящие");
+    await d.exec("document.querySelector('.viewport').scrollTop = 0");
+    const at = 6;
+    const rows = `document.querySelectorAll('.list .row')`;
+    await d.exec(`${rows}[${at}].click()`);
+    await d.until("first letter open", async () => (await d.exec(`return ${rows}[${at}].classList.contains('cursor')`)) && (await textOf(".reader h1")).length > 0, 10000);
+    const shown = await textOf(".reader h1");
+    await press("j");
+    // The key was just pressed: the letter is asked for after a pause and comes later, the bar
+    // is already on the next row while the reader still shows the old letter.
+    const now = await d.exec(`return { cursor: [...${rows}].findIndex(r => r.classList.contains('cursor')), h1: document.querySelector('.reader h1')?.innerText ?? '' }`);
+    if (now.cursor !== at + 1) throw new Error(`полоса не переехала на j сразу: строка ${now.cursor}, ждали ${at + 1}`);
+    if (now.h1.trim() !== shown.trim()) throw new Error("письмо открылось раньше полосы: шаг ничего не проверил");
+    await d.until("the next letter opened", async () => (await textOf(".reader h1")) !== shown, 10000);
   }, { retry: true });
 
   await step("4.6", "открытие ставит «прочитано» на сервере", async () => {
@@ -1952,7 +1969,7 @@ try {
     // «h» on the selected row: the menu hangs on that row, under it or over it, never on top of it.
     await press("h", { code: "KeyH" });
     await d.until("menu open", async () => (await d.findAll(".snooze .pop.main")).length === 1);
-    const row = await box(".row.selected, .row.opened");
+    const row = await box(".row.selected, .row.cursor");
     const menu = await box(".snooze .pop.main");
     if (!(menu.t >= row.b - 1 || menu.b <= row.t + 1)) throw new Error(`меню закрывает строку: строка ${JSON.stringify(row)}, меню ${JSON.stringify(menu)}`);
     if (menu.l < row.l - 1 || menu.l > row.r) throw new Error(`меню не у строки: строка ${JSON.stringify(row)}, меню ${JSON.stringify(menu)}`);
@@ -3083,7 +3100,7 @@ try {
       await screenshot("narrow-letter");
       await press("Escape");
       await d.until("back to the list", async () => (await shown(".list")) && !(await shown(".reader")));
-      if ((await d.findAll(".row.opened")).length !== 1) throw new Error("открытое письмо потеряло отметку при возврате к списку");
+      if ((await d.findAll(".row.cursor")).length !== 1) throw new Error("открытое письмо потеряло отметку при возврате к списку");
       await press("Enter");
       await d.until("the letter again", async () => await shown(".reader"));
       await d.click(await d.find(".reader .back"));
