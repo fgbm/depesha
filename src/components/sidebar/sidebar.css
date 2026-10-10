@@ -301,6 +301,7 @@ nav.side {
   /* A heading over a run of rows inside a group (labels, shared folders, a shared owner):
      the account name's type and indent, so its icon stands in the folders' icon column. */
   .side .subhead {
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 8px;

@@ -37,7 +37,7 @@
 {/if}
 
 {#each grouped.others as group (group.owner)}
-  <div class="subhead"><User size={13} />{group.owner}</div>
+  <div class="subhead"><User size={13} /><span class="name" title={group.owner}>{group.owner}</span></div>
   {#each group.folders as f (f.name)}
     <FolderRow {account} folder={f} hasChildren={parents.has(f.name)} {picked} />
   {/each}
