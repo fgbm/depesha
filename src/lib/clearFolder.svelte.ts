@@ -214,7 +214,10 @@ export class ClearFolder {
   private async run(accountId: string, name: string, bound: number): Promise<void> {
     // The folder list may be under rebuilding just now; the role is what the question was asked for.
     const role = this.roles.get(`${accountId}\0${name}`) ?? this.target(accountId, name)?.role;
-    if (!role) return;
+    if (!role) {
+      this.host.toast(t("clear.failed"), true);
+      return;
+    }
     // The windows of letters are added by the backend, which knows the drafts open in all of them.
     const keep = this.open(accountId).map((w) => w.draft_id as number);
     try {

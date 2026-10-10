@@ -279,6 +279,14 @@ describe("Clear on Drafts", () => {
     expect(q.items).toEqual([tn("clear.keptOpen", 2)]);
   });
 
+  it("says so, and asks nothing, when it does not know what folder it clears", async () => {
+    const x = host();
+    x.h.folder = () => undefined;
+    await (x.clear as unknown as { run(a: string, n: string, b: number): Promise<void> }).run("a", "Trash", 11);
+    expect(api.folderEmpty).not.toHaveBeenCalled();
+    expect(x.toasts.at(-1)).toMatchObject({ text: t("clear.failed"), error: true });
+  });
+
   it("keeps its role and the open drafts when the folder is not found any more by the time it runs", async () => {
     const x = host({ role: "drafts", total: 5, windows: [{ account_id: "a", draft_id: 7, local_id: "k1" }] });
     api.folderTotal.mockResolvedValue({ total: 5, bound: 11 });
