@@ -2164,7 +2164,9 @@ try {
 
     // 2. The form on screen: Markdown, then text. A letter in the thread prints alone.
     const subj = `Заметки ${stamp}`;
-    await openBySubject(subj);
+    await openBySubject(subj).catch(async (e) => {
+      throw new Error(`${e.message}; список: ${JSON.stringify(await d.exec("return [document.querySelector('.list h2')?.innerText, ...[...document.querySelectorAll('.row .subject')].slice(0, 12).map((x) => x.innerText)]"))}`);
+    });
     await d.click(await d.xpath("//div[contains(@class,'letter-view')]//button[normalize-space(.)='Markdown']"));
     await d.until("markdown drawn", () => d.exec("return !!document.querySelector('.reader iframe')?.contentDocument?.querySelector('h1')"));
     await ctrlP();
