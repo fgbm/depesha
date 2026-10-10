@@ -1129,32 +1129,53 @@ async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
     expunge_keeping(conn, &foreign).await
 }
 
+/// What `expunge_keeping` asks of the connection: the `\Deleted` mark of a set of UIDs set or
+/// cleared, and the plain `EXPUNGE`. A trait so that a failure in the middle can be tried.
+trait Expunging {
+    async fn mark(&mut self, set: String, deleted: bool) -> Result<()>;
+    async fn expunge(&mut self) -> Result<()>;
+}
+
+impl Expunging for Conn {
+    async fn mark(&mut self, set: String, deleted: bool) -> Result<()> {
+        let op = if deleted {
+            "+FLAGS.SILENT (\\Deleted)"
+        } else {
+            "-FLAGS.SILENT (\\Deleted)"
+        };
+        let _: Vec<_> = self.session.uid_store(set, op).await?.try_collect().await?;
+        Ok(())
+    }
+
+    async fn expunge(&mut self) -> Result<()> {
+        let _: Vec<_> = self.session.expunge().await?.try_collect().await?;
+        Ok(())
+    }
+}
+
 /// Plain `EXPUNGE` that spares `kept`: their `\Deleted` is cleared first and set again
-/// afterwards, also when the `EXPUNGE` failed.
-async fn expunge_keeping(conn: &mut Conn, kept: &[u32]) -> Result<()> {
+/// afterwards, also when the `EXPUNGE` failed. A batch that could not be cleared stops the
+/// `EXPUNGE` (the marks of others still on would be wiped), and every batch gets its mark
+/// back all the same: one that failed to come back must not keep the rest from it.
+async fn expunge_keeping(conn: &mut impl Expunging, kept: &[u32]) -> Result<()> {
     // Many marks of others are cleared and set again in batches: a command line with a
     // thousand UIDs is refused by some servers.
+    let mut failure = None;
     for chunk in kept.chunks(SPARED_BATCH) {
-        let _: Vec<_> = conn
-            .session
-            .uid_store(uid_set(chunk), "-FLAGS.SILENT (\\Deleted)")
-            .await?
-            .try_collect()
-            .await?;
+        if let Err(e) = conn.mark(uid_set(chunk), false).await {
+            failure = Some(e);
+            break;
+        }
     }
-    let expunged: Result<Vec<_>> = match conn.session.expunge().await {
-        Ok(stream) => stream.try_collect().await.map_err(Into::into),
-        Err(e) => Err(e.into()),
-    };
+    if failure.is_none() {
+        failure = conn.expunge().await.err();
+    }
     for chunk in kept.chunks(SPARED_BATCH) {
-        let _: Vec<_> = conn
-            .session
-            .uid_store(uid_set(chunk), "+FLAGS.SILENT (\\Deleted)")
-            .await?
-            .try_collect()
-            .await?;
+        if let Err(e) = conn.mark(uid_set(chunk), true).await {
+            failure.get_or_insert(e);
+        }
     }
-    expunged.map(drop)
+    failure.map_or(Ok(()), Err)
 }
 
 /// UIDs of other clients' `\Deleted` marks cleared or set in one command.
@@ -1660,6 +1681,68 @@ pub fn uid_set(uids: &[u32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A connection that records what `expunge_keeping` asks and fails the clearing of one batch.
+    #[derive(Default)]
+    struct Fake {
+        asked: Vec<(String, bool)>,
+        expunged: bool,
+        fail_clearing_of: Option<usize>,
+        fail_setting_of: Option<usize>,
+    }
+
+    impl Expunging for Fake {
+        async fn mark(&mut self, set: String, deleted: bool) -> Result<()> {
+            let n = self.asked.iter().filter(|(_, d)| *d == deleted).count();
+            self.asked.push((set, deleted));
+            let fails = if deleted {
+                self.fail_setting_of
+            } else {
+                self.fail_clearing_of
+            };
+            if fails == Some(n) {
+                return Err(Error::Protocol("refused".into()));
+            }
+            Ok(())
+        }
+
+        async fn expunge(&mut self) -> Result<()> {
+            self.expunged = true;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn the_marks_of_others_come_back_to_every_batch_whatever_failed() {
+        // 1100 scattered UIDs: three batches of at most 500.
+        let kept: Vec<u32> = (0..1100).map(|n| n * 2 + 2).collect();
+        let sets = |c: &Fake, deleted: bool| c.asked.iter().filter(|(_, d)| *d == deleted).count();
+
+        // All goes well: cleared, expunged, set again.
+        let mut ok = Fake::default();
+        expunge_keeping(&mut ok, &kept).await.unwrap();
+        assert!(ok.expunged);
+        assert_eq!((sets(&ok, false), sets(&ok, true)), (3, 3));
+
+        // The second batch cannot be cleared: no EXPUNGE (the marks still on would be wiped),
+        // and all three batches get their mark back.
+        let mut stuck = Fake {
+            fail_clearing_of: Some(1),
+            ..Fake::default()
+        };
+        assert!(expunge_keeping(&mut stuck, &kept).await.is_err());
+        assert!(!stuck.expunged);
+        assert_eq!(sets(&stuck, true), 3);
+
+        // A batch that fails to come back does not keep the later ones from it.
+        let mut lost = Fake {
+            fail_setting_of: Some(0),
+            ..Fake::default()
+        };
+        assert!(expunge_keeping(&mut lost, &kept).await.is_err());
+        assert!(lost.expunged);
+        assert_eq!(sets(&lost, true), 3);
+    }
 
     #[test]
     fn compresses_uid_sets() {
