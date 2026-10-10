@@ -18,7 +18,6 @@ import type {
   Settings,
   Task,
   Unsubscribed,
-  UnsubscribePlan,
   UpdateStatus,
   Detection,
   EwsDetection,
@@ -125,10 +124,8 @@ export const api = {
   undo: (moved: Moved[]) => call<void>("undo", { moved }),
   thread: (id: number) => call<MessageRow[]>("thread", { id }),
   counters: () => call<Counters>("counters"),
-  followupCancel: (id: number) => call<number | null>("followup_cancel", { id }),
   /** "Keep in the inbox" right after an answer took the letter to wait. */
   followupUnpark: (accountId: string, messageId: string) => call<void>("followup_unpark", { accountId, messageId }),
-  unsubscribePlan: (id: number) => call<UnsubscribePlan>("unsubscribe_plan", { id }),
   unsubscribe: (id: number, way: "one-click" | "mail") => call<Unsubscribed>("unsubscribe", { id, way }),
   settings: () => call<Settings>("settings_get"),
   language: () => call<"en" | "ru">("language"),

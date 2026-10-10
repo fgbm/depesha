@@ -82,6 +82,10 @@ if [[ "${1:-}" == "--changed" ]]; then
   # Files that exist (not deleted); an array, so that names with spaces survive.
   mapfile -t lintable < <(pick '\.(ts|js|mjs|svelte)$' | while IFS= read -r f; do [[ -f $f ]] && printf '%s\n' "$f"; done)
 
+  if [[ -n $rust$front$e2e ]]; then
+    step "у каждой IPC-команды есть вызов"
+    node scripts/ipc-callers.mjs
+  fi
   if [[ -n $rust ]]; then
     step "единственный lock"
     scripts/lock-guard.sh
@@ -162,6 +166,8 @@ step "инварианты фронтенда"
 scripts/frontend-invariants.sh
 step "API плагинов против снимка"
 node scripts/plugin-api-snapshot.mjs
+step "у каждой IPC-команды есть вызов"
+node scripts/ipc-callers.mjs
 step "baseline против main"
 git fetch -q --no-tags origin main 2>/dev/null || true
 scripts/frontend-baseline-guard.sh
