@@ -216,7 +216,14 @@ async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
                 "Returning letters from the waiting folder",
                 "Возврат писем из папки ожидания",
             );
-            state.task(&task, "waiting", Some(&job.account_id), label.to_owned(), 0, 0);
+            state.task(
+                &task,
+                crate::tasks::TaskKind::Waiting,
+                Some(&job.account_id),
+                label.to_owned(),
+                0,
+                0,
+            );
             state.task_failed(&task, error.clone());
             state.emit(
                 "bring-failed",

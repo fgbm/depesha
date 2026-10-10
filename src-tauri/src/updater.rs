@@ -44,17 +44,27 @@ pub fn install_kind() -> Install {
     }
 }
 
+/// Where an update stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum UpdateState {
+    Idle,
+    Checking,
+    Available,
+    Downloading,
+    /// Downloaded, installs on restart.
+    Ready,
+    /// Restart to use it.
+    Installed,
+    Error,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UpdateStatus {
     pub current: String,
-    /// `idle`, `checking`, `available`, `downloading`, `ready` (downloaded, installs on
-    /// restart), `installed` (restart to use it) or `error`.
-    #[cfg_attr(
-        test,
-        ts(type = "\"idle\" | \"checking\" | \"available\" | \"downloading\" | \"ready\" | \"installed\" | \"error\"")
-    )]
-    pub state: &'static str,
+    pub state: UpdateState,
     pub version: Option<String>,
     pub notes: Option<String>,
     pub error: Option<String>,
@@ -74,7 +84,7 @@ impl Updates {
         Self {
             status: Mutex::new(UpdateStatus {
                 current,
-                state: "idle",
+                state: UpdateState::Idle,
                 version: None,
                 notes: None,
                 error: None,
@@ -135,7 +145,7 @@ pub async fn check(state: &AppState, manual: bool) -> UpdateStatus {
     if let Err(e) = result {
         tracing::warn!("update check failed: {e}");
         set(state, |s| {
-            s.state = "error";
+            s.state = UpdateState::Error;
             s.error = Some(e);
         });
     }
@@ -144,11 +154,14 @@ pub async fn check(state: &AppState, manual: bool) -> UpdateStatus {
 
 async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
     // Already installed or staged: nothing new to do until the restart.
-    if matches!(state.updates.status().state, "installed" | "ready") {
+    if matches!(
+        state.updates.status().state,
+        UpdateState::Installed | UpdateState::Ready
+    ) {
         return Ok(());
     }
     set(state, |s| {
-        s.state = "checking";
+        s.state = UpdateState::Checking;
         s.error = None;
     });
     let update = updater(&state.app)
@@ -164,7 +177,7 @@ async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
         })?;
     let Some(update) = update else {
         set(state, |s| {
-            s.state = "idle";
+            s.state = UpdateState::Idle;
             s.version = None;
         });
         return Ok(());
@@ -172,7 +185,7 @@ async fn check_inner(state: &AppState, manual: bool) -> Result<(), String> {
     tracing::info!(version = %update.version, "update available");
     let (version, notes) = (update.version.clone(), update.body.clone());
     set(state, |s| {
-        s.state = "available";
+        s.state = UpdateState::Available;
         s.version = Some(version.clone());
         s.notes = notes;
     });
@@ -200,7 +213,7 @@ async fn download(state: &AppState) -> Result<(), String> {
     let Some(update) = lock(&state.updates.update).clone() else {
         return Err(tr!("no update to install", "нет обновления для установки"));
     };
-    set(state, |s| s.state = "downloading");
+    set(state, |s| s.state = UpdateState::Downloading);
     // `download` verifies the signature against the built-in public key.
     let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| {
         tr!(
@@ -212,7 +225,7 @@ async fn download(state: &AppState) -> Result<(), String> {
     match install_kind() {
         Install::Installer => {
             *lock(&state.updates.staged) = Some(bytes);
-            set(state, |s| s.state = "ready");
+            set(state, |s| s.state = UpdateState::Ready);
         }
         _ => {
             update.install(&bytes).map_err(|e| {
@@ -223,7 +236,7 @@ async fn download(state: &AppState) -> Result<(), String> {
                 )
             })?;
             tracing::info!(version = %update.version, "update installed");
-            set(state, |s| s.state = "installed");
+            set(state, |s| s.state = UpdateState::Installed);
         }
     }
     Ok(())
@@ -256,13 +269,13 @@ pub async fn install(state: &AppState) -> Result<UpdateStatus, String> {
         return Ok(state.updates.status());
     }
     let r = match state.updates.status().state {
-        "available" | "error" => download(state).await,
+        UpdateState::Available | UpdateState::Error => download(state).await,
         _ => Ok(()),
     };
     state.updates.busy.store(false, Ordering::SeqCst);
     if let Err(e) = &r {
         set(state, |s| {
-            s.state = "error";
+            s.state = UpdateState::Error;
             s.error = Some(e.clone());
         });
     }

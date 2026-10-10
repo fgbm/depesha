@@ -528,7 +528,14 @@ pub fn search_totals(state: St<'_>, text: String, account_id: Option<String>) ->
 #[tauri::command]
 pub async fn server_search(state: St<'_>, text: String, account_id: Option<String>) -> CmdResult<Vec<MessageRow>> {
     let label = tr!("Search on the server: «{text}»", "Поиск на сервере: «{text}»");
-    state.task("search", "search", account_id.as_deref(), label, 0, 0);
+    state.task(
+        "search",
+        crate::tasks::TaskKind::Search,
+        account_id.as_deref(),
+        label,
+        0,
+        0,
+    );
     let result = search_servers(&state, &text, account_id).await;
     match &result {
         Ok(_) => state.task_done("search"),
@@ -1878,7 +1885,7 @@ pub async fn load_older(state: St<'_>, account_id: String, folder: String) -> Cm
         .map(|f| f.folder.display_name)
         .unwrap_or_else(|| folder.clone());
     let label = tr!("Loading older mail: {name}", "Загрузка старых писем: {name}");
-    state.task(&key, "older", Some(&account_id), label, 0, 0);
+    state.task(&key, crate::tasks::TaskKind::Older, Some(&account_id), label, 0, 0);
     match state.worker(&account_id)?.run(Work::LoadOlder { folder }).await {
         Ok(out) => {
             state.task_done(&key);
@@ -2676,14 +2683,32 @@ pub fn open_link(app: tauri::AppHandle, url: String) -> CmdResult<()> {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "AttachmentSourceWire"))]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub enum AttachmentSource {
-    File { path: String },
-    Message { id: i64, index: u32 },
+    File {
+        path: String,
+        /// The name and size the window shows: Rust takes the letter from the source, not from them.
+        #[serde(default)]
+        #[allow(dead_code)]
+        name: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        size: u64,
+    },
+    Message {
+        id: i64,
+        index: u32,
+        #[serde(default)]
+        #[allow(dead_code)]
+        name: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        size: u64,
+    },
 }
 
 #[derive(Debug, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ComposeDraftWire"))]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ComposeDraft {
     from: Option<Addr>,
     #[serde(default)]
@@ -2698,11 +2723,14 @@ pub struct ComposeDraft {
     text: String,
     /// The letter from the visual editor; only an HTML letter has it.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     html: Option<String>,
     /// The HTML of the signature a Markdown letter carries (#67).
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     signature: Option<String>,
     #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<BodyFormat>", optional))]
     format: BodyFormat,
     in_reply_to: Option<String>,
     #[serde(default)]
@@ -2711,12 +2739,15 @@ pub struct ComposeDraft {
     attachments: Vec<AttachmentSource>,
     /// Scheduled sending time: kept with a saved draft, the send takes `at` instead.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     send_at: Option<i64>,
     /// The letter this one answers or forwards.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     acts_on: Option<ActsOn>,
     /// Asked to be read first (#72).
     #[serde(default)]
+    #[cfg_attr(test, ts(as = "Option<depesha_core::domain::Importance>", optional))]
     importance: depesha_core::domain::Importance,
 }
 
@@ -2726,7 +2757,7 @@ async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Dr
     let mut total = 0u64;
     for a in d.attachments {
         let att = match a {
-            AttachmentSource::File { path } => {
+            AttachmentSource::File { path, .. } => {
                 let checked = state.paths.check_in(Some(label), Use::Attach, &path)?;
                 ensure_file(&checked).await?;
                 let data = tokio::fs::read(&path)
@@ -2742,7 +2773,7 @@ async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Dr
                     data,
                 }
             }
-            AttachmentSource::Message { id, index } => {
+            AttachmentSource::Message { id, index, .. } => {
                 let r = row(state, id)?;
                 let raw = raw_of(state, &r, None).await?;
                 let (info, data) = message::attachment(&raw, index)?;
@@ -3907,6 +3938,35 @@ mod tests {
     }
 
     use super::*;
+
+    /// The interface sends a draft without the keys the generated type marks optional, and the
+    /// ones its loose types leave out (`format`, `importance`): Rust fills them in (#143).
+    #[test]
+    fn a_compose_draft_is_read_without_the_keys_the_interface_may_leave_out() {
+        let d: ComposeDraft = serde_json::from_str(
+            r#"{"from":null,"to":[],"cc":[],"bcc":[],"subject":"s","text":"t","in_reply_to":null,"references":[],"attachments":[]}"#,
+        )
+        .unwrap();
+        assert!(d.html.is_none() && d.signature.is_none() && d.send_at.is_none() && d.acts_on.is_none());
+        assert_eq!(d.format, BodyFormat::default());
+        let bare: ComposeDraft = serde_json::from_str("{}").unwrap();
+        assert!(bare.to.is_empty() && bare.subject.is_empty());
+        // The attachments it names carry the name and size the window shows.
+        let with: ComposeDraft = serde_json::from_str(
+            r#"{"attachments":[{"kind":"file","path":"/a.pdf","name":"a.pdf","size":5},{"kind":"message","id":1,"index":0}]}"#,
+        )
+        .unwrap();
+        assert_eq!(with.attachments.len(), 2);
+    }
+
+    #[test]
+    fn a_followup_plan_is_read_without_the_keys_the_interface_may_leave_out() {
+        let p: depesha_core::store::FollowupPlan =
+            serde_json::from_str(r#"{"deadline_secs":7200,"repeat_secs":0,"expect":"","kind":""}"#).unwrap();
+        assert_eq!((p.due_at, p.deadline_at, p.park, p.archive), (0, 0, None, None));
+        let q: depesha_core::store::ListQuery = serde_json::from_str("{}").unwrap();
+        assert_eq!((q.limit, q.offset, q.threads), (0, 0, false));
+    }
 
     #[test]
     fn an_unreadable_unsubscribe_is_told_in_the_users_words() {

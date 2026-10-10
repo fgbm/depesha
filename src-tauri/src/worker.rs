@@ -1109,7 +1109,7 @@ impl Ops {
         self.state.set_status(
             &self.account.id,
             AccountStatus {
-                state: "error",
+                state: crate::state::AccountState::Error,
                 error: Some(CmdError::from(Error::Busy { wait, retrying: true })),
             },
         );
@@ -1143,7 +1143,7 @@ impl Ops {
                 self.state.set_status(
                     &self.account.id,
                     AccountStatus {
-                        state: "connecting",
+                        state: crate::state::AccountState::Connecting,
                         error: None,
                     },
                 );
@@ -1289,8 +1289,14 @@ impl Ops {
     async fn start_pass(&mut self, reply: Option<Reply>) {
         let id = self.account.id.clone();
         let key = self.sync_task();
-        self.state
-            .task(&key, "sync", Some(&id), tr!("Syncing", "Синхронизация"), 0, 0);
+        self.state.task(
+            &key,
+            crate::tasks::TaskKind::Sync,
+            Some(&id),
+            tr!("Syncing", "Синхронизация"),
+            0,
+            0,
+        );
         match self.attempt(Op::Work(&Work::SyncAll)).await {
             Ok(out) => {
                 let folders = match out {
@@ -1350,7 +1356,7 @@ impl Ops {
         };
         self.state.task(
             &key,
-            "sync",
+            crate::tasks::TaskKind::Sync,
             Some(&self.account.id),
             tr!("Syncing: {name}", "Синхронизация: {name}"),
             pass.done,
@@ -1403,11 +1409,15 @@ impl Ops {
     }
 
     fn online(&self) {
-        if self.state.status(&self.account.id).is_none_or(|s| s.state != "online") {
+        if self
+            .state
+            .status(&self.account.id)
+            .is_none_or(|s| s.state != crate::state::AccountState::Online)
+        {
             self.state.set_status(
                 &self.account.id,
                 AccountStatus {
-                    state: "online",
+                    state: crate::state::AccountState::Online,
                     error: None,
                 },
             );
@@ -1443,7 +1453,11 @@ impl Ops {
                 }
                 let fatal = needs_user(e);
                 self.paused.store(fatal, Ordering::Relaxed);
-                let status = if fatal { "paused" } else { "error" };
+                let status = if fatal {
+                    crate::state::AccountState::Paused
+                } else {
+                    crate::state::AccountState::Error
+                };
                 // Errors of a single message action go to the caller, not to the account status;
                 // a message the offline download could not take shows in its task.
                 if (!user && !matches!(work, Work::Prefetch)) || self.conn.is_none() {
@@ -1602,7 +1616,7 @@ async fn perform(
             let key = format!("labels:{id}");
             state.task(
                 &key,
-                "labels",
+                crate::tasks::TaskKind::Labels,
                 Some(id),
                 tr!(
                     "Renaming the category on all letters",
@@ -1682,7 +1696,7 @@ async fn perform(
             let key = format!("sent-copy:{id}");
             state.task(
                 &key,
-                "send",
+                crate::tasks::TaskKind::Send,
                 Some(id),
                 tr!("Saving the copy in «Sent»", "Сохранение копии в «Отправленные»"),
                 0,
@@ -1782,7 +1796,14 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str, failed: &
     }
     let label = || tr!("Downloading mail for offline reading", "Скачивание писем для офлайна");
     let (done, total) = store.offline_progress(account_id, since, files)?;
-    state.task(&key, "prefetch", Some(account_id), label(), done, total);
+    state.task(
+        &key,
+        crate::tasks::TaskKind::Prefetch,
+        Some(account_id),
+        label(),
+        done,
+        total,
+    );
 
     let mut by_folder: Vec<(String, Vec<(i64, u32)>)> = Vec::new();
     for (id, folder, uid) in &batch {
@@ -1820,7 +1841,14 @@ async fn prefetch(state: &AppState, conn: &mut Conn, account_id: &str, failed: &
     } else {
         // Counted once a batch: what it saved is added, not counted again.
         let done = (done + saved as u64).min(total);
-        state.task(&key, "prefetch", Some(account_id), label(), done, total);
+        state.task(
+            &key,
+            crate::tasks::TaskKind::Prefetch,
+            Some(account_id),
+            label(),
+            done,
+            total,
+        );
     }
     // The cache got text to search in.
     state.emit("offline-progress", json!({ "account_id": account_id }));
@@ -1907,7 +1935,7 @@ async fn idle_loop(
                     state.set_status(
                         &account.id,
                         AccountStatus {
-                            state: "paused",
+                            state: crate::state::AccountState::Paused,
                             error: Some(CmdError::from(e)),
                         },
                     );

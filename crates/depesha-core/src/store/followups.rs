@@ -15,15 +15,17 @@ use crate::domain::Draft;
 /// What a wait for an answer asks besides the time of the first reminder.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "FollowupPlanWire"))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FollowupPlan {
     /// The answer is expected by this long after sending; 0: by the first reminder.
     pub deadline_secs: i64,
     /// The first reminder at this time (unix seconds) instead of `secs` after sending: a
     /// day of the week, a date, a time before a deadline do not move with the sending.
     /// 0: `secs` after sending.
+    #[cfg_attr(feature = "ts", ts(as = "Option<i64>", optional))]
     pub due_at: i64,
     /// The answer is expected by this time (unix seconds) instead of `deadline_secs`; 0: none.
+    #[cfg_attr(feature = "ts", ts(as = "Option<i64>", optional))]
     pub deadline_at: i64,
     /// Remind again this often until an answer comes; 0: once.
     pub repeat_secs: i64,
@@ -33,9 +35,11 @@ pub struct FollowupPlan {
     pub kind: String,
     /// An answer takes the letter it answers to wait in the folder (#59): asked in the
     /// compose window, the mailbox's setting when not asked. The outbox keeps it decided.
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub park: Option<bool>,
     /// An answer takes the letter it answers to the archive, with no wait (#106): asked in
     /// the compose window, the mailbox's setting when not asked. A wait goes before it.
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub archive: Option<bool>,
 }
 

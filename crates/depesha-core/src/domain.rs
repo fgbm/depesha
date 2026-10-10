@@ -350,19 +350,21 @@ mod serde_bytes_b64 {
 /// A draft kept locally: the key is the window's own (a fresh one per composition), and
 /// `draft` is the letter exactly as the window holds it, stored verbatim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "CachedDraftWire"))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CachedDraft {
     pub key: String,
     pub account_id: String,
     /// The window's draft verbatim (a `ComposeDraft` of the interface).
-    #[cfg_attr(feature = "ts", ts(type = "ComposeDraftWire"))]
+    #[cfg_attr(feature = "ts", ts(type = "ComposeDraft"))]
     pub draft: serde_json::Value,
     /// The server copy this one continues, so a restore replaces it instead of adding a twin.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub draft_id: Option<i64>,
     /// The Message-ID of that server copy: the number alone may be handed out again to
     /// another draft, so a delete checks both (#92). Absent in copies written before.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub draft_message_id: Option<String>,
     /// When it was last written, seconds since the epoch.
     pub updated: i64,

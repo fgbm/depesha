@@ -78,18 +78,38 @@ impl Counts {
     }
 }
 
+/// What a task does, as the tasks window tells them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum TaskKind {
+    Sync,
+    Prefetch,
+    Older,
+    Search,
+    Send,
+    Sizes,
+    Labels,
+    StuckCopy,
+    Empty,
+    /// A wait moving its letters to the folder or back.
+    Waiting,
+}
+
+/// Where a task stands: it runs, or it failed and waits for the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum TaskState {
+    Running,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Task {
     pub key: String,
-    /// `sync`, `prefetch`, `older`, `search`, `send`, `sizes`, `empty`.
-    #[cfg_attr(
-        test,
-        ts(
-            type = "\"sync\" | \"prefetch\" | \"older\" | \"search\" | \"send\" | \"sizes\" | \"labels\" | \"stuck-copy\" | \"empty\""
-        )
-    )]
-    pub kind: &'static str,
+    pub kind: TaskKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional = nullable))]
     pub account_id: Option<String>,
@@ -97,9 +117,7 @@ pub struct Task {
     pub done: u64,
     /// 0 when unknown.
     pub total: u64,
-    /// `running` or `failed`.
-    #[cfg_attr(test, ts(type = "\"running\" | \"failed\""))]
-    pub state: &'static str,
+    pub state: TaskState,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional = nullable))]
     pub error: Option<CmdError>,
@@ -122,7 +140,7 @@ impl Tasks {
     /// Remembers a stop for a running task; a task that is not running (done, failed, or
     /// never there) has nothing to stop, and the request must not outlive it.
     fn request_stop(&self, key: &str) {
-        if lock(&self.list).get(key).is_some_and(|t| t.state == "running") {
+        if lock(&self.list).get(key).is_some_and(|t| t.state == TaskState::Running) {
             lock(&self.stops).insert(key.to_owned());
         }
     }
@@ -130,12 +148,12 @@ impl Tasks {
 
 impl AppState {
     /// Starts the task under `key` or updates it; a failed one starts again.
-    pub fn task(&self, key: &str, kind: &'static str, account_id: Option<&str>, label: String, done: u64, total: u64) {
+    pub fn task(&self, key: &str, kind: TaskKind, account_id: Option<&str>, label: String, done: u64, total: u64) {
         {
             let mut list = lock(&self.tasks.list);
             let started = list
                 .get(key)
-                .filter(|t| t.state == "running")
+                .filter(|t| t.state == TaskState::Running)
                 .map(|t| t.started)
                 .unwrap_or_else(|| chrono::Utc::now().timestamp());
             list.insert(
@@ -147,7 +165,7 @@ impl AppState {
                     label,
                     done,
                     total,
-                    state: "running",
+                    state: TaskState::Running,
                     error: None,
                     started,
                 },
@@ -170,11 +188,11 @@ impl AppState {
             let Some(t) = list.get_mut(key) else {
                 return;
             };
-            t.state = "failed";
+            t.state = TaskState::Failed;
             t.error = Some(error);
             let failed: Vec<(i64, String)> = list
                 .values()
-                .filter(|t| t.state == "failed")
+                .filter(|t| t.state == TaskState::Failed)
                 .map(|t| (t.started, t.key.clone()))
                 .collect();
             if failed.len() > KEEP_FAILED {
@@ -192,7 +210,7 @@ impl AppState {
         let removed = {
             let mut list = lock(&self.tasks.list);
             match list.get(key) {
-                Some(t) if t.state == "failed" => list.remove(key).is_some(),
+                Some(t) if t.state == TaskState::Failed => list.remove(key).is_some(),
                 _ => false,
             }
         };
@@ -240,7 +258,7 @@ impl AppState {
     pub fn task_progress(&self, key: &str) -> Option<(u64, u64)> {
         lock(&self.tasks.list)
             .get(key)
-            .filter(|t| t.state == "running")
+            .filter(|t| t.state == TaskState::Running)
             .map(|t| (t.done, t.total))
     }
 
@@ -316,12 +334,34 @@ impl AppState {
 mod tests {
     use super::*;
 
+    mod erased_serde_probe {
+        pub trait Probe {
+            fn json(&self) -> String;
+        }
+        impl<T: serde::Serialize> Probe for T {
+            fn json(&self) -> String {
+                serde_json::to_string(self).unwrap()
+            }
+        }
+    }
+
+    /// The words on the wire are the ones the interface has always read.
+    #[test]
+    fn kinds_and_states_keep_their_words() {
+        let json = |v: &dyn erased_serde_probe::Probe| v.json();
+        assert_eq!(json(&TaskKind::StuckCopy), "\"stuck-copy\"");
+        assert_eq!(json(&TaskKind::Waiting), "\"waiting\"");
+        assert_eq!(json(&TaskState::Failed), "\"failed\"");
+        assert_eq!(json(&crate::state::AccountState::Paused), "\"paused\"");
+        assert_eq!(json(&crate::updater::UpdateState::Downloading), "\"downloading\"");
+    }
+
     #[test]
     fn a_stop_only_reaches_a_running_task() {
         let tasks = Tasks::default();
         let running = |key: &str, state| Task {
             key: key.into(),
-            kind: "empty",
+            kind: TaskKind::Empty,
             account_id: Some("a".into()),
             label: "x".into(),
             done: 0,
@@ -330,8 +370,8 @@ mod tests {
             error: None,
             started: 0,
         };
-        lock(&tasks.list).insert("empty:a:Trash".into(), running("empty:a:Trash", "running"));
-        lock(&tasks.list).insert("empty:a:Spam".into(), running("empty:a:Spam", "failed"));
+        lock(&tasks.list).insert("empty:a:Trash".into(), running("empty:a:Trash", TaskState::Running));
+        lock(&tasks.list).insert("empty:a:Spam".into(), running("empty:a:Spam", TaskState::Failed));
         tasks.request_stop("empty:a:Trash");
         tasks.request_stop("empty:a:Spam");
         tasks.request_stop("empty:a:Drafts");

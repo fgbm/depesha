@@ -73,11 +73,9 @@ quota_limit_mb?: number,
  */
 waiting?: Waiting, };
 
-export type AccountStatus = { 
-/**
- * `connecting`, `online`, `error`, or `paused` (needs the user: password, certificate).
- */
-state: "connecting" | "online" | "error" | "paused", error?: CmdError | null, };
+export type AccountState = "connecting" | "online" | "error" | "paused";
+
+export type AccountStatus = { state: AccountState, error?: CmdError | null, };
 
 export type AccountSync = { account_id: string, last_sync: number | null, 
 /**
@@ -173,7 +171,11 @@ export type Addr = { name: string | null, email: string, };
 
 export type AttachmentInfo = { index: number, name: string, mime: string, size: number, content_id: string | null, inline: boolean, };
 
-export type AttachmentSourceWire = { "kind": "file", path: string, } | { "kind": "message", id: number, index: number, };
+export type AttachmentSource = { "kind": "file", path: string, 
+/**
+ * The name and size the window shows: Rust takes the letter from the source, not from them.
+ */
+name: string, size: number, } | { "kind": "message", id: number, index: number, name: string, size: number, };
 
 export type AuthMethod = { "kind": "password" } | { "kind": "oauth", provider: OAuthProvider, };
 
@@ -181,20 +183,20 @@ export type BodyFormat = "plain" | "html" | "markdown";
 
 export type BodyView = "text" | "html" | "markdown";
 
-export type CachedDraftWire = { key: string, account_id: string, 
+export type CachedDraft = { key: string, account_id: string, 
 /**
  * The window's draft verbatim (a `ComposeDraft` of the interface).
  */
-draft: ComposeDraftWire, 
+draft: ComposeDraft, 
 /**
  * The server copy this one continues, so a restore replaces it instead of adding a twin.
  */
-draft_id: number | null, 
+draft_id?: number | null, 
 /**
  * The Message-ID of that server copy: the number alone may be handed out again to
  * another draft, so a delete checks both (#92). Absent in copies written before.
  */
-draft_message_id: string | null, 
+draft_message_id?: string | null, 
 /**
  * When it was last written, seconds since the epoch.
  */
@@ -214,27 +216,27 @@ export type CertWhy = "Expired" | "NotYetValid" | "UnknownIssuer" | "WrongName" 
 
 export type CmdError = { kind: ErrorKind, message: string, cert?: CertProblem | null, };
 
-export type ComposeDraftWire = { from: Addr | null, to: Array<Addr>, cc: Array<Addr>, bcc: Array<Addr>, subject: string, text: string, 
+export type ComposeDraft = { from: Addr | null, to: Array<Addr>, cc: Array<Addr>, bcc: Array<Addr>, subject: string, text: string, 
 /**
  * The letter from the visual editor; only an HTML letter has it.
  */
-html: string | null, 
+html?: string | null, 
 /**
  * The HTML of the signature a Markdown letter carries (#67).
  */
-signature: string | null, format: BodyFormat, in_reply_to: string | null, references: Array<string>, attachments: Array<AttachmentSourceWire>, 
+signature?: string | null, format?: BodyFormat, in_reply_to: string | null, references: Array<string>, attachments: Array<AttachmentSource>, 
 /**
  * Scheduled sending time: kept with a saved draft, the send takes `at` instead.
  */
-send_at: number | null, 
+send_at?: number | null, 
 /**
  * The letter this one answers or forwards.
  */
-acts_on: ActsOn | null, 
+acts_on?: ActsOn | null, 
 /**
  * Asked to be read first (#72).
  */
-importance: Importance, };
+importance?: Importance, };
 
 export type Counters = { snoozed: number, 
 /**
@@ -453,7 +455,7 @@ park: string, park_folder: string,
  */
 auto_reply: number | null, };
 
-export type FollowupPlanWire = { 
+export type FollowupPlan = { 
 /**
  * The answer is expected by this long after sending; 0: by the first reminder.
  */
@@ -463,11 +465,11 @@ deadline_secs: number,
  * day of the week, a date, a time before a deadline do not move with the sending.
  * 0: `secs` after sending.
  */
-due_at: number, 
+due_at?: number, 
 /**
  * The answer is expected by this time (unix seconds) instead of `deadline_secs`; 0: none.
  */
-deadline_at: number, 
+deadline_at?: number, 
 /**
  * Remind again this often until an answer comes; 0: once.
  */
@@ -484,12 +486,12 @@ kind: string,
  * An answer takes the letter it answers to wait in the folder (#59): asked in the
  * compose window, the mailbox's setting when not asked. The outbox keeps it decided.
  */
-park: boolean | null, 
+park?: boolean | null, 
 /**
  * An answer takes the letter it answers to the archive, with no wait (#106): asked in
  * the compose window, the mailbox's setting when not asked. A wait goes before it.
  */
-archive: boolean | null, };
+archive?: boolean | null, };
 
 export type FollowupStatus = "waiting" | "answered" | "closed";
 
@@ -528,41 +530,41 @@ export type LabelCheck = "saves" | "not-saves" | "claimed-but-lost";
 
 export type LabelCount = { keyword: string, count: number, };
 
-export type ListQueryWire = { account_id: string | null, folder: string | null, 
+export type ListQuery = { account_id?: string | null, folder?: string | null, 
 /**
  * Folder role across all accounts, e.g. every inbox. Defaults to inbox
  * when no folder is given.
  */
-role: FolderRole | null, unread_only: boolean, flagged_only: boolean, 
+role?: FolderRole | null, unread_only?: boolean, flagged_only?: boolean, 
 /**
  * Messages that stay in an unread or flagged list although they no longer
  * match: the ones read or unflagged while it is open, as in Gmail.
  */
-keep_ids: Array<number>, 
+keep_ids?: Array<number>, 
 /**
  * Only mail from people (`false`) or only lists and notifications (`true`).
  */
-bulk: boolean | null, 
+bulk?: boolean | null, 
 /**
  * One row per conversation: its newest message, with the count.
  */
-threads: boolean, 
+threads?: boolean, 
 /**
  * Snoozed mail of every account, wherever it waits.
  */
-snoozed_only: boolean, 
+snoozed_only?: boolean, 
 /**
  * Sent mail with a wait for an answer: those still waiting, or `followup_status`.
  */
-followups_only: boolean, followup_status: FollowupFilter, 
+followups_only?: boolean, followup_status?: FollowupFilter, 
 /**
  * The order, first key first; newest first when empty.
  */
-sort: Array<SortKey>, 
+sort?: Array<SortKey>, 
 /**
  * Rows changed in the open list: they sort by their earlier state.
  */
-pins: Array<Pin>, limit: number, offset: number, };
+pins?: Array<Pin>, limit?: number, offset?: number, };
 
 export type Mark = { act: Act, 
 /**
@@ -732,7 +734,7 @@ followup_secs: number,
 /**
  * The rest of that wait.
  */
-followup: FollowupPlanWire, };
+followup: FollowupPlan, };
 
 export type Outgoing = { act: Act, 
 /**
@@ -1056,19 +1058,15 @@ dmarc: boolean,
  */
 importance: Importance, };
 
-export type Task = { key: string, 
-/**
- * `sync`, `prefetch`, `older`, `search`, `send`, `sizes`, `empty`.
- */
-kind: "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels" | "stuck-copy" | "empty", account_id?: string | null, label: string, done: number, 
+export type Task = { key: string, kind: TaskKind, account_id?: string | null, label: string, done: number, 
 /**
  * 0 when unknown.
  */
-total: number, 
-/**
- * `running` or `failed`.
- */
-state: "running" | "failed", error?: CmdError | null, started: number, };
+total: number, state: TaskState, error?: CmdError | null, started: number, };
+
+export type TaskKind = "sync" | "prefetch" | "older" | "search" | "send" | "sizes" | "labels" | "stuck-copy" | "empty" | "waiting";
+
+export type TaskState = "running" | "failed";
 
 export type Template = { name: string, text: string, };
 
@@ -1092,12 +1090,9 @@ export type UnsubscribeWay = { "kind": "one-click", host: string, } | { "kind": 
 
 export type Unsubscribed = { "kind": "done" } | { "kind": "mail-sent", to: string, } | { "kind": "confirm", plan: UnsubscribePlan, reason: string, };
 
-export type UpdateStatus = { current: string, 
-/**
- * `idle`, `checking`, `available`, `downloading`, `ready` (downloaded, installs on
- * restart), `installed` (restart to use it) or `error`.
- */
-state: "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error", version: string | null, notes: string | null, error: string | null, install: Install, };
+export type UpdateState = "idle" | "checking" | "available" | "downloading" | "ready" | "installed" | "error";
+
+export type UpdateStatus = { current: string, state: UpdateState, version: string | null, notes: string | null, error: string | null, install: Install, };
 
 export type Voice = { from: Addr, dmarc: boolean, 
 /**

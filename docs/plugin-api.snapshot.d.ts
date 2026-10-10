@@ -65,9 +65,23 @@ export interface ComposeContext {
     send(at?: number | null): void;
 }
 
-export type ComposeDraft = Loose<Omit<ComposeDraftWire, "attachments"> & {
-    attachments: AttachmentSource[];
-}, "html" | "signature" | "format" | "send_at" | "acts_on" | "importance">;
+export type ComposeDraft = {
+    from: Addr | null;
+    to: Array<Addr>;
+    cc: Array<Addr>;
+    bcc: Array<Addr>;
+    subject: string;
+    text: string;
+    html?: string | null;
+    signature?: string | null;
+    format?: BodyFormat;
+    in_reply_to: string | null;
+    references: Array<string>;
+    attachments: Array<AttachmentSource>;
+    send_at?: number | null;
+    acts_on?: ActsOn | null;
+    importance?: Importance;
+};
 
 export declare const DEFAULT_WORK_TIME: WorkTime;
 
@@ -114,7 +128,16 @@ export type FollowupInfo = {
     auto_reply: number | null;
 };
 
-export type FollowupPlan = Loose<FollowupPlanWire, "due_at" | "deadline_at" | "park" | "archive">;
+export type FollowupPlan = {
+    deadline_secs: number;
+    due_at?: number;
+    deadline_at?: number;
+    repeat_secs: number;
+    expect: string;
+    kind: string;
+    park?: boolean | null;
+    archive?: boolean | null;
+};
 
 export interface KeyBinding {
     id: string;
@@ -154,7 +177,23 @@ export interface ListFilter {
     query: (list: ListScope) => Partial<ListQuery>;
 }
 
-export type ListQuery = Partial<ListQueryWire>;
+export type ListQuery = {
+    account_id?: string | null;
+    folder?: string | null;
+    role?: FolderRole | null;
+    unread_only?: boolean;
+    flagged_only?: boolean;
+    keep_ids?: Array<number>;
+    bulk?: boolean | null;
+    threads?: boolean;
+    snoozed_only?: boolean;
+    followups_only?: boolean;
+    followup_status?: FollowupFilter;
+    sort?: Array<SortKey>;
+    pins?: Array<Pin>;
+    limit?: number;
+    offset?: number;
+};
 
 export interface ListScope {
     key: string;
@@ -534,18 +573,17 @@ type AttachmentInfo = {
     inline: boolean;
 };
 
-type AttachmentSource = AttachmentSourceWire & {
-    name: string;
-    size: number;
-};
-
-type AttachmentSourceWire = {
+type AttachmentSource = {
     "kind": "file";
     path: string;
+    name: string;
+    size: number;
 } | {
     "kind": "message";
     id: number;
     index: number;
+    name: string;
+    size: number;
 };
 
 type BodyFormat = "plain" | "html" | "markdown";
@@ -558,24 +596,6 @@ interface Box {
     right: number;
     bottom: number;
 }
-
-type ComposeDraftWire = {
-    from: Addr | null;
-    to: Array<Addr>;
-    cc: Array<Addr>;
-    bcc: Array<Addr>;
-    subject: string;
-    text: string;
-    html: string | null;
-    signature: string | null;
-    format: BodyFormat;
-    in_reply_to: string | null;
-    references: Array<string>;
-    attachments: Array<AttachmentSourceWire>;
-    send_at: number | null;
-    acts_on: ActsOn | null;
-    importance: Importance;
-};
 
 type Flags = {
     seen: boolean;
@@ -591,40 +611,9 @@ type FolderRole = "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "
 
 type FollowupFilter = "active" | "closed";
 
-type FollowupPlanWire = {
-    deadline_secs: number;
-    due_at: number;
-    deadline_at: number;
-    repeat_secs: number;
-    expect: string;
-    kind: string;
-    park: boolean | null;
-    archive: boolean | null;
-};
-
 type FollowupStatus = "waiting" | "answered" | "closed";
 
 type Importance = "low" | "normal" | "high";
-
-type ListQueryWire = {
-    account_id: string | null;
-    folder: string | null;
-    role: FolderRole | null;
-    unread_only: boolean;
-    flagged_only: boolean;
-    keep_ids: Array<number>;
-    bulk: boolean | null;
-    threads: boolean;
-    snoozed_only: boolean;
-    followups_only: boolean;
-    followup_status: FollowupFilter;
-    sort: Array<SortKey>;
-    pins: Array<Pin>;
-    limit: number;
-    offset: number;
-};
-
-type Loose<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
 type Mark = {
     act: Act;

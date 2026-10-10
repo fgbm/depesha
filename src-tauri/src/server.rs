@@ -206,7 +206,7 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
     };
     let label = tr!("Folder sizes: {name}", "Размер папок: {name}");
     state.while_count(&id, Some(generation), || {
-        state.task(&key, "sizes", Some(&id), label.clone(), 0, total)
+        state.task(&key, crate::tasks::TaskKind::Sizes, Some(&id), label.clone(), 0, total)
     });
     changed(&state, &id);
 
@@ -224,7 +224,14 @@ pub fn count_sizes(state: Arc<AppState>, account: Account) -> CmdResult<()> {
             let (method, sizes) = quota::folder_sizes(&mut conn, &folders, |done| {
                 // A stopped count says nothing more: its task is gone from the list.
                 state.while_count(&id, Some(generation), || {
-                    state.task(&key, "sizes", Some(&id), label.clone(), done as u64, total)
+                    state.task(
+                        &key,
+                        crate::tasks::TaskKind::Sizes,
+                        Some(&id),
+                        label.clone(),
+                        done as u64,
+                        total,
+                    )
                 });
             })
             .await?;

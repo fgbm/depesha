@@ -425,4 +425,28 @@ mod tests {
         );
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    /// A value the file has and this version does not know (a setting of a newer version, or a
+    /// typo) must not cost the mailboxes: the settings keep strings, so it reads as it is (#143).
+    #[test]
+    fn an_unknown_setting_value_loses_no_mailbox() {
+        let dir = std::env::temp_dir().join(format!("depesha-config-unknown-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("accounts.json");
+        std::fs::write(
+            &path,
+            r#"{"accounts":[{"id":"a","display_name":"A","email":"a@example.org","username":"a@example.org",
+                "imap":{"host":"imap.example.org","port":993,"security":"tls"},
+                "smtp":{"host":"smtp.example.org","port":465,"security":"tls"},"save_sent_copy":true}],
+               "settings":{"theme":"future","notify":"sometimes","offline":"forever","letter_view":"hologram",
+                "close_action":"explode","autostart":"maybe","updates":"never-ever","language":"klingon","quota_repeat":"hourly"}}"#,
+        )
+        .unwrap();
+        let config = load(&path);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.accounts.len(), 1, "the mailbox stays");
+        assert_eq!(config.accounts[0].email, "a@example.org");
+        assert_eq!(config.settings.theme, "future");
+        assert_eq!(config.settings.offline, "forever");
+    }
 }

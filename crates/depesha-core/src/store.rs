@@ -1033,32 +1033,47 @@ fn message_sort_column(by: SortField) -> Option<&'static str> {
 /// Which messages to show. An empty query is the unified inbox of all accounts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "ListQueryWire"))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ListQuery {
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub account_id: Option<String>,
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub folder: Option<String>,
     /// Folder role across all accounts, e.g. every inbox. Defaults to inbox
     /// when no folder is given.
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub role: Option<FolderRole>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub unread_only: bool,
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub flagged_only: bool,
     /// Messages that stay in an unread or flagged list although they no longer
     /// match: the ones read or unflagged while it is open, as in Gmail.
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<i64>>", optional))]
     pub keep_ids: Vec<i64>,
     /// Only mail from people (`false`) or only lists and notifications (`true`).
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub bulk: Option<bool>,
     /// One row per conversation: its newest message, with the count.
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub threads: bool,
     /// Snoozed mail of every account, wherever it waits.
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub snoozed_only: bool,
     /// Sent mail with a wait for an answer: those still waiting, or `followup_status`.
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub followups_only: bool,
+    #[cfg_attr(feature = "ts", ts(as = "Option<FollowupFilter>", optional))]
     pub followup_status: FollowupFilter,
     /// The order, first key first; newest first when empty.
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<SortKey>>", optional))]
     pub sort: Vec<SortKey>,
     /// Rows changed in the open list: they sort by their earlier state.
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<Pin>>", optional))]
     pub pins: Vec<Pin>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<u32>", optional))]
     pub limit: u32,
+    #[cfg_attr(feature = "ts", ts(as = "Option<u32>", optional))]
     pub offset: u32,
 }
 

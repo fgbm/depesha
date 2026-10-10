@@ -109,7 +109,7 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
                 outbox::subject_or_placeholder(&item.draft.subject, crate::lang::pick("(no subject)", "(без темы)"));
             state.task(
                 &key,
-                "send",
+                crate::tasks::TaskKind::Send,
                 Some(&item.account_id),
                 tr!("Sending «{subject}»", "Отправка «{subject}»"),
                 0,
@@ -296,7 +296,14 @@ fn refusal_delay(refusals: u32) -> i64 {
 fn stuck_task(state: &AppState, copy: &StuckCopy) {
     let key = stuck_key(copy.id);
     let (label, kind) = stuck_label(copy);
-    state.task(&key, "stuck-copy", Some(&copy.account_id), label, 0, 0);
+    state.task(
+        &key,
+        crate::tasks::TaskKind::StuckCopy,
+        Some(&copy.account_id),
+        label,
+        0,
+        0,
+    );
     let reason = copy.last_error.clone().unwrap_or_default();
     state.task_failed(&key, CmdError::new(kind, reason));
 }

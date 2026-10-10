@@ -15,12 +15,22 @@ use crate::secrets;
 use crate::tr;
 use crate::worker::Worker;
 
+/// How a mailbox stands: connecting, online, in error, or paused (needs the user: a password,
+/// a certificate).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum AccountState {
+    Connecting,
+    Online,
+    Error,
+    Paused,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AccountStatus {
-    /// `connecting`, `online`, `error`, or `paused` (needs the user: password, certificate).
-    #[cfg_attr(test, ts(type = "\"connecting\" | \"online\" | \"error\" | \"paused\""))]
-    pub state: &'static str,
+    pub state: AccountState,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional = nullable))]
     pub error: Option<CmdError>,

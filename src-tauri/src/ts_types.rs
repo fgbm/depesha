@@ -13,13 +13,19 @@ struct Decls {
 }
 
 fn decl<T: TS + 'static + ?Sized>(cfg: &Config, out: &mut Decls) {
-    out.declared.insert(T::name(cfg), format!("export {}", T::decl(cfg)));
+    let name = T::name(cfg);
+    let was = out.declared.insert(name.clone(), format!("export {}", T::decl(cfg)));
+    assert!(was.is_none(), "два типа с именем {name}: переименуй один (ts(rename))");
     out.used.extend(T::dependencies(cfg).into_iter().map(|d| d.ts_name));
 }
 
 /// Every type the interface gets, by name. A type used inside one of these must be here too.
 fn all(cfg: &Config) -> Decls {
     let mut out = Decls::default();
+    decl::<crate::tasks::TaskKind>(cfg, &mut out);
+    decl::<crate::tasks::TaskState>(cfg, &mut out);
+    decl::<crate::updater::UpdateState>(cfg, &mut out);
+    decl::<crate::state::AccountState>(cfg, &mut out);
     decl::<serde_json::Value>(cfg, &mut out);
     decl::<depesha_core::account::Security>(cfg, &mut out);
     decl::<depesha_core::account::ServerConfig>(cfg, &mut out);
@@ -199,6 +205,29 @@ mod tests {
         assert!(check(&have, &have).is_ok());
         let why = check(&have, &want).unwrap_err();
         assert!(why.contains("scripts/gen-types.sh") && why.contains("line 1"), "{why}");
+    }
+
+    /// Two Rust types that come out under one TypeScript name would overwrite each other in the
+    /// file: that is an error, not a quiet loss of one.
+    #[test]
+    #[should_panic(expected = "два типа с именем Probe")]
+    fn two_types_with_one_name_fail() {
+        #[derive(TS)]
+        #[ts(rename = "Probe")]
+        #[allow(dead_code)]
+        struct First {
+            a: u8,
+        }
+        #[derive(TS)]
+        #[ts(rename = "Probe")]
+        #[allow(dead_code)]
+        struct Second {
+            b: u8,
+        }
+        let cfg = Config::new();
+        let mut out = Decls::default();
+        decl::<First>(&cfg, &mut out);
+        decl::<Second>(&cfg, &mut out);
     }
 
     /// A type used inside a listed one is listed too, or the file would name a type it does not declare.

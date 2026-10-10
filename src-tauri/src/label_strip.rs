@@ -21,7 +21,9 @@ use crate::worker::Queue;
 pub fn resume_all(state: &Arc<AppState>) {
     let now = chrono::Utc::now().timestamp();
     for account in state.accounts() {
-        let online = state.status(&account.id).is_some_and(|s| s.state == "online");
+        let online = state
+            .status(&account.id)
+            .is_some_and(|s| s.state == crate::state::AccountState::Online);
         let Ok(labels) = label_strip::resumable(&state.store, &state.label_strip, &account.id, online, now) else {
             continue;
         };
@@ -63,7 +65,16 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
         name,
         keyword,
         &|| chrono::Utc::now().timestamp(),
-        &mut |done, total| state.task(&task, "labels", Some(account_id), label.to_owned(), done, total),
+        &mut |done, total| {
+            state.task(
+                &task,
+                crate::tasks::TaskKind::Labels,
+                Some(account_id),
+                label.to_owned(),
+                done,
+                total,
+            )
+        },
     )
     .await;
     match ended {
@@ -80,7 +91,14 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
                 return;
             }
             if count > 0 {
-                state.task(&task, "labels", Some(account_id), label.to_owned(), done, total);
+                state.task(
+                    &task,
+                    crate::tasks::TaskKind::Labels,
+                    Some(account_id),
+                    label.to_owned(),
+                    done,
+                    total,
+                );
             }
             state.task_failed(
                 &task,

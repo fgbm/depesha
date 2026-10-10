@@ -426,7 +426,7 @@ pub fn refresh(app: &AppHandle) {
         .into_iter()
         .filter_map(|a| {
             let status = state.status(&a.id)?;
-            (status.state == "paused").then(|| Problem {
+            (status.state == crate::state::AccountState::Paused).then(|| Problem {
                 label: if a.label.trim().is_empty() {
                     a.email.clone()
                 } else {

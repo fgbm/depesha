@@ -68,10 +68,17 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
     let id = account.id.as_str();
     let key = req.key.as_str();
     state.task_stop_clear(key);
-    state.task(key, "empty", Some(id), req.label.clone(), 0, 0);
+    state.task(key, crate::tasks::TaskKind::Empty, Some(id), req.label.clone(), 0, 0);
     let folder = req.job.folder.as_str();
     let mut progress = |done: usize, total: usize| {
-        state.task(key, "empty", Some(id), req.label.clone(), done as u64, total as u64);
+        state.task(
+            key,
+            crate::tasks::TaskKind::Empty,
+            Some(id),
+            req.label.clone(),
+            done as u64,
+            total as u64,
+        );
         !state.task_stop_requested(key)
     };
     let mut cache_forgot = |forgot: Forgot| match forgot {
@@ -220,7 +227,10 @@ pub fn open_drafts(state: &AppState, account_id: &str) -> usize {
 /// A run that began is refused while the mailbox is not online: the queue would hold an
 /// irreversible action for as long as the network is down.
 pub fn require_online(state: &AppState, account_id: &str) -> std::result::Result<(), CmdError> {
-    if state.status(account_id).is_some_and(|s| s.state == "online") {
+    if state
+        .status(account_id)
+        .is_some_and(|s| s.state == crate::state::AccountState::Online)
+    {
         return Ok(());
     }
     Err(CmdError::new(
