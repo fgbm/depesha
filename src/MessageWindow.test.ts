@@ -24,8 +24,10 @@ import { app } from "./lib/store.svelte";
 import { i18n } from "./lib/i18n.svelte";
 import { blankPerson } from "./lib/people";
 import { peopleOps } from "./lib/peopleOps.svelte";
-import { api, settings } from "./lib/testing";
+import { api, flush, opened, row, settings } from "./lib/testing";
 import { registry } from "./plugin-host/registry.svelte";
+import { extensions } from "./lib/extensions.svelte";
+import { allCommands } from "./plugin-host/host.svelte";
 
 (globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
 
@@ -86,5 +88,21 @@ describe("the window of one letter", () => {
     applies = true;
     press();
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  // #125 review: Ctrl+K opens the palette here too, with what a letter's window can do: no list, folders or search.
+  it("opens the palette on Ctrl+K with the letter's commands only", async () => {
+    app.mailboxes.folders = [];
+    app.mailboxes.accounts = [];
+    extensions.list = [];
+    await flush();
+    app.reader.opened = opened(row(1));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(document.querySelector(".palette")).not.toBeNull());
+    const ids = allCommands().map((c) => c.id);
+    expect(ids).toContain("core.reply");
+    expect(ids.filter((id) => /^core\.(search|go\.|open\.|sort\.|show\.|ready\.|people$|settings|plugins|add-account|empty-folder)/.test(id))).toEqual([]);
+    expect(document.querySelector(".palette")?.textContent).toContain("Ответить");
+    app.reader.opened = null;
   });
 });

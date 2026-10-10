@@ -19,6 +19,9 @@ const go = (v: View) => () => app.setView(v);
 /** "Largest letters" in the middle of a phrase; "MB" stays as it is. */
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
+/** What needs the main window's list, folders or settings: a letter's own window has none of them. */
+const MAIN_ONLY = /^core\.(search|ready\.|go\.|open\.|people$|sort\.|show\.|empty-folder$|settings$|plugins$|add-account$)/;
+
 export function coreCommands(): Command[] {
   const msg = app.opened;
   const target = app.selectedIds();
@@ -146,5 +149,5 @@ export function coreCommands(): Command[] {
     { id: "core.plugins", title: () => t("cmd.plugins"), run: () => app.openSettings("plugins") },
     { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => app.accountSettings(null) },
   );
-  return list;
+  return app.windowOf === null ? list : list.filter((c) => !MAIN_ONLY.test(c.id));
 }
