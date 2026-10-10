@@ -2,6 +2,7 @@
 """Seeds and inspects the GreenMail test mailbox for the E2E test.
 
   imap_helper.py seed            create folders and test messages for carol
+  imap_helper.py demo-seed [VER] tidy demo mail for the screenshots; VER 0.8.0 adds the 0.8 letters
   imap_helper.py count FOLDER SUBJECT
   imap_helper.py flags FOLDER SUBJECT
   imap_helper.py header FOLDER SUBJECT HEADER
@@ -200,13 +201,41 @@ def seed():
     c.logout()
 
 
-def demo_seed():
+def demo_files(subject, sender, when, mid, to, names):
+    """A read letter with one small text attachment per name: the reader folds them to two rows."""
+    import urllib.parse
+
+    body = "Комплект документов по поставке во вложении, прошу проверить к пятнице.\r\n"
+    parts = [
+        f"From: =?utf-8?B?{base64.b64encode(sender[0].encode()).decode()}?= <{sender[1]}>\r\n"
+        f"To: {to}\r\nSubject: =?utf-8?B?{base64.b64encode(subject.encode()).decode()}?=\r\n"
+        f"Date: {email.utils.formatdate(when, localtime=True)}\r\nMessage-ID: <{mid}>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        f"--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+    ]
+    for name in names:
+        data = base64.encodebytes((f"{name}\r\n" * (20 + 17 * (len(name) % 11))).encode()).decode().replace("\n", "\r\n")
+        enc = "utf-8''" + urllib.parse.quote(name)
+        parts.append(
+            f"--mix\r\nContent-Type: text/plain; charset=utf-8; name*={enc}\r\nContent-Disposition: attachment; filename*={enc}\r\n"
+            f"Content-Transfer-Encoding: base64\r\n\r\n{data}"
+        )
+    parts.append("--mix--\r\n")
+    return "".join(parts).encode()
+
+
+def demo_seed(version=""):
     """Tidy, reproducible mail for the README screenshots (e2e/shots.mjs).
 
     Addresses are only on example.com / example.org. The inbox and «Отправленные»
     are emptied first, so re-shooting gives the same pictures; inbox dates are fixed
     so the list shows the same times every time.
+
+    `version` "0.8.0" adds what the 0.8 shots need (e2e/release-shots.mjs, SHOTS_SET): letters
+    that passed DMARC (their senders get a logo), an important one, a letter with many
+    attachments and a full «Корзина». Without it the set is the one of 0.7.
     """
+    v8 = version == "0.8.0"
     c = conn()
     # Start clean: these also drop the 620 letters of the acceptance seed.
     for folder in ("INBOX", "Sent", "Drafts", "Trash", "Архив", "Отложенные", "Работа", "Работа.Сметы", "Отчёты"):
@@ -239,13 +268,28 @@ def demo_seed():
     put("INBOX", "Отчёт за сентябрь", "Мария Соколова <maria@example.org>",
         "Отчёт за сентябрь готов, замечания во вложении.", base - day, "report-9@example.org",
         attach=("report.pdf", "application/pdf", DOCS_ATTACH["contract.pdf"]))
+    # What the receiving server (the mailbox's own domain) says of a sender: DMARC passed.
+    dmarc = lambda domain: f"Authentication-Results: mx.example.org; dmarc=pass header.from={domain}\r\n"
     put("INBOX", "Счёт на оплату", "Бухгалтерия <billing@example.org>",
-        "Просим оплатить счёт до 15 октября.", base - 2 * day, "invoice-15@example.org")
-    put("INBOX", "Монтаж и освещение: ноябрьские скидки", "Магазин «Свет и монтаж» <news@shop.example.org>",
+        "Просим оплатить счёт до 15 октября.", base - 2 * day, "invoice-15@example.org",
+        extra=(dmarc("example.org") + "Importance: high\r\n") if v8 else "")
+    shop = "shop.example.net" if v8 else "shop.example.org"
+    put("INBOX", "Монтаж и освещение: ноябрьские скидки", f"Магазин «Свет и монтаж» <news@{shop}>",
         "Скидки на монтаж и освещение до конца ноября.",
         base - 3 * day, "weekly-44@example.org",
-        extra="List-Id: <weekly.shop.example.org>\r\n"
-              "List-Unsubscribe: <mailto:unsubscribe@shop.example.org?subject=unsubscribe>\r\n")
+        extra=f"List-Id: <weekly.{shop}>\r\n"
+              f"List-Unsubscribe: <mailto:unsubscribe@{shop}?subject=unsubscribe>\r\n" + (dmarc(shop) if v8 else ""))
+    if v8:
+        names = ["Договор поставки.pdf", "Спецификация №1.xlsx", "Спецификация №2.xlsx", "Акт сверки за сентябрь.pdf",
+                 "Счёт-фактура 0412.pdf", "Накладная ТОРГ-12.pdf", "Скан договора поставки, приложение к спецификации (подписано).pdf",
+                 "Протокол разногласий.docx", "Графики поставки.xlsx", "Реквизиты.txt", "Схема склада.png", "Фото упаковки.png"]
+        append(c, "INBOX", demo_files("Пакет документов по поставке", ("Отдел закупок", "buy@example.org"), base - 4 * day,
+                                      "pack-1@example.org", me, names), "(\\Seen)", base - 4 * day)
+        # «Корзина» with a round number of letters for the «Очистить» dialog.
+        for i, subj in enumerate(["Напоминание о собрании", "Re: График отпусков", "Опрос по обеду", "Акция недели",
+                                  "Приглашение на вебинар", "Re: Заявка на пропуск", "Итоги квартала"]):
+            put("Trash", subj, "Служба рассылок <info@example.com>", "Письмо, которое уже не нужно.",
+                base - (5 + i) * day, f"trash-{i}@example.org")
 
     # «Отправленные»: answers the user waits for (the wait itself is added by shots.mjs).
     now = int(time.time())
@@ -349,7 +393,7 @@ def main():
         seed()
         return
     if cmd == "demo-seed":
-        demo_seed()
+        demo_seed(sys.argv[2] if len(sys.argv) > 2 else "")
         return
     if cmd == "reply":
         reply(sys.argv[2], sys.argv[3])

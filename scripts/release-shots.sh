@@ -5,6 +5,7 @@
 #
 #   scripts/release-shots.sh                       the whole thing
 #   DEPESHA_APP=… SHOTS_OUT=… scripts/release-shots.sh   an already built binary, no build
+#   SHOTS_SET=0.8.0 scripts/release-shots.sh      the set of 0.8.0 (default: 0.7.0)
 #
 # Needs Xvfb on $E2E_DISPLAY (default :99), tauri-driver and WebKitWebDriver;
 # see e2e/README.md.
@@ -23,7 +24,7 @@ done
 step "демо-данные"
 # GreenMail accepts connections a moment before its users exist.
 for i in $(seq 10); do
-  python3 e2e/imap_helper.py demo-seed 2>/dev/null && break
+  python3 e2e/imap_helper.py demo-seed "${SHOTS_SET:-}" 2>/dev/null && break
   [[ $i == 10 ]] && { echo "demo-seed failed"; exit 1; }
   sleep 2
 done
