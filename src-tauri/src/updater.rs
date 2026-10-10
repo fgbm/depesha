@@ -13,7 +13,7 @@ use tauri::utils::config::BundleType;
 use tauri::utils::platform::bundle_type;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 use depesha_core::lang::pick;
 use depesha_core::tr;
 
@@ -83,10 +83,6 @@ impl Updates {
     pub fn status(&self) -> UpdateStatus {
         lock(&self.status).clone()
     }
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn set(state: &AppState, f: impl FnOnce(&mut UpdateStatus)) {

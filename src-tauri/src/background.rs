@@ -15,7 +15,7 @@ use tokio::sync::Notify;
 
 use crate::config::Settings;
 use crate::desktop_notify::Target;
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 
 /// Whether the system shows tray icons. Known only after the icon was tried: a panel
 /// may come up after the app at login, so a failure is tried again for a minute.
@@ -191,10 +191,6 @@ impl Background {
     pub fn set_quit_pending(&self, pending: bool) {
         self.quit_pending.store(pending, Ordering::Release);
     }
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Brings the main window forward: from the tray, a notification, a second launch.

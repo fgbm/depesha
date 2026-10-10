@@ -73,10 +73,7 @@ pub async fn account_check(
 ) -> CmdResult<()> {
     // Test builds: a check that takes a known time, so a test can act while it is under way.
     #[cfg(feature = "e2e")]
-    if let Some(ms) = std::env::var("DEPESHA_E2E_CHECK_DELAY_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-    {
+    if let Some(ms) = crate::state::e2e_env("DEPESHA_E2E_CHECK_DELAY_MS") {
         tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
     let creds = match (&account.auth, grant) {
@@ -242,10 +239,7 @@ pub fn account_patch_own(state: St<'_>, id: String, patch: OwnPatch) -> CmdResul
     }
     // Test builds: the write lands late, so a test can tell a quit that waits for it from one that does not.
     #[cfg(feature = "e2e")]
-    if let Some(ms) = std::env::var("DEPESHA_E2E_PATCH_DELAY_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-    {
+    if let Some(ms) = crate::state::e2e_env("DEPESHA_E2E_PATCH_DELAY_MS") {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
     state.patch_account(&id, |account| apply_own(account, patch))

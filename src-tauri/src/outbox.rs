@@ -396,10 +396,7 @@ const REFUSALS_BEFORE_HOLD: u32 = 3;
 /// the `e2e` build reads it, as with `DEPESHA_E2E_ROOT`.
 fn refusal_delay(refusals: u32) -> i64 {
     #[cfg(feature = "e2e")]
-    if let Some(secs) = std::env::var("DEPESHA_E2E_COPY_BACKOFF")
-        .ok()
-        .and_then(|v| v.trim().parse::<i64>().ok())
-    {
+    if let Some(secs) = crate::state::e2e_env::<i64>("DEPESHA_E2E_COPY_BACKOFF") {
         return secs;
     }
     match refusals {

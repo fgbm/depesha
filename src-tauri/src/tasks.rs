@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::error::CmdError;
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 
 /// Failed tasks kept for the user to see; the oldest go first.
 const KEEP_FAILED: usize = 20;
@@ -105,10 +105,6 @@ pub struct AccountSync {
     pub offline_done: u64,
     pub offline_total: u64,
     pub paused: bool,
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Tasks {

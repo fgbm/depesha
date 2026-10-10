@@ -64,6 +64,10 @@ pub struct AppState {
     pub clearing: depesha_core::clear::Clearing,
     /// The counts the «Clear» dialogs made, kept for the run that follows.
     pub bounds: depesha_core::clear::Bounds<depesha_core::mail::Bound>,
+    /// Labels whose strip is running, by `(account, name)` (#145).
+    pub label_running: Mutex<HashSet<(String, String)>>,
+    /// Strips that ended in a retry without progress, by `(account, name)`, and when.
+    pub label_stalled: Mutex<HashMap<(String, String), std::time::Instant>>,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load
@@ -84,8 +88,15 @@ pub fn open_is_current(seqs: &OpenSeqs, window: &str, seq: u64) -> bool {
     }
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+/// Locks a mutex, taking the data of a poisoned one: the one place for it, no copies.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A number from a test-build environment variable (a delay the e2e tests set); `None` when it is unset or not a number.
+#[cfg(feature = "e2e")]
+pub(crate) fn e2e_env<T: std::str::FromStr>(name: &str) -> Option<T> {
+    std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
 }
 
 /// Applies a patch over the settings of `config` and writes them, all under `config`'s lock:

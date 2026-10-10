@@ -19,7 +19,7 @@ use depesha_core::tr;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 
 /// A new letter a notification may tell about.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -413,10 +413,6 @@ pub struct Notifier {
     batching: AtomicBool,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     notes: Mutex<Vec<Note>>,
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Tests and e2e runs share the user's notification daemon: they keep quiet.

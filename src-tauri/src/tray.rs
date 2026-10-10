@@ -16,7 +16,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, Tray
 use tauri::{AppHandle, Manager};
 
 use crate::background::{self, Tray, TrayProbe};
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 use crate::worker::Work;
 
 /// Unread letters in the inboxes of every mailbox, newsletters included (#4, frame 6A).
@@ -283,10 +283,6 @@ impl Default for TrayCtl {
             refreshing: AtomicBool::new(false),
         }
     }
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Changes reach the icon at most this often: syncs come in bursts.

@@ -83,6 +83,8 @@ if [[ "${1:-}" == "--changed" ]]; then
   mapfile -t lintable < <(pick '\.(ts|js|mjs|svelte)$' | while IFS= read -r f; do [[ -f $f ]] && printf '%s\n' "$f"; done)
 
   if [[ -n $rust ]]; then
+    step "единственный lock"
+    scripts/lock-guard.sh
     step "rustfmt"
     cargo fmt --all --check
     step "clippy"
@@ -136,6 +138,8 @@ if [[ "${1:-}" == "--changed" ]]; then
   exit 0
 fi
 
+step "единственный lock"
+scripts/lock-guard.sh
 step "rustfmt"
 cargo fmt --all --check
 step "clippy"

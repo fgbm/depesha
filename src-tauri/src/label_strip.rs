@@ -4,8 +4,7 @@
 //! stays in the list as "being removed" until every folder is done — so a restart or a
 //! pause resumes the debt instead of losing it.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
@@ -13,25 +12,11 @@ use serde_json::json;
 use depesha_core::lang::pick;
 
 use crate::error::CmdError;
-use crate::state::AppState;
+use crate::state::{AppState, lock};
 use crate::worker::{Output, Work};
-
-/// Labels whose strip is running, by `(account, name)`: the same debt is not started twice
-/// by two rounds, or by a round and a command.
-fn running() -> &'static Mutex<HashSet<(String, String)>> {
-    static RUNNING: OnceLock<Mutex<HashSet<(String, String)>>> = OnceLock::new();
-    RUNNING.get_or_init(Default::default)
-}
 
 /// A debt held back by a busy or unreachable mailbox is not picked up again sooner.
 const RETRY_AFTER: Duration = Duration::from_secs(120);
-
-/// Debts that ended in a retry without any progress, by `(account, name)`, and when: the
-/// tasks window already shows them failed, so a repeat changes nothing and says nothing.
-fn stalled() -> &'static Mutex<HashMap<(String, String), Instant>> {
-    static STALLED: OnceLock<Mutex<HashMap<(String, String), Instant>>> = OnceLock::new();
-    STALLED.get_or_init(Default::default)
-}
 
 /// Whether a debt is resumed by a round: only while the mailbox is online (the round after
 /// it comes back picks the debt up), and not sooner than `RETRY_AFTER` after the last try
@@ -50,9 +35,7 @@ pub fn resume_all(state: &Arc<AppState>) {
         };
         let online = state.status(&account.id).is_some_and(|s| s.state == "online");
         for (name, keyword) in labels {
-            let at = stalled()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
+            let at = lock(&state.label_stalled)
                 .get(&(account.id.clone(), name.clone()))
                 .copied();
             if resume_due(online, at, Instant::now()) {
@@ -65,14 +48,14 @@ pub fn resume_all(state: &Arc<AppState>) {
 /// Starts the strip of one label unless it is running already.
 pub fn start(state: &Arc<AppState>, account_id: &str, name: &str, keyword: &str) {
     let key = (account_id.to_owned(), name.to_owned());
-    if !running().lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone()) {
+    if !lock(&state.label_running).insert(key.clone()) {
         return;
     }
     let state = state.clone();
     let (account_id, name, keyword) = (account_id.to_owned(), name.to_owned(), keyword.to_owned());
     tauri::async_runtime::spawn(async move {
-        run(state, &account_id, &name, &keyword).await;
-        running().lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+        run(state.clone(), &account_id, &name, &keyword).await;
+        lock(&state.label_running).remove(&key);
     });
 }
 
@@ -94,7 +77,7 @@ async fn run(state: Arc<AppState>, account_id: &str, name: &str, keyword: &str) 
     let total = folders.len() as u64;
     let key = (account_id.to_owned(), name.to_owned());
     // A repeat of a try that came to nothing leaves the tasks window as it was.
-    let quiet = stalled().lock().unwrap_or_else(|e| e.into_inner()).contains_key(&key);
+    let quiet = lock(&state.label_stalled).contains_key(&key);
     if !quiet {
         state.task(&task, "labels", Some(account_id), label.to_owned(), 0, total);
     }
@@ -128,14 +111,14 @@ async fn run(state: Arc<AppState>, account_id: &str, name: &str, keyword: &str) 
         }
     }
     if !retry {
-        stalled().lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+        lock(&state.label_stalled).remove(&key);
         // The server is done with it: the cache follows and the label leaves the list.
         let _ = state.store.drop_keyword(account_id, keyword);
         let _ = state.store.remove_label(account_id, name);
     }
     if retry {
         // The debt stays (the row keeps `stripping`): a later round resumes it.
-        let mut stalled = stalled().lock().unwrap_or_else(|e| e.into_inner());
+        let mut stalled = lock(&state.label_stalled);
         if count == 0 {
             let repeat = stalled.insert(key, Instant::now()).is_some();
             drop(stalled);

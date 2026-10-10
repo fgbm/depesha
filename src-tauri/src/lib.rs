@@ -203,6 +203,8 @@ pub fn run() {
                 pending_deep_link: Mutex::new(None),
                 clearing: Default::default(),
                 bounds: Default::default(),
+                label_running: Default::default(),
+                label_stalled: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();
