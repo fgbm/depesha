@@ -2815,6 +2815,12 @@ try {
     const name = ".account-page .grid input";
     await setInput(name, "Проверка 7.26");
     await d.type(await d.find(name), "\uE007");
+    // The name waits for the check: while it is under way (no outcome yet, the button dim) nothing is written.
+    const checking = async () =>
+      (await d.findAll(".account-page .outcome")).length === 0 && (await d.findAll(".account-page footer .btn.primary[disabled]")).length === 1;
+    const busy = await checking();
+    const written = (await invoke("accounts"))[0].label ?? "";
+    if (busy && (await checking()) && written === "Проверка 7.26") throw new Error("название записано во время проверки");
     // The check ends with its error: the connection is not saved, the name is.
     await d.until("name saved", async () => (await invoke("accounts"))[0].label === "Проверка 7.26", 90000);
     await d.until("check failed", async () => (await d.findAll(".account-page .outcome")).length === 1, 90000);
@@ -2827,8 +2833,32 @@ try {
     if (!(await d.findAll(".prefs .account-page")).length) throw new Error("страница ящика закрылась после «Вернуться»");
     // Back as it was, for the steps after this one.
     await d.click(await d.xpath("//div[contains(@class,'account-page')]//footer//button[normalize-space(.)='Отмена']"));
+    // Enter saves the text, as it does for the user: the focus stays in the field.
     if (me.label) await setInput(name, me.label);
-    else await d.exec("const i = document.querySelector('.account-page .grid input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur();");
+    else await d.exec("const i = document.querySelector('.account-page .grid input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
+    await d.type(await d.find(name), "\uE007");
+    await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
+    await closeSettings();
+  });
+
+  await step("7.27", "страница ящика: текст, набранный без ухода фокуса, не теряется при скрытии окна (#120)", async () => {
+    const me = (await invoke("accounts"))[0];
+    await openMailboxPage(me.id);
+    const name = ".account-page .grid input";
+    const typed = "Скрытие 7.27";
+    // The text is typed and the focus stays in the field: neither Enter nor a click elsewhere.
+    await setInput(name, typed);
+    const rect = await d.rect();
+    await invoke("window_hide");
+    await d.until("typed text saved on hide", async () => (await invoke("accounts"))[0].label === typed, 20000);
+    // The window is shown again by the driver (the page has no `show`; a focus alone does not show it): the steps after this one need it on screen, at its size.
+    await d.req("POST", d.s("/window/maximize"), {});
+    await d.setRect(rect.width, rect.height);
+    await d.until("window back", async () => (await d.exec("return document.visibilityState")) === "visible");
+    // Back as it was, for the steps after this one.
+    if (me.label) await setInput(name, me.label);
+    else await d.exec("const i = document.querySelector('.account-page .grid input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true }));");
+    await d.type(await d.find(name), "\uE007");
     await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
     await closeSettings();
   });
@@ -3763,6 +3793,17 @@ try {
   });
 
   await screenshot("final");
+
+  // The last step: the quit ends the app, so the answer is read from the config on disk.
+  await step("7.28", "выход по Ctrl+Q с текстом в поле «Название» записывает его (#120)", async () => {
+    const me = (await invoke("accounts"))[0];
+    await openMailboxPage(me.id);
+    const typed = "Выход 7.28";
+    await setInput(".account-page .grid input", typed);
+    await press("q", { ctrlKey: true });
+    const file = join(profile, "config/ru.depesha.mail/accounts.json");
+    await d.until("typed text saved on quit", async () => JSON.parse(readFileSync(file, "utf-8")).accounts[0].label === typed, 30000);
+  });
 } catch (e) {
   if (e instanceof Abort) console.error(`\nПрогон остановлен: ${e.message}.`);
   else console.error("Прогон прерван:", e);
