@@ -23,6 +23,9 @@ describe("no-silent-catch", () => {
     ["the second argument of .then", "p.then(ok, () => {});"],
     ["a bracket .catch", 'p["catch"](() => {});'],
     ["noop", "p.catch(noop);"],
+    ["console.error: nobody sees the console of the built app", "p.catch(console.error);"],
+    ["a comment on the last line of the try block", "try {\n  f();\n  // why\n} catch {}"],
+    ["a comment on the last line of the try block, catch with a parameter", "try {\n  f();\n  // why\n} catch (e) {\n  return 1;\n}"],
     ["an empty comment inside", "p.catch(() => { /**/ });"],
     ["a comment after the statement", "p.catch(() => {}); // why"],
     ["the trailing comment of the previous statement", "f(); // why\np.catch(() => {});"],
@@ -40,7 +43,6 @@ describe("no-silent-catch", () => {
     ["a comment inside the second argument of .then", "p.then(ok, () => {\n  // why\n});"],
     ["a comment above the handler on its own line", "p.then(\n  ok,\n  // why\n  () => null,\n);"],
     ["a handler that uses the error", "p.catch((e) => app.fail(e));"],
-    ["console.error", "p.catch(console.error);"],
     ["a catch that uses the error", "try { f(); } catch (e) { app.fail(e); }"],
     ["a .then with a handler that uses the error", "p.then(ok, (e) => app.fail(e));"],
   ])("lets pass %s", (_name, code) => {

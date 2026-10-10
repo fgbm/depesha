@@ -2,10 +2,9 @@
 // Молчаливым считается:
 //   - `catch {}` без привязки, пустой `catch (e) {}` и `catch (e) {…}`, где `e` не используется;
 //   - `.catch(fn)` и второй аргумент `.then(ok, fn)` (также `p["catch"]`), если `fn` не использует
-//     ошибку, имеет пустое тело или это `noop`.
-// `.catch(console.error)` не молчит: ошибка видна в консоли разработчика.
+//     ошибку, имеет пустое тело, это `noop` или `console.*`: в собранном приложении консоль никто не видит.
 // Исключение — непустой комментарий о том, почему можно молчать: внутри обработчика либо отдельной
-// строкой выше (вплотную). Хвостовой комментарий предыдущей инструкции или конца строки не считается.
+// строкой выше (вплотную; для `catch` — только внутри блока). Хвостовой комментарий предыдущей инструкции или конца строки не считается.
 const isFn = (n) => n && (n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression");
 const nameOf = (m) => (m.computed ? (m.property.type === "Literal" ? m.property.value : null) : m.property.name);
 
@@ -38,6 +37,7 @@ const rule = {
     // Обработчик не использует ошибку: нет параметра, он не читается или тело пусто.
     const ignores = (h) => {
       if (isFn(h)) return h.params.length === 0 || !used(h, h.params[0]) || (h.body.type === "BlockStatement" && h.body.body.length === 0);
+      if (h.type === "MemberExpression") return h.object.type === "Identifier" && h.object.name === "console";
       return h.type === "Identifier" && /^noop$/i.test(h.name);
     };
     const check = (handler, anchor) => {
@@ -49,9 +49,8 @@ const rule = {
     return {
       CatchClause(node) {
         const silent = !node.param || node.body.body.length === 0 || !used(node, node.param);
-        if (!silent || insideOf(node)) return;
-        const keyword = source.getFirstToken(node);
-        if (!ownLineAbove(keyword)) context.report({ node, messageId: "silent" });
+        // Только комментарий внутри блока: строка над `} catch {` — это конец блока `try`.
+        if (silent && !insideOf(node)) context.report({ node, messageId: "silent" });
       },
       CallExpression(node) {
         const callee = node.callee;
