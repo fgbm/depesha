@@ -209,7 +209,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "compose.picture.altHint": "Его видят, если картинки в письме отключены, и программы чтения с экрана. Под картинкой не показывается.",
   "compose.picture.describe": "Описание",
   "compose.picture.attachedBig": "«{name}» слишком большая для текста — прикреплена файлом",
-  "compose.picture.useCtrlV": "Нажмите {key} в тексте письма, чтобы вставить картинку",
+  "compose.picture.useCtrlV": "Вставьте картинку из буфера обмена прямо в текст",
   "compose.picture.noneInClipboard": "В буфере обмена нет картинки",
   "compose.drop.inline": "Вставить в текст",
   "compose.drop.inlineNote": "картинка встанет на место курсора",

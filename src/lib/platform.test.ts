@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { pasteKey } from "./platform";
-import { t } from "./i18n.svelte";
+import { en } from "./locales/en";
+import { ru } from "./locales/ru";
 
-describe("the key that pastes", () => {
-  it("is Cmd on macOS and Ctrl elsewhere, and the toast tells it", () => {
-    expect(pasteKey(true)).toBe("⌘V");
-    expect(pasteKey(false)).toBe("Ctrl+V");
-    expect(t("compose.picture.useCtrlV", { key: pasteKey(true) })).toContain("⌘V");
-    expect(t("compose.picture.useCtrlV", { key: pasteKey(false) })).toContain("Ctrl+V");
+describe("the toast that sends the user to pasting", () => {
+  it("names no key: forms and toasts do not print them", () => {
+    for (const dict of [ru, en] as Record<string, unknown>[]) {
+      expect(dict["compose.picture.useCtrlV"]).not.toMatch(/Ctrl|⌘|\{key\}/);
+    }
   });
 });

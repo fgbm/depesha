@@ -12,7 +12,6 @@
   import { api } from "../../lib/api";
   import { app } from "../../lib/store.svelte";
   import { t } from "../../lib/i18n.svelte";
-  import { pasteKey } from "../../lib/platform";
   import { size as sizeLabel } from "../../lib/format";
   import { composeAction } from "../../lib/composeKeys";
   import { isPictureName, shrinkToWidth } from "../../lib/images";
@@ -65,7 +64,7 @@
 
   async function fromClipboard() {
     const blobs = await clipboardPictures();
-    if (blobs === null) return app.toast(t("compose.picture.useCtrlV", { key: pasteKey() }));
+    if (blobs === null) return app.toast(t("compose.picture.useCtrlV"));
     if (!blobs.length) return app.toast(t("compose.picture.noneInClipboard"));
     await addPictures(await picturesFromBlobs(blobs));
   }

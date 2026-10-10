@@ -40,7 +40,6 @@
   import Popover from "./Popover.svelte";
   import AttachmentMenu from "./AttachmentMenu.svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
-  import { pasteKey } from "../lib/platform";
   import { ComposeFormat } from "../lib/compose/format.svelte";
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
@@ -153,7 +152,7 @@
     format: fmt,
     fail: (e, prefix) => app.fail(e, prefix),
     toastBig: (name) => app.toast(t("compose.picture.attachedBig", { name })),
-    useCtrlV: () => app.toast(t("compose.picture.useCtrlV", { key: pasteKey() })),
+    useCtrlV: () => app.toast(t("compose.picture.useCtrlV")),
     noneInClipboard: () => app.toast(t("compose.picture.noneInClipboard")),
     pickTitle: () => t("compose.picture.pickTitle"),
     attachTitle: () => t("compose.attachTitle"),
