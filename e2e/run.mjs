@@ -19,7 +19,7 @@ import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
-import { dropFixtures, dropOn, dropSteps } from "./drop-steps.mjs";
+import { dropFixtures, dropOn, dropSteps, zonesStayInView } from "./drop-steps.mjs";
 import { createSectionGate, selectSections } from "./shard.mjs";
 
 if (!process.env.DEPESHA_STAND_LOCKED) {
@@ -1774,6 +1774,18 @@ try {
       d.exec("const b = document.querySelector('.compose .sig-html'); return !!b && b.innerText.includes('Кэрол');"));
     if ((await d.findAll(".compose .sig-plain .sig-text")).length) throw new Error("в Markdown-письме подпись показана текстом");
     await screenshot("5.7-signature-markdown");
+    await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
+    await d.click(await d.until("confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
+    await composeClosed();
+  });
+
+  await step("2.9", "зоны броска в Markdown-письме с подписью видны, когда текст прокручен", async () => {
+    await d.button("Написать");
+    await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+    await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+    await menuItem("Markdown");
+    await d.until("markdown signature", async () => (await d.findAll(".compose .sig-html")).length === 1);
+    await zonesStayInView(d, drops);
     await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
     await d.click(await d.until("confirm", () => d.find(".modal.confirm .btn.primary").catch(() => null), 5000));
     await composeClosed();

@@ -56,7 +56,7 @@
   let showCc = $state(untrack(() => c.draft.cc.length > 0));
   let showBcc = $state(untrack(() => c.draft.bcc.length > 0));
   let toInput = $state<AddressInput | null>(null);
-  let bodyArea = $state<HTMLDivElement | null>(null);
+  let bodyFrame = $state<HTMLDivElement | null>(null);
   let ccInput = $state<AddressInput | null>(null);
   let bccInput = $state<AddressInput | null>(null);
   /** The window's width: the formatting row folds in a narrow one. */
@@ -308,8 +308,15 @@
 
   // Files dragged over the letter offer their zones in the text area: in a low window it may be
   // scrolled out of sight under the strips, and a drop target must be where the pointer can reach it.
+  // Once the zones are gone (the drag left, or dropped) the letter is scrolled back to where it was.
   $effect(() => {
-    if (m.zones) bodyArea?.scrollIntoView({ block: "nearest" });
+    if (!m.zones || !bodyFrame) return;
+    const scroller = bodyFrame.closest<HTMLElement>(".scroll");
+    const was = scroller?.scrollTop ?? 0;
+    bodyFrame.scrollIntoView({ block: "nearest" });
+    return () => {
+      if (scroller) scroller.scrollTop = was;
+    };
   });
 
   /** The chips of the one-line strip; at full screen all of them, in up to two rows. */
@@ -503,7 +510,9 @@
         />
       {/if}
 
-      <div class="body-area" bind:this={bodyArea} bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
+      <!-- The frame does not scroll: the drop zones lie on it, and stay in view when a signed letter's text is scrolled. -->
+      <div class="body-frame" bind:this={bodyFrame} class:signed={m.format !== "html" && !!m.signature}>
+      <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
         {#if m.format === "html"}
           <RichEditor
             bind:this={m.rich}
@@ -561,6 +570,7 @@
             <SignaturePicker variant="line" signatures={m.signatures} current={null} onpick={m.putSignature} onsettings={m.signatureSettings} />
           </div>
         {/if}
+      </div>
         {#if m.zones}
           <div class="zones">
             <div class="zone inline" class:hover={app.compose.dragging?.zone === "inline"} data-drop-zone="inline">
@@ -775,7 +785,7 @@
   }
 
   /* Nothing but the text gives way: a low window scrolls instead of squeezing the strips. */
-  .scroll > :global(:not(.body-area)) {
+  .scroll > :global(:not(.body-frame)) {
     flex-shrink: 0;
   }
 
@@ -969,10 +979,18 @@
     color: var(--accent);
   }
 
-  .body-area {
+  .body-frame {
     position: relative;
     flex: 1 0 var(--min-body, 160px);
     min-height: var(--min-body, 160px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .body-area {
+    position: relative;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }
@@ -1028,11 +1046,14 @@
   }
 
   /* The field grows with its text; the area scrolls the letter and its signature together. */
-  .body-area.signed {
-    overflow-y: auto;
+  .body-frame.signed {
     /* The text keeps its 160 px and the signature shows a few lines under it. */
     flex-basis: calc(var(--min-body, 160px) + 72px);
     min-height: calc(var(--min-body, 160px) + 72px);
+  }
+
+  .body-area.signed {
+    overflow-y: auto;
   }
 
   .body-area.signed textarea {

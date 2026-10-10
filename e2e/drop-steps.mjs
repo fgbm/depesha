@@ -76,6 +76,38 @@ async function zonePlace(d, paths, zone) {
 }
 
 /**
+ * With a signed Markdown letter open and its text scrolled down, the zones of a drag are in
+ * view: they lie on the frame of the text, not in the scrolled area (the scroll carried them away).
+ * The scroll is back where it was once the drag leaves.
+ */
+export async function zonesStayInView(d, fix) {
+  const filled = "x\n".repeat(80);
+  await d.exec("const t = document.querySelector('.compose textarea'); t.focus(); document.execCommand('insertText', false, arguments[0]);", filled);
+  const top = await d.until("text scrolled", async () => {
+    const n = await d.exec("const a = document.querySelector('.compose .body-area.signed'); a.scrollTop = a.scrollHeight; return a.scrollTop;");
+    return n > 0 ? n : null;
+  });
+  const scroller = "document.querySelector('.compose .scroll')";
+  const was = await d.exec(`return ${scroller}.scrollTop`);
+  await invoke(d, "e2e_drop", { paths: [fix.png], x: 1, y: 1, phase: "enter" });
+  try {
+    const place = await d.until("zones", () => physicalCentre(d, "[data-drop-zone='attach']"));
+    const box = await d.exec(
+      `const f = document.querySelector('.compose .body-frame').getBoundingClientRect();
+       const z = document.querySelector('[data-drop-zone=attach]').getBoundingClientRect();
+       return { inside: z.top >= f.top - 1 && z.bottom <= f.bottom + 1 && z.height > 0, f: [f.top, f.bottom], z: [z.top, z.bottom] };`,
+    );
+    if (!box.inside) throw new Error(`зоны уехали вместе с прокруткой текста: ${JSON.stringify(box)} (место ${JSON.stringify(place)})`);
+  } finally {
+    await invoke(d, "e2e_drop", { paths: [fix.png], x: 1, y: 1, phase: "leave" });
+  }
+  await d.until("zones gone", async () => (await d.findAll("[data-drop-zone]")).length === 0);
+  const after = await d.exec(`return ${scroller}.scrollTop`);
+  if (Math.abs(after - was) > 1) throw new Error(`прокрутка письма не вернулась: было ${was}, стало ${after}`);
+  return top;
+}
+
+/**
  * The names of the attachments. The strip shows the files that fit one line and «+N ещё» for
  * the rest (#103): in a narrow window, as the browser at scale 2 is, the others are read from
  * the list that button opens.
