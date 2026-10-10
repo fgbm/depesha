@@ -4,11 +4,11 @@
   import { addrFull, shortDateTime } from "../lib/format";
   import { when } from "../lib/later";
   import { t } from "../lib/i18n.svelte";
+  import OutboxBroken from "./OutboxBroken.svelte";
 
   async function retry(id: number) {
     await api.outboxRetry(id).catch((e) => app.ui.fail(e));
   }
-
 </script>
 
 <div class="outbox">
@@ -18,6 +18,9 @@
     <p class="muted">{t("outbox.empty")}</p>
   {/if}
   {#each app.mailboxes.outbox as item (item.id)}
+    {#if item.broken}
+      <OutboxBroken {item} />
+    {:else}
     <div class="item" class:failed={item.failed}>
       <div class="main">
         <b>{item.draft.subject || t("noSubject")}</b>
@@ -42,6 +45,7 @@
         <button class="btn ghost" onclick={() => app.compose.reopenOutbox(item.id)}>{t("outbox.edit")}</button>
       </div>
     </div>
+    {/if}
   {/each}
 </div>
 

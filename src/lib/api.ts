@@ -230,6 +230,8 @@ export const api = {
   draftCacheDrop: (key: string) => call<void>("draft_cache_drop", { key }),
   outbox: () => call<OutboxItem[]>("outbox"),
   outboxRetry: (id: number) => call<void>("outbox_retry", { id }),
+  /** Throws away a letter of the outbox that waits for the user, a damaged one among them. */
+  outboxDiscard: (id: number) => call<void>("outbox_discard", { id }),
   /** Letters held back since the last call: they missed their time. */
   outboxMissed: () => call<number[]>("outbox_missed"),
   /** A letter's window says whether it holds a letter being written: a quit asks it first. */

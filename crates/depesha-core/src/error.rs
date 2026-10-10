@@ -39,6 +39,8 @@ pub enum Error {
     Protocol(String),
     NotFound,
     Parse,
+    /// A value of the local cache does not parse (#146); the log names the row, never the content.
+    Unreadable,
     /// Exchange Web Services refused a request: `ResponseCode` and `MessageText`;
     /// `back_off` is the pause a throttled request (`ErrorServerBusy`) is asked to
     /// keep, `BackOffMilliseconds` of its `MessageXml`.
@@ -145,6 +147,7 @@ impl std::fmt::Display for Error {
                 "сервер ответил непонятно: {m}"
             ),
             Self::NotFound => tr!("message not found", "письмо не найдено"),
+            Self::Unreadable => tr!("stored data could not be read", "сохранённые данные не читаются"),
             Self::CacheTooNew { found, known } => tr!(
                 "the local mail cache was saved by a newer version of Depesha (format {found}, this version \
                  reads up to {known}). Install the newer version; the cache was left as it is",

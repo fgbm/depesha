@@ -48,7 +48,7 @@ mod tests {
     use std::io::Write;
     use std::sync::{Arc, Mutex};
 
-    use super::super::tests::{mailbox, put};
+    use super::super::tests::{mailbox, put, with_ids};
     use super::*;
     use crate::domain::{Addr, Draft};
     use crate::message::Summary;
@@ -140,15 +140,78 @@ mod tests {
     }
 
     #[test]
-    fn the_outbox_list_goes_on_past_a_draft_that_does_not_parse() {
+    fn a_damaged_letter_is_listed_failed_and_its_source_returns_to_the_list() {
+        use crate::domain::{Act, ActsOn};
         let store = mailbox();
-        broken_draft(&store);
+        let letter = put(&store, "INBOX", 1, &with_ids("Счёт", 100, "q@x", None), true);
+        let draft = Draft {
+            acts_on: Some(ActsOn {
+                account_id: "a".into(),
+                message_id: "q@x".into(),
+                folder: "INBOX".into(),
+                act: Act::Reply,
+                waiting: false,
+            }),
+            ..Default::default()
+        };
+        let park = FollowupPlan {
+            park: Some(true),
+            ..Default::default()
+        };
+        let bad = store.outbox_add("a", &draft, 1_000, 1_010, 0, &park).unwrap();
         let good = store
             .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
             .unwrap();
-        let ids: Vec<i64> = store.outbox().unwrap().iter().map(|i| i.id).collect();
-        assert_eq!(ids, [good]);
-        assert_eq!(rows(&store, "outbox"), 2);
+        assert!(
+            store.get(letter).unwrap().unwrap().outgoing.is_some(),
+            "the queued answer hides it"
+        );
+        store
+            .conn()
+            .execute("UPDATE outbox SET draft = 'not json' WHERE id = ?1", [bad])
+            .unwrap();
+        let items = store.outbox().unwrap();
+        let (broken, fine) = (
+            items.iter().find(|i| i.id == bad).unwrap(),
+            items.iter().find(|i| i.id == good).unwrap(),
+        );
+        assert!(broken.broken && broken.failed && broken.last_error.is_some());
+        assert!(!fine.broken && !fine.failed);
+        assert!(
+            store.get(letter).unwrap().unwrap().outgoing.is_none(),
+            "the letter is back in the list"
+        );
+        assert_eq!(rows(&store, "outbox"), 2, "nothing is deleted on the way");
+    }
+
+    #[test]
+    fn a_damaged_letter_is_logged_once() {
+        let store = mailbox();
+        let id = broken_draft(&store);
+        let first = logged(|| assert!(store.outbox().unwrap()[0].broken));
+        assert!(first.contains(&format!("outbox.draft of row {id}")), "{first}");
+        let again = logged(|| assert!(store.outbox().unwrap()[0].broken));
+        assert!(again.is_empty(), "{again}");
+    }
+
+    #[test]
+    fn a_failed_letter_is_discarded_unread_and_a_waiting_one_is_not() {
+        let store = mailbox();
+        let bad = broken_draft(&store);
+        let fine = store
+            .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
+            .unwrap();
+        assert!(
+            !store.outbox_discard(bad).unwrap(),
+            "not failed yet: the list has not met it"
+        );
+        store.outbox().unwrap();
+        assert!(store.outbox_discard(bad).unwrap());
+        assert!(
+            !store.outbox_discard(fine).unwrap(),
+            "a letter on its way is not discarded"
+        );
+        assert_eq!(store.outbox().unwrap().len(), 1);
     }
 
     #[test]
@@ -224,7 +287,7 @@ mod tests {
             .conn()
             .execute("UPDATE messages SET unsubscribe = '{'", [])
             .unwrap();
-        assert!(store.unsubscribe_of(id).is_err());
+        assert!(matches!(store.unsubscribe_of(id), Err(crate::Error::Unreadable)));
     }
 
     #[test]

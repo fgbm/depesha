@@ -447,18 +447,16 @@ impl Store {
         let conn = self.conn();
         let mut n = 0;
         for &uid in uids {
-            let current: Option<String> = conn
+            let current: Option<(i64, String)> = conn
                 .query_row(
-                    "SELECT keywords FROM messages WHERE account_id = ?1 AND folder = ?2 AND uid = ?3",
+                    "SELECT id, keywords FROM messages WHERE account_id = ?1 AND folder = ?2 AND uid = ?3",
                     params![account_id, folder, uid],
-                    |r| r.get(0),
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
                 )
                 .optional()?;
-            let Some(current) = current else { continue };
+            let Some((row, current)) = current else { continue };
             // Written back below: keywords that do not parse are left as they are, not replaced.
-            let Ok(mut kw) =
-                super::json_col::<Vec<String>>("messages", "keywords", format!("{folder}/{uid}"), &current)
-            else {
+            let Ok(mut kw) = super::json_col::<Vec<String>>("messages", "keywords", row, &current) else {
                 continue;
             };
             kw.retain(|k| !remove.contains(k));

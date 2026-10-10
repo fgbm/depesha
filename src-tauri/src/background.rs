@@ -535,6 +535,7 @@ mod tests {
             next_attempt,
             last_error: None,
             failed,
+            broken: false,
             sending_started: 0,
             created: 0,
             followup_secs: 0,

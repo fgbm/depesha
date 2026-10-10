@@ -15,3 +15,4 @@ component	src/components/reader/ReaderToolbar.svelte	173	строка импор
 component	src/components/sidebar/FavouriteRow.svelte	73	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/FolderRow.svelte	105	строка импорта labels вместо проброса app.labels (#140, шаг 2)
 component	src/components/sidebar/Labels.svelte	61	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/Outbox.svelte	94	ветка {#if item.broken} выбирает строку повреждённого письма; сама строка вынесена в OutboxBroken.svelte (#146)

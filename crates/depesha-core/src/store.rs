@@ -14,6 +14,7 @@ use crate::domain::{Addr, Importance};
 use crate::domain::{Draft, FlagChange, Flags, Folder, FolderRole};
 use crate::message::{Summary, Unsubscribe};
 use crate::query::SearchQuery;
+use crate::tr;
 
 mod followups;
 mod json;
@@ -596,6 +597,10 @@ pub struct OutboxItem {
     pub last_error: Option<String>,
     /// Permanent failure: waits for the user, not retried automatically.
     pub failed: bool,
+    /// The draft does not parse (#146): `draft` is empty, the row is `failed` and waits for
+    /// the user to discard it. It is never sent, and its letter is not hidden from the list.
+    #[serde(default)]
+    pub broken: bool,
     /// When the send of this letter started (0: it has not); a restart that finds it set
     /// cannot know whether the server took the letter.
     pub sending_started: i64,
@@ -1795,7 +1800,8 @@ impl Store {
             .query_row("SELECT unsubscribe FROM messages WHERE id = ?1", [id], |r| r.get(0))
             .optional()?
             .flatten();
-        Ok(json.map(|j| json_col("messages", "unsubscribe", id, &j)).transpose()?)
+        json.map(|j| json_col("messages", "unsubscribe", id, &j).map_err(|_| crate::Error::Unreadable))
+            .transpose()
     }
 
     /// The letter of the folder with this Message-ID; of duplicates the newest (the highest UID).
@@ -2440,37 +2446,72 @@ impl Store {
                 followup_due_at, followup_deadline_at, followup_park, followup_archive
              FROM outbox ORDER BY next_attempt, id",
         )?;
-        // A draft that does not parse stays in the table and out of the list: one bad row
-        // must not stop the queue, and sending a blank letter in its place is worse.
-        let rows = stmt.query_map([], |r| {
-            let id: i64 = r.get(0)?;
-            let Ok(draft) = json_col("outbox", "draft", id, &r.get::<_, String>(2)?) else {
-                return Ok(None);
-            };
-            Ok(Some(OutboxItem {
-                id,
-                account_id: r.get(1)?,
-                draft,
-                attempts: r.get(3)?,
-                next_attempt: r.get(4)?,
-                last_error: r.get(5)?,
-                failed: r.get(6)?,
-                sending_started: r.get(7)?,
-                created: r.get(8)?,
-                followup_secs: r.get(9)?,
-                followup: FollowupPlan {
-                    deadline_secs: r.get(10)?,
-                    repeat_secs: r.get(11)?,
-                    expect: r.get(12)?,
-                    kind: r.get(13)?,
-                    due_at: r.get(14)?,
-                    deadline_at: r.get(15)?,
-                    park: r.get(16)?,
-                    archive: r.get(17)?,
-                },
-            }))
-        })?;
-        Ok(rows.filter_map(|r| r.transpose()).collect::<rusqlite::Result<_>>()?)
+        // A draft that does not parse is not sent as a blank letter and is not hidden: the row
+        // is made `failed` once (which also returns its letter to the list, see `outgoing`)
+        // and listed `broken`, for the user to discard. One bad row does not stop the queue.
+        let mut unread: Vec<(i64, String)> = Vec::new();
+        let mut items: Vec<OutboxItem> = stmt
+            .query_map([], |r| {
+                let id: i64 = r.get(0)?;
+                let raw: String = r.get(2)?;
+                let draft = serde_json::from_str(&raw);
+                let broken = draft.is_err();
+                if broken {
+                    unread.push((id, raw));
+                }
+                Ok(OutboxItem {
+                    id,
+                    account_id: r.get(1)?,
+                    draft: draft.unwrap_or_default(),
+                    broken,
+                    attempts: r.get(3)?,
+                    next_attempt: r.get(4)?,
+                    last_error: r.get(5)?,
+                    failed: r.get(6)?,
+                    sending_started: r.get(7)?,
+                    created: r.get(8)?,
+                    followup_secs: r.get(9)?,
+                    followup: FollowupPlan {
+                        deadline_secs: r.get(10)?,
+                        repeat_secs: r.get(11)?,
+                        expect: r.get(12)?,
+                        kind: r.get(13)?,
+                        due_at: r.get(14)?,
+                        deadline_at: r.get(15)?,
+                        park: r.get(16)?,
+                        archive: r.get(17)?,
+                    },
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, raw) in unread {
+            let why = tr!(
+                "the letter is damaged and cannot be read",
+                "письмо повреждено и не читается"
+            );
+            // Only the first pass changes the row, so only it writes to the log.
+            let first = conn.execute(
+                "UPDATE outbox SET failed = 1, last_error = ?2 WHERE id = ?1 AND failed = 0",
+                params![id, why],
+            )? == 1;
+            if first {
+                let _ = json_col::<Draft>("outbox", "draft", id, &raw);
+            }
+            if let Some(item) = items.iter_mut().find(|i| i.id == id) {
+                item.failed = true;
+                item.last_error.get_or_insert(why);
+            }
+        }
+        Ok(items)
+    }
+
+    /// The user throws away a letter of the outbox that waits for them (`failed`), a damaged
+    /// one among them: deleted without reading the draft. Whether a row went.
+    pub fn outbox_discard(&self, id: i64) -> Result<bool> {
+        Ok(self.conn().execute(
+            "DELETE FROM outbox WHERE id = ?1 AND failed = 1 AND sending_started = 0",
+            [id],
+        )? == 1)
     }
 
     /// Takes the letter `id` to send: marks that its send has started (`started`) and gives
@@ -2904,7 +2945,7 @@ fn link_thread(conn: &Connection, account_id: &str, l: &Links, fallback: String)
         && let Some(from) = &l.from
     {
         let mut same = conn.prepare_cached(
-            "SELECT thread, from_addr, to_addrs, cc_addrs FROM messages
+            "SELECT id, thread, from_addr, to_addrs, cc_addrs FROM messages
              WHERE account_id = ?1 AND topic = ?2 AND date BETWEEN ?3 AND ?4 AND thread != ''
              ORDER BY ABS(date - ?5) LIMIT 20",
         )?;
@@ -2918,18 +2959,19 @@ fn link_thread(conn: &Connection, account_id: &str, l: &Links, fallback: String)
             ],
             |r| {
                 Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
                     r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
                 ))
             },
         )?;
         for row in rows {
-            let (thread, f, to, cc) = row?;
-            let f: Option<Addr> = json_opt("messages", "from_addr", &thread, f.as_deref());
-            let to: Vec<Addr> = json_col_or_default("messages", "to_addrs", &thread, &to);
-            let cc: Vec<Addr> = json_col_or_default("messages", "cc_addrs", &thread, &cc);
+            let (id, thread, f, to, cc) = row?;
+            let f: Option<Addr> = json_opt("messages", "from_addr", id, f.as_deref());
+            let to: Vec<Addr> = json_col_or_default("messages", "to_addrs", id, &to);
+            let cc: Vec<Addr> = json_col_or_default("messages", "cc_addrs", id, &cc);
             // An answer goes between the same people: each side wrote to the other.
             let theirs = people(f.as_ref(), &to, &cc);
             let their_from = f.map(|a| a.email.to_lowercase());

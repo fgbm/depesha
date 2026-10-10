@@ -403,6 +403,7 @@ pub fn run() {
             commands::outbox,
             commands::outbox_retry,
             commands::outbox_cancel,
+            commands::outbox_discard,
             commands::temp_attachment,
             commands::file_info,
             commands::inline_image,

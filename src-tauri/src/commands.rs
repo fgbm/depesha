@@ -1462,11 +1462,10 @@ pub async fn undo(state: St<'_>, moved: Vec<Moved>) -> CmdResult<()> {
                 state.store.snooze_add(s)?;
             }
             state.scheduler_notify.notify_one();
-            for key in &m.waits {
-                state
-                    .store
-                    .followup_reparked(&m.account_id, key, &m.from, &m.message_ids)?;
-            }
+            // A damaged wait is logged and left: the others are parked again all the same.
+            state
+                .store
+                .followups_reparked(&m.account_id, &m.waits, &m.from, &m.message_ids);
         }
     }
     state.emit("counters-changed", serde_json::json!({}));
@@ -1620,9 +1619,27 @@ fn no_unsubscribe() -> CmdError {
     )
 }
 
+/// The way to unsubscribe is stored damaged: the user hears that, not the store's wording.
+fn unsubscribe_unreadable(e: depesha_core::Error) -> CmdError {
+    match e {
+        depesha_core::Error::Unreadable => CmdError::new(
+            "other",
+            tr!(
+                "Could not read the unsubscribe data",
+                "Не удалось прочитать данные отписки"
+            ),
+        ),
+        e => e.into(),
+    }
+}
+
 fn unsubscribe_ways(state: &AppState, id: i64) -> CmdResult<(MessageRow, Unsubscribe, Vec<Way>)> {
     let r = row(state, id)?;
-    let u = state.store.unsubscribe_of(id)?.ok_or_else(no_unsubscribe)?;
+    let u = state
+        .store
+        .unsubscribe_of(id)
+        .map_err(unsubscribe_unreadable)?
+        .ok_or_else(no_unsubscribe)?;
     let ways = depesha_core::unsubscribe::ways(&u);
     if ways.is_empty() {
         return Err(depesha_core::unsubscribe::no_way(&u).into());
@@ -3065,6 +3082,15 @@ pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
+/// Throws away a letter of the outbox that waits for the user, a damaged one among them: it
+/// is deleted without being read, and only when the user asks.
+#[tauri::command(async)]
+pub fn outbox_discard(state: St<'_>, id: i64) -> CmdResult<()> {
+    state.store.outbox_discard(id)?;
+    state.emit("outbox-changed", serde_json::json!({}));
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct ReturnedDraft {
     account_id: String,
@@ -3646,6 +3672,21 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn an_unreadable_unsubscribe_is_told_in_the_users_words() {
+        let e = unsubscribe_unreadable(depesha_core::Error::Unreadable);
+        assert_eq!(e.kind, "other");
+        assert!(
+            e.message.contains("отписки") || e.message.contains("unsubscribe"),
+            "{}",
+            e.message
+        );
+        assert_eq!(
+            unsubscribe_unreadable(depesha_core::Error::NotFound).kind,
+            CmdError::from(depesha_core::Error::NotFound).kind
+        );
+    }
 
     #[tokio::test]
     async fn dialog_answer_waits_for_the_callback_from_another_thread() {

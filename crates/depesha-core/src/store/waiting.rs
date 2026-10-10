@@ -332,7 +332,7 @@ impl Store {
     pub fn park_jobs(&self) -> Result<Vec<ParkJob>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT account_id, message_id, park, return_to, park_folder, parked, subject, park_since, anchor, stop_to
+            "SELECT account_id, message_id, park, return_to, park_folder, parked, subject, park_since, anchor, stop_to, rowid
              FROM followups WHERE park IN ('pending', 'back', 'undo') ORDER BY park_since, rowid",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -348,7 +348,8 @@ impl Store {
             };
             // A job whose letters cannot be read is skipped: moving none of them and then
             // settling the wait would lose which letters it parked. The row stays as it is.
-            let Ok(message_ids) = super::json_col("followups", "parked", &key, &r.get::<_, String>(5)?) else {
+            let Ok(message_ids) = super::json_col("followups", "parked", r.get::<_, i64>(10)?, &r.get::<_, String>(5)?)
+            else {
                 return Ok(None);
             };
             Ok(Some(ParkJob {
@@ -572,14 +573,14 @@ impl Store {
         let tx = conn.transaction()?;
         let parked: Vec<(String, Vec<String>)> = {
             let mut stmt = tx.prepare(
-                "SELECT message_id, parked FROM followups
+                "SELECT message_id, parked, rowid FROM followups
                  WHERE account_id = ?1 AND park = 'parked' AND park_folder = ?2",
             )?;
             let rows = stmt.query_map(params![account_id, folder], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     // No letters read: the wait is not touched, and nothing is written for it.
-                    super::json_col_or_default("followups", "parked", r.get::<_, String>(0)?, &r.get::<_, String>(1)?),
+                    super::json_col_or_default("followups", "parked", r.get::<_, i64>(2)?, &r.get::<_, String>(1)?),
                 ))
             })?;
             rows.collect::<rusqlite::Result<_>>()?
@@ -610,23 +611,37 @@ impl Store {
         Ok(touched)
     }
 
+    /// An undo parks each wait it touched again. A wait that cannot be (its row is damaged)
+    /// is logged and left, and the rest go on: the undo itself has already moved the letters.
+    /// How many waits were parked.
+    pub fn followups_reparked(&self, account_id: &str, keys: &[String], folder: &str, message_ids: &[String]) -> usize {
+        let mut parked = 0;
+        for key in keys {
+            match self.followup_reparked(account_id, key, folder, message_ids) {
+                Ok(()) => parked += 1,
+                Err(e) => tracing::warn!("a wait was not parked again after the undo: {e}"),
+            }
+        }
+        parked
+    }
+
     /// A move was undone: the letters are back in `folder`, where the wait parks them, and
     /// the wait is parked again.
     pub fn followup_reparked(&self, account_id: &str, key: &str, folder: &str, message_ids: &[String]) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        let parked: Option<String> = tx
+        let parked: Option<(i64, String)> = tx
             .query_row(
-                "SELECT parked FROM followups WHERE account_id = ?1 AND message_id = ?2",
+                "SELECT rowid, parked FROM followups WHERE account_id = ?1 AND message_id = ?2",
                 params![account_id, bare(key)],
-                |r| r.get(0),
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
             )
             .optional()?;
-        let Some(parked) = parked else {
+        let Some((row, parked)) = parked else {
             return Ok(());
         };
         // Written back below: letters that cannot be read must not be replaced by the new ones alone.
-        let mut letters: Vec<String> = super::json_col("followups", "parked", key, &parked)?;
+        let mut letters: Vec<String> = super::json_col("followups", "parked", row, &parked)?;
         for id in message_ids {
             let id = bare(id);
             if !letters.iter().any(|p| p == id) {
@@ -1239,6 +1254,41 @@ mod tests {
 
     /// The letters a wait parked cannot be read (#146): no move runs on a guess, and no write
     /// replaces the list with an empty or a shorter one. The row stays as it is.
+    /// An undo of a move reaches several waits: a damaged one is skipped, and the next is
+    /// parked again all the same.
+    #[test]
+    fn an_undo_parks_the_next_wait_when_one_is_damaged() {
+        let store = mailbox();
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: Vec::new(),
+        };
+        for (key, anchor) in [("r@x", "q@x"), ("s@x", "q2@x")] {
+            assert!(
+                store
+                    .followup_start(&answer(key, SENT, 0), Some(anchor), Some(&park))
+                    .unwrap()
+            );
+            store.followup_parked("a", key, WAIT, NOW).unwrap();
+        }
+        store
+            .conn()
+            .execute("UPDATE followups SET parked = '{' WHERE message_id = 'r@x'", [])
+            .unwrap();
+        let keys = ["r@x".to_owned(), "s@x".to_owned()];
+        assert_eq!(store.followups_reparked("a", &keys, WAIT, &["p@x".to_owned()]), 1);
+        let parked = |key: &str| -> String {
+            store
+                .conn()
+                .query_row("SELECT parked FROM followups WHERE message_id = ?1", [key], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(parked("r@x"), "{", "the damaged wait is left as it is");
+        assert!(parked("s@x").contains("p@x"));
+    }
+
     #[test]
     fn parked_letters_that_do_not_parse_are_neither_moved_nor_overwritten() {
         let store = mailbox();

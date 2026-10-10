@@ -540,6 +540,8 @@ export interface OutboxItem {
   next_attempt: number;
   last_error: string | null;
   failed: boolean;
+  /** The draft cannot be read (#146): it is only to be discarded. */
+  broken?: boolean;
   created: number;
   followup_secs: number;
   followup: FollowupPlan;

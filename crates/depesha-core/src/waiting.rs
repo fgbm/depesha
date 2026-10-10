@@ -754,6 +754,7 @@ mod tests {
             next_attempt: 0,
             last_error: None,
             failed: false,
+            broken: false,
             sending_started: 0,
             created: 0,
             followup_secs: secs,

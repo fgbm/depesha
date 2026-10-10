@@ -119,6 +119,7 @@ const COMMANDS: &[&str] = &[
     "draft_discard",
     "outbox",
     "outbox_retry",
+    "outbox_discard",
     "outbox_cancel",
     "temp_attachment",
     "file_info",

@@ -132,6 +132,7 @@
     "allow-draft-discard",
     "allow-outbox",
     "allow-outbox-retry",
+    "allow-outbox-discard",
     "allow-outbox-cancel",
     "allow-temp-attachment",
     "allow-file-info",
