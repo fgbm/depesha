@@ -43,7 +43,7 @@ component	src/components/ViewMenu.svelte	257	56	61	140
 component	src/components/Viewer.svelte	253	102	42	109
 component	src/components/WindowControls.svelte	57	16	11	30
 component	src/components/Wizard.svelte	233	27	92	114
-component	src/components/account/AccountPage.svelte	286	88	50	148
+component	src/components/account/AccountPage.svelte	298	97	53	148
 component	src/components/account/AttachmentsDirField.svelte	12	6	6	0
 component	src/components/account/CheckError.svelte	73	8	27	38
 component	src/components/account/ColorField.svelte	65	7	16	42
@@ -490,7 +490,7 @@ function	src/components/account/sections.ts::sectionsFor	3
 function	src/components/people/MergeDialog.svelte::close	4
 function	src/components/people/MergeDialog.svelte::go	3
 function	src/components/people/MergeDialog.svelte::onKey	17
-function	src/components/people/People.client.test.ts::person	8
+function	src/components/people/People.client.test.ts::person	9
 function	src/components/people/People.client.test.ts::olga	1
 function	src/components/people/People.client.test.ts::book	5
 function	src/components/people/People.client.test.ts::press	6
@@ -602,6 +602,8 @@ function	src/components/viewer/PdfView.svelte::page	51
 function	src/components/viewer/PdfView.svelte::step	4
 function	src/components/viewer/PdfView.svelte::onWheel	5
 function	src/lib/accountAutosave.svelte.ts::ownOf	18
+function	src/lib/accountAutosave.svelte.ts::split	13
+function	src/lib/accountAutosave.svelte.ts::names	2
 function	src/lib/accountAutosave.test.ts::backend	17
 function	src/lib/accountAutosave.test.ts::open	6
 function	src/lib/accountForm.svelte.ts::oauthFor	7
@@ -725,10 +727,11 @@ function	src/lib/drops.ts::attach	11
 function	src/lib/drops.ts::noCompose	4
 function	src/lib/drops.ts::watchDrops	17
 function	src/lib/drops.ts::listenDrops	7
+function	src/lib/events.test.ts::typing	2
 function	src/lib/events.ts::common	26
 function	src/lib/events.ts::applySettingsChanged	8
 function	src/lib/events.ts::listenMain	62
-function	src/lib/events.ts::quitDrafts	14
+function	src/lib/events.ts::quitDrafts	18
 function	src/lib/events.ts::takeUndo	6
 function	src/lib/events.ts::parked	12
 function	src/lib/events.ts::archivedAfterSend	15
@@ -981,7 +984,7 @@ function	src/lib/office.ts::clean	3
 function	src/lib/office.ts::docxHtml	14
 function	src/lib/office.ts::sheetsHtml	19
 function	src/lib/people.test.ts::person	1
-function	src/lib/people.ts::blankPerson	15
+function	src/lib/people.ts::blankPerson	16
 function	src/lib/people.ts::addressesOf	3
 function	src/lib/people.ts::hasAddress	4
 function	src/lib/people.ts::findPerson	4

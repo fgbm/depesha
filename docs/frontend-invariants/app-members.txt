@@ -84,7 +84,9 @@ settingsLeave
 settingsOpen
 settingsPage
 settingsSection
+settingsSettle
 settingsTurn
+settingsTyping
 settingsUndo
 showCompose
 sort
