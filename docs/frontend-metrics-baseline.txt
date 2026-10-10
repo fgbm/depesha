@@ -117,6 +117,7 @@ function	plugins/command-palette/keys.ts::editTarget	3
 function	plugins/command-palette/rank.test.ts::cmd	1
 function	plugins/command-palette/rank.test.ts::memory	4
 function	plugins/command-palette/rank.ts::matchQuality	6
+function	plugins/command-palette/rank.ts::commandQuality	4
 function	plugins/command-palette/rank.ts::rank	7
 function	plugins/followups/DueForm.svelte::apply	8
 function	plugins/followups/RemindLine.svelte::iso	4
@@ -711,6 +712,7 @@ function	src/lib/compose/sending.test.ts::win	3
 function	src/lib/compose/sending.test.ts::host	7
 function	src/lib/compose/sending.test.ts::alt	1
 function	src/lib/compose/sending.test.ts::press	1
+function	src/lib/compose/sending.test.ts::sendingHost	19
 function	src/lib/composeKeys.test.ts::press	8
 function	src/lib/composeKeys.test.ts::alt	1
 function	src/lib/composeKeys.ts::composeAction	4
@@ -1136,6 +1138,7 @@ function	src/lib/serverFeatures.ts::summary	9
 function	src/lib/serverFeatures.ts::report	9
 function	src/lib/settingsAutosave.test.ts::fixture	18
 function	src/lib/settingsAutosave.test.ts::slow	13
+function	src/lib/settingsCatalog.test.ts::options	1
 function	src/lib/settingsCatalog.test.ts::modeOf	5
 function	src/lib/settingsCatalog.ts::rowKind	3
 function	src/lib/settingsCatalog.ts::FORMATS	1
