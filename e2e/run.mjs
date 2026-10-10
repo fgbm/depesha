@@ -134,6 +134,26 @@ async function openBySubject(subject) {
   }, 20000);
 }
 
+/**
+ * Reloads the page and waits for the sidebar to take its final shape. It fills in after the load: the counters
+ * come, then rows such as «Snoozed» appear and push the tree down. A click aimed before that lands on what moved
+ * under it (the mailbox's name, which folds the tree and keeps it folded, #129).
+ */
+async function reloadWindow() {
+  await d.exec("window.__before = true; location.reload()");
+  await d.until("window reloaded", async () => (await d.exec("return document.readyState === 'complete' && !window.__before && !!document.querySelector('button')")));
+  let last = "";
+  let same = 0;
+  await d.until("sidebar settled", async () => {
+    const now = await d.exec(
+      "return [...document.querySelectorAll('nav.side .item, nav.side .account-name')].map((i) => i.innerText.trim() + Math.round(i.getBoundingClientRect().top)).join('|')",
+    );
+    same = now && now === last ? same + 1 : 0;
+    last = now;
+    return same >= 5;
+  }, 15000, 150);
+}
+
 async function openFolder(name) {
   await d.exec(
     // By the folder's name: the row also holds its counter.
@@ -2358,11 +2378,6 @@ try {
   });
 
   // The window read afresh; the click that follows must not land in the page being left.
-  const reloadWindow = async () => {
-    await d.exec("window.__before = true; location.reload()");
-    await d.until("window reloaded", async () => (await d.exec("return document.readyState === 'complete' && !window.__before && !!document.querySelector('button')")));
-  };
-
   await step("4.12", "письмо с Markdown-частью: переключатель «HTML · Markdown · Текст», задачи галочками, настройка «Показывать письма»", async () => {
     const subj = `Заметки ${stamp}`;
     helper("deliver-markdown", subj);
@@ -2566,6 +2581,8 @@ try {
     };
     // The frame's handlers are attached: a link's hover shows its address, and a click asks before
     // opening it instead of the frame following it.
+    // The reader shows the subject before the body: the frame is blank until its srcdoc has loaded.
+    await d.until("letter frame drawn", () => d.exec(`return !!${frameDoc}?.querySelector('a')`));
     await d.exec(`${frameDoc}.querySelector('a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`);
     await d.until("link hover reaches the app", async () => (await textOf(".reader .status")).includes("example.com/news"));
     const clickLink = (selector) =>
@@ -2896,7 +2913,7 @@ try {
     // The mailbox that takes answered letters out of the inbox; the window reads it at start.
     await waiting(true);
     try {
-      await d.exec("location.reload()");
+      await reloadWindow();
       await d.button("Входящие");
       helper("deliver", subj);
       await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
@@ -2926,7 +2943,7 @@ try {
     const waiting = (park) => invoke("account_save", { account: { ...acc, waiting: { park, folder: "", stop_to_archive: false } }, password: null, grant: null });
     await waiting(true);
     try {
-      await d.exec("location.reload()");
+      await reloadWindow();
       await d.button("Входящие");
       helper("deliver", subj);
       await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
