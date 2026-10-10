@@ -112,20 +112,7 @@ describe("Clear on Trash, Spam and Drafts", () => {
 
 });
 
-describe("Clear: the delay after the question", () => {
-  it("waits out the delay with a way to cancel it, and only then asks the server", async () => {
-    const x = host();
-    await x.clear.begin("a", "Trash");
-    expect(x.toasts[0].action?.label).toBe(t("undo"));
-    expect(x.toasts[0].ms).toBe(DELAY_SECS * 1000);
-    await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 - 100);
-    expect(api.folderEmpty).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(200);
-    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Trash", [], 11);
-    await flush();
-    expect(x.toasts.at(-1)?.text).toBe(t("clear.done.trash", { n: 128 }));
-  });
-
+describe("Clear: «z» during the delay", () => {
   it("is what «z» takes back during the wait, and lets go of it when the wait ends", async () => {
     const x = host();
     await x.clear.begin("a", "Trash");
@@ -142,6 +129,21 @@ describe("Clear: the delay after the question", () => {
     await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 100);
     expect(y.held[0].released).toBe(true);
     expect(api.folderEmpty).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Clear: the delay after the question", () => {
+  it("waits out the delay with a way to cancel it, and only then asks the server", async () => {
+    const x = host();
+    await x.clear.begin("a", "Trash");
+    expect(x.toasts[0].action?.label).toBe(t("undo"));
+    expect(x.toasts[0].ms).toBe(DELAY_SECS * 1000);
+    await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 - 100);
+    expect(api.folderEmpty).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Trash", [], 11);
+    await flush();
+    expect(x.toasts.at(-1)?.text).toBe(t("clear.done.trash", { n: 128 }));
   });
 
   it("changes nothing when the delay is cancelled", async () => {
