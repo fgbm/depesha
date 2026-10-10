@@ -21,6 +21,7 @@ pub mod port;
 pub mod query;
 pub mod quota;
 pub mod smtp;
+pub mod snooze;
 pub mod store;
 pub mod sync;
 pub mod tls;

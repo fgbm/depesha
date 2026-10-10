@@ -1,6 +1,5 @@
 //! Timed work: snoozed mail coming back, reminders about sent mail without an answer.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -10,6 +9,7 @@ use crate::followups;
 use crate::state::AppState;
 use crate::worker::{Output, Work};
 use depesha_core::lang::pick;
+use depesha_core::snooze;
 
 const TICK: Duration = Duration::from_secs(10);
 /// Closed waits for an answer are forgotten in days: an hour apart is soon enough.
@@ -53,11 +53,8 @@ async fn round(state: Arc<AppState>, resolve: bool) -> depesha_core::Result<()> 
     // A label whose strip was held back by a pause or an offline mailbox is resumed here.
     crate::label_strip::resume_all(&state);
     // By mailbox: one that hangs or is offline must not hold the others' snoozes up.
-    let mut snoozes: BTreeMap<String, Vec<depesha_core::store::Snooze>> = BTreeMap::new();
-    for s in state.store.snoozes_due(now)? {
-        snoozes.entry(s.account_id.clone()).or_default().push(s);
-    }
-    run_bounded(ACCOUNTS_AT_ONCE, snoozes.into_values().collect(), |due| {
+    let due = snooze::due_by_account(&state.store, now)?;
+    run_bounded(ACCOUNTS_AT_ONCE, due.into_values().collect(), |due| {
         let state = state.clone();
         async move { return_snoozes(&state, due).await }
     })
@@ -90,45 +87,42 @@ async fn round(state: Arc<AppState>, resolve: bool) -> depesha_core::Result<()> 
 
 /// Brings one mailbox's due snoozes back, one after another; the mailboxes run in parallel.
 async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>) {
-    let mut changed = false;
-    for s in &due {
-        let Ok(worker) = state.worker(&s.account_id) else {
-            continue;
-        };
-        let work = Work::MoveByMessageId {
-            from: s.folder.clone(),
-            message_ids: vec![s.message_id.clone()],
-            to: s.return_to.clone(),
-            unseen: true,
-        };
-        match worker.run_background(work).await {
-            Ok(Output::Count(0)) => {
-                // Moved elsewhere by hand (another client): nothing to bring back.
-                if let Err(e) = state.store.snooze_remove(&s.account_id, &s.message_id) {
-                    tracing::warn!("scheduler: {e}");
-                }
+    let Some(account_id) = due.first().map(|s| s.account_id.clone()) else {
+        return;
+    };
+    let returned = snooze::return_due(&state.store, &due, |bring| {
+        let worker = state.worker(&account_id);
+        async move {
+            let work = Work::MoveByMessageId {
+                from: bring.from,
+                message_ids: bring.message_ids,
+                to: bring.to,
+                unseen: bring.unseen,
+            };
+            // Offline or the account is paused: tried again on the next tick.
+            match worker?.run_background(work).await? {
+                Output::Count(n) => Ok::<usize, crate::error::CmdError>(n),
+                _ => Ok(1),
             }
-            Ok(_) => {
-                if let Err(e) = state.store.snooze_remove(&s.account_id, &s.message_id) {
-                    tracing::warn!("scheduler: {e}");
-                }
-                let subject = if s.subject.is_empty() {
-                    pick("(no subject)", "(без темы)")
-                } else {
-                    s.subject.as_str()
-                };
-                state.notify(
-                    pick("A snoozed message is back", "Вернулось отложенное письмо"),
-                    subject,
-                    false,
-                );
-            }
-            // Offline or the account is paused: try again on the next tick.
-            Err(e) => tracing::debug!(account = %s.account_id, "snooze return failed: {e}"),
         }
-        changed = true;
+    })
+    .await;
+    for e in &returned.not_dropped {
+        tracing::warn!("scheduler: {e}");
     }
-    if changed {
+    for s in &returned.back {
+        let subject = if s.subject.is_empty() {
+            pick("(no subject)", "(без темы)")
+        } else {
+            s.subject.as_str()
+        };
+        state.notify(
+            pick("A snoozed message is back", "Вернулось отложенное письмо"),
+            subject,
+            false,
+        );
+    }
+    if returned.changed {
         state.emit("counters-changed", json!({}));
     }
 }
