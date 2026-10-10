@@ -1951,7 +1951,7 @@ pub async fn folder_empty(
     folder: String,
     keep_ids: Vec<i64>,
     bound: u64,
-) -> CmdResult<mail::Emptied> {
+) -> CmdResult<depesha_core::clear::Emptied> {
     let role = crate::empty::role_of(&state, &account_id, &folder)?;
     let trash = if role == FolderRole::Drafts {
         Some(role_folder(&state, &account_id, FolderRole::Trash, pick("Trash", "Корзина")).await?)

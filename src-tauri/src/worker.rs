@@ -192,10 +192,10 @@ pub enum Output {
     /// The outcome of a label check on a test message (#42, frame 9).
     LabelCheck(depesha_core::acl::LabelCheck),
     /// What a folder held on the server when it was counted.
-    Counted(usize, mail::Bound),
+    Counted(usize, depesha_core::port::Bound),
     /// How far an emptying of a folder got.
     /// How far it got, and the cache ids of the drafts it kept.
-    Emptied(mail::Emptied, Vec<i64>),
+    Emptied(depesha_core::clear::Emptied, Vec<i64>),
 }
 
 type Reply = oneshot::Sender<Result<Output>>;

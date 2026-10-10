@@ -1341,7 +1341,7 @@ async fn permanent_delete_without_uidplus_wipes_ours_and_spares_foreign_marks() 
 }
 
 /// The bound a dialog would have counted for the folder now (#74).
-async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> mail::Bound {
+async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> depesha_core::port::Bound {
     mail::folder_count(conn, store, account, folder).await.unwrap().1
 }
 
@@ -1386,7 +1386,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &store,
         "a",
         &junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &bound,
         &[],
         3,
@@ -1396,7 +1396,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     .unwrap();
     assert_eq!(
         run,
-        mail::Emptied {
+        depesha_core::clear::Emptied {
             total: 7,
             done: 3,
             stopped: true
@@ -1417,7 +1417,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &store,
         "a",
         &junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &bound,
         &[],
         3,
@@ -1427,7 +1427,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     .unwrap();
     assert_eq!(
         run,
-        mail::Emptied {
+        depesha_core::clear::Emptied {
             total: 4,
             done: 4,
             stopped: false
@@ -1444,7 +1444,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &store,
         "a",
         &junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &bound,
         &[],
         3,
@@ -1452,7 +1452,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     )
     .await
     .unwrap();
-    assert_eq!(run, mail::Emptied::default());
+    assert_eq!(run, depesha_core::clear::Emptied::default());
 
     // What arrives after the dialog counted is not wiped; a folder renumbered since is refused.
     {
@@ -1466,10 +1466,10 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
         imap::append(c, &junk, &mail("late", 1), "").await.unwrap();
     }
-    let mail::Bound::Imap { validity, next } = bound.clone() else {
+    let depesha_core::port::Bound::Imap { validity, next } = bound.clone() else {
         unreachable!()
     };
-    let stale = mail::Bound::Imap {
+    let stale = depesha_core::port::Bound::Imap {
         validity: validity + 1,
         next,
     };
@@ -1478,7 +1478,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &store,
         "a",
         &junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &stale,
         &[],
         3,
@@ -1494,7 +1494,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &store,
         "a",
         &junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &bound,
         &[],
         3,
@@ -1504,7 +1504,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     .unwrap();
     assert_eq!(
         run,
-        mail::Emptied {
+        depesha_core::clear::Emptied {
             total: 3,
             done: 3,
             stopped: false
@@ -1526,7 +1526,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         &store,
         "a",
         &drafts,
-        &mail::Emptying::ToFolder(trash.clone()),
+        &depesha_core::clear::Emptying::ToFolder(trash.clone()),
         &bound,
         &uids[..1],
         2,
@@ -1536,7 +1536,7 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
     .unwrap();
     assert_eq!(
         run,
-        mail::Emptied {
+        depesha_core::clear::Emptied {
             total: 4,
             done: 4,
             stopped: false

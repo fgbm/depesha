@@ -5,8 +5,10 @@ use std::time::Duration;
 
 use crate::account::{Account, Credentials};
 use crate::avatar::Receiver;
+use crate::clear::{self, Clearing, EMPTY_BATCH, Emptied, Emptying, Performed};
 use crate::domain::{FlagChange, Folder};
 use crate::imap::{self, IdleOutcome};
+use crate::port::{Bound, MailServer};
 use crate::store::Store;
 use crate::sync::{self, FolderSync, SyncOptions};
 use crate::{Error, Result, ews, message, smtp};
@@ -367,62 +369,16 @@ pub async fn folder_total(conn: &mut Conn, store: &Store, account_id: &str, fold
     }
 }
 
-/// What a «Clear» may touch: the folder as it was when the dialog counted it. What arrives
-/// afterwards is not in it and is never wiped, and a run repeated from the same bound goes on
-/// with what is left of it (#74).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Bound {
-    /// IMAP: the messages of this UIDVALIDITY with a UID below `next` (the UIDNEXT then).
-    Imap { validity: u32, next: u32 },
-    /// Exchange: the items the folder held then.
-    Items(Vec<String>),
-}
-
 /// How many messages the folder holds on the server and the bound that counted them.
 pub async fn folder_count(conn: &mut Conn, store: &Store, account_id: &str, folder: &str) -> Result<(usize, Bound)> {
     match conn {
-        Conn::Imap(c) => {
-            let (exists, validity, next) = imap::folder_mark(c, folder).await?;
-            Ok((exists as usize, Bound::Imap { validity, next }))
-        }
-        Conn::Ews(s) => {
-            let ids = ews::folder_item_ids(s, store, account_id, folder).await?;
-            Ok((ids.len(), Bound::Items(ids)))
-        }
+        Conn::Imap(c) => ImapServer::new(c, EMPTY_BATCH).count(folder).await,
+        Conn::Ews(s) => EwsServer { s, store, account_id }.count(folder).await,
     }
 }
 
-/// What «Clear» does with the messages of a folder (#74).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Emptying {
-    /// Wipes them for good (Trash, Junk).
-    Erase,
-    /// Moves them into the named folder (Drafts into Trash), where they can be got back.
-    ToFolder(String),
-}
-
-/// How far an emptying got.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
-pub struct Emptied {
-    /// Messages the folder held when the run began, less the ones it was told to keep.
-    pub total: usize,
-    pub done: usize,
-    /// The run was stopped between two batches; the rest is still there.
-    pub stopped: bool,
-}
-
-/// IMAP messages wiped or moved in one request: a few thousand UIDs in a single command
-/// line are refused by some servers, and the batch is also where a stop can take effect.
-pub const EMPTY_BATCH: usize = 500;
-/// Exchange moves items a hundred at a time.
-const EWS_EMPTY_BATCH: usize = 100;
-
-/// Empties the folder on the server, every message in it that `bound` names and not only
-/// those the cache loaded, except `keep` (cached UIDs of messages that must stay). What came
-/// into the folder after the bound was taken stays. It works in batches and calls
-/// `progress(done, total)` at the start and after each; `false` from it stops the run before
-/// the next batch. A failed batch ends the run with its error: what `progress` last reported
-/// is what was done. The folder renumbered since the bound is `FolderChanged`.
+/// Empties the folder on the server (`clear::empty_folder`) over the port of the connection's
+/// kind. `batch` is the size of an IMAP request; Exchange takes its own.
 #[allow(clippy::too_many_arguments)]
 pub async fn empty_folder(
     conn: &mut Conn,
@@ -435,62 +391,130 @@ pub async fn empty_folder(
     batch: usize,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
 ) -> Result<Emptied> {
-    let mut run = Emptied::default();
-    match (conn, bound) {
-        (Conn::Imap(c), Bound::Imap { validity: asked, next }) => {
-            let (validity, mut uids) = imap::folder_uids(c, folder).await?;
-            if validity != *asked {
-                return Err(Error::FolderChanged);
-            }
-            uids.retain(|u| u < next && !keep.contains(u));
-            run.total = uids.len();
-            if !progress(0, run.total) {
-                run.stopped = run.total > 0;
-                return Ok(run);
-            }
-            for chunk in uids.chunks(batch.max(1)) {
-                match how {
-                    Emptying::Erase => imap::delete_permanently(c, folder, Some(validity), chunk).await?,
-                    Emptying::ToFolder(to) => imap::move_messages(c, folder, Some(validity), chunk, to).await?,
-                }
-                run.done += chunk.len();
-                if !progress(run.done, run.total) && run.done < run.total {
-                    run.stopped = true;
-                    break;
-                }
-            }
-        }
-        (Conn::Ews(s), Bound::Items(snapshot)) => {
-            let kept: std::collections::HashSet<String> = match how {
-                Emptying::ToFolder(_) => store.ews_item_ids(account_id, folder, keep)?.into_iter().collect(),
-                Emptying::Erase => Default::default(),
-            };
-            let ids: Vec<&String> = snapshot.iter().filter(|id| !kept.contains(*id)).collect();
-            run.total = ids.len();
-            if !progress(0, run.total) {
-                run.stopped = run.total > 0;
-                return Ok(run);
-            }
-            for chunk in ids.chunks(EWS_EMPTY_BATCH) {
-                let chunk: Vec<String> = chunk.iter().map(|id| (*id).clone()).collect();
-                match how {
-                    Emptying::Erase => ews::delete_item_ids(s, &chunk).await?,
-                    Emptying::ToFolder(to) => ews::move_item_ids(s, store, account_id, &chunk, to).await?,
-                }
-                run.done += chunk.len();
-                if !progress(run.done, run.total) && run.done < run.total {
-                    run.stopped = true;
-                    break;
-                }
-            }
-        }
-        _ => {
-            return Err(Error::Protocol(
-                "the bound of the clearing is not of this mailbox".into(),
-            ));
+    match conn {
+        Conn::Imap(c) => clear::empty_folder(&mut ImapServer::new(c, batch), folder, how, bound, keep, progress).await,
+        Conn::Ews(s) => {
+            clear::empty_folder(
+                &mut EwsServer { s, store, account_id },
+                folder,
+                how,
+                bound,
+                keep,
+                progress,
+            )
+            .await
         }
     }
-    Ok(run)
+}
+
+/// Runs a queued «Clear» (`clear::perform`) over the port of the connection's kind.
+#[allow(clippy::too_many_arguments)]
+pub async fn clear_folder(
+    conn: &mut Conn,
+    store: &Store,
+    clearing: &Clearing,
+    account_id: &str,
+    req: &clear::Request,
+    progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
+    cache_forgot: &mut (dyn FnMut(Result<()>) + Send),
+) -> Performed {
+    match conn {
+        Conn::Imap(c) => {
+            let mut server = ImapServer::new(c, EMPTY_BATCH);
+            clear::perform(&mut server, store, clearing, account_id, req, progress, cache_forgot).await
+        }
+        Conn::Ews(s) => {
+            let mut server = EwsServer { s, store, account_id };
+            clear::perform(&mut server, store, clearing, account_id, req, progress, cache_forgot).await
+        }
+    }
+}
+
+/// The port of the mail server over an IMAP connection. It remembers the UIDVALIDITY the
+/// UIDs it handed out were read under, and every change by them is checked against it.
+pub struct ImapServer<'a> {
+    conn: &'a mut imap::Conn,
+    batch: usize,
+    validity: Option<u32>,
+}
+
+impl<'a> ImapServer<'a> {
+    pub fn new(conn: &'a mut imap::Conn, batch: usize) -> Self {
+        Self {
+            conn,
+            batch,
+            validity: None,
+        }
+    }
+}
+
+impl MailServer for ImapServer<'_> {
+    type Item = u32;
+
+    async fn count(&mut self, folder: &str) -> Result<(usize, Bound)> {
+        let (exists, validity, next) = imap::folder_mark(self.conn, folder).await?;
+        Ok((exists as usize, Bound::Imap { validity, next }))
+    }
+
+    async fn counted(&mut self, folder: &str, bound: &Bound, keep: &[u32]) -> Result<Vec<u32>> {
+        let (validity, uids) = imap::folder_uids(self.conn, folder).await?;
+        let uids = clear::within_bound(validity, uids, bound, keep)?;
+        self.validity = Some(validity);
+        Ok(uids)
+    }
+
+    async fn erase(&mut self, folder: &str, items: &[u32]) -> Result<()> {
+        imap::delete_permanently(self.conn, folder, self.validity, items).await
+    }
+
+    async fn move_to(&mut self, folder: &str, items: &[u32], to: &str) -> Result<()> {
+        imap::move_messages(self.conn, folder, self.validity, items, to).await
+    }
+
+    fn batch(&self) -> usize {
+        self.batch
+    }
+}
+
+/// Exchange moves items a hundred at a time.
+const EWS_EMPTY_BATCH: usize = 100;
+
+/// The port of the mail server over an Exchange session. Its items are named by id; the
+/// cache says which of them the cached UIDs are.
+pub struct EwsServer<'a> {
+    s: &'a mut ews::Session,
+    store: &'a Store,
+    account_id: &'a str,
+}
+
+impl MailServer for EwsServer<'_> {
+    type Item = String;
+
+    async fn count(&mut self, folder: &str) -> Result<(usize, Bound)> {
+        let ids = ews::folder_item_ids(self.s, self.store, self.account_id, folder).await?;
+        Ok((ids.len(), Bound::Items(ids)))
+    }
+
+    async fn counted(&mut self, folder: &str, bound: &Bound, keep: &[u32]) -> Result<Vec<String>> {
+        let kept = self
+            .store
+            .ews_item_ids(self.account_id, folder, keep)?
+            .into_iter()
+            .collect();
+        clear::within_snapshot(bound, &kept)
+    }
+
+    async fn erase(&mut self, _folder: &str, items: &[String]) -> Result<()> {
+        ews::delete_item_ids(self.s, items).await
+    }
+
+    async fn move_to(&mut self, _folder: &str, items: &[String], to: &str) -> Result<()> {
+        ews::move_item_ids(self.s, self.store, self.account_id, items, to).await
+    }
+
+    fn batch(&self) -> usize {
+        EWS_EMPTY_BATCH
+    }
 }
 
 /// Puts a message into a folder unless one with the same Message-ID is already there.

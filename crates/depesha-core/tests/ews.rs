@@ -745,7 +745,7 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
 }
 
 /// The bound a dialog would have counted for the folder now (#74).
-async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> mail::Bound {
+async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> depesha_core::port::Bound {
     mail::folder_count(conn, store, account, folder).await.unwrap().1
 }
 
@@ -794,7 +794,7 @@ async fn clearing_exchange_folders() {
         &store,
         ACCOUNT,
         junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &bound,
         &[],
         500,
@@ -807,7 +807,7 @@ async fn clearing_exchange_folders() {
     .unwrap();
     assert_eq!(
         run,
-        mail::Emptied {
+        depesha_core::clear::Emptied {
             total: 3,
             done: 3,
             stopped: false
@@ -826,7 +826,7 @@ async fn clearing_exchange_folders() {
         &store,
         ACCOUNT,
         junk,
-        &mail::Emptying::Erase,
+        &depesha_core::clear::Emptying::Erase,
         &bound,
         &[],
         500,
@@ -834,7 +834,7 @@ async fn clearing_exchange_folders() {
     )
     .await
     .unwrap();
-    assert_eq!(run, mail::Emptied::default());
+    assert_eq!(run, depesha_core::clear::Emptied::default());
 
     // An item that arrives after the dialog counted is not wiped; the same bound run again
     // meets items that are gone already and goes on.
@@ -852,7 +852,7 @@ async fn clearing_exchange_folders() {
             &store,
             ACCOUNT,
             junk,
-            &mail::Emptying::Erase,
+            &depesha_core::clear::Emptying::Erase,
             &bound,
             &[],
             500,
@@ -862,7 +862,7 @@ async fn clearing_exchange_folders() {
         .unwrap();
         assert_eq!(
             run,
-            mail::Emptied {
+            depesha_core::clear::Emptied {
                 total: 2,
                 done: 2,
                 stopped: false
@@ -885,8 +885,8 @@ async fn clearing_exchange_folders() {
         &store,
         ACCOUNT,
         junk,
-        &mail::Emptying::Erase,
-        &mail::Bound::Imap { validity: 1, next: 1 },
+        &depesha_core::clear::Emptying::Erase,
+        &depesha_core::port::Bound::Imap { validity: 1, next: 1 },
         &[],
         500,
         &mut |_, _| true,
@@ -914,7 +914,7 @@ async fn clearing_exchange_folders() {
         &store,
         ACCOUNT,
         "Черновики",
-        &mail::Emptying::ToFolder("Удаленные".into()),
+        &depesha_core::clear::Emptying::ToFolder("Удаленные".into()),
         &bound,
         &[newest],
         500,
@@ -924,7 +924,7 @@ async fn clearing_exchange_folders() {
     .unwrap();
     assert_eq!(
         run,
-        mail::Emptied {
+        depesha_core::clear::Emptied {
             total: 4,
             done: 4,
             stopped: false
