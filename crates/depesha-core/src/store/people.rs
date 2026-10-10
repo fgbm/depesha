@@ -1128,8 +1128,27 @@ impl Store {
     ) -> Result<()> {
         let mut affected: Vec<i64> = undo.persons.iter().map(|p| p.id).collect();
         affected.extend(&undo.created);
+        // Addresses written by hand into a record that goes: they are not in the letters, so they have
+        // nowhere to return to, and stay with the owner of the record's primary address.
+        let mut carry: Vec<(AddressRow, String)> = Vec::new();
         for id in &affected {
             let theirs: Vec<AddressRow> = address_rows(&tx, *id)?;
+            if let Some(home) = theirs
+                .iter()
+                .find(|a| a.primary && known.contains(a.key.as_str()))
+                .or_else(|| theirs.iter().find(|a| known.contains(a.key.as_str())))
+            {
+                for a in theirs.iter().filter(|a| !known.contains(a.key.as_str())) {
+                    let heard: bool = tx.query_row(
+                        "SELECT EXISTS (SELECT 1 FROM addresses WHERE fold(email) = ?1)",
+                        [&a.key],
+                        |r| r.get(0),
+                    )?;
+                    if !heard {
+                        carry.push((a.clone(), home.key.clone()));
+                    }
+                }
+            }
             // A record that holds an address of the snapshot, or none, is the snapshot's own, whatever
             // it gained since (an address added to the joint person goes back to the correspondence
             // with it). One that holds none of them is a stranger under the key: it stays.
@@ -1175,12 +1194,57 @@ impl Store {
                 )?;
             }
         }
-        // A person whose every address another person took meanwhile has no address to be reached by.
-        for new in placed.values() {
-            tx.execute(
-                "DELETE FROM persons WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM person_addresses WHERE person_id = ?1)",
-                [new],
+        for (a, home) in carry {
+            let (Some(to), None) = (owner(&tx, &home)?, owner(&tx, &a.key)?) else {
+                continue;
+            };
+            let ord: i64 = tx.query_row(
+                "SELECT COALESCE(MAX(ord), 0) + 1 FROM person_addresses WHERE person_id = ?1",
+                [to],
+                |r| r.get(0),
             )?;
+            insert_address(
+                &tx,
+                &AddressRow {
+                    person_id: to,
+                    primary: false,
+                    ord,
+                    ..a
+                },
+            )?;
+        }
+        // A person whose every address another person took meanwhile has no address to be reached by.
+        // What was written about them is not lost: it goes to whoever holds their address now, the
+        // note joined to the holder's by an empty line, a format or a view only where the holder has none.
+        for (old, new) in &placed {
+            let alone: bool = tx.query_row(
+                "SELECT NOT EXISTS (SELECT 1 FROM person_addresses WHERE person_id = ?1)",
+                [new],
+                |r| r.get(0),
+            )?;
+            if !alone {
+                continue;
+            }
+            let row = undo.persons.iter().find(|p| p.id == *old);
+            let holder = undo
+                .addresses
+                .iter()
+                .filter(|a| a.person_id == *old)
+                .find_map(|a| owner(&tx, &a.key).transpose())
+                .transpose()?;
+            if let (Some(row), Some(holder)) = (row, holder) {
+                let note = row.note.trim();
+                tx.execute(
+                    "UPDATE persons SET
+                         note = CASE WHEN ?2 = '' OR instr(note, ?2) > 0 THEN note
+                                     WHEN note = '' THEN ?2 ELSE note || char(10) || char(10) || ?2 END,
+                         send_format = CASE WHEN send_format = '' THEN ?3 ELSE send_format END,
+                         view = CASE WHEN view = '' THEN ?4 ELSE view END
+                     WHERE id = ?1",
+                    params![holder, note, row.send_format, row.view],
+                )?;
+            }
+            tx.execute("DELETE FROM persons WHERE id = ?1", [new])?;
         }
         for subject in &undo.hints {
             tx.execute(
@@ -2245,6 +2309,7 @@ mod tests {
             ))
             .unwrap()
             .unwrap();
+        put(&store, "INBOX", 1, &wrote("y@example.org", "Игрек"), true);
         store.person_add_address("a@example.org", "y@example.org").unwrap();
         store.person_restore(&merged.undo).unwrap();
         assert_eq!(store.person("a@example.org").unwrap().unwrap().note, "А");
@@ -2319,5 +2384,96 @@ mod tests {
         // The forgetting agrees with the mark.
         assert!(store.forget_person("old@example.org").unwrap().unmarked);
         assert!(store.forget_person("mine@example.org").unwrap().removed);
+    }
+
+    /// An address written by hand, not in the letters, has nowhere to go back to: it stays with the
+    /// owner of the primary address of the record it was added to.
+    #[test]
+    fn taking_back_a_merge_keeps_an_address_added_by_hand() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Б".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        store.person_add_address("a@example.org", "mine@example.org").unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        let a = store.person("a@example.org").unwrap().unwrap();
+        assert_eq!(store.person("mine@example.org").unwrap().unwrap().id, a.id);
+        assert_ne!(store.person("b@example.org").unwrap().unwrap().id, a.id);
+        assert_eq!(a.note, "А");
+    }
+
+    /// Split, then the merge taken back: the person the address went to keeps what the taken-back
+    /// record said about it, the note joined to theirs and the rules only where they have none.
+    #[test]
+    fn taking_back_a_merge_after_a_split_keeps_the_note_of_the_one_whose_address_went() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| {
+                p.note = "Б".into();
+                p.send_format = "plain".into();
+                p.view = "markdown".into();
+            }))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |m| {
+                    m.view = "text".into();
+                },
+            ))
+            .unwrap()
+            .unwrap();
+        let split = store.person_split("b@example.org").unwrap().unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        let b = store.person("b@example.org").unwrap().unwrap();
+        assert_eq!(b.id, split.person.id);
+        assert_eq!(b.note, "Б", "the note is not lost");
+        assert_eq!(b.send_format, "plain", "a rule the holder lacks is taken");
+        assert_eq!(b.view, "text", "a rule the holder has stays");
+    }
+
+    #[test]
+    fn a_note_the_holder_already_has_is_joined_with_an_empty_line() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Б".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        let split = store.person_split("b@example.org").unwrap().unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "свой".into()))
+            .unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        let held = store.person("b@example.org").unwrap().unwrap();
+        assert_eq!(held.id, split.person.id);
+        assert_eq!(held.note, "свой\n\nБ");
     }
 }
