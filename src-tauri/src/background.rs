@@ -460,7 +460,7 @@ pub fn take_missed(state: &AppState) -> Vec<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use depesha_core::smtp::Draft;
+    use depesha_core::domain::Draft;
     use depesha_core::store::FollowupPlan;
 
     fn settings(close: &str, without_tray: bool) -> Settings {

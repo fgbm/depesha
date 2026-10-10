@@ -230,10 +230,10 @@ pub struct MessageView {
     pub send_at: Option<i64>,
     /// How a draft was being written (`FORMAT_HEADER`); absent for other letters.
     #[serde(default)]
-    pub format: Option<crate::smtp::BodyFormat>,
+    pub format: Option<crate::domain::BodyFormat>,
     /// The letter a saved draft answers or forwards (`ACTS_ON_HEADER`); absent otherwise.
     #[serde(default)]
-    pub acts_on: Option<crate::smtp::ActsOn>,
+    pub acts_on: Option<crate::domain::ActsOn>,
     /// The letter's Markdown (`text/markdown`, RFC 7763) drawn as HTML and cleaned like `html`.
     #[serde(default)]
     pub markdown: Option<String>,
@@ -283,7 +283,7 @@ const ACTS_ON_SIG: usize = 1 + 43;
 /// folder name in another script and a long mark cannot break or overrun the line. None when
 /// the signed line would be too long for a server: the draft is then saved without a mark
 /// rather than unreachable.
-pub fn encode_acts_on(acts_on: &crate::smtp::ActsOn) -> Option<String> {
+pub fn encode_acts_on(acts_on: &crate::domain::ActsOn) -> Option<String> {
     let json = serde_json::to_vec(acts_on).ok()?;
     let value = format!("1.{}", B64URL.encode(json));
     (value.len() + ACTS_ON_SIG <= ACTS_ON_MAX).then_some(value)
@@ -300,7 +300,7 @@ pub fn signed_acts_on(value: &str, sig: &str) -> Option<String> {
 }
 
 /// The mark of a header written by `encode_acts_on`; None when it is not Depesha's form.
-fn decode_acts_on(value: &str) -> Option<crate::smtp::ActsOn> {
+fn decode_acts_on(value: &str) -> Option<crate::domain::ActsOn> {
     let b64 = value.trim().strip_prefix("1.")?;
     if b64.contains('.') {
         return None;
@@ -322,7 +322,7 @@ fn split_signed(value: &str) -> Option<(&str, &str)> {
 /// The letter a draft says it answers, once `verify` accepts the signature of the encoded
 /// mark. A mark without a signature, or one this installation did not sign, is not followed:
 /// an old draft and a letter from anywhere else name nothing.
-pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Option<crate::smtp::ActsOn> {
+pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Option<crate::domain::ActsOn> {
     let msg = MessageParser::default().parse_headers(raw)?;
     let value = raw_header(&msg, ACTS_ON_HEADER)?;
     let (payload, sig) = split_signed(&value)?;
@@ -333,9 +333,9 @@ pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Opti
 }
 
 /// What the draft says it does (`ACT_HEADER`); None for an old draft and for any other letter.
-pub fn draft_act(raw: &[u8]) -> Option<crate::smtp::Act> {
+pub fn draft_act(raw: &[u8]) -> Option<crate::domain::Act> {
     let msg = MessageParser::default().parse_headers(raw)?;
-    crate::smtp::Act::parse(raw_header(&msg, ACT_HEADER)?.trim())
+    crate::domain::Act::parse(raw_header(&msg, ACT_HEADER)?.trim())
 }
 
 /// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to
@@ -396,7 +396,7 @@ pub fn parse_view(raw: &[u8], allow_remote: bool) -> Result<MessageView> {
 
     let summary = summary_of(&msg);
     let send_at = raw_header(&msg, SEND_AT_HEADER).and_then(|v| v.parse().ok());
-    let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| crate::smtp::BodyFormat::from_name(&v));
+    let format = raw_header(&msg, FORMAT_HEADER).and_then(|v| crate::domain::BodyFormat::from_name(&v));
     // The mark is not taken here: only a signature of this installation makes it the letter
     // the draft answers, and the core does not hold that secret. The caller that can verify
     // fills `acts_on` (`trusted_acts_on`).
@@ -1180,14 +1180,14 @@ JVBERi0xLjQK\r\n\
         let format = |raw: String| parse_view(raw.as_bytes(), false).unwrap().format;
         assert_eq!(
             format(mail(&format!("{FORMAT_HEADER}: markdown\r\n"))),
-            Some(crate::smtp::BodyFormat::Markdown)
+            Some(crate::domain::BodyFormat::Markdown)
         );
         assert_eq!(format(mail(&format!("{FORMAT_HEADER}: rtf\r\n"))), None);
         assert_eq!(format(mail("")), None);
     }
 
-    fn acts() -> crate::smtp::ActsOn {
-        use crate::smtp::{Act, ActsOn};
+    fn acts() -> crate::domain::ActsOn {
+        use crate::domain::{Act, ActsOn};
         ActsOn {
             account_id: "a".into(),
             message_id: "m1@example.org".into(),
@@ -1218,7 +1218,7 @@ JVBERi0xLjQK\r\n\
 
     #[test]
     fn a_draft_tells_the_kind_of_its_action_apart_from_the_subject() {
-        use crate::smtp::Act;
+        use crate::domain::Act;
         let with = |v: &str| draft_with(&format!("{ACT_HEADER}: {v}\r\n"), DRAFT_DOMAIN);
         assert_eq!(draft_act(with("forward").as_bytes()), Some(Act::Forward));
         assert_eq!(draft_act(with("reply_all").as_bytes()), Some(Act::ReplyAll));
@@ -1246,7 +1246,7 @@ JVBERi0xLjQK\r\n\
 
     #[test]
     fn a_mark_goes_and_comes_back_through_its_encoded_header() {
-        use crate::smtp::{Act, ActsOn};
+        use crate::domain::{Act, ActsOn};
         let acts = ActsOn {
             account_id: "a".into(),
             message_id: "m1@example.org".into(),

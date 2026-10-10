@@ -15,6 +15,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
+use crate::domain::{BodyFormat, Draft};
 use crate::imap::Io;
 use crate::message::{Addr, Importance};
 use crate::tr;
@@ -22,120 +23,6 @@ use crate::{Error, Result, tls};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// How a letter is written. It decides the parts that go out: plain text alone, or
-/// plain text with HTML of the same content.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BodyFormat {
-    #[default]
-    Plain,
-    /// Formatted in the visual editor: `Draft::html` is the letter, `Draft::text` its plain version.
-    Html,
-    /// `Draft::text` is Markdown: it goes out as is for plain-text readers and rendered as HTML.
-    Markdown,
-}
-
-impl BodyFormat {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Plain => "plain",
-            Self::Html => "html",
-            Self::Markdown => "markdown",
-        }
-    }
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name.trim().to_ascii_lowercase().as_str() {
-            "plain" => Some(Self::Plain),
-            "html" => Some(Self::Html),
-            "markdown" => Some(Self::Markdown),
-            _ => None,
-        }
-    }
-}
-
-/// What a letter does with the one it was written from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Act {
-    Reply,
-    ReplyAll,
-    Forward,
-}
-
-impl Act {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Reply => "reply",
-            Self::ReplyAll => "reply_all",
-            Self::Forward => "forward",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "reply" => Self::Reply,
-            "reply_all" => Self::ReplyAll,
-            "forward" => Self::Forward,
-            _ => return None,
-        })
-    }
-
-    /// An answer, of either kind: what takes a letter of the inbox to wait.
-    pub fn answers(self) -> bool {
-        self != Self::Forward
-    }
-}
-
-/// The letter an answer or a forward was written from: it is marked when this one goes,
-/// and an answer may take it to wait for the reply.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ActsOn {
-    pub account_id: String,
-    pub message_id: String,
-    /// Where it was when the answer was written, as the cache names the folder.
-    pub folder: String,
-    pub act: Act,
-    /// It waits for a reply in the folder already: the answer leaves it there.
-    #[serde(default)]
-    pub waiting: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Draft {
-    pub from: Option<Addr>,
-    pub to: Vec<Addr>,
-    pub cc: Vec<Addr>,
-    pub bcc: Vec<Addr>,
-    pub subject: String,
-    /// The plain-text version; for Markdown, the Markdown itself.
-    pub text: String,
-    /// The letter as HTML, when it was written formatted.
-    pub html: Option<String>,
-    /// The HTML of the signature a Markdown letter carries (#67): the window shows it
-    /// formatted, and the parts it goes out in — HTML, Markdown and text — are built here.
-    /// An HTML letter keeps its signature inside `html`, a plain one its text inside `text`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
-    /// Outbox entries saved before formats existed are plain text.
-    #[serde(default)]
-    pub format: BodyFormat,
-    pub in_reply_to: Option<String>,
-    pub references: Vec<String>,
-    pub attachments: Vec<OutgoingAttachment>,
-    /// The letter this one answers or forwards; none for a new one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acts_on: Option<ActsOn>,
-    /// The sender asks to read the letter first (#72): `Importance: high` and `X-Priority: 1`.
-    /// The window offers high only; a normal letter says nothing.
-    #[serde(default, skip_serializing_if = "is_normal")]
-    pub importance: Importance,
-}
-
-fn is_normal(i: &Importance) -> bool {
-    *i == Importance::Normal
-}
 
 /// `Importance: high` (RFC 2156) and `X-Priority: 1 (Highest)`, the pair Outlook writes.
 fn importance_headers(
@@ -172,30 +59,6 @@ fn importance_headers(
             .header(ImportanceHeader("low".into()))
             .header(PriorityHeader("5 (Lowest)".into())),
         Importance::Normal => builder,
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutgoingAttachment {
-    pub name: String,
-    pub mime: String,
-    #[serde(with = "serde_bytes_b64")]
-    pub data: Vec<u8>,
-}
-
-/// Attachments travel to and from the GUI as base64 strings, not JSON arrays of numbers.
-mod serde_bytes_b64 {
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(data: &[u8], s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&STANDARD.encode(data))
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-        let s = String::deserialize(d)?;
-        STANDARD.decode(s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -1057,6 +920,7 @@ fn dot_stuff(raw: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::OutgoingAttachment;
 
     fn addr(email: &str) -> Addr {
         Addr {

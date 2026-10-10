@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use depesha_core::imap::FolderRole;
+use depesha_core::domain::FolderRole;
 use depesha_core::store::{NewSentCopy, OutboxItem, SentCopy, StuckCopy};
 use depesha_core::{mail, message, smtp};
 use serde_json::json;

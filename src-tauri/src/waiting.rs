@@ -7,9 +7,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use depesha_core::account::Account;
-use depesha_core::imap::FolderRole;
+use depesha_core::domain::{Act, FolderRole};
 use depesha_core::lang::pick;
-use depesha_core::smtp::Act;
 use depesha_core::store::{Followup, OutboxItem, ParkJob, ParkKind, Parking, WaitFolder, waiting_folder};
 use serde_json::json;
 
@@ -166,7 +165,7 @@ fn find_parking(
 pub fn decide(
     state: &AppState,
     account: &Account,
-    draft: &depesha_core::smtp::Draft,
+    draft: &depesha_core::domain::Draft,
     followup_secs: i64,
     plan: &depesha_core::store::FollowupPlan,
 ) -> CmdResult<(bool, bool)> {
@@ -364,9 +363,9 @@ pub fn will_archive(item: &OutboxItem) -> bool {
 /// The mark Depesha keeps does not depend on it: a refusal is only logged.
 async fn mark_on_server(state: &AppState, account_id: &str, folder: &str, message_id: &str, act: Act) {
     let change = match act {
-        Act::Reply => depesha_core::imap::FlagChange::Answered(true),
-        Act::ReplyAll => depesha_core::imap::FlagChange::AnsweredAll(true),
-        Act::Forward => depesha_core::imap::FlagChange::Forwarded(true),
+        Act::Reply => depesha_core::domain::FlagChange::Answered(true),
+        Act::ReplyAll => depesha_core::domain::FlagChange::AnsweredAll(true),
+        Act::Forward => depesha_core::domain::FlagChange::Forwarded(true),
     };
     let found = state
         .store
@@ -619,7 +618,7 @@ pub fn stop_to(state: &AppState, account_id: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use depesha_core::smtp::{ActsOn, Draft};
+    use depesha_core::domain::{ActsOn, Draft};
     use depesha_core::store::FollowupPlan;
 
     fn answer(secs: i64, plan: FollowupPlan) -> OutboxItem {
@@ -722,7 +721,7 @@ mod tests {
     }
 
     fn folders(store: &depesha_core::store::Store) {
-        use depesha_core::imap::Folder;
+        use depesha_core::domain::Folder;
         let plain = |name: &str, role| Folder {
             name: name.into(),
             display_name: name.into(),

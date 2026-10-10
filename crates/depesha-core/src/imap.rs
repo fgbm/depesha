@@ -17,6 +17,7 @@ use tokio::time::timeout;
 use crate::account::{Credentials, Security, ServerConfig};
 use crate::acl::{LabelCheck, Namespace, PermanentFlags, Rights};
 use crate::avatar::Receiver;
+use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
 pub use crate::query::Criterion;
 use crate::tr;
 use crate::watchdog::Watchdog;
@@ -310,126 +311,6 @@ async fn read_greeting<T: Io>(client: &mut Client<T>) -> Result<Option<String>> 
     Ok(greeting_line(resp.parsed()))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FolderRole {
-    Inbox,
-    Sent,
-    Drafts,
-    Trash,
-    Junk,
-    Archive,
-    /// Not in RFC 6154: where Depesha keeps snoozed mail until it is due.
-    Snoozed,
-}
-
-impl FolderRole {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Inbox => "inbox",
-            Self::Sent => "sent",
-            Self::Drafts => "drafts",
-            Self::Trash => "trash",
-            Self::Junk => "junk",
-            Self::Archive => "archive",
-            Self::Snoozed => "snoozed",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "inbox" => Self::Inbox,
-            "sent" => Self::Sent,
-            "drafts" => Self::Drafts,
-            "trash" => Self::Trash,
-            "junk" => Self::Junk,
-            "archive" => Self::Archive,
-            "snoozed" => Self::Snoozed,
-            _ => return None,
-        })
-    }
-
-    /// Fallback for servers without SPECIAL-USE (RFC 6154), Exchange included.
-    pub(crate) fn guess(leaf: &str) -> Option<Self> {
-        Some(match leaf.to_lowercase().as_str() {
-            "inbox" | "входящие" => Self::Inbox,
-            "sent" | "sent items" | "sent messages" | "sent mail" | "отправленные" | "отправленные элементы" => {
-                Self::Sent
-            }
-            "drafts" | "draft" | "черновики" => Self::Drafts,
-            "trash"
-            | "deleted"
-            | "deleted items"
-            | "deleted messages"
-            | "корзина"
-            | "удаленные"
-            | "удалённые"
-            | "удаленные элементы" => Self::Trash,
-            "junk" | "spam" | "junk e-mail" | "junk email" | "спам" | "нежелательная почта" => {
-                Self::Junk
-            }
-            "archive" | "archives" | "архив" => Self::Archive,
-            "snoozed" | "отложенные" => Self::Snoozed,
-            _ => return None,
-        })
-    }
-}
-
-/// Exchange shows calendars, contacts and other non-mail stores as IMAP folders.
-pub(crate) fn is_non_mail(leaf: &str) -> bool {
-    matches!(
-        leaf.to_lowercase().as_str(),
-        "calendar"
-            | "календарь"
-            | "contacts"
-            | "контакты"
-            | "tasks"
-            | "задачи"
-            | "notes"
-            | "заметки"
-            | "journal"
-            | "журнал"
-            | "sync issues"
-            | "проблемы синхронизации"
-            | "outbox"
-            | "исходящие"
-            | "rss feeds"
-            | "rss-каналы"
-            | "rss-подписки"
-            | "conversation history"
-            | "журнал бесед"
-            | "conversation action settings"
-            | "quick step settings"
-            | "social activity notifications"
-            | "yammer root"
-            | "files"
-            | "external contacts"
-            | "personmetadata"
-    )
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Folder {
-    /// Name as the server knows it (modified UTF-7); used in IMAP commands.
-    pub name: String,
-    pub display_name: String,
-    pub delimiter: Option<String>,
-    pub role: Option<FolderRole>,
-    pub selectable: bool,
-    /// Not a mail folder (Exchange calendar, contacts...): hidden and never synced.
-    #[serde(default)]
-    pub hidden: bool,
-}
-
-impl Folder {
-    pub fn leaf(&self) -> &str {
-        match self.delimiter.as_deref().filter(|d| !d.is_empty()) {
-            Some(d) => self.display_name.rsplit(d).next().unwrap_or(&self.display_name),
-            None => &self.display_name,
-        }
-    }
-}
-
 /// A LIST on a connection that died mid-way ends as an empty stream, not as an error, and
 /// the cache would take the empty list for "every folder is gone" and wipe the account's
 /// folders with all their letters. Every mailbox has an INBOX: a list without one is a
@@ -522,38 +403,21 @@ pub async fn list_folders(conn: &mut Conn) -> Result<Vec<Folder>> {
     Ok(folders)
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Flags {
-    pub seen: bool,
-    pub answered: bool,
-    pub flagged: bool,
-    pub draft: bool,
-    pub deleted: bool,
-    /// Forwarded: the `$Forwarded` keyword of IMAP, the last verb of Exchange.
-    #[serde(default)]
-    pub forwarded: bool,
-    /// Answered to all: only Exchange tells it apart; IMAP has `\Answered` for both.
-    #[serde(default)]
-    pub answered_all: bool,
-}
-
-impl Flags {
-    pub(crate) fn from_imap<'a>(flags: impl Iterator<Item = Flag<'a>>) -> Self {
-        let mut out = Self::default();
-        for flag in flags {
-            match flag {
-                Flag::Seen => out.seen = true,
-                Flag::Answered => out.answered = true,
-                Flag::Flagged => out.flagged = true,
-                Flag::Draft => out.draft = true,
-                Flag::Deleted => out.deleted = true,
-                // A keyword by convention (RFC 5788 registry), spelled as each client likes.
-                Flag::Custom(k) if k.eq_ignore_ascii_case(FORWARDED) => out.forwarded = true,
-                _ => {}
-            }
+pub(crate) fn flags_from_imap<'a>(flags: impl Iterator<Item = Flag<'a>>) -> Flags {
+    let mut out = Flags::default();
+    for flag in flags {
+        match flag {
+            Flag::Seen => out.seen = true,
+            Flag::Answered => out.answered = true,
+            Flag::Flagged => out.flagged = true,
+            Flag::Draft => out.draft = true,
+            Flag::Deleted => out.deleted = true,
+            // A keyword by convention (RFC 5788 registry), spelled as each client likes.
+            Flag::Custom(k) if k.eq_ignore_ascii_case(FORWARDED) => out.forwarded = true,
+            _ => {}
         }
-        out
     }
+    out
 }
 
 /// Next server response; async-imap keeps the response type private, hence a macro.
@@ -710,29 +574,16 @@ async fn read_tagged(stream: &mut (impl AsyncRead + Unpin), tag: &str) -> Result
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "flag", content = "value", rename_all = "snake_case")]
-pub enum FlagChange {
-    Seen(bool),
-    Flagged(bool),
-    Answered(bool),
-    /// Answered to all: `\Answered` on IMAP, its own verb on Exchange.
-    AnsweredAll(bool),
-    Forwarded(bool),
-}
-
-impl FlagChange {
-    fn command(self) -> &'static str {
-        match self {
-            Self::Seen(true) => "+FLAGS.SILENT (\\Seen)",
-            Self::Seen(false) => "-FLAGS.SILENT (\\Seen)",
-            Self::Flagged(true) => "+FLAGS.SILENT (\\Flagged)",
-            Self::Flagged(false) => "-FLAGS.SILENT (\\Flagged)",
-            Self::Answered(true) | Self::AnsweredAll(true) => "+FLAGS.SILENT (\\Answered)",
-            Self::Answered(false) | Self::AnsweredAll(false) => "-FLAGS.SILENT (\\Answered)",
-            Self::Forwarded(true) => "+FLAGS.SILENT ($Forwarded)",
-            Self::Forwarded(false) => "-FLAGS.SILENT ($Forwarded)",
-        }
+fn flag_command(change: FlagChange) -> &'static str {
+    match change {
+        FlagChange::Seen(true) => "+FLAGS.SILENT (\\Seen)",
+        FlagChange::Seen(false) => "-FLAGS.SILENT (\\Seen)",
+        FlagChange::Flagged(true) => "+FLAGS.SILENT (\\Flagged)",
+        FlagChange::Flagged(false) => "-FLAGS.SILENT (\\Flagged)",
+        FlagChange::Answered(true) | FlagChange::AnsweredAll(true) => "+FLAGS.SILENT (\\Answered)",
+        FlagChange::Answered(false) | FlagChange::AnsweredAll(false) => "-FLAGS.SILENT (\\Answered)",
+        FlagChange::Forwarded(true) => "+FLAGS.SILENT ($Forwarded)",
+        FlagChange::Forwarded(false) => "-FLAGS.SILENT ($Forwarded)",
     }
 }
 
@@ -760,7 +611,7 @@ pub async fn set_flag(
     select_at(conn, folder, validity).await?;
     let _: Vec<_> = conn
         .session
-        .uid_store(uid_set(uids), change.command())
+        .uid_store(uid_set(uids), flag_command(change))
         .await?
         .try_collect()
         .await?;
@@ -1420,7 +1271,7 @@ impl Changes {
                     match a {
                         AttributeValue::Uid(u) => uid = Some(*u),
                         AttributeValue::Flags(f) => {
-                            flags = Some(Flags::from_imap(f.iter().map(|s| Flag::from(s.to_string()))));
+                            flags = Some(flags_from_imap(f.iter().map(|s| Flag::from(s.to_string()))));
                             keywords = Some(keywords_of(f.iter().map(|s| Flag::from(s.to_string()))));
                         }
                         _ => {}
@@ -1867,9 +1718,12 @@ mod tests {
         };
         assert_eq!(changes.flags, [(12, both), (13, forwarded)]);
         // IMAP has one flag for an answer of either kind.
-        assert_eq!(FlagChange::AnsweredAll(true).command(), "+FLAGS.SILENT (\\Answered)");
-        assert_eq!(FlagChange::Forwarded(true).command(), "+FLAGS.SILENT ($Forwarded)");
-        assert_eq!(FlagChange::Forwarded(false).command(), "-FLAGS.SILENT ($Forwarded)");
+        assert_eq!(
+            flag_command(FlagChange::AnsweredAll(true)),
+            "+FLAGS.SILENT (\\Answered)"
+        );
+        assert_eq!(flag_command(FlagChange::Forwarded(true)), "+FLAGS.SILENT ($Forwarded)");
+        assert_eq!(flag_command(FlagChange::Forwarded(false)), "-FLAGS.SILENT ($Forwarded)");
     }
 
     #[test]
@@ -1975,17 +1829,6 @@ mod tests {
         assert_eq!(append_flags("\\Seen").as_deref(), Some("(\\Seen)"));
         assert_eq!(append_flags("\\Draft \\Seen").as_deref(), Some("(\\Draft \\Seen)"));
         assert_eq!(append_flags("(\\Seen)").as_deref(), Some("(\\Seen)"));
-    }
-
-    #[test]
-    fn guesses_roles_by_name() {
-        assert_eq!(FolderRole::guess("Отправленные"), Some(FolderRole::Sent));
-        assert_eq!(FolderRole::guess("Deleted Items"), Some(FolderRole::Trash));
-        assert_eq!(FolderRole::guess("Нежелательная почта"), Some(FolderRole::Junk));
-        assert_eq!(FolderRole::guess("Работа"), None);
-        assert!(is_non_mail("Календарь"));
-        assert!(is_non_mail("Sync Issues"));
-        assert!(!is_non_mail("Входящие"));
     }
 
     #[test]

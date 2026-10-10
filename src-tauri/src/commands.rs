@@ -7,11 +7,11 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use depesha_core::account::{self, Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
 use depesha_core::autodetect::{self, Detection};
 use depesha_core::avatar::Receiver;
+use depesha_core::domain::{Act, ActsOn, BodyFormat, Draft, FlagChange, FolderRole, OutgoingAttachment};
 use depesha_core::ews::{self, EwsDetection};
-use depesha_core::imap::{FlagChange, FolderRole};
 use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
-use depesha_core::smtp::{self, ActsOn, BodyFormat, Draft, OutgoingAttachment};
+use depesha_core::smtp;
 use depesha_core::store::{
     Added, FolderInfo, FollowupPlan, Forgotten, HintCount, HintState, ListQuery, Merge, Merged, MessageRow, OutboxItem,
     Person, SearchTotals, Snapshot, Snooze, SortKey, Split, Suggestion,
@@ -2900,7 +2900,7 @@ fn rebound_acts_on(
     store: &depesha_core::store::Store,
     r: &MessageRow,
     in_reply_to: Option<&str>,
-    act: Option<smtp::Act>,
+    act: Option<Act>,
 ) -> CmdResult<Option<ActsOn>> {
     let Some(parent) = in_reply_to
         .map(|p| p.trim().trim_matches(['<', '>']))
@@ -2912,7 +2912,7 @@ fn rebound_acts_on(
         return Ok(None);
     }
     let act = match act {
-        Some(smtp::Act::Forward) => return Ok(None),
+        Some(Act::Forward) => return Ok(None),
         Some(act) => act,
         None => {
             let subject = r.subject.trim_start().to_lowercase();
@@ -2924,7 +2924,7 @@ fn rebound_acts_on(
             }) {
                 return Ok(None);
             }
-            smtp::Act::Reply
+            Act::Reply
         }
     };
     Ok(store
@@ -3611,11 +3611,11 @@ pub fn e2e_seed_message(state: St<'_>, account_id: String) -> CmdResult<i64> {
     // The mailbox has no folders yet when there is no server to list them.
     state.store.replace_folders(
         &account_id,
-        &[depesha_core::imap::Folder {
+        &[depesha_core::domain::Folder {
             name: "INBOX".into(),
             display_name: "INBOX".into(),
             delimiter: Some("/".into()),
-            role: Some(depesha_core::imap::FolderRole::Inbox),
+            role: Some(depesha_core::domain::FolderRole::Inbox),
             selectable: true,
             hidden: false,
         }],
@@ -3899,15 +3899,15 @@ mod tests {
             &store,
             &answer,
             Some("<src@example.org>"),
-            Some(depesha_core::smtp::Act::Reply),
+            Some(depesha_core::domain::Act::Reply),
         )
         .unwrap()
         .unwrap();
         assert_eq!(
             (bound.message_id.as_str(), bound.folder.as_str(), bound.act),
-            ("src@example.org", "INBOX", depesha_core::smtp::Act::Reply)
+            ("src@example.org", "INBOX", depesha_core::domain::Act::Reply)
         );
-        use depesha_core::smtp::Act;
+        use depesha_core::domain::Act;
         assert!(
             super::rebound_acts_on(&store, &bare_forward, Some("src@example.org"), Some(Act::Forward))
                 .unwrap()
@@ -3929,7 +3929,7 @@ mod tests {
                 &store,
                 &foreign,
                 Some("src@example.org"),
-                Some(depesha_core::smtp::Act::Reply)
+                Some(depesha_core::domain::Act::Reply)
             )
             .unwrap()
             .is_none()
@@ -3939,7 +3939,7 @@ mod tests {
                 &store,
                 &answer,
                 Some("gone@example.org"),
-                Some(depesha_core::smtp::Act::Reply)
+                Some(depesha_core::domain::Act::Reply)
             )
             .unwrap()
             .is_none()
@@ -4011,7 +4011,7 @@ mod tests {
 
     use super::{DANGEROUS, free_path, local_seen_by_rights, safe_name, search_folders};
     use depesha_core::acl::{FolderProps, Owner, Rights};
-    use depesha_core::imap::{Folder, FolderRole};
+    use depesha_core::domain::{Folder, FolderRole};
     use depesha_core::query::SearchQuery;
     use depesha_core::store::FolderInfo;
 

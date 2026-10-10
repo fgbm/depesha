@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Store, add_column};
 use crate::Result;
-use crate::imap::Flags;
-use crate::smtp::Act;
+use crate::domain::{Act, Flags};
 
 /// One thing done with a letter, as its row shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,8 +176,8 @@ impl Store {
 mod tests {
     use super::super::tests::{mailbox, put, with_ids};
     use super::*;
-    use crate::imap::Flags;
-    use crate::smtp::{Act, ActsOn, Draft};
+    use crate::domain::Flags;
+    use crate::domain::{Act, ActsOn, Draft};
     use crate::store::{FollowupPlan, ListQuery, MessageRow};
 
     fn mark(act: Act, at: Option<i64>) -> Mark {

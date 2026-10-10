@@ -7,7 +7,7 @@
 //! dialog counted (`Bound`): a letter that arrives meanwhile is not wiped.
 
 use depesha_core::account::Account;
-use depesha_core::imap::FolderRole;
+use depesha_core::domain::FolderRole;
 use depesha_core::lang::pick;
 use depesha_core::mail::{self, Bound, Conn, EMPTY_BATCH, Emptied, Emptying};
 use depesha_core::store::Store;
@@ -658,7 +658,7 @@ mod tests {
     }
 
     fn drafts_folder(store: &Store) {
-        use depesha_core::imap::Folder;
+        use depesha_core::domain::Folder;
         store
             .replace_folders(
                 "a",

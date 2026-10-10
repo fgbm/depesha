@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use depesha_core::account::Account;
-use depesha_core::imap::{FlagChange, FolderRole, IdleOutcome};
+use depesha_core::domain::{FlagChange, FolderRole};
+use depesha_core::imap::IdleOutcome;
 use depesha_core::mail::{self, Conn};
 use depesha_core::store::ListQuery;
 use depesha_core::sync::SyncOptions;

@@ -9,7 +9,7 @@
 
 use std::time::{Duration, Instant};
 
-use depesha_core::imap::{FlagChange, Flags, Folder, FolderRole};
+use depesha_core::domain::{FlagChange, Flags, Folder, FolderRole};
 use depesha_core::message::{Addr, Summary};
 use depesha_core::store::{Followup, ListQuery, NewMessage, Store};
 

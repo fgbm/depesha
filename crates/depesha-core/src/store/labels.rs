@@ -765,7 +765,7 @@ mod tests {
                 "INBOX",
                 &[(
                     1,
-                    crate::imap::Flags {
+                    crate::domain::Flags {
                         seen: false,
                         ..Default::default()
                     },
@@ -782,7 +782,7 @@ mod tests {
                 "INBOX",
                 &[(
                     1,
-                    crate::imap::Flags {
+                    crate::domain::Flags {
                         seen: false,
                         ..Default::default()
                     },

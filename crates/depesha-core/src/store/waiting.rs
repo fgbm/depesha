@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use super::{Followup, FollowupPlan, Store, add_column, json_list};
 use crate::Result;
 use crate::account::Waiting;
+use crate::domain::ActsOn;
 use crate::message::Addr;
-use crate::smtp::ActsOn;
 
 /// 27: a stop remembers where the wait's move stood (`stop_from`) and where its letters go
 /// (`stop_to`, the archive by the mailbox's word), so that an undo takes back only what the
@@ -660,9 +660,9 @@ mod tests {
     use super::super::tests::{folder, from_to, put, with_ids};
     use super::*;
     use crate::account::Waiting;
-    use crate::imap::FolderRole;
+    use crate::domain::FolderRole;
+    use crate::domain::{Act, ActsOn};
     use crate::message::Summary;
-    use crate::smtp::{Act, ActsOn};
     use crate::store::{
         Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupStatus, ListQuery, MessageRow, Store,
     };

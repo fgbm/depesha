@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use depesha_core::imap::FolderRole;
+use depesha_core::domain::FolderRole;
 use depesha_core::lang::pick;
 use depesha_core::store::FolderInfo;
 use depesha_core::tr;
@@ -577,7 +577,7 @@ fn set_dnd(state: &AppState, how: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use depesha_core::imap::Folder;
+    use depesha_core::domain::Folder;
     use depesha_core::lang::{self, Lang};
 
     fn item(id: &str, label: &str) -> Entry {

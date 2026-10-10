@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
-use depesha_core::imap::{self, Conn, FlagChange};
+use depesha_core::domain::{FlagChange, Folder};
+use depesha_core::imap::{self, Conn};
 use depesha_core::store::{ModSeqMark, Store};
 use depesha_core::sync::{self, FolderSync, SyncOptions};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -307,9 +308,9 @@ impl Fixture {
 
 fn store_with(folders: &[&str]) -> Store {
     let store = Store::open_in_memory().unwrap();
-    let folders: Vec<imap::Folder> = folders
+    let folders: Vec<Folder> = folders
         .iter()
-        .map(|name| imap::Folder {
+        .map(|name| Folder {
             name: name.to_string(),
             display_name: name.to_string(),
             delimiter: Some("/".into()),
@@ -601,7 +602,7 @@ async fn the_first_pass_after_start_is_full_and_the_next_incremental() {
         store
             .replace_folders(
                 "a",
-                &[imap::Folder {
+                &[Folder {
                     name: "INBOX".into(),
                     display_name: "INBOX".into(),
                     delimiter: None,

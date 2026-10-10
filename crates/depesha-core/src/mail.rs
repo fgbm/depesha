@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use crate::account::{Account, Credentials};
 use crate::avatar::Receiver;
-use crate::imap::{self, FlagChange, Folder, IdleOutcome};
+use crate::domain::{FlagChange, Folder};
+use crate::imap::{self, IdleOutcome};
 use crate::store::Store;
 use crate::sync::{self, FolderSync, SyncOptions};
 use crate::{Error, Result, ews, message, smtp};

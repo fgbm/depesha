@@ -8,7 +8,8 @@ use roxmltree::Node;
 
 use super::{Session, child, children, desc, escape, parse, responses, single, text};
 use crate::avatar::Receiver;
-use crate::imap::{FlagChange, Flags, Folder, FolderRole, IdleOutcome, is_non_mail};
+use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
+use crate::imap::IdleOutcome;
 use crate::message::{self, Addr, Importance, Summary};
 use crate::query::SearchQuery;
 use crate::store::{NewMessage, Store};

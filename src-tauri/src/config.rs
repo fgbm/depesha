@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use depesha_core::account::{Account, OAuthProvider};
+use depesha_core::domain::BodyFormat;
 use depesha_core::lang::{self, Lang};
 use depesha_core::oauth::OAuthClient;
-use depesha_core::smtp::BodyFormat;
 use depesha_core::store::SortKey;
 use serde::{Deserialize, Serialize};
 

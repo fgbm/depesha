@@ -143,8 +143,8 @@ mod tests {
     /// carries the mark and Depesha's own Message-ID domain, but no signature, names nothing.
     #[test]
     fn an_acts_on_mark_is_trusted_only_when_this_install_signed_it() {
+        use depesha_core::domain::{Act, ActsOn};
         use depesha_core::message::{self, ACTS_ON_HEADER, DRAFT_DOMAIN};
-        use depesha_core::smtp::{Act, ActsOn};
 
         init_with(SECRET);
         let acts = ActsOn {

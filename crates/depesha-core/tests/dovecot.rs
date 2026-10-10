@@ -3,7 +3,8 @@
 //! its self-signed certificate pinned. Skipped unless DEPESHA_IT=1.
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
-use depesha_core::imap::{self, Conn, FlagChange, FolderRole, IdleOutcome};
+use depesha_core::domain::{FlagChange, FolderRole};
+use depesha_core::imap::{self, Conn, IdleOutcome};
 use depesha_core::query::{self, SearchQuery};
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::{self, SyncOptions};

@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 
-use crate::imap::{self, Conn, Flags, Folder};
+use crate::imap::{self, Conn};
+
+use crate::domain::Folder;
 use crate::message;
 use crate::query::{self, SearchQuery};
 use crate::store::{ModSeqMark, NewMessage, Store};
@@ -196,7 +198,7 @@ pub async fn sync_folder(
                 let mut keywords = Vec::with_capacity(fetches.len());
                 for f in &fetches {
                     if let Some(uid) = f.uid {
-                        let fl = Flags::from_imap(f.flags());
+                        let fl = imap::flags_from_imap(f.flags());
                         if !fl.deleted {
                             alive.insert(uid);
                             flags.push((uid, fl));
@@ -352,7 +354,7 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
         let headers: Vec<_> = fetches
             .iter()
             .filter_map(|f| {
-                let flags = Flags::from_imap(f.flags());
+                let flags = imap::flags_from_imap(f.flags());
                 let uid = f.uid.filter(|_| !flags.deleted)?;
                 Some((
                     uid,
@@ -442,7 +444,8 @@ pub async fn load_body(conn: &mut Conn, store: &Store, id: i64) -> Result<Vec<u8
 mod tests {
     use super::*;
     use crate::Error;
-    use crate::imap::{FolderRole, Probing};
+    use crate::domain::{Flags, FolderRole};
+    use crate::imap::Probing;
     use crate::store::NewMessage;
     use std::collections::HashMap;
 
@@ -644,7 +647,7 @@ mod tests {
 
     #[test]
     fn a_cached_letter_the_server_found_by_importance_is_in_the_results() {
-        use crate::imap::FolderRole;
+        use crate::domain::FolderRole;
         use crate::store::NewMessage;
         let store = Store::open_in_memory().unwrap();
         store

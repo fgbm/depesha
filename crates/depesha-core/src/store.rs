@@ -10,10 +10,9 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, params_fro
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
-use crate::imap::{FlagChange, Flags, Folder, FolderRole};
+use crate::domain::{Draft, FlagChange, Flags, Folder, FolderRole};
 use crate::message::{Addr, Importance, Summary, Unsubscribe};
 use crate::query::SearchQuery;
-use crate::smtp::Draft;
 
 mod followups;
 pub use followups::{
@@ -5159,7 +5158,7 @@ mod tests {
                 )
                 .unwrap();
             store
-                .mark_done(account, "q@x", crate::smtp::Act::Reply, 1, None)
+                .mark_done(account, "q@x", crate::domain::Act::Reply, 1, None)
                 .unwrap();
             store
                 .save_label(
