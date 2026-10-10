@@ -661,10 +661,56 @@ pub async fn user_photo(conn: &mut Conn, email: &str) -> Result<Option<Vec<u8>>>
     }
 }
 
-pub async fn create_folder(conn: &mut Conn, store: &Store, account_id: &str, name: &str) -> Result<()> {
+/// How the cache names a folder, as the server wants it said: IMAP keeps the name in modified
+/// UTF-7, Exchange the path as it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProtocolNames {
+    Imap,
+    Exchange,
+}
+
+impl ProtocolNames {
+    fn of(conn: &Conn) -> Self {
+        match conn {
+            Conn::Imap(_) => Self::Imap,
+            Conn::Ews(_) => Self::Exchange,
+        }
+    }
+}
+
+/// The whole path of a folder `name` made under `parent` (a folder name as the cache keeps it),
+/// as the server's create wants it. The delimiter is the parent's, a slash when the cache does
+/// not know the parent. The names of the cache are the adapters' business: callers say which
+/// folder they mean, not how the protocol spells it.
+fn child_path(store: &Store, account_id: &str, names: ProtocolNames, parent: &str, name: &str) -> Result<String> {
+    let delimiter = store
+        .folders(Some(account_id))?
+        .into_iter()
+        .find(|f| f.folder.name == parent)
+        .and_then(|f| f.folder.delimiter)
+        .unwrap_or_else(|| "/".into());
+    let parent = match names {
+        ProtocolNames::Imap => crate::utf7::decode(parent),
+        ProtocolNames::Exchange => parent.to_owned(),
+    };
+    Ok(format!("{parent}{delimiter}{name}"))
+}
+
+/// Makes a folder `name`, inside `parent` (a folder name as the cache keeps it) or at the top.
+pub async fn create_folder(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    parent: Option<&str>,
+    name: &str,
+) -> Result<()> {
+    let full = match parent {
+        Some(parent) => child_path(store, account_id, ProtocolNames::of(conn), parent, name)?,
+        None => name.to_owned(),
+    };
     match conn {
-        Conn::Imap(c) => imap::create_folder(c, name).await,
-        Conn::Ews(s) => ews::create_folder(s, store, account_id, name).await,
+        Conn::Imap(c) => imap::create_folder(c, &full).await,
+        Conn::Ews(s) => ews::create_folder(s, store, account_id, &full).await,
     }
 }
 
@@ -831,6 +877,36 @@ mod tests {
     fn an_exchange_snapshot_gives_up_what_must_stay() {
         let snapshot = EwsBound(vec!["a".into(), "b".into(), "c".into()]);
         assert_eq!(within_snapshot(&snapshot, &["b".to_owned()]), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_folder_is_made_under_its_parent_by_the_name_each_kind_of_server_knows_it_by() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |name: &str, delimiter: Option<&str>| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: delimiter.map(str::to_owned),
+            role: None,
+            selectable: true,
+            hidden: false,
+        };
+        // IMAP keeps the name in modified UTF-7, and creating encodes the whole path again.
+        let parent = crate::utf7::encode("Работа");
+        store.replace_folders("a", &[mk(&parent, Some("."))]).unwrap();
+        assert_eq!(
+            child_path(&store, "a", ProtocolNames::Imap, &parent, "Отчёты").unwrap(),
+            "Работа.Отчёты"
+        );
+        // Exchange keeps the path as it is, and the parent not in the cache gets a slash.
+        store.replace_folders("b", &[mk("Работа", Some("/"))]).unwrap();
+        assert_eq!(
+            child_path(&store, "b", ProtocolNames::Exchange, "Работа", "Отчёты").unwrap(),
+            "Работа/Отчёты"
+        );
+        assert_eq!(
+            child_path(&store, "b", ProtocolNames::Exchange, "Неизвестная", "X").unwrap(),
+            "Неизвестная/X"
+        );
     }
 
     #[test]

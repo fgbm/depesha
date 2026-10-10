@@ -802,27 +802,13 @@ pub async fn folder_create(state: St<'_>, account_id: String, parent: Option<Str
             tr!("the folder needs a name", "у папки должно быть имя"),
         ));
     }
-    let account = state.account(&account_id)?;
-    let full = match parent {
-        Some(parent) => {
-            let delimiter = state
-                .store
-                .folders(Some(&account_id))?
-                .into_iter()
-                .find(|f| f.folder.name == parent)
-                .and_then(|f| f.folder.delimiter)
-                .unwrap_or_else(|| "/".into());
-            // IMAP names are kept in modified UTF-7, and creating encodes the whole path again.
-            let parent = if account.is_ews() {
-                parent
-            } else {
-                depesha_core::utf7::decode(&parent)
-            };
-            format!("{parent}{delimiter}{name}")
-        }
-        None => name.to_owned(),
-    };
-    state.worker(&account_id)?.run(Work::CreateFolder(full)).await?;
+    state
+        .worker(&account_id)?
+        .run(Work::CreateFolder {
+            parent,
+            name: name.to_owned(),
+        })
+        .await?;
     Ok(())
 }
 
@@ -833,7 +819,10 @@ async fn role_folder(state: &AppState, account_id: &str, role: FolderRole, name:
     }
     state
         .worker(account_id)?
-        .run(Work::CreateFolder(name.to_owned()))
+        .run(Work::CreateFolder {
+            parent: None,
+            name: name.to_owned(),
+        })
         .await?;
     state.store.folder_by_role(account_id, role)?.ok_or_else(|| {
         CmdError::new(

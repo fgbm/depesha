@@ -129,7 +129,11 @@ pub enum Work {
         text: String,
     },
     /// Creates a folder and refreshes the folder list.
-    CreateFolder(String),
+    /// Makes a folder, inside `parent` (as the cache names it) or at the top.
+    CreateFolder {
+        parent: Option<String>,
+        name: String,
+    },
     /// A colleague's photo from Exchange: `Body` with the picture, `None` without one.
     UserPhoto(String),
     /// Downloads one batch of messages for offline reading; queues the next batch itself.
@@ -525,7 +529,12 @@ impl depesha_core::port::MailQueue for Queue {
     }
 
     async fn create_folder(&mut self, name: &str) -> Result<()> {
-        self.run(Work::CreateFolder(name.to_owned())).await.map(drop)
+        self.run(Work::CreateFolder {
+            parent: None,
+            name: name.to_owned(),
+        })
+        .await
+        .map(drop)
     }
 
     async fn strip_label(&mut self, folder: &str, label: &str) -> Result<usize> {
@@ -1735,8 +1744,8 @@ async fn perform(
             Some(bytes) => Output::Body(bytes),
             None => Output::None,
         }),
-        Work::CreateFolder(name) => {
-            mail::create_folder(conn, store, id, name).await?;
+        Work::CreateFolder { parent, name } => {
+            mail::create_folder(conn, store, id, parent.as_deref(), name).await?;
             mail::sync_folder_list(conn, store, id).await?;
             state.emit("folders-changed", json!({ "account_id": id }));
             Ok(Output::None)
