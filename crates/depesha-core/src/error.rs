@@ -293,6 +293,10 @@ impl Error {
                 upper.contains("NONEXISTENT")
                     || upper.contains("MAILBOX DOES NOT EXIST")
                     || upper.contains("DOES NOT EXIST")
+                    || upper.contains("NO SUCH MAILBOX")
+                    || upper.contains("NO SUCH FOLDER")
+                    || upper.contains("MAILBOX NOT FOUND")
+                    || upper.contains("FOLDER NOT FOUND")
             }
             _ => false,
         }
@@ -644,6 +648,18 @@ mod tests {
             .folder_gone()
         );
         assert!(Error::Imap(E::No("NO [NONEXISTENT] Mailbox does not exist".into())).folder_gone());
+        for m in ["No such mailbox", "Mailbox not found: Work", "Folder not found"] {
+            assert!(Error::Imap(E::No(m.into())).folder_gone(), "{m}");
+        }
+        for m in [
+            "[SERVERBUG] Internal error",
+            "[LOCKED] locked",
+            "[CONTACTADMIN] call",
+            "[CANNOT] no",
+            "STATUS failed",
+        ] {
+            assert!(!Error::Imap(E::No(m.into())).folder_gone(), "{m}");
+        }
         // A refusal that does not say the folder is gone is not "gone": it is retried.
         assert!(!Error::Imap(E::No("code: Some(INUSE), info: Some(\"in use\")".into())).folder_gone());
         assert!(!Error::Paused.folder_gone());

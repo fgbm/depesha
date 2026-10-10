@@ -1155,15 +1155,15 @@ impl Probing for Conn {
     }
 }
 
-/// Whether the server says the folder does not exist: only its own `NO` counts. A dead
-/// connection, a timeout or any other error is no answer and comes back as the error; a `NO`
-/// of rights, a busy folder or a limit says nothing of existence (`false`). Not the wording
-/// (`Error::folder_gone` reads it): servers phrase "no such mailbox" their own ways, and a
-/// `NO` to the `STATUS` of a folder the LIST left out is the server's own answer.
+/// Whether the server says the folder does not exist: only a `NO` that names the missing
+/// mailbox counts (`Error::folder_gone`, by its code `NONEXISTENT` or its words). Any other
+/// `NO` (no code, `SERVERBUG`, `LOCKED`, `NOPERM`, `INUSE` ...) is no proof and keeps the
+/// folder (`false`). A dead connection, a timeout or any other error is no answer and comes
+/// back as the error.
 pub(crate) async fn folder_gone<P: Probing>(p: &mut P, folder: &str) -> Result<bool> {
     match p.status(folder).await {
         Ok(()) => Ok(false),
-        Err(e @ Error::Imap(async_imap::error::Error::No(_))) => Ok(!(e.no_rights() || e.retry_later())),
+        Err(e @ Error::Imap(async_imap::error::Error::No(_))) => Ok(e.folder_gone()),
         Err(e) => Err(e),
     }
 }
