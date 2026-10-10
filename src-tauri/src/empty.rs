@@ -375,11 +375,17 @@ pub fn keep_uids(
                 .as_deref()
                 .and_then(|mid| store.find_by_message_id(account_id, folder, mid).ok().flatten())
         });
-        if let Some(r) = row
-            && !uids.contains(&r.uid)
-        {
-            uids.push(r.uid);
-            ids.push(r.id);
+        if let Some(r) = row {
+            if !uids.contains(&r.uid) {
+                uids.push(r.uid);
+            }
+            // The copy on disk names the draft by the number the window knew (`d.id`), which may
+            // not be the row's now: both are kept.
+            for id in [d.id, r.id] {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
         }
     }
     uids.sort_unstable();
@@ -389,8 +395,10 @@ pub fn keep_uids(
 
 /// The keys of the local copies to drop once the drafts left: not those of the drafts the run
 /// kept (`kept_ids`, as the queue found them when the erasing began). A draft that was open
-/// then stayed on the server, and its copy stays, though its window has closed since.
-fn copies_to_drop(leaving: Vec<String>, copies: &[CachedDraft], kept_ids: &[i64]) -> Vec<String> {
+/// then stayed on the server, and its copy stays, though its window has closed since. Nor
+/// those of the drafts open at the end of the run (`open_now`): a window may have opened one
+/// after the queue read the record.
+fn copies_to_drop(leaving: Vec<String>, copies: &[CachedDraft], kept_ids: &[i64], open_now: &[i64]) -> Vec<String> {
     leaving
         .into_iter()
         .filter(|key| {
@@ -398,7 +406,7 @@ fn copies_to_drop(leaving: Vec<String>, copies: &[CachedDraft], kept_ids: &[i64]
                 .iter()
                 .find(|c| &c.key == key)
                 .and_then(|c| c.draft_id)
-                .is_none_or(|id| !kept_ids.contains(&id))
+                .is_none_or(|id| !kept_ids.contains(&id) && !open_now.contains(&id))
         })
         .collect()
 }
@@ -560,7 +568,11 @@ pub async fn run(
     }
     if drafts && !run.stopped {
         // A draft opened while the run waited stayed in the folder, and so does its copy.
-        crate::drafts::drop_all(&state.app, &copies_to_drop(leaving, &copies, &kept_ids)).await?;
+        crate::drafts::drop_all(
+            &state.app,
+            &copies_to_drop(leaving, &copies, &kept_ids, &state.clearing.open_ids()),
+        )
+        .await?;
     }
     Ok(run)
 }
@@ -724,7 +736,29 @@ mod tests {
         assert!(c.open_ids().is_empty());
         let copies = vec![copy("kept", Some(open), None), copy("left", Some(gone), None)];
         let leaving = vec!["kept".to_owned(), "left".to_owned()];
-        assert_eq!(copies_to_drop(leaving, &copies, &kept), ["left"]);
+        assert_eq!(copies_to_drop(leaving.clone(), &copies, &kept, &[]), ["left"]);
+
+        // A draft a window opened after the queue read the record is open at the end: it stays.
+        let late = cached(&store, 3, "three@depesha.local");
+        let copies = vec![copy("late", Some(late), None), copy("left", Some(gone), None)];
+        let leaving = vec!["late".to_owned(), "left".to_owned()];
+        assert_eq!(copies_to_drop(leaving, &copies, &kept, &[late]), ["left"]);
+    }
+
+    #[test]
+    fn the_copy_of_a_draft_found_by_its_message_id_stays_under_the_number_the_window_knew() {
+        let store = Store::open_in_memory().unwrap();
+        drafts_folder(&store);
+        let other = cached(&store, 1, "other@depesha.local");
+        let mine = cached(&store, 2, "mine@depesha.local");
+        let c = Clearing::default();
+        // The window knows its draft by `other`'s old number; the Message-ID finds it as `mine`.
+        c.draft_set("main", "k1", Some(other), Some("<mine@depesha.local>".into()));
+        let (uids, kept) = keep_uids(&store, &c, "a", "Drafts", &[]);
+        assert_eq!(uids, [2]);
+        assert_eq!(kept, [other, mine]);
+        let copies = vec![copy("known", Some(other), Some("mine@depesha.local"))];
+        assert!(copies_to_drop(vec!["known".to_owned()], &copies, &kept, &[]).is_empty());
     }
 
     #[test]
