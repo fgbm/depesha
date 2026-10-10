@@ -218,7 +218,8 @@ export async function reloadWindow(d, timeoutMs = 15000) {
   try {
     await d.until("sidebar settled", async () => {
       const rows = await d.exec(
-        "return [...document.querySelectorAll('nav.side .item .name, nav.side .account-name .name')].map((n) => [n.innerText.trim(), n.getBoundingClientRect().top])",
+        // A narrow window has the strip of tiles instead of the rows: their name is the label.
+        "return [...document.querySelectorAll('nav.side .item .name, nav.side .account-name .name, nav.side .tile')].map((n) => [n.innerText.trim() || n.getAttribute('aria-label') || '', n.getBoundingClientRect().top])",
       );
       const now = rows.length ? sidebarShape(rows) : "";
       same = now && now === seen.at(-1) ? same + 1 : 0;
