@@ -4254,6 +4254,41 @@ mod tests {
         );
     }
 
+    /// The "all mail" query of a person whose address has a space (`"a b"@x`): the front puts the
+    /// whole value in quotes, the parser keeps it as one token and the search finds the letters,
+    /// whether the cache holds the address with its quotes or without them.
+    #[test]
+    fn search_from_an_address_with_a_space() {
+        use crate::query::{SearchQuery, alternatives};
+        let q = SearchQuery::parse(r#"from:"a b@x|c@y" отпуск"#);
+        assert_eq!(q.from, ["a b@x|c@y"]);
+        assert_eq!(alternatives(&q.from[0]), ["a b@x", "c@y"]);
+        assert_eq!(q.words, ["отпуск"]);
+
+        let store = mailbox();
+        let from = |email: &str| Some(Addr { name: None, email: email.into() });
+        let mut quoted = with_ids("Квота", 100, "a@x", None);
+        quoted.from = from(r#""a b"@x"#);
+        put(&store, "INBOX", 1, &quoted, true);
+        let mut bare = with_ids("Без кавычек", 200, "b@x", None);
+        bare.from = from("a b@x");
+        put(&store, "INBOX", 2, &bare, true);
+        let mut other = with_ids("Другой", 300, "c@x", None);
+        other.from = from("c@y");
+        put(&store, "INBOX", 3, &other, true);
+        let mut stranger = with_ids("Чужой", 400, "d@x", None);
+        stranger.from = from("z@x");
+        put(&store, "INBOX", 4, &stranger, true);
+        let mut found: Vec<String> = store
+            .search(r#"from:"a b@x|c@y""#, None, 0, &[])
+            .unwrap()
+            .into_iter()
+            .map(|m| m.subject)
+            .collect();
+        found.sort();
+        assert_eq!(found, ["Без кавычек", "Другой", "Квота"]);
+    }
+
     #[test]
     fn search_by_label_uses_the_mailbox_keyword() {
         use crate::acl::{Label, keyword_of};
