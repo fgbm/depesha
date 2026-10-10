@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use ring::aead;
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 
@@ -48,6 +49,54 @@ pub fn sign(bytes: &[u8]) -> String {
         Some(secret) => URL_SAFE_NO_PAD.encode(tag(secret, bytes)),
         None => String::new(),
     }
+}
+
+/// Seals `plain` for a draft header (#157): AES-256-GCM under a key derived from the secret,
+/// `1.` and the URL-safe base64 of nonce and ciphertext. The value shows nothing of `plain`
+/// to whoever the draft reaches, and opens only here. None when no secret is set.
+pub fn seal(plain: &[u8]) -> Option<String> {
+    let key = draft_key(SECRET.get()?)?;
+    let mut nonce = [0u8; aead::NONCE_LEN];
+    SystemRandom::new().fill(&mut nonce).ok()?;
+    let mut sealed = plain.to_vec();
+    key.seal_in_place_append_tag(
+        aead::Nonce::assume_unique_for_key(nonce),
+        aead::Aad::from(SEAL_AAD),
+        &mut sealed,
+    )
+    .ok()?;
+    let mut out = nonce.to_vec();
+    out.extend_from_slice(&sealed);
+    Some(format!("1.{}", URL_SAFE_NO_PAD.encode(out)))
+}
+
+/// What `seal` sealed, or None for anything else: another installation's, a changed one, a
+/// value that is not ours.
+pub fn open(value: &str) -> Option<Vec<u8>> {
+    let key = draft_key(SECRET.get()?)?;
+    let bytes = URL_SAFE_NO_PAD.decode(value.trim().strip_prefix("1.")?).ok()?;
+    if bytes.len() < aead::NONCE_LEN + aead::AES_256_GCM.tag_len() {
+        return None;
+    }
+    let (nonce, rest) = bytes.split_at(aead::NONCE_LEN);
+    let mut buf = rest.to_vec();
+    let plain = key
+        .open_in_place(
+            aead::Nonce::try_assume_unique_for_key(nonce).ok()?,
+            aead::Aad::from(SEAL_AAD),
+            &mut buf,
+        )
+        .ok()?;
+    Some(plain.to_vec())
+}
+
+const SEAL_AAD: &[u8] = b"X-Depesha-Draft 1";
+
+fn draft_key(secret: &[u8; 32]) -> Option<aead::LessSafeKey> {
+    let key = tag(secret, b"depesha draft mark key 1");
+    Some(aead::LessSafeKey::new(
+        aead::UnboundKey::new(&aead::AES_256_GCM, &key).ok()?,
+    ))
 }
 
 /// Whether `sig` is `sign(bytes)` for this installation. Constant-time compare.

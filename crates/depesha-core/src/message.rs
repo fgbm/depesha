@@ -219,11 +219,52 @@ pub const FORMAT_HEADER: &str = "X-Depesha-Format";
 /// mark and the signature of this installation; a mark without a signature is not followed.
 pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
 
-/// What a draft saved by an older version said about what it does with the letter it is
-/// written from: `reply`, `reply_all` or `forward` (`Act`). Only read now: the kind lives in
-/// the `Acts-On` mark, so a draft in a shared or Exchange mailbox, which another client may
-/// send as it is, carries one `X-Depesha-*` line less about the letter it answers (#117).
+/// What a saved draft does with the letter it is written from: `reply`, `reply_all` or
+/// `forward` (`Act`). It names no letter and nothing personal, so it stays readable: after a
+/// reinstall, when the sealed mark no longer opens, it tells an answer from a forward without
+/// guessing by the subject, which the user may have rewritten (#100).
 pub const ACT_HEADER: &str = "X-Depesha-Act";
+
+/// What a saved draft keeps about itself that is not for anybody else (#157): the letter it
+/// answers or forwards (account, Message-ID, folder, `waiting`) and the scheduled sending time.
+/// A draft may be sent by another client, so the header carries this only sealed with the
+/// install secret (`install_secret::seal`): the value is opaque, and what opens it also proves
+/// it is ours. Drafts of 0.8.0 kept the same in `ACTS_ON_HEADER` and `SEND_AT_HEADER`, which
+/// are still read and no longer written.
+pub const DRAFT_HEADER: &str = "X-Depesha-Draft";
+
+/// The longest `X-Depesha-Draft` value: a header line any server takes.
+pub const DRAFT_HEADER_MAX: usize = 900;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftMark {
+    #[serde(default)]
+    pub acts_on: Option<ActsOn>,
+    /// The scheduled sending time, unix seconds.
+    #[serde(default)]
+    pub send_at: Option<i64>,
+}
+
+impl DraftMark {
+    pub fn is_empty(&self) -> bool {
+        self.acts_on.is_none() && self.send_at.is_none()
+    }
+
+    /// The bytes that are sealed into `DRAFT_HEADER`.
+    pub fn encode(&self) -> Option<Vec<u8>> {
+        serde_json::to_vec(self).ok()
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok()
+    }
+}
+
+/// The sealed value of `DRAFT_HEADER`, for the caller that holds the secret to open.
+pub fn sealed_draft_mark(raw: &[u8]) -> Option<String> {
+    let msg = MessageParser::default().parse_headers(raw)?;
+    raw_header(&msg, DRAFT_HEADER)
+}
 
 /// The domain of a Message-ID Depesha puts on its own drafts, so a saved draft shows which
 /// client wrote it. It is not what makes the mark trusted: that is the signature (#71).
@@ -289,19 +330,16 @@ pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Opti
     decode_acts_on(payload)
 }
 
-/// What the draft says it does: the kind in its `Acts-On` mark, read without the signature
-/// (the old `ACT_HEADER` was no more trusted, and a forged kind names no letter), so that after
-/// a reinstall, when the signature no longer checks, an answer is told from a forward without
-/// guessing by the subject (#100). A draft of an older version has the kind in `ACT_HEADER`.
-/// None for a draft with neither and for any other letter.
+/// What the draft says it does (`ACT_HEADER`); a draft of 0.8.0 had it in its `Acts-On` mark,
+/// read here without the signature. None for a draft with neither and for any other letter.
 pub fn draft_act(raw: &[u8]) -> Option<Act> {
     let msg = MessageParser::default().parse_headers(raw)?;
-    if let Some(act) = raw_header(&msg, ACTS_ON_HEADER)
-        .and_then(|value| split_signed(&value).and_then(|(payload, _)| decode_acts_on(payload)))
-    {
-        return Some(act.act);
+    if let Some(act) = raw_header(&msg, ACT_HEADER).and_then(|v| Act::parse(v.trim())) {
+        return Some(act);
     }
-    Act::parse(raw_header(&msg, ACT_HEADER)?.trim())
+    let value = raw_header(&msg, ACTS_ON_HEADER)?;
+    let (payload, _) = split_signed(&value)?;
+    decode_acts_on(payload).map(|acts_on| acts_on.act)
 }
 
 /// The blocks of a letter Depesha writes in HTML that it finds again: the signature, to

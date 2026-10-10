@@ -645,7 +645,9 @@ pub async fn message_open(
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
     let trusted_sender = listed && auth.verified();
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
-    view.acts_on = message::trusted_acts_on(&raw, crate::install_secret::verify);
+    let mark = draft_mark(&raw);
+    view.acts_on = mark.acts_on;
+    view.send_at = mark.send_at.or(view.send_at);
     if view.acts_on.is_none() {
         view.acts_on = rebound_acts_on(
             &state.store,
@@ -2383,7 +2385,7 @@ pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
         return Err(CmdError::new("bad-request", "expected the letter's bytes"));
     };
     let mut view = message::parse_view(bytes, false)?;
-    view.acts_on = message::trusted_acts_on(bytes, crate::install_secret::verify);
+    view.acts_on = draft_mark(bytes).acts_on;
     Ok(view)
 }
 
@@ -2920,26 +2922,38 @@ fn replace_once(raw: Vec<u8>, from: &[u8], to: &[u8]) -> Vec<u8> {
     out
 }
 
-/// The lines Depesha puts on top of a saved draft so that it opens the same way: its own
-/// Message-ID domain, the scheduled time, how it was written and what it answers. Only
-/// drafts carry them (#117: another client may send a draft as it is).
+/// The lines Depesha puts on top of a saved draft so that it opens the same way. Another
+/// client may send the draft as it is (Outlook, OWA, a shared mailbox), so nothing personal
+/// goes in the clear (#157): what the draft answers (account, Message-ID, folder) and when it
+/// is to go are sealed in one opaque `DRAFT_HEADER` (`seal` is the install secret's); the kind
+/// of action and the way it was written name nobody and stay readable, which is what brings
+/// an answer back after a reinstall (#100). A mark that cannot be sealed or does not fit a
+/// line is not written: the draft is then bound again by its `In-Reply-To`.
 fn with_service_headers(
     mut raw: Vec<u8>,
     draft: &Draft,
     send_at: Option<i64>,
-    sign: impl Fn(&[u8]) -> String,
+    seal: impl Fn(&[u8]) -> Option<String>,
 ) -> Vec<u8> {
-    // The draft's Message-ID says Depesha wrote it. The mark below is trusted only when its
-    // signature checks, not because of this domain. Another client's draft keeps its own.
+    // The draft's Message-ID says Depesha wrote it. Another client's draft keeps its own.
     if let Some(mid) = message::parse_summary(&raw).message_id
         && let Some(own) = own_message_id(&mid)
         && own != mid
     {
         raw = replace_once(raw, mid.as_bytes(), own.as_bytes());
     }
-    if let Some(at) = send_at {
+    let mark = message::DraftMark {
+        acts_on: draft.acts_on.clone(),
+        send_at,
+    };
+    let sealed = mark
+        .encode()
+        .filter(|_| !mark.is_empty())
+        .and_then(|plain| seal(&plain))
+        .filter(|v| v.len() <= message::DRAFT_HEADER_MAX);
+    if let Some(sealed) = sealed {
         // A header line on top is as good as any other place for it.
-        raw.splice(0..0, format!("{}: {at}\r\n", message::SEND_AT_HEADER).into_bytes());
+        raw.splice(0..0, format!("{}: {sealed}\r\n", message::DRAFT_HEADER).into_bytes());
     }
     if draft.format != BodyFormat::Plain {
         // Markdown looks like plain text in the letter: the draft says how it was written.
@@ -2947,20 +2961,23 @@ fn with_service_headers(
         raw.splice(0..0, header.into_bytes());
     }
     if let Some(acts_on) = &draft.acts_on {
-        let signed =
-            message::encode_acts_on(acts_on).and_then(|value| message::signed_acts_on(&value, &sign(value.as_bytes())));
-        let header = match signed {
-            // The draft says what it answers or forwards, and signs that with the install
-            // secret: opening it marks the letter only when the signature still checks. An
-            // unsigned mark (an old draft, or no secret) is not written and not followed (#71).
-            Some(signed) => format!("{}: {signed}\r\n", message::ACTS_ON_HEADER),
-            // No mark fits (a long folder name) or none can be signed: the kind alone, which
-            // names no letter, still tells an answer from a forward (#100). Only here.
-            None => format!("{}: {}\r\n", message::ACT_HEADER, acts_on.act.as_str()),
-        };
+        let header = format!("{}: {}\r\n", message::ACT_HEADER, acts_on.act.as_str());
         raw.splice(0..0, header.into_bytes());
     }
     raw
+}
+
+/// What a saved draft says about itself: the sealed mark of this version, or the signed
+/// `Acts-On` of 0.8.0 (its time and format are read by `parse_view`). Nothing for a mark this
+/// installation did not seal, which names no letter.
+fn draft_mark(raw: &[u8]) -> message::DraftMark {
+    message::sealed_draft_mark(raw)
+        .and_then(|value| crate::install_secret::open(&value))
+        .and_then(|plain| message::DraftMark::decode(&plain))
+        .unwrap_or_else(|| message::DraftMark {
+            acts_on: message::trusted_acts_on(raw, crate::install_secret::verify),
+            send_at: None,
+        })
 }
 
 /// The server copy a save made: its number in the cache and its Message-ID, which the next
@@ -2998,7 +3015,7 @@ pub async fn draft_save(
         }));
     }
     let raw = smtp::build(&draft)?.formatted();
-    let raw = with_service_headers(raw, &draft, send_at, crate::install_secret::sign);
+    let raw = with_service_headers(raw, &draft, send_at, crate::install_secret::seal);
     let message_id = message::parse_summary(&raw).message_id;
     let worker = state.worker(&account.id)?;
     worker
@@ -3652,26 +3669,106 @@ mod tests {
         }
     }
 
-    fn saved_with(draft: &Draft) -> String {
+    fn saved_with(draft: &Draft, send_at: Option<i64>) -> String {
+        crate::install_secret::init_with([1u8; 32]);
         let raw = smtp::build(draft).unwrap().formatted();
-        let raw = with_service_headers(raw, draft, None, |_| "sig".into());
+        let raw = with_service_headers(raw, draft, send_at, crate::install_secret::seal);
         String::from_utf8(raw).unwrap()
     }
 
     #[test]
     fn a_draft_whose_mark_is_too_long_still_tells_its_kind() {
         let long = answer_draft(Act::Forward, &"п".repeat(900));
-        let raw = saved_with(&long);
-        assert!(!raw.contains(message::ACTS_ON_HEADER), "the mark does not fit a header");
+        let raw = saved_with(&long, None);
+        assert!(!raw.contains(message::DRAFT_HEADER), "the mark does not fit a header");
         assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
     }
 
+    /// #157: nothing that names the mailbox, the folder or the plans is in a saved draft,
+    /// in the clear or in base64, for a client that sends the draft as it is.
     #[test]
-    fn a_draft_with_a_mark_has_no_separate_line_for_its_kind() {
-        let raw = saved_with(&answer_draft(Act::Forward, "INBOX"));
-        assert!(raw.contains(&format!("{}:", message::ACTS_ON_HEADER)));
-        assert!(!raw.contains(&format!("{}:", message::ACT_HEADER)));
+    fn a_saved_draft_gives_nothing_personal_to_whoever_it_is_sent_to() {
+        let mut draft = answer_draft(Act::Reply, "Секретная/папка");
+        let acts_on = draft.acts_on.as_mut().unwrap();
+        acts_on.account_id = "acc-7f3a91".into();
+        acts_on.waiting = true;
+        let json = serde_json::to_string(draft.acts_on.as_ref().unwrap()).unwrap();
+        let raw = saved_with(&draft, Some(1_790_123_456));
+        let headers = raw.split("\r\n\r\n").next().unwrap();
+        for name in [message::ACTS_ON_HEADER, message::SEND_AT_HEADER] {
+            assert!(!headers.contains(&format!("{name}:")), "{name} is not written");
+        }
+        let b64 = |engine: &dyn Fn(&[u8]) -> String| engine(json.as_bytes());
+        let std = b64(&|b| base64::engine::general_purpose::STANDARD.encode(b));
+        let url = b64(&|b| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b));
+        // The sealed value opens to the JSON; its base64 is the bytes, not the text.
+        let sealed = headers
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{}: ", message::DRAFT_HEADER)))
+            .unwrap();
+        let inner = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(sealed.trim().strip_prefix("1.").unwrap())
+            .unwrap();
+        for needle in [
+            "Секретная".as_bytes(),
+            "acc-7f3a91".as_bytes(),
+            b"waiting",
+            b"1790123456",
+            std.as_bytes(),
+            url.as_bytes(),
+        ] {
+            let found = |hay: &[u8]| hay.windows(needle.len()).any(|w| w == needle);
+            assert!(
+                !found(headers.as_bytes()),
+                "{:?} in the headers",
+                String::from_utf8_lossy(needle)
+            );
+            assert!(
+                !found(&inner),
+                "{:?} in the sealed bytes",
+                String::from_utf8_lossy(needle)
+            );
+        }
+    }
+
+    /// What the draft answers and when it goes come back when it is opened again.
+    #[test]
+    fn a_reopened_draft_remembers_what_it_answers_and_its_kind() {
+        let draft = answer_draft(Act::Forward, "INBOX");
+        let raw = saved_with(&draft, Some(1_790_123_456));
+        let mark = draft_mark(raw.as_bytes());
+        assert_eq!(mark.acts_on, draft.acts_on);
+        assert_eq!(mark.send_at, Some(1_790_123_456));
         assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
+        // A mark sealed by another installation names nothing, the kind still reads.
+        let foreign = raw.replacen(
+            message::sealed_draft_mark(raw.as_bytes()).unwrap().as_str(),
+            "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            1,
+        );
+        assert_eq!(draft_mark(foreign.as_bytes()), message::DraftMark::default());
+        assert_eq!(message::draft_act(foreign.as_bytes()), Some(Act::Forward));
+    }
+
+    /// A draft saved by 0.8.0 keeps its signed mark and its time in the old lines.
+    #[test]
+    fn a_draft_of_080_is_still_read() {
+        crate::install_secret::init_with([1u8; 32]);
+        let acts_on = answer_draft(Act::Reply, "INBOX").acts_on.unwrap();
+        let value = message::encode_acts_on(&acts_on).unwrap();
+        let signed = message::signed_acts_on(&value, &crate::install_secret::sign(value.as_bytes())).unwrap();
+        let raw = format!(
+            "{}: {signed}\r\n{}: 1790000000\r\nMessage-ID: <d@depesha.local>\r\nFrom: me@x.ru\r\n\
+             To: a@x.ru\r\nSubject: S\r\n\r\nтекст\r\n",
+            message::ACTS_ON_HEADER,
+            message::SEND_AT_HEADER
+        );
+        assert_eq!(draft_mark(raw.as_bytes()).acts_on, Some(acts_on));
+        assert_eq!(
+            message::parse_view(raw.as_bytes(), false).unwrap().send_at,
+            Some(1_790_000_000)
+        );
+        assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Reply));
     }
 
     use super::*;
