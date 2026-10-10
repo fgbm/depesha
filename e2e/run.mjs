@@ -1085,10 +1085,12 @@ try {
       await d.click(await d.until("snooze preset", () => d.xpath("//div[contains(@class,'snooze')]//button[contains(., 'Завтра')]")));
       await d.until("in Snoozed on server", async () => helper("count", "Отложенные", subj) === "1", 20000);
     } finally {
+      // A failure must not leave the letter's window for the next step: it is closed if it is still open.
+      if ((await handles()).includes(other)) await d.req("DELETE", d.s("/window")).catch(() => {});
       await d.req("POST", d.s("/window"), { handle: main });
     }
-    // The undo is offered in the main window, where the list is; it puts things in order for the steps that follow.
-    await d.click(await d.until("undo offered", () => d.xpath("//div[contains(@class,'toasts')]//button[contains(., 'Отменить')]").catch(() => null)));
+    // The undo is offered in the main window, where the list is; the snooze toast (it has no subject; the last one is this letter's), not any other, puts things in order.
+    await d.click(await d.until("undo offered", () => d.xpath("(//div[contains(@class,'toast') and contains(., 'Отложено до')]//button[contains(., 'Отменить')])[last()]").catch(() => null)));
     await d.until("undone on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
   });
 
