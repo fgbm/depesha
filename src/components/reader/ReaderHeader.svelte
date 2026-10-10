@@ -4,6 +4,7 @@
   // the pane (Reader.svelte) as a snippet: a plugin's component knows its own contract, so
   // its call stays where the plugins are read.
   import { app } from "../../lib/store.svelte";
+  import { bus } from "../../lib/bus";
   import Forward from "@lucide/svelte/icons/forward";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
@@ -16,7 +17,7 @@
   import AttachmentStrip from "./AttachmentStrip.svelte";
   import { peopleBook } from "../../lib/peopleBook.svelte";
   import type { AccountView, OpenedMessage } from "../../lib/types";
-  import { untrack, type Snippet } from "svelte";
+  import type { Snippet } from "svelte";
   import type { AttachmentInfo } from "../../lib/types";
 
   let {
@@ -81,13 +82,9 @@
 
   // The key of the open letter (#104, 2.4 А) opens the same card; a request made before this
   // header was there is not its own.
-  let asked = untrack(() => app.senderCard);
-  $effect(() => {
-    const n = app.senderCard;
-    if (n === asked) return;
-    asked = n;
+  $effect(() => bus.on("reader.sender-card", () => {
     if (from?.email) card = true;
-  });
+  }));
 </script>
 
 <div class="head selectable">

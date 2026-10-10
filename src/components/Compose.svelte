@@ -18,6 +18,7 @@
   import ImageIcon from "@lucide/svelte/icons/image";
   import CornerUpLeft from "@lucide/svelte/icons/corner-up-left";
   import { app, type ComposeWindow } from "../lib/store.svelte";
+  import { bus } from "../lib/bus";
   import { SIGNATURE_CLASS } from "../lib/richtext";
   import { signatureShown } from "../lib/signatures";
   import { cleanRemoteHtml } from "../lib/sanitize";
@@ -112,11 +113,7 @@
   });
 
   // A quit or a closing window saves this draft through the manager, before it goes (#71).
-  $effect(() => {
-    const save = () => auto.save(true);
-    app.compose.onSaver(c.id, save);
-    return () => app.compose.onSaver(c.id, null);
-  });
+  $effect(() => bus.on("compose.save-all", (all) => all.add(auto.save(true))));
 
   const sending = new ComposeSending({
     get win() {

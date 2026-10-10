@@ -1,7 +1,8 @@
 <script lang="ts">
   import Search from "@lucide/svelte/icons/search";
-  import { tick, untrack } from "svelte";
+  import { tick } from "svelte";
   import { app } from "../lib/store.svelte";
+  import { bus } from "../lib/bus";
   import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
   import { accountLabel } from "../lib/format";
@@ -33,10 +34,7 @@
 
   let page = $state(resolvePage(app.settingsPage));
   // A link inside the settings (a mailbox's «Storage» to «Hints») turns the page.
-  $effect(() => {
-    void app.settingsTurn;
-    untrack(() => void turn(resolvePage(app.settingsPage)));
-  });
+  $effect(() => bus.on("settings.open", (at) => void turn(resolvePage(at.page))));
   // A page that went away (its mailbox) falls back to the first one.
   const pageAccount = $derived(page.startsWith("account:") ? (app.accounts.find((a) => `account:${a.id}` === page) ?? null) : null);
   const current = $derived(pages.includes(page) || page === "account:new" || pageAccount ? page : pages[0]);

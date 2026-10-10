@@ -2,6 +2,7 @@
 // through the outbox and taking a queued letter back.
 
 import { api } from "./api";
+import { bus } from "./bus";
 import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
 import { emptyDraft, formatFor, forward, isForward, reply } from "./compose";
@@ -80,18 +81,12 @@ export class ComposeManager {
     return id;
   }
 
-  /** Saves of each open window, registered by its component: a quit keeps them all (#71). */
-  private savers = new Map<number, () => Promise<boolean>>();
-
-  onSaver(id: number, save: (() => Promise<boolean>) | null) {
-    if (save) this.savers.set(id, save);
-    else this.savers.delete(id);
-  }
-
-  /** Keeps every composition, waiting for each at most `ms`; a slow server does not hold a close. */
+  /** Keeps every composition, waiting for each at most `ms`; a slow server does not hold a close (#71). */
   async saveAll(ms: number): Promise<void> {
-    // A saver answers false on a failed save (the window says so itself); it does not throw.
-    const saves = [...this.savers.values()].map((s) => within(s(), ms));
+    // Each open window's component answers "compose.save-all" with its save; a saver answers
+    // false on a failed save (the window says so itself), it does not throw.
+    const saves: Promise<boolean | undefined>[] = [];
+    bus.emit("compose.save-all", { add: (p) => saves.push(within(p, ms)) });
     await Promise.all(saves);
   }
 

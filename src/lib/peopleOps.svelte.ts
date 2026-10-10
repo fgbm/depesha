@@ -5,6 +5,7 @@
 // way back is a split by hand.
 import { tick } from "svelte";
 import { app } from "./store.svelte";
+import { bus } from "./bus";
 import { t, tn } from "./i18n.svelte";
 import type { Person, Split } from "./people";
 import { peopleBook } from "./peopleBook.svelte";
@@ -22,8 +23,6 @@ class PeopleOps {
   dialog = $state<MergeDialog | null>(null);
   /** The person a second one is being chosen for; null when no choice is open. */
   picking = $state<Person | null>(null);
-  /** Told when a merge is done, whichever way: the book gives its list the focus back. */
-  done: (() => void) | null = null;
 
   /** Opens the merge dialog for these people. It is always shown: nothing joins without it (3.7 А). */
   merge(people: Person[], after?: (merged: Person) => void) {
@@ -54,7 +53,7 @@ class PeopleOps {
       }
     } finally {
       await tick();
-      this.done?.();
+      bus.emit("people.merge-ended");
     }
   }
 

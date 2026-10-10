@@ -7,6 +7,7 @@
   // in the card is saved as it is made.
   import { t } from "../../lib/i18n.svelte";
   import { app } from "../../lib/store.svelte";
+  import { bus } from "../../lib/bus";
   import { avatarColor, initials, parseAddr } from "../../lib/format";
   import { pressName } from "../../lib/keymap";
   import { blankPerson, filterPeople, formatMark, matchPerson, type PeopleFilter, type Person } from "../../lib/people";
@@ -48,12 +49,12 @@
 
   // Where the book was asked to open: a person and a filter, once; a book already open turns to it.
   $effect(() => {
-    void app.peopleTurn;
+    const want = app.peopleFocus;
+    if (!want) return;
     untrack(() => {
-      const want = app.peopleFocus;
       app.peopleFocus = null;
-      if (want?.filter) filter = want.filter;
-      if (want?.email) {
+      if (want.filter) filter = want.filter;
+      if (want.email) {
         query = "";
         cursor = want.email;
       }
@@ -76,16 +77,10 @@
   });
 
   // A merge done gives the focus back to the list, from the dialog and from the choice of the second person.
-  $effect(() => {
-    peopleOps.done = () => listEl?.focus();
-    return () => (peopleOps.done = null);
-  });
+  $effect(() => bus.on("people.merge-ended", () => listEl?.focus()));
 
   // «/» in the main window reaches the search of the book while it is shown.
-  $effect(() => {
-    app.focusPeople = () => searchEl?.focus();
-    return () => (app.focusPeople = () => {});
-  });
+  $effect(() => bus.on("people.search", () => searchEl?.focus()));
 
   // The list takes the focus when the book opens, unless something in it already has it.
   $effect(() => {

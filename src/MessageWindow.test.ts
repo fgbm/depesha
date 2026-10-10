@@ -28,6 +28,7 @@ import { api, flush, opened, row, settings } from "./lib/testing";
 import { registry } from "./plugin-host/registry.svelte";
 import { extensions } from "./lib/extensions.svelte";
 import { allCommands } from "./plugin-host/host.svelte";
+import { bus } from "./lib/bus";
 
 (globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
 
@@ -68,9 +69,11 @@ describe("the window of one letter", () => {
   });
 
   it("opens the sender's card on its key and takes a merge back on Z", async () => {
-    const before = app.senderCard;
+    const asked = vi.fn();
+    const off = bus.on("reader.sender-card", asked);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", code: "KeyP", bubbles: true, cancelable: true }));
-    expect(app.senderCard).toBe(before + 1);
+    off();
+    expect(asked).toHaveBeenCalledTimes(1);
     const undo = vi.spyOn(app, "undo").mockResolvedValue();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", bubbles: true, cancelable: true }));
     expect(undo).toHaveBeenCalled();

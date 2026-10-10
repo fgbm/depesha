@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import { app } from "./lib/store.svelte";
+  import { bus } from "./lib/bus";
   import { watchDrops } from "./lib/drops";
   import { currentRow } from "./lib/anchor";
   import { api } from "./lib/api";
@@ -103,7 +104,7 @@
     "core.settings": () => app.openSettings(),
     "core.quit": () => quitApp(),
     "core.compose": () => app.newMessage(),
-    "core.search": () => (app.view.kind === "people" ? app.focusPeople() : searchInput?.focus()),
+    "core.search": () => (app.focusSearch()),
     "core.people": () => void app.openPeople(),
     "core.sender-card": () => app.openSenderCard(),
     "core.undo": () => app.undo(),
@@ -212,9 +213,7 @@
     api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {});
   });
 
-  $effect(() => {
-    app.focusSearch = () => searchInput?.focus();
-  });
+  $effect(() => bus.on("mail.search", () => searchInput?.focus()));
 </script>
 
 <svelte:window onkeydown={onKey} onresize={() => layout.resize(window.innerWidth)} />

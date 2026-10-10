@@ -87,13 +87,10 @@
   // Opened for one of its sections (the quota line opens «Storage», a letter the signatures),
   // also when this page is open already. Only this mailbox's page takes the section.
   $effect(() => {
-    void app.settingsTurn;
-    untrack(() => {
-      const section = app.settingsSection;
-      if (!section || app.settingsPage !== `account:${account.id}`) return;
-      app.settingsSection = null;
-      tick().then(() => scrollTo(section, "instant"));
-    });
+    const section = app.settingsSection;
+    if (!section || app.settingsPage !== `account:${account.id}`) return;
+    untrack(() => (app.settingsSection = null));
+    tick().then(() => scrollTo(section, "instant"));
   });
 </script>
 

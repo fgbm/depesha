@@ -11,6 +11,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import Preferences from "./Preferences.svelte";
 import { app } from "../lib/store.svelte";
 import { i18n } from "../lib/i18n.svelte";
+import { bus } from "../lib/bus";
 import { api, settings } from "../lib/testing";
 import type { Account, AccountView } from "../lib/types";
 
@@ -67,6 +68,19 @@ describe("the settings window keeps what is typed (#102)", () => {
     key(field, "PageDown", { ctrlKey: true });
     await vi.waitFor(() => expect(heading()).not.toBe("Хранение"));
     expect(api.settingsPatch).toHaveBeenCalledWith({ large_mb: 300 });
+  });
+});
+
+describe("the settings window on the channel", () => {
+  it("turns an open window to the page openSettings asks for, and stops listening when it goes", async () => {
+    open("reading");
+    expect(heading()).not.toBe("Хранение");
+    app.openSettings("storage");
+    await vi.waitFor(() => expect(heading()).toBe("Хранение"));
+    expect(bus.count("settings.open")).toBe(1);
+    unmount(view!);
+    view = null;
+    expect(bus.count("settings.open")).toBe(0);
   });
 });
 

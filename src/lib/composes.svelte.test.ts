@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 
 import { ComposeManager, type ComposeHost } from "./composes.svelte";
+import { bus } from "./bus";
 import { emptyDraft } from "./compose";
 import { api } from "./testing";
 import type { CachedDraft } from "./types";
@@ -19,22 +20,26 @@ describe("keeping the drafts of a window", () => {
   it("saves every registered composition", async () => {
     const mgr = manager();
     const saved: number[] = [];
-    mgr.onSaver(1, async () => (saved.push(1), true));
-    mgr.onSaver(2, async () => (saved.push(2), true));
+    const offs = [
+      bus.on("compose.save-all", (all) => all.add((saved.push(1), Promise.resolve(true)))),
+      bus.on("compose.save-all", (all) => all.add((saved.push(2), Promise.resolve(true)))),
+    ];
     await mgr.saveAll(1000);
     expect(saved.sort()).toEqual([1, 2]);
     // A closed composition is no longer saved.
-    mgr.onSaver(1, null);
+    offs[0]();
     saved.length = 0;
     await mgr.saveAll(1000);
     expect(saved).toEqual([2]);
+    offs[1]();
   });
 
   it("does not wait for a save past the limit", async () => {
     const mgr = manager();
-    mgr.onSaver(1, () => new Promise(() => {}));
+    const off = bus.on("compose.save-all", (all) => all.add(new Promise(() => {})));
     const started = Date.now();
     await mgr.saveAll(30);
+    off();
     expect(Date.now() - started).toBeLessThan(1000);
   });
 

@@ -5,6 +5,7 @@
 
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
+import { bus } from "./bus";
 import type { Account, Task } from "./types";
 
 export interface Toast {
@@ -64,19 +65,11 @@ export class UiController {
   /** The page it opens on: "reading", "storage", "keys", "accounts", "account:<id>", "account:new", "plugins"… (the ids of before 0.8, such as "general", are read as their new pages). */
   settingsPage = $state("reading");
   /** A section of a mailbox's page to open the settings at (`storage`), once. */
-  settingsSection: string | null = null;
-  /** Where the address book opens in the main window: at a person and a filter, once (a link from the settings; #104). */
-  peopleFocus: { email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null = null;
-  /** Counts the requests to open the book at a place: an open book turns to it. */
-  peopleTurn = $state(0);
-  /** Puts the focus into the search of the book; set by the book while it is shown. */
-  focusPeople: () => void = () => {};
-  /** Counts the requests to open the card of the open letter's sender (its key, #104). */
-  senderCard = $state(0);
-  /** A command to open the «Keys» page at (the palette's Alt+Enter), once. */
-  settingsKeys: { id: string; title: string } | null = null;
-  /** Counts `openSettings` calls: an already open settings window turns to the page asked for. */
-  settingsTurn = $state(0);
+  settingsSection = $state<string | null>(null);
+  /** Where the address book opens in the main window: at a person and a filter, once (a link from the settings; #104). The book takes it and sets null. */
+  peopleFocus = $state<{ email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null>(null);
+  /** A command to open the «Keys» page at (the palette's Alt+Enter), once. The page takes it and sets null. */
+  settingsKeys = $state<{ id: string; title: string } | null>(null);
   /** Asked before the open settings page is left: a mailbox's page with unsaved changes or a check under way. */
   settingsLeave: (() => Promise<boolean>) | null = null;
   /** Takes back the last change of the open mailbox's page (Ctrl+Z); that page saves apart from the rows. */
@@ -85,8 +78,6 @@ export class UiController {
   settingsSettle: (() => Promise<void>) | null = null;
   /** A text is being typed in the open mailbox's page and not saved yet: a quit asks this window first. */
   settingsTyping = $state(false);
-  /** Focuses the search box; set by the window that owns it. */
-  focusSearch: () => void = () => {};
 
   private toastSeq = 0;
 
@@ -147,8 +138,8 @@ export class UiController {
   openSettings(page = "reading", section: string | null = null) {
     this.settingsPage = page;
     this.settingsSection = section;
-    this.settingsTurn++;
     this.settingsOpen = true;
+    bus.emit("settings.open", { page });
   }
 
   /**

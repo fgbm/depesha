@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { bus } from "./bus";
 import { t, tn } from "./i18n.svelte";
 import { extensions } from "./extensions.svelte";
 import { listenMain, listenWindow } from "./events";
@@ -77,22 +78,16 @@ export class AppStore {
   set settingsSection(v) { this.ui.settingsSection = v; }
   get peopleFocus() { return this.ui.peopleFocus; }
   set peopleFocus(v) { this.ui.peopleFocus = v; }
-  get peopleTurn() { return this.ui.peopleTurn; }
-  get focusPeople() { return this.ui.focusPeople; }
-  set focusPeople(v) { this.ui.focusPeople = v; }
-  get senderCard() { return this.ui.senderCard; }
   /** Asks the open letter's header to show the card of its sender. */
-  openSenderCard() { this.ui.senderCard++; }
+  openSenderCard() { bus.emit("reader.sender-card"); }
   /** Opens the address book in the main window, at a person and a filter; the settings window gives way. */
   async openPeople(at: { email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null = null) {
     this.ui.settingsOpen = false;
     this.ui.peopleFocus = at;
-    this.ui.peopleTurn++;
     await this.setView({ kind: "people" });
   }
   get settingsKeys() { return this.ui.settingsKeys; }
   set settingsKeys(v) { this.ui.settingsKeys = v; }
-  get settingsTurn() { return this.ui.settingsTurn; }
   get settingsLeave() { return this.ui.settingsLeave; }
   set settingsLeave(v) { this.ui.settingsLeave = v; }
   get settingsUndo() { return this.ui.settingsUndo; }
@@ -101,8 +96,8 @@ export class AppStore {
   set settingsSettle(v) { this.ui.settingsSettle = v; }
   get settingsTyping() { return this.ui.settingsTyping; }
   set settingsTyping(v) { this.ui.settingsTyping = v; }
-  get focusSearch() { return this.ui.focusSearch; }
-  set focusSearch(v) { this.ui.focusSearch = v; }
+  /** Puts the focus into the search box of what the main window shows: the mail list or the address book. */
+  focusSearch() { bus.emit(this.view.kind === "people" ? "people.search" : "mail.search"); }
 
   get selected() { return this.selection.selected; }
   set selected(v) { this.selection.selected = v; }

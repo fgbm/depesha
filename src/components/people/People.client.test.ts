@@ -17,6 +17,7 @@ import { i18n } from "../../lib/i18n.svelte";
 import { blankPerson, type Person } from "../../lib/people";
 import { peopleBook } from "../../lib/peopleBook.svelte";
 import { peopleOps } from "../../lib/peopleOps.svelte";
+import { bus } from "../../lib/bus";
 import { api } from "../../lib/testing";
 
 // jsdom has no CSS.escape and no scrolling; the components use both.
@@ -269,6 +270,17 @@ describe("the book of the main window", () => {
     expect(app.peopleFocus).toBeNull();
   });
 
+  it("turns an open book to the place a later request asks for", async () => {
+    await book([olga(), person("Иван Петров", ["ivan@example.org"], { send_format: "plain" })]);
+    const root = show(PeopleView);
+    await tick();
+    expect([...root.querySelectorAll(".pr .nm")]).toHaveLength(2);
+    app.peopleFocus = { email: "ivan@example.org", filter: "ruled" };
+    await tick();
+    expect([...root.querySelectorAll(".pr .nm")].map((n) => n.textContent)).toEqual(["Иван Петров"]);
+    expect(app.peopleFocus).toBeNull();
+  });
+
 });
 
 describe("the keys of the book", () => {
@@ -479,5 +491,46 @@ describe("the list after a merge", () => {
     [...root.querySelectorAll<HTMLButtonElement>(".fchip")].find((c) => c.textContent === "С особым форматом")!.click();
     flushSync();
     expect(root.querySelector(".banner")).toBeNull();
+  });
+});
+
+describe("the book on the channel", () => {
+  it("puts the focus into its search for the search command, and takes the subscription back with it", async () => {
+    await book([olga()]);
+    app.list.view = { kind: "people" };
+    const root = show(PeopleView);
+    await tick();
+    expect(bus.count("people.search")).toBe(1);
+    app.focusSearch();
+    expect(document.activeElement).toBe(root.querySelector("input[type=search]"));
+    app.list.view = { kind: "unified", role: "inbox" };
+    unmount(view!);
+    view = null;
+    expect(bus.count("people.search")).toBe(0);
+    expect(bus.count("people.merge-ended")).toBe(0);
+  });
+
+  it("gives the list the focus back when a merge ends", async () => {
+    await book([olga(), ivan()]);
+    const root = show(PeopleView);
+    await tick();
+    (document.activeElement as HTMLElement | null)?.blur();
+    bus.emit("people.merge-ended");
+    expect(document.activeElement).toBe(root.querySelector("[aria-multiselectable]"));
+  });
+
+  it("does not let a second book take the commands from the first", async () => {
+    await book([olga()]);
+    const first = show(PeopleView);
+    const one = view!;
+    const second = show(PeopleView);
+    await tick();
+    expect(bus.count("people.search")).toBe(2);
+    unmount(view!);
+    view = one;
+    // The first still hears the command after the second went away.
+    bus.emit("people.search");
+    expect(document.activeElement).toBe(first.querySelector("input[type=search]"));
+    expect(second).not.toBe(first);
   });
 });
