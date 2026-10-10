@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { SECTIONS, createSectionGate, selectSections, split } from "./shard.mjs";
 
@@ -55,6 +57,25 @@ describe("e2e parts", () => {
     gate.section("second");
     await step("b");
     expect(ran).toEqual(["a", "b"]);
+  });
+
+  it("lists the sections that the files of e2e/sections mark, in the order run.mjs goes through them", () => {
+    // The weights balance the parts: a section missing here would be run by no part, one that is gone
+    // would make a part wait for nothing.
+    const dir = join(import.meta.dirname, "sections");
+    const marked = readdirSync(dir)
+      .filter((f) => f.endsWith(".mjs") && f !== "setup.mjs")
+      .map((f) => /section\("(\w+)"\)/.exec(readFileSync(join(dir, f), "utf-8"))?.[1]);
+    expect(SECTIONS.map((s) => s.name).sort()).toEqual(marked.sort());
+    const run = readFileSync(join(import.meta.dirname, "run.mjs"), "utf-8");
+    const order = /for \(const section of \[([^\]]+)\]\)/.exec(run)[1].split(",").map((s) => s.trim());
+    expect(order.slice(1)).toEqual(SECTIONS.map((s) => s.name));
+  });
+
+  it("keeps the longest of three parts near a third of the whole", () => {
+    const total = SECTIONS.reduce((n, s) => n + s.weight, 0);
+    const longest = Math.max(...split(SECTIONS, 3).map((p) => p.reduce((n, name) => n + SECTIONS.find((s) => s.name === name).weight, 0)));
+    expect(longest).toBeLessThanOrEqual(total / 3 + 10);
   });
 
   it("refuses a step id used twice, whichever part runs it", async () => {

@@ -24,8 +24,10 @@ import { run as setup } from "./sections/setup.mjs";
 import { run as list } from "./sections/list.mjs";
 import { run as send } from "./sections/send.mjs";
 import { run as triage } from "./sections/triage.mjs";
+import { run as triage2 } from "./sections/triage2.mjs";
 import { run as sendlater } from "./sections/sendlater.mjs";
 import { run as reminders } from "./sections/reminders.mjs";
+import { run as reminders2 } from "./sections/reminders2.mjs";
 import { run as settings } from "./sections/settings.mjs";
 import { run as second } from "./sections/second.mjs";
 
@@ -34,7 +36,7 @@ try {
   await startSession();
   console.log(`Профиль: ${profile}`);
   // A section the part does not run still goes through its code: its steps are skipped (e2e/shard.mjs).
-  for (const section of [setup, list, send, triage, sendlater, reminders, settings, second]) await section();
+  for (const section of [setup, list, send, triage, triage2, sendlater, reminders, reminders2, settings, second]) await section();
 } catch (e) {
   if (e instanceof Abort) console.error(`\nПрогон остановлен: ${e.message}.`);
   else console.error("Прогон прерван:", e);

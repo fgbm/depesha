@@ -9,15 +9,21 @@
 //
 // Without the variable the whole run goes in a row, as before.
 
-/** In the order of run.mjs. `weight`: seconds a section takes on a CI machine, for splitting by time. */
+/**
+ * In the order of run.mjs. `weight`: seconds a section takes on a CI machine, for splitting by time. They
+ * are measured, not guessed: the `results.json` of the three parts of the last green CI run on `main` (the
+ * `e2e-screens-*` artifacts), the steps summed by section; on a change of the steps, measure again.
+ */
 export const SECTIONS = [
-  { name: "list", weight: 75 },
-  { name: "send", weight: 154 },
-  { name: "triage", weight: 101 },
+  { name: "list", weight: 123 },
+  { name: "send", weight: 129 },
+  { name: "triage", weight: 66 },
+  { name: "triage2", weight: 100 },
   { name: "sendlater", weight: 21 },
-  { name: "reminders", weight: 139 },
-  { name: "settings", weight: 40 },
-  { name: "second", weight: 125 },
+  { name: "reminders", weight: 55 },
+  { name: "reminders2", weight: 55 },
+  { name: "settings", weight: 48 },
+  { name: "second", weight: 148 },
 ];
 
 export const SETUP = "setup";
