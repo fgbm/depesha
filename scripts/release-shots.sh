@@ -11,11 +11,13 @@
 # see e2e/README.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The stand's lock (scripts/stand-lock.sh), waiting if the stand is busy.
+[[ -n "${DEPESHA_STAND_LOCKED:-}" ]] || exec scripts/stand-lock.sh "$0" "$@"
 
 step() { printf '\n== %s\n' "$*"; }
 
 # Fresh containers, as check.sh makes them: no folders or labels left by other runs in the
-# pictures. Take the stand's lock first (flock ${DEPESHA_STAND_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock}).
+# pictures.
 step "GreenMail"
 docker compose -f compose.test.yaml up -d --force-recreate
 python3 scripts/wait-stand.py

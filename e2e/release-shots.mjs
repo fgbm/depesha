@@ -13,8 +13,10 @@
 // pictures carry test names only. The driver, profile and helpers are in shot-kit.mjs.
 
 import { createKit } from "./shot-kit.mjs";
+import { ensureStandLock } from "./stand-lock.mjs";
 import { clearConfirm, composeWithFiles, importanceReader, listAvatars, peopleBook, readerAttachments, seed080, settingsSearch } from "./scenes-080.mjs";
 
+ensureStandLock();
 const v8 = (process.env.SHOTS_SET ?? "0.7.0") === "0.8.0";
 const kit = createKit({ out: process.env.SHOTS_OUT ?? "/tmp/depesha-release-shots", tag: "depesha-rel-", v8 });
 const { d, sleep, db, shot, textOf, setInput, press, invoke, openFolder, openBySubject, menuItem, closeSettings, discardCompose } = kit;

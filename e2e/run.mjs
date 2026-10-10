@@ -10,7 +10,7 @@
 // DEPESHA_E2E_SHARD (one part of the scenario: `2/3` or `list,send`; without it all the steps, see e2e/shard.mjs).
 //
 // The stand is one for every worktree: unless scripts/check.sh already holds the lock
-// (DEPESHA_STAND_LOCKED=1), the run starts itself again under `flock` and waits its turn.
+// (DEPESHA_STAND_LOCKED=1), the run starts itself again under scripts/stand-lock.sh and waits its turn.
 
 import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -23,27 +23,9 @@ import { exited, groupAlive, killGroup } from "./procs.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
 import { dropFixtures, dropOn, dropSteps, zonesStayInView } from "./drop-steps.mjs";
 import { createSectionGate, selectSections } from "./shard.mjs";
+import { ensureStandLock } from "./stand-lock.mjs";
 
-if (!process.env.DEPESHA_STAND_LOCKED) {
-  const lock = process.env.DEPESHA_STAND_LOCK ?? join(process.env.XDG_RUNTIME_DIR ?? "/tmp", "depesha-e2e.lock");
-  const again = (flags) =>
-    spawnSync("flock", [...flags, lock, process.execPath, ...process.argv.slice(1)], {
-      stdio: "inherit",
-      env: { ...process.env, DEPESHA_STAND_LOCKED: "1" },
-    });
-  // 200: flock's own "busy" code (-E), so it cannot be taken for the run's exit code.
-  let done = again(["-n", "-E", "200"]);
-  if (done.status === 200) {
-    console.log(`стенд занят, жду до часа… (${lock})`);
-    done = again(["-w", "3600", "-E", "200"]);
-    if (done.status === 200) {
-      console.error(`стенд не освободился за час (${lock}): прогон не начат`);
-      process.exit(1);
-    }
-  }
-  if (done.error) throw done.error;
-  process.exit(done.status ?? 1);
-}
+ensureStandLock();
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const app = process.env.DEPESHA_APP ?? join(root, "target/debug/depesha");

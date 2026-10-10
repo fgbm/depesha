@@ -14,8 +14,10 @@
 
 import { join } from "node:path";
 import { createKit, root } from "./shot-kit.mjs";
+import { ensureStandLock } from "./stand-lock.mjs";
 import { clearConfirm, importanceReader, peopleBook, readerAttachments, seed080, settingsPage } from "./scenes-080.mjs";
 
+ensureStandLock();
 const kit = createKit({ out: join(root, "docs/screenshots"), tag: "depesha-shots-", v8: true });
 const { d, sleep, db, shot, textOf, setInput, setSelect, press, invoke, sidebarText, rowBySubject, openBySubject, palette, closeSettings, discardCompose } = kit;
 

@@ -16,6 +16,9 @@ import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
+import { ensureStandLock } from "./stand-lock.mjs";
+
+ensureStandLock();
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const app = process.env.DEPESHA_APP ?? join(root, "target/debug/depesha");

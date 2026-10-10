@@ -90,6 +90,7 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           scripts/frontend-baseline-guard.sh origin/main
       - run: scripts/frontend-checks.test.sh
+      - run: scripts/stand-lock.test.sh
       - run: npx vitest run
       - run: cargo test -p depesha-core
       - run: cargo test -p depesha --lib

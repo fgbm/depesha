@@ -21,6 +21,11 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Xvfb :99 is the e2e stand's: take its lock (scripts/stand-lock.sh) unless an outer caller holds it.
+if not os.environ.get("DEPESHA_STAND_LOCKED"):
+    os.execv(os.path.join(ROOT, "scripts/stand-lock.sh"), ["stand-lock.sh", sys.executable, *sys.argv])
+
 PORT = 8765
 work = tempfile.mkdtemp(prefix="depesha-update-")
 

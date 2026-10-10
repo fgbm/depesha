@@ -5,13 +5,13 @@
 #   scripts/shots.sh                    the whole thing
 #   DEPESHA_APP=… scripts/shots.sh      an already built binary, no build
 #
-# The script does not take the stand's lock: run it under it, as release-shots.sh:
-#   flock ${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock scripts/shots.sh
+# Takes the stand's lock itself (scripts/stand-lock.sh) and waits if the stand is busy.
 #
 # Needs Xvfb on $E2E_DISPLAY (default :99), tauri-driver and WebKitWebDriver;
 # see e2e/README.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+[[ -n "${DEPESHA_STAND_LOCKED:-}" ]] || exec scripts/stand-lock.sh "$0" "$@"
 
 step() { printf '\n== %s\n' "$*"; }
 
