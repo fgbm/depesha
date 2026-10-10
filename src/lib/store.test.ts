@@ -512,13 +512,13 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     api.draftCacheList.mockRejectedValue(new Error("cache broken"));
     const s = new AppStore();
     await s.offerLocalDrafts();
-    expect(s.toasts.some((x) => x.error && x.text.includes("cache broken"))).toBe(true);
+    expect(s.toasts.some((x) => x.error && x.text.includes("local drafts") && x.text.includes("cache broken"))).toBe(true);
   });
 
   it("tells when the stuck copies cannot be listed", async () => {
     api.stuckCopies.mockRejectedValue(new Error("copies broken"));
     const s = new AppStore();
     await s.tellStuckCopies();
-    expect(s.toasts.some((x) => x.error && x.text.includes("copies broken"))).toBe(true);
+    expect(s.toasts.some((x) => x.error && x.text.includes("sent letters") && x.text.includes("copies broken"))).toBe(true);
   });
 });

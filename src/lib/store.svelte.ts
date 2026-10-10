@@ -307,7 +307,7 @@ export class AppStore {
 
   /** Drafts kept locally when the app last stopped: offered for restore (#71). */
   async offerLocalDrafts() {
-    const drafts = (await api.draftCacheList().catch((e) => (this.fail(e), [] as CachedDraft[]))) ?? [];
+    const drafts = (await api.draftCacheList().catch((e) => (this.fail(e, t("startup.localDraftsFailed")), [] as CachedDraft[]))) ?? [];
     if (!drafts.length) return;
     this.toast(
       tn("compose.localDraft", drafts.length, { n: drafts.length }),
@@ -319,7 +319,7 @@ export class AppStore {
 
   /** Copies of sent letters the server refuses to keep: said once per start, until decided (#88). */
   async tellStuckCopies() {
-    const stuck = (await api.stuckCopies().catch((e) => (this.fail(e), [] as StuckCopy[]))) ?? [];
+    const stuck = (await api.stuckCopies().catch((e) => (this.fail(e, t("startup.stuckCopiesFailed")), [] as StuckCopy[]))) ?? [];
     if (!stuck.length) return;
     this.toast(tn("stuck.toast", stuck.length, { n: stuck.length }), false, { label: t("stuck.open"), run: () => (this.tasksOpen = true) }, 30_000);
   }

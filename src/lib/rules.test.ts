@@ -17,7 +17,7 @@ describe("applyRules", () => {
     const app = { folders: [], account: () => undefined, toast: vi.fn(), fail: vi.fn(), reload: vi.fn() };
     const newMail = vi.spyOn(extensions, "newMail");
     await applyRules(app as never, [1, 2]);
-    expect(app.fail).toHaveBeenCalledWith(expect.objectContaining({ message: "mail unreadable" }));
+    expect(app.fail).toHaveBeenCalledWith(expect.objectContaining({ message: "mail unreadable" }), expect.stringContaining("rules"));
     expect(newMail).not.toHaveBeenCalled();
   });
 });

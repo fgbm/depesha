@@ -151,6 +151,6 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     await s.open(1);
     await flush();
-    expect(s.toasts.some((x) => x.error && x.text.includes("thread broken"))).toBe(true);
+    expect(s.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);
   });
 });

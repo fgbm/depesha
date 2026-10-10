@@ -88,7 +88,7 @@ export class Reader {
   }
 
   private async loadConversation(id: number, seq: number, epoch: number, folder: string, wasUnread: boolean) {
-    const conversation = await api.thread(id).catch((e) => (this.host.fail(e), [] as MessageRow[]));
+    const conversation = await api.thread(id).catch((e) => (this.host.fail(e, t("reader.conversationFailed")), [] as MessageRow[]));
     if (seq !== this.openSeq) return;
     this.conversation = shownConversation(conversation, id, folder);
     extensions.showing(this.showing());
