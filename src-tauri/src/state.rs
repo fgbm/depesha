@@ -111,6 +111,31 @@ pub fn update_locked(
     Ok(config.settings.clone())
 }
 
+/// Changes one mailbox of `config` under its lock and writes the config. The change goes onto a
+/// copy that replaces the mailbox only once the file is written: a write that fails leaves the
+/// memory as the disk has it.
+pub fn patch_account_locked(
+    config: &Mutex<Config>,
+    path: &std::path::Path,
+    id: &str,
+    change: impl FnOnce(&mut Account),
+) -> CmdResult<Account> {
+    let mut config = lock(config);
+    let at = config
+        .accounts
+        .iter()
+        .position(|a| a.id == id)
+        .ok_or_else(|| CmdError::new("not-found", tr!("account not found", "учётная запись не найдена")))?;
+    let mut changed = config.accounts[at].clone();
+    change(&mut changed);
+    let before = std::mem::replace(&mut config.accounts[at], changed.clone());
+    if let Err(e) = config::save(path, &config) {
+        config.accounts[at] = before;
+        return Err(e.into());
+    }
+    Ok(changed)
+}
+
 impl AppState {
     /// Takes the filing of copy `id` for one try; false when a try is already under way.
     pub fn copy_claim(&self, id: i64) -> bool {
@@ -189,16 +214,7 @@ impl AppState {
     /// Changes one mailbox in place under the config lock and saves it. The mailbox's worker is
     /// not touched: only fields the worker does not hold may be changed this way.
     pub fn patch_account(&self, id: &str, change: impl FnOnce(&mut Account)) -> CmdResult<Account> {
-        let mut config = lock(&self.config);
-        let account = config
-            .accounts
-            .iter_mut()
-            .find(|a| a.id == id)
-            .ok_or_else(|| CmdError::new("not-found", tr!("account not found", "учётная запись не найдена")))?;
-        change(account);
-        let saved = account.clone();
-        config::save(&self.config_path, &config)?;
-        Ok(saved)
+        patch_account_locked(&self.config, &self.config_path, id, change)
     }
 
     /// Puts the mailboxes in this order; ones missing from `ids` keep their place after them.
@@ -422,6 +438,34 @@ mod tests {
         let saved = config::load(&path);
         assert_eq!(saved.settings.undo_send_secs, settings.undo_send_secs);
         assert_eq!(saved.settings.dnd_until, settings.dnd_until);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A write that fails (the folder cannot be made) is not a change: the mailbox in memory stays
+    /// as the disk has it, so the next patch does not carry the lost one along (#120).
+    #[test]
+    fn a_patch_that_cannot_be_written_leaves_the_mailbox_as_it_was() {
+        let dir = std::env::temp_dir().join(format!("depesha-patch-fail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The config's folder is a file, so `config::save` fails.
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, b"x").unwrap();
+        let path = blocker.join("accounts.json");
+        let mailbox: Account = serde_json::from_str(
+            r##"{"id":"a","display_name":"Jane","email":"j@x.test","username":"j","imap":{"host":"i","port":993,"security":"tls"},"smtp":{"host":"s","port":465,"security":"tls"},"save_sent_copy":true}"##,
+        )
+        .unwrap();
+        let config = Mutex::new(Config {
+            accounts: vec![mailbox],
+            ..Config::default()
+        });
+        let res = patch_account_locked(&config, &path, "a", |a| a.label = "Lost".into());
+        assert!(res.is_err());
+        assert_eq!(
+            lock(&config).accounts[0].label,
+            "",
+            "a write that failed stayed in memory"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

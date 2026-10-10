@@ -121,23 +121,21 @@ pub fn accounts_arrange(state: St<'_>, ids: Vec<String>) -> CmdResult<()> {
 /// How the mailbox is shown: its name in the app and its colour. Login data stays as is.
 #[tauri::command(async)]
 pub fn account_look(state: St<'_>, id: String, label: String, color: String) -> CmdResult<()> {
-    let mut account = state.account(&id)?;
+    state.patch_account(&id, |account| apply_look(account, &label, &color))?;
+    Ok(())
+}
+
+/// The name in the app and the colour; the colour is only `#rrggbb`: the value ends up in CSS.
+fn apply_look(account: &mut Account, label: &str, color: &str) {
     account.label = label.trim().to_owned();
-    let color = color.trim();
-    // Only `#rrggbb`: the value ends up in CSS.
-    account.color = if color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()) {
-        color.to_ascii_lowercase()
-    } else {
-        String::new()
-    };
-    state.save_account(account)
+    account.color = hex_color(color);
 }
 
 /// What a mailbox's page saves as it is changed: the fields that do not reach the server. A
 /// field left out is not touched; an empty string takes the setting's value (no own format,
 /// view or signature).
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct OwnPatch {
     pub label: Option<String>,
     pub color: Option<String>,
@@ -3617,14 +3615,55 @@ mod tests {
         );
     }
 
+    /// What the connection holds is not the patch's to name: the command refuses the key instead
+    /// of dropping it, so a client that sends it hears that it was not saved.
     #[test]
-    fn an_own_patch_keeps_the_mailboxs_worker_alone() {
-        // The command goes through `patch_account` (the config only); a worker is restarted by
-        // `set_worker`/`worker::spawn`, which this command must never call.
+    fn an_own_patch_refuses_what_reaches_the_server() {
+        for key in [
+            r#""imap":{"host":"h","port":1,"security":"tls"}"#,
+            r#""username":"u""#,
+            r#""auth":{"kind":"password"}"#,
+        ] {
+            let patch = serde_json::from_str::<OwnPatch>(&format!("{{{key}}}"));
+            assert!(patch.is_err(), "{key} was taken");
+        }
+        assert!(serde_json::from_str::<OwnPatch>(r#"{"label":"x"}"#).is_ok());
+    }
+
+    /// The command changes the config and nothing else: the patch goes through
+    /// `patch_account_locked`, which holds no worker, and lands on the file.
+    #[test]
+    fn an_own_patch_is_written_to_the_config_alone() {
+        let dir = std::env::temp_dir().join(format!("depesha-own-patch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("accounts.json");
+        let config = std::sync::Mutex::new(crate::config::Config {
+            accounts: vec![mailbox()],
+            ..Default::default()
+        });
+        let patch: OwnPatch = serde_json::from_str(r#"{"label":"Work"}"#).unwrap();
+        let saved = crate::state::patch_account_locked(&config, &path, "a", |a| apply_own(a, patch)).unwrap();
+        assert_eq!(saved.label, "Work");
+        assert_eq!(crate::config::load(&path).accounts[0].label, "Work");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The look is changed under the config lock like the other patches: a read of the mailbox and
+    /// a save of the whole copy would roll back a patch written in between.
+    #[test]
+    fn the_look_is_a_patch_under_the_lock() {
         let src = include_str!("commands.rs");
-        let body = &src[src.find("pub fn account_patch_own").unwrap()..];
+        let body = &src[src.find("pub fn account_look").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
-        assert!(!body.contains("worker") && !body.contains("save_account"), "{body}");
+        assert!(
+            body.contains("patch_account") && !body.contains("save_account"),
+            "{body}"
+        );
+        let mut a = mailbox();
+        apply_look(&mut a, " Home ", "#ABCDEF");
+        assert_eq!((a.label.as_str(), a.color.as_str()), ("Home", "#abcdef"));
+        apply_look(&mut a, "", "red");
+        assert_eq!(a.color, "");
     }
 
     #[test]
