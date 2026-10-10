@@ -1087,8 +1087,8 @@ try {
     } finally {
       await d.req("POST", d.s("/window"), { handle: main });
     }
-    // Put things in order: back to the inbox for the steps that follow.
-    await d.click(await d.xpath("//div[contains(@class,'toasts')]//button[contains(., 'Отменить')]"));
+    // The undo is offered in the main window, where the list is; it puts things in order for the steps that follow.
+    await d.click(await d.until("undo offered", () => d.xpath("//div[contains(@class,'toasts')]//button[contains(., 'Отменить')]").catch(() => null)));
     await d.until("undone on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
   });
 
