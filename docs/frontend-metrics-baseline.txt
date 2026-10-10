@@ -3,7 +3,7 @@ component	src/MessageWindow.svelte	139	101	33	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	271	128	43	100
 component	src/components/AttachmentMenu.svelte	158	9	99	50
-component	src/components/Avatar.svelte	45	11	7	27
+component	src/components/Avatar.svelte	46	12	7	27
 component	src/components/Compose.svelte	1246	391	334	521
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
@@ -21,14 +21,14 @@ component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	189	147	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	48	7	8	33
-component	src/components/MessageList.svelte	808	233	132	443
+component	src/components/MessageList.svelte	809	234	132	443
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	235	128	33	74
 component	src/components/Preferences.svelte	577	225	80	272
 component	src/components/QuotaLine.svelte	119	29	13	77
-component	src/components/Reader.svelte	336	136	97	103
+component	src/components/Reader.svelte	338	138	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	545	316	50	179
@@ -352,7 +352,7 @@ function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
 function	src/components/MessageList.svelte::click	14
 function	src/components/MessageList.svelte::context	7
-function	src/components/MessageList.svelte::pictureOf	5
+function	src/components/MessageList.svelte::pictureOf	6
 function	src/components/MessageList.svelte::who	12
 function	src/components/MessageList.svelte::firstName	4
 function	src/components/MessageList.svelte::rowKey	6
