@@ -27,6 +27,12 @@ pub fn logo_domain(email: &str) -> Option<String> {
     let host = idna::domain_to_ascii(domain.trim().trim_end_matches('.'))
         .ok()?
         .to_ascii_lowercase();
+    registrable(&host)
+}
+
+/// The registrable domain of an ASCII lower-case host by the public suffix list, `None` for a
+/// public suffix itself and for a name under a private one (`x.github.io`, `eu.org`).
+fn registrable(host: &str) -> Option<String> {
     let registrable = psl::domain(host.as_bytes())?;
     // A top-level name the list does not know (`.example`) is a suffix of the default rule.
     if registrable.suffix().typ() == Some(psl_types::Type::Private) {
@@ -194,7 +200,9 @@ impl Receiver {
             if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') {
                 continue;
             }
-            let org = org_domain(&host);
+            let Some(org) = registrable(&host) else {
+                continue;
+            };
             let family = FAMILIES.iter().find(|f| f.contains(&org.as_str()));
             for d in family.map_or_else(|| vec![org.clone()], |f| f.iter().map(|d| (*d).to_owned()).collect()) {
                 if !domains.contains(&d) {
@@ -202,8 +210,9 @@ impl Receiver {
                 }
             }
         }
-        let exchange_online =
-            account.is_ews() && ["office365.com", "outlook.com"].contains(&org_domain(&server).as_str());
+        let exchange_online = account.is_ews()
+            && ["office365.com", "outlook.com"]
+                .contains(&registrable(&server.to_ascii_lowercase()).unwrap_or_default().as_str());
         Self {
             domains,
             exchange_online,
@@ -213,7 +222,7 @@ impl Receiver {
 
     fn owns(&self, authserv_id: &str) -> bool {
         let id = authserv_id.trim_end_matches('.').to_ascii_lowercase();
-        id.contains('.') && self.domains.contains(&org_domain(&id))
+        id.contains('.') && registrable(&id).is_some_and(|d| self.domains.contains(&d))
     }
 }
 
@@ -398,6 +407,21 @@ mod tests {
             &gmail_box
         ));
         assert!(!dmarc_passed(&[], "bank.ru", &gmail_box));
+    }
+
+    #[test]
+    fn a_box_under_a_public_suffix_trusts_only_its_own_registrable_domain() {
+        let ar = |id: &str| vec![format!("{id}; dmarc=pass header.from=bank.ru")];
+        let kiev = imap("me@firm.kiev.ua", "imap.firm.kiev.ua");
+        assert!(dmarc_passed(&ar("mx.firm.kiev.ua"), "bank.ru", &kiev));
+        assert!(!dmarc_passed(&ar("mx.evil.kiev.ua"), "bank.ru", &kiev));
+        let nsk = imap("me@firm.nsk.ru", "imap.firm.nsk.ru");
+        assert!(dmarc_passed(&ar("mx.firm.nsk.ru"), "bank.ru", &nsk));
+        // A box on a private suffix has no organization of its own to believe.
+        let pages = imap("me@x.github.io", "imap.x.github.io");
+        assert!(!dmarc_passed(&ar("mx.y.github.io"), "bank.ru", &pages));
+        let gmail = imap("me@gmail.com", "imap.gmail.com");
+        assert!(dmarc_passed(&ar("mx.google.com"), "bank.ru", &gmail));
     }
 
     #[test]

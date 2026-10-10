@@ -1235,9 +1235,12 @@ impl Store {
             if let (Some(row), Some(holder)) = (row, holder) {
                 let note = row.note.trim();
                 // Whole paragraphs only: a short note ("Иван") is not "found" inside a longer one.
-                let held: String =
-                    tx.query_row("SELECT note FROM persons WHERE id = ?1", [holder], |r| r.get(0))?;
-                let note = if held.split("\n\n").any(|para| para.trim() == note) { "" } else { note };
+                let held: String = tx.query_row("SELECT note FROM persons WHERE id = ?1", [holder], |r| r.get(0))?;
+                let note = if held.split("\n\n").any(|para| para.trim() == note) {
+                    ""
+                } else {
+                    note
+                };
                 tx.execute(
                     "UPDATE persons SET
                          note = CASE WHEN ?2 = '' THEN note
