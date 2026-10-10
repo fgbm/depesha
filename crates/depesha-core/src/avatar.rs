@@ -15,14 +15,24 @@ use crate::account::Account;
 pub const MAX_LOGO: usize = 32 * 1024;
 const STEP: Duration = Duration::from_secs(5);
 
-/// The domain whose logo stands by this address: its organizational domain, never the
-/// subdomain (#108). A subdomain is free to mint (`news@r123.evil.example`): asking about it
-/// would tell its owner that the letter was read, and a logo of a subdomain is the
-/// organization's logo anyway.
+/// The domain whose logo stands by this address: the registrable (organizational) domain by
+/// the Public Suffix List built into the program, never a subdomain (#108). A subdomain is
+/// free to mint (`news@r123.evil.example`): asking about it would tell its owner that the
+/// letter was read, and a logo of a subdomain is the organization's logo anyway. `None` when
+/// the domain is a public suffix itself or stands under a private one (`x.github.io`,
+/// `paypal.us.com`, `eu.org`): everyone rents a name there, and a logo would prove nothing.
+/// Internationalized names go as punycode in lower case.
 pub fn logo_domain(email: &str) -> Option<String> {
     let (_, domain) = email.trim().rsplit_once('@')?;
-    let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
-    (domain.contains('.')).then(|| org_domain(&domain))
+    let host = idna::domain_to_ascii(domain.trim().trim_end_matches('.'))
+        .ok()?
+        .to_ascii_lowercase();
+    let registrable = psl::domain(host.as_bytes())?;
+    // A top-level name the list does not know (`.example`) is a suffix of the default rule.
+    if registrable.suffix().typ() == Some(psl_types::Type::Private) {
+        return None;
+    }
+    String::from_utf8(registrable.as_bytes().to_vec()).ok()
 }
 
 /// The logo of an organizational domain as a `data:` URI, or `None` when it publishes none
@@ -406,12 +416,30 @@ mod tests {
     }
 
     #[test]
-    fn a_logo_is_asked_about_by_the_organizational_domain_only() {
-        assert_eq!(logo_domain("news@r123.evil.example").as_deref(), Some("evil.example"));
-        assert_eq!(logo_domain("News@Evil.Example").as_deref(), Some("evil.example"));
-        assert_eq!(logo_domain("a@shop.example.co.uk").as_deref(), Some("example.co.uk"));
-        assert_eq!(logo_domain("nobody"), None);
-        assert_eq!(logo_domain("a@localhost"), None);
+    fn a_logo_is_asked_about_by_the_registrable_domain_of_the_public_suffix_list() {
+        for (email, want) in [
+            ("news@r123.evil.example", Some("evil.example")),
+            ("News@Evil.Example", Some("evil.example")),
+            ("a@kiev.ua", None),
+            ("a@x.kiev.ua", Some("x.kiev.ua")),
+            ("a@x.github.io", None),
+            ("a@paypal.us.com", None),
+            ("a@x.eu.org", None),
+            ("a@a.b.co.uk", Some("b.co.uk")),
+            // msk.ru is a private suffix of the list (names are rented under it).
+            ("a@r1.mail.msk.ru", None),
+            ("a@r1.mail.spb.ru", None),
+            ("a@r1.mail.example.ru", Some("example.ru")),
+            ("a@ne.jp", None),
+            ("a@shop.example.ne.jp", Some("example.ne.jp")),
+            ("a@почта.рф", Some("xn--80a1acny.xn--p1ai")),
+            ("a@Новости.ПОЧТА.рф", Some("xn--80a1acny.xn--p1ai")),
+            ("a@localhost", None),
+            ("a@com", None),
+            ("nobody", None),
+        ] {
+            assert_eq!(logo_domain(email).as_deref(), want, "{email}");
+        }
     }
 
     #[test]

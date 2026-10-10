@@ -19,10 +19,13 @@ http = "1.5.0"
 http-body-util = "0.1.5"
 hyper = { version = "1.11.1", features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
+idna = "1.1.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder"] }
 mail-parser = "0.11.9"
 md-5 = "0.11.0"
 md4 = "0.11.0"
+psl = "2.1.241"
+psl-types = "2.0.11"
 pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 ring = "0.17.14"
 roxmltree = "0.21.1"
