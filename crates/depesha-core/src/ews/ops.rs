@@ -314,7 +314,20 @@ pub async fn list_folders(s: &mut Session) -> Result<Vec<(Folder, String)>> {
             break;
         }
     }
-    Ok(build_folders(&raw, &root, &known))
+    let folders = build_folders(&raw, &root, &known);
+    require_inbox(&folders)?;
+    Ok(folders)
+}
+
+/// A folder tree without the inbox is a cut answer (the `GetFolder` of the well-known ones
+/// lost it): taken for the truth, it would drop the cache of every folder. Every mailbox has
+/// an inbox; the error is a transient one, the worker asks again.
+fn require_inbox(folders: &[(Folder, String)]) -> Result<()> {
+    if folders.iter().any(|(f, _)| f.name == INBOX) {
+        Ok(())
+    } else {
+        Err(Error::Closed)
+    }
 }
 
 /// Turns the flat EWS list into named folders with roles; non-mail ones are hidden.
@@ -1784,6 +1797,21 @@ pub async fn wait_for_changes(s: &mut Session, store: &Store, account_id: &str, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_tree_without_the_inbox_is_a_broken_answer() {
+        let raw = [RawFolder {
+            id: "f1".into(),
+            parent: "root".into(),
+            name: "Работа".into(),
+            class: "IPF.Note".into(),
+        }];
+        // GetFolder of the well-known folders lost the inbox: nothing may be dropped from the cache.
+        let without = build_folders(&raw, "root", &HashMap::new());
+        assert!(require_inbox(&without).unwrap_err().is_transient());
+        let known = HashMap::from([("inbox", "f1".to_owned())]);
+        assert!(require_inbox(&build_folders(&raw, "root", &known)).is_ok());
+    }
 
     fn verb(v: &str) -> Flags {
         flags_of(&HashMap::from([
