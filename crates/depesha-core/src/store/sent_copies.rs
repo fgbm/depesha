@@ -152,8 +152,9 @@ impl Store {
              FROM sent_copies {filter} ORDER BY id"
         ))?;
         let rows = stmt.query_map([arg], |r| {
+            let id: i64 = r.get(0)?;
             Ok(SentCopy {
-                id: r.get(0)?,
+                id,
                 account_id: r.get(1)?,
                 folder: r.get(2)?,
                 raw: r.get(3)?,
@@ -162,9 +163,7 @@ impl Store {
                 attempts: r.get(6)?,
                 next_attempt: r.get(7)?,
                 last_error: r.get(8)?,
-                pending: r
-                    .get::<_, Option<String>>(9)?
-                    .and_then(|j| serde_json::from_str(&j).ok()),
+                pending: super::json_opt("sent_copies", "pending", id, r.get::<_, Option<String>>(9)?.as_deref()),
                 refusals: r.get(10)?,
                 paused: r.get::<_, i64>(11)? != 0,
                 subject: r.get(12)?,

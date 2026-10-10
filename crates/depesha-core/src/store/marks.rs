@@ -117,8 +117,8 @@ fn slot(act: Act) -> usize {
 
 /// The marks Depesha keeps for a letter as the list query reads them: `[reply, reply_all,
 /// forward, the row of my latest answer]`.
-pub(super) fn done_of(json: Option<String>) -> (Done, Option<i64>) {
-    let Some(v) = json.and_then(|s| serde_json::from_str::<[Option<i64>; 4]>(&s).ok()) else {
+pub(super) fn done_of(message: i64, json: Option<String>) -> (Done, Option<i64>) {
+    let Some(v) = super::json_opt::<[Option<i64>; 4]>("messages", "marks", message, json.as_deref()) else {
         return (Done::default(), None);
     };
     (
@@ -132,7 +132,7 @@ pub(super) fn done_of(json: Option<String>) -> (Done, Option<i64>) {
 }
 
 /// The answer in the outbox as the list query reads it.
-pub(super) fn outgoing_of(json: Option<String>) -> Option<Outgoing> {
+pub(super) fn outgoing_of(message: i64, json: Option<String>) -> Option<Outgoing> {
     #[derive(Deserialize)]
     struct Raw {
         act: String,
@@ -140,7 +140,7 @@ pub(super) fn outgoing_of(json: Option<String>) -> Option<Outgoing> {
         park: Option<bool>,
         queued: i64,
     }
-    let raw: Raw = serde_json::from_str(&json?).ok()?;
+    let raw: Raw = super::json_opt("messages", "outgoing", message, json.as_deref())?;
     Some(Outgoing {
         act: Act::parse(&raw.act)?,
         at: raw.at,

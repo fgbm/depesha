@@ -194,9 +194,9 @@ impl Store {
         else {
             return Ok(Vec::new());
         };
-        let from: Option<Addr> = from.and_then(|s| serde_json::from_str(&s).ok());
-        let to: Vec<Addr> = serde_json::from_str(&to).unwrap_or_default();
-        let cc: Vec<Addr> = serde_json::from_str(&cc).unwrap_or_default();
+        let from: Option<Addr> = super::json_opt("messages", "from_addr", id, from.as_deref());
+        let to: Vec<Addr> = super::json_col_or_default("messages", "to_addrs", id, &to);
+        let cc: Vec<Addr> = super::json_col_or_default("messages", "cc_addrs", id, &cc);
         let people = super::people(from.as_ref(), &to, &cc);
 
         let mut chain = vec![anchor.to_owned()];
@@ -241,7 +241,7 @@ impl Store {
                 if known.contains(&nmid) || !seen || ndate > date {
                     continue;
                 }
-                let nfrom: Option<Addr> = nfrom.and_then(|s| serde_json::from_str(&s).ok());
+                let nfrom: Option<Addr> = super::json_opt("messages", "from_addr", nid, nfrom.as_deref());
                 let sender = nfrom.map(|a| a.email.to_lowercase());
                 if !sender.as_deref().is_some_and(|e| people.iter().any(|p| p == e)) {
                     continue;
@@ -346,19 +346,24 @@ impl Store {
                 "back" => (ParkKind::Back, folder, stop_to.unwrap_or(home)),
                 _ => (ParkKind::Undo, folder, home),
             };
-            Ok(ParkJob {
+            // A job whose letters cannot be read is skipped: moving none of them and then
+            // settling the wait would lose which letters it parked. The row stays as it is.
+            let Ok(message_ids) = super::json_col("followups", "parked", &key, &r.get::<_, String>(5)?) else {
+                return Ok(None);
+            };
+            Ok(Some(ParkJob {
                 account_id,
                 key,
                 kind,
                 from,
                 to,
-                message_ids: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+                message_ids,
                 subject: r.get(6)?,
                 since: r.get(7)?,
                 anchor: r.get(8)?,
-            })
+            }))
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        Ok(rows.filter_map(|r| r.transpose()).collect::<rusqlite::Result<_>>()?)
     }
 
     /// The archival after an answer took these letters to the archive (#109): a wait that
@@ -573,7 +578,8 @@ impl Store {
             let rows = stmt.query_map(params![account_id, folder], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
-                    serde_json::from_str::<Vec<String>>(&r.get::<_, String>(1)?).unwrap_or_default(),
+                    // No letters read: the wait is not touched, and nothing is written for it.
+                    super::json_col_or_default("followups", "parked", r.get::<_, String>(0)?, &r.get::<_, String>(1)?),
                 ))
             })?;
             rows.collect::<rusqlite::Result<_>>()?
@@ -619,7 +625,8 @@ impl Store {
         let Some(parked) = parked else {
             return Ok(());
         };
-        let mut letters: Vec<String> = serde_json::from_str(&parked).unwrap_or_default();
+        // Written back below: letters that cannot be read must not be replaced by the new ones alone.
+        let mut letters: Vec<String> = super::json_col("followups", "parked", key, &parked)?;
         for id in message_ids {
             let id = bare(id);
             if !letters.iter().any(|p| p == id) {
@@ -1230,6 +1237,39 @@ mod tests {
         assert_eq!(serde_json::from_str::<Vec<String>>(&parked).unwrap(), ["q@x"]);
     }
 
+    /// The letters a wait parked cannot be read (#146): no move runs on a guess, and no write
+    /// replaces the list with an empty or a shorter one. The row stays as it is.
+    #[test]
+    fn parked_letters_that_do_not_parse_are_neither_moved_nor_overwritten() {
+        let store = mailbox();
+        waiting(&store, 0);
+        let set = |park: &str| {
+            store
+                .conn()
+                .execute(
+                    "UPDATE followups SET parked = '{', park = ?1 WHERE message_id = 'r@x'",
+                    [park],
+                )
+                .unwrap();
+        };
+        set("back");
+        assert!(
+            store.park_jobs().unwrap().is_empty(),
+            "no job on letters nobody can name"
+        );
+        set("parked");
+        assert!(store.followup_reparked("a", "r@x", WAIT, &["q1@x".into()]).is_err());
+        let moved = store.followups_left("a", WAIT, &["q1@x".into()], 5).unwrap();
+        assert!(moved.is_empty());
+        let (parked, park): (String, String) = store
+            .conn()
+            .query_row("SELECT parked, park FROM followups WHERE message_id = 'r@x'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((parked.as_str(), park.as_str()), ("{", "parked"));
+    }
+
     #[test]
     fn a_stop_during_the_move_in_returns_after_the_undo_toast_to_the_place_it_said() {
         let store = mailbox();
@@ -1723,7 +1763,7 @@ mod tests {
                      VALUES ('a', 'INBOX', 1, 'q@x', '[]', 'Счёт', '[]', '[]', '[]', 100, 1, 1, 1, 0, 0, 0, 'q@x');
                  INSERT INTO followups (account_id, message_id, subject, recipients, sent, due, deadline)
                      VALUES ('a', 'q@x', 'Счёт', 'maria@example.org', 100, 500, 500);
-                 INSERT INTO outbox (account_id, draft, next_attempt, created) VALUES ('a', '{}', 1, 1);",
+                 INSERT INTO outbox (account_id, draft, next_attempt, created) VALUES ('a', '{\"from\":null,\"to\":[],\"cc\":[],\"bcc\":[],\"subject\":\"\",\"text\":\"\",\"html\":null,\"in_reply_to\":null,\"references\":[],\"attachments\":[]}', 1, 1);",
             )
             .unwrap();
         }

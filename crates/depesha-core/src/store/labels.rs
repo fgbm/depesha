@@ -205,7 +205,7 @@ impl Store {
                 "SELECT display_name, owner_kind, owner_name, rights, labels_on_server, permanent, label_check, refused, checked
                  FROM folder_props WHERE account_id = ?1 AND folder = ?2",
                 params![account_id, folder],
-                row_props,
+                |r| row_props(r, account_id),
             )
             .ok())
     }
@@ -218,7 +218,7 @@ impl Store {
              FROM folder_props WHERE account_id = ?1",
         )?;
         let rows = stmt.query_map([account_id], |r| {
-            let mut p = row_props(r)?;
+            let mut p = row_props(r, account_id)?;
             p.folder = r.get(9)?;
             Ok(p)
         })?;
@@ -302,12 +302,14 @@ impl Store {
                 "SELECT personal, other_users, shared, checked FROM namespaces WHERE account_id = ?1",
                 [account_id],
                 |r| {
-                    let parse = |s: String| serde_json::from_str(&s).unwrap_or_default();
+                    let parse = |column: &'static str, s: String| {
+                        super::json_col_or_default("namespaces", column, account_id, &s)
+                    };
                     Ok((
                         Namespace {
-                            personal: parse(r.get(0)?),
-                            other_users: parse(r.get(1)?),
-                            shared: parse(r.get(2)?),
+                            personal: parse("personal", r.get(0)?),
+                            other_users: parse("other_users", r.get(1)?),
+                            shared: parse("shared", r.get(2)?),
                         },
                         r.get(3)?,
                     ))
@@ -453,7 +455,12 @@ impl Store {
                 )
                 .optional()?;
             let Some(current) = current else { continue };
-            let mut kw: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
+            // Written back below: keywords that do not parse are left as they are, not replaced.
+            let Ok(mut kw) =
+                super::json_col::<Vec<String>>("messages", "keywords", format!("{folder}/{uid}"), &current)
+            else {
+                continue;
+            };
             kw.retain(|k| !remove.contains(k));
             for a in add {
                 if !kw.contains(a) {
@@ -470,7 +477,7 @@ impl Store {
     }
 }
 
-fn row_props(r: &rusqlite::Row<'_>) -> rusqlite::Result<FolderProps> {
+fn row_props(r: &rusqlite::Row<'_>, account_id: &str) -> rusqlite::Result<FolderProps> {
     let rights: Option<String> = r.get(3)?;
     let permanent: String = r.get(5).unwrap_or_else(|_| "[]".into());
     let kind: String = r.get(1)?;
@@ -481,7 +488,7 @@ fn row_props(r: &rusqlite::Row<'_>) -> rusqlite::Result<FolderProps> {
         owner: owner_of(&kind, name),
         rights: rights.map(|s| crate::acl::Rights::from_letters(&s)),
         labels_on_server: r.get::<_, Option<i64>>(4)?.map(|v| v != 0),
-        permanent: serde_json::from_str(&permanent).unwrap_or_default(),
+        permanent: super::json_col_or_default("folder_props", "permanent", account_id, &permanent),
         label_check: r.get::<_, Option<String>>(6)?.and_then(|s| LabelCheck::parse(&s)),
         refused: r.get(7)?,
         checked: r.get(8)?,

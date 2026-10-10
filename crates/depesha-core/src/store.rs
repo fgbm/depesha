@@ -16,6 +16,7 @@ use crate::message::{Summary, Unsubscribe};
 use crate::query::SearchQuery;
 
 mod followups;
+mod json;
 pub use followups::{
     DEFAULT_KEEP_DAYS, Followup, FollowupCounts, FollowupFilter, FollowupInfo, FollowupPlan, FollowupStatus,
 };
@@ -32,6 +33,8 @@ pub use sent_copies::{NewSentCopy, SentCopy, StuckCopy};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
 mod waiting;
+
+use json::{json_col, json_col_or_default, json_opt};
 pub use waiting::{ParkJob, ParkKind, Parking, WaitFolder, moves, parks, waiting_folder};
 
 /// Settings of the connection, made at every open: not part of the cache itself.
@@ -1755,7 +1758,7 @@ impl Store {
                     continue;
                 }
                 count += 1;
-                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok()) {
+                if let Some(a) = json_opt::<Addr>("messages", "from_addr", id, from.as_deref()) {
                     if !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email)) {
                         senders.push(a.clone());
                     }
@@ -1792,7 +1795,7 @@ impl Store {
             .query_row("SELECT unsubscribe FROM messages WHERE id = ?1", [id], |r| r.get(0))
             .optional()?
             .flatten();
-        Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+        Ok(json.map(|j| json_col("messages", "unsubscribe", id, &j)).transpose()?)
     }
 
     /// The letter of the folder with this Message-ID; of duplicates the newest (the highest UID).
@@ -2437,11 +2440,17 @@ impl Store {
                 followup_due_at, followup_deadline_at, followup_park, followup_archive
              FROM outbox ORDER BY next_attempt, id",
         )?;
+        // A draft that does not parse stays in the table and out of the list: one bad row
+        // must not stop the queue, and sending a blank letter in its place is worse.
         let rows = stmt.query_map([], |r| {
-            Ok(OutboxItem {
-                id: r.get(0)?,
+            let id: i64 = r.get(0)?;
+            let Ok(draft) = json_col("outbox", "draft", id, &r.get::<_, String>(2)?) else {
+                return Ok(None);
+            };
+            Ok(Some(OutboxItem {
+                id,
                 account_id: r.get(1)?,
-                draft: serde_json::from_str(&r.get::<_, String>(2)?).unwrap_or_default(),
+                draft,
                 attempts: r.get(3)?,
                 next_attempt: r.get(4)?,
                 last_error: r.get(5)?,
@@ -2459,9 +2468,9 @@ impl Store {
                     park: r.get(16)?,
                     archive: r.get(17)?,
                 },
-            })
+            }))
         })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        Ok(rows.filter_map(|r| r.transpose()).collect::<rusqlite::Result<_>>()?)
     }
 
     /// Takes the letter `id` to send: marks that its send has started (`started`) and gives
@@ -2470,8 +2479,11 @@ impl Store {
     /// take (the user took it back after the round read the queue), is being sent already, or
     /// waits for the user. Two rounds, or a round and a cancel, cannot both have the letter.
     pub fn outbox_sending(&self, id: i64, started: i64) -> Result<Option<Draft>> {
-        let draft: Option<String> = self
-            .conn()
+        // A draft that does not parse is not sent as a blank letter: the mark is rolled back,
+        // the row stays, and the caller hears why.
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let draft: Option<String> = tx
             .query_row(
                 "UPDATE outbox SET sending_started = ?2
                  WHERE id = ?1 AND sending_started = 0 AND failed = 0 RETURNING draft",
@@ -2479,7 +2491,9 @@ impl Store {
                 |r| r.get(0),
             )
             .optional()?;
-        Ok(draft.map(|d| serde_json::from_str(&d).unwrap_or_default()))
+        let draft = draft.map(|d| json_col("outbox", "draft", id, &d)).transpose()?;
+        tx.commit()?;
+        Ok(draft)
     }
 
     pub fn outbox_retry_later(&self, id: i64, next_attempt: i64, error: &str, permanent: bool) -> Result<()> {
@@ -2501,8 +2515,10 @@ impl Store {
     /// Takes a letter out of the outbox back into editing, unless its send has started: then
     /// the letter may have left, and it stays for the round that holds it to settle.
     pub fn outbox_withdraw(&self, id: i64) -> Result<Withdrawn> {
-        let conn = self.conn();
-        let draft: Option<String> = conn
+        let mut conn = self.conn();
+        // Parsed before the row goes: a draft that cannot be read is not deleted on the way.
+        let tx = conn.transaction()?;
+        let draft: Option<String> = tx
             .query_row(
                 "DELETE FROM outbox WHERE id = ?1 AND sending_started = 0 RETURNING draft",
                 [id],
@@ -2510,8 +2526,11 @@ impl Store {
             )
             .optional()?;
         if let Some(draft) = draft {
-            return Ok(serde_json::from_str(&draft).map_or(Withdrawn::Gone, |d| Withdrawn::Draft(Box::new(d))));
+            let draft: Draft = json_col("outbox", "draft", id, &draft)?;
+            tx.commit()?;
+            return Ok(Withdrawn::Draft(Box::new(draft)));
         }
+        drop(tx);
         let there = conn
             .query_row("SELECT 1 FROM outbox WHERE id = ?1", [id], |_| Ok(()))
             .optional()?
@@ -2520,11 +2539,15 @@ impl Store {
     }
 
     pub fn outbox_remove(&self, id: i64) -> Result<Option<Draft>> {
-        let conn = self.conn();
-        let draft: Option<String> = conn
+        let mut conn = self.conn();
+        // Parsed before the row goes: a draft that cannot be read stays in the outbox.
+        let tx = conn.transaction()?;
+        let draft: Option<String> = tx
             .query_row("DELETE FROM outbox WHERE id = ?1 RETURNING draft", [id], |r| r.get(0))
             .optional()?;
-        Ok(draft.and_then(|d| serde_json::from_str(&d).ok()))
+        let draft = draft.map(|d| json_col("outbox", "draft", id, &d)).transpose()?;
+        tx.commit()?;
+        Ok(draft)
     }
 
     pub fn trust_sender(&self, email: &str) -> Result<()> {
@@ -2573,7 +2596,7 @@ impl Store {
             dmarc
                 && !matches!(role.as_deref(), Some("trash" | "junk"))
                 && from
-                    .and_then(|s| serde_json::from_str::<Addr>(&s).ok())
+                    .and_then(|s| json_opt::<Addr>("messages", "from_addr", message_id, Some(&s)))
                     .is_some_and(|a| a.email.eq_ignore_ascii_case(email))
         }))
     }
@@ -2904,9 +2927,9 @@ fn link_thread(conn: &Connection, account_id: &str, l: &Links, fallback: String)
         )?;
         for row in rows {
             let (thread, f, to, cc) = row?;
-            let f: Option<Addr> = f.and_then(|s| serde_json::from_str(&s).ok());
-            let to: Vec<Addr> = serde_json::from_str(&to).unwrap_or_default();
-            let cc: Vec<Addr> = serde_json::from_str(&cc).unwrap_or_default();
+            let f: Option<Addr> = json_opt("messages", "from_addr", &thread, f.as_deref());
+            let to: Vec<Addr> = json_col_or_default("messages", "to_addrs", &thread, &to);
+            let cc: Vec<Addr> = json_col_or_default("messages", "cc_addrs", &thread, &cc);
             // An answer goes between the same people: each side wrote to the other.
             let theirs = people(f.as_ref(), &to, &cc);
             let their_from = f.map(|a| a.email.to_lowercase());
@@ -3048,19 +3071,18 @@ fn rethread(conn: &Connection) -> Result<()> {
              FROM messages ORDER BY date, id",
         )?;
         stmt.query_map([], |r| {
+            let id: i64 = r.get(0)?;
             Ok(Old {
-                id: r.get(0)?,
+                id,
                 account_id: r.get(1)?,
                 summary: Summary {
                     message_id: r.get(2)?,
                     in_reply_to: r.get(3)?,
-                    references: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+                    references: json_col_or_default("messages", "refs", id, &r.get::<_, String>(4)?),
                     subject: r.get(5)?,
-                    from: r
-                        .get::<_, Option<String>>(6)?
-                        .and_then(|s| serde_json::from_str(&s).ok()),
-                    to: serde_json::from_str(&r.get::<_, String>(7)?).unwrap_or_default(),
-                    cc: serde_json::from_str(&r.get::<_, String>(8)?).unwrap_or_default(),
+                    from: json_opt("messages", "from_addr", id, r.get::<_, Option<String>>(6)?.as_deref()),
+                    to: json_col_or_default("messages", "to_addrs", id, &r.get::<_, String>(7)?),
+                    cc: json_col_or_default("messages", "cc_addrs", id, &r.get::<_, String>(8)?),
                     ..Default::default()
                 },
                 date: r.get(9)?,
@@ -3088,7 +3110,7 @@ fn fill_sort_keys(conn: &Connection) -> Result<()> {
         .collect::<rusqlite::Result<_>>()?;
     let mut set = conn.prepare("UPDATE messages SET sort_sender = ?2, sort_subject = ?3 WHERE id = ?1")?;
     for (id, subject, from) in rows {
-        let from: Option<Addr> = from.and_then(|s| serde_json::from_str(&s).ok());
+        let from: Option<Addr> = json_opt("messages", "from_addr", id, from.as_deref());
         set.execute(params![
             id,
             crate::message::sender_sort_key(from.as_ref()),
@@ -3151,10 +3173,11 @@ fn role_word(word: &str) -> Option<FolderRole> {
 }
 
 fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
-    let addrs = |i: usize| -> rusqlite::Result<Vec<Addr>> {
-        Ok(serde_json::from_str(&r.get::<_, String>(i)?).unwrap_or_default())
+    let id: i64 = r.get(0)?;
+    let addrs = |column: &'static str, i: usize| -> rusqlite::Result<Vec<Addr>> {
+        Ok(json_col_or_default("messages", column, id, &r.get::<_, String>(i)?))
     };
-    let followup = followups::info_of(r.get(22)?);
+    let followup = followups::info_of(id, r.get(22)?);
     let flags = Flags {
         seen: r.get(14)?,
         answered: r.get(15)?,
@@ -3164,28 +3187,26 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         forwarded: r.get(23)?,
         answered_all: r.get(24)?,
     };
-    let (done, my_answer) = marks::done_of(r.get(26)?);
-    let outgoing = marks::outgoing_of(r.get(27)?);
+    let (done, my_answer) = marks::done_of(id, r.get(26)?);
+    let outgoing = marks::outgoing_of(id, r.get(27)?);
     Ok(MessageRow {
-        id: r.get(0)?,
+        id,
         account_id: r.get(1)?,
         folder: r.get(2)?,
         uid: r.get(3)?,
         message_id: r.get(4)?,
         in_reply_to: r.get(5)?,
-        references: serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default(),
+        references: json_col_or_default("messages", "refs", id, &r.get::<_, String>(6)?),
         subject: r.get(7)?,
-        from: r
-            .get::<_, Option<String>>(8)?
-            .and_then(|s| serde_json::from_str(&s).ok()),
-        to: addrs(9)?,
-        cc: addrs(10)?,
-        reply_to: addrs(11)?,
+        from: json_opt("messages", "from_addr", id, r.get::<_, Option<String>>(8)?.as_deref()),
+        to: addrs("to_addrs", 9)?,
+        cc: addrs("cc_addrs", 10)?,
+        reply_to: addrs("reply_to", 11)?,
         date: r.get(12)?,
         size: r.get(13)?,
         marks: marks::marks_of(&flags, &done, outgoing.as_ref()),
         flags,
-        keywords: serde_json::from_str(&r.get::<_, String>(25)?).unwrap_or_default(),
+        keywords: json_col_or_default("messages", "keywords", id, &r.get::<_, String>(25)?),
         has_attachments: r.get(18)?,
         thread: r.get(19)?,
         bulk: r.get(20)?,
@@ -5727,7 +5748,7 @@ mod tests {
                     continue;
                 }
                 count += 1;
-                if let Some(a) = from.and_then(|s| serde_json::from_str::<Addr>(&s).ok()) {
+                if let Some(a) = json_opt::<Addr>("messages", "from_addr", id, from.as_deref()) {
                     if !senders.iter().any(|s| s.email.eq_ignore_ascii_case(&a.email)) {
                         senders.push(a.clone());
                     }

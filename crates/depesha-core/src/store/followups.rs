@@ -101,8 +101,8 @@ pub struct FollowupInfo {
 }
 
 /// The wait of a letter in a list row: the JSON the list query makes of it.
-pub(super) fn info_of(json: Option<String>) -> Option<FollowupInfo> {
-    json.and_then(|s| serde_json::from_str(&s).ok())
+pub(super) fn info_of(message: i64, json: Option<String>) -> Option<FollowupInfo> {
+    super::json_opt("messages", "followup", message, json.as_deref())
 }
 
 /// The next reminder of a wait still waiting; none when it waits without one.

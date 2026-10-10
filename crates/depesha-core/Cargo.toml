@@ -38,9 +38,11 @@ stop-token = "0.7.0"
 thiserror = "2.0.21"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
+tracing = "0.1.44"
 x509-parser = "0.18.1"
 
 [dev-dependencies]
 # Tests count the statements and commits an operation runs.
 rusqlite = { version = "0.40.2", features = ["bundled", "functions", "trace"] }
 tempfile = "3.27.0"
+tracing-subscriber = "0.3.23"
