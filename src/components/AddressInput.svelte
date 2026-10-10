@@ -39,6 +39,11 @@
     input?.focus();
   }
 
+  /** The caret is in this field. */
+  export function hasFocus(): boolean {
+    return !!input && document.activeElement === input;
+  }
+
   /** Something is typed and not yet a chip: a field with it is not folded by its key. */
   export function hasText(): boolean {
     return text.trim() !== "";

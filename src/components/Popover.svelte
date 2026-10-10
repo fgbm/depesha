@@ -71,8 +71,8 @@
     void at;
     before = document.activeElement as HTMLElement | null;
     place();
-    // The first item that is current (a select's value), or the first one: arrows go on from there.
-    const first = box.querySelector<HTMLElement>("[aria-selected='true']") ?? items()[0];
+    // The first item that is current (a select's value, the ticked one of a radio list), or the first one: arrows go on from there.
+    const first = box.querySelector<HTMLElement>("[aria-selected='true'], button.mi[aria-checked='true']") ?? items()[0];
     if (first) {
       first.focus({ preventScroll: true });
       box.scrollTop = Math.max(0, first.offsetTop - box.clientHeight / 2);

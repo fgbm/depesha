@@ -18,6 +18,7 @@
     onclose,
     extras,
     texts,
+    notBefore,
     onnone,
     onsetup,
   }: {
@@ -30,6 +31,8 @@
     onclose: () => void;
     extras?: WhenExtras;
     texts?: { placeholder: string; title: string; pick: string };
+    /** No moment up to this one (unix seconds) is offered. */
+    notBefore?: number;
     onnone?: () => void;
     onsetup?: () => void;
   } = $props();
@@ -37,7 +40,7 @@
   // One menu lives for one opening: what it was opened for is read once. The props are getters of
   // the opener's state, which is cleared the moment the menu closes, a step before its choice is
   // handed over: the choice must not read them again.
-  const target = untrack(() => ({ ids, anchor, extras, texts, onpick, onclose, onnone, onsetup }));
+  const target = untrack(() => ({ ids, anchor, extras, texts, notBefore, onpick, onclose, onnone, onsetup }));
   const now = new Date();
   const env = (): MenuEnv => ({
     now,
@@ -45,6 +48,7 @@
     lang: ctx.lang(),
     say: (key) => ctx.t(S[key as keyof typeof S] as { en: string; ru: string }, {}),
     extras: target.extras,
+    after: target.notBefore ? new Date(target.notBefore * 1000) : undefined,
   });
 
   const menu = new SnoozeMenu(env);
@@ -317,7 +321,7 @@
         {#if t.error === "format"}{ctx.t(S.timeFormat)}{:else if t.error === "passed"}{ctx.t(S.timePassed)}: {fmtWhen(t.at, lang)}{:else}→ {fmtWhen(t.at, lang)}{/if}
       </div>
       <div class="pf">
-        <button type="button" class="btn small" tabindex="-1" onclick={() => apply({ type: "back" })}>{ctx.t(S.cancel)} <kbd>Esc</kbd></button>
+        <button type="button" class="btn small" tabindex="-1" onclick={() => apply({ type: "back" })}>{ctx.t(S.cancel)}</button>
         <button
           type="button"
           class="btn small primary"
@@ -325,7 +329,7 @@
           bind:this={okButton}
           disabled={!!t.error}
           tabindex="-1"
-          onclick={() => picker && apply(picker.confirm())}>{target.texts?.pick ?? ctx.t(S.action)} <kbd>↵</kbd></button
+          onclick={() => picker && apply(picker.confirm())}>{target.texts?.pick ?? ctx.t(S.action)}</button
         >
       </div>
       <div class="pk">{ctx.t(S.calKeys)}</div>

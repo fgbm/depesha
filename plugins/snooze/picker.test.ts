@@ -113,3 +113,13 @@ describe("the time and the end of the calendar", () => {
     expect(weeks.some((d) => d.getMonth() === 9 && d.getDate() === 31)).toBe(true);
   });
 });
+
+describe("the calendar of a reminder (#103)", () => {
+  it("counts a moment not later than the sending time as passed", () => {
+    const p = new Picker(() => ({ now: thursday, work: DEFAULT_WORK_TIME, lang: "ru", say: (k) => k, after: new Date(2026, 9, 12, 12, 0) }));
+    // Starts on Fri 9 Oct 9:00: before the letter leaves on Mon 12 Oct.
+    expect(p.target.error).toBe("passed");
+    p.day = new Date(2026, 9, 13);
+    expect(p.target.error).toBeUndefined();
+  });
+});

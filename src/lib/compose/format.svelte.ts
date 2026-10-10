@@ -284,6 +284,12 @@ export class ComposeFormat {
     return letterText(split.head, this.quoteText.text);
   }
 
+  /** The caret goes back to the text of the letter, whatever its format. */
+  focusText() {
+    if (this.format === "html") this.rich?.focus();
+    else this.body?.focus();
+  }
+
   insertText(text: string) {
     if (this.format === "html") return this.rich?.insertText(text);
     const at = this.body ? this.body.selectionStart : 0;

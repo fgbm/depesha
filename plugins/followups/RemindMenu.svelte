@@ -6,7 +6,7 @@
   // a deadline", keeping the choice) and the saved choices. Alt+R opens the menu from the keyboard.
   import AlarmClock from "@lucide/svelte/icons/alarm-clock";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
-  import { Popover, closeWhenMenu, openWhenMenu, when, whenMenu, type ComposeContext, type PluginContext, type Text } from "@depesha/plugin-api";
+  import { Popover, closeWhenMenu, openWhenMenu, when, whenMenuAvailable, type ComposeContext, type PluginContext, type Text } from "@depesha/plugin-api";
   import { choiceOf, resolve, withDeadline } from "./choice.svelte";
   import DueForm from "./DueForm.svelte";
   import { planOf, type Due } from "./due";
@@ -26,6 +26,14 @@
   const made = $derived(resolve(c, saved, label, ctx, when));
   const recipients = $derived(awaitable(compose.draft.to, compose.draft.cc));
   const awaited = $derived(recipients.some((r) => r.email === c.expect) ? c.expect : "");
+  // The clock: a date picked a while ago may have passed by the time the letter leaves.
+  let now = $state(Date.now());
+  $effect(() => {
+    const tick = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(tick);
+  });
+  /** A date not later than the letter's leaving: the reminder then comes a minute after it, not at that date. */
+  const passed = $derived(!!made && "at" in made.choice && made.choice.at * 1000 <= Math.max(now, (compose.options.at ?? 0) * 1000));
   /** What the chip says: the time picked, or the name of a choice made in the form. */
   const text = $derived(!made ? say(S.remind0) : "at" in made.choice ? when(made.choice.at) : made.name);
 
@@ -51,22 +59,24 @@
   function open() {
     if (!button) return;
     // Without the plugin that draws the menu there is only the form.
-    if (!whenMenu.available) {
+    if (!whenMenuAvailable()) {
       form = true;
       return;
     }
     back = document.activeElement as HTMLElement | null;
     const r = button.getBoundingClientRect();
-    menu = true;
+    // A menu this one replaces is told it went away, so `menu` is set after it.
     openWhenMenu({
       anchor: { x: Math.round(r.left), y: Math.round(r.top), h: Math.round(r.height) },
       extras: { none: !made, noneLabel: say(S.remind0), setupLabel: say(S.custom) },
       texts: { placeholder: say(S.remindPlaceholder), title: say(S.remindHint), pick: say(S.remindPick) },
+      notBefore: compose.options.at ?? undefined,
       onpick: pick,
       onnone: none,
       onsetup: () => (form = true),
       onclose: close,
     });
+    menu = true;
   }
 
   function toggle() {
@@ -115,12 +125,12 @@
     class:on={!!made}
     data-snooze-button
     onclick={toggle}
-    title={say(S.remindHint)}
+    title={passed ? say(S.passedHint) : say(S.remindHint)}
     aria-label={say(S.remindHint)}
     aria-haspopup="menu"
     aria-expanded={menu}
   >
-    <AlarmClock size={13} /><span class="text">{text}</span><ChevronDown size={12} />
+    <AlarmClock size={13} /><span class="text">{text}</span>{#if passed}<span class="passed">{say(S.passedMark)}</span>{/if}<ChevronDown size={12} />
   </button>
   <Popover bind:open={form} align="left">
     <DueForm {ctx} title={say(S.customTitle)} full onDone={apply} onCancel={() => (form = false)} />
@@ -161,6 +171,11 @@
   .chip-btn:focus-visible {
     background: var(--hover);
     color: var(--ink);
+  }
+
+  .passed {
+    flex: none;
+    color: var(--warn);
   }
 
   .text {

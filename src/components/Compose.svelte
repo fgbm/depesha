@@ -215,7 +215,6 @@
     get pendingAt() { return sending.pendingAt; },
     get options() { return sending.options; },
     get controls() { return sending.controls; },
-    get composeCtx() { return sending.composeCtx; },
     get FORMATS() { return FORMATS; },
     putSignature: (sig: Signature | null) => fmt.putSignature(sig),
     setAccount: (id: string) => fmt.setAccount(id),
@@ -252,23 +251,30 @@
 
   peopleBook.load();
 
+  /** Alt+C and Alt+B: open the field and stand in it; an empty one with the caret in it folds again. */
+  async function openCopyField(cc: boolean) {
+    const shown = cc ? showCc : showBcc;
+    const list = cc ? c.draft.cc : c.draft.bcc;
+    const field = cc ? ccInput : bccInput;
+    // The caret goes back to «To», not to nowhere; from anywhere else the key takes it to the field.
+    if (shown && list.length === 0 && field && !field.hasText() && field.hasFocus()) {
+      if (cc) showCc = false;
+      else showBcc = false;
+      await tick();
+      toInput?.focus();
+      return;
+    }
+    if (cc) showCc = true;
+    else showBcc = true;
+    await tick();
+    (cc ? ccInput : bccInput)?.focus();
+  }
+
   /** The window's Alt keys (#103, 4.1 А): open the field or the menu, or close it again. */
   async function openPart(part: WindowPart) {
     if (c.mode === "min") return;
     if (part === "cc" || part === "bcc") {
-      const cc = part === "cc";
-      const shown = cc ? showCc : showBcc;
-      const list = cc ? c.draft.cc : c.draft.bcc;
-      // An empty open field folds again; one with addresses just takes the caret.
-      if (shown && list.length === 0 && !(cc ? ccInput : bccInput)?.hasText()) {
-        if (cc) showCc = false;
-        else showBcc = false;
-        return;
-      }
-      if (cc) showCc = true;
-      else showBcc = true;
-      await tick();
-      (cc ? ccInput : bccInput)?.focus();
+      await openCopyField(part === "cc");
     } else if (part === "from") {
       if (app.accounts.length > 1) fromOpen = !fromOpen;
     } else if (part === "files") {
@@ -297,6 +303,7 @@
     c.draft.attachments.splice(i, 1);
     if (!c.draft.attachments.length) {
       filesOpen = false;
+      fmt.focusText();
       return;
     }
     requestAnimationFrame(() => {
@@ -399,7 +406,7 @@
   <!-- The mailbox is in the title (#103, 1.1 Б): there is no «From» row. A plugin that names the
        mailbox colour puts it on this bar through `--row-tint` (account-color). -->
   <header>
-    {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
+    {#each m.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
     <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : m.minimize())} title={c.draft.subject.trim() || (c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold"))}>
       {c.draft.subject.trim() || t("compose.newMessage")}
     </button>
@@ -411,7 +418,7 @@
             <button
               class="mailbox"
               onclick={() => (m.fromOpen = !m.fromOpen)}
-              title={shortcuts.titled(t("compose.mailbox.change", { name: fromFull }), "compose.from")}
+              title={t("compose.mailbox.change", { name: fromFull })}
               aria-label={t("compose.mailbox.change", { name: fromFull })}
               aria-haspopup="menu"
               aria-expanded={m.fromOpen}
@@ -575,7 +582,7 @@
               <CornerUpLeft size={13} />{t("compose.quote")}{#if m.quoteOpen}<ChevronDown size={13} />{:else}<ChevronRight size={13} />{/if}
             </button>
           {/if}
-          {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
+          {#each m.controls.filter((x) => x.slot === "line") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
         </div>
       {/if}
       {#if hasQuote && m.quoteOpen}
@@ -627,8 +634,8 @@
 
     <footer>
       <span class="split-btn anchor">
-        <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")}{#if keyLabel("send")} <kbd>{keyLabel("send")}</kbd>{/if}</button>
-        {#each m.controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
+        <button class="btn primary main" onclick={() => m.send()} disabled={m.busy}>{m.options.at ? t("compose.schedule") : t("compose.send")}</button>
+        {#each m.controls.filter((x) => x.slot === "send") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
       </span>
       {#if m.options.at}
         <span class="scheduled">
@@ -646,7 +653,7 @@
         </span>
       {/if}
       <button class="btn" onclick={m.attach} disabled={m.busy} title={t("compose.attachHint")} aria-label={t("compose.files")}><Paperclip size={15} />{#if m.width >= 460} {t("compose.files")}{/if}</button>
-      {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={m.composeCtx} />{/each}
+      {#each m.controls.filter((x) => !x.slot || x.slot === "footer") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
       <span class="spacer"></span>
       <!-- The format of this letter, the only place it is shown (#103, 3.2 А): a button whose
            label says the current one. In a narrow window only its icon shows. -->
@@ -1159,11 +1166,6 @@
     gap: 8px;
     padding: 10px 18px 14px;
     border-top: 1px solid var(--line);
-  }
-
-  footer kbd {
-    border-color: rgb(255 255 255 / 40%);
-    color: var(--accent-ink);
   }
 
   .anchor {

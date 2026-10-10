@@ -41,7 +41,8 @@ export class Picker {
     const clock = parseClock(this.time);
     if (!clock) return { error: "format" };
     const at = atClock(this.day, clock);
-    return at.getTime() <= this.env().now.getTime() ? { at, error: "passed" } : { at };
+    const { now, after } = this.env();
+    return at.getTime() <= Math.max(now.getTime(), after?.getTime() ?? 0) ? { at, error: "passed" } : { at };
   }
 
   /** The 6 weeks that show the month of `day`, Monday first. */

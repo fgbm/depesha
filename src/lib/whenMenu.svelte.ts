@@ -16,6 +16,8 @@ export interface WhenMenuRequest {
   anchor: Anchor;
   extras: WhenExtras;
   texts: { placeholder: string; title: string; pick: string };
+  /** No moment up to this one (unix seconds) is offered: the reminder of a letter that leaves then. */
+  notBefore?: number;
   /** The moment chosen, in unix seconds. */
   onpick: (at: number) => void;
   onnone: () => void;
@@ -24,16 +26,35 @@ export interface WhenMenuRequest {
   onclose: () => void;
 }
 
-export const whenMenu = $state({
+// Behind functions: what a plugin may do with the menu is these calls, not the state.
+const state = $state({
   /** The plugin that draws the menu is switched on. */
   available: false,
   request: null as WhenMenuRequest | null,
 });
 
+/** Whether somebody draws the menu now; a borrower without one has to do with its own form. */
+export function whenMenuAvailable(): boolean {
+  return state.available;
+}
+
+/** The plugin that draws the menu says it is there, and later that it is gone. */
+export function provideWhenMenu(on: boolean) {
+  state.available = on;
+}
+
+/** What is asked of the menu now; the drawing plugin reads it. */
+export function whenMenuRequest(): WhenMenuRequest | null {
+  return state.request;
+}
+
+/** Hangs the menu for `request`; the request it replaces is told it went away. */
 export function openWhenMenu(request: WhenMenuRequest) {
-  whenMenu.request = request;
+  const old = state.request;
+  state.request = request;
+  old?.onclose();
 }
 
 export function closeWhenMenu() {
-  whenMenu.request = null;
+  state.request = null;
 }

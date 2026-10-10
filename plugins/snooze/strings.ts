@@ -31,8 +31,8 @@ export const S = {
   prevMonth: { en: "Previous month", ru: "Предыдущий месяц" },
   nextMonthStep: { en: "Next month", ru: "Следующий месяц" },
   calKeys: {
-    en: "←→ day · ↑↓ week · PgUp/PgDn month · Shift+PgUp/PgDn year · Tab time · Enter snooze · Esc back",
-    ru: "←→ день · ↑↓ неделя · PgUp/PgDn месяц · Shift+PgUp/PgDn год · Tab к времени · Enter отложить · Esc назад",
+    en: "←→ day · ↑↓ week · PgUp/PgDn month · Shift+PgUp/PgDn year · Tab time",
+    ru: "←→ день · ↑↓ неделя · PgUp/PgDn месяц · Shift+PgUp/PgDn год · Tab к времени",
   },
   view: { en: "Snoozed", ru: "Отложенные" },
   empty: {

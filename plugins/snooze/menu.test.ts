@@ -85,7 +85,7 @@ describe("the letters and the line of the Snooze menu", () => {
     type(menu, "KeyP", "з");
     menu.setQuery("завтра 18");
     expect(menu.hot).toBe(false);
-    expect(menu.rows[0]).toMatchObject({ id: "parsed", key: "↵", hint: "fromYou" });
+    expect(menu.rows[0]).toMatchObject({ id: "parsed", key: "", hint: "fromYou" });
     expect(menu.rows[0].label).toBe("пт, 9 окт, 18:00");
     expect(lit(menu)).toBe("parsed");
     expect(stamp(menu.key(press("Enter")))).toBe("10.9 18:00");
@@ -243,5 +243,27 @@ describe("the reminder's menu: the same one with two more rows (#103, 4.4 А)", 
     type(menu, "Comma", "б");
     expect(menu.hot).toBe(false);
     expect(lit(menu)).toBe(null);
+  });
+});
+
+describe("a reminder cannot come before the letter leaves (#103)", () => {
+  // Scheduled for Sat 10 Oct, 12:00: «Evening», «Tomorrow» and «Weekend» come at or before it.
+  const leaving = new Date(2026, 9, 10, 12, 0);
+  const scheduled = () => new SnoozeMenu(() => ({ now: thursday, work: DEFAULT_WORK_TIME, lang: "ru", say: (key) => key, after: leaving }));
+
+  it("hides the moments not later than the sending time, and keeps the rest", () => {
+    expect(scheduled().rows.map((r) => r.id)).toEqual(["nextWeek", "nextMonth", "days", "custom"]);
+  });
+
+  it("leaves out the working days not later than it", () => {
+    expect(scheduled().days.every((d) => d.at.getTime() > leaving.getTime())).toBe(true);
+  });
+
+  it("reads a typed moment before it as passed", () => {
+    const menu = scheduled();
+    menu.setQuery("завтра 18");
+    expect(menu.parsed).toEqual({ ok: false, reason: "passed" });
+    menu.setQuery("пн 9:00");
+    expect(menu.parsed?.ok).toBe(true);
   });
 });

@@ -32,6 +32,8 @@ export interface MenuEnv {
   say(key: string): string;
   /** Set by the reminder's menu; the snooze menu has none. */
   extras?: Extras;
+  /** The reminder of a letter that leaves later: no moment up to then is offered. */
+  after?: Date;
 }
 
 /** The part of a keydown the menu reads. */
@@ -112,14 +114,17 @@ export class SnoozeMenu {
 
   get days(): WorkdaySlot[] {
     const { now, work } = this.env();
-    return workdaySlots(now, work);
+    const { after } = this.env();
+    return workdaySlots(now, work).filter((d) => !after || d.at.getTime() > after.getTime());
   }
 
   /** The text of the line read as a moment; none while the line is empty or is one key of an item. */
   get parsed(): Parsed | null {
     if (!this.q.trim() || this.hot) return null;
     const { now, work } = this.env();
-    return parseWhen(this.q, now, work);
+    const p = parseWhen(this.q, now, work);
+    const { after } = this.env();
+    return p.ok && after && p.at.getTime() <= after.getTime() ? { ok: false, reason: "passed" } : p;
   }
 
   /** What the line says when it cannot be used: a hint under it. */
@@ -143,7 +148,10 @@ export class SnoozeMenu {
       at: null,
       ...rest,
     });
-    const list = slots(now, work).map((s) =>
+    const { after: notBefore } = this.env();
+    const list = slots(now, work)
+      .filter((s) => !(notBefore && s.at && s.at.getTime() <= notBefore.getTime()))
+      .map((s) =>
       row(s.id, {
         at: s.at,
         off: s.off !== null,
@@ -166,7 +174,7 @@ export class SnoozeMenu {
     const p = this.parsed;
     const { lang, say } = this.env();
     if (!p?.ok) return this.items;
-    const parsed: Row = { id: "parsed", kind: "item", label: fmtWhen(p.at, lang), hint: say("fromYou"), key: "↵", off: false, at: p.at };
+    const parsed: Row = { id: "parsed", kind: "item", label: fmtWhen(p.at, lang), hint: say("fromYou"), key: "", off: false, at: p.at };
     return [parsed, ...this.items];
   }
 

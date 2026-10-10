@@ -632,7 +632,8 @@ try {
     );
     await openBySubject("Счёт за октябрь");
     await openBySubject("HTML-письмо с картинками");
-    if ((await d.bodyText()).includes("Внешние картинки скрыты")) throw new Error("доверие отправителю не сохранилось");
+    // The letter is drawn a moment after it is opened: wait for the answer, not for the first look.
+    await d.until("trust kept", async () => !(await d.bodyText()).includes("Внешние картинки скрыты"));
   });
 
   await step("4.5", "вложение сохраняется на диск без искажений", async () => {
@@ -2374,7 +2375,6 @@ try {
     }
   });
 
-  await step("5.10", "«Ждут ответа»: свой срок через «Настроить…» запоминается в списке", async () => {
   await step("5.10", "ответ с напоминанием и парковкой: «Не ждать» и «Отменить» — письмо остаётся в папке «Ждут ответа» (#98)", async () => {
     const subj = `Парковка ${stamp}`;
     const acc = (await invoke("accounts"))[0];
@@ -2413,6 +2413,7 @@ try {
     }
   });
 
+  await step("5.10", "«Ждут ответа»: свой срок через «Настроить…» запоминается в списке", async () => {
     const subj = `Свой срок ${stamp}`;
     await newMessage("carol@local.test", subj, "Жду ответа.");
     await remindMenu();
@@ -2449,17 +2450,17 @@ try {
     await openBySubject(subj);
     await d.button("Не ждать");
     await d.until("not waiting", async () => (await invoke("counters")).followups === 0, 20000);
-    // The toast says so and takes it back (#98): the wait returns, with its reminder.
     // The list of waits is read again after the button of the banner: the row is gone from «Активные».
     await d.until("row left the list", async () => !(await textOf(".list")).includes(subj), 20000);
+    // The toast says so and takes it back (#98): the wait returns, with its reminder.
     const stopToast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Не ждём ответа')]";
     await d.until("stop toast", () => d.xpath(stopToast));
     await screenshot("followups-stop-toast", { toasts: true });
     await d.click(await d.xpath(`${stopToast}//button[contains(@class,'act')]`));
     await d.until("waiting again", async () => (await invoke("counters")).followups > 0, 20000);
     await d.until("wait banner back", async () => (await textOf(".reader")).includes("Не ждать"), 20000);
-    await d.button("Не ждать");
     await d.until("row is back", async () => (await textOf(".list")).includes(subj), 20000);
+    await d.button("Не ждать");
     await d.until("not waiting again", async () => (await invoke("counters")).followups === 0, 20000);
     // Closed by hand: among the closed, and the banner offers to wait again.
     await d.until("closed banner", async () => (await textOf(".reader")).includes("Снова ждать ответа"), 20000);
@@ -2493,6 +2494,19 @@ try {
     if ((await focusedRow()) !== "Копия") throw new Error(`курсор в «${await focusedRow()}»`);
     await altKey("c", "KeyC", ".compose .fields .row:nth-child(2) input");
     await d.until("empty Cc folded", async () => (await rows()).join() === "Кому,Тема");
+    // The caret does not leave the window: it goes to «To», and the keys of the window still work from there.
+    if ((await focusedRow()) !== "Кому") throw new Error(`после сворачивания курсор в «${await focusedRow()}»`);
+    await d.exec("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: true, bubbles: true }))");
+    await d.until("saved from the focus", async () => (await textOf(".compose .saved")).includes("Сохранено"), 15000);
+    // Alt+C from elsewhere takes the caret to an open empty «Cc» instead of folding it.
+    await altKey("c", "KeyC");
+    await d.until("Cc opened again", async () => (await focusedRow()) === "Копия");
+    await d.exec("document.querySelector('.compose .subject').focus()");
+    await altKey("c", "KeyC");
+    await d.until("caret in Cc", async () => (await focusedRow()) === "Копия");
+    if ((await rows()).join() !== "Кому,Копия,Тема") throw new Error("«Копия» свернулась от Alt+C из другого места");
+    await altKey("c", "KeyC", ".compose .fields .row:nth-child(2) input");
+    await d.until("folded from inside", async () => (await rows()).join() === "Кому,Тема");
     await altKey("b", "KeyB");
     await d.until("Bcc opened", async () => (await rows()).join() === "Кому,Скрытая,Тема");
     if ((await focusedRow()) !== "Скрытая") throw new Error(`курсор в «${await focusedRow()}»`);
@@ -2567,6 +2581,15 @@ try {
     await d.until("night", async () => (await d.exec("return document.documentElement.dataset.theme ?? ''")) === "night");
     await screenshot("compose-103-files-night");
     await invoke("settings_patch", { patch: { theme } });
+
+    // The last file taken off the list gives the caret back to the text.
+    await altKey("a", "KeyA");
+    await d.until("list again", async () => (await d.findAll(".compose [data-att]")).length > 0);
+    for (let left = (await d.findAll(".compose [data-att]")).length; left > 0; left--) {
+      await d.exec("document.querySelector('.compose [data-att]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))");
+      await d.until("one less", async () => (await d.findAll(".compose [data-att]")).length === left - 1);
+    }
+    await d.until("caret in the text", async () => !!(await d.exec("return document.activeElement?.closest('.compose .body-area') !== null && document.activeElement?.closest('.compose .body-area') !== undefined")));
 
     // A letter typed in goes away without a draft.
     await d.click(await d.find(".compose footer button[aria-label='Удалить черновик']"));
@@ -3203,11 +3226,16 @@ try {
     // Alt+M opens the mailboxes of the title; Esc closes it; a click on the label opens it again and one is chosen.
     await altKey("m", "KeyM");
     await d.until("mailboxes", async () => (await d.findAll(".compose header [role=menuitemradio]")).length === accounts.length);
-    await d.exec("document.querySelector('.compose header [role=menuitemradio]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
-    await d.until("mailboxes closed", async () => (await d.findAll(".compose header [role=menuitemradio]")).length === 0);
+    // The list opens on the mailbox the letter is from; the arrows and Enter choose another.
+    const current = () => d.exec("return { checked: document.activeElement?.getAttribute('aria-checked'), value: document.activeElement?.dataset?.value }");
+    const here = await current();
+    if (here.checked !== "true") throw new Error(`в списке ящиков курсор не на текущем: ${JSON.stringify(here)}`);
     await screenshot("compose-103-mailbox-paper");
-    await d.click(await d.find(".compose header .mailbox"));
-    await d.click(await d.until("bob in the list", () => d.find(`.compose header [role=menuitemradio][data-value="${bob.id}"]`).catch(() => null)));
+    await d.pressKey("\uE015");
+    await d.until("on the other one", async () => (await current()).value !== here.value);
+    await d.pressKey("\uE007");
+    await d.until("mailboxes closed", async () => (await d.findAll(".compose header [role=menuitemradio]")).length === 0);
+    if (!(await d.exec("return document.querySelector('.compose header .mailbox')?.title ?? ''")).includes("bob@local.test")) throw new Error("ящик не сменился на Боба");
     // The plugin of the mailbox colour tints the title bar with the mailbox's colour; without it the bar is as it was (#103, 1.1 Б).
     const bar = () => d.exec("const h = document.querySelector('.compose header'); return { tint: h.style.getPropertyValue('--row-tint'), bg: getComputedStyle(h).backgroundColor }");
     const plain = await bar();

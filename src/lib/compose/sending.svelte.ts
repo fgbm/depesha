@@ -74,15 +74,34 @@ export class ComposeSending {
   /** One send at a time: Ctrl+Enter pressed again while the checks run must not queue twice. */
   private sending = false;
 
-  /** The Alt keys that belong to a plugin's control (the wait line): it hands over what they do. */
-  private pluginKeys = new Map<"park" | "remind", () => void>();
+  /** The Alt keys that belong to a plugin's control (the wait line): who answers each, and how. */
+  private pluginKeys = new Map<"park" | "remind", { owner: string; run: () => void }>();
 
-  /** A plugin's control answers the key of its action; returns the way to stop answering. */
-  onAction(action: "park" | "remind", run: () => void): () => void {
-    this.pluginKeys.set(action, run);
+  /** The context each plugin's controls get: the same window, its own name on what it registers. */
+  private contexts = new Map<string, ComposeContext>();
+
+  /** A plugin's control answers the key of its action; one owner for each action, so a second
+   *  plugin asking for the same key is refused. Returns the way to stop answering. */
+  onAction(action: "park" | "remind", run: () => void, owner = ""): () => void {
+    const taken = this.pluginKeys.get(action);
+    if (taken && taken.owner !== owner) throw new Error(`The key of «${action}» is answered by ${taken.owner || "the window"} already`);
+    const mine = { owner, run };
+    this.pluginKeys.set(action, mine);
     return () => {
-      if (this.pluginKeys.get(action) === run) this.pluginKeys.delete(action);
+      if (this.pluginKeys.get(action) === mine) this.pluginKeys.delete(action);
     };
+  }
+
+  /** What `item`'s plugin sees of the window. The same object each time: plugins key their state by it. */
+  contextFor(item: unknown): ComposeContext {
+    const owner = registry.lists.composeControls.find((x) => x.item === item)?.owner ?? "";
+    let ctx = this.contexts.get(owner);
+    if (!ctx) {
+      // Inherits the getters of the window's context (the draft is live), overrides one call.
+      ctx = Object.create(this.composeCtx, { onAction: { value: (action: "park" | "remind", run: () => void) => this.onAction(action, run, owner) } }) as ComposeContext;
+      this.contexts.set(owner, ctx);
+    }
+    return ctx;
   }
 
   constructor(private host: ComposeSendHost) {
@@ -224,7 +243,7 @@ export class ComposeSending {
       this.host.openPart(action as WindowPart);
     } else if (action === "park" || action === "remind") {
       // Only when the wait line has the control: a letter that cannot wait lets the key go.
-      const run = this.pluginKeys.get(action);
+      const run = this.pluginKeys.get(action)?.run;
       if (run) {
         e.preventDefault();
         run();

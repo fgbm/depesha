@@ -92,7 +92,8 @@ function typed(e: KeyPress): string {
 
 /** The US key in the same place, if the key types a character. */
 function physical(e: KeyPress): string | undefined {
-  if (e.key.length !== 1) return undefined;
+  // A dead key (macOS Option+I, Option+E…) types nothing yet, but sits on a key all the same.
+  if (e.key.length !== 1 && e.key !== "Dead") return undefined;
   const letter = /^Key([A-Z])$/.exec(e.code);
   if (letter) return letter[1].toLowerCase();
   const chars = US[e.code];

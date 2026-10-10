@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { closeWhenMenu, whenMenu, type PluginContext } from "@depesha/plugin-api";
+  import { closeWhenMenu, provideWhenMenu, whenMenuRequest, type PluginContext } from "@depesha/plugin-api";
   import { snoozeMail } from "./actions";
   import { closeSnooze, snooze } from "./state.svelte";
   import SnoozeMenu from "./SnoozeMenu.svelte";
@@ -8,31 +8,30 @@
 
   // Another plugin may borrow the menu (the reminder of a letter in writing): say it can be drawn.
   $effect(() => {
-    whenMenu.available = true;
-    return () => {
-      whenMenu.available = false;
-    };
+    provideWhenMenu(true);
+    return () => provideWhenMenu(false);
   });
 
   /** The borrowed menu goes away: the borrower hears of it, whatever the way. */
   function leave() {
-    const req = whenMenu.request;
+    const req = whenMenuRequest();
     closeWhenMenu();
     req?.onclose();
   }
 </script>
 
-{#if whenMenu.request}
-  {#key whenMenu.request}
+{#if whenMenuRequest()}
+  {#key whenMenuRequest()}
     <SnoozeMenu
       {ctx}
-      anchor={whenMenu.request.anchor}
-      onpick={whenMenu.request.onpick}
+      anchor={whenMenuRequest()!.anchor}
+      onpick={whenMenuRequest()!.onpick}
       onclose={leave}
-      onnone={whenMenu.request.onnone}
-      onsetup={whenMenu.request.onsetup}
-      extras={whenMenu.request.extras}
-      texts={whenMenu.request.texts}
+      onnone={whenMenuRequest()!.onnone}
+      onsetup={whenMenuRequest()!.onsetup}
+      extras={whenMenuRequest()!.extras}
+      texts={whenMenuRequest()!.texts}
+      notBefore={whenMenuRequest()!.notBefore}
     />
   {/key}
 {/if}

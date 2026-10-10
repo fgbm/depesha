@@ -32,6 +32,8 @@ export const S = {
   // The reminder takes the Snooze menu (#103): the line, the calendar's button and the saved choices.
   remindPlaceholder: { en: "When to remind: “Fri 9:00”, “in 3 days”", ru: "Когда напомнить: «пт 9:00», «через 3 дня»" },
   remindPick: { en: "Remind", ru: "Напомнить" },
+  passedMark: { en: "· passed", ru: "· прошёл" },
+  passedHint: { en: "This date has passed: the reminder will come a minute after the letter leaves", ru: "Этот срок уже прошёл: напоминание придёт через минуту после отправки письма" },
   savedChoices: { en: "Saved", ru: "Сохранённые" },
   customTitle: { en: "Remind me if nobody replies", ru: "Напомнить, если не ответят" },
   untilDate: { en: "Remind {when} without a reply", ru: "Напомнить {when} без ответа" },

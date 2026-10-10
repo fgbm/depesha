@@ -121,6 +121,23 @@ describe("the Alt keys of the window (#103)", () => {
   });
 });
 
+describe("one owner for each Alt key of a plugin (#103)", () => {
+  it("refuses a second plugin that asks for a key another answers, and lets the owner ask again", () => {
+    registry.add("composeControls", "one", control("line"));
+    registry.add("composeControls", "two", control("line"));
+    const sending = new ComposeSending(host(win("a"), {}));
+    const [one, two] = sending.controls.map((c) => sending.contextFor(c));
+    expect(sending.contextFor(sending.controls[0])).toBe(one);
+    one.onAction("remind", () => {});
+    expect(() => two.onAction("remind", () => {})).toThrow(/already/);
+    const stop = one.onAction("remind", () => {});
+    stop();
+    expect(() => two.onAction("remind", () => {})).not.toThrow();
+    registry.removeOwner("one");
+    registry.removeOwner("two");
+  });
+});
+
 describe("the box «out of the inbox» of an answer (#106)", () => {
   it("with «Без напоминания» asks to archive and makes no wait", () => {
     const plan = withArchive(null, true);

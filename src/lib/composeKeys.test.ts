@@ -47,6 +47,9 @@ describe("keys of the composition window", () => {
     // The same keys on the Russian layout, by the place of the key.
     expect(alt("с", "KeyC")).toBe("cc");
     expect(alt("ю", "Period")).toBe("more");
+    // macOS: Option+I is a dead key (`key` is "Dead"), Option+C types «ç»: the place of the key tells.
+    expect(alt("Dead", "KeyI")).toBe("park");
+    expect(alt("ç", "KeyC")).toBe("cc");
     // A letter without Alt is typed into the text.
     expect(composeAction(press("c", "KeyC"))).toBeNull();
   });
