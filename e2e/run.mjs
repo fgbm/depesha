@@ -936,6 +936,10 @@ try {
       if (!(await active("a.dataset.act !== undefined"))) throw new Error("→ не на «Сохранить» у файла");
       await d.pressKey("");
       if (!(await active("a.dataset.att === '2'"))) throw new Error("↓ от «Сохранить» не на следующем файле");
+      // On to the first file that is behind «+N more»: Enter shows it, as a click on its chip does.
+      const folded = (await strip()).chips;
+      for (let n = 2; n < folded; n++) await d.pressKey("");
+      if (!(await active(`a.dataset.att === '${folded}'`))) throw new Error(`↓ не дошла до первого свёрнутого файла ${folded}`);
       // Enter on a file shows it, as a click on its chip does.
       await d.pressKey("");
       await d.until("viewer from the list", async () => (await d.findAll(".reader .viewer")).length === 1);
