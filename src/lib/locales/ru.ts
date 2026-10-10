@@ -102,7 +102,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "act.unflag": "Снять флаг",
   "act.unread": "Не прочитано",
   "app.name": "Депеша",
-  "app.mailboxes.version": "Версия {version}",
+  "app.version": "Версия {version}",
   "cancel": "Отмена",
   "clear": "Очистить",
   "close": "Закрыть",

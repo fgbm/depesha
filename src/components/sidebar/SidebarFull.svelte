@@ -40,7 +40,7 @@
   <div class="brand" data-tauri-drag-region>
     <img src="/icon.png" alt="" width="26" height="26" />
     <span>{t("app.name")}</span>
-    {#if app.mailboxes.version}<span class="version" title={t("app.mailboxes.version", { version: app.mailboxes.version })}>{app.mailboxes.version}</span>{/if}
+    {#if app.mailboxes.version}<span class="version" title={t("app.version", { version: app.mailboxes.version })}>{app.mailboxes.version}</span>{/if}
     <span class="spacer"></span>
     <button class="fold-side" onclick={() => layout.toggleSidebar()} title={t("sidebar.fold")} aria-label={t("sidebar.fold")}><ChevronsLeft size={14} /></button>
   </div>

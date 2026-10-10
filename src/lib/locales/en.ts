@@ -109,7 +109,7 @@ export const en = {
   "act.unflag": "Remove the flag",
   "act.unread": "Unread",
   "app.name": "Depesha",
-  "app.mailboxes.version": "Version {version}",
+  "app.version": "Version {version}",
   "cancel": "Cancel",
   "clear": "Clear",
   "close": "Close",
