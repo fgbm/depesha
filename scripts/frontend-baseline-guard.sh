@@ -32,6 +32,8 @@ if [[ -z $from ]]; then
   git show "$ref:docs/frontend-invariants/app-members.txt" > "$from/app-members.txt"
   # Файла второго уровня в main может ещё не быть.
   git show "$ref:docs/frontend-invariants/app-nested.txt" > "$from/app-nested.txt" 2>/dev/null || rm -f "$from/app-nested.txt"
+  # Определение app_nested() в main: изменилось в ветке — baseline второго уровня пересобран с ним.
+  git show "$ref:scripts/frontend-invariants.sh" > "$from/frontend-invariants.sh"
 fi
 
 scripts/frontend-metrics.sh --diff "$from/frontend-metrics-baseline.txt" docs/frontend-metrics-baseline.txt

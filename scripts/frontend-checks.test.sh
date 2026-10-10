@@ -163,6 +163,20 @@ if INVARIANTS_DIR="$tmp/inv-cur" $g --from "$tmp/main-ref" >/dev/null 2>&1; then
 printf 'app-nested\t%s\tпотому что так надо\n' "$nest2" >> "$tmp/inv-cur/exceptions.txt"
 INVARIANTS_DIR="$tmp/inv-cur" $g --from "$tmp/main-ref" >/dev/null || fail "guard: новый app.ui/selection.* с исключением не прошёл"
 
+# Определение app_nested() изменилось против main (регулярку расширили, baseline пересобрали
+# в том же коммите): подъём второго уровня — новая точка отсчёта. Без такого изменения — рост.
+cp docs/frontend-invariants/app-nested.txt "$tmp/main-ref/app-nested.txt"
+grep -E '^ui\.' docs/frontend-invariants/app-nested.txt > "$tmp/main-ref/app-nested.txt" || true
+cp docs/frontend-invariants/app-members.txt "$tmp/main-ref/app-members.txt"
+cp -r docs/frontend-invariants "$tmp/inv-redef"
+: > "$tmp/inv-redef/exceptions.txt"
+cp scripts/frontend-invariants.sh "$tmp/main-ref/frontend-invariants.sh"
+if INVARIANTS_DIR="$tmp/inv-redef" $g --from "$tmp/main-ref" >/dev/null 2>&1; then fail "guard: подъём app-nested без изменения app_nested() не пойман"; fi
+sed -i -E 's/^(app_nested\(\) \{ grep -rhoE .\\bapp\\.\()[^)]*\)/\1ui)/' "$tmp/main-ref/frontend-invariants.sh"
+cmp -s scripts/frontend-invariants.sh "$tmp/main-ref/frontend-invariants.sh" && fail "тест: не удалось состарить app_nested() для проверки"
+INVARIANTS_DIR="$tmp/inv-redef" $g --from "$tmp/main-ref" >/dev/null || fail "guard: подъём app-nested вместе с изменением app_nested() не прошёл"
+rm -f "$tmp/main-ref/frontend-invariants.sh" "$tmp/main-ref/app-nested.txt"
+
 # --- инварианты доступности --------------------------------------------------
 
 fresh() { rm -rf "$tmp/a11y"; cp -r "$tmp/inv" "$tmp/a11y"; }

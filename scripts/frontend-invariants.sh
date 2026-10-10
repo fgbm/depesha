@@ -23,7 +23,8 @@
 # виды data-* и счётчики только печатаются как разница. Исключение, которое больше
 # не нужно, печатается предупреждением. Члены baseline сортируются на лету.
 #
-# --guard REFDIR [DIR]  сверить членов app.* в DIR с REFDIR (baseline из main):
+# --guard REFDIR [DIR]  сверить членов app.* в DIR с REFDIR (baseline из main; если в REFDIR лежит
+#                       frontend-invariants.sh с другим app_nested(), app-nested не сверяется):
 #                       `--save` поднимает baseline молча, здесь это видно.
 # --tighten запускается один раз при слиянии, не в ветке. Рост — только строкой
 # в exceptions.txt, `--save` для этого не запускают.
@@ -211,7 +212,11 @@ if [[ "$mode" == guard ]]; then
   [[ -f "$ref/app-members.txt" && -f "$dir/app-members.txt" ]] || { echo "нет app-members.txt в $ref или $dir" >&2; exit 1; }
   check_members "$ref/app-members.txt" "$dir/app-members.txt"
   # Файла второго уровня в main может ещё не быть (его вводит эта проверка): тогда сверять не с чем.
-  if [[ -f "$ref/app-nested.txt" && -f "$dir/app-nested.txt" ]]; then
+  # Определение app_nested() изменилось против ref: baseline пересобран вместе с ним, это
+  # новая точка отсчёта, а не рост (правило AGENTS.md: в одном коммите с определением).
+  if [[ -f "$ref/frontend-invariants.sh" ]] && [[ "$(grep -E '^app_nested\(\)' "$ref/frontend-invariants.sh")" != "$(grep -E '^app_nested\(\)' "$0")" ]]; then
+    echo "app-nested: определение изменено, baseline пересобран вместе с ним — сверка пропущена"
+  elif [[ -f "$ref/app-nested.txt" && -f "$dir/app-nested.txt" ]]; then
     check_members "$ref/app-nested.txt" "$dir/app-nested.txt" app-nested
   fi
   warn_stale app-members app-nested
