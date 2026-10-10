@@ -50,6 +50,19 @@ export class MailboxController {
     }
   }
 
+  /**
+   * The first read of the sidebar's data: the folders and the outbox are put in together. The row «Outbox»
+   * that came after the tree was drawn pushed the tree down under the pointer (#158). A request that fails
+   * is told and does not hold up the other.
+   */
+  async loadFoldersAndOutbox() {
+    const [folders, outbox] = await Promise.allSettled([api.folders(), api.outbox()]);
+    if (folders.status === "fulfilled") this.folders = folders.value;
+    else this.host.ui.fail(folders.reason);
+    if (outbox.status === "fulfilled") this.outbox = outbox.value;
+    else this.host.ui.fail(outbox.reason);
+  }
+
   async loadOutbox() {
     try {
       this.outbox = await api.outbox();

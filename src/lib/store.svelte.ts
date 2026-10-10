@@ -77,8 +77,7 @@ export class AppStore {
     // Each request that fails is told and does not hold up the others.
     const [accounts] = await Promise.all([
       this.mailboxes.loadAccounts().then(() => true, (e) => (this.ui.fail(e), false)),
-      this.mailboxes.loadFolders(),
-      this.mailboxes.loadOutbox(),
+      this.mailboxes.loadFoldersAndOutbox(),
       this.settingsCtl.loadFirst(),
       extensions.load(),
       hints.load(),
