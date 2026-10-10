@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
+import { exited, groupAlive, killGroup } from "./procs.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
 import { dropFixtures, dropOn, dropSteps, zonesStayInView } from "./drop-steps.mjs";
 import { createSectionGate, selectSections } from "./shard.mjs";
@@ -405,15 +406,18 @@ async function startSession() {
     driverProc = spawn(join(process.env.HOME, ".cargo/bin/tauri-driver"), ["--native-driver", nativeDriver], {
       env,
       stdio: ["ignore", "inherit", "inherit"],
+      detached: true,
     });
     try {
       await d.until("tauri-driver", async () => (await fetch("http://127.0.0.1:4444/status", { signal: AbortSignal.timeout(2000) })).ok, 30000);
-      await d.start(app, {}, 60000);
+      // E2E_FIRST_START_TIMEOUT_MS: a test of this very retry makes the first attempt too short to finish.
+      await d.start(app, {}, attempt === 1 && process.env.E2E_FIRST_START_TIMEOUT_MS ? Number(process.env.E2E_FIRST_START_TIMEOUT_MS) : 60000);
       return;
     } catch (e) {
-      const gone = new Promise((r) => driverProc.once("exit", r));
-      driverProc.kill();
-      await gone;
+      // The app is a child of WebKitWebDriver: the group goes, or it holds the single-instance name.
+      killGroup(driverProc);
+      await exited(driverProc);
+      console.error(`Группа драйвера ${groupAlive(driverProc) ? "ещё жива" : "завершена"}`);
       if (attempt === 3) throw e;
       console.error(`Старт сессии, попытка ${attempt} из 3: ${e.message}; драйвер запускается заново`);
       await sleep(2000);
@@ -4428,7 +4432,7 @@ try {
   results.push({ criteria: "-", name: "прогон", ok: false, error: e.message });
 } finally {
   await d.quit();
-  driverProc?.kill();
+  killGroup(driverProc);
   // Remove only the test account's password from the keyring.
   try {
     const cfg = JSON.parse(readFileSync(join(profile, "config/ru.depesha.mail/accounts.json"), "utf-8"));
