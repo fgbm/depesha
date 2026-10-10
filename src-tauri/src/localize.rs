@@ -57,6 +57,8 @@ fn error_ru(err: &Error) -> String {
         Error::TooLarge { size, limit } => format!("письмо {size} байт больше лимита сервера {limit} байт"),
         Error::Compose(m) => format!("письмо не собрано: {m}"),
         Error::Store(e) => format!("локальная база: {e}"),
+        Error::StoreOther(m) => format!("локальная база: {m}"),
+        Error::ImapOther(m) => format!("IMAP: {m}"),
         Error::Closed => "сервер закрыл соединение".into(),
         Error::Bye(text) => format!("сервер закрыл соединение: {text}"),
         Error::Paused => "ящик приостановлен, пока не исправлены его настройки".into(),

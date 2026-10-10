@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::error::CmdError;
 use crate::state::AppState;
-use crate::worker::{Output, Work, clone_error, sync_one};
+use crate::worker::{Output, Work, sync_one};
 
 /// One emptying, as the mailbox's queue gets it.
 #[derive(Debug, Clone)]
@@ -108,7 +108,7 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
             Ok(Output::Emptied(run, done.kept_ids))
         }
         Err(e) => {
-            let mut shown = CmdError::from(clone_error(&e));
+            let mut shown = CmdError::from(e.clone());
             shown.message = summary(&req.job.how, done.last.0, done.last.1, &crate::localize::error_now(&e));
             state.task_failed(key, shown);
             Err(e)

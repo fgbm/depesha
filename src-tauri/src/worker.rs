@@ -453,7 +453,7 @@ fn answer_all(replies: Vec<Reply>, result: Result<Output>) {
         }
         Err(e) => {
             for reply in replies {
-                let _ = reply.send(Err(clone_error(&e)));
+                let _ = reply.send(Err(e.clone()));
             }
         }
     }
@@ -1379,7 +1379,7 @@ impl Ops {
                 self.report(&Work::SyncAll, &result, false);
                 if let Err(e) = &result {
                     for reply in waiting {
-                        let _ = reply.send(Err(clone_error(e)));
+                        let _ = reply.send(Err(e.clone()));
                     }
                 }
             }
@@ -1437,10 +1437,8 @@ impl Ops {
             Err(e) => {
                 tracing::warn!(account = %account.id, kind = e.kind().as_str(), "operation failed: {e}");
                 match work {
-                    Work::SyncAll => state.task_failed(&self.sync_task(), CmdError::from(clone_error(e))),
-                    Work::Prefetch => {
-                        state.task_failed(&format!("prefetch:{}", account.id), CmdError::from(clone_error(e)))
-                    }
+                    Work::SyncAll => state.task_failed(&self.sync_task(), CmdError::from(e.clone())),
+                    Work::Prefetch => state.task_failed(&format!("prefetch:{}", account.id), CmdError::from(e.clone())),
                     _ => {}
                 }
                 let fatal = needs_user(e);
@@ -1453,42 +1451,12 @@ impl Ops {
                         &account.id,
                         AccountStatus {
                             state: status,
-                            error: Some(CmdError::from(clone_error(e))),
+                            error: Some(CmdError::from(e.clone())),
                         },
                     );
                 }
             }
         }
-    }
-}
-
-/// `Error` is not `Clone`; the status needs a copy of what the caller also gets.
-pub(crate) fn clone_error(e: &Error) -> Error {
-    match e {
-        Error::Certificate(p) => Error::Certificate(p.clone()),
-        Error::NoTls => Error::NoTls,
-        Error::Auth(m) => Error::Auth(m.clone()),
-        Error::AuthMechanism(m) => Error::AuthMechanism(m.clone()),
-        Error::HttpAuth(m) => Error::HttpAuth(m.clone()),
-        Error::Ews {
-            code,
-            message,
-            back_off,
-        } => Error::Ews {
-            code: code.clone(),
-            message: message.clone(),
-            back_off: *back_off,
-        },
-        Error::Busy { wait, retrying } => Error::Busy {
-            wait: *wait,
-            retrying: *retrying,
-        },
-        Error::ImapUnavailable => Error::ImapUnavailable,
-        Error::Timeout(t) => Error::Timeout(t),
-        Error::Closed => Error::Closed,
-        Error::Paused => Error::Paused,
-        Error::CopyRefused(m) => Error::CopyRefused(m.clone()),
-        other => Error::Protocol(other.to_string()),
     }
 }
 
@@ -1650,7 +1618,7 @@ async fn perform(
                     Ok(Output::Count(n))
                 }
                 Err(e) => {
-                    state.task_failed(&key, CmdError::from(clone_error(&e)));
+                    state.task_failed(&key, CmdError::from(e.clone()));
                     Err(e)
                 }
             }
@@ -1735,7 +1703,7 @@ async fn perform(
                     Err(Error::CopyRefused(crate::localize::error_now(&e)))
                 }
                 Err(e) => {
-                    state.task_failed(&key, CmdError::from(clone_error(&e)));
+                    state.task_failed(&key, CmdError::from(e.clone()));
                     Err(e)
                 }
             }

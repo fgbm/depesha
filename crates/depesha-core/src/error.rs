@@ -112,6 +112,91 @@ pub enum Error {
     /// A failure the core words itself, as a code with its parameters.
     #[error("{}", .0.english())]
     Said(Say),
+    /// An IMAP error of a kind that cannot be copied (`Clone` keeps its words).
+    #[error("IMAP: {0}")]
+    ImapOther(String),
+    /// A database error of a kind that cannot be copied (`Clone` keeps its words).
+    #[error("local database: {0}")]
+    StoreOther(String),
+}
+
+/// A copy keeps the kind of the error and every answer the predicates give; only the
+/// errors of other libraries that cannot be copied are rebuilt, from their kind or their words.
+impl Clone for Error {
+    fn clone(&self) -> Self {
+        use async_imap::error::Error as I;
+        match self {
+            Self::Io(e) => Self::Io(std::io::Error::new(e.kind(), e.to_string())),
+            Self::Timeout(t) => Self::Timeout(t),
+            Self::Tls(e) => Self::Tls(e.clone()),
+            Self::Certificate(p) => Self::Certificate(p.clone()),
+            Self::NoTls => Self::NoTls,
+            Self::InvalidHost(h) => Self::InvalidHost(h.clone()),
+            Self::Auth(m) => Self::Auth(m.clone()),
+            Self::AuthMechanism(m) => Self::AuthMechanism(m.clone()),
+            Self::ImapUnavailable => Self::ImapUnavailable,
+            Self::Imap(e) => match e {
+                I::Io(io) => Self::Imap(I::Io(std::io::Error::new(io.kind(), io.to_string()))),
+                I::Bad(m) => Self::Imap(I::Bad(m.clone())),
+                I::No(m) => Self::Imap(I::No(m.clone())),
+                I::ConnectionLost => Self::Imap(I::ConnectionLost),
+                other => Self::ImapOther(other.to_string()),
+            },
+            Self::Smtp {
+                code,
+                enhanced,
+                message,
+            } => Self::Smtp {
+                code: *code,
+                enhanced: enhanced.clone(),
+                message: message.clone(),
+            },
+            Self::SmtpHello { name, code, message } => Self::SmtpHello {
+                name: name.clone(),
+                code: *code,
+                message: message.clone(),
+            },
+            Self::TooLarge { size, limit } => Self::TooLarge {
+                size: *size,
+                limit: *limit,
+            },
+            Self::Compose(m) => Self::Compose(m.clone()),
+            Self::Store(e) => Self::StoreOther(e.to_string()),
+            Self::Closed => Self::Closed,
+            Self::Bye(m) => Self::Bye(m.clone()),
+            Self::Protocol(m) => Self::Protocol(m.clone()),
+            Self::NotFound => Self::NotFound,
+            Self::Parse => Self::Parse,
+            Self::Unreadable => Self::Unreadable,
+            Self::Ews {
+                code,
+                message,
+                back_off,
+            } => Self::Ews {
+                code: code.clone(),
+                message: message.clone(),
+                back_off: *back_off,
+            },
+            Self::Busy { wait, retrying } => Self::Busy {
+                wait: *wait,
+                retrying: *retrying,
+            },
+            Self::HttpAuth(m) => Self::HttpAuth(m.clone()),
+            Self::Paused => Self::Paused,
+            Self::PrivateAddress(h) => Self::PrivateAddress(h.clone()),
+            Self::CacheTooNew { found, known } => Self::CacheTooNew {
+                found: *found,
+                known: *known,
+            },
+            Self::FolderChanged => Self::FolderChanged,
+            Self::LabelStripping => Self::LabelStripping,
+            Self::LabelCheckUnsupported => Self::LabelCheckUnsupported,
+            Self::CopyRefused(m) => Self::CopyRefused(m.clone()),
+            Self::Said(s) => Self::Said(s.clone()),
+            Self::ImapOther(m) => Self::ImapOther(m.clone()),
+            Self::StoreOther(m) => Self::StoreOther(m.clone()),
+        }
+    }
 }
 
 /// What the interface branches on when a call fails: the stable code of an error, the same
