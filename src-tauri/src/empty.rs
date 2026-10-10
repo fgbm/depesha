@@ -136,6 +136,7 @@ impl Clearing {
     /// The window is gone, and its drafts are no longer open.
     pub fn window_gone(&self, label: &str) {
         lock(&self.open).remove(label);
+        lock(&self.generations).remove(label);
     }
 
     /// The page of the window was loaded anew: what it said before belongs to a page that is
@@ -842,6 +843,16 @@ mod tests {
         // Another window's numbers are its own, and a save that has none yet is taken.
         assert!(!c.current("message-3", Some(new)));
         assert!(c.current("main", None));
+    }
+
+    #[test]
+    fn a_window_gone_takes_its_page_number_with_it() {
+        let c = Clearing::default();
+        let page = c.draft_reset("message-3");
+        c.window_gone("message-3");
+        // A late save of the closed window carries a number nobody holds any more.
+        assert!(!c.current("message-3", Some(page)));
+        assert!(c.current("message-3", None));
     }
 
     #[test]
