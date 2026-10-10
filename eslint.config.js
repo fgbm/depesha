@@ -6,7 +6,6 @@ import globals from "globals";
 import svelte from "eslint-plugin-svelte";
 import tseslint from "typescript-eslint";
 import silentCatch from "./scripts/eslint-silent-catch.js";
-import { restrictedAppProxy } from "./scripts/eslint-app-proxies.js";
 
 export default tseslint.config(
   {
@@ -64,11 +63,6 @@ export default tseslint.config(
       "svelte/prefer-svelte-reactivity": "off",
       "svelte/prefer-writable-derived": "error",
     },
-  },
-  {
-    // Компоненты не зовут проброски AppStore, оставленные для хостов контроллеров (#140).
-    files: ["src/components/**/*.{ts,svelte}", "src/*.svelte"],
-    rules: { "no-restricted-syntax": restrictedAppProxy },
   },
   {
     // Стражники размера и сложности, общие для .ts и .svelte.

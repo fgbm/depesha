@@ -1,6 +1,7 @@
 // The letter being read and its conversation: opened beside the list, kept up to date
 // while open, and read along with it.
 
+import type { UiController } from "./ui.svelte";
 import { api, asError } from "./api";
 import { t } from "./i18n.svelte";
 import { debounce } from "./debounce";
@@ -13,11 +14,11 @@ const SEEN_MS = 1000;
 
 /** What the reader needs from the app store. */
 export interface ReaderHost {
+  readonly ui: UiController;
   readonly list: ListController;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
   account(id: string): AccountView | undefined;
-  fail(e: unknown, prefix?: string): void;
 }
 
 export class Reader {
@@ -88,7 +89,7 @@ export class Reader {
   }
 
   private async loadConversation(id: number, seq: number, epoch: number, folder: string, wasUnread: boolean) {
-    const conversation = await api.thread(id).catch((e) => (this.host.fail(e, t("reader.conversationFailed")), [] as MessageRow[]));
+    const conversation = await api.thread(id).catch((e) => (this.host.ui.fail(e, t("reader.conversationFailed")), [] as MessageRow[]));
     if (seq !== this.openSeq) return;
     this.conversation = shownConversation(conversation, id, folder);
     extensions.showing(this.showing());
@@ -120,7 +121,7 @@ export class Reader {
     const unread = this.conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
     const ids = [...(wasUnread ? [id] : []), ...unread];
     if (!ids.length) return;
-    api.setFlag(ids, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
+    api.setFlag(ids, { flag: "seen", value: true }).catch((e) => this.host.ui.fail(e));
     for (const m of this.conversation) if (ids.includes(m.id)) m.flags.seen = true;
     for (const m of list.messages) if (ids.includes(m.id)) m.flags.seen = true;
   }
@@ -144,7 +145,7 @@ export class Reader {
     if (!unread.length) return;
     // Acting on the open letter takes over the mark the wait was about to make.
     if (unread.includes(opened?.row.id ?? -1)) this.cancelSeen();
-    if (server) api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.fail(e));
+    if (server) api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.ui.fail(e));
     for (const id of unread) {
       const r = row(id);
       if (r) r.flags.seen = true;

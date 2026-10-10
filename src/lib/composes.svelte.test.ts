@@ -129,8 +129,10 @@ describe("the «Sending…» toast", () => {
       const texts: string[] = [];
       const host = {
         windowOf: null,
-        toast: (text: string) => (texts.push(text), 7),
-        retext: (_id: number, text: string) => (texts.push(text), true),
+        ui: {
+          toast: (text: string) => (texts.push(text), 7),
+          retext: (_id: number, text: string) => (texts.push(text), true),
+        },
       } as unknown as ComposeHost;
       await new ComposeManager(host).send("a", emptyDraft({ name: "Me", email: "me@example.com" }), null, null, null, null);
       expect(texts[0]).toMatch(/10 seconds/);
@@ -147,7 +149,7 @@ describe("a local copy that cannot be dropped (#147)", () => {
     const boom = new Error("disk locked");
     api.draftCacheDrop.mockRejectedValue(boom);
     const fail = vi.fn();
-    const mgr = new ComposeManager({ windowOf: null, fail } as unknown as ComposeHost);
+    const mgr = new ComposeManager({ windowOf: null, ui: { fail } } as unknown as ComposeHost);
     const draft = emptyDraft({ name: "Me", email: "me@example.com" });
     const copy = { key: "k1", account_id: "a", draft, draft_id: null, updated: 1 };
     await mgr.restoreLocal([copy]);

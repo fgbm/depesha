@@ -1,6 +1,7 @@
 // Composition windows: docked in the corner, minimized to bars, or full screen; sending
 // through the outbox and taking a queued letter back.
 
+import type { UiController } from "./ui.svelte";
 import { api } from "./api";
 import { bus, collect } from "./bus";
 import { t, tn } from "./i18n.svelte";
@@ -33,6 +34,7 @@ export interface ComposeWindow extends ComposeState {
 
 /** What compositions need from the app store. */
 export interface ComposeHost {
+  readonly ui: UiController;
   readonly outbox: OutboxItem[];
   /** The letter of a separate message window, where compositions open full screen; null in the main window. */
   readonly windowOf: number | null;
@@ -41,15 +43,9 @@ export interface ComposeHost {
   readonly settings: Settings;
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server?: boolean): void;
-  /** Set to start the first mailbox's setup. */
-  wizard: { account: Account | null } | null;
   account(id: string): AccountView | undefined;
   /** The mailbox a new letter is written from. */
   defaultAccount(): AccountView | undefined;
-  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): number | void;
-  /** Changes the text of a toast on the screen; false when it is gone. */
-  retext?(id: number, text: string): boolean;
-  fail(e: unknown, prefix?: string): void;
 }
 
 export class ComposeManager {
@@ -96,7 +92,7 @@ export class ComposeManager {
       try {
         await api.draftCacheDrop(d.key);
       } catch (e) {
-        this.host.fail(e, t("compose.localNotRestored"));
+        this.host.ui.fail(e, t("compose.localNotRestored"));
         continue;
       }
       this.open({ account_id: d.account_id, draft: d.draft, draft_id: d.draft_id ?? null, draft_message_id: d.draft_message_id ?? null, unsaved: true });
@@ -106,7 +102,7 @@ export class ComposeManager {
   newMessage() {
     const acc = this.host.defaultAccount();
     if (!acc) {
-      this.host.wizard = { account: null };
+      this.host.ui.wizard = { account: null };
       return;
     }
     const draft = withSignature(emptyDraft({ name: acc.display_name, email: acc.email }, this.format(acc)), defaultSignature(acc));
@@ -173,7 +169,7 @@ export class ComposeManager {
         const info = await api.fileInfo(path);
         c.draft.attachments.push({ kind: "file", path, name: info.name, size: info.size });
       } catch (err) {
-        this.host.fail(err);
+        this.host.ui.fail(err);
       }
     }
     if (!inline.length) return 0;
@@ -209,17 +205,17 @@ export class ComposeManager {
     const queued = await api.send(accountId, draft, draftId, draftMessageId, at, followupSecs, followup);
     const undo = { label: t("undo"), run: () => void this.reopenOutbox(queued.id) };
     const secs = Math.round(queued.at - Date.now() / 1000);
-    if (at) this.host.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);
+    if (at) this.host.ui.toast(t("toast.scheduled", { when: when(queued.at) }), false, undo, 10000);
     else if (secs > 0) this.countdown(queued.at, undo);
   }
 
   /** The «Sending…» toast shows the seconds left to undo, and counts them down (#75). */
   private countdown(at: number, undo: { label: string; run: () => void }) {
     const left = () => Math.max(1, Math.ceil(at - Date.now() / 1000));
-    const id = this.host.toast(tn("toast.sending", left()), false, undo, Math.max(0, at * 1000 - Date.now()));
+    const id = this.host.ui.toast(tn("toast.sending", left()), false, undo, Math.max(0, at * 1000 - Date.now()));
     if (typeof id !== "number") return;
     const timer = setInterval(() => {
-      if (Date.now() >= at * 1000 || !this.host.retext?.(id, tn("toast.sending", left()))) clearInterval(timer);
+      if (Date.now() >= at * 1000 || !this.host.ui.retext(id, tn("toast.sending", left()))) clearInterval(timer);
     }, 1000);
   }
 
@@ -229,7 +225,7 @@ export class ComposeManager {
       const item = this.host.outbox.find((i) => i.id === id);
       const back = await api.outboxCancel(id);
       if (!back) {
-        this.host.toast(t("toast.alreadySent"), true);
+        this.host.ui.toast(t("toast.alreadySent"), true);
         return;
       }
       const attachments: AttachmentSource[] = [];
@@ -261,7 +257,7 @@ export class ComposeManager {
         unsaved: true,
       });
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 }

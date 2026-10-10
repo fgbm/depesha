@@ -2,6 +2,8 @@
 // the last one back with "z". None of them rejects: a failure is a toast, the rows come
 // back, and the app goes on as before.
 
+import type { UiController } from "./ui.svelte";
+import type { SelectionController } from "./selection.svelte";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, asError } from "./api";
@@ -26,22 +28,18 @@ export interface Undoable {
 
 /** What actions need from the app store. */
 export interface ActionHost {
+  readonly ui: UiController;
+  readonly selection: SelectionController;
   readonly settings: Settings;
   readonly folders: FolderInfo[];
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
   readonly opened: OpenedMessage | null;
   readonly list: ListController;
-  /** Takes rows out of the list and opens the next one. */
-  takeOut(ids: number[]): void;
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server?: boolean): void;
-  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): void;
-  fail(e: unknown, prefix?: string): void;
   /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
   folderProperties?(accountId: string, folder: string): void;
-  track<T>(p: Promise<T>): Promise<T>;
-  reload(): Promise<void>;
 }
 
 export class ActionRunner {
@@ -55,7 +53,7 @@ export class ActionRunner {
   /** Takes messages out of the list and runs `run`; the moves it returns can be undone. */
   async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
     if (!ids.length) return;
-    const p = this.host.track(this.act(text, ids, run, failText));
+    const p = this.host.ui.track(this.act(text, ids, run, failText));
     this.pending = p;
     await p;
     if (this.pending === p) this.pending = null;
@@ -74,7 +72,7 @@ export class ActionRunner {
     this.host.markSeen(ids, false);
     for (const id of ids) list.leaving.add(id);
     // Out of sight at once; the server is asked afterwards.
-    this.host.takeOut(ids);
+    this.host.selection.takeOut(ids);
     let failed = false;
     try {
       const all = await this.withConversation(ids, rows);
@@ -92,7 +90,7 @@ export class ActionRunner {
       }
       if (moved.length) {
         this.lastUndo = { moved, text: said };
-        this.host.toast(said, false, { label: t("undo"), run: () => void this.undo() });
+        this.host.ui.toast(said, false, { label: t("undo"), run: () => void this.undo() });
       }
     } catch (e) {
       failed = true;
@@ -102,7 +100,7 @@ export class ActionRunner {
       for (const id of hidden) list.leaving.delete(id);
     }
     if (failed) list.restore(before, new Set(ids));
-    void this.host.reload();
+    void this.host.selection.reload();
   }
 
   /**
@@ -121,7 +119,7 @@ export class ActionRunner {
       case "no-rights": {
         // The ban is already remembered by the backend; the notice leads to the folder.
         const account = row?.account_id;
-        this.host.toast(t("refuse.noRights", { folder }), true, {
+        this.host.ui.toast(t("refuse.noRights", { folder }), true, {
           label: t("folder.properties"),
           run: () => {
             if (account) this.host.folderProperties?.(account, row!.folder);
@@ -130,14 +128,14 @@ export class ActionRunner {
         break;
       }
       case "error":
-        this.host.toast(t("refuse.error", { folder }), true, { label: t("retry"), run: () => this.host.reload() });
+        this.host.ui.toast(t("refuse.error", { folder }), true, { label: t("retry"), run: () => this.host.selection.reload() });
         break;
       case "no-answer":
         // Not a refusal: yellow, not red; the action waits in the background, as all offline work.
-        this.host.toast(t("refuse.noAnswer", { folder }), false);
+        this.host.ui.toast(t("refuse.noAnswer", { folder }), false);
         break;
       default:
-        this.host.fail(e, failText);
+        this.host.ui.fail(e, failText);
     }
   }
 
@@ -183,7 +181,7 @@ export class ActionRunner {
   offer(text: string, run: () => Promise<void>, ms = 10_000) {
     const u: Undoable = { moved: [], text, run };
     this.lastUndo = u;
-    this.host.toast(text, false, { label: t("undo"), run: () => void this.undo() }, ms);
+    this.host.ui.toast(text, false, { label: t("undo"), run: () => void this.undo() }, ms);
     setTimeout(() => {
       u.expired = true;
       if (this.lastUndo === u) this.lastUndo = null;
@@ -213,10 +211,10 @@ export class ActionRunner {
     u.undone = true;
     try {
       await (u.run ? u.run() : api.undo(u.moved));
-      this.host.toast(t("done.undone"));
+      this.host.ui.toast(t("done.undone"));
     } catch (e) {
-      this.host.fail(e, t("err.undo"));
+      this.host.ui.fail(e, t("err.undo"));
     }
-    void this.host.reload();
+    void this.host.selection.reload();
   }
 }

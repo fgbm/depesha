@@ -2,6 +2,8 @@
 // the servers. The app store owns the reader (selection, the open letter) and hears from
 // here which rows the list shows after each reload.
 
+import type { UiController } from "./ui.svelte";
+import type { SelectionController } from "./selection.svelte";
 import { api } from "./api";
 import { t } from "./i18n.svelte";
 import { debounce } from "./debounce";
@@ -31,16 +33,12 @@ export const RELOAD_CAP = 1000;
 
 /** What the list needs from the app store. */
 export interface ListHost {
+  readonly ui: UiController;
+  readonly selection: SelectionController;
   readonly settings: Settings;
   folder(accountId: string, name: string): FolderInfo | undefined;
-  fail(e: unknown, prefix?: string): void;
-  track<T>(p: Promise<T>): Promise<T>;
-  /** Letters the reader shows now (the open one, its conversation): the list holds on to their marks. */
-  showing(): number[];
   /** Rows the user is on: the selection and the open letter. */
   using(): number[];
-  /** The list was read again and now holds `ids`: the selection and the open letter follow it. */
-  listed(ids: Set<number>, search: boolean): Promise<void>;
 }
 
 export class ListController {
@@ -237,11 +235,11 @@ export class ListController {
       }
       // Marks of rows no longer in the view go; the open letter and rows on their way out keep theirs.
       const ids = new Set(this.messages.map((m) => m.id));
-      const held = new Set([...ids, ...this.leaving, ...this.host.showing()]);
+      const held = new Set([...ids, ...this.leaving, ...this.host.selection.showing()]);
       this.forget([...this.keep, ...this.pins.keys()].filter((id) => !held.has(id)));
-      await this.host.listed(ids, v.kind === "search");
+      await this.host.selection.listed(ids, v.kind === "search");
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 
@@ -271,7 +269,7 @@ export class ListController {
     if (v.kind !== "search" || this.serverSearching) return;
     this.serverSearching = true;
     try {
-      const rows = await this.host.track(api.serverSearch(v.text));
+      const rows = await this.host.ui.track(api.serverSearch(v.text));
       if (this.view !== v) return;
       this.serverRows = rows;
       this.messages = this.visible(this.merge(this.messages, rows));
@@ -279,7 +277,7 @@ export class ListController {
       const totals = await this.countFound(v.text);
       if (this.view === v) this.totals = totals;
     } catch (e) {
-      this.host.fail(e, t("search.server"));
+      this.host.ui.fail(e, t("search.server"));
     } finally {
       this.serverSearching = false;
     }
@@ -299,7 +297,7 @@ export class ListController {
         this.exhausted = rows.length < PAGE;
       } else if (v.kind === "folder" && !this.noOlder) {
         // The cache ran out: fetch older headers from the server.
-        const n = await this.host.track(api.loadOlder(v.account_id, v.folder));
+        const n = await this.host.ui.track(api.loadOlder(v.account_id, v.folder));
         if (n === 0 && this.view === v) this.noOlder = true;
         if (n > 0 && this.view === v) {
           this.exhausted = false;
@@ -310,7 +308,7 @@ export class ListController {
         }
       }
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     } finally {
       this.loadingMore = false;
     }

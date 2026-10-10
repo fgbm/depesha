@@ -59,7 +59,7 @@ class Rooms {
     try {
       this.infos[accountId] = await api.serverInfo(accountId);
     } catch (e) {
-      this.app?.fail(e);
+      this.app?.ui.fail(e);
     }
   }
 
@@ -74,7 +74,7 @@ class Rooms {
     try {
       this.infos[accountId] = await api.serverCheck(accountId);
     } catch (e) {
-      this.app?.toast(asError(e).message, true);
+      this.app?.ui.toast(asError(e).message, true);
     } finally {
       this.checking[accountId] = false;
     }
@@ -91,7 +91,7 @@ class Rooms {
       await api.folderSizesCount(accountId);
       await this.loadInfo(accountId);
     } catch (e) {
-      this.app?.fail(e);
+      this.app?.ui.fail(e);
     }
   }
 
@@ -115,7 +115,7 @@ class Rooms {
 
   /** Opens the large letters: the search with the threshold of large mail. */
   findLarge() {
-    this.app?.setView({ kind: "search", text: largeMailSearch(this.app.settings.large_mb) });
+    this.app?.selection.setView({ kind: "search", text: largeMailSearch(this.app.settings.large_mb) });
   }
 
   /** A toast once per level crossed (and a desktop notification when full and out of sight). */

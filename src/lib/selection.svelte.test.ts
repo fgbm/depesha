@@ -20,8 +20,8 @@ describe("moving through the list", () => {
     api.messages.mockResolvedValue(rows(1, 30));
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    await s.select(1);
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.select(1);
     expect(s.opened?.row.id).toBe(1);
 
     // Every open from now on hangs: the reader keeps showing letter 1 meanwhile.
@@ -46,9 +46,9 @@ describe("moving through the list", () => {
     ] as never);
     const s = new AppStore();
     vi.useFakeTimers();
-    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     expect(api.syncNow).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(300);
@@ -64,8 +64,8 @@ describe("archiving through the list", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    await s.select(1);
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.select(1);
 
     api.open.mockClear();
     api.setFlag.mockClear();

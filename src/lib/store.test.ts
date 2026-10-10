@@ -51,7 +51,7 @@ describe("the main window starting", () => {
     await expect(s.init()).resolves.toBeUndefined();
     expect(s.ui.toasts.some((x) => x.error && x.text.includes("accounts file broken"))).toBe(true);
     for (const name of ["mail-changed", "account-status", "sent", "window-moved", "window-view"]) expect(handlers.has(name)).toBe(true);
-    expect(s.wizard).toBeNull();
+    expect(s.ui.wizard).toBeNull();
     expect(api.messages).toHaveBeenCalled();
   });
 
@@ -68,7 +68,7 @@ describe("the main window starting", () => {
   it("opens the setup of a first mailbox when there is none", async () => {
     const s = new AppStore();
     await s.init();
-    expect(s.wizard).toEqual({ account: null });
+    expect(s.ui.wizard).toEqual({ account: null });
   });
 });
 
@@ -382,7 +382,7 @@ describe("extension banners", () => {
     // The last letter is a conversation with letter 99.
     api.thread.mockImplementation(async (id: number) => (id === 20 || id === 99 ? [row(99, { date: 1 }), row(20, { date: 2 })] : []));
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     for (let id = 1; id <= 20; id++) {
       await s.open(id);
       await flush();
@@ -485,7 +485,7 @@ describe("an answer that takes its letter to Waiting for reply", () => {
     expect(toast.text).toBe("Не удалось создать папку «Ждут ответа»: сервер не разрешает. Письмо осталось во входящих");
     expect(toast.action?.label).toBe("Выбрать папку");
     toast.action!.run();
-    expect([s.settingsOpen, s.ui.settingsPage, s.ui.settingsSection]).toEqual([true, "account:a", "letters"]);
+    expect([s.ui.settingsOpen, s.ui.settingsPage, s.ui.settingsSection]).toEqual([true, "account:a", "letters"]);
   });
 
   it("a move that failed for another reason says why", async () => {

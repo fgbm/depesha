@@ -45,7 +45,7 @@ class Labels {
     try {
       this.all[accountId] = await api.labels(accountId);
     } catch (e) {
-      this.app?.fail(e);
+      this.app?.ui.fail(e);
     }
   }
 
@@ -62,7 +62,7 @@ class Labels {
       for (const row of rows) byKeyword[row.keyword] = row.count;
       this.counts[accountId] = byKeyword;
     } catch (e) {
-      this.app?.fail(e);
+      this.app?.ui.fail(e);
     }
   }
 
@@ -76,7 +76,7 @@ class Labels {
       this.all[accountId] = await api.labels(accountId);
       return label;
     } catch (e) {
-      this.app?.fail(e, t("label.saveFailed"));
+      this.app?.ui.fail(e, t("label.saveFailed"));
       return null;
     }
   }
@@ -88,7 +88,7 @@ class Labels {
       this.all[accountId] = await api.labels(accountId);
       return label;
     } catch (e) {
-      this.app?.fail(e, t("label.renameFailed"));
+      this.app?.ui.fail(e, t("label.renameFailed"));
       return null;
     }
   }
@@ -98,7 +98,7 @@ class Labels {
       await api.labelRemove(accountId, name);
       await this.refresh(accountId);
     } catch (e) {
-      this.app?.fail(e);
+      this.app?.ui.fail(e);
     }
   }
 
@@ -108,7 +108,7 @@ class Labels {
       await api.labelStrip(accountId, name);
       await this.refresh(accountId);
     } catch (e) {
-      this.app?.fail(e, t("label.removeFailed"));
+      this.app?.ui.fail(e, t("label.removeFailed"));
     }
   }
 
@@ -186,7 +186,7 @@ class Labels {
       this.props[key] = props;
       this.rememberProps(key, props);
     } catch (e) {
-      this.app?.fail(e, t("folder.propsFailed"));
+      this.app?.ui.fail(e, t("folder.propsFailed"));
     }
   }
 
@@ -217,7 +217,7 @@ class Labels {
     try {
       this.props[key] = await api.folderProps(accountId, folder);
     } catch (e) {
-      this.app?.fail(e, t("folder.propsFailed"));
+      this.app?.ui.fail(e, t("folder.propsFailed"));
     } finally {
       this.checking[key] = false;
     }
@@ -233,7 +233,7 @@ class Labels {
       if (before) this.props[key] = { ...before, label_check: check, checked: Math.floor(Date.now() / 1000) };
       return check;
     } catch (e) {
-      this.app?.fail(e, t("label.check.failed", { reason: "" }));
+      this.app?.ui.fail(e, t("label.check.failed", { reason: "" }));
       return null;
     } finally {
       this.checking[key] = false;

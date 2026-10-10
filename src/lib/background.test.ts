@@ -17,7 +17,7 @@ import { api, emit, flush, resetFakes } from "./testing";
 async function started() {
   const s = new AppStore();
   await s.init();
-  s.wizard = null;
+  s.ui.wizard = null;
   return s;
 }
 
@@ -30,7 +30,7 @@ describe("closing the window, asked", () => {
   it("keeps the app in the background and remembers it by default", async () => {
     const s = await started();
     emit("close-asked", { no_tray: false });
-    const q = s.confirmation!;
+    const q = s.ui.confirmation!;
     expect(q.title).toBe("Keep Depesha in the background?");
     expect(q.okLabel).toBe("Keep in background");
     expect(q.cancelLabel).toBe("Quit");
@@ -46,8 +46,8 @@ describe("closing the window, asked", () => {
   it("asks again next time when the choice was not remembered", async () => {
     const s = await started();
     emit("close-asked", { no_tray: false });
-    s.confirmation!.check!.checked = false;
-    s.confirmation!.resolve(true);
+    s.ui.confirmation!.check!.checked = false;
+    s.ui.confirmation!.resolve(true);
     await flush();
     expect(api.settingsPatch).not.toHaveBeenCalled();
     expect(api.windowHide).toHaveBeenCalled();
@@ -56,7 +56,7 @@ describe("closing the window, asked", () => {
   it("quits, and remembers that", async () => {
     const s = await started();
     emit("close-asked", { no_tray: false });
-    s.confirmation!.resolve(false);
+    s.ui.confirmation!.resolve(false);
     await flush();
     expect(api.settingsPatch).toHaveBeenCalledWith({ close_action: "quit" });
     // Letters waiting for their time may still stop the quit: the backend asks then.
@@ -67,7 +67,7 @@ describe("closing the window, asked", () => {
   it("leaves the window open on Esc or a click beside the dialog", async () => {
     const s = await started();
     emit("close-asked", { no_tray: false });
-    s.confirmation!.resolve(null);
+    s.ui.confirmation!.resolve(null);
     await flush();
     expect(api.settingsPatch).not.toHaveBeenCalled();
     expect(api.windowHide).not.toHaveBeenCalled();
@@ -77,7 +77,7 @@ describe("closing the window, asked", () => {
   it("without a tray warns, and works on without the icon only when told so", async () => {
     const s = await started();
     emit("close-asked", { no_tray: true });
-    const q = s.confirmation!;
+    const q = s.ui.confirmation!;
     expect(q.title).toBe("There will be no tray icon");
     expect(q.okLabel).toBe("Work in the background");
     expect(q.cancelLabel).toBe("Quit");
@@ -95,7 +95,7 @@ describe("quitting with letters waiting for their time", () => {
     const s = await started();
     const at = Math.floor(new Date(2026, 9, 7, 18, 0).getTime() / 1000);
     emit("quit-asked", { letters: [{ subject: "Reconciliation", at }, { subject: "", at }] });
-    const q = s.confirmation!;
+    const q = s.ui.confirmation!;
     expect(q.title).toBe("Quit Depesha?");
     expect(q.text).toBe("2 letters wait to be sent on schedule. While Depesha is closed they will not go: at the next start Depesha will offer to send them.");
     expect(q.items).toHaveLength(2);
@@ -108,7 +108,7 @@ describe("quitting with letters waiting for their time", () => {
     expect(api.appQuit).toHaveBeenCalledWith(true);
 
     emit("quit-asked", { letters: [{ subject: "Reconciliation", at }] });
-    s.confirmation!.resolve(false);
+    s.ui.confirmation!.resolve(false);
     await flush();
     expect(api.windowHide).toHaveBeenCalled();
     expect(api.appQuit).toHaveBeenCalledTimes(1);
@@ -131,7 +131,7 @@ describe("the tray menu's errands", () => {
     await flush();
     expect(s.view).toEqual({ kind: "unified", role: "inbox", unread: true });
     emit("tray-action", { action: "account", account_id: "a" });
-    expect(s.settingsOpen).toBe(true);
+    expect(s.ui.settingsOpen).toBe(true);
     expect(s.ui.settingsPage).toBe("account:a");
   });
 });

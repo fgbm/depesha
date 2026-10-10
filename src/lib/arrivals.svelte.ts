@@ -3,6 +3,8 @@
 // selected where it is seen (decisions, frame 12В), a summary opens its inbox with the
 // new letters tinted (13А), a letter gone since is told with a way to find it (14А).
 
+import type { UiController } from "./ui.svelte";
+import type { SelectionController } from "./selection.svelte";
 import { t } from "./i18n.svelte";
 import { layout } from "./layout.svelte";
 import type { View } from "./list.svelte";
@@ -28,14 +30,10 @@ export const FLASH_MS = 1500;
 
 /** What a click on a notification needs from the app store. */
 export interface ArrivalsHost {
+  readonly ui: UiController;
+  readonly selection: SelectionController;
   readonly view: View;
   readonly messages: MessageRow[];
-  readonly confirmation: Confirmation | null;
-  settingsOpen: boolean;
-  tasksOpen: boolean;
-  setView(v: View): Promise<void>;
-  select(id: number): Promise<void>;
-  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): void;
 }
 
 export class Arrivals {
@@ -68,12 +66,12 @@ export class Arrivals {
   async open(host: ArrivalsHost, p: NotificationOpen) {
     // Settings open (maybe with edits not saved yet) or a question waiting: they stay, and
     // the letter opens behind them with a word, instead of being dropped in silence.
-    if (host.confirmation !== null || host.settingsOpen || host.tasksOpen) {
-      host.toast(t("arrivals.background"));
+    if (host.ui.confirmation !== null || host.ui.settingsOpen || host.ui.tasksOpen) {
+      host.ui.toast(t("arrivals.background"));
     }
     // A letter that missed its time waits in the Outbox: the notification opens it.
     if (p.outbox) {
-      await host.setView({ kind: "outbox" });
+      await host.selection.setView({ kind: "outbox" });
       layout.showList();
       return;
     }
@@ -85,9 +83,9 @@ export class Arrivals {
     // The open list stays when it shows the letter: a mailbox's folder, all inboxes, «Unread».
     const v = host.view;
     const stays = (v.kind === "folder" || v.kind === "unified") && host.messages.some((m) => m.id === id);
-    if (!stays && p.account_id && p.folder) await host.setView({ kind: "folder", account_id: p.account_id, folder: p.folder });
+    if (!stays && p.account_id && p.folder) await host.selection.setView({ kind: "folder", account_id: p.account_id, folder: p.folder });
     layout.showLetter();
-    await host.select(id);
+    await host.selection.select(id);
     this.focus = id;
     clearTimeout(this.flashTimer);
     this.flash = id;
@@ -98,14 +96,14 @@ export class Arrivals {
 
   private async openList(host: ArrivalsHost, p: NotificationOpen) {
     const v: View = p.account_id && p.folder ? { kind: "folder", account_id: p.account_id, folder: p.folder } : { kind: "unified", role: "inbox" };
-    await host.setView(v);
+    await host.selection.setView(v);
     layout.showList();
     if (p.gone) {
       const { subject, from } = p.gone;
       const shown = subject || t("noSubject");
-      host.toast(t("arrivals.gone", { subject: shown }), false, {
+      host.ui.toast(t("arrivals.gone", { subject: shown }), false, {
         label: t("arrivals.find"),
-        run: () => void host.setView({ kind: "search", text: findQuery(from, subject) }),
+        run: () => void host.selection.setView({ kind: "search", text: findQuery(from, subject) }),
       });
       return;
     }

@@ -23,7 +23,7 @@ describe("marking a letter read", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
     void s.open(1);
@@ -50,7 +50,7 @@ describe("acting on a letter", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
     void s.open(1);
@@ -73,7 +73,7 @@ describe("acting on a letter", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
     void s.open(1);
@@ -91,7 +91,7 @@ describe("acting on a letter", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
     void s.open(1);
@@ -112,7 +112,7 @@ describe("`u` by the letter's own state", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     await s.open(1);
     await flush();
 
@@ -131,7 +131,7 @@ describe("`s` by the letter's own state", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     await s.open(1);
     await flush();
 
@@ -148,7 +148,7 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     api.open.mockImplementation(async (id: number) => opened(row(id)));
     api.thread.mockRejectedValue(new Error("thread broken"));
     const s = new AppStore();
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     await s.open(1);
     await flush();
     expect(s.ui.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);

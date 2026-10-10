@@ -6,6 +6,7 @@
 // wait means it does not begin. Only what the question counted is cleared: the backend hands
 // back a bound with the number, and the run (also a retry) is asked for that bound.
 
+import type { UiController } from "./ui.svelte";
 import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
 import type { ComposeWindow } from "./composes.svelte";
@@ -22,19 +23,13 @@ const isClearable = (role: FolderInfo["role"]): role is Role => role === "trash"
 
 /** What the clearing needs from the app store. */
 export interface ClearHost {
+  readonly ui: UiController;
   readonly view: View;
   /** The letter of a separate message window; the command lives in the main window only. */
   readonly windowOf: number | null;
   readonly composes: ComposeWindow[];
-  readonly tasks: Task[];
   account(id: string): AccountView | undefined;
   folder(accountId: string, name: string): FolderInfo | undefined;
-  toast(text: string, error?: boolean, action?: { label: string; run: () => void }, ms?: number): number | void;
-  retext(id: number, text: string): boolean;
-  dismiss(id: number): void;
-  confirm(q: Omit<Confirmation, "resolve">): Promise<boolean>;
-  track<T>(p: Promise<T>): Promise<T>;
-  fail(e: unknown, prefix?: string): void;
   /** "z" takes `run` back while the wait lasts; the returned function lets go of it. */
   holdUndo(text: string, run: () => Promise<void>): () => void;
 }
@@ -97,7 +92,7 @@ export class ClearFolder {
     const key = `${accountId}\0${name}`;
     if (this.pending.has(key) || this.running(accountId, name)) return;
     if (!this.online(accountId)) {
-      this.host.toast(t("clear.offline"), true);
+      this.host.ui.toast(t("clear.offline"), true);
       return;
     }
     this.pending.add(key);
@@ -105,12 +100,12 @@ export class ClearFolder {
     let bound = 0;
     try {
       const plan = await this.plan(target);
-      if (plan && (await this.host.confirm(plan.question))) {
+      if (plan && (await this.host.ui.confirm(plan.question))) {
         count = plan.count;
         bound = plan.bound;
       }
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
     if (!count) {
       this.pending.delete(key);
@@ -130,9 +125,9 @@ export class ClearFolder {
   /** The question, built from what the server holds; null when there is nothing to ask about. */
   private async plan(target: ClearTarget): Promise<{ question: Omit<Confirmation, "resolve">; count: number; bound: number } | null> {
     const { account_id, folder, role } = target;
-    const { total, bound } = await this.host.track(api.folderTotal(account_id, folder.name));
+    const { total, bound } = await this.host.ui.track(api.folderTotal(account_id, folder.name));
     if (total === 0) {
-      this.host.toast(t("clear.nothing"));
+      this.host.ui.toast(t("clear.nothing"));
       return null;
     }
     if (role !== "drafts") {
@@ -153,7 +148,7 @@ export class ClearFolder {
     const opened = Math.max(this.open(account_id).length, await api.openDrafts(account_id).catch(() => 0));
     const moving = Math.max(0, total - opened);
     if (moving === 0) {
-      this.host.toast(t("clear.allOpen"));
+      this.host.ui.toast(t("clear.allOpen"));
       return null;
     }
     // A copy that never reached the server stays, and so does the one of an open window.
@@ -193,23 +188,23 @@ export class ClearFolder {
         release();
         clearTimeout(timer);
         clearInterval(ticker);
-        if (typeof toastId === "number") this.host.dismiss(toastId);
+        if (typeof toastId === "number") this.host.ui.dismiss(toastId);
         resolve(go);
       };
       const timer = setTimeout(() => {
         if (this.online(account_id)) return done(true);
-        this.host.toast(t("clear.lost"), true);
+        this.host.ui.toast(t("clear.lost"), true);
         done(false);
       }, DELAY_SECS * 1000);
       const ticker = setInterval(() => {
-        if (typeof toastId === "number") this.host.retext(toastId, text(left()));
+        if (typeof toastId === "number") this.host.ui.retext(toastId, text(left()));
       }, 1000);
-      toastId = this.host.toast(text(DELAY_SECS), false, { label: t("undo"), run: () => done(false) }, DELAY_SECS * 1000);
+      toastId = this.host.ui.toast(text(DELAY_SECS), false, { label: t("undo"), run: () => done(false) }, DELAY_SECS * 1000);
     });
   }
 
   private running(accountId: string, name: string): boolean {
-    return this.host.tasks.some((x) => x.key === taskKey(accountId, name) && x.state === "running");
+    return this.host.ui.tasks.some((x) => x.key === taskKey(accountId, name) && x.state === "running");
   }
 
   /** Asks the backend; what it did is told in a toast, and a failure leaves its summary to retry. */
@@ -217,23 +212,23 @@ export class ClearFolder {
     // The folder list may be under rebuilding just now; the role is what the question was asked for.
     const role = this.roles.get(`${accountId}\0${name}`) ?? this.target(accountId, name)?.role;
     if (!role) {
-      this.host.toast(t("clear.failed"), true);
+      this.host.ui.toast(t("clear.failed"), true);
       return;
     }
     // The windows of letters are added by the backend, which knows the drafts open in all of them.
     const keep = this.open(accountId).map((w) => w.draft_id as number);
     try {
-      const run = await this.host.track(api.folderEmpty(accountId, name, role === "drafts" ? keep : [], bound));
+      const run = await this.host.ui.track(api.folderEmpty(accountId, name, role === "drafts" ? keep : [], bound));
       if (!run.stopped) {
         this.bounds.delete(`${accountId}\0${name}`);
         this.roles.delete(`${accountId}\0${name}`);
       }
-      this.host.toast(run.stopped ? t("clear.stopped", { done: run.done, total: run.total }) : t(`clear.done.${role}`, { n: run.done }));
+      this.host.ui.toast(run.stopped ? t("clear.stopped", { done: run.done, total: run.total }) : t(`clear.done.${role}`, { n: run.done }));
     } catch (e) {
       // The backend left a task with the summary of how far it got; the toast says it too.
-      const failed = this.host.tasks.find((x) => x.key === taskKey(accountId, name) && x.state === "failed");
+      const failed = this.host.ui.tasks.find((x) => x.key === taskKey(accountId, name) && x.state === "failed");
       const text = failed?.error?.message ?? (asError(e).message || t("clear.failed"));
-      this.host.toast(text, true, { label: t("retry"), run: () => void this.retryTask({ key: taskKey(accountId, name), account_id: accountId } as Task) }, 12000);
+      this.host.ui.toast(text, true, { label: t("retry"), run: () => void this.retryTask({ key: taskKey(accountId, name), account_id: accountId } as Task) }, 12000);
     }
   }
 

@@ -2,6 +2,7 @@
 // opening and moving through it. The list itself (./list.svelte) reads the rows; here is
 // what the user does with them. `app.*` on the store delegates straight to these methods.
 
+import type { UiController } from "./ui.svelte";
 import { emitTo } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { debounce } from "./debounce";
@@ -12,16 +13,14 @@ import type { FolderInfo, MessageRow, Settings, SortKey } from "./types";
 
 /** What the list view and the selection need from the app store. */
 export interface SelectionHost {
+  readonly ui: UiController;
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
   readonly list: ListController;
   readonly reader: Reader;
   readonly settings: Settings;
   folder(accountId: string, name: string): FolderInfo | undefined;
-  track<T>(p: Promise<T>): Promise<T>;
-  fail(e: unknown, prefix?: string): void;
   patchSettings(patch: Record<string, unknown>): Promise<void>;
-  reload(): Promise<void>;
   /** A folder was opened: read its rights and labels (#42); quietly from the cache, from the server when never checked. */
   folderOpened?(accountId: string, folder: string): void;
 }
@@ -62,7 +61,7 @@ export class SelectionController {
     }
     this.host.list.unpin();
     await this.host.patchSettings({ list_sort, view_sorts });
-    this.host.reload();
+    this.reload();
   }
 
   /** Bytes of the selected rows: a conversation counts with its letters in the list. */
@@ -117,7 +116,7 @@ export class SelectionController {
     // The list shows the cache at once; fresh mail from the server follows, with the progress line.
     if (v.kind === "folder") this.scheduleSync(v.account_id, v.folder);
     else this.cancelSync();
-    await this.host.reload();
+    await this.reload();
     // The folder's rights and labels are read on its opening (#42): quietly from the cache,
     // and from the server when the folder was never checked. No "check all folders" button.
     if (v.kind === "folder") this.host.folderOpened?.(v.account_id, v.folder);
@@ -129,7 +128,7 @@ export class SelectionController {
     this.syncTimer = setTimeout(() => {
       this.syncTimer = null;
       // A failing sync is shown by the tasks of the backend (tasks-changed), not here.
-      void this.host.track(api.syncNow(accountId, folder)).catch(() => {});
+      void this.host.ui.track(api.syncNow(accountId, folder)).catch(() => {});
     }, 300);
   }
 
@@ -221,9 +220,9 @@ export class SelectionController {
     for (const m of this.host.list.messages) if (ids.includes(m.id)) m.flags[change] = value;
     if (this.host.reader.opened && ids.includes(this.host.reader.opened.row.id)) this.host.reader.opened.row.flags[change] = value;
     try {
-      await this.host.track(api.setFlag(ids, { flag: change, value }));
+      await this.host.ui.track(api.setFlag(ids, { flag: change, value }));
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 
@@ -263,7 +262,7 @@ export class SelectionController {
     try {
       await api.messageWindow(row.id, row.subject || t("noSubject"));
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 }

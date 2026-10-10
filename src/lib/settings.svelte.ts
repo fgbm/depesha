@@ -3,6 +3,8 @@
 // The app store keeps `settings` and `update` as fields of its own, so components
 // read and write them exactly as before.
 
+import type { UiController } from "./ui.svelte";
+import type { SelectionController } from "./selection.svelte";
 import { api } from "./api";
 import { applyTheme } from "./theme";
 import { i18n, t } from "./i18n.svelte";
@@ -11,10 +13,8 @@ import type { KeySettings, Settings, UpdateStatus } from "./types";
 
 /** What the settings need from the app store. */
 export interface SettingsHost {
-  fail(e: unknown, prefix?: string): void;
-  toast(text: string): void;
-  /** The list is read again when the threading of letters changed. */
-  reload(): void;
+  readonly ui: UiController;
+  readonly selection: SelectionController;
 }
 
 export class SettingsController {
@@ -87,7 +87,7 @@ export class SettingsController {
       this.settings = fresh;
       applyTheme(this.settings.theme);
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 
@@ -112,12 +112,12 @@ export class SettingsController {
     try {
       await api.settingsPatch($state.snapshot(patch) as Record<string, unknown>);
     } catch (e) {
-      this.host.fail(e, t("err.settings"));
+      this.host.ui.fail(e, t("err.settings"));
       // Refused (a folder not picked in the dialog): the window shows what is saved.
       await this.loadSettings();
     }
     await this.loadLanguage();
-    if (threadsChanged) this.host.reload();
+    if (threadsChanged) this.host.selection.reload();
   }
 
   /** A built-in plugin's own settings; a letter's window may save them, not the rest. */
@@ -127,16 +127,16 @@ export class SettingsController {
     try {
       await api.pluginSettingsSet(plugin, $state.snapshot(values));
     } catch (e) {
-      this.host.fail(e, t("err.settings"));
+      this.host.ui.fail(e, t("err.settings"));
     }
   }
 
   async checkUpdates() {
     try {
       this.update = await api.updateCheck();
-      if (this.update.state === "idle") this.host.toast(t("update.latest", { version: this.update.current }));
+      if (this.update.state === "idle") this.host.ui.toast(t("update.latest", { version: this.update.current }));
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 
@@ -144,11 +144,11 @@ export class SettingsController {
     try {
       this.update = await api.updateInstall();
     } catch (e) {
-      this.host.fail(e, t("update.title"));
+      this.host.ui.fail(e, t("update.title"));
     }
   }
 
   restartForUpdate() {
-    api.updateRestart().catch((e) => this.host.fail(e));
+    api.updateRestart().catch((e) => this.host.ui.fail(e));
   }
 }

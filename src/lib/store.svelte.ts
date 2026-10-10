@@ -66,7 +66,7 @@ export class AppStore {
   async openPeople(at: { email?: string; filter?: "all" | "ruled" | "manual" | "hidden" } | null = null) {
     this.ui.settingsOpen = false;
     this.ui.peopleFocus = at;
-    await this.setView({ kind: "people" });
+    await this.selection.setView({ kind: "people" });
   }
   /** Puts the focus into the search box of what the main window shows: the mail list or the address book. */
   focusSearch() { bus.emit(this.view.kind === "people" ? "people.search" : "mail.search"); }
@@ -116,68 +116,29 @@ export class AppStore {
   /** The letters are acted on: their read mark lands at once (#71). */
   markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
 
-  // Proxies kept only for the hosts of controllers, typed through `AppStore`; components do not
-  // call them (eslint `no-restricted-syntax` on src/components): they take `app.ui.*` and
-  // `app.selection.*`. The controllers the store itself builds (SettingsController,
-  // MailboxController, SelectionController, ListController, ActionRunner, ComposeManager,
-  // Reader, ClearFolder, and rules, labels, rooms and background that are started with it)
-  // cannot import the store: it imports them, so the import would be a cycle. They get the
-  // store as a narrow host instead, and a host names these members. `compose/*` (format,
-  // sending, attachments, autosave) is imported only by components and never by the store, so
-  // it may import `app` and `t` itself and keeps in its host just the window's own state.
-  get confirmation() { return this.ui.confirmation; }
-  set confirmation(v) { this.ui.confirmation = v; }
-  get wizard() { return this.ui.wizard; }
-  set wizard(v) { this.ui.wizard = v; }
-  get tasks() { return this.ui.tasks; }
-  set tasks(v) { this.ui.tasks = v; }
-  get tasksOpen() { return this.ui.tasksOpen; }
-  set tasksOpen(v) { this.ui.tasksOpen = v; }
-  get settingsOpen() { return this.ui.settingsOpen; }
-  set settingsOpen(v) { this.ui.settingsOpen = v; }
-  toast(text: string, error = false, action?: { label: string; run: () => void }, ms?: number) { return this.ui.toast(text, error, action, ms); }
-  retext(id: number, text: string) { return this.ui.retext(id, text); }
-  confirm(q: Omit<Confirmation, "resolve">) { return this.ui.confirm(q); }
-  /** Asks with two answers and a dismissal apart, and a box to tick. */
-  choose(q: Omit<Confirmation, "resolve">) { return this.ui.choose(q); }
-  dismiss(id: number) { this.ui.dismiss(id); }
-  fail(e: unknown, prefix = "") { this.ui.fail(e, prefix); }
-  track<T>(p: Promise<T>) { return this.ui.track(p); }
-  openSettings(page = "reading", section: string | null = null) { this.ui.openSettings(page, section); }
-  /** Reloads the current list keeping as many rows as are shown now; a message window has none. */
-  reload() { return this.selection.reload(); }
-  /** Letters the reader shows now: the open one and its conversation. */
-  showing(): number[] { return this.selection.showing(); }
-  /** The list was read again: selections of rows that disappeared (moved, deleted elsewhere) go. */
-  listed(ids: Set<number>, search: boolean): Promise<void> { return this.selection.listed(ids, search); }
-  setView(v: View) { return this.selection.setView(v); }
-  select(id: number, mode: "single" | "toggle" | "range" = "single") { return this.selection.select(id, mode); }
-  /** Takes rows out of the list and opens the next one: triage keeps going. */
-  takeOut(ids: number[]) { this.selection.takeOut(ids); }
-
   async init() {
     this.mailboxes.initVersion();
-    extensions.toast = (text, error) => this.toast(text, error);
+    extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenMain(this);
     await this.loadLanguage();
     // Each request that fails is told and does not hold up the others.
     const [accounts] = await Promise.all([
-      this.loadAccounts().then(() => true, (e) => (this.fail(e), false)),
+      this.loadAccounts().then(() => true, (e) => (this.ui.fail(e), false)),
       this.loadFolders(),
       this.loadOutbox(),
       this.loadSettings(),
       extensions.load(),
       hints.load(),
       peopleBook.load(),
-      api.tasks().then((tasks) => (this.tasks = tasks), (e) => this.fail(e)),
-      api.updateStatus().then((u) => (this.update = u), (e) => this.fail(e)),
+      api.tasks().then((tasks) => (this.ui.tasks = tasks), (e) => this.ui.fail(e)),
+      api.updateStatus().then((u) => (this.update = u), (e) => this.ui.fail(e)),
     ]);
     this.list.view = this.home();
     // Mailboxes filling up warn once the accounts and the settings are read.
     rooms.start(this);
     labels.start(this);
     void Promise.all(this.accounts.map((a) => labels.load(a.id)));
-    await this.reload();
+    await this.selection.reload();
     void tellMissed(this);
     // Drafts kept locally when the app last stopped: offered for restore (#71).
     void this.offerLocalDrafts();
@@ -185,16 +146,16 @@ export class AppStore {
     // A toast click while the app was closed: the backend kept the URL for this window.
     void takePendingOpen(this);
     // Unknown mailboxes are not no mailboxes: the wizard waits for a list it could read.
-    if (accounts && this.accounts.length === 0) this.wizard = { account: null };
+    if (accounts && this.accounts.length === 0) this.ui.wizard = { account: null };
   }
 
   /** A separate window with one letter: no list, no background work of its own. */
   async initWindow(id: number) {
     this.windowOf = id;
-    extensions.toast = (text, error) => this.toast(text, error);
+    extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenWindow(this);
     await this.loadLanguage();
-    await Promise.all([this.loadAccounts().catch((e) => this.fail(e)), this.loadFolders(), this.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
+    await Promise.all([this.loadAccounts().catch((e) => this.ui.fail(e)), this.loadFolders(), this.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
     this.selection.selected = new Set([id]);
     await this.open(id);
   }
@@ -245,8 +206,8 @@ export class AppStore {
 
   /** A mailbox's page in the settings; the very first one is set up by the wizard alone. */
   accountSettings(acc: AccountView | null) {
-    if (this.accounts.length === 0) this.wizard = { account: null };
-    else this.openSettings(acc ? `account:${acc.id}` : "account:new");
+    if (this.accounts.length === 0) this.ui.wizard = { account: null };
+    else this.ui.openSettings(acc ? `account:${acc.id}` : "account:new");
   }
 
   /** Opens a composition window; the others fold into bars, as in Gmail. */
@@ -261,9 +222,9 @@ export class AppStore {
 
   /** Drafts kept locally when the app last stopped: offered for restore (#71). */
   async offerLocalDrafts() {
-    const drafts = (await api.draftCacheList().catch((e) => (this.fail(e, t("startup.localDraftsFailed")), [] as CachedDraft[]))) ?? [];
+    const drafts = (await api.draftCacheList().catch((e) => (this.ui.fail(e, t("startup.localDraftsFailed")), [] as CachedDraft[]))) ?? [];
     if (!drafts.length) return;
-    this.toast(
+    this.ui.toast(
       tn("compose.localDraft", drafts.length, { n: drafts.length }),
       false,
       { label: t("compose.localDraftRestore"), run: () => void this.compose.restoreLocal(drafts) },
@@ -273,9 +234,9 @@ export class AppStore {
 
   /** Copies of sent letters the server refuses to keep: said once per start, until decided (#88). */
   async tellStuckCopies() {
-    const stuck = (await api.stuckCopies().catch((e) => (this.fail(e, t("startup.stuckCopiesFailed")), [] as StuckCopy[]))) ?? [];
+    const stuck = (await api.stuckCopies().catch((e) => (this.ui.fail(e, t("startup.stuckCopiesFailed")), [] as StuckCopy[]))) ?? [];
     if (!stuck.length) return;
-    this.toast(tn("stuck.toast", stuck.length, { n: stuck.length }), false, { label: t("stuck.open"), run: () => (this.tasksOpen = true) }, 30_000);
+    this.ui.toast(tn("stuck.toast", stuck.length, { n: stuck.length }), false, { label: t("stuck.open"), run: () => (this.ui.tasksOpen = true) }, 30_000);
   }
 
   /** The window that takes dropped files: the unfolded one, else the newest. */

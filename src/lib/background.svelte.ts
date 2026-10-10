@@ -4,6 +4,8 @@
 // their time (the toast of 9Б). The window itself only hides: its page keeps the
 // mail rules and plugins running.
 
+import type { UiController } from "./ui.svelte";
+import type { SelectionController } from "./selection.svelte";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { t, tn } from "./i18n.svelte";
@@ -15,12 +17,11 @@ import type { Choice, Confirmation } from "./ui.svelte";
 
 /** What the background needs from the app store. */
 export interface BackgroundHost extends ArrivalsHost {
+  readonly ui: UiController;
+  readonly selection: SelectionController;
   readonly settings: Settings;
   patchSettings(patch: Record<string, unknown>): Promise<void>;
-  choose(q: Omit<Confirmation, "resolve">): Promise<Choice>;
   newMessage(): void;
-  openSettings(page?: string, section?: string | null): void;
-  fail(e: unknown, prefix?: string): void;
 }
 
 /** Letters late are worth a longer look than the usual toast. */
@@ -52,7 +53,7 @@ export function quitApp() {
 
 /** The close button: keep working in the background or quit, remembered unless untold. */
 async function askClose(host: BackgroundHost, noTray: boolean) {
-  const { answer, checked } = await host.choose(
+  const { answer, checked } = await host.ui.choose(
     noTray
       ? {
           title: t("bg.noTray.title"),
@@ -77,30 +78,30 @@ async function askClose(host: BackgroundHost, noTray: boolean) {
     // another window wrote meanwhile is not rolled back.
     const patch: Record<string, unknown> = { close_action: answer ? "background" : "quit" };
     if (answer && noTray) patch.background_without_tray = true;
-    await host.patchSettings(patch).catch((e) => host.fail(e));
+    await host.patchSettings(patch).catch((e) => host.ui.fail(e));
   }
-  if (answer) await api.windowHide().catch((e) => host.fail(e));
-  else await api.appQuit(false).catch((e) => host.fail(e));
+  if (answer) await api.windowHide().catch((e) => host.ui.fail(e));
+  else await api.appQuit(false).catch((e) => host.ui.fail(e));
 }
 
 /** Quitting would hold back letters due within a day: say which, quit or stay in the background. */
 async function askQuit(host: BackgroundHost, letters: Due[]) {
-  const { answer } = await host.choose({
+  const { answer } = await host.ui.choose({
     title: t("bg.quitAsk.title"),
     text: tn("bg.quitAsk.text", letters.length, { n: letters.length }),
     items: letters.map((l) => t("bg.quitAsk.item", { subject: l.subject || t("noSubject"), when: when(l.at) })),
     okLabel: t("bg.quit"),
     cancelLabel: t("bg.close.ok"),
   });
-  if (answer === true) await api.appQuit(true).catch((e) => host.fail(e));
-  else if (answer === false) await api.windowHide().catch((e) => host.fail(e));
+  if (answer === true) await api.appQuit(true).catch((e) => host.ui.fail(e));
+  else if (answer === false) await api.windowHide().catch((e) => host.ui.fail(e));
 }
 
 /** An errand from the tray menu; the backend has brought the window forward already. */
 function trayAction(host: BackgroundHost, action: string, accountId?: string | null) {
   if (action === "compose") host.newMessage();
-  else if (action === "unread") void host.setView({ kind: "unified", role: "inbox", unread: true } satisfies View);
-  else if (action === "account" && accountId) host.openSettings(`account:${accountId}`);
+  else if (action === "unread") void host.selection.setView({ kind: "unified", role: "inbox", unread: true } satisfies View);
+  else if (action === "account" && accountId) host.ui.openSettings(`account:${accountId}`);
 }
 
 /** A toast click while Depesha was closed: the backend kept the `depesha://` URL for the
@@ -117,13 +118,13 @@ export async function tellMissed(host: BackgroundHost) {
   // Asked again once the window started; a failing outbox read offers nothing, the letters stay in the outbox.
   const ids = (await api.outboxMissed().catch(() => null)) ?? [];
   if (!ids.length) return;
-  host.toast(
+  host.ui.toast(
     tn("bg.missed", ids.length, { n: ids.length }),
     false,
     {
       label: t("bg.sendNow"),
       run: () => {
-        for (const id of ids) api.outboxRetry(id).catch((e) => host.fail(e));
+        for (const id of ids) api.outboxRetry(id).catch((e) => host.ui.fail(e));
       },
     },
     MISSED_MS,

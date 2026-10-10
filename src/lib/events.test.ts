@@ -80,7 +80,7 @@ describe("settings read again after a save made here (#91)", () => {
   it("does not roll the memory back with an answer asked before the save", async () => {
     resetFakes();
     const { SettingsController } = await import("./settings.svelte");
-    const store = new SettingsController({ fail: () => {}, reload: () => {}, toast: () => {} } as never);
+    const store = new SettingsController({ ui: { fail: () => {}, toast: () => {} }, selection: { reload: () => {} } } as never);
     const old = settings();
     let answer: (s: typeof old) => void = () => {};
     api.settings.mockReturnValueOnce(new Promise((r) => (answer = r)));

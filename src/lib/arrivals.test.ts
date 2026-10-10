@@ -63,7 +63,7 @@ describe("a click on a notification about one letter", () => {
     api.messages.mockResolvedValue([row(7)]);
     const s = await started();
     for (const v of [{ kind: "unified", role: "inbox", unread: true } as const, { kind: "folder", account_id: "a", folder: "INBOX" } as const]) {
-      await s.setView(v);
+      await s.selection.setView(v);
       const view = s.view;
       emit("notification-open", letter(7));
       await flush();
@@ -75,7 +75,7 @@ describe("a click on a notification about one letter", () => {
   it("goes to the mailbox's inbox from a list without the letter", async () => {
     api.messages.mockResolvedValue([row(1), row(2)]);
     const s = await started();
-    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     api.messages.mockResolvedValue([row(7), row(1)]);
     emit("notification-open", letter(7));
     await flush();
@@ -90,7 +90,7 @@ describe("a click on a notification about one letter", () => {
     api.search.mockResolvedValue([row(7)]);
     const s = await started();
     for (const v of [{ kind: "search", text: "счёт" } as const, { kind: "plugin", id: "followups" } as const]) {
-      await s.setView(v);
+      await s.selection.setView(v);
       emit("notification-open", letter(7));
       await flush();
       expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
@@ -113,7 +113,7 @@ describe("a click on a notification about a letter moved or gone", () => {
   it("says a letter is gone and offers to find it", async () => {
     api.messages.mockResolvedValue([row(1)]);
     const s = await started();
-    await s.setView({ kind: "unified", role: "inbox", flagged: true });
+    await s.selection.setView({ kind: "unified", role: "inbox", flagged: true });
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [], gone: { subject: "Invoice for October", from: "ivan.petrov@example.com" } });
     await flush();
     expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
@@ -143,21 +143,21 @@ describe("a click on a notification over the settings or a question", () => {
   it("leaves the settings, the tasks and a question alone, and says the letter opened behind them", async () => {
     api.messages.mockResolvedValue([row(7)]);
     const s = await started();
-    s.openSettings("general");
-    s.tasksOpen = true;
-    const answer = s.confirm({ text: "Discard the draft?", okLabel: "Discard" });
+    s.ui.openSettings("general");
+    s.ui.tasksOpen = true;
+    const answer = s.ui.confirm({ text: "Discard the draft?", okLabel: "Discard" });
     emit("notification-open", letter(7));
     await flush();
     // Nothing is closed and nothing is saved: the overlays stay as they were.
-    expect(s.settingsOpen).toBe(true);
-    expect(s.tasksOpen).toBe(true);
-    expect(s.confirmation).not.toBeNull();
+    expect(s.ui.settingsOpen).toBe(true);
+    expect(s.ui.tasksOpen).toBe(true);
+    expect(s.ui.confirmation).not.toBeNull();
     expect(api.settingsPatch).not.toHaveBeenCalled();
     // The letter opens behind them, and a word says so.
     expect([...s.selection.selected]).toEqual([7]);
     expect(s.ui.toasts.some((x) => x.text === "The letter opened in the background.")).toBe(true);
     // The question still waits for its answer.
-    s.confirmation?.resolve(null);
+    s.ui.confirmation?.resolve(null);
     await expect(answer).resolves.toBe(false);
   });
 });
@@ -166,7 +166,7 @@ describe("a click on a summary", () => {
   it("opens the mailbox's inbox with nothing chosen and the new letters tinted", async () => {
     api.messages.mockResolvedValue([row(1), row(2), row(3), row(4)]);
     const s = await started();
-    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [1, 2, 3], gone: null });
     await flush();
     expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
@@ -181,7 +181,7 @@ describe("a click on a summary", () => {
   it("of every mailbox opens all inboxes", async () => {
     api.messages.mockResolvedValue([row(1), row(2, { account_id: "b" })]);
     const s = await started();
-    await s.setView({ kind: "folder", account_id: "a", folder: "Archive" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "Archive" });
     emit("notification-open", { account_id: null, folder: null, id: null, ids: [1, 2], gone: null });
     await flush();
     expect(s.view).toEqual({ kind: "unified", role: "inbox" });
@@ -196,12 +196,12 @@ describe("a click on a summary", () => {
     const tinted = s.view;
     expect(arrivals.isFresh(tinted, 1)).toBe(true);
     // Reading one keeps the list as it is: the tint stays.
-    await s.select(1);
+    await s.selection.select(1);
     expect(arrivals.isFresh(s.view, 1)).toBe(true);
-    await s.setView({ kind: "unified", role: "inbox" });
+    await s.selection.setView({ kind: "unified", role: "inbox" });
     expect(arrivals.isFresh(s.view, 1)).toBe(false);
     // Coming back is another visit: no tint.
-    await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     expect(arrivals.isFresh(s.view, 1)).toBe(false);
     expect(arrivals.freshCount(s.view)).toBe(0);
   });

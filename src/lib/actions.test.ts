@@ -18,7 +18,7 @@ async function inbox() {
   const list = [1, 2, 3, 4, 5].map((id) => row(id, { thread_count: id <= 3 ? 2 : 1 }));
   api.messages.mockResolvedValue(list);
   const s = new AppStore();
-  await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+  await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
   return s;
 }
 

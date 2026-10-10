@@ -2,6 +2,7 @@
 // letters, and the app's version. `home` is where the app starts and comes back to;
 // the folders are re-read a moment after the backend says they changed.
 
+import type { UiController } from "./ui.svelte";
 import { getVersion } from "@tauri-apps/api/app";
 import { accountColor } from "./format";
 import { api } from "./api";
@@ -10,7 +11,7 @@ import type { AccountView, FolderInfo, OutboxItem } from "./types";
 
 /** What the mailboxes need from the app store. */
 export interface MailboxHost {
-  fail(e: unknown, prefix?: string): void;
+  readonly ui: UiController;
 }
 
 export class MailboxController {
@@ -45,7 +46,7 @@ export class MailboxController {
     try {
       this.folders = await api.folders();
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 
@@ -53,7 +54,7 @@ export class MailboxController {
     try {
       this.outbox = await api.outbox();
     } catch (e) {
-      this.host.fail(e);
+      this.host.ui.fail(e);
     }
   }
 

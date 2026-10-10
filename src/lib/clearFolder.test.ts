@@ -1,3 +1,4 @@
+import type { UiController } from "./ui.svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
@@ -26,19 +27,22 @@ function host(over: { role?: FolderInfo["role"] | null; total?: number; online?:
   const toasts: { text: string; error: boolean; action?: { label: string; run: () => void }; ms?: number }[] = [];
   const asked: unknown[] = [];
   const held: { text: string; run: () => Promise<void>; released: boolean }[] = [];
-  const h: ClearHost = {
-    view: { kind: "folder", account_id: "a", folder: f.name },
-    windowOf: null,
-    composes: (over.windows ?? []) as never,
+  const ui = {
     tasks: over.tasks ?? [],
-    account: () => ({ id: "a", status: { state: state.online ? "online" : "error" } }) as AccountView,
-    folder: (acc, name) => (acc === "a" && name === f.name ? f : undefined),
     toast: (text, error = false, action, ms) => toasts.push({ text, error, action, ms }),
     retext: () => true,
     dismiss: () => {},
     confirm: async (q) => (asked.push(q), state.answer),
     track: (p) => p,
-    fail: (e) => toasts.push({ text: String((e as Error).message), error: true }),
+    fail: (e) => void toasts.push({ text: String((e as Error).message), error: true }),
+  } satisfies Partial<UiController>;
+  const h: ClearHost = {
+    view: { kind: "folder", account_id: "a", folder: f.name },
+    windowOf: null,
+    composes: (over.windows ?? []) as never,
+    ui: ui as unknown as ClearHost["ui"],
+    account: () => ({ id: "a", status: { state: state.online ? "online" : "error" } }) as AccountView,
+    folder: (acc, name) => (acc === "a" && name === f.name ? f : undefined),
     holdUndo: (text, run) => {
       const u = { text, run, released: false };
       held.push(u);
