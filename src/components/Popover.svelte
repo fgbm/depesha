@@ -72,15 +72,11 @@
     before = document.activeElement as HTMLElement | null;
     place();
     // The first item that is current (a select's value, the ticked one of a radio list), or the first one: arrows go on from there.
-    const list = box;
-    const first = list.querySelector<HTMLElement>("[aria-selected='true'], button.mi[aria-checked='true']") ?? items()[0];
-    // Not before the menu is shown: a `visibility: hidden` element takes no focus.
-    const frame = requestAnimationFrame(() => {
-      if (!first || !list.isConnected) return;
+    const first = box.querySelector<HTMLElement>("[aria-selected='true'], button.mi[aria-checked='true']") ?? items()[0];
+    if (first) {
       first.focus({ preventScroll: true });
-      list.scrollTop = Math.max(0, first.offsetTop - list.clientHeight / 2);
-    });
-    return () => cancelAnimationFrame(frame);
+      box.scrollTop = Math.max(0, first.offsetTop - box.clientHeight / 2);
+    }
   });
 
   // A flyout grows in place (the folder tree under «All folders»): it is placed again to stay in the window.

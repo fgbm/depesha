@@ -295,6 +295,16 @@
   /** Whether a plugin has a control for the line of state (the wait's box and reminder). */
   const hasState = $derived(sending.controls.some((x) => x.slot === "line"));
 
+  // The mailboxes' list opens on the mailbox the letter is from, so that the arrows go on from it
+  // (#103, Alt+M). A frame later: the list takes no focus while it is not yet shown.
+  $effect(() => {
+    if (!fromOpen) return;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-compose="${c.id}"] header [role="menuitemradio"][aria-checked="true"]`)?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
   /** The chips of the one-line strip; at full screen all of them, in up to two rows. */
   const chips = $derived(c.mode === "max" ? c.draft.attachments.length : visibleChips(width, c.draft.attachments.length));
 
