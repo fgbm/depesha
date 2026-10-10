@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { anchorOf, keyAnchor, placeMenu, placeSide } from "./anchor";
+import { anchorOf, currentRow, keyAnchor, placeMenu, placeSide } from "./anchor";
 
 const win = { w: 1000, h: 700 };
 const menu = { w: 240, h: 300 };
@@ -72,5 +72,17 @@ describe("the selected row", () => {
     expect(keyAnchor(document, win)).toEqual({ x: 316, y: 120, h: 56 });
     document.body.innerHTML = "";
     expect(keyAnchor(document, win)).toEqual({ x: 380, y: 120 });
+  });
+
+  it("is the row with the cursor: a single letter has no mark but the cursor, and with several chosen the cursor wins (#108)", () => {
+    document.body.innerHTML = '<div class="row selected"></div><div class="row cursor"></div>';
+    const [chosen, cursor] = [...document.querySelectorAll<HTMLElement>(".row")];
+    chosen.getBoundingClientRect = () => ({ left: 10, top: 10, height: 56 }) as DOMRect;
+    cursor.getBoundingClientRect = () => ({ left: 300, top: 200, height: 56 }) as DOMRect;
+    expect(currentRow(document)).toBe(cursor);
+    expect(keyAnchor(document, win).y).toBe(200);
+    cursor.classList.remove("cursor");
+    expect(currentRow(document)).toBe(chosen);
+    document.body.innerHTML = "";
   });
 });

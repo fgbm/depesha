@@ -69,11 +69,17 @@ export function placeSide(parent: Box, size: Size, win: Size): { left: number; t
   return { left, top, maxHeight };
 }
 
+/** The row a key acts on: the one with the cursor (a single selected letter has no other
+ *  mark, #108), else a chosen one. */
+export function currentRow(root: ParentNode): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".row.cursor") ?? root.querySelector<HTMLElement>(".row.selected");
+}
+
 /**
  * Where a menu opened by a key hangs: the selected row of the list, or the middle of the
  * window when no row is on screen (the list scrolls, only the rows in view are drawn).
  */
 export function keyAnchor(doc: ParentNode = document, win: Size = { w: window.innerWidth, h: window.innerHeight }): Anchor {
-  const row = doc.querySelector<HTMLElement>(".row.selected, .row.opened");
+  const row = currentRow(doc);
   return row ? anchorOf(row.getBoundingClientRect()) : { x: Math.round(win.w / 2 - 120), y: 120 };
 }

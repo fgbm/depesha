@@ -548,6 +548,7 @@ try {
     await d.exec("document.querySelector('.viewport').scrollTop = 0");
     const at = 6;
     const rows = `document.querySelectorAll('.list .row')`;
+    await d.until("the list is drawn", async () => (await d.exec(`return ${rows}.length`)) > at + 2, 15000);
     await d.exec(`${rows}[${at}].click()`);
     await d.until("first letter open", async () => (await d.exec(`return ${rows}[${at}].classList.contains('cursor')`)) && (await textOf(".reader h1")).length > 0, 10000);
     const shown = await textOf(".reader h1");

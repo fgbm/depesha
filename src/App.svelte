@@ -2,6 +2,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { app } from "./lib/store.svelte";
   import { watchDrops } from "./lib/drops";
+  import { currentRow } from "./lib/anchor";
   import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import { shortcuts } from "./lib/shortcuts.svelte";
@@ -85,7 +86,7 @@
   function refocusList() {
     const at = document.activeElement;
     if (at && at !== document.body && !readerPane?.contains(at)) return;
-    const row = listPane?.querySelector<HTMLElement>(".row.selected, .row.opened") ?? listPane?.querySelector<HTMLElement>("[role=listbox]");
+    const row = (listPane ? currentRow(listPane) : null) ?? listPane?.querySelector<HTMLElement>("[role=listbox]");
     row?.focus({ preventScroll: true });
   }
 
