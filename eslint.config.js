@@ -93,8 +93,8 @@ export default tseslint.config(
   },
   {
     // Плагин видит ядро только через `@depesha/plugin-api` (plugins/README.md). Правило ловит
-    // нарушение при вводе; `src/plugin-api/boundary.test.ts` проверяет то же по файлам и
-    // заодно не пускает плагин в папку другого плагина.
+    // нарушение при вводе; `src/plugin-api/boundary.test.ts` проверяет то же по файлам.
+    // Вверх по дереву (`../`) плагин не ходит вовсе: это либо ядро, либо соседний плагин.
     files: ["plugins/**/*.{ts,svelte}"],
     ignores: ["plugins/**/*.test.ts"],
     rules: {
@@ -107,8 +107,8 @@ export default tseslint.config(
               message: "Плагин импортирует только @depesha/plugin-api, svelte, @lucide/svelte/icons/* и свои файлы.",
             },
             {
-              regex: "^(\\.\\./){2,}",
-              message: "Внутренности ядра (src/lib, src/components) не часть контракта: нужное — через @depesha/plugin-api.",
+              regex: "^(\\./)*\\.\\./",
+              message: "Из плагина нельзя подниматься вверх: ядро — только через @depesha/plugin-api, соседний плагин — никак.",
             },
           ],
         },
@@ -129,10 +129,28 @@ export default tseslint.config(
               message: "Тест плагина импортирует только @depesha/plugin-api, svelte, vitest и свои файлы.",
             },
             {
-              regex: "^(\\.\\./){2,}(?!src/lib/(testing|i18n\\.svelte|keymap)$)",
-              message: "Из ядра тест плагина берёт только src/lib/testing, i18n.svelte и keymap.",
+              regex: "^(\\./)*\\.\\./(?!\\.\\./src/lib/(testing|i18n\\.svelte|keymap)$)",
+              message: "Из ядра тест плагина берёт только src/lib/testing, i18n.svelte и keymap; соседний плагин — никак.",
             },
           ],
+        },
+      ],
+    },
+  },
+  {
+    // `import(...)` обходит правило выше: путь вычисляется или ведёт наружу. Динамический
+    // импорт плагина — литерал и свой файл (или то же, что разрешено статическому).
+    files: ["plugins/**/*.{ts,svelte}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportExpression:not([source.type='Literal'])",
+          message: "import() с вычисляемым путём прячет, что берёт плагин: путь — строковый литерал.",
+        },
+        {
+          selector: "ImportExpression[source.value=/^(?!\\.\\/|@depesha\\/plugin-api$|svelte(\\/|$)|@lucide\\/svelte\\/icons\\/)/]",
+          message: "import() в плагине берёт только @depesha/plugin-api, svelte, @lucide/svelte/icons/* и файлы своей папки (./…).",
         },
       ],
     },
