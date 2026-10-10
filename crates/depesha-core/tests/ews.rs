@@ -35,6 +35,8 @@ struct Mailbox {
     next_id: u32,
     /// Raw requests of CreateItem, to check what was sent.
     created: Vec<String>,
+    /// Raw requests of CreateFolder.
+    folders_made: Vec<String>,
     /// Offer only Negotiate and NTLM, like Exchange with Basic switched off.
     windows_only: bool,
     /// Throttling: the next requests get `ErrorServerBusy` as a SOAP fault, with
@@ -329,6 +331,16 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
             }
             wrap("DeleteItem", &msgs)
         }
+        "CreateFolder" => {
+            mb.folders_made.push(body.to_owned());
+            wrap(
+                "CreateFolder",
+                &ok(
+                    "CreateFolder",
+                    r#"<m:Folders><t:Folder><t:FolderId Id="N1" ChangeKey="AQ"/></t:Folder></m:Folders>"#,
+                ),
+            )
+        }
         "CreateItem" => {
             mb.created.push(body.to_owned());
             wrap("CreateItem", &ok("CreateItem", "<m:Items/>"))
@@ -494,6 +506,7 @@ async fn ews_mailbox_round_trip() {
         ],
         next_id: 100,
         created: Vec::new(),
+        folders_made: Vec::new(),
         windows_only: false,
         busy: Vec::new(),
         connections: 0,
@@ -714,6 +727,7 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
         items: Vec::new(),
         next_id: 1,
         created: Vec::new(),
+        folders_made: Vec::new(),
         windows_only: false,
         busy: Vec::new(),
         connections: 0,
@@ -767,6 +781,7 @@ async fn clearing_exchange_folders() {
         items,
         next_id: 100,
         created: Vec::new(),
+        folders_made: Vec::new(),
         windows_only: false,
         busy: Vec::new(),
         connections: 0,
@@ -1020,6 +1035,7 @@ async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
         items: Vec::new(),
         next_id: 100,
         created: Vec::new(),
+        folders_made: Vec::new(),
         windows_only: false,
         busy: Vec::new(),
         connections: 0,
@@ -1065,4 +1081,59 @@ async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
     let mime = BASE64.decode(mime.split("</t:MimeContent>").next().unwrap()).unwrap();
     let mime = String::from_utf8(mime).unwrap();
     assert_eq!(message::draft_act(mime.as_bytes()), Some(Act::Forward));
+}
+
+/// A folder made under a parent goes to the parent's id: the key of the cache is a path, the
+/// server wants the id (`ParentFolderId`).
+#[tokio::test]
+async fn a_folder_made_under_a_parent_names_the_parent_by_its_id() {
+    let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+        items: Vec::new(),
+        next_id: 100,
+        created: Vec::new(),
+        folders_made: Vec::new(),
+        windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
+        find_items: 0,
+    }));
+    let port = fake_exchange(mailbox.clone()).await;
+    let config = EwsConfig {
+        url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+        trusted_cert: None,
+    };
+    let s = ews::connect(&config, &Credentials::new("CORP\\me", "secret"), "me@corp.ru")
+        .await
+        .unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let mut conn = mail::Conn::Ews(s);
+    let mail::Conn::Ews(s) = &mut conn else { unreachable!() };
+    ews::sync_folder_list(s, &store, ACCOUNT).await.unwrap();
+    // Under the Inbox, under a folder of the Inbox, and at the top.
+    mail::create_folder(&mut conn, &store, ACCOUNT, Some("INBOX"), "Отчёты")
+        .await
+        .unwrap();
+    mail::create_folder(&mut conn, &store, ACCOUNT, Some("INBOX/Работа"), "Акты")
+        .await
+        .unwrap();
+    mail::create_folder(&mut conn, &store, ACCOUNT, None, "Личное")
+        .await
+        .unwrap();
+    let made = mailbox.lock().unwrap().folders_made.clone();
+    assert_eq!(made.len(), 3);
+    let parent = |body: &str| {
+        let doc = roxmltree::Document::parse(body).unwrap();
+        let node = doc.descendants().find(|n| local(*n) == "ParentFolderId").unwrap();
+        let child = node.children().find(|c| c.is_element()).unwrap();
+        (local(child), child.attribute("Id").map(str::to_owned))
+    };
+    assert_eq!(parent(&made[0]), ("FolderId".into(), Some("I".into())));
+    assert!(made[0].contains("<t:DisplayName>Отчёты</t:DisplayName>"));
+    assert_eq!(parent(&made[1]), ("FolderId".into(), Some("W".into())));
+    assert!(made[1].contains("<t:DisplayName>Акты</t:DisplayName>"));
+    // At the top it is the root, a well-known folder.
+    assert_eq!(
+        parent(&made[2]),
+        ("DistinguishedFolderId".into(), Some("msgfolderroot".into()))
+    );
 }

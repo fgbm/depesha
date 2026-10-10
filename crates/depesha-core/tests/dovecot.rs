@@ -1957,3 +1957,47 @@ async fn the_connection_after_a_drop_goes_straight_to_idle_when_nothing_came() {
     assert!(matches!(first, IdleOutcome::Timeout), "a sync for nothing");
     assert!(took >= Duration::from_secs(1), "{took:?}");
 }
+
+/// A folder made under a parent with a Cyrillic name and a dot for a delimiter: the adapter
+/// decodes the parent's cache name, joins the path with the parent's delimiter, and the server
+/// lists the child.
+#[tokio::test]
+async fn a_folder_is_made_under_a_cyrillic_parent_with_a_dot_delimiter() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("mkchild").await;
+    imap::create_folder(&mut conn, "Работа").await.unwrap();
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "m").await.unwrap();
+    let parent = store
+        .folders(Some("m"))
+        .unwrap()
+        .into_iter()
+        .map(|f| f.folder)
+        .find(|f| f.display_name == "Работа")
+        .expect("the parent is listed");
+    // The cache keeps the name as the server spells it: modified UTF-7.
+    assert_eq!(parent.name, utf7::encode("Работа"));
+    let delimiter = parent.delimiter.clone().expect("a delimiter");
+    let mut conn = mail::Conn::Imap(conn);
+    mail::create_folder(&mut conn, &store, "m", Some(&parent.name), "Отчёты")
+        .await
+        .unwrap();
+    let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
+    let listed = imap::list_folders(c).await.unwrap();
+    let child = listed
+        .iter()
+        .find(|f| f.display_name == format!("Работа{delimiter}Отчёты"))
+        .unwrap_or_else(|| {
+            panic!(
+                "the child is listed: {:?}",
+                listed.iter().map(|f| &f.display_name).collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(child.name, utf7::encode(&format!("Работа{delimiter}Отчёты")));
+    // Made again, it is made all the same: the server says it exists, and that is no failure.
+    mail::create_folder(&mut conn, &store, "m", Some(&parent.name), "Отчёты")
+        .await
+        .unwrap();
+}

@@ -897,14 +897,27 @@ mod tests {
             child_path(&store, "a", ProtocolNames::Imap, &parent, "Отчёты").unwrap(),
             "Работа.Отчёты"
         );
-        // Exchange keeps the path as it is, and the parent not in the cache gets a slash.
+        // IMAP with a slash for a delimiter: the same, the delimiter is the parent's.
+        store.replace_folders("c", &[mk(&parent, Some("/"))]).unwrap();
+        assert_eq!(
+            child_path(&store, "c", ProtocolNames::Imap, &parent, "Отчёты").unwrap(),
+            "Работа/Отчёты"
+        );
+        // A parent the cache does not know (an empty cache) gets a slash, and is decoded all the
+        // same: "&BCAEMAQxBD4EQgQw-" is "Работа".
+        let empty = Store::open_in_memory().unwrap();
+        assert_eq!(
+            child_path(&empty, "a", ProtocolNames::Imap, "&BCAEMAQxBD4EQgQw-", "X").unwrap(),
+            "Работа/X"
+        );
+        // Exchange keeps the path as it is.
         store.replace_folders("b", &[mk("Работа", Some("/"))]).unwrap();
         assert_eq!(
             child_path(&store, "b", ProtocolNames::Exchange, "Работа", "Отчёты").unwrap(),
             "Работа/Отчёты"
         );
         assert_eq!(
-            child_path(&store, "b", ProtocolNames::Exchange, "Неизвестная", "X").unwrap(),
+            child_path(&empty, "b", ProtocolNames::Exchange, "Неизвестная", "X").unwrap(),
             "Неизвестная/X"
         );
     }
