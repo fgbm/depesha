@@ -745,7 +745,7 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
 }
 
 /// The bound a dialog would have counted for the folder now (#74).
-async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> depesha_core::port::Bound {
+async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> mail::Bound {
     mail::folder_count(conn, store, account, folder).await.unwrap().1
 }
 
@@ -886,7 +886,7 @@ async fn clearing_exchange_folders() {
         ACCOUNT,
         junk,
         &depesha_core::clear::Emptying::Erase,
-        &depesha_core::port::Bound::Imap { validity: 1, next: 1 },
+        &mail::Bound::Imap { validity: 1, next: 1 },
         &[],
         500,
         &mut |_, _| true,

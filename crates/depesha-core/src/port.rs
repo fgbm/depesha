@@ -1,36 +1,42 @@
 //! The mail server as the scenarios see it. A port is introduced where a scenario's rules
 //! cannot be tested without a server: for now «Clear» (`clear`), the operations it needs and
-//! no others. IMAP and Exchange implement it in `mail`; the tests of the rules, a fake.
+//! no others. IMAP and Exchange implement it in `mail`; the tests of the rules, a fake. The
+//! rules know no protocol: what a count names (`Count`) and how a message is named (`Item`)
+//! are the implementation's own.
 
 use std::future::Future;
 
 use crate::Result;
+use crate::store::Store;
 
-/// What a «Clear» may touch: the folder as it was when the dialog counted it. What arrives
-/// afterwards is not in it and is never wiped, and a run repeated from the same bound goes on
-/// with what is left of it (#74).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Bound {
-    /// IMAP: the messages of this UIDVALIDITY with a UID below `next` (the UIDNEXT then).
-    Imap { validity: u32, next: u32 },
-    /// Exchange: the items the folder held then.
-    Items(Vec<String>),
+/// What a count of a folder named, as a dialog took it: the messages the folder held then.
+/// What arrives afterwards is not in it, and a run repeated from the same count goes on with
+/// what is left of it (#74).
+pub trait Count: Clone + Send + Sync {
+    /// A test of the cache's UIDs (the numbers the cache gives the messages): is that message
+    /// one the count named? When the cache cannot say, nothing is inside.
+    fn covers<'a>(&'a self, store: &Store, account_id: &str, folder: &str) -> Box<dyn Fn(u32) -> bool + Send + 'a>;
 }
 
 pub trait MailServer: Send {
-    /// How the server names one message: a UID on IMAP, an item id on Exchange.
+    /// How the server names one message.
     type Item: Send + Sync;
+    /// What a count of a folder named.
+    type Bound: Count;
 
-    /// How many messages the folder holds on the server and the bound that counted them.
-    fn count(&mut self, folder: &str) -> impl Future<Output = Result<(usize, Bound)>> + Send;
+    /// How many messages the folder holds on the server and the count that named them.
+    fn count(&mut self, folder: &str) -> impl Future<Output = Result<(usize, Self::Bound)>> + Send;
 
-    /// The messages of the folder that `bound` names, but those of the cached UIDs `keep`.
-    /// The folder renumbered since the bound is `Error::FolderChanged`.
+    /// The server's names of the messages the cache knows by `cached` UIDs.
+    fn items_of(&mut self, folder: &str, cached: &[u32]) -> impl Future<Output = Result<Vec<Self::Item>>> + Send;
+
+    /// The messages of the folder that `bound` names, but `keep`. The folder renumbered since
+    /// the count is `Error::FolderChanged`.
     fn counted(
         &mut self,
         folder: &str,
-        bound: &Bound,
-        keep: &[u32],
+        bound: &Self::Bound,
+        keep: &[Self::Item],
     ) -> impl Future<Output = Result<Vec<Self::Item>>> + Send;
 
     /// Wipes the messages for good.

@@ -19,7 +19,7 @@ use crate::worker::{Output, Work, clone_error, sync_one};
 /// One emptying, as the mailbox's queue gets it.
 #[derive(Debug, Clone)]
 pub struct Request {
-    pub job: clear::Request,
+    pub job: clear::Request<mail::Bound>,
     /// The task's name in the tasks window.
     pub label: String,
     pub key: String,

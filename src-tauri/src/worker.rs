@@ -192,7 +192,7 @@ pub enum Output {
     /// The outcome of a label check on a test message (#42, frame 9).
     LabelCheck(depesha_core::acl::LabelCheck),
     /// What a folder held on the server when it was counted.
-    Counted(usize, depesha_core::port::Bound),
+    Counted(usize, mail::Bound),
     /// How far an emptying of a folder got.
     /// How far it got, and the cache ids of the drafts it kept.
     Emptied(depesha_core::clear::Emptied, Vec<i64>),

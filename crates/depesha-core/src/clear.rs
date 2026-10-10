@@ -7,12 +7,12 @@
 //! is). A run touches only what the dialog counted (`Bound`): a letter that arrives meanwhile
 //! is not wiped. The app only shows the progress and tells the windows.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::domain::{CachedDraft, FolderRole};
-use crate::port::{Bound, MailServer};
+use crate::port::{Count, MailServer};
 use crate::store::Store;
 use crate::{Error, Result};
 
@@ -51,30 +51,6 @@ pub struct Emptied {
 /// line are refused by some servers, and the batch is also where a stop can take effect.
 pub const EMPTY_BATCH: usize = 500;
 
-/// The UIDs of an IMAP folder (`uids`, read under `validity`) that the `bound` names, but
-/// `keep`: those below the UIDNEXT of the count. A folder renumbered since is `FolderChanged`.
-pub(crate) fn within_bound(validity: u32, uids: Vec<u32>, bound: &Bound, keep: &[u32]) -> Result<Vec<u32>> {
-    let Bound::Imap { validity: asked, next } = bound else {
-        return Err(not_of_this_mailbox());
-    };
-    if validity != *asked {
-        return Err(Error::FolderChanged);
-    }
-    Ok(uids.into_iter().filter(|u| u < next && !keep.contains(u)).collect())
-}
-
-/// The items of an Exchange folder that the `bound` (a snapshot of its items) names, but `kept`.
-pub(crate) fn within_snapshot(bound: &Bound, kept: &HashSet<String>) -> Result<Vec<String>> {
-    let Bound::Items(snapshot) = bound else {
-        return Err(not_of_this_mailbox());
-    };
-    Ok(snapshot.iter().filter(|id| !kept.contains(*id)).cloned().collect())
-}
-
-fn not_of_this_mailbox() -> Error {
-    Error::Protocol("the bound of the clearing is not of this mailbox".into())
-}
-
 /// Empties the folder on the server, every message in it that `bound` names and not only
 /// those the cache loaded, except `keep` (cached UIDs of messages that must stay). What came
 /// into the folder after the bound was taken stays. It works in batches and calls
@@ -85,11 +61,12 @@ pub async fn empty_folder<S: MailServer>(
     server: &mut S,
     folder: &str,
     how: &Emptying,
-    bound: &Bound,
+    bound: &S::Bound,
     keep: &[u32],
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
 ) -> Result<Emptied> {
-    let items = server.counted(folder, bound, keep).await?;
+    let kept = server.items_of(folder, keep).await?;
+    let items = server.counted(folder, bound, &kept).await?;
     let mut run = Emptied {
         total: items.len(),
         ..Emptied::default()
@@ -114,11 +91,11 @@ pub async fn empty_folder<S: MailServer>(
 
 /// One emptying, as the mailbox's queue gets it.
 #[derive(Debug, Clone)]
-pub struct Request {
+pub struct Request<B> {
     pub folder: String,
     pub how: Emptying,
     /// What the dialog counted: nothing else is touched.
-    pub bound: Bound,
+    pub bound: B,
     /// Cache ids of the drafts the calling window has open, on top of the backend's own record
     /// (`Clearing`). Read when the erasing begins, not when it is asked for: the queue may
     /// hold the run back, and a draft opened meanwhile must stay.
@@ -142,9 +119,9 @@ pub struct Performed {
 pub async fn perform<S: MailServer>(
     server: &mut S,
     store: &Store,
-    clearing: &Clearing,
+    clearing: &Clearing<S::Bound>,
     account_id: &str,
-    req: &Request,
+    req: &Request<S::Bound>,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
     cache_forgot: &mut (dyn FnMut(Forgot) + Send),
 ) -> Performed {
@@ -181,7 +158,7 @@ pub enum Forgot {
 }
 
 /// Takes the folder's cached letters that the run takes (but `keep`) out of the cache.
-fn forget_cached(store: &Store, account_id: &str, folder: &str, keep: &[u32], bound: &Bound) -> Forgot {
+fn forget_cached<B: Count>(store: &Store, account_id: &str, folder: &str, keep: &[u32], bound: &B) -> Forgot {
     let gone = match uids_to_forget(store, account_id, folder, keep, bound) {
         Ok(gone) => gone,
         Err(e) => return Forgot::NotRead(e),
@@ -208,14 +185,14 @@ pub fn clearable_role(store: &Store, account_id: &str, folder: &str) -> Option<F
 /// What a run of Drafts is to know before it is queued: the cache ids of the drafts that stay
 /// (the windows' own word, `window_ids`, with the backend's record) and the keys of the local
 /// copies that leave with the drafts the count named.
-pub fn leaving_copies(
+pub fn leaving_copies<B: Count>(
     store: &Store,
-    clearing: &Clearing,
+    clearing: &Clearing<B>,
     copies: &[CachedDraft],
     account_id: &str,
     folder: &str,
     window_ids: &[i64],
-    bound: &Bound,
+    bound: &B,
 ) -> (Vec<i64>, Vec<String>) {
     // A window the main one does not see may have a draft open: the backend's own record counts.
     // The cached UIDs of the open drafts are read when the run begins in the queue (`perform`).
@@ -225,7 +202,7 @@ pub fn leaving_copies(
             keep_ids.push(id);
         }
     }
-    let inside = counted(store, account_id, folder, bound);
+    let inside = bound.covers(store, account_id, folder);
     let leaving = copies_following(copies, account_id, folder, &keep_ids, &inside, |id| {
         store
             .get_at(id)
@@ -239,7 +216,7 @@ pub fn leaving_copies(
 
 /// How many drafts of the mailbox's Drafts folder windows have open: the number the dialog
 /// says will stay.
-pub fn open_in_drafts(store: &Store, clearing: &Clearing, account_id: &str) -> usize {
+pub fn open_in_drafts<B>(store: &Store, clearing: &Clearing<B>, account_id: &str) -> usize {
     let folder = store.folder_by_role(account_id, FolderRole::Drafts).ok().flatten();
     let Some(folder) = folder else { return 0 };
     clearing
@@ -272,8 +249,7 @@ struct OpenDraft {
 
 /// What the backend knows about the clearings: the drafts that windows have open, and the
 /// bounds the dialogs counted.
-#[derive(Default)]
-pub struct Clearing {
+pub struct Clearing<B> {
     /// Drafts open in a window, by the window's label: `(local_id, cache id of its server copy)`.
     /// A window reports them as it opens a composition, saves it and closes it, and the
     /// window's entry goes with it, so a letter's window the main one does not see is still
@@ -284,21 +260,33 @@ pub struct Clearing {
     /// The page of each window by its load: a save of a page that is gone (an older number) is
     /// not heard.
     generations: Mutex<HashMap<String, u64>>,
-    bounds: Mutex<HashMap<u64, HeldBound>>,
+    bounds: Mutex<HashMap<u64, HeldBound<B>>>,
     seq: AtomicU64,
 }
 
-struct HeldBound {
+impl<B> Default for Clearing<B> {
+    fn default() -> Self {
+        Self {
+            open: Default::default(),
+            closed: Default::default(),
+            generations: Default::default(),
+            bounds: Default::default(),
+            seq: Default::default(),
+        }
+    }
+}
+
+struct HeldBound<B> {
     account_id: String,
     folder: String,
-    bound: Bound,
+    bound: B,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-impl Clearing {
+impl<B> Clearing<B> {
     /// A window says which server draft its composition `local_id` is now (`None`: none, the
     /// composition closed), and the Message-ID of that copy when it knows it. A composition
     /// that closed stays closed: a save that was still running does not bring it back.
@@ -375,7 +363,7 @@ impl Clearing {
     /// Keeps the bound of a count; the number it is asked for by is returned. The older count
     /// of the folder stays until a run is confirmed (`confirm`): a count that was cancelled
     /// leaves the «Retry» of an earlier run its bound.
-    pub fn hold(&self, account_id: &str, folder: &str, bound: Bound) -> u64 {
+    pub fn hold(&self, account_id: &str, folder: &str, bound: B) -> u64 {
         let token = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
         let mut held = lock(&self.bounds);
         held.insert(
@@ -395,7 +383,10 @@ impl Clearing {
         token
     }
 
-    pub fn bound(&self, token: u64, account_id: &str, folder: &str) -> Option<Bound> {
+    pub fn bound(&self, token: u64, account_id: &str, folder: &str) -> Option<B>
+    where
+        B: Clone,
+    {
         lock(&self.bounds)
             .get(&token)
             .filter(|h| h.account_id == account_id && h.folder == folder)
@@ -417,35 +408,16 @@ impl Clearing {
     }
 }
 
-/// What the dialog counted, as a test of a cached UID: below the UIDNEXT of the count, or an
-/// item of its snapshot. A letter that arrived since is outside it. When the cache cannot say
-/// (Exchange), nothing is inside.
-fn counted<'a>(
+/// The cached UIDs of `folder` that the run takes out of the cache: those the count named,
+/// but `keep`. A letter that arrived after the count stays on screen, as it stays on the server.
+fn uids_to_forget<B: Count>(
     store: &Store,
     account_id: &str,
     folder: &str,
-    bound: &'a Bound,
-) -> Box<dyn Fn(u32) -> bool + Send + 'a> {
-    match bound {
-        Bound::Imap { next, .. } => Box::new(move |uid| uid < *next),
-        Bound::Items(snapshot) => {
-            let snapshot: HashSet<&str> = snapshot.iter().map(String::as_str).collect();
-            let inside: HashSet<u32> = store
-                .ews_items(account_id, folder)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(_, item, _)| snapshot.contains(item.as_str()))
-                .map(|(uid, _, _)| uid)
-                .collect();
-            Box::new(move |uid| inside.contains(&uid))
-        }
-    }
-}
-
-/// The cached UIDs of `folder` that the run takes out of the cache: those the count named,
-/// but `keep`. A letter that arrived after the count stays on screen, as it stays on the server.
-fn uids_to_forget(store: &Store, account_id: &str, folder: &str, keep: &[u32], bound: &Bound) -> Result<Vec<u32>> {
-    let inside = counted(store, account_id, folder, bound);
+    keep: &[u32],
+    bound: &B,
+) -> Result<Vec<u32>> {
+    let inside = bound.covers(store, account_id, folder);
     Ok(store
         .known_uids(account_id, folder)?
         .into_iter()
@@ -457,9 +429,9 @@ fn uids_to_forget(store: &Store, account_id: &str, folder: &str, keep: &[u32], b
 /// record) that stand in `folder` now. A number handed out anew to another draft is not
 /// taken for the open one: the record's Message-ID has to agree, else the copy is looked for
 /// by it.
-pub fn keep_uids(
+pub fn keep_uids<B>(
     store: &Store,
-    clearing: &Clearing,
+    clearing: &Clearing<B>,
     account_id: &str,
     folder: &str,
     window_ids: &[i64],
@@ -566,6 +538,8 @@ pub fn copies_following(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    type Clearing = super::Clearing<FakeBound>;
 
     fn copy(key: &str, draft_id: Option<i64>, mid: Option<&str>) -> CachedDraft {
         CachedDraft {
@@ -729,7 +703,7 @@ mod tests {
         for uid in 1..=4 {
             cached(&store, uid, &format!("{uid}@x"));
         }
-        let bound = Bound::Imap { validity: 1, next: 4 };
+        let bound = FakeBound { generation: 1, upto: 3 };
         // UID 4 arrived after the count: it stays on the server and on the screen.
         assert_eq!(uids_to_forget(&store, "a", "Drafts", &[2], &bound).unwrap(), [1, 3]);
     }
@@ -815,17 +789,21 @@ mod tests {
     #[test]
     fn a_bound_is_kept_for_a_retry_and_a_newer_count_of_the_folder_replaces_it() {
         let c = Clearing::default();
-        let first = c.hold("a", "Trash", Bound::Imap { validity: 1, next: 10 });
-        let spam = c.hold("a", "Spam", Bound::Items(vec!["x".into()]));
-        assert_eq!(
-            c.bound(first, "a", "Trash"),
-            Some(Bound::Imap { validity: 1, next: 10 })
-        );
+        let first = c.hold("a", "Trash", FakeBound { generation: 1, upto: 9 });
+        let spam = c.hold("a", "Spam", FakeBound { generation: 2, upto: 0 });
+        assert_eq!(c.bound(first, "a", "Trash"), Some(FakeBound { generation: 1, upto: 9 }));
         // A number is good for the folder it was counted for and no other.
         assert_eq!(c.bound(first, "a", "Spam"), None);
         assert_eq!(c.bound(first, "b", "Trash"), None);
         // A count that is then cancelled leaves the earlier one to retry with.
-        let again = c.hold("a", "Trash", Bound::Imap { validity: 1, next: 20 });
+        let again = c.hold(
+            "a",
+            "Trash",
+            FakeBound {
+                generation: 1,
+                upto: 19,
+            },
+        );
         assert!(
             c.bound(first, "a", "Trash").is_some(),
             "the older count stays until a run is confirmed"
@@ -843,7 +821,7 @@ mod tests {
         assert_eq!(c.bound(again, "a", "Trash"), None);
         // Only a few are held: the oldest goes first.
         let held: Vec<u64> = (0..BOUNDS_HELD + 2)
-            .map(|n| c.hold("a", &format!("F{n}"), Bound::Items(Vec::new())))
+            .map(|n| c.hold("a", &format!("F{n}"), FakeBound::default()))
             .collect();
         assert_eq!(c.bound(held[0], "a", "F0"), None);
         assert!(
@@ -854,7 +832,7 @@ mod tests {
 
     /// A server that holds UIDs per folder and does what the port says, nothing more.
     struct Fake {
-        validity: u32,
+        generation: u32,
         folders: HashMap<String, Vec<u32>>,
         batch: usize,
         /// The n-th erase or move (from 1) fails, once, before it changed anything.
@@ -868,7 +846,7 @@ mod tests {
     impl Fake {
         fn with(folder: &str, uids: impl IntoIterator<Item = u32>) -> Self {
             Self {
-                validity: 7,
+                generation: 7,
                 folders: HashMap::from([(folder.to_owned(), uids.into_iter().collect())]),
                 batch: 2,
                 fail_at: None,
@@ -897,23 +875,49 @@ mod tests {
         }
     }
 
+    /// What the fake counted: its own way, with no UIDVALIDITY or UIDNEXT in it. A generation
+    /// of the folder and the highest number that was in it.
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    struct FakeBound {
+        generation: u32,
+        upto: u32,
+    }
+
+    impl Count for FakeBound {
+        fn covers<'a>(&'a self, _: &Store, _: &str, _: &str) -> Box<dyn Fn(u32) -> bool + Send + 'a> {
+            Box::new(|uid| uid <= self.upto)
+        }
+    }
+
     impl MailServer for Fake {
         type Item = u32;
+        type Bound = FakeBound;
 
-        async fn count(&mut self, folder: &str) -> Result<(usize, Bound)> {
+        async fn count(&mut self, folder: &str) -> Result<(usize, FakeBound)> {
             let uids = self.left(folder);
-            let next = uids.iter().max().map_or(1, |m| m + 1);
+            let upto = uids.iter().max().copied().unwrap_or(0);
             Ok((
                 uids.len(),
-                Bound::Imap {
-                    validity: self.validity,
-                    next,
+                FakeBound {
+                    generation: self.generation,
+                    upto,
                 },
             ))
         }
 
-        async fn counted(&mut self, folder: &str, bound: &Bound, keep: &[u32]) -> Result<Vec<u32>> {
-            within_bound(self.validity, self.left(folder), bound, keep)
+        async fn items_of(&mut self, _folder: &str, cached: &[u32]) -> Result<Vec<u32>> {
+            Ok(cached.to_vec())
+        }
+
+        async fn counted(&mut self, folder: &str, bound: &FakeBound, keep: &[u32]) -> Result<Vec<u32>> {
+            if bound.generation != self.generation {
+                return Err(Error::FolderChanged);
+            }
+            Ok(self
+                .left(folder)
+                .into_iter()
+                .filter(|u| *u <= bound.upto && !keep.contains(u))
+                .collect())
         }
 
         async fn erase(&mut self, folder: &str, items: &[u32]) -> Result<()> {
@@ -947,7 +951,7 @@ mod tests {
     async fn empty(
         server: &mut Fake,
         how: &Emptying,
-        bound: &Bound,
+        bound: &FakeBound,
         keep: &[u32],
         stop_after: Option<usize>,
     ) -> (Result<Emptied>, Vec<(usize, usize)>) {
@@ -960,7 +964,7 @@ mod tests {
         (run, seen)
     }
 
-    async fn counted_bound(server: &mut Fake) -> Bound {
+    async fn counted_bound(server: &mut Fake) -> FakeBound {
         server.count("Trash").await.unwrap().1
     }
 
@@ -1074,29 +1078,11 @@ mod tests {
     async fn a_folder_renumbered_since_the_count_is_refused_untouched() {
         let mut server = Fake::with("Trash", 1..=3);
         let bound = counted_bound(&mut server).await;
-        server.validity = 8;
+        server.generation = 8;
         let (run, seen) = empty(&mut server, &Emptying::Erase, &bound, &[], None).await;
         assert!(matches!(run, Err(Error::FolderChanged)));
         assert!(seen.is_empty());
         assert_eq!(server.left("Trash"), [1, 2, 3]);
-        // A bound of the other kind of mailbox names nothing here.
-        let (run, _) = empty(
-            &mut server,
-            &Emptying::Erase,
-            &Bound::Items(vec!["x".into()]),
-            &[],
-            None,
-        )
-        .await;
-        assert!(matches!(run, Err(Error::Protocol(_))));
-    }
-
-    #[test]
-    fn an_exchange_snapshot_gives_up_what_must_stay() {
-        let snapshot = Bound::Items(vec!["a".into(), "b".into(), "c".into()]);
-        let kept = HashSet::from(["b".to_owned()]);
-        assert_eq!(within_snapshot(&snapshot, &kept).unwrap(), ["a", "c"]);
-        assert!(within_snapshot(&Bound::Imap { validity: 1, next: 2 }, &kept).is_err());
     }
 
     #[test]
@@ -1200,7 +1186,7 @@ mod tests {
         let clearing = Clearing::default();
         // The backend knows of a window the asking one does not; UID 3 came after the count.
         clearing.draft_set("message-4", "k", Some(ids[1]), None);
-        let bound = Bound::Imap { validity: 1, next: 3 };
+        let bound = FakeBound { generation: 1, upto: 2 };
         let (keep_ids, leaving) = leaving_copies(&store, &clearing, &copies, "a", "Drafts", &[], &bound);
         assert_eq!(keep_ids, [ids[1]]);
         assert_eq!(leaving, ["one"]);

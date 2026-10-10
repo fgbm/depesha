@@ -373,7 +373,7 @@ fn letter(kind: &str, n: usize) -> Vec<u8> {
 }
 
 /// The bound a dialog would have counted for the folder now (#74).
-async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> depesha_core::port::Bound {
+async fn bound_of(conn: &mut mail::Conn, store: &Store, account: &str, folder: &str) -> mail::Bound {
     mail::folder_count(conn, store, account, folder).await.unwrap().1
 }
 
@@ -498,10 +498,10 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
         imap::append(c, &junk, &letter("late", 1), "").await.unwrap();
     }
-    let depesha_core::port::Bound::Imap { validity, next } = bound.clone() else {
+    let mail::Bound::Imap { validity, next } = bound.clone() else {
         unreachable!()
     };
-    let stale = depesha_core::port::Bound::Imap {
+    let stale = mail::Bound::Imap {
         validity: validity + 1,
         next,
     };
