@@ -109,7 +109,7 @@ export function createKit({ out, tag = "depesha-shots-", v8 = false }) {
     await press("k", { ctrlKey: true });
     await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
     await d.type(await d.find(".palette .q"), search);
-    await d.type(await d.find(".palette .q"), "");
+    await d.type(await d.find(".palette .q"), "\uE007");
   }
   async function closeSettings() {
     // Esc clears the settings search first and closes the window second: press it a few times.

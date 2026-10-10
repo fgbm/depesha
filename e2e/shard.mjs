@@ -81,7 +81,14 @@ export function createSectionGate(selected, sections = SECTIONS, log = console.l
       if (selected !== null) log(`\n== раздел «${name}»${active() ? "" : " (пропущен: его прогоняет другая часть)"}`);
     },
     gate(step) {
-      return (...args) => (active() ? step(...args) : Promise.resolve());
+      const ids = new Set();
+      return (...args) => {
+        // The id names the step in the results, in FAIL_FIRST and in the acceptance list; a part that
+        // does not run the step still takes the id, so the same id twice is found by every part.
+        if (ids.has(args[0])) return Promise.reject(new Error(`step id used twice: ${args[0]}`));
+        ids.add(args[0]);
+        return active() ? step(...args) : Promise.resolve();
+      };
     },
     get current() {
       return current;

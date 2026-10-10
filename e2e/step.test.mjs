@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Abort, createStepRunner } from "./step.mjs";
+import { Abort, ESCAPE_SCRIPT, createFailFirst, createStepRunner } from "./step.mjs";
 
 function setup() {
   const results = [];
@@ -62,5 +62,43 @@ describe("e2e step runner", () => {
     await b.step("1", "a", bad);
     await b.step("1", "b", bad);
     await expect(b.step("1", "c", bad)).rejects.toBeInstanceOf(Abort);
+  });
+});
+
+describe("DEPESHA_E2E_FAIL_FIRST", () => {
+  it("fails the first try of the named steps once and says which names were never reached", () => {
+    const fail = createFailFirst("6.4, 7.21,,nope");
+    expect(() => fail.inject("6.4")).toThrow("DEPESHA_E2E_FAIL_FIRST: 6.4");
+    expect(() => fail.inject("6.4")).not.toThrow();
+    expect(() => fail.inject("5.1")).not.toThrow();
+    // 7.21 and nope were never reached: the run warns, a typo does not pass for a test of the retry.
+    expect(fail.unused()).toEqual(["7.21", "nope"]);
+    expect(createFailFirst(undefined).unused()).toEqual([]);
+  });
+});
+
+describe("tidy up", () => {
+  /** Runs the script against a stand-in for the page: who got the Escape. */
+  function run(shielded) {
+    const got = [];
+    const target = { name: "target", dispatchEvent: (e) => (shielded ? true : got.push(["target", e.key])) };
+    const window = { dispatchEvent: (e) => got.push(["window", e.key]) };
+    const document = { querySelector: () => null, activeElement: target, body: target };
+    class KeyboardEvent {
+      constructor(type, init) {
+        Object.assign(this, { type }, init);
+      }
+    }
+    new Function("document", "window", "KeyboardEvent", ESCAPE_SCRIPT)(document, window, KeyboardEvent);
+    return got;
+  }
+
+  it("sends the Escape to the window too, for a handler that stopped it on the way", () => {
+    // The focused element's handler stops the event: only the window can still close the dialog.
+    expect(run(true)).toEqual([["window", "Escape"]]);
+    expect(run(false)).toEqual([
+      ["target", "Escape"],
+      ["window", "Escape"],
+    ]);
   });
 });

@@ -57,6 +57,18 @@ describe("e2e parts", () => {
     expect(ran).toEqual(["a", "b"]);
   });
 
+  it("refuses a step id used twice, whichever part runs it", async () => {
+    // The id names a step in the results, in FAIL_FIRST and in the acceptance list: two steps with
+    // one id could not be told apart. A part that skips the step still sees the id taken.
+    const gate = createSectionGate(new Set(["list"]), SECTIONS, vi.fn());
+    const step = gate.gate(async () => {});
+    gate.section("list");
+    await step("6.4", "a");
+    gate.section("send");
+    await expect(step("6.4", "b")).rejects.toThrow(/6\.4/);
+    await expect(step("6.5", "c")).resolves.toBeUndefined();
+  });
+
   it("refuses an unknown section", () => {
     expect(() => createSectionGate(null, SECTIONS, vi.fn()).section("nope")).toThrow();
   });

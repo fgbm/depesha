@@ -6,6 +6,31 @@ export const CASCADE = 3;
 export class Abort extends Error {}
 
 /**
+ * DEPESHA_E2E_FAIL_FIRST=6.4,7.21: the first try of these steps fails after the input (a test of
+ * the retry). `unused()` names what the run never reached: a typo, or a step of another part.
+ */
+export function createFailFirst(spec) {
+  const asked = (spec ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const left = new Set(asked);
+  return {
+    inject(id) {
+      if (left.delete(id)) throw new Error(`DEPESHA_E2E_FAIL_FIRST: ${id}`);
+    },
+    unused: () => asked.filter((id) => left.has(id)),
+  };
+}
+
+/**
+ * Closes what a failed step left open (menus, the viewer, dialogs): the Escape starts at the settings
+ * window, the focused element or the body (these listen on themselves, not on the window) and then goes to
+ * the window too, for a handler that stopped it on the way.
+ */
+export const ESCAPE_SCRIPT = `const t = document.querySelector('.modal.prefs') ?? document.activeElement ?? document.body;
+  const escape = () => new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+  t.dispatchEvent(escape());
+  window.dispatchEvent(escape());`;
+
+/**
  * `hooks`: `screenshot(name)`, `tidyUp()` and `log(line)`. `results` gets one record per step,
  * `retried` the names of the steps that passed on the second try.
  *

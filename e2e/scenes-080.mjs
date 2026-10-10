@@ -89,7 +89,7 @@ export async function composeWithFiles(kit, name) {
   await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
   const to = await d.find(".compose .fields input");
   await d.type(to, "petr@example.com");
-  await d.pressKey("");
+  await d.pressKey("\uE007");
   await setInput(".compose .subject", "Смета и схема склада");
   const text = await d.until("body", () => d.find(".compose .body-area [contenteditable], .compose .body-area textarea").catch(() => null), 10000);
   await d.click(text);
@@ -123,23 +123,23 @@ export async function peopleBook(kit, names) {
   await press("k", { ctrlKey: true });
   await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
   await d.type(await d.find(".palette .q"), "перейти контакты");
-  await d.type(await d.find(".palette .q"), "");
+  await d.type(await d.find(".palette .q"), "\uE007");
   await d.until("book", async () => (await d.findAll(".people")).length === 1);
   await d.exec("document.querySelector('.people [role=listbox]').focus()");
   await d.pressKey("/");
   await d.type(await d.find(".people input[type=search]"), "смирнова");
   await d.until("two found", async () => (await d.findAll(".people .pr")).length === 2);
-  await d.pressKey("");
+  await d.pressKey("\uE015");
   await d.until("list has the focus", async () => (await d.exec("return document.activeElement?.getAttribute('role')")) === "listbox");
   await d.pressKey(" ");
-  await d.pressKey("");
+  await d.pressKey("\uE015");
   await d.pressKey(" ");
   await d.until("two marked", async () => (await textOf(".people .banner")).includes("Отмечено: 2"));
   await d.pressKey("m");
   await d.until("merge dialog", async () => (await d.findAll(".merge")).length === 1);
   await sleep(400);
   if (names.merge) await shot(names.merge);
-  await d.pressKey("");
+  await d.pressKey("\uE007");
   await d.until("merged", async () => (await invoke("people", { query: "смирнова" })).length === 1, 15000);
   // The whole book again, the merged person chosen: one card, two addresses.
   await d.exec("document.querySelector('.people input[type=search]').focus()");
