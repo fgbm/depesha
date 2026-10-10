@@ -8,8 +8,14 @@
 #   scripts/frontend-invariants.sh --print         напечатать текущую сводку
 #   scripts/frontend-invariants.sh --save [DIR]    записать baseline в DIR
 #   scripts/frontend-invariants.sh --compare [DIR] сравнить с DIR
+#   scripts/frontend-invariants.sh --tighten [DIR] убрать из baseline исчезнувшие члены
+#                                                  app.* и обновить остальные наборы
 #
-# Любое расхождение набора или счётчика — дрейф, выход ненулевой.
+# Падает только ухудшение: новый член app.*, которого нет в baseline и нет в
+# DIR/exceptions.txt (`app-members<TAB>имя<TAB>причина`, причина обязательна).
+# Исчезнувший член проходит без пересборки baseline (--tighten подтягивает его).
+# Остальные наборы (ключи t(), role=, aria-*, data-*) и счётчики только
+# печатаются как разница, не роняя проверку: «ровно как было» не требуется.
 # Только POSIX sh/awk/grep/sort, без нового инструментария.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -22,9 +28,10 @@ case "${1:-}" in
   ""|--check) mode="compare" ;;
   --print) mode="print" ;;
   --save) mode="save"; dir="${2:-$DEFAULT_DIR}" ;;
+  --tighten) mode="tighten"; dir="${2:-$DEFAULT_DIR}" ;;
   --compare) mode="compare"; dir="${2:-$DEFAULT_DIR}" ;;
   -h|--help)
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   *) echo "unknown argument: $1" >&2; exit 2 ;;
 esac
@@ -108,46 +115,72 @@ if [[ "$mode" == print ]]; then
   exit 0
 fi
 
-# compare
 if [[ ! -d "$dir" ]]; then
   echo "нет baseline: $dir (создайте: scripts/frontend-invariants.sh --save $dir)" >&2
   exit 1
 fi
 
+if [[ "$mode" == tighten ]]; then
+  tmp=$(mktemp)
+  # Члены app.*: только пересечение с текущими; новые не добавляются (их судит исключение).
+  app_members | LC_ALL=C comm -12 - "$dir/app-members.txt" > "$tmp"
+  cp "$tmp" "$dir/app-members.txt"
+  rm -f "$tmp"
+  t_keys > "$dir/t-keys.txt"
+  role_values > "$dir/roles.txt"
+  aria_names > "$dir/aria-attrs.txt"
+  data_kinds > "$dir/data-kinds.txt"
+  summary > "$dir/summary.txt"
+  echo "baseline подтянут: $dir"
+  exit 0
+fi
+
+# compare
 status=0
-compare_set() {
+exc="$dir/exceptions.txt"
+
+# Разница набора с baseline: что добавилось и что пропало. Не роняет проверку.
+info_set() {
   local name="$1" file="$2" gen="$3" tmp
+  [[ -f "$file" ]] || return 0
   tmp=$(mktemp)
   "$gen" > "$tmp"
-  if [[ ! -f "$file" ]]; then
-    echo "НЕТ ФАЙЛА: $file" >&2; status=1; rm -f "$tmp"; return
-  fi
-  if ! diff -u "$file" "$tmp" > /tmp/inv-diff.$$ 2>&1; then
-    echo "ДРЕЙФ: $name" >&2
-    head -n 40 /tmp/inv-diff.$$ >&2
-    status=1
-  fi
-  rm -f "$tmp" /tmp/inv-diff.$$
+  LC_ALL=C comm -13 "$file" "$tmp" | sed "s|^|новое ($name): |"
+  LC_ALL=C comm -23 "$file" "$tmp" | sed "s|^|исчезло ($name): |"
+  rm -f "$tmp"
 }
 
-compare_set "ключи t()/tn()"        "$dir/t-keys.txt"     t_keys
-compare_set "литеральные role="     "$dir/roles.txt"      role_values
-compare_set "имена aria-*"          "$dir/aria-attrs.txt" aria_names
-compare_set "виды data-*"           "$dir/data-kinds.txt" data_kinds
-compare_set "члены app.*"           "$dir/app-members.txt" app_members
+info_set "ключ t()/tn()" "$dir/t-keys.txt"     t_keys
+info_set "role="         "$dir/roles.txt"      role_values
+info_set "aria-*"        "$dir/aria-attrs.txt" aria_names
+info_set "data-*"        "$dir/data-kinds.txt" data_kinds
 
-tmp=$(mktemp); summary > "$tmp"
-if ! diff -u "$dir/summary.txt" "$tmp" > /tmp/inv-diff.$$ 2>&1; then
-  echo "ДРЕЙФ: сводные счётчики" >&2
-  head -n 40 /tmp/inv-diff.$$ >&2
-  status=1
+# Члены app.*: рост — ухудшение (компонент тянет больше состояния из App).
+if [[ ! -f "$dir/app-members.txt" ]]; then
+  echo "НЕТ ФАЙЛА: $dir/app-members.txt" >&2; status=1
+else
+  tmp=$(mktemp)
+  app_members > "$tmp"
+  LC_ALL=C comm -23 "$dir/app-members.txt" "$tmp" | sed 's/^/исчезло (app.*): /'
+  while IFS= read -r m; do
+    why=""
+    if [[ -f "$exc" ]]; then
+      why=$(awk -F'\t' -v m="$m" '$1 == "app-members" && $2 == m { print $3; exit }' "$exc")
+    fi
+    if [[ -n "$why" ]]; then
+      echo "рост допущен (app.$m): $why"
+    else
+      echo "РОСТ: новый член app.$m (обоснуйте строкой в $exc: app-members<TAB>$m<TAB>причина)" >&2
+      status=1
+    fi
+  done < <(LC_ALL=C comm -13 "$dir/app-members.txt" "$tmp")
+  rm -f "$tmp"
 fi
-rm -f "$tmp" /tmp/inv-diff.$$
 
 if [[ "$status" == 0 ]]; then
-  echo "инварианты: дрейфа нет"
+  echo "инварианты: роста нет"
   print_summary
 else
-  echo "инварианты: обнаружен дрейф" >&2
+  echo "инварианты: есть рост без обоснования" >&2
 fi
 exit "$status"

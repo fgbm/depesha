@@ -1,0 +1,4 @@
+# Исключения для scripts/frontend-invariants.sh: новые члены app.*, принятые осознанно.
+# Строка: app-members<TAB>имя<TAB>причина. Причина обязательна. Когда член войдёт в baseline
+# (scripts/frontend-invariants.sh --tighten не добавляет новое; --save добавляет), строку убери.
+# Пока пусто.

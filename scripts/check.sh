@@ -104,6 +104,10 @@ if [[ "${1:-}" == "--changed" ]]; then
     scripts/frontend-metrics.sh
     step "инварианты фронтенда"
     scripts/frontend-invariants.sh
+    if grep -qE '^scripts/frontend-' <<<"$front"; then
+      step "тест проверок метрик и инвариантов"
+      scripts/frontend-checks.test.sh
+    fi
     step "vitest (затронутое)"
     npx vitest run --changed "$base" --passWithNoTests
     step "главный чанк фронтенда"
@@ -141,6 +145,8 @@ step "метрики фронтенда"
 scripts/frontend-metrics.sh
 step "инварианты фронтенда"
 scripts/frontend-invariants.sh
+step "тест проверок метрик и инвариантов"
+scripts/frontend-checks.test.sh
 step "vitest"
 npx vitest run
 step "главный чанк фронтенда"

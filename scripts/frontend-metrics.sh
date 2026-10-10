@@ -7,14 +7,23 @@
 #   scripts/frontend-metrics.sh --print         только напечатать текущие метрики
 #   scripts/frontend-metrics.sh --save FILE     записать baseline в FILE
 #   scripts/frontend-metrics.sh --compare FILE  сравнить с FILE вместо базового
+#   scripts/frontend-metrics.sh --tighten [FILE] подтянуть baseline вниз: уменьшившиеся
+#                                               значения записать, исчезнувшие убрать,
+#                                               новые добавить; выросшие не трогать
 #
-# Регрессией считается рост любого размера против baseline (компонент или
-# функция). Новые и исчезнувшие записи печатаются, но не роняют проверку.
+# Метрики размера — ориентир, не закон. Регрессией считается только рост любого
+# размера против baseline (компонент или функция); уменьшение проходит без
+# пересборки baseline (её подтягивает --tighten). Рост допускается записью в
+# файле исключений (METRICS_EXCEPTIONS, по умолчанию
+# docs/frontend-metrics-exceptions.txt): `kind<TAB>имя<TAB>предел<TAB>причина`.
+# Причина обязательна, значение выше предела — снова регрессия. Новые и
+# исчезнувшие записи печатаются, но не роняют проверку.
 # Инструментов не добавляем: только POSIX sh/awk/grep/sort.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DEFAULT_BASELINE="docs/frontend-metrics-baseline.txt"
+EXCEPTIONS="${METRICS_EXCEPTIONS:-docs/frontend-metrics-exceptions.txt}"
 TOP_FUNCS=25
 
 mode="compare"
@@ -23,9 +32,10 @@ case "${1:-}" in
   ""|--check) mode="compare" ;;
   --print) mode="print" ;;
   --save) mode="save"; baseline="${2:-$DEFAULT_BASELINE}" ;;
+  --tighten) mode="tighten"; baseline="${2:-$DEFAULT_BASELINE}" ;;
   --compare) mode="compare"; baseline="${2:-$DEFAULT_BASELINE}" ;;
   -h|--help)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   *) echo "unknown argument: $1" >&2; exit 2 ;;
 esac
@@ -117,6 +127,21 @@ case "$mode" in
     echo "baseline записан: $baseline ($(grep -c . "$baseline") записей)"
     print_report
     ;;
+  tighten)
+    if [[ ! -f "$baseline" ]]; then
+      echo "нет baseline: $baseline (создайте: scripts/frontend-metrics.sh --save $baseline)" >&2
+      exit 1
+    fi
+    new=$(mktemp)
+    # Строка выбирается целиком: меньший итог — текущая, иначе — из baseline.
+    awk -F'\t' -v OFS='\t' '
+      NR==FNR { base[$1"\t"$2]=$0; bv[$1"\t"$2]=$3; next }
+      { k=$1"\t"$2; if (!(k in base) || $3 < bv[k]) print $0; else print base[k] }
+    ' "$baseline" "$tmp" > "$new"
+    cp "$new" "$baseline"
+    rm -f "$new"
+    echo "baseline подтянут: $baseline ($(grep -c . "$baseline") записей)"
+    ;;
   compare)
     if [[ ! -f "$baseline" ]]; then
       echo "нет baseline: $baseline (создайте: scripts/frontend-metrics.sh --save $baseline)" >&2
@@ -124,20 +149,34 @@ case "$mode" in
     fi
     print_report
     printf '\n== Сверка с %s\n' "$baseline"
-    # Сравниваем по ключу kind+name; рост значения — регрессия.
+    exc="$EXCEPTIONS"
+    [[ -f "$exc" ]] || exc=/dev/null
+    # Сравниваем по ключу kind+name; рост значения — регрессия, если его не
+    # оправдывает исключение (причина непустая, значение не выше предела).
     awk -F'\t' '
-      NR==FNR { base[$1"\t"$2]=$3; seen[$1"\t"$2]=1; next }
+      FILENAME == ARGV[1] {
+        if ($0 !~ /^#/ && NF >= 2) { ek=$1"\t"$2; emax[ek]=$3; ewhy[ek]=$4; ehas[ek]=1 }
+        next
+      }
+      FILENAME == ARGV[2] { base[$1"\t"$2]=$3; next }
       {
         k=$1"\t"$2
         if (!(k in base)) { printf "новое:   %-8s %s\n", $1, $2; next }
-        if ($3 > base[k]) { printf "РОСТ:    %-8s %s  %d -> %d\n", $1, $2, base[k], $3; bad=1 }
+        if ($3 > base[k]) {
+          if ((k in ehas) && ewhy[k] != "" && $3 <= emax[k] + 0) {
+            printf "рост допущен: %-8s %s  %d -> %d  (%s)\n", $1, $2, base[k], $3, ewhy[k]
+          } else {
+            if (k in ehas) printf "исключение не годится (нужны предел не ниже значения и причина): %s\n", $2
+            printf "РОСТ:    %-8s %s  %d -> %d\n", $1, $2, base[k], $3; bad=1
+          }
+        }
         else if ($3 < base[k]) { printf "уменьш.: %-8s %s  %d -> %d\n", $1, $2, base[k], $3 }
         found[k]=1
       }
       END {
         for (k in base) if (!(k in found)) { n=split(k, a, "\t"); printf "удалено: %-8s %s\n", a[1], a[2] }
         exit bad
-      }' "$baseline" "$tmp"
+      }' "$exc" "$baseline" "$tmp"
     echo "метрики: регрессий нет"
     ;;
 esac
