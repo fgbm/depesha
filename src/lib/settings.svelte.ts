@@ -18,6 +18,11 @@ export interface SettingsHost {
 }
 
 export class SettingsController {
+  /**
+   * Set at the very start of a window and cleared by `loadFirst`: until then the settings are the defaults,
+   * and what they switch on or off is not known (#158).
+   */
+  pending = $state(false);
   settings = $state<Settings>({
     undo_send_secs: 10,
     notify: "people",
@@ -77,6 +82,15 @@ export class SettingsController {
 
   /** Bumped by every local change of `settings`: an answer asked before it is stale (#91). */
   private generation = 0;
+
+  /** The read the start waits for: the plugins are brought in line with the settings only after it. */
+  async loadFirst() {
+    try {
+      await this.loadSettings();
+    } finally {
+      this.pending = false;
+    }
+  }
 
   async loadSettings() {
     const generation = this.generation;

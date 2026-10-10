@@ -68,6 +68,8 @@ export class AppStore {
   using(): number[] { return [...this.selection.selected, ...(this.reader.opened ? [this.reader.opened.row.id] : [])]; }
 
   async init() {
+    // The plugins wait for the settings: a plugin the user switched off must not show its row for a moment (#158).
+    this.settingsCtl.pending = true;
     this.mailboxes.initVersion();
     extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenMain(this);
@@ -77,7 +79,7 @@ export class AppStore {
       this.mailboxes.loadAccounts().then(() => true, (e) => (this.ui.fail(e), false)),
       this.mailboxes.loadFolders(),
       this.mailboxes.loadOutbox(),
-      this.settingsCtl.loadSettings(),
+      this.settingsCtl.loadFirst(),
       extensions.load(),
       hints.load(),
       peopleBook.load(),
@@ -103,10 +105,11 @@ export class AppStore {
   /** A separate window with one letter: no list, no background work of its own. */
   async initWindow(id: number) {
     this.windowOf = id;
+    this.settingsCtl.pending = true;
     extensions.toast = (text, error) => this.ui.toast(text, error);
     await listenWindow(this);
     await this.settingsCtl.loadLanguage();
-    await Promise.all([this.mailboxes.loadAccounts().catch((e) => this.ui.fail(e)), this.mailboxes.loadFolders(), this.settingsCtl.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
+    await Promise.all([this.mailboxes.loadAccounts().catch((e) => this.ui.fail(e)), this.mailboxes.loadFolders(), this.settingsCtl.loadFirst(), extensions.load(), hints.load(), peopleBook.load()]);
     this.selection.selected = new Set([id]);
     await this.reader.open(id);
   }

@@ -2635,8 +2635,30 @@ try {
     if (p.overHeader) throw new Error(`письмо легло поверх шапки листа: ${p.overHeader} блоков`);
   });
 
-  await step("4.16", "панель при запуске не сдвигается (#158): «Отложенные» стоят в первом кадре, «Входящие» через 2 с там же, где при загрузке", async () => {
-    const subj = `Сдвиг ${stamp}`;
+  // The sidebar's rows by their tops: the smart rows above the mailboxes and the folders of the tree (#158).
+  const sidebarRows = () =>
+    d.exec(`const items = [...document.querySelectorAll('nav.side .item')];
+      const at = (list, name) => list.find((b) => b.querySelector('.name')?.innerText.trim() === name)?.getBoundingClientRect().top ?? null;
+      // The row of the smart sections above the mailboxes; the folder of the same name is in the tree.
+      const smart = [...(document.querySelector('nav.side .scroll .group')?.querySelectorAll('.item') ?? [])];
+      return { loading: !!window.__before, snoozed: at(smart, 'Отложенные'), inbox: at(items, 'Входящие') };`);
+  // A launch: the page is read anew, the first frame that has the folder tree is taken, and the sidebar again 2 s later.
+  const launchFrames = async () => {
+    await d.exec("window.__before = true; location.reload()");
+    const first = await d.until("tree at load", async () => {
+      const r = await sidebarRows();
+      return !r.loading && r.inbox !== null ? r : null;
+    }, 15000, 20);
+    await new Promise((r) => setTimeout(r, 2000));
+    return { first, later: await sidebarRows() };
+  };
+  // What the launch leaves on the screen must not stand in the way of the next step: its toasts (local drafts, stuck copies) are closed.
+  const closeLaunchNotices = async () => {
+    await d.exec("document.querySelectorAll('.toasts .close').forEach((b) => b.click())");
+    if ((await d.findAll(".confirm")).length) await press("Escape");
+    await d.until("no notices", async () => (await d.findAll(".toasts .toast")).length === 0 && (await d.findAll(".confirm")).length === 0);
+  };
+  const snoozeOne = async (subj) => {
     helper("deliver", subj);
     await d.button("Входящие");
     await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
@@ -2644,26 +2666,37 @@ try {
     const id = await idOf(subj);
     // A snoozed letter: the row «Snoozed» is in the sidebar, and the count is what the next launch starts from.
     await invoke("snooze", { ids: [id], until: Math.floor(Date.now() / 1000) + 86400 });
-    const rows = () =>
-      d.exec(`const items = [...document.querySelectorAll('nav.side .item')];
-        const at = (list, name) => list.find((b) => b.querySelector('.name')?.innerText.trim() === name)?.getBoundingClientRect().top ?? null;
-        // The row of the smart sections above the mailboxes; the folder of the same name is in the tree.
-        const smart = [...(document.querySelector('nav.side .scroll .group')?.querySelectorAll('.item') ?? [])];
-        return { loading: !!window.__before, snoozed: at(smart, 'Отложенные'), inbox: at(items, 'Входящие') };`);
+    await d.until("snoozed row", async () => (await sidebarRows()).snoozed !== null, 20000);
+    return id;
+  };
+
+  await step("4.16", "панель при запуске не сдвигается (#158): «Отложенные» стоят в первом кадре, «Входящие» через 2 с там же, где при загрузке", async () => {
+    const id = await snoozeOne(`Сдвиг ${stamp}`);
     try {
-      await d.until("snoozed row", async () => (await rows()).snoozed !== null, 20000);
-      // A launch: the page is read anew, and the first frame that has the folder tree is taken.
-      await d.exec("window.__before = true; location.reload()");
-      const first = await d.until("tree at load", async () => {
-        const r = await rows();
-        return !r.loading && r.inbox !== null ? r : null;
-      }, 15000, 20);
-      await new Promise((r) => setTimeout(r, 2000));
-      const later = await rows();
+      const { first, later } = await launchFrames();
       if (first.snoozed === null) throw new Error(`в первом кадре нет строки «Отложенные»: ${JSON.stringify({ first, later })}`);
       if (first.inbox !== later.inbox) throw new Error(`«Входящие» сдвинулись за 2 с после загрузки: ${JSON.stringify({ first, later })}`);
     } finally {
       await invoke("unsnooze", { ids: [id] });
+      await closeLaunchNotices();
+    }
+  });
+
+  await step("4.17", "выключенное «Отложить» не мелькает при запуске (#158): счётчик из кэша не рисуется, пока настройки не подтвердили плагин", async () => {
+    const id = await snoozeOne(`Сдвиг выкл ${stamp}`);
+    const settings = await invoke("settings_get");
+    try {
+      await invoke("settings_set", { settings: { ...settings, disabled_plugins: [...(settings.disabled_plugins ?? []), "snooze"] } });
+      await d.until("row gone", async () => (await sidebarRows()).snoozed === null, 20000);
+      // The cache still holds the count of the last run with the plugin on.
+      const { first, later } = await launchFrames();
+      if (first.snoozed !== null || later.snoozed !== null) throw new Error(`строка выключенного «Отложить» нарисована: ${JSON.stringify({ first, later })}`);
+      if (first.inbox !== later.inbox) throw new Error(`«Входящие» сдвинулись за 2 с после загрузки: ${JSON.stringify({ first, later })}`);
+    } finally {
+      await invoke("settings_set", { settings });
+      await d.until("row back", async () => (await sidebarRows()).snoozed !== null, 20000);
+      await invoke("unsnooze", { ids: [id] });
+      await closeLaunchNotices();
     }
   });
 

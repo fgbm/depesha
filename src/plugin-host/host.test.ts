@@ -21,6 +21,7 @@ vi.mock("../lib/store.svelte", () => ({
   app: {
     settingsCtl: {
       settings,
+      pending: false,
       patchSettings: (patch: { disabled_plugins?: string[]; enabled_plugins?: string[] }) => {
         applied.push(patch);
         if (patch.disabled_plugins) settings.disabled_plugins = patch.disabled_plugins;
@@ -34,6 +35,7 @@ vi.mock("./registry.svelte", () => ({ registry: { removeOwner: vi.fn(), add: vi.
 
 import { host } from "./host.svelte";
 import { registry } from "./registry.svelte";
+import { app } from "../lib/store.svelte";
 import { BUILTIN } from "../../plugins";
 
 const offByDefault = BUILTIN.find((p) => p.manifest.id === "off-by-default")!;
@@ -99,6 +101,37 @@ describe("activation follows the settings", () => {
     host.setEnabled("off-by-default", false);
     host.sync();
     expect(registry.removeOwner).toHaveBeenCalledWith("off-by-default");
+  });
+});
+
+describe("activation waits for the settings (#158)", () => {
+  it("starts nothing on the defaults while they are pending, and only what the read settings leave on after", () => {
+    const alwaysOn = BUILTIN.find((p) => p.manifest.id === "always-on")!;
+    host.setEnabled("always-on", false);
+    host.sync();
+    vi.clearAllMocks();
+    // A start: the defaults list nothing as switched off, the user's settings have not come yet.
+    settings.disabled_plugins = [];
+    app.settingsCtl.pending = true;
+    host.sync();
+    expect(alwaysOn.activate).not.toHaveBeenCalled();
+    // The settings come: this plugin is off in them, so it never starts.
+    settings.disabled_plugins = ["always-on"];
+    app.settingsCtl.pending = false;
+    host.sync();
+    expect(alwaysOn.activate).not.toHaveBeenCalled();
+  });
+
+  it("starts the plugins the read settings leave on", () => {
+    const alwaysOn = BUILTIN.find((p) => p.manifest.id === "always-on")!;
+    vi.clearAllMocks();
+    app.settingsCtl.pending = true;
+    host.sync();
+    expect(alwaysOn.activate).not.toHaveBeenCalled();
+    settings.disabled_plugins = [];
+    app.settingsCtl.pending = false;
+    host.sync();
+    expect(alwaysOn.activate).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -159,8 +159,9 @@ class Host {
     return !(app.settingsCtl.settings.disabled_plugins ?? []).includes(id);
   }
 
-  /** Brings the active set in line with the settings. */
+  /** Brings the active set in line with the settings; not before they are read, for the defaults would start what the user switched off (#158). */
   sync() {
+    if (app.settingsCtl.pending) return;
     for (const p of this.plugins) {
       const id = p.manifest.id;
       const on = this.enabled(id);
