@@ -1489,6 +1489,10 @@ pub async fn wait_for_changes(
     if !selected {
         conn.session.select(folder).await?;
         conn.idle_folder = Some(folder.to_owned());
+        // Polling has no IDLE to start: a SELECT that went through is its work.
+        if !conn.caps.idle {
+            conn.worked.store(true, Ordering::Relaxed);
+        }
     }
     let gap = drain_unsolicited(&conn.session);
     if selected && gap {
@@ -1499,7 +1503,6 @@ pub async fn wait_for_changes(
         let before = conn.session.select(folder).await?.exists;
         tokio::time::sleep(poll).await;
         conn.session.noop().await?;
-        conn.worked.store(true, Ordering::Relaxed);
         let after = conn.session.select(folder).await?.exists;
         let changed = drain_unsolicited(&conn.session) || before != after;
         return Ok((
@@ -1588,13 +1591,14 @@ pub async fn wait_for_changes(
     ))
 }
 
-/// Selects the folder the next `wait_for_changes` will idle on, so that what came in
-/// before this SELECT is read by a sync made after it, and what comes later is told.
-pub async fn select_for_idle(conn: &mut Conn, folder: &str) -> Result<()> {
-    conn.session.select(folder).await?;
+/// Selects the folder the next `wait_for_changes` will idle on and gives its state, so that
+/// what came in before this SELECT can be told from the cache's mark, and what comes later
+/// is told by the IDLE.
+pub async fn select_for_idle(conn: &mut Conn, folder: &str) -> Result<Mailbox> {
+    let mailbox = conn.session.select(folder).await?;
     conn.idle_folder = Some(folder.to_owned());
     drain_unsolicited(&conn.session);
-    Ok(())
+    Ok(mailbox)
 }
 
 fn drain_unsolicited(session: &Session) -> bool {

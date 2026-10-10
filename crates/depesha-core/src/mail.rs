@@ -746,22 +746,37 @@ pub async fn wait_for_changes(
 ) -> std::result::Result<(Conn, IdleOutcome), Box<IdleDrop>> {
     let began = Instant::now();
     let resync = pace.take_resync();
+    let mut conn = conn;
+    // A connection new after a drop: a letter that came in the pause is told by the mark of
+    // the cache (what a sync left of EXISTS and UIDNEXT) against what the SELECT says; flags
+    // changed meanwhile wait for the sync that runs every few minutes anyway. EWS has no such
+    // mark, but its sync is incremental (the server keeps the state), so a sync at once is cheap.
+    let mut ended = None;
+    if resync {
+        ended = match &mut conn {
+            Conn::Imap(c) => match imap::select_for_idle(c, "INBOX").await.and_then(|m| {
+                let saved = store.modseq_mark(account_id, "INBOX")?;
+                // UIDNEXT 0 in the mark: the sync did not get one (an empty mailbox), only the count tells.
+                Ok(saved.exists != m.exists || (saved.uid_next != 0 && Some(saved.uid_next) != m.uid_next))
+            }) {
+                Ok(true) => Some(Ok(IdleOutcome::Changed)),
+                Ok(false) => None,
+                Err(e) => Some(Err(e)),
+            },
+            Conn::Ews(_) => Some(Ok(IdleOutcome::Changed)),
+        };
+    }
     let mut worked = None;
-    let (result, renew) = match conn {
-        // The connection is new after a drop: what came in meanwhile is read by a sync that
-        // starts after this SELECT, so the wait ends at once.
-        Conn::Imap(mut c) if resync => {
-            let r = imap::select_for_idle(&mut c, "INBOX").await;
-            (r.map(|()| (Conn::Imap(c), IdleOutcome::Changed)), None)
-        }
-        c @ Conn::Ews(_) if resync => (Ok((c, IdleOutcome::Changed)), None),
-        Conn::Imap(c) => {
+    let (result, renew) = match (ended, conn) {
+        (Some(r), conn) => (r.map(|o| (conn, o)), None),
+        (None, Conn::Imap(c)) => {
             let renew = pace.renew();
             worked = Some(c.worked.clone());
             let r = imap::wait_for_changes(c, "INBOX", poll, renew).await;
             (r.map(|(c, o)| (Conn::Imap(c), o)), Some(renew))
         }
-        Conn::Ews(mut s) => {
+        (None, Conn::Ews(mut s)) => {
+            worked = Some(s.worked());
             let r = ews::wait_for_changes(&mut s, store, account_id, poll).await;
             (r.map(|o| (Conn::Ews(s), o)), None)
         }

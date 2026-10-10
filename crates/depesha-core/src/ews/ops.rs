@@ -1772,6 +1772,7 @@ pub async fn wait_for_changes(s: &mut Session, store: &Store, account_id: &str, 
         tokio::time::sleep(poll).await;
         return Ok(IdleOutcome::Changed);
     }
+    s.worked().store(true, std::sync::atomic::Ordering::Relaxed);
     let mut seen = String::new();
     let outcome = loop {
         // Exchange sends keep-alive notifications every minute or so; silence means a dead link.

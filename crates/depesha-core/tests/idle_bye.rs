@@ -14,8 +14,14 @@ use tokio::net::TcpListener;
 
 /// Serves one connection; after `+ idling` it says `ending` (if any) and closes.
 async fn fake_server(ending: Option<&'static str>) -> u16 {
+    fake_server_with(true, ending).await
+}
+
+/// A server with no IDLE closes the link right after its SELECT was answered.
+async fn fake_server_with(idle: bool, ending: Option<&'static str>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    let caps = if idle { "IMAP4rev1 IDLE" } else { "IMAP4rev1" };
     tokio::spawn(async move {
         let (sock, _) = listener.accept().await.unwrap();
         let (r, mut w) = sock.into_split();
@@ -30,7 +36,14 @@ async fn fake_server(ending: Option<&'static str>) -> u16 {
                 parts.next().unwrap_or("").to_ascii_uppercase(),
             );
             let reply = match cmd.as_str() {
-                "CAPABILITY" => format!("* CAPABILITY IMAP4rev1 IDLE\r\n{tag} OK done\r\n"),
+                "CAPABILITY" => format!("* CAPABILITY {caps}\r\n{tag} OK done\r\n"),
+                "SELECT" if !idle => {
+                    // Answers the SELECT and closes: the link breaks while the client polls.
+                    w.write_all(format!("* 0 EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT 1] ok\r\n{tag} OK [READ-WRITE] done\r\n").as_bytes())
+                        .await
+                        .unwrap();
+                    return;
+                }
                 "SELECT" => format!(
                     "* 0 EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT 1] ok\r\n{tag} OK [READ-WRITE] done\r\n"
                 ),
@@ -82,4 +95,41 @@ async fn the_reason_of_a_bye_is_kept() {
 async fn a_close_without_a_word_is_an_eof() {
     let d = wait_on(fake_server(None).await).await;
     assert!(matches!(d.cause, DropCause::Eof | DropCause::Reset), "{:?}", d.cause);
+}
+
+/// A server without IDLE is polled: once its SELECT went through, the connection has worked, and
+/// a break after that does not push the reconnect further away.
+#[tokio::test]
+async fn a_polled_connection_that_selected_has_worked() {
+    let server = ServerConfig::new("127.0.0.1", fake_server_with(false, None).await, Security::Plain);
+    let conn = imap::connect(&server, &Credentials::new("u", "p"))
+        .await
+        .expect("login");
+    let store = Store::open_in_memory().unwrap();
+    let mut pace = IdlePace::new();
+    // Two connections that failed at once: the pause is already 20 s.
+    for _ in 0..2 {
+        let info = depesha_core::idle_pace::DropInfo {
+            cause: DropCause::Eof,
+            since_wait: Duration::ZERO,
+            since_connect: Duration::ZERO,
+            renew: None,
+            worked: false,
+        };
+        pace.dropped(&info);
+    }
+    // The connection is a first one, not a reconnect after a drop: no resync.
+    pace.take_resync();
+    let d = mail::wait_for_changes(
+        Conn::Imap(conn),
+        &store,
+        "a",
+        Duration::from_millis(200),
+        &mut pace,
+        std::time::Instant::now(),
+    )
+    .await
+    .err()
+    .expect("the server cuts after the SELECT");
+    assert_eq!(d.dropped.unwrap().pause, Duration::from_secs(5));
 }

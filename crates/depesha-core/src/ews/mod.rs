@@ -8,6 +8,9 @@ mod tests;
 
 pub use ops::*;
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use roxmltree::{Document, Node};
@@ -46,9 +49,16 @@ pub struct Session {
     version: usize,
     /// Whose `Authentication-Results` the headers it fetches are believed by (#108).
     receiver: Receiver,
+    /// Set once a streaming request of this session was answered with 200: it has worked.
+    worked: Arc<AtomicBool>,
 }
 
 impl Session {
+    /// The flag `wait_for_changes` sets when the stream opens.
+    pub fn worked(&self) -> Arc<AtomicBool> {
+        self.worked.clone()
+    }
+
     /// Names who received the mail this session fetches (#108).
     pub fn set_receiver(&mut self, receiver: Receiver) {
         self.receiver = receiver;
@@ -280,6 +290,7 @@ pub async fn connect(config: &EwsConfig, creds: &Credentials, email: &str) -> Re
         conn_ready: false,
         version: 0,
         receiver: Receiver::default(),
+        worked: Arc::new(AtomicBool::new(false)),
     };
     let text = session
         .call(r#"<m:GetFolder><m:FolderShape><t:BaseShape>IdOnly</t:BaseShape></m:FolderShape><m:FolderIds><t:DistinguishedFolderId Id="inbox"/></m:FolderIds></m:GetFolder>"#)

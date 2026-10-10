@@ -1872,22 +1872,23 @@ async fn one_letter_wakes_the_idle_once() {
     assert!(matches!(second, IdleOutcome::Timeout), "the letter was told twice");
 }
 
-/// A letter that comes in while the connection is gone (the pause after a drop) is synced at
-/// once by the next connection: its first wait ends with `Changed` after the SELECT, and the
-/// one after it waits as usual.
-#[tokio::test]
-async fn the_connection_after_a_drop_is_synced_before_it_idles() {
-    if !enabled() {
-        return;
-    }
+/// The first wait of a connection made after a drop, the cache having been synced before it:
+/// with `letter` a letter comes in while there is no connection. Returns what the wait said,
+/// how long it took, and what the wait after it said.
+async fn reconnect_after_a_drop(name: &str, letter: bool) -> (IdleOutcome, Duration, IdleOutcome) {
     let port = cutting_proxy(Cut::Age(Duration::from_secs(1))).await;
     let server = server_at(port).await;
     let store = Store::open_in_memory().unwrap();
+    // The cache has the mailbox as it is: its mark is what a sync left.
+    let mut direct = connect(name).await;
+    sync::sync_folder(&mut direct, &store, "d", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
     let mut pace = IdlePace::with(Tuning {
         max: Duration::from_secs(2),
         ..quick()
     });
-    let conn = imap::connect(&server, &user("resync")).await.unwrap();
+    let conn = imap::connect(&server, &user(name)).await.unwrap();
     let err = mail::wait_for_changes(
         mail::Conn::Imap(conn),
         &store,
@@ -1901,12 +1902,13 @@ async fn the_connection_after_a_drop_is_synced_before_it_idles() {
     .expect("the proxy cuts the link");
     assert!(err.dropped.is_some());
 
-    // While there is no connection a letter comes in.
-    let mut other = connect("resync").await;
-    imap::append(&mut other, "INBOX", &mail("PAUSE", 1), "").await.unwrap();
+    // While there is no connection a letter may come in.
+    if letter {
+        imap::append(&mut direct, "INBOX", &mail("PAUSE", 1), "").await.unwrap();
+    }
 
     // The new connection goes straight to the stand: the proxy would cut it again.
-    let conn = connect("resync").await;
+    let conn = connect(name).await;
     let connected = std::time::Instant::now();
     let began = std::time::Instant::now();
     let (conn, first) = mail::wait_for_changes(
@@ -1919,10 +1921,34 @@ async fn the_connection_after_a_drop_is_synced_before_it_idles() {
     )
     .await
     .unwrap_or_else(|d| panic!("selected: {:?}", d.error));
-    assert!(matches!(first, IdleOutcome::Changed), "no sync after the reconnect");
-    assert!(began.elapsed() < Duration::from_millis(800), "{:?}", began.elapsed());
+    let took = began.elapsed();
     let (_, second) = mail::wait_for_changes(conn, &store, "d", Duration::from_secs(2), &mut pace, connected)
         .await
         .unwrap_or_else(|d| panic!("idled: {:?}", d.error));
+    (first, took, second)
+}
+
+/// A letter that comes in while the connection is gone is synced at once by the next one: its
+/// first wait ends with `Changed` after the SELECT, and the one after it waits as usual.
+#[tokio::test]
+async fn the_connection_after_a_drop_is_synced_when_a_letter_came_meanwhile() {
+    if !enabled() {
+        return;
+    }
+    let (first, took, second) = reconnect_after_a_drop("resync", true).await;
+    assert!(matches!(first, IdleOutcome::Changed), "no sync after the reconnect");
+    assert!(took < Duration::from_millis(800), "{took:?}");
     assert!(matches!(second, IdleOutcome::Timeout), "told twice");
+}
+
+/// Nothing came in meanwhile: no sync, the connection goes straight to IDLE (a full sync of a
+/// server without CONDSTORE reads every flag of the folder, and the drops may be many).
+#[tokio::test]
+async fn the_connection_after_a_drop_goes_straight_to_idle_when_nothing_came() {
+    if !enabled() {
+        return;
+    }
+    let (first, took, _) = reconnect_after_a_drop("resyncempty", false).await;
+    assert!(matches!(first, IdleOutcome::Timeout), "a sync for nothing");
+    assert!(took >= Duration::from_secs(1), "{took:?}");
 }

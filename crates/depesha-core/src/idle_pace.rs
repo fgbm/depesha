@@ -127,6 +127,9 @@ pub struct IdlePace {
     survived: u32,
     /// The next connection should be synced at once: letters came in while there was none.
     resync: bool,
+    /// The renewal was just made longer to try it: a drop before the next good wait is
+    /// the price of the try, not news.
+    probing: bool,
     /// The previous drop that taught: (since the last write, since the connect).
     mark: Option<(Duration, Duration)>,
     /// The age at which the connection is cut whatever is written, once told.
@@ -142,6 +145,8 @@ pub struct Dropped {
     /// Whether this drop is worth a line in the log: every power of two of a series, and
     /// the one that found the cut by age, so a link that breaks all day does not fill it.
     pub log: bool,
+    /// The drop came on a longer renewal tried on purpose: logged quietly, not counted in the series.
+    pub probe: bool,
     /// The renewal this drop shortened to.
     pub shortened: Option<Duration>,
     /// This drop showed that the cut comes by the age of the connection: set once per series.
@@ -167,6 +172,7 @@ impl IdlePace {
             failed: 0,
             survived: 0,
             resync: false,
+            probing: false,
             mark: None,
             lifetime: None,
         }
@@ -190,10 +196,12 @@ impl IdlePace {
 
     /// A renewal went through with the connection alive.
     pub fn renewed(&mut self) {
+        self.probing = false;
         self.survived += 1;
         if self.survived >= self.tune.probe_after && self.renew < self.tune.max {
             self.survived = 0;
             self.renew = (self.renew * 2).min(self.tune.max);
+            self.probing = true;
         }
     }
 
@@ -207,7 +215,10 @@ impl IdlePace {
             self.mark = None;
             self.lifetime = None;
         }
-        self.drops += 1;
+        let probe = std::mem::take(&mut self.probing);
+        if !probe {
+            self.drops += 1;
+        }
         self.failed = if info.worked { 0 } else { self.failed + 1 };
         let mut shortened = None;
         let mut by_age = false;
@@ -242,7 +253,8 @@ impl IdlePace {
         Dropped {
             pause,
             drops: self.drops,
-            log: self.drops.is_power_of_two() || by_age,
+            log: !probe && (self.drops.is_power_of_two() || by_age),
+            probe,
             shortened,
             by_age,
         }
@@ -355,6 +367,23 @@ mod tests {
             for _ in 0..p.tune.probe_after {
                 p.renewed();
             }
+        }
+    }
+
+    #[test]
+    fn drops_on_a_probe_are_not_news() {
+        let mut p = IdlePace::new();
+        let first: Vec<_> = (0..2).map(|_| p.dropped(&idle_cut(20, &p).unwrap())).collect();
+        assert!(
+            first.iter().all(|d| d.log && !d.probe),
+            "the series that taught is told"
+        );
+        for _ in 0..4 {
+            for _ in 0..p.tune.probe_after {
+                p.renewed();
+            }
+            let d = p.dropped(&idle_cut(20, &p).expect("the longer renewal is cut again"));
+            assert!(d.probe && !d.log, "{d:?}");
         }
     }
 
