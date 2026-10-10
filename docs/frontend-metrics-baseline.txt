@@ -2,7 +2,7 @@ component	src/App.svelte	338	216	76	46
 component	src/MessageWindow.svelte	139	101	33	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	271	128	43	100
-component	src/components/AttachmentMenu.svelte	153	9	94	50
+component	src/components/AttachmentMenu.svelte	158	9	99	50
 component	src/components/Avatar.svelte	45	11	7	27
 component	src/components/Compose.svelte	1246	391	334	521
 component	src/components/Confirm.svelte	128	34	23	71
@@ -80,7 +80,7 @@ component	src/components/prefs/controls/SegChoice.svelte	61	15	9	37
 component	src/components/prefs/controls/Switch.svelte	52	8	6	38
 component	src/components/prefs/controls/ThemeTiles.svelte	106	16	12	78
 component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
-component	src/components/reader/AttachmentStrip.svelte	247	79	52	116
+component	src/components/reader/AttachmentStrip.svelte	249	81	52	116
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	773	350	113	310
 component	src/components/reader/QuickReply.svelte	218	57	31	130
@@ -557,7 +557,7 @@ function	src/components/prefs/controls/ValueField.svelte::commit	11
 function	src/components/prefs/controls/ValueField.svelte::revert	5
 function	src/components/prefs/controls/ValueField.svelte::onKey	14
 function	src/components/prefs/useKeyEditor.svelte.ts::useKeyEditor	3
-function	src/components/reader/AttachmentStrip.svelte::pick	7
+function	src/components/reader/AttachmentStrip.svelte::pick	8
 function	src/components/reader/Conversation.svelte::isMine	4
 function	src/components/reader/Conversation.svelte::roleOf	3
 function	src/components/reader/PersonCard.svelte::setRule	8
@@ -637,6 +637,7 @@ function	src/lib/arrivals.test.ts::letter	1
 function	src/lib/attachFold.test.ts::chips	1
 function	src/lib/attachFold.ts::lay	15
 function	src/lib/attachFold.ts::foldChips	10
+function	src/lib/attachFold.ts::keepFit	3
 function	src/lib/avatars.svelte.ts::avatarOf	15
 function	src/lib/background.svelte.ts::listenBackground	10
 function	src/lib/background.svelte.ts::quitApp	3
@@ -992,6 +993,7 @@ function	src/lib/mdedit.ts::lineRange	5
 function	src/lib/mdedit.ts::linesEdit	14
 function	src/lib/mdedit.ts::linkEdit	6
 function	src/lib/mdedit.ts::clearEdit	13
+function	src/lib/menuScroll.ts::scrollToRow	4
 function	src/lib/office.ts::clean	3
 function	src/lib/office.ts::docxHtml	14
 function	src/lib/office.ts::sheetsHtml	19
