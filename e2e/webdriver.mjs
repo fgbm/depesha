@@ -192,3 +192,40 @@ export class Driver {
 }
 
 export const ELEMENT_KEY = ELEMENT;
+
+/** How many polls in a row the sidebar must keep its shape before it counts as settled. */
+const SETTLED_POLLS = 5;
+
+/**
+ * The shape of the sidebar: the name and the top of each row, nothing else. The counters change
+ * on their own and move no row, so they stay out of it. `rows` are `[name, top]` pairs.
+ */
+export function sidebarShape(rows) {
+  return rows.map(([name, top]) => `${name}@${Math.round(top)}`).join("|");
+}
+
+/**
+ * Reloads the page and waits for the sidebar to take its final shape. It fills in after the load:
+ * the counters come, then rows such as «Snoozed» appear and push the tree down. A click aimed
+ * before that lands on what moved under it (the mailbox's name, which folds the tree and keeps
+ * it folded, #129).
+ */
+export async function reloadWindow(d, timeoutMs = 15000) {
+  await d.exec("window.__before = true; location.reload()");
+  await d.until("window reloaded", async () => (await d.exec("return document.readyState === 'complete' && !window.__before && !!document.querySelector('button')")), timeoutMs);
+  const seen = [];
+  let same = 0;
+  try {
+    await d.until("sidebar settled", async () => {
+      const rows = await d.exec(
+        "return [...document.querySelectorAll('nav.side .item .name, nav.side .account-name .name')].map((n) => [n.innerText.trim(), n.getBoundingClientRect().top])",
+      );
+      const now = rows.length ? sidebarShape(rows) : "";
+      same = now && now === seen.at(-1) ? same + 1 : 0;
+      seen.push(now);
+      return same >= SETTLED_POLLS;
+    }, timeoutMs, 150);
+  } catch (e) {
+    throw new Error(`${e.message}; последние отпечатки панели: ${JSON.stringify(seen.slice(-2))}`);
+  }
+}

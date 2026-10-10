@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Driver } from "./webdriver.mjs";
+import { Driver, reloadWindow } from "./webdriver.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
 import { dropFixtures, dropSteps } from "./drop-steps.mjs";
 
@@ -175,8 +175,7 @@ try {
       formY = Math.round(height * dpr) + 20;
       console.log(`    screen ${screenW}x${screenH} px, window ${width}x${height} (dpr ${dpr}), form at y=${formY}`);
     }
-    await d.exec("location.reload()");
-    await d.until("the main page", async () => (await d.findAll("nav.side")).length === 1, 60000);
+    await reloadWindow(d, 60000);
   }, { critical: true });
 
   await dropSteps({

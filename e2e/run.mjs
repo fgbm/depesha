@@ -18,7 +18,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Driver } from "./webdriver.mjs";
+import { Driver, reloadWindow as reload } from "./webdriver.mjs";
 import { exited, groupAlive, killGroup } from "./procs.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
 import { dropFixtures, dropOn, dropSteps, zonesStayInView } from "./drop-steps.mjs";
@@ -134,25 +134,7 @@ async function openBySubject(subject) {
   }, 20000);
 }
 
-/**
- * Reloads the page and waits for the sidebar to take its final shape. It fills in after the load: the counters
- * come, then rows such as «Snoozed» appear and push the tree down. A click aimed before that lands on what moved
- * under it (the mailbox's name, which folds the tree and keeps it folded, #129).
- */
-async function reloadWindow() {
-  await d.exec("window.__before = true; location.reload()");
-  await d.until("window reloaded", async () => (await d.exec("return document.readyState === 'complete' && !window.__before && !!document.querySelector('button')")));
-  let last = "";
-  let same = 0;
-  await d.until("sidebar settled", async () => {
-    const now = await d.exec(
-      "return [...document.querySelectorAll('nav.side .item, nav.side .account-name')].map((i) => i.innerText.trim() + Math.round(i.getBoundingClientRect().top)).join('|')",
-    );
-    same = now && now === last ? same + 1 : 0;
-    last = now;
-    return same >= 5;
-  }, 15000, 150);
-}
+const reloadWindow = () => reload(d);
 
 async function openFolder(name) {
   await d.exec(
