@@ -1,10 +1,18 @@
 import { ESLint } from "eslint";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 // The eslint guards of plugin imports (eslint.config.js) against the ways round them. The same
 // holds for files in src/plugin-api/boundary.test.ts; this is the part that works while typing.
 const eslint = new ESLint({ cwd: fileURLToPath(new URL("..", import.meta.url)) });
+
+// One instance serves every case, but its first lintText loads the config and the plugins of
+// the whole repository (about 2 s alone, over 5 s while cargo and the other checks run), which
+// the 5 s limit of the first case could not take. The cost is paid here, once, under a limit
+// of its own; the cases themselves take milliseconds and keep the default.
+beforeAll(async () => {
+  await eslint.lintText("export {};\n", { filePath: "plugins/snooze/zz.ts" });
+}, 60_000);
 
 async function rules(code, filePath) {
   const [result] = await eslint.lintText(code, { filePath });
