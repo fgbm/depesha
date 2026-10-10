@@ -20,7 +20,7 @@ component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	162	120	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	48	7	8	33
-component	src/components/MessageList.svelte	791	216	132	443
+component	src/components/MessageList.svelte	808	233	132	443
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
@@ -346,7 +346,7 @@ function	src/components/MailFrame.test.ts::srcdoc	7
 function	src/components/MessageList.svelte::tagsOf	3
 function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
-function	src/components/MessageList.svelte::click	8
+function	src/components/MessageList.svelte::click	14
 function	src/components/MessageList.svelte::context	7
 function	src/components/MessageList.svelte::pictureOf	5
 function	src/components/MessageList.svelte::who	12
@@ -354,6 +354,7 @@ function	src/components/MessageList.svelte::firstName	4
 function	src/components/MessageList.svelte::rowKey	6
 function	src/components/MessageList.test.ts::row	1
 function	src/components/MessageList.test.ts::draw	10
+function	src/components/MessageList.test.ts::watch	8
 function	src/components/Outbox.svelte::retry	3
 function	src/components/Plugins.svelte::say	1
 function	src/components/Plugins.svelte::toggleExtension	4
