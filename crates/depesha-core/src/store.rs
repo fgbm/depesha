@@ -2704,12 +2704,14 @@ fn insert_message(tx: &Connection, account_id: &str, folder: &str, msg: &NewMess
                 thread, bulk, unsubscribe, topic, sort_sender, sort_subject, forwarded, answered_all, keywords, dmarc, importance)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
                 ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+             -- A later read of the head may know less (no receiver yet, no `Importance` in the head):
+             -- a verdict given stays, and a Normal importance does not wipe High or Low.
              ON CONFLICT (account_id, folder, uid) DO UPDATE SET
                 seen = excluded.seen, answered = excluded.answered,
                 flagged = excluded.flagged, draft = excluded.draft,
                 forwarded = excluded.forwarded, answered_all = excluded.answered_all,
-                keywords = excluded.keywords, dmarc = excluded.dmarc,
-                importance = excluded.importance
+                keywords = excluded.keywords, dmarc = MAX(dmarc, excluded.dmarc),
+                importance = CASE WHEN excluded.importance = 0 THEN COALESCE(importance, 0) ELSE excluded.importance END
              RETURNING id",
         )?
         .query_row(
@@ -3971,6 +3973,32 @@ mod tests {
             stored.is_none() || stored == Some(Importance::High.to_db()),
             "not Normal: {stored:?}"
         );
+    }
+
+    fn stored_importance(store: &Store, id: i64) -> Option<i64> {
+        store
+            .conn()
+            .query_row("SELECT importance FROM messages WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_headers_fetch_again_keeps_the_verdict_and_the_importance_already_known() {
+        let store = mailbox();
+        let mut known = summary("Письмо", 100);
+        known.dmarc = true;
+        known.importance = Importance::High;
+        let id = put(&store, "INBOX", 1, &known, false);
+        // The same letter once more, read by a session that knows no receiver and sees a head
+        // without the header: nothing it says is a verdict or a Normal importance.
+        let blind = summary("Письмо", 100);
+        assert_eq!(put(&store, "INBOX", 1, &blind, false), id);
+        assert!(store.get(id).unwrap().unwrap().dmarc);
+        assert_eq!(stored_importance(&store, id), Some(Importance::High.to_db()));
+        // An unknown importance still learns from it.
+        store.forget_importance(id);
+        put(&store, "INBOX", 1, &blind, false);
+        assert_eq!(stored_importance(&store, id), Some(Importance::Normal.to_db()));
     }
 
     #[test]
