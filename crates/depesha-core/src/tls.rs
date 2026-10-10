@@ -13,6 +13,7 @@ use crate::{Error, Result};
 
 /// The reasons a certificate is rejected that the program words itself.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum CertWhy {
     Expired,
     NotYetValid,
@@ -42,6 +43,7 @@ impl CertWhy {
 /// Why the server certificate was rejected, with what the user needs to
 /// decide whether to trust it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CertProblem {
     pub host: String,
     /// Why, in English; the words the user reads are made from `why` (or this, for `Other`).

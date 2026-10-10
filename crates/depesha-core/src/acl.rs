@@ -33,6 +33,7 @@ pub enum Action {
 /// A folder's rights, one flag per RFC 4314 right plus a catch-all for what Depesha
 /// does not know. `Default` is no right at all.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Rights {
     pub lookup: bool,
     pub read: bool,
@@ -154,6 +155,7 @@ impl Rights {
 
 /// One namespace prefix and its hierarchy delimiter (RFC 2342).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NamespaceFolder {
     pub prefix: String,
     pub delimiter: String,
@@ -161,6 +163,7 @@ pub struct NamespaceFolder {
 
 /// The three NAMESPACE groups; empty vectors mean the server named none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "NamespaceInfo"))]
 pub struct Namespace {
     pub personal: Vec<NamespaceFolder>,
     pub other_users: Vec<NamespaceFolder>,
@@ -170,6 +173,7 @@ pub struct Namespace {
 /// Who a folder belongs to, as the sidebar groups it (#42, frame 6B).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "name")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Owner {
     /// The user's own mailbox folders.
     Mine,
@@ -347,6 +351,7 @@ impl PermanentFlags {
 /// either keeps own labels, refuses to, or claimed it would but lost the label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum LabelCheck {
     /// The test message kept its label after a re-read.
     Saves,
@@ -383,6 +388,7 @@ impl LabelCheck {
 /// The props the cache keeps and the folder card shows. `rights` and `labels_on_server`
 /// may be unknown (a server without ACL); `refused` is the last refusal remembered here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FolderProps {
     pub folder: String,
     pub display_name: String,
@@ -426,6 +432,7 @@ impl FolderProps {
 
 /// A label: what the user calls it, the keyword that goes on the server and its colour.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Label {
     pub name: String,
     /// The IMAP keyword (an atom) or the Exchange category name.

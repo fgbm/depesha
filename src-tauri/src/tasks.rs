@@ -79,25 +79,36 @@ impl Counts {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Task {
     pub key: String,
     /// `sync`, `prefetch`, `older`, `search`, `send`, `sizes`, `empty`.
+    #[cfg_attr(
+        test,
+        ts(
+            type = "\"sync\" | \"prefetch\" | \"older\" | \"search\" | \"send\" | \"sizes\" | \"labels\" | \"stuck-copy\" | \"empty\""
+        )
+    )]
     pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub account_id: Option<String>,
     pub label: String,
     pub done: u64,
     /// 0 when unknown.
     pub total: u64,
     /// `running` or `failed`.
+    #[cfg_attr(test, ts(type = "\"running\" | \"failed\""))]
     pub state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub error: Option<CmdError>,
     pub started: i64,
 }
 
 /// What the tasks window shows about an account besides its tasks.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AccountSync {
     pub account_id: String,
     pub last_sync: Option<i64>,

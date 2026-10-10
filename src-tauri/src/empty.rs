@@ -29,6 +29,7 @@ pub struct Request {
 /// What the dialog is told of the folder: how many letters it holds and the bound that
 /// counted them, which the run is then asked for.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct FolderCount {
     pub total: usize,
     pub bound: u64,

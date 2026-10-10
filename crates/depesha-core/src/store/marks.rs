@@ -13,6 +13,7 @@ use crate::domain::{Act, Flags};
 
 /// One thing done with a letter, as its row shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Mark {
     pub act: Act,
     /// When Depesha did it; none when only the server says so: the time is unknown.
@@ -21,6 +22,7 @@ pub struct Mark {
 
 /// An answer or forward of the letter waiting in the outbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Outgoing {
     pub act: Act,
     /// When it leaves.

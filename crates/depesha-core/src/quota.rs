@@ -22,6 +22,7 @@ pub const QUOTA_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// How full the mailbox is, by the quota root that limits INBOX.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Quota {
     /// The root's name, `User quota` on Dovecot; may be empty.
     pub root: String,
@@ -31,6 +32,7 @@ pub struct Quota {
     pub limit: u64,
     /// Messages, and how many are allowed, when the root limits them (MESSAGE).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub messages: Option<(u64, u64)>,
 }
 
@@ -142,18 +144,21 @@ async fn quota_root(conn: &mut Conn) -> Result<Option<Quota>> {
 
 /// The size of one folder on the server, or why it could not be counted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FolderSize {
     pub folder: String,
     pub bytes: Option<u64>,
     pub messages: Option<u64>,
     /// The server's refusal (no rights, gone): the folder is left out, not counted as empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub error: Option<String>,
 }
 
 /// How folder sizes are counted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SizeMethod {
     /// One STATUS (SIZE) per folder: the server adds up.
     Status,

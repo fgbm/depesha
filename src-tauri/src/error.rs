@@ -6,10 +6,12 @@ use serde::Serialize;
 /// Error as the GUI sees it: a kind to branch on, a Russian message to show,
 /// and certificate details when the user may decide to trust it.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct CmdError {
     pub kind: ErrorKind,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub cert: Option<Box<CertProblem>>,
 }
 

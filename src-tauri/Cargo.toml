@@ -66,6 +66,8 @@ windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"] }
 # The mock runtime for the window tests of `drops`. Not on Windows: a test binary built with
 # it does not start there (CI: STATUS_ENTRYPOINT_NOT_FOUND).
 [dev-dependencies]
+depesha-core = { path = "../crates/depesha-core", features = ["ts"] }
+ts-rs = { version = "12", default-features = false, features = ["serde-compat", "serde-json-impl", "no-serde-warnings"] }
 # The samples of the golden test of the error texts build the core's errors from these.
 async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
 rusqlite = "0.40.2"

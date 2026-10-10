@@ -79,6 +79,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: npm run build
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: TypeScript types against the Rust types
+        run: scripts/gen-types.sh --check
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
       - run: npm run lint
       - run: scripts/frontend-metrics.sh

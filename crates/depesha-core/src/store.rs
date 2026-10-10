@@ -587,6 +587,7 @@ pub enum Withdrawn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OutboxItem {
     pub id: i64,
     pub account_id: String,
@@ -612,6 +613,7 @@ pub struct OutboxItem {
 
 /// A snoozed message that is due to come back.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Snooze {
     pub account_id: String,
     pub message_id: String,
@@ -622,6 +624,7 @@ pub struct Snooze {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FolderInfo {
     pub account_id: String,
     #[serde(flatten)]
@@ -631,6 +634,7 @@ pub struct FolderInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MessageRow {
     pub id: i64,
     pub account_id: String,
@@ -701,6 +705,7 @@ pub struct MessageRow {
 
 /// A writer of a conversation and whether the receiving server vouched for them (#108).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Voice {
     pub from: Addr,
     pub dmarc: bool,
@@ -721,6 +726,7 @@ const OFFLINE_MAX_TEXT: u32 = 2 * 1024 * 1024;
 /// What a list can be ordered by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SortField {
     Date,
     Unread,
@@ -737,6 +743,7 @@ pub enum SortField {
 
 /// One step of the order. `desc`: newest, biggest, Я→А; for yes/no keys the "yes" first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SortKey {
     pub by: SortField,
     #[serde(default)]
@@ -747,6 +754,7 @@ pub struct SortKey {
 /// state until the list changes, so reading the top message of "unread first" does
 /// not throw it down under the pointer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Pin {
     pub id: i64,
     pub unread: bool,
@@ -840,6 +848,7 @@ fn list_filter(q: &ListQuery) -> (String, Vec<rusqlite::types::Value>) {
 
 /// What a search found in the cache: letters and their bytes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SearchTotals {
     pub count: u64,
     pub size: u64,
@@ -1024,6 +1033,7 @@ fn message_sort_column(by: SortField) -> Option<&'static str> {
 /// Which messages to show. An empty query is the unified inbox of all accounts.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "ListQueryWire"))]
 pub struct ListQuery {
     pub account_id: Option<String>,
     pub folder: Option<String>,

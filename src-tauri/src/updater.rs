@@ -23,6 +23,7 @@ const EVERY: Duration = Duration::from_secs(6 * 3600);
 /// How this copy was installed decides what updating may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub enum Install {
     /// AppImage, macOS app: replaced in place, used after a restart.
     InPlace,
@@ -44,10 +45,15 @@ pub fn install_kind() -> Install {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UpdateStatus {
     pub current: String,
     /// `idle`, `checking`, `available`, `downloading`, `ready` (downloaded, installs on
     /// restart), `installed` (restart to use it) or `error`.
+    #[cfg_attr(
+        test,
+        ts(type = "\"idle\" | \"checking\" | \"available\" | \"downloading\" | \"ready\" | \"installed\" | \"error\"")
+    )]
     pub state: &'static str,
     pub version: Option<String>,
     pub notes: Option<String>,

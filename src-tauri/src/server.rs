@@ -97,6 +97,7 @@ pub async fn check(state: &AppState, account: &Account) -> depesha_core::Result<
 
 /// The "Server" and "Storage" sections of a mailbox's page.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ServerView {
     #[serde(flatten)]
     info: ServerInfo,
@@ -130,6 +131,7 @@ pub fn view(state: &AppState, account_id: &str) -> CmdResult<ServerView> {
 /// Every mailbox's room, for the sidebar: the server's quota, or (Exchange) the
 /// occupied space, or the sum of the folder sizes the user had counted.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct QuotaView {
     account_id: String,
     quota: Option<QuotaSeen>,
@@ -138,6 +140,7 @@ pub struct QuotaView {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Estimate {
     bytes: u64,
     partial: bool,

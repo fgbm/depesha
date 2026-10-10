@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum FolderRole {
     Inbox,
     Sent,
@@ -103,6 +104,7 @@ pub(crate) fn is_non_mail(leaf: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Folder {
     /// Name as the server knows it (modified UTF-7); used in IMAP commands.
     pub name: String,
@@ -125,6 +127,7 @@ impl Folder {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Flags {
     pub seen: bool,
     pub answered: bool,
@@ -141,6 +144,7 @@ pub struct Flags {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "flag", content = "value", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum FlagChange {
     Seen(bool),
     Flagged(bool),
@@ -151,6 +155,7 @@ pub enum FlagChange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Addr {
     pub name: Option<String>,
     pub email: String,
@@ -160,6 +165,7 @@ pub struct Addr {
 /// low one is kept in the cache, so it can be shown later without a new migration.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Importance {
     Low,
     #[default]
@@ -199,6 +205,7 @@ impl Importance {
 /// plain text with HTML of the same content.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum BodyFormat {
     #[default]
     Plain,
@@ -230,6 +237,7 @@ impl BodyFormat {
 /// What a letter does with the one it was written from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Act {
     Reply,
     ReplyAll,
@@ -263,6 +271,7 @@ impl Act {
 /// The letter an answer or a forward was written from: it is marked when this one goes,
 /// and an answer may take it to wait for the reply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActsOn {
     pub account_id: String,
     pub message_id: String,
@@ -275,6 +284,7 @@ pub struct ActsOn {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Draft {
     pub from: Option<Addr>,
     pub to: Vec<Addr>,
@@ -289,6 +299,7 @@ pub struct Draft {
     /// formatted, and the parts it goes out in — HTML, Markdown and text — are built here.
     /// An HTML letter keeps its signature inside `html`, a plain one its text inside `text`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub signature: Option<String>,
     /// Outbox entries saved before formats existed are plain text.
     #[serde(default)]
@@ -298,6 +309,7 @@ pub struct Draft {
     pub attachments: Vec<OutgoingAttachment>,
     /// The letter this one answers or forwards; none for a new one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub acts_on: Option<ActsOn>,
     /// The sender asks to read the letter first (#72): `Importance: high` and `X-Priority: 1`.
     /// The window offers high only; a normal letter says nothing.
@@ -310,10 +322,12 @@ fn is_normal(i: &Importance) -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OutgoingAttachment {
     pub name: String,
     pub mime: String,
     #[serde(with = "serde_bytes_b64")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub data: Vec<u8>,
 }
 
@@ -336,9 +350,12 @@ mod serde_bytes_b64 {
 /// A draft kept locally: the key is the window's own (a fresh one per composition), and
 /// `draft` is the letter exactly as the window holds it, stored verbatim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "CachedDraftWire"))]
 pub struct CachedDraft {
     pub key: String,
     pub account_id: String,
+    /// The window's draft verbatim (a `ComposeDraft` of the interface).
+    #[cfg_attr(feature = "ts", ts(type = "ComposeDraftWire"))]
     pub draft: serde_json::Value,
     /// The server copy this one continues, so a restore replaces it instead of adding a twin.
     #[serde(default)]

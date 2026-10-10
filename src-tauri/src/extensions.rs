@@ -17,6 +17,7 @@ const MAX_STORAGE: usize = 1024 * 1024;
 
 /// Text in the interface languages; English is required.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtText"))]
 pub struct Text {
     pub en: String,
     #[serde(default)]
@@ -24,6 +25,7 @@ pub struct Text {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtCommand"))]
 pub struct Command {
     pub id: String,
     pub title: Text,
@@ -33,12 +35,14 @@ pub struct Command {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtContributes"))]
 pub struct Contributes {
     #[serde(default)]
     pub commands: Vec<Command>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtManifest"))]
 pub struct Manifest {
     pub id: String,
     pub name: Text,
@@ -160,6 +164,7 @@ fn script_path(dir: &Path, main: &str) -> Option<PathBuf> {
 
 /// Permissions and hooks, the set a user agrees to.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtGrant"))]
 pub struct Grant {
     pub permissions: Vec<String>,
     pub hooks: Vec<String>,
@@ -330,6 +335,7 @@ fn consented(dir: &Path, m: &Manifest) -> bool {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "Extension"))]
 pub struct Installed {
     #[serde(flatten)]
     manifest: Manifest,
@@ -416,6 +422,7 @@ fn refused(dir: &Path, id: &str) -> Manifest {
 
 /// An extension folder looked at before installing: nothing is copied.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtPreview"))]
 pub struct Preview {
     manifest: Manifest,
     /// The installed copy with the same id, and what the user agreed to for it.
@@ -423,6 +430,7 @@ pub struct Preview {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ExtPrevious"))]
 pub struct Previous {
     version: String,
     /// Empty when nothing was agreed to: every permission then counts as new.

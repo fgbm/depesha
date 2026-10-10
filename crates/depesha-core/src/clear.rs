@@ -39,6 +39,7 @@ impl Emptying {
 
 /// How far an emptying got.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Emptied {
     /// Messages the folder held when the run began, less the ones it was told to keep.
     pub total: usize,

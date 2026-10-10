@@ -19,6 +19,7 @@ pub const MAX_INLINE_IMAGE: usize = 5 * 1024 * 1024;
 
 /// Header fields kept in the local cache for message lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Summary {
     pub message_id: Option<String>,
     pub in_reply_to: Option<String>,
@@ -50,6 +51,7 @@ pub struct Summary {
 
 /// Ways to leave a mailing list, from `List-Unsubscribe` (RFC 2369, RFC 8058).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Unsubscribe {
     /// HTTPS address that unsubscribes on a POST without visiting a page (RFC 8058).
     pub one_click: Option<String>,
@@ -160,6 +162,7 @@ fn strip_prefixes(subject: &str) -> (&str, bool) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AttachmentInfo {
     pub index: u32,
     pub name: String,
@@ -170,6 +173,7 @@ pub struct AttachmentInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MessageView {
     pub summary: Summary,
     pub text: Option<String>,
@@ -202,6 +206,7 @@ pub struct MessageView {
 /// A form of the letter's text: one part of its `multipart/alternative`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum BodyView {
     Text,
     Html,

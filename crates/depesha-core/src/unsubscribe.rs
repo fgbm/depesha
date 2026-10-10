@@ -18,6 +18,7 @@ const BODY: &str = "List-Unsubscribe=One-Click";
 /// A way to leave a list, as the user confirms it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "UnsubscribeWay"))]
 pub enum Way {
     /// A POST to `host`.
     OneClick { host: String },

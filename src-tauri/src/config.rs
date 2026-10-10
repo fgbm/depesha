@@ -18,10 +18,12 @@ pub struct Config {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Settings {
     /// A sent message waits this long in the outbox so it can be taken back.
     pub undo_send_secs: u32,
     /// `people` (default), `all` or `none`.
+    #[cfg_attr(test, ts(type = "\"people\" | \"all\" | \"none\""))]
     pub notify: String,
     /// Do not disturb until this Unix time; 0 when off.
     pub dnd_until: i64,
@@ -32,11 +34,14 @@ pub struct Settings {
     pub list_avatars: bool,
     pub templates: Vec<Template>,
     /// `auto` (default), `notify` or `off`, like OpenCode's `autoupdate`.
+    #[cfg_attr(test, ts(type = "\"auto\" | \"notify\" | \"off\""))]
     pub updates: String,
     /// `auto` (from the system locale, default), `en` or `ru`.
+    #[cfg_attr(test, ts(type = "\"auto\" | \"en\" | \"ru\""))]
     pub language: String,
     /// `system` (light or dark as the system says, default), `paper`, `night`,
     /// `snow` or `graphite`.
+    #[cfg_attr(test, ts(type = "\"system\" | \"paper\" | \"night\" | \"snow\" | \"graphite\""))]
     pub theme: String,
     /// Built-in plugins switched off, by id (`plugins/<id>`).
     #[serde(alias = "disabled_modules")]
@@ -45,6 +50,7 @@ pub struct Settings {
     /// (`PluginManifest::default_off`) use it.
     pub enabled_plugins: Vec<String>,
     /// Settings of built-in plugins, by plugin id; each plugin owns its object.
+    #[cfg_attr(test, ts(type = "Record<string, Record<string, unknown>>"))]
     pub plugin_settings: std::collections::BTreeMap<String, serde_json::Value>,
     /// The user's keys of commands (Settings → Keys); only what differs from the defaults.
     pub keybindings: Keybindings,
@@ -54,6 +60,7 @@ pub struct Settings {
     pub oauth_clients: std::collections::BTreeMap<OAuthProvider, OAuthClient>,
     /// Mail downloaded whole for reading without a network and for searching its
     /// text: `off`, the last `30` (default), `90` or `365` days, or `all`.
+    #[cfg_attr(test, ts(type = "\"off\" | \"30\" | \"90\" | \"365\" | \"all\""))]
     pub offline: String,
     /// Offline download takes messages with attachments too.
     pub offline_attachments: bool,
@@ -80,6 +87,7 @@ pub struct Settings {
     pub compose_format: BodyFormat,
     /// Which form of a letter the reader shows: `sender` (the one the sender put last,
     /// default), `markdown` or `text` when the letter has it. A letter's switch overrides it.
+    #[cfg_attr(test, ts(type = "\"sender\" | \"html\" | \"markdown\" | \"text\""))]
     pub letter_view: String,
     /// Which mailbox new letters are written from; none follows the context (the open
     /// folder or letter, else the first mailbox). Answers and forwards are unaffected.
@@ -89,13 +97,16 @@ pub struct Settings {
     pub quota_warn: bool,
     pub quota_levels: [u8; 2],
     /// `threshold`: once per level crossed (default); `daily`: again every day while above.
+    #[cfg_attr(test, ts(type = "\"threshold\" | \"daily\""))]
     pub quota_repeat: String,
     /// What closing the main window does: `ask` (default, every install asks once),
     /// `background` (the window hides, mail keeps coming) or `quit`.
+    #[cfg_attr(test, ts(type = "\"ask\" | \"background\" | \"quit\""))]
     pub close_action: String,
     /// The user agreed to work in the background with no tray icon to come back by.
     pub background_without_tray: bool,
     /// Start at login: `off` (default), `window` or `background` (only the tray icon).
+    #[cfg_attr(test, ts(type = "\"off\" | \"window\" | \"background\""))]
     pub autostart: String,
     /// The number of unread letters in the inboxes drawn on the tray icon.
     pub tray_count: bool,
@@ -219,6 +230,7 @@ impl Settings {
 /// in the frontend (`src/lib/keyCommands.ts` and the plugins).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "KeySettings"))]
 pub struct Keybindings {
     /// An empty list is a command left without a key.
     pub custom: std::collections::BTreeMap<String, Vec<String>>,
@@ -227,6 +239,7 @@ pub struct Keybindings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Template {
     pub name: String,
     pub text: String,

@@ -41,6 +41,7 @@ type St<'a> = State<'a, Arc<AppState>>;
 const MAX_ATTACHMENTS: u64 = 50 * 1024 * 1024;
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AccountView {
     #[serde(flatten)]
     account: Account,
@@ -61,6 +62,7 @@ pub fn accounts(state: St<'_>) -> Vec<AccountView> {
 
 /// What the detection found, with its source and notes worded for the interface.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "Detection"))]
 pub struct DetectionView {
     imap: Option<depesha_core::account::ServerConfig>,
     smtp: Option<depesha_core::account::ServerConfig>,
@@ -89,6 +91,7 @@ pub async fn detect(email: String) -> DetectionView {
 
 /// Where the Exchange address came from, worded for the interface.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "EwsDetection"))]
 pub struct EwsDetectionView {
     url: Option<String>,
     source: String,
@@ -371,6 +374,7 @@ pub async fn account_remove(state: St<'_>, id: String) -> CmdResult<()> {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct OAuthProviderView {
     provider: OAuthProvider,
     title: &'static str,
@@ -393,6 +397,7 @@ pub fn oauth_providers(state: St<'_>) -> Vec<OAuthProviderView> {
 
 /// A finished browser sign-in; `id` is passed to `account_check` and `account_save`.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "OAuthGrant"))]
 pub struct OAuthGrantView {
     id: String,
     provider: OAuthProvider,
@@ -629,6 +634,7 @@ async fn search_servers(state: &AppState, text: &str, account_id: Option<String>
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct OpenedMessage {
     row: MessageRow,
     view: MessageView,
@@ -746,6 +752,7 @@ fn group_rows(state: &AppState, ids: &[i64]) -> CmdResult<BTreeMap<(String, Stri
 
 /// What a move did, so it can be undone. Messages are found again by Message-ID.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Moved {
     account_id: String,
     from: String,
@@ -995,6 +1002,7 @@ pub fn labels(state: St<'_>, account_id: String) -> CmdResult<Vec<depesha_core::
 
 /// A label's cached letter count (#42, frame 2), by its keyword: the list shows «≈N».
 #[derive(serde::Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct LabelCount {
     pub keyword: String,
     pub count: u32,
@@ -1535,6 +1543,7 @@ pub fn thread(state: St<'_>, id: i64) -> CmdResult<Vec<MessageRow>> {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Counters {
     snoozed: u32,
     /// Letters waiting for an answer: the badge.
@@ -1635,6 +1644,7 @@ pub fn followup_return(state: St<'_>, id: i64) -> CmdResult<()> {
 
 /// How Depesha would leave a list, for the user to confirm before anything goes out.
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct UnsubscribePlan {
     way: Way,
     /// The mailbox a request by mail leaves from.
@@ -1645,6 +1655,7 @@ pub struct UnsubscribePlan {
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub enum Unsubscribed {
     /// The sender's server confirmed the one-click request.
     Done,
@@ -2665,12 +2676,14 @@ pub fn open_link(app: tauri::AppHandle, url: String) -> CmdResult<()> {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "AttachmentSourceWire"))]
 pub enum AttachmentSource {
     File { path: String },
     Message { id: i64, index: u32 },
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(rename = "ComposeDraftWire"))]
 pub struct ComposeDraft {
     from: Option<Addr>,
     #[serde(default)]

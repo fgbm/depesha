@@ -203,6 +203,7 @@ impl Clone for Error {
 /// string on the wire (`as_str`) as before it was an enum. Several belong to the interface
 /// alone (`Extension`, `Print`…); the core names them so the whole set is in one place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ErrorKind {
     #[serde(rename = "certificate")]
     Certificate,

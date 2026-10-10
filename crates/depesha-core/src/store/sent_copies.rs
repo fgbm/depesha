@@ -95,6 +95,7 @@ pub struct NewSentCopy<'a> {
 
 /// A paused copy as the tasks show it: no bytes, they stay in the cache.
 #[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StuckCopy {
     pub id: i64,
     pub account_id: String,

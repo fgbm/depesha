@@ -24,6 +24,8 @@ mod server;
 mod state;
 mod tasks;
 mod tray;
+#[cfg(test)]
+mod ts_types;
 mod updater;
 mod waiting;
 mod worker;

@@ -38,9 +38,11 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// The app's registration at the provider. Desktop apps cannot keep a secret
 /// (RFC 8252, 8.5): Google and Yandex still issue one, PKCE is what protects the code.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OAuthClient {
     pub client_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub client_secret: Option<String>,
 }
 

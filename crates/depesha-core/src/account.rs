@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Security {
     /// TLS from the first byte (IMAP 993, SMTP 465).
     Tls,
@@ -14,12 +15,14 @@ pub enum Security {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub security: Security,
     /// SHA-256 of a certificate the user explicitly trusted for this server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub trusted_cert: Option<String>,
 }
 
@@ -36,6 +39,7 @@ impl ServerConfig {
 
 /// Account settings without the password: the password lives in the OS keyring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Account {
     pub id: String,
     /// What the user calls the mailbox in the app ("Work"); empty shows the address.
@@ -63,17 +67,22 @@ pub struct Account {
     pub signatures: Vec<Signature>,
     /// The id of the signature new letters get; none puts none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub default_signature: Option<String>,
     /// The id of the signature replies and forwards get; none takes `default_signature`.
     /// Added after 0.6.3: absent in older configs, which read as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub reply_signature: Option<String>,
     /// How new letters from this mailbox are written; none takes the format from the settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub compose_format: Option<crate::domain::BodyFormat>,
     /// How this mailbox's letters are shown: `html`, `markdown` or `text`; none takes the
     /// form from the settings. Added after 0.6.3: absent in older configs, which read as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    #[cfg_attr(feature = "ts", ts(type = "\"\" | \"html\" | \"markdown\" | \"text\" | null"))]
     pub letter_view: Option<String>,
     /// Where this mailbox's attachments are saved without asking; empty takes the
     /// folder from the settings.
@@ -84,6 +93,7 @@ pub struct Account {
     pub auth: AuthMethod,
     /// Exchange Web Services instead of IMAP and SMTP: `imap` and `smtp` are then unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub ews: Option<EwsConfig>,
     /// Warn when the mailbox fills up (the levels are in the settings).
     #[serde(default = "yes", skip_serializing_if = "is_yes")]
@@ -101,6 +111,7 @@ pub struct Account {
 /// on the server, and the reply brings it back.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Waiting {
     /// An answer to a letter of the inbox takes it to the folder until a reply comes.
     pub park: bool,
@@ -145,6 +156,7 @@ impl Account {
 /// A signature of a mailbox (#25). It stands under the letter in a block of its own and
 /// is put in whole, never edited in the letter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Signature {
     pub id: String,
     pub name: String,
@@ -188,6 +200,7 @@ fn is_zero(v: &u64) -> bool {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum AuthMethod {
     /// The keyring holds the password.
     #[default]
@@ -211,6 +224,7 @@ impl AuthMethod {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum OAuthProvider {
     Google,
     Yandex,
@@ -249,10 +263,12 @@ impl OAuthProvider {
 
 /// Where Exchange Web Services live, e.g. `https://mail.example.com/EWS/Exchange.asmx`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EwsConfig {
     pub url: String,
     /// SHA-256 of a certificate the user explicitly trusted for this server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub trusted_cert: Option<String>,
 }
 

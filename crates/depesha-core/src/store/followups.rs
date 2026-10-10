@@ -15,6 +15,7 @@ use crate::domain::Draft;
 /// What a wait for an answer asks besides the time of the first reminder.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "FollowupPlanWire"))]
 pub struct FollowupPlan {
     /// The answer is expected by this long after sending; 0: by the first reminder.
     pub deadline_secs: i64,
@@ -49,6 +50,7 @@ impl FollowupPlan {
 /// Where a wait for an answer stands. Overdue is a waiting one past its deadline.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum FollowupStatus {
     #[default]
     Waiting,
@@ -61,6 +63,7 @@ pub enum FollowupStatus {
 /// Which waits a list of them shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum FollowupFilter {
     /// Still waiting, overdue or not.
     #[default]
@@ -72,6 +75,7 @@ pub enum FollowupFilter {
 /// A sent letter's wait for an answer, as a list row shows it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FollowupInfo {
     pub status: FollowupStatus,
     /// The next reminder.

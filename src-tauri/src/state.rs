@@ -16,10 +16,13 @@ use crate::tr;
 use crate::worker::Worker;
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AccountStatus {
     /// `connecting`, `online`, `error`, or `paused` (needs the user: password, certificate).
+    #[cfg_attr(test, ts(type = "\"connecting\" | \"online\" | \"error\" | \"paused\""))]
     pub state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub error: Option<CmdError>,
 }
 

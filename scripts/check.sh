@@ -74,7 +74,7 @@ if [[ "${1:-}" == "--changed" ]]; then
     exit 0
   fi
   pick() { grep -E "$1" <<<"$changed" || true; }
-  rust=$(pick '^(crates/|src-tauri/|Cargo\.(toml|lock)$|rustfmt\.toml$)')
+  rust=$(pick '^(crates/|src-tauri/|src/lib/generated/|Cargo\.(toml|lock)$|rustfmt\.toml$)')
   front=$(pick '^(src/|plugins/|public/|index\.html$|package(-lock)?\.json$|vite\.config|svelte\.config|tsconfig|eslint|docs/(frontend-|plugin-api)|scripts/(frontend-|plugin-api-|check\.sh))')
   # Config that changes how every file is linted: the whole tree, not the list of changed files.
   lintconf=$(pick '^(eslint|package(-lock)?\.json$|tsconfig|vite\.config)')
@@ -95,6 +95,8 @@ if [[ "${1:-}" == "--changed" ]]; then
     cargo fmt --all --check
     step "clippy"
     cargo clippy --workspace --all-targets -- -D warnings
+    step "TS-типы совпадают с Rust"
+    scripts/gen-types.sh --check
     if grep -qE '^(crates/|Cargo)' <<<"$rust"; then
       step "cargo test -p depesha-core"
       cargo test -p depesha-core
@@ -155,6 +157,8 @@ step "rustfmt"
 cargo fmt --all --check
 step "clippy"
 cargo clippy --workspace --all-targets -- -D warnings
+step "TS-типы совпадают с Rust"
+scripts/gen-types.sh --check
 step "svelte-check"
 npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
 step "eslint"

@@ -53,6 +53,7 @@ pub(super) fn v8_server_caps(conn: &Connection) -> Result<()> {
 
 /// The capabilities of a login, as the cache keeps them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ServerCaps {
     /// The greeting's line when it listed capabilities before login; empty otherwise.
     pub greeting: String,
@@ -63,6 +64,7 @@ pub struct ServerCaps {
 
 /// The answer to ENABLE QRESYNC and when it came.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EnableAnswer {
     pub ok: bool,
     pub answer: String,
@@ -71,6 +73,7 @@ pub struct EnableAnswer {
 
 /// The last quota the server reported and when.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct QuotaSeen {
     #[serde(flatten)]
     pub quota: Quota,
@@ -79,6 +82,7 @@ pub struct QuotaSeen {
 
 /// Folder sizes counted at the user's request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FolderSizes {
     pub counted: i64,
     pub method: SizeMethod,
@@ -87,6 +91,7 @@ pub struct FolderSizes {
 
 /// Everything the cache knows about an account's server.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ServerInfo {
     pub caps: Option<ServerCaps>,
     pub enable: Option<EnableAnswer>,
