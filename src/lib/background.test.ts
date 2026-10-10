@@ -132,7 +132,7 @@ describe("the tray menu's errands", () => {
     expect(s.view).toEqual({ kind: "unified", role: "inbox", unread: true });
     emit("tray-action", { action: "account", account_id: "a" });
     expect(s.settingsOpen).toBe(true);
-    expect(s.settingsPage).toBe("account:a");
+    expect(s.ui.settingsPage).toBe("account:a");
   });
 });
 
@@ -141,7 +141,7 @@ describe("letters that missed their time", () => {
     api.outboxMissed.mockResolvedValue([3, 4]);
     const s = await started();
     await flush();
-    const toast = s.toasts.find((x) => x.action?.label === "Send now");
+    const toast = s.ui.toasts.find((x) => x.action?.label === "Send now");
     expect(toast?.text).toBe("2 letters were not sent on time: Depesha was closed or the computer was asleep.");
     toast!.action!.run();
     await flush();
@@ -154,13 +154,13 @@ describe("letters that missed their time", () => {
     api.outboxMissed.mockResolvedValue([5]);
     emit("outbox-missed");
     await flush();
-    expect(s.toasts.some((x) => x.text === "1 letter was not sent on time: Depesha was closed or the computer was asleep.")).toBe(true);
+    expect(s.ui.toasts.some((x) => x.text === "1 letter was not sent on time: Depesha was closed or the computer was asleep.")).toBe(true);
   });
 
   it("say nothing when none missed", async () => {
     api.outboxMissed.mockResolvedValue([]);
     const s = await started();
     await flush();
-    expect(s.toasts).toEqual([]);
+    expect(s.ui.toasts).toEqual([]);
   });
 });

@@ -107,7 +107,7 @@
     <button class="foot-btn" onclick={() => layout.toggleSidebar()} title={t("sidebar.unfold")} aria-label={t("sidebar.unfold")}><ChevronsRight size={16} /></button>
     <DndButton align="left" />
     <TasksButton />
-    <button class="foot-btn" onclick={() => app.openSettings()} title={t("settings.title")} aria-label={t("settings.title")}><Settings size={16} /></button>
+    <button class="foot-btn" onclick={() => app.ui.openSettings()} title={t("settings.title")} aria-label={t("settings.title")}><Settings size={16} /></button>
   </div>
   {#if sidebarUi.folderMenu}
     {#key sidebarUi.folderMenu}<FolderMenu at={sidebarUi.folderMenu.at} account={sidebarUi.folderMenu.account} folder={sidebarUi.folderMenu.folder} onclose={() => (sidebarUi.folderMenu = null)} />{/key}

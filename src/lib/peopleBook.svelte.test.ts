@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/api/event", () => import("./testing").then((m) => m.eventMo
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 
 const { fail } = vi.hoisted(() => ({ fail: vi.fn() }));
-vi.mock("./store.svelte", () => ({ app: { fail } }));
+vi.mock("./store.svelte", () => ({ app: { ui: { fail } } }));
 
 import { PeopleBook } from "./peopleBook.svelte";
 import { blankPerson } from "./people";

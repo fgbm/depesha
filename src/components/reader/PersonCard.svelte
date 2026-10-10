@@ -102,7 +102,7 @@
     try {
       await peopleBook.save({ ...base, ...patch });
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -120,7 +120,7 @@
   async function copy() {
     try {
       await navigator.clipboard.writeText(email);
-      app.toast(t("person.copied"));
+      app.ui.toast(t("person.copied"));
     } catch {
       /* the clipboard is closed to the page: nothing to say */
     }
@@ -219,7 +219,7 @@
       await tick();
       row(`a:${parsed.email.toLowerCase()}`)?.focus();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
       editing = null;
     }
   }
@@ -245,7 +245,7 @@
       await tick();
       row(`a:${address.toLowerCase()}`)?.focus();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -277,7 +277,7 @@
     // With an address in the correspondence the person stays and only the mark comes off: the question says which.
     const kept = person.heard;
     const who = person.name || person.email;
-    const { answer } = await app.choose({
+    const { answer } = await app.ui.choose({
       title: t(kept ? "people.unmarkTitle" : "people.deleteTitle", { name: who }),
       text: t(kept ? "people.unmarkText" : "people.deleteText"),
       okLabel: t(kept ? "people.unmark" : "people.delete"),
@@ -290,7 +290,7 @@
       app.offerUndo(t(done.removed ? "people.removed" : "people.unmarked", { name: who }), () => peopleBook.restore(done.undo));
       if (done.removed) onGone?.();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 

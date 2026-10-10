@@ -14,7 +14,7 @@
     try {
       states = await api.hints();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -25,9 +25,9 @@
       await api.hintsClear();
       states = [];
       await runtime.refresh();
-      app.toast(t("hints.forgotten"));
+      app.ui.toast(t("hints.forgotten"));
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 </script>

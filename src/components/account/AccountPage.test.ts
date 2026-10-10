@@ -124,11 +124,11 @@ describe("a text typed in a mailbox's page and not left (#120)", () => {
       input.value = "Home";
       input.dispatchEvent(new Event("input", { bubbles: true }));
       flushSync();
-      expect(app.settingsTyping).toBe(true);
+      expect(app.ui.settingsTyping).toBe(true);
       // A quit does not wait for the focus to leave: it asks the page to write what is typed.
-      await app.settingsSettle!();
+      await app.ui.settingsSettle!();
       expect(stored.label).toBe("Home");
-      expect(app.settingsTyping).toBe(false);
+      expect(app.ui.settingsTyping).toBe(false);
     } finally {
       vi.useRealTimers();
     }

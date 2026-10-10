@@ -87,10 +87,10 @@
       return app.windowOf;
     },
     account: (id) => app.account(id),
-    openSettings: (page, section) => app.openSettings(page, section),
-    fail: (e, prefix) => app.fail(e, prefix),
+    openSettings: (page, section) => app.ui.openSettings(page, section),
+    fail: (e, prefix) => app.ui.fail(e, prefix),
     confirmToPlain: () =>
-      app.confirm({
+      app.ui.confirm({
         title: t("compose.format.toPlainTitle"),
         text: t("compose.format.loseHtml"),
         okLabel: t("compose.format.toPlain"),
@@ -98,7 +98,7 @@
       }),
     formatChanged: (from, to, undo) => {
       const name = (f: BodyFormat) => (f === "html" ? t("format.short.html") : f === "markdown" ? t("format.short.markdown") : t("format.plain"));
-      app.toast(t("compose.format.changed", { format: name(to) }), false, { label: t("undo"), run: undo });
+      app.ui.toast(t("compose.format.changed", { format: name(to) }), false, { label: t("undo"), run: undo });
     },
   });
 
@@ -109,7 +109,7 @@
     setError: (m) => (error = m),
     clearError: () => (error = ""),
     draftNotSaved: (err) => t("compose.draftNotSaved", { error: err }),
-    fail: (e, prefix) => app.fail(e, prefix),
+    fail: (e, prefix) => app.ui.fail(e, prefix),
   });
 
   // A quit or a closing window saves this draft through the manager, before it goes (#71).
@@ -123,8 +123,8 @@
     autosave: auto,
     account: (id) => app.account(id),
     accountColor: (id) => app.accountColor(id),
-    fail: (e, prefix) => app.fail(e, prefix),
-    toast: (text) => app.toast(text),
+    fail: (e, prefix) => app.ui.fail(e, prefix),
+    toast: (text) => app.ui.toast(text),
     sendApp: (a, d, id, mid, at, secs, f) => {
       // The detector of #69 counts a Markdown letter sent to a person without a rule.
       void hints.recordSend(d);
@@ -138,8 +138,8 @@
     badAddresses: () => t("compose.badAddresses"),
     noRecipients: () => t("compose.noRecipients"),
     draftSaved: () => t("compose.draftSaved"),
-    confirmClose: () => app.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }),
-    confirmDiscard: () => app.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true }),
+    confirmClose: () => app.ui.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }),
+    confirmDiscard: () => app.ui.confirm({ text: t("compose.discardConfirm"), okLabel: t("act.delete"), danger: true }),
     openPart: (part) => void openPart(part),
   });
 
@@ -148,10 +148,10 @@
       return c;
     },
     format: fmt,
-    fail: (e, prefix) => app.fail(e, prefix),
-    toastBig: (name) => app.toast(t("compose.picture.attachedBig", { name })),
-    useCtrlV: () => app.toast(t("compose.picture.useCtrlV")),
-    noneInClipboard: () => app.toast(t("compose.picture.noneInClipboard")),
+    fail: (e, prefix) => app.ui.fail(e, prefix),
+    toastBig: (name) => app.ui.toast(t("compose.picture.attachedBig", { name })),
+    useCtrlV: () => app.ui.toast(t("compose.picture.useCtrlV")),
+    noneInClipboard: () => app.ui.toast(t("compose.picture.noneInClipboard")),
     pickTitle: () => t("compose.picture.pickTitle"),
     attachTitle: () => t("compose.attachTitle"),
     get dragging() {
@@ -389,7 +389,7 @@
       try {
         await peopleBook.save({ ...person, send_format: "", view: "", via: "" });
       } catch (e) {
-        app.fail(e);
+        app.ui.fail(e);
       }
     }
     line = null;
@@ -407,7 +407,7 @@
 
 <!-- The short card of a person (#66, frame 13): opened by a click on a chip of an address. -->
 {#snippet personCard(email: string)}
-  <PersonCard short {email} name={peopleBook.find(email)?.name ?? ""} onAllMail={() => app.setView({ kind: "search", text: peopleBook.allMail(email) })} />
+  <PersonCard short {email} name={peopleBook.find(email)?.name ?? ""} onAllMail={() => app.selection.setView({ kind: "search", text: peopleBook.allMail(email) })} />
 {/snippet}
 
 {#if c.mode === "max"}
@@ -592,7 +592,7 @@
           onNotNow={() => { line = null; void hints.notNow(); }}
           onNeverThis={() => { line = null; void hints.neverThis(); }}
           onNeverAnyone={() => { line = null; void hints.neverAnyone(); }}
-          onAll={() => app.openSettings("look")}
+          onAll={() => app.ui.openSettings("look")}
           onUndo={() => void undoHint(line!)}
         />
       {/if}

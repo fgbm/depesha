@@ -29,11 +29,11 @@ describe("moving through the list", () => {
     const pending = deferred<OpenedMessage>();
     api.open.mockReturnValue(pending.promise);
     vi.useFakeTimers();
-    for (let i = 0; i < 30; i++) s.move(1);
+    for (let i = 0; i < 30; i++) s.selection.move(1);
     vi.advanceTimersByTime(200);
     await flush();
 
-    expect([...s.selected]).toEqual([30]);
+    expect([...s.selection.selected]).toEqual([30]);
     expect(api.open.mock.calls.length).toBeLessThanOrEqual(2);
     expect(api.open).toHaveBeenLastCalledWith(30, false, expect.any(Number));
   });
@@ -82,7 +82,7 @@ describe("archiving through the list", () => {
     for (let n = 1; n <= 20; n++) {
       void s.archive();
       expect(s.messages.map((m) => m.id)).not.toContain(n);
-      expect([...s.selected]).toEqual([n + 1]);
+      expect([...s.selection.selected]).toEqual([n + 1]);
     }
     expect(gone.size).toBe(0);
     await flush();

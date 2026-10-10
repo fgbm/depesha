@@ -72,7 +72,7 @@ async function attach(app: AppStore, zoneAt: (pos: PhysicalPosition) => DropZone
 /** A drop with nowhere to go is told, not dropped in silence. */
 function noCompose(app: AppStore, drop: FilesDropped, pos: PhysicalPosition) {
   outcome("no_compose", 0, 0, null, pos);
-  if (drop.paths.length) app.toast(t("drop.nowhere"));
+  if (drop.paths.length) app.ui.toast(t("drop.nowhere"));
 }
 
 /**

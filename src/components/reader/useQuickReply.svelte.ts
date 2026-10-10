@@ -124,7 +124,7 @@ export class QuickReplyState {
       this.quick = null;
       this.text = "";
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     } finally {
       this.busy = false;
       // Not sent and another letter opened meanwhile: the answer is kept in a window.

@@ -64,24 +64,24 @@ describe("list reloads", () => {
     api.search.mockResolvedValue([row(1)]);
     api.searchTotals.mockResolvedValue({ count: 412, size: 9 * 1024 ** 3 });
     await s.setView({ kind: "search", text: "larger:25MB year:2024" });
-    expect(s.listKey()).toBe("search:size");
+    expect(s.selection.listKey()).toBe("search:size");
     expect(api.search).toHaveBeenLastCalledWith("larger:25MB year:2024", [{ by: "size", desc: true }]);
     expect(s.searchTotals).toEqual({ count: 412, size: 9 * 1024 ** 3 });
 
     // Another order for searches by size stays theirs; other searches keep theirs.
     api.settingsPatch.mockResolvedValue(undefined);
-    await s.setSort([{ by: "date", desc: false }], true);
+    await s.selection.setSort([{ by: "date", desc: false }], true);
     expect(s.settings.view_sorts["search:size"]).toEqual([{ by: "date", desc: false }]);
     // The order is saved as a patch of its own keys, not the whole settings from memory.
     const patch = api.settingsPatch.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(Object.keys(patch).sort()).toEqual(["list_sort", "view_sorts"]);
     await s.setView({ kind: "search", text: "invoice" });
-    expect(s.listKey()).toBe("search");
+    expect(s.selection.listKey()).toBe("search");
     expect(api.search).toHaveBeenLastCalledWith("invoice", []);
 
     // Only a lower bound asks for large letters: "smaller than" keeps the search's order.
     await s.setView({ kind: "search", text: "меньше:1М" });
-    expect(s.listKey()).toBe("search");
+    expect(s.selection.listKey()).toBe("search");
 
     // Without totals the list still shows what it found.
     api.searchTotals.mockRejectedValue(new Error("old backend"));
@@ -97,10 +97,10 @@ describe("list reloads", () => {
     await s.setView({ kind: "search", text: "larger:1M" });
     await s.select(1);
     await s.select(2, "toggle");
-    expect(s.selectedSize()).toBe(40 * 1024 ** 2);
-    s.selectAll();
-    expect([...s.selected]).toEqual([1, 2, 3]);
-    expect(s.selectedSize()).toBe(40 * 1024 ** 2 + 5);
+    expect(s.selection.selectedSize()).toBe(40 * 1024 ** 2);
+    s.selection.selectAll();
+    expect([...s.selection.selected]).toEqual([1, 2, 3]);
+    expect(s.selection.selectedSize()).toBe(40 * 1024 ** 2 + 5);
   });
 
   it("asked for by the previous view do not run after switching views", async () => {
@@ -108,7 +108,7 @@ describe("list reloads", () => {
     const s = new AppStore();
     await s.setView(inbox);
     api.messages.mockClear();
-    s.scheduleReload();
+    s.selection.scheduleReload();
     await s.setView(archive);
     vi.advanceTimersByTime(300);
     await flush();
@@ -123,8 +123,8 @@ describe("list reloads", () => {
     api.folders.mockResolvedValue([{ account_id: "a", name: "INBOX", role: "inbox" } as never]);
     const s = new AppStore();
     await s.init();
-    while (s.messages.length < 1400) await s.loadMore();
-    s.selected = new Set([1300]);
+    while (s.messages.length < 1400) await s.selection.loadMore();
+    s.selection.selected = new Set([1300]);
     cache.unshift(row(9999));
 
     vi.useFakeTimers();
@@ -137,14 +137,14 @@ describe("list reloads", () => {
     expect(s.messages.length).toBe(1401);
     expect(s.messages[0].id).toBe(9999);
     expect(new Set(s.messages.map((m) => m.id)).size).toBe(1401);
-    expect([...s.selected]).toEqual([1300]);
+    expect([...s.selection.selected]).toEqual([1300]);
   });
 
   it("read the whole loaded list again when asked directly", async () => {
     serve(rows(1, 1500));
     const s = new AppStore();
     await s.setView(inbox);
-    while (s.messages.length < 1400) await s.loadMore();
+    while (s.messages.length < 1400) await s.selection.loadMore();
     await s.reload();
     expect(lastQuery().limit).toBe(1400);
   });

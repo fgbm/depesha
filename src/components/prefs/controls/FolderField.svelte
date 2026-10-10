@@ -18,7 +18,7 @@
       const dir = await api.pickFolder("save", label, value || null);
       if (dir) onpick(dir);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 </script>

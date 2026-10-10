@@ -25,14 +25,14 @@
   const auto = new SettingsAutosave({
     settings: () => $state.snapshot(app.settings) as unknown as Record<string, unknown>,
     patch: (patch) => app.patchSettings(patch),
-    toast: (text, action) => app.toast(text, false, action),
-    dismiss: (id) => app.dismiss(id),
+    toast: (text, action) => app.ui.toast(text, false, action),
+    dismiss: (id) => app.ui.dismiss(id),
   });
 
   const sections = $derived(registry.lists.settingsSections);
   const pages = menuPages();
 
-  let page = $state(resolvePage(app.settingsPage));
+  let page = $state(resolvePage(app.ui.settingsPage));
   // A link inside the settings (a mailbox's «Storage» to «Hints») turns the page.
   $effect(() => bus.on("settings.open", (at) => void turn(resolvePage(at.page))));
   // A page that went away (its mailbox) falls back to the first one.
@@ -90,13 +90,13 @@
   }
 
   function close() {
-    app.settingsOpen = false;
-    app.settingsPage = "reading";
+    app.ui.settingsOpen = false;
+    app.ui.settingsPage = "reading";
   }
 
   /** A mailbox's page keeps its own say before it goes (its check, its changes); the others ask nothing. */
   async function mayLeave(): Promise<boolean> {
-    return (await (app.settingsLeave?.() ?? Promise.resolve(true))) !== false;
+    return (await (app.ui.settingsLeave?.() ?? Promise.resolve(true))) !== false;
   }
 
   /** A field being typed in keeps what is typed: it is left, and the writes under way are waited for. */
@@ -127,7 +127,7 @@
       void app.openPeople({ email: opts.person, filter: "ruled" });
       return;
     }
-    app.openSettings(next, opts.section ?? null);
+    app.ui.openSettings(next, opts.section ?? null);
   }
 
   /** The fields that have an undo of their own. */
@@ -135,7 +135,7 @@
 
   function onKey(e: KeyboardEvent) {
     // Esc clears the search first, closes the window second; a menu or a question on top goes before both.
-    if (e.key === "Escape" && !app.confirmation && !document.querySelector(".pop")) {
+    if (e.key === "Escape" && !app.ui.confirmation && !document.querySelector(".pop")) {
       e.preventDefault();
       if (query) query = "";
       else mayLeave().then((ok) => ok && close());
@@ -167,9 +167,9 @@
     const el = e.target as HTMLElement;
     // A box or a button has no undo of its own: the key takes back the change it made.
     if (el.matches(TEXT_FIELD) || el.closest("[data-g='plugin']")) return true;
-    if (mailbox ? !app.settingsUndo : !auto.canUndo(current)) return true;
+    if (mailbox ? !app.ui.settingsUndo : !auto.canUndo(current)) return true;
     e.preventDefault();
-    void (mailbox ? app.settingsUndo?.() : auto.undo(current));
+    void (mailbox ? app.ui.settingsUndo?.() : auto.undo(current));
     return true;
   }
 

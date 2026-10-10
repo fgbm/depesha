@@ -43,7 +43,7 @@ describe("files dropped on the window", () => {
   it("go nowhere without an open composition, and say so (#79)", async () => {
     const dropFiles = vi.fn(async () => {});
     const toast = vi.fn();
-    const app = { activeCompose: () => null, compose: { dropFiles }, toast } as unknown as AppStore;
+    const app = { activeCompose: () => null, compose: { dropFiles }, ui: { toast } } as unknown as AppStore;
     await listenDrops(app, () => null);
     emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
     await flush();
@@ -55,7 +55,7 @@ describe("files dropped on the window", () => {
   it("a drop beside the zones still attaches the files and is logged as a miss", async () => {
     const dropFiles = vi.fn(async () => {});
     const toast = vi.fn();
-    const app = { activeCompose: () => ({ draft: { attachments: [] } }), compose: { dropFiles, dragging: { zones: true, zone: null } }, toast } as unknown as AppStore;
+    const app = { activeCompose: () => ({ draft: { attachments: [] } }), compose: { dropFiles, dragging: { zones: true, zone: null } }, ui: { toast } } as unknown as AppStore;
     await listenDrops(app, () => null);
     emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
     await flush();

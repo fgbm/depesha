@@ -219,7 +219,7 @@ describe("the print key beside the other commands and the other print", () => {
 describe("printing on macOS", () => {
   it("on macOS a print another print took the place of shows no error; a real failure does", async () => {
     Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
-    const fail = vi.spyOn(app, "fail").mockImplementation(() => {});
+    const fail = vi.spyOn(app.ui, "fail").mockImplementation(() => {});
     try {
       app.reader.opened = message(7);
       rememberForm(7, "html");

@@ -60,15 +60,15 @@
             <span class="name">{accountLabel(acc)}</span>
             <span class="chev"><ChevronRight size={13} /></span>
           </button>
-          {#if stuckOf(app.tasks, acc.id).length}
-            <button class="stuck-badge" onclick={() => (app.tasksOpen = true)} title={t("stuck.badge")} aria-label={t("stuck.badge")}><TriangleAlert size={14} /></button>
+          {#if stuckOf(app.ui.tasks, acc.id).length}
+            <button class="stuck-badge" onclick={() => (app.ui.tasksOpen = true)} title={t("stuck.badge")} aria-label={t("stuck.badge")}><TriangleAlert size={14} /></button>
           {/if}
           <button class="menu-btn" onclick={() => (sidebarUi.menuFor = sidebarUi.menuFor === acc.id ? null : acc.id)} title={t("account.menu")} aria-label={t("account.menu")}><Ellipsis size={15} /></button>
           <Popover bind:open={() => sidebarUi.menuFor === acc.id, (v) => (sidebarUi.menuFor = v ? acc.id : null)}>
             <button class="mi" onclick={() => sidebarUi.refresh(acc)}><RotateCw size={15} /> {t("account.refresh")}</button>
             <button class="mi" onclick={() => { sidebarUi.menuFor = null; app.accountSettings(acc); }}><Settings size={15} /> {t("account.settings")}</button>
             <hr />
-            <button class="mi" onclick={() => { sidebarUi.menuFor = null; app.openSettings("accounts"); }}><Inbox size={15} /> {t("accounts.manage")}</button>
+            <button class="mi" onclick={() => { sidebarUi.menuFor = null; app.ui.openSettings("accounts"); }}><Inbox size={15} /> {t("accounts.manage")}</button>
             <button class="mi" onclick={() => { sidebarUi.menuFor = null; app.accountSettings(null); }}><Plus size={15} /> {t("account.add")}</button>
           </Popover>
         </div>
@@ -100,7 +100,7 @@
   {/if}
 
   <div class="foot">
-    <button class="btn ghost settings" onclick={() => app.openSettings()}><Settings size={15} /> {t("settings.title")}</button>
+    <button class="btn ghost settings" onclick={() => app.ui.openSettings()}><Settings size={15} /> {t("settings.title")}</button>
     <span class="spacer"></span>
     <DndButton align="left" />
     <TasksButton />

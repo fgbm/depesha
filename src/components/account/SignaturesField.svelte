@@ -54,7 +54,7 @@
     const name = form.signatures.find((s) => s.id === id)?.name ?? "";
     apply(removeSignature(before, id));
     if (editing === id) editing = null;
-    app.toast(t("account.signatures.deleted", { name }), false, { label: t("undo"), run: () => apply(before) });
+    app.ui.toast(t("account.signatures.deleted", { name }), false, { label: t("undo"), run: () => apply(before) });
   }
 
   async function move(id: string, delta: -1 | 1) {

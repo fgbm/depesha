@@ -30,7 +30,7 @@
           role={picked ? "menuitem" : undefined}
           onclick={() => {
             picked?.();
-            app.setView(view(l.name));
+            app.selection.setView(view(l.name));
           }}
           title={l.name}
         >

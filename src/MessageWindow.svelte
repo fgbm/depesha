@@ -27,13 +27,13 @@
   const win = getCurrentWindow();
 
   onMount(() => {
-    app.initWindow(id).catch((e) => app.fail(e, t("startup")));
+    app.initWindow(id).catch((e) => app.ui.fail(e, t("startup")));
     // An answer being written is not dropped by closing the window unasked. Quitting
     // from the tray or Ctrl+Q closes this window the same way, so the same question is asked.
     const off = win.onCloseRequested(async (e) => {
       if (!app.composes.length) return;
       e.preventDefault();
-      const ok = await app.confirm({ text: t("window.closeWithAnswer"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
+      const ok = await app.ui.confirm({ text: t("window.closeWithAnswer"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true });
       if (ok) {
         // The drafts are kept before the window goes; a slow server does not hold it up (#71).
         await app.compose.saveAll(4000);
@@ -73,8 +73,8 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null;
     // Ctrl+P prints this letter, whatever has the focus; the browser's own would print the interface.
-    if (printKey(e, !!app.confirmation || !!target?.closest?.(".compose"))) return;
-    if (app.confirmation) return;
+    if (printKey(e, !!app.ui.confirmation || !!target?.closest?.(".compose"))) return;
+    if (app.ui.confirmation) return;
     if (target?.closest?.(".compose")) return;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
     const opened = app.opened;
@@ -86,8 +86,8 @@
       "core.delete": () => app.remove(),
       "core.archive": () => app.archive(),
       "core.spam": () => app.spam(),
-      "core.unread": () => app.toggleSeen(),
-      "core.flag": () => app.toggleFlagged(),
+      "core.unread": () => app.selection.toggleSeen(),
+      "core.flag": () => app.selection.toggleFlagged(),
       "core.labels": () => opened && app.labels.openPick([opened.row.id]),
       // The card of the sender, and the way back from a merge made in its card (#104).
       "core.sender-card": () => app.openSenderCard(),
@@ -128,8 +128,8 @@
 {#if peopleOps.dialog}<MergeDialog />{/if}
 {#if peopleOps.picking}<PickPerson />{/if}
 
-{#if app.confirmation}
-  {#key app.confirmation}<Confirm q={app.confirmation} />{/key}
+{#if app.ui.confirmation}
+  {#key app.ui.confirmation}<Confirm q={app.ui.confirmation} />{/key}
 {/if}
 
 <WindowControls />

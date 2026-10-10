@@ -64,7 +64,7 @@
       size: info.size,
       bytes: load,
       text: async () => decodeText(new Uint8Array(await load())),
-      openLink: (href) => app.openLink(href),
+      openLink: (href) => app.ui.openLink(href),
       fail: (e) => {
         console.error(`viewer ${info.name}:`, e);
         failed = asError(e).message;
@@ -81,7 +81,7 @@
   // (j/k, e, r…) keep working on the letter. Esc closes the top layer only:
   // a dialog or a menu goes first, the viewer next, the letter's window last.
   function onKey(e: KeyboardEvent) {
-    if (app.confirmation) return;
+    if (app.ui.confirmation) return;
     const target = e.target as HTMLElement | null;
     const typing = target?.closest?.("input, textarea, select, [contenteditable]");
     if (target?.closest?.(".compose")) return;

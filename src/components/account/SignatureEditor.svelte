@@ -45,27 +45,27 @@
 
   async function addPictures(found: FoundPicture[]) {
     const { html, tooBig, failed } = await picturesHtml(found);
-    for (const p of tooBig) app.toast(t("account.signatures.pictureTooBig", { name: p.name }), true);
-    for (const e of failed) app.fail(e);
+    for (const p of tooBig) app.ui.toast(t("account.signatures.pictureTooBig", { name: p.name }), true);
+    for (const e of failed) app.ui.fail(e);
     if (html) rich?.insertHtml(html);
   }
 
   async function fromFile() {
     try {
       const files = await api.pickFiles(t("compose.picture.pickTitle"), true);
-      for (const f of files.filter((f) => !isPictureName(f.name))) app.toast(t("account.signatures.notAPicture", { name: f.name }), true);
+      for (const f of files.filter((f) => !isPictureName(f.name))) app.ui.toast(t("account.signatures.notAPicture", { name: f.name }), true);
       const { found, refused } = await picturesFromFiles(files.filter((f) => isPictureName(f.name)).map((f) => f.path));
-      for (const path of refused) app.toast(t("account.signatures.pictureTooBig", { name: path.split(/[\\/]/).pop() ?? path }), true);
+      for (const path of refused) app.ui.toast(t("account.signatures.pictureTooBig", { name: path.split(/[\\/]/).pop() ?? path }), true);
       await addPictures(found);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
   async function fromClipboard() {
     const blobs = await clipboardPictures();
-    if (blobs === null) return app.toast(t("compose.picture.useCtrlV"));
-    if (!blobs.length) return app.toast(t("compose.picture.noneInClipboard"));
+    if (blobs === null) return app.ui.toast(t("compose.picture.useCtrlV"));
+    if (!blobs.length) return app.ui.toast(t("compose.picture.noneInClipboard"));
     await addPictures(await picturesFromBlobs(blobs));
   }
 
@@ -82,7 +82,7 @@
       }
       rich?.changed();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     } finally {
       shrinking = false;
     }

@@ -65,7 +65,7 @@
   const account = $derived(msg ? app.account(msg.row.account_id) : undefined);
   const isDraft = $derived(msg ? app.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.allowRemote && !msg.trusted_sender);
-  const bulk = $derived(app.selected.size > 1);
+  const bulk = $derived(app.selection.selected.size > 1);
   /** The letter with its toolbar is on screen, not a placeholder or an error. */
   const showsLetter = $derived(!bulk && !app.openError && !showOpening && !(app.opening && !msg) && !!msg);
   /** Which state the pane shows when there is no letter: none of them is the letter. */
@@ -79,10 +79,10 @@
 
   /** The attachment viewer of the reading pane (#23): it takes the letter's place. */
   const viewer = useAttachmentViewer({
-    savedTo: (name, dir) => app.toast(t("file.savedTo", { name, dir })),
-    saveInFailed: (message, again) => app.toast(message, true, { label: t("file.saveAs"), run: again }),
-    saved: (name) => app.toast(t("file.saved", { name })),
-    savedAll: (n) => app.toast(tn("file.savedAll", n)),
+    savedTo: (name, dir) => app.ui.toast(t("file.savedTo", { name, dir })),
+    saveInFailed: (message, again) => app.ui.toast(message, true, { label: t("file.saveAs"), run: again }),
+    saved: (name) => app.ui.toast(t("file.saved", { name })),
+    savedAll: (n) => app.ui.toast(tn("file.savedAll", n)),
     saveTitle: () => t("file.saveTitle"),
     saveAllTitle: () => t("file.saveAllTitle"),
   });
@@ -101,7 +101,7 @@
   async function trustSender() {
     const email = msg?.view.summary.from?.email;
     if (!email || !msg) return;
-    await api.trustSender(email).catch((e) => app.fail(e));
+    await api.trustSender(email).catch((e) => app.ui.fail(e));
     app.open(msg.row.id, true);
   }
 
@@ -120,7 +120,7 @@
 
   // Quick reply under the conversation: write without leaving it, unfold into a window when it grows.
   const quick = useQuickReply({
-    keptAsDraft: (open) => app.toast(t("reader.quickKept"), false, open ? { label: t("file.open"), run: open } : undefined),
+    keptAsDraft: (open) => app.ui.toast(t("reader.quickKept"), false, open ? { label: t("file.open"), run: open } : undefined),
   });
 
   /** A reply to a letter with a Markdown part, from a person without a rule (#69, frame 14А):
@@ -142,8 +142,8 @@
     <button class="btn back" onclick={() => layout.showList()} title={t("nav.backHint", { list })} aria-label={t("nav.back", { list })}>
       <ChevronLeft size={16} /><span class="back-lbl">{list}</span>
     </button>
-    <button class="btn ghost icon" onclick={() => app.move(-1)} title={shortcuts.titled(t("nav.prevHint"), "core.prev")} aria-label={t("nav.prev")}><ChevronUp size={16} /></button>
-    <button class="btn ghost icon" onclick={() => app.move(1)} title={shortcuts.titled(t("nav.nextHint"), "core.next")} aria-label={t("nav.next")}><ChevronDown size={16} /></button>
+    <button class="btn ghost icon" onclick={() => app.selection.move(-1)} title={shortcuts.titled(t("nav.prevHint"), "core.prev")} aria-label={t("nav.prev")}><ChevronUp size={16} /></button>
+    <button class="btn ghost icon" onclick={() => app.selection.move(1)} title={shortcuts.titled(t("nav.nextHint"), "core.next")} aria-label={t("nav.next")}><ChevronDown size={16} /></button>
   {/if}
 {/snippet}
 

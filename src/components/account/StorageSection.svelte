@@ -61,15 +61,15 @@
   // Both close the settings: unsaved changes on the page are asked about first.
   async function findLarge() {
     if (!(await form.mayLeave())) return;
-    app.settingsOpen = false;
+    app.ui.settingsOpen = false;
     rooms.findLarge();
   }
 
   async function openTrash() {
     const trash = app.folders.find((f) => f.account_id === account.id && f.role === "trash");
     if (!trash || !(await form.mayLeave())) return;
-    app.settingsOpen = false;
-    app.setView({ kind: "folder", account_id: account.id, folder: trash.name });
+    app.ui.settingsOpen = false;
+    app.selection.setView({ kind: "folder", account_id: account.id, folder: trash.name });
   }
 </script>
 
@@ -181,7 +181,7 @@
     </label>
     {#if form.limitError}<p class="field-error" role="alert">{form.limitError}</p>{/if}
     <FieldError {form} keys={["quota_warn", "quota_limit_mb"]} />
-    <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.openSettings("storage")}>{t("storage.levelsLink")}</button></p>
+    <p class="hint muted">{t("storage.ownHint")} <button class="link" onclick={() => app.ui.openSettings("storage")}>{t("storage.levelsLink")}</button></p>
   </div>
 </div>
 
@@ -240,7 +240,7 @@
 <div class="block local">
   <h4><HardDrive size={14} />{t("storage.local")}</h4>
   <div class="row"><span>{t("storage.cache")}</span><b>{gb(info?.cache_bytes ?? 0)}</b></div>
-  <p class="hint muted">{t("storage.cacheNote")} <button class="link" onclick={() => app.openSettings("storage")}>{t("storage.offlineLink")}</button></p>
+  <p class="hint muted">{t("storage.cacheNote")} <button class="link" onclick={() => app.ui.openSettings("storage")}>{t("storage.offlineLink")}</button></p>
 </div>
 
 <style>

@@ -137,11 +137,11 @@ class Rooms {
       const source = r.estimate ? t("quota.sourceEstimate") : t("quota.sourceServer");
       const action = { label: t("storage.findLarge"), run: () => this.findLarge() };
       if (level === 3) {
-        app.toast(t("quota.toastFull", { name, used, limit, source }), true, action);
+        app.ui.toast(t("quota.toastFull", { name, used, limit, source }), true, action);
         // The system notification only repeats the toast above.
         api.notifyFull(t("quota.notifyTitle", { name }), t("quota.notifyBody", { used, limit })).catch(() => {});
       } else {
-        app.toast(t("quota.toast", { name, p: wholePercent(percent(r)), used, limit, source }), false, action);
+        app.ui.toast(t("quota.toast", { name, p: wholePercent(percent(r)), used, limit, source }), false, action);
       }
     }
     writeWarned(warned);

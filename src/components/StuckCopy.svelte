@@ -24,10 +24,10 @@
     try {
       const attempted = await api.sentCopyRetry(id);
       // `false`: the background round already has the copy, nothing was tried here.
-      app.toast(attempted ? t("stuck.retried") : t("stuck.inProgress"));
+      app.ui.toast(attempted ? t("stuck.retried") : t("stuck.inProgress"));
     } catch (e) {
       const reason = (e as { message?: string })?.message ?? "";
-      app.toast(t("stuck.stillRefused", { reason }), true);
+      app.ui.toast(t("stuck.stillRefused", { reason }), true);
     } finally {
       busy = false;
     }
@@ -39,9 +39,9 @@
       const path = await api.pickSaveFile(t("stuck.saveTitle"), copyFileName(subject));
       if (!path) return;
       await api.sentCopySave(id, path);
-      app.toast(t("stuck.savedFile"));
+      app.ui.toast(t("stuck.savedFile"));
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -50,7 +50,7 @@
     try {
       await api.sentCopyDrop(id);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 </script>

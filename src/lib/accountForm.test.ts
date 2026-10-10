@@ -139,15 +139,15 @@ describe("leaving a mailbox's page", () => {
 
   it("leaves an untouched page without asking", async () => {
     expect(await new AccountForm(saved, () => {}).mayLeave()).toBe(true);
-    expect(app.confirmation).toBeNull();
+    expect(app.ui.confirmation).toBeNull();
   });
 
   it("asks before the changes are lost, and stays when told so", async () => {
     const form = new AccountForm(saved, () => {});
     form.smtp.port = 25;
     const left = form.mayLeave();
-    expect(app.confirmation?.text).toBe("The connection changes are not saved. Leave without them?");
-    app.confirmation?.resolve(false);
+    expect(app.ui.confirmation?.text).toBe("The connection changes are not saved. Leave without them?");
+    app.ui.confirmation?.resolve(false);
     expect(await left).toBe(false);
   });
 
@@ -155,7 +155,7 @@ describe("leaving a mailbox's page", () => {
     const form = new AccountForm(saved, () => {});
     form.busy = true;
     expect(await form.mayLeave()).toBe(false);
-    expect(app.confirmation).toBeNull();
+    expect(app.ui.confirmation).toBeNull();
   });
 });
 

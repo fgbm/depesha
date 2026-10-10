@@ -13,7 +13,7 @@
       const dir = await api.pickFolder("save", label, value || null);
       if (dir) value = dir;
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 </script>

@@ -133,7 +133,7 @@ class SidebarUi {
     try {
       await api.syncNow(acc.id);
     } catch (e) {
-      app.fail(e, acc.email);
+      app.ui.fail(e, acc.email);
     }
   }
 
@@ -173,11 +173,11 @@ class SidebarUi {
   }
 
   get tasksRunning(): number {
-    return app.tasks.filter((x) => x.state === "running").length;
+    return app.ui.tasks.filter((x) => x.state === "running").length;
   }
 
   get tasksFailed(): boolean {
-    return app.tasks.some((x) => x.state === "failed");
+    return app.ui.tasks.some((x) => x.state === "failed");
   }
 }
 

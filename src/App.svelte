@@ -61,7 +61,7 @@
   const wideView = $derived(app.view.kind === "outbox" || app.view.kind === "people");
 
   /** A letter (or its error, or one being opened) to show; several selected rows are not one. */
-  const hasLetter = $derived(app.selected.size <= 1 && !!(app.opened || app.opening || app.openError));
+  const hasLetter = $derived(app.selection.selected.size <= 1 && !!(app.opened || app.opening || app.openError));
   const column = $derived(layout.single ? layout.column(hasLetter) : null);
 
   // Another list starts on the list in a narrow window.
@@ -93,7 +93,7 @@
   }
 
   onMount(() => {
-    app.init().catch((e) => app.fail(e, t("startup")));
+    app.init().catch((e) => app.ui.fail(e, t("startup")));
     // Files dropped on the window go to the open composition: attached, or, in an HTML
     // letter, pictures into the text when dropped on that zone.
     return watchDrops(app);
@@ -101,17 +101,17 @@
 
   /** What the commands of the main window do; their keys are in keyCommands.ts and Settings → Keys. */
   const actions: Record<string, () => void> = {
-    "core.settings": () => app.openSettings(),
+    "core.settings": () => app.ui.openSettings(),
     "core.quit": () => quitApp(),
     "core.compose": () => app.newMessage(),
     "core.search": () => (app.focusSearch()),
     "core.people": () => void app.openPeople(),
     "core.sender-card": () => app.openSenderCard(),
     "core.undo": () => app.undo(),
-    "core.sync": () => api.syncNow().catch((e) => app.fail(e)),
-    "core.next": () => app.move(1),
-    "core.prev": () => app.move(-1),
-    "core.select-all": () => app.selectAll(),
+    "core.sync": () => api.syncNow().catch((e) => app.ui.fail(e)),
+    "core.next": () => app.selection.move(1),
+    "core.prev": () => app.selection.move(-1),
+    "core.select-all": () => app.selection.selectAll(),
     "core.reply": () => app.replyTo(false),
     "core.reply-all": () => app.replyTo(true),
     "core.forward": () => app.forwardOpened(),
@@ -122,14 +122,14 @@
       if (here) void app.clearing.begin(here.account_id, here.folder.name);
     },
     "core.spam": () => app.spam(),
-    "core.unread": () => app.toggleSeen(),
-    "core.flag": () => app.toggleFlagged(),
+    "core.unread": () => app.selection.toggleSeen(),
+    "core.flag": () => app.selection.toggleFlagged(),
     "core.labels": () => app.labels.openPick(labelTarget()),
   };
 
   /** The rows the labels command acts on: the selection, or the open letter (#42, frame 10). */
   function labelTarget(): number[] {
-    const ids = app.selectedIds();
+    const ids = app.selection.selectedIds();
     return ids.length ? ids : app.opened ? [app.opened.row.id] : [];
   }
 
@@ -151,8 +151,8 @@
       return;
     }
     // The print key is ours before anything else: the browser would print the whole interface.
-    if (printKey(e, !!app.wizard || app.settingsOpen || app.tasksOpen || !!(e.target as HTMLElement | null)?.closest?.(".compose"))) return;
-    if (app.wizard) return;
+    if (printKey(e, !!app.ui.wizard || app.ui.settingsOpen || app.ui.tasksOpen || !!(e.target as HTMLElement | null)?.closest?.(".compose"))) return;
+    if (app.ui.wizard) return;
     // Typing in a composition window: its own keys (Ctrl+Enter, Esc) handle it.
     // Only Ctrl+K reaches the app from there: the palette opens from anywhere.
     const inCompose = !!(e.target as HTMLElement | null)?.closest?.(".compose");
@@ -164,7 +164,7 @@
     // of the list and the letter aside; Ctrl+A in a field selects its text, in the list every row.
     if (e.ctrlKey || e.metaKey) {
       const cmd = shortcuts.command(id);
-      if (!cmd || (app.settingsOpen && cmd.owner === "core")) return;
+      if (!cmd || (app.ui.settingsOpen && cmd.owner === "core")) return;
       if (typing && (cmd.group !== "everywhere" || EDITING.includes(pressName(e) ?? ""))) return;
       if (cmd.id === "core.select-all" && app.windowOf !== null) return;
       const run = action(id);
@@ -174,7 +174,7 @@
       }
       return;
     }
-    if (app.settingsOpen || app.tasksOpen) return;
+    if (app.ui.settingsOpen || app.ui.tasksOpen) return;
     if (typing) {
       if (e.key === "Escape") t!.blur();
       return;
@@ -190,7 +190,7 @@
     // A narrow window shows the list or the letter: Enter opens the selected one, Esc goes back.
     // Keys a viewer or a menu took already, and Enter on a focused button, are not theirs.
     const onButton = !!t?.closest?.("button, a");
-    if (!e.defaultPrevented && ((e.key === "Enter" && !onButton && layout.enter(app.selected.size)) || (e.key === "Escape" && layout.back(hasLetter)))) {
+    if (!e.defaultPrevented && ((e.key === "Enter" && !onButton && layout.enter(app.selection.selected.size)) || (e.key === "Escape" && layout.back(hasLetter)))) {
       e.preventDefault();
       return;
     }
@@ -210,7 +210,7 @@
   // A quit asks this window to keep its drafts: it says whether it holds any (#71).
   $effect(() => {
     // Only tells the backend whether a quit must ask; the next change tells again.
-    api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {});
+    api.composeUnsaved(app.composes.length > 0 || app.ui.settingsTyping).catch(() => {});
   });
 
   $effect(() => bus.on("mail.search", () => searchInput?.focus()));
@@ -248,13 +248,13 @@
 </div>
 
 <Dock />
-{#if app.wizard}
+{#if app.ui.wizard}
   <Wizard />
 {/if}
-{#if app.settingsOpen}
+{#if app.ui.settingsOpen}
   <Preferences />
 {/if}
-{#if app.tasksOpen}
+{#if app.ui.tasksOpen}
   <Tasks />
 {/if}
 {#each registry.lists.overlays as o (o)}
@@ -264,8 +264,8 @@
 {#if peopleOps.dialog}<MergeDialog />{/if}
 {#if peopleOps.picking}<PickPerson />{/if}
 
-{#if app.confirmation}
-  {#key app.confirmation}<Confirm q={app.confirmation} />
+{#if app.ui.confirmation}
+  {#key app.ui.confirmation}<Confirm q={app.ui.confirmation} />
 {/key}
 {/if}
 

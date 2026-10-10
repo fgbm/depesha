@@ -91,7 +91,7 @@
     return !!rights && readOnly(rights);
   });
   /** Every row shows its size, quietly; ordered by size, the sizes are what is read. */
-  const bySize = $derived(app.sort()[0]?.by === "size");
+  const bySize = $derived(app.selection.sort()[0]?.by === "size");
   const found = $derived.by(() => {
     const totals = app.searchTotals;
     if (!totals) return "";
@@ -109,7 +109,7 @@
   function onScroll() {
     if (!viewport) return;
     scrollTop = viewport.scrollTop;
-    if (viewport.scrollTop + viewport.clientHeight > viewport.scrollHeight - ROW * 10) app.loadMore();
+    if (viewport.scrollTop + viewport.clientHeight > viewport.scrollHeight - ROW * 10) app.selection.loadMore();
   }
 
   function click(e: MouseEvent, m: MessageRow) {
@@ -124,7 +124,7 @@
       byMouse = true;
       void tick().then(() => (byMouse = false));
     }
-    app.select(m.id, mode);
+    app.selection.select(m.id, mode);
   }
 
   let menu = $state<{ at: { x: number; y: number }; ids: number[] } | null>(null);
@@ -132,8 +132,8 @@
   /** A right click acts on the selection it falls in, otherwise selects its row, as in Outlook. */
   function context(e: MouseEvent, m: MessageRow) {
     e.preventDefault();
-    let ids = app.selected.has(m.id) ? [...app.selected] : [m.id];
-    if (!app.selected.has(m.id)) app.select(m.id);
+    let ids = app.selection.selected.has(m.id) ? [...app.selection.selected] : [m.id];
+    if (!app.selection.selected.has(m.id)) app.selection.select(m.id);
     if (!ids.length) ids = [m.id];
     menu = { at: { x: e.clientX, y: e.clientY }, ids };
   }
@@ -142,7 +142,7 @@
   const avatars = $derived(app.settings.list_avatars);
   /** Chosen rows are the ones of an explicit choice of several (Ctrl or Shift click): a single
    *  selection is only the letter that is open, which the cursor bar already marks (#108, 2.5 Б). */
-  const chosen = (id: number) => app.selected.size > 1 && app.selected.has(id);
+  const chosen = (id: number) => app.selection.selected.size > 1 && app.selection.selected.has(id);
   const myAddresses = $derived(new Set(app.accounts.map((a) => a.email.toLowerCase())));
   /** The pictured row's person and whether a company logo may stand by them (the setting for logos too). */
   function pictureOf(m: MessageRow) {
@@ -173,7 +173,7 @@
   }
 
   /** The row with the cursor bar: it moves with the key, not with the answer of the server (#108). */
-  const cursor = $derived(cursorId(app.selected, app.openingRow?.id, app.opened?.row.id));
+  const cursor = $derived(cursorId(app.selection.selected, app.openingRow?.id, app.opened?.row.id));
 
   /** The selection is changing by a Ctrl or Shift click, not by a key or by opening a letter. */
   let byMouse = false;
@@ -220,7 +220,7 @@
     if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || app.opened?.row.id === m.id) return;
     e.preventDefault();
     layout.showLetter();
-    app.select(m.id);
+    app.selection.select(m.id);
   }
 
   const clear = $derived(app.clearing.here());
@@ -237,7 +237,7 @@
 <!-- The number of messages says little at a glance: it stays in the title's tooltip. -->
 <section class="list" data-count={count}>
   <!-- Work on the server after a click (move, flag, search) shows here, so a click never looks ignored. -->
-  {#if app.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
+  {#if app.ui.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
   <header data-tauri-drag-region class:scrolled={scrollTop > 0} class:edge>
     <SearchBox bind:input={searchInput} />
     {#if pluginView?.tabs}<Segments tabs={pluginView.tabs} />{/if}
@@ -253,7 +253,7 @@
           onclick={() => void app.clearing.begin(clear.account_id, clear.folder.name)}
         ><Eraser size={14} /> {app.clearing.title(clear.role)} ({clear.folder.total})</button>
       {/if}
-      {#if app.listKey()}<ViewMenu />{/if}
+      {#if app.selection.listKey()}<ViewMenu />{/if}
     </div>
   </header>
 
@@ -269,7 +269,7 @@
       {:else if app.serverRows}
         <span class="muted" title={t("search.serverFound", { n: app.serverRows.length })}>{t("search.serverFoundShort", { n: app.serverRows.length })}</span>
       {:else}
-        <button class="btn ghost small" title={t("search.onServerHint")} onclick={() => app.searchServer()}>{t("search.onServer")}</button>
+        <button class="btn ghost small" title={t("search.onServerHint")} onclick={() => app.selection.searchServer()}>{t("search.onServer")}</button>
       {/if}
     </div>
   {/if}
@@ -287,7 +287,7 @@
           {pluginView.empty()}
         {:else if app.accounts.length === 0}
           {t("empty.noAccounts")}
-        {:else if app.busy > 0}
+        {:else if app.ui.busy > 0}
           {t("loading")}
         {:else}
           {t("empty.list")}
@@ -308,10 +308,10 @@
           style:top="{(start + i) * ROW}px"
           style:--acct={showAccount ? app.accountColor(m.account_id) : "transparent"}
           role="option"
-          aria-selected={app.selected.has(m.id)}
+          aria-selected={app.selection.selected.has(m.id)}
           tabindex="-1"
           onclick={(e) => click(e, m)}
-          ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.openWindow(m)}
+          ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
           oncontextmenu={(e) => context(e, m)}
           onkeydown={(e) => rowKey(e, m)}
         >

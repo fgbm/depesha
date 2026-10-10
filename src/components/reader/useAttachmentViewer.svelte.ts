@@ -77,9 +77,9 @@ export class AttachmentViewerState {
   async openAttachment(a: AttachmentInfo) {
     if (!this.msg) return;
     try {
-      await app.track(api.attachmentOpen(this.msg.row.id, a.index));
+      await app.ui.track(api.attachmentOpen(this.msg.row.id, a.index));
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -87,7 +87,7 @@ export class AttachmentViewerState {
     if (!this.msg) return;
     if (!this.saveDir) return this.saveAttachmentAs(a);
     try {
-      const path = await app.track(api.attachmentSaveIn(this.msg.row.id, a.index));
+      const path = await app.ui.track(api.attachmentSaveIn(this.msg.row.id, a.index));
       this.host.savedTo(path.split(/[\\/]/).pop() ?? a.name, this.saveDir);
     } catch (e) {
       // The folder is gone or closed to writing: the error says so, the file goes elsewhere.
@@ -100,10 +100,10 @@ export class AttachmentViewerState {
     try {
       const path = await api.pickSaveFile(this.host.saveTitle(), a.name);
       if (!path) return;
-      await app.track(api.attachmentSave(this.msg.row.id, a.index, path));
+      await app.ui.track(api.attachmentSave(this.msg.row.id, a.index, path));
       this.host.saved(a.name);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -113,10 +113,10 @@ export class AttachmentViewerState {
       // The folder from the settings is the backend's to find; another one is picked now.
       const dir = this.saveDir ? null : await api.pickFolder("save", this.host.saveAllTitle());
       if (!this.saveDir && !dir) return;
-      const n = await app.track(api.attachmentsSaveAll(this.msg.row.id, dir));
+      const n = await app.ui.track(api.attachmentsSaveAll(this.msg.row.id, dir));
       this.host.savedAll(n);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 }

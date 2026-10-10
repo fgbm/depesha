@@ -11,13 +11,13 @@
 
 <div class="dock" class:stacked={!unfolded}>
   <div class="toasts" aria-live="polite">
-    {#each app.toasts as toast (toast.id)}
+    {#each app.ui.toasts as toast (toast.id)}
       <div class="toast" class:error={toast.error}>
         <span class="selectable">{toast.text}</span>
         {#if toast.action}
-          <button class="btn ghost act" onclick={() => { app.dismiss(toast.id); toast.action?.run(); }}>{toast.action.label}</button>
+          <button class="btn ghost act" onclick={() => { app.ui.dismiss(toast.id); toast.action?.run(); }}>{toast.action.label}</button>
         {/if}
-        <button class="btn ghost close" onclick={() => app.dismiss(toast.id)} aria-label={t("close")}>×</button>
+        <button class="btn ghost close" onclick={() => app.ui.dismiss(toast.id)} aria-label={t("close")}>×</button>
       </div>
     {/each}
   </div>

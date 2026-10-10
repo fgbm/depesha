@@ -24,7 +24,7 @@
     try {
       await api.accountsArrange(list.map((a) => a.id));
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
     await app.loadAccounts();
   }
@@ -33,7 +33,7 @@
     try {
       await api.accountLook(acc.id, label, color);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
     await app.loadAccounts();
   }

@@ -49,7 +49,7 @@ class PeopleOps {
       try {
         open.after?.(merged);
       } catch (e) {
-        app.fail(e);
+        app.ui.fail(e);
       }
     } finally {
       await tick();
@@ -70,7 +70,7 @@ class PeopleOps {
       );
       return person;
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
       return null;
     }
   }
@@ -98,7 +98,7 @@ class PeopleOps {
       );
       after?.(split);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -106,9 +106,9 @@ class PeopleOps {
   async refuse(a: Person, b: Person) {
     try {
       await peopleBook.refuse(a, b);
-      app.toast(t("people.refused"));
+      app.ui.toast(t("people.refused"));
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 }

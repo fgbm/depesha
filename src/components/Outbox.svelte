@@ -6,7 +6,7 @@
   import { t } from "../lib/i18n.svelte";
 
   async function retry(id: number) {
-    await api.outboxRetry(id).catch((e) => app.fail(e));
+    await api.outboxRetry(id).catch((e) => app.ui.fail(e));
   }
 
 </script>

@@ -50,21 +50,21 @@
     const leave = () => form.mayLeave();
     const undo = () => own.undo();
     const settle = () => own.settled();
-    app.settingsLeave = leave;
-    app.settingsUndo = undo;
-    app.settingsSettle = settle;
+    app.ui.settingsLeave = leave;
+    app.ui.settingsUndo = undo;
+    app.ui.settingsSettle = settle;
     return () => {
-      if (app.settingsLeave === leave) app.settingsLeave = null;
-      if (app.settingsUndo === undo) app.settingsUndo = null;
-      if (app.settingsSettle === settle) app.settingsSettle = null;
-      app.settingsTyping = false;
+      if (app.ui.settingsLeave === leave) app.ui.settingsLeave = null;
+      if (app.ui.settingsUndo === undo) app.ui.settingsUndo = null;
+      if (app.ui.settingsSettle === settle) app.ui.settingsSettle = null;
+      app.ui.settingsTyping = false;
       void own.flush();
     };
   });
 
   // A quit asks the window first while a text is typed and not left (App.svelte reports it to the backend).
   $effect(() => {
-    app.settingsTyping = own.typing;
+    app.ui.settingsTyping = own.typing;
   });
 
   /** A text field: saved when it is left or Enter is pressed. A list, a box or a colour is a pick: saved at once. */
@@ -87,9 +87,9 @@
   // Opened for one of its sections (the quota line opens «Storage», a letter the signatures),
   // also when this page is open already. Only this mailbox's page takes the section.
   $effect(() => {
-    const section = app.settingsSection;
-    if (!section || app.settingsPage !== `account:${account.id}`) return;
-    untrack(() => (app.settingsSection = null));
+    const section = app.ui.settingsSection;
+    if (!section || app.ui.settingsPage !== `account:${account.id}`) return;
+    untrack(() => (app.ui.settingsSection = null));
     tick().then(() => scrollTo(section, "instant"));
   });
 </script>

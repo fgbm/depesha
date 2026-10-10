@@ -71,14 +71,14 @@
 
   /** Письма с меткой — сохранённый поиск `метка:Имя` (#42, кадр 6А). */
   function find(label: Label) {
-    app.settingsOpen = false;
-    app.setView({ kind: "search", text: `метка:${label.name}` });
+    app.ui.settingsOpen = false;
+    app.selection.setView({ kind: "search", text: `метка:${label.name}` });
   }
 
   /** Удаление: ключ снимается со всех писем на сервере, фоном (#42, кадр 4Б). */
   async function remove(label: Label) {
     const n = app.labels.count(account.id, label.keyword);
-    const ok = await app.confirm({
+    const ok = await app.ui.confirm({
       title: t("label.deleteTitle", { name: label.name }),
       text: t("label.deleteText", { n }),
       okLabel: t("label.deleteOk"),
@@ -86,7 +86,7 @@
     });
     if (!ok) return;
     await app.labels.strip(account.id, label.name);
-    app.toast(t("label.deleted"));
+    app.ui.toast(t("label.deleted"));
   }
 
   /** Нет прав в папке (#42, кадр 7): метку здесь не поставить. */

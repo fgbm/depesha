@@ -28,9 +28,9 @@
   // Opened from the palette by Alt+Enter (#46): go to the row of that command, highlight it
   // a moment; a command the page has no row for is searched for by its title instead.
   $effect(() => {
-    const ask = app.settingsKeys;
+    const ask = app.ui.settingsKeys;
     if (!ask) return;
-    app.settingsKeys = null;
+    app.ui.settingsKeys = null;
     k.goTo(ask);
   });
 

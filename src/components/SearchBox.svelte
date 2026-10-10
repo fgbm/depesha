@@ -64,8 +64,8 @@
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       const q = text.trim();
-      if (q) app.setView({ kind: "search", text: q });
-      else if (app.view.kind === "search") app.setView(app.home());
+      if (q) app.selection.setView({ kind: "search", text: q });
+      else if (app.view.kind === "search") app.selection.setView(app.home());
     }, 250);
   }
 
@@ -76,7 +76,7 @@
     open = false;
     if (!q.trim()) return;
     recentSearches.remember(q);
-    app.setView({ kind: "search", text: q.trim() });
+    app.selection.setView({ kind: "search", text: q.trim() });
   }
 
   function complete(c: Completion) {
@@ -98,7 +98,7 @@
   function clear() {
     if (timer) clearTimeout(timer);
     text = "";
-    if (app.view.kind === "search") app.setView(app.home());
+    if (app.view.kind === "search") app.selection.setView(app.home());
   }
 
   function onKey(e: KeyboardEvent) {
@@ -176,7 +176,7 @@
           {#each NEW_OPERATORS[i18n.lang] as op (op)}<button class="op" tabindex="-1" onclick={() => addOperator(op)}>{op}</button>{/each}
         </div>
         <hr />
-        <button class="sg foot" tabindex="-1" onclick={() => { open = false; app.openSettings("storage"); }}>
+        <button class="sg foot" tabindex="-1" onclick={() => { open = false; app.ui.openSettings("storage"); }}>
           <Settings2 size={13} />
           <span>{t("suggest.threshold", { size: size(mb * 1024 * 1024, 0) })}</span>
         </button>

@@ -60,24 +60,6 @@ export class AppStore {
   set settings(v) { this.settingsCtl.settings = v; }
   get update() { return this.settingsCtl.update; }
   set update(v) { this.settingsCtl.update = v; }
-  get toasts() { return this.ui.toasts; }
-  get confirmation() { return this.ui.confirmation; }
-  set confirmation(v) { this.ui.confirmation = v; }
-  get wizard() { return this.ui.wizard; }
-  set wizard(v) { this.ui.wizard = v; }
-  get busy() { return this.ui.busy; }
-  get tasks() { return this.ui.tasks; }
-  set tasks(v) { this.ui.tasks = v; }
-  get tasksOpen() { return this.ui.tasksOpen; }
-  set tasksOpen(v) { this.ui.tasksOpen = v; }
-  get settingsOpen() { return this.ui.settingsOpen; }
-  set settingsOpen(v) { this.ui.settingsOpen = v; }
-  get settingsPage() { return this.ui.settingsPage; }
-  set settingsPage(v) { this.ui.settingsPage = v; }
-  get settingsSection() { return this.ui.settingsSection; }
-  set settingsSection(v) { this.ui.settingsSection = v; }
-  get peopleFocus() { return this.ui.peopleFocus; }
-  set peopleFocus(v) { this.ui.peopleFocus = v; }
   /** Asks the open letter's header to show the card of its sender. */
   openSenderCard() { bus.emit("reader.sender-card"); }
   /** Opens the address book in the main window, at a person and a filter; the settings window gives way. */
@@ -86,23 +68,9 @@ export class AppStore {
     this.ui.peopleFocus = at;
     await this.setView({ kind: "people" });
   }
-  get settingsKeys() { return this.ui.settingsKeys; }
-  set settingsKeys(v) { this.ui.settingsKeys = v; }
-  get settingsLeave() { return this.ui.settingsLeave; }
-  set settingsLeave(v) { this.ui.settingsLeave = v; }
-  get settingsUndo() { return this.ui.settingsUndo; }
-  set settingsUndo(v) { this.ui.settingsUndo = v; }
-  get settingsSettle() { return this.ui.settingsSettle; }
-  set settingsSettle(v) { this.ui.settingsSettle = v; }
-  get settingsTyping() { return this.ui.settingsTyping; }
-  set settingsTyping(v) { this.ui.settingsTyping = v; }
   /** Puts the focus into the search box of what the main window shows: the mail list or the address book. */
   focusSearch() { bus.emit(this.view.kind === "people" ? "people.search" : "mail.search"); }
 
-  get selected() { return this.selection.selected; }
-  set selected(v) { this.selection.selected = v; }
-  get anchor() { return this.selection.anchor; }
-  set anchor(v) { this.selection.anchor = v; }
   get view() { return this.list.view; }
   get messages() { return this.list.messages; }
   get exhausted() { return this.list.exhausted; }
@@ -143,6 +111,22 @@ export class AppStore {
   folder(accountId: string, name: string) { return this.mailboxes.folder(accountId, name); }
   /** Where the app starts and comes back to: all inboxes, or the only account's inbox. */
   home(): View { return this.mailboxes.home(); }
+  /** Rows the user is on: the selection and the open letter. */
+  using(): number[] { return [...this.selection.selected, ...(this.opened ? [this.opened.row.id] : [])]; }
+  /** The letters are acted on: their read mark lands at once (#71). */
+  markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
+
+  // What the controllers' hosts name: they cannot import the store, so it stays on `app`.
+  get confirmation() { return this.ui.confirmation; }
+  set confirmation(v) { this.ui.confirmation = v; }
+  get wizard() { return this.ui.wizard; }
+  set wizard(v) { this.ui.wizard = v; }
+  get tasks() { return this.ui.tasks; }
+  set tasks(v) { this.ui.tasks = v; }
+  get tasksOpen() { return this.ui.tasksOpen; }
+  set tasksOpen(v) { this.ui.tasksOpen = v; }
+  get settingsOpen() { return this.ui.settingsOpen; }
+  set settingsOpen(v) { this.ui.settingsOpen = v; }
   toast(text: string, error = false, action?: { label: string; run: () => void }, ms?: number) { return this.ui.toast(text, error, action, ms); }
   retext(id: number, text: string) { return this.ui.retext(id, text); }
   confirm(q: Omit<Confirmation, "resolve">) { return this.ui.confirm(q); }
@@ -152,49 +136,16 @@ export class AppStore {
   fail(e: unknown, prefix = "") { this.ui.fail(e, prefix); }
   track<T>(p: Promise<T>) { return this.ui.track(p); }
   openSettings(page = "reading", section: string | null = null) { this.ui.openSettings(page, section); }
-  /** Opens Settings → «Keys» at a command, highlighting its row (the palette's Alt+Enter, #46). */
-  editKeys(command: string, title: string) { this.ui.editKeys(command, title); }
-  /** Opens a web link after confirming the real address with the user. */
-  openLink(href: string) { return this.ui.openLink(href); }
-  inboxLike() { return this.selection.inboxLike(); }
-  listKey() { return this.selection.listKey(); }
-  listFilter() { return this.selection.listFilter(); }
-  sort() { return this.selection.sort(); }
-  ownSort() { return this.selection.ownSort(); }
-  /** Orders the current list (`own`), or every list without an order of its own. */
-  setSort(sort: SortKey[], own = this.ownSort()) { return this.selection.setSort(sort, own); }
-  /** Bytes of the selected rows: a conversation counts with its letters in the list. */
-  selectedSize(): number { return this.selection.selectedSize(); }
-  /** Selects every row of the list: "Select all found" in a search, Ctrl+A. */
-  selectAll() { this.selection.selectAll(); }
-  scheduleReload() { this.selection.scheduleReload(); }
   /** Reloads the current list keeping as many rows as are shown now; a message window has none. */
   reload() { return this.selection.reload(); }
   /** Letters the reader shows now: the open one and its conversation. */
   showing(): number[] { return this.selection.showing(); }
-  /** Rows the user is on: the selection and the open letter. */
-  using(): number[] { return [...this.selected, ...(this.opened ? [this.opened.row.id] : [])]; }
   /** The list was read again: selections of rows that disappeared (moved, deleted elsewhere) go. */
   listed(ids: Set<number>, search: boolean): Promise<void> { return this.selection.listed(ids, search); }
-  /** Searches on the servers too: finds mail older than the local cache. */
-  searchServer() { return this.selection.searchServer(); }
-  loadMore() { return this.selection.loadMore(); }
   setView(v: View) { return this.selection.setView(v); }
   select(id: number, mode: "single" | "toggle" | "range" = "single") { return this.selection.select(id, mode); }
-  move(step: 1 | -1) { this.selection.move(step); }
-  selectedIds(): number[] { return this.selection.selectedIds(); }
   /** Takes rows out of the list and opens the next one: triage keeps going. */
   takeOut(ids: number[]) { this.selection.takeOut(ids); }
-  /** Reads or (un)flags rows: the list keeps them and their place meanwhile. */
-  flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) { return this.selection.flag(change, value, ids); }
-  /** `u`: reads or unreads the letters by their own state, not the one open a moment ago (#71). */
-  toggleSeen(ids = this.selectedIds()) { return this.selection.toggleSeen(ids); }
-  /** `s`: flags or unflags the letters by their own state. */
-  toggleFlagged(ids = this.selectedIds()) { return this.selection.toggleFlagged(ids); }
-  /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
-  /** Opens a letter in a window of its own; a draft opens in the composer instead. */
-  openWindow(row: MessageRow) { return this.selection.openWindow(row); }
 
   async init() {
     this.mailboxes.initVersion();
@@ -236,7 +187,7 @@ export class AppStore {
     await listenWindow(this);
     await this.loadLanguage();
     await Promise.all([this.loadAccounts().catch((e) => this.fail(e)), this.loadFolders(), this.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
-    this.selected = new Set([id]);
+    this.selection.selected = new Set([id]);
     await this.open(id);
   }
 
@@ -261,11 +212,11 @@ export class AppStore {
     return this.actions.perform(text, ids, run, failText);
   }
 
-  remove(ids = this.selectedIds()) { return this.actions.remove(ids); }
-  moveTo(folder: string, ids = this.selectedIds()) { return this.actions.moveTo(folder, ids); }
+  remove(ids = this.selection.selectedIds()) { return this.actions.remove(ids); }
+  moveTo(folder: string, ids = this.selection.selectedIds()) { return this.actions.moveTo(folder, ids); }
   /** "Done": out of the inbox, into the archive. */
-  archive(ids = this.selectedIds()) { return this.actions.archive(ids); }
-  spam(ids = this.selectedIds()) { return this.actions.spam(ids); }
+  archive(ids = this.selection.selectedIds()) { return this.actions.archive(ids); }
+  spam(ids = this.selection.selectedIds()) { return this.actions.spam(ids); }
   undo() { return this.actions.undo(); }
   offerUndo(text: string, run: () => Promise<void>) { return this.actions.offer(text, run); }
   holdUndo(text: string, run: () => Promise<void>) { return this.actions.hold(text, run); }

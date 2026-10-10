@@ -50,7 +50,7 @@ describe("a click on a notification about one letter", () => {
     emit("notification-open", letter(7));
     await flush();
     expect(s.view).toBe(view);
-    expect([...s.selected]).toEqual([7]);
+    expect([...s.selection.selected]).toEqual([7]);
     expect(s.opened?.row.id).toBe(7);
     expect(arrivals.flash).toBe(7);
     vi.advanceTimersByTime(FLASH_MS - 1);
@@ -68,7 +68,7 @@ describe("a click on a notification about one letter", () => {
       emit("notification-open", letter(7));
       await flush();
       expect(s.view).toBe(view);
-      expect([...s.selected]).toEqual([7]);
+      expect([...s.selection.selected]).toEqual([7]);
     }
   });
 
@@ -80,7 +80,7 @@ describe("a click on a notification about one letter", () => {
     emit("notification-open", letter(7));
     await flush();
     expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
-    expect([...s.selected]).toEqual([7]);
+    expect([...s.selection.selected]).toEqual([7]);
     expect(s.opened?.row.id).toBe(7);
     expect(arrivals.flash).toBe(7);
   });
@@ -94,7 +94,7 @@ describe("a click on a notification about one letter", () => {
       emit("notification-open", letter(7));
       await flush();
       expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
-      expect([...s.selected]).toEqual([7]);
+      expect([...s.selection.selected]).toEqual([7]);
     }
   });
 
@@ -117,8 +117,8 @@ describe("a click on a notification about a letter moved or gone", () => {
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [], gone: { subject: "Invoice for October", from: "ivan.petrov@example.com" } });
     await flush();
     expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
-    expect(s.selected.size).toBe(0);
-    const toast = s.toasts.find((x) => x.text.includes("«Invoice for October»"));
+    expect(s.selection.selected.size).toBe(0);
+    const toast = s.ui.toasts.find((x) => x.text.includes("«Invoice for October»"));
     expect(toast?.text).toBe("«Invoice for October» is no longer in the Inbox: it was moved or deleted.");
     expect(toast?.action?.label).toBe("Find");
     toast?.action?.run();
@@ -134,7 +134,7 @@ describe("a click on a notification about letters that missed their time", () =>
     emit("notification-open", { account_id: null, folder: null, id: null, ids: [], outbox: true, gone: null });
     await flush();
     expect(s.view).toEqual({ kind: "outbox" });
-    expect(s.selected.size).toBe(0);
+    expect(s.selection.selected.size).toBe(0);
     expect(s.opened).toBeNull();
   });
 });
@@ -154,8 +154,8 @@ describe("a click on a notification over the settings or a question", () => {
     expect(s.confirmation).not.toBeNull();
     expect(api.settingsPatch).not.toHaveBeenCalled();
     // The letter opens behind them, and a word says so.
-    expect([...s.selected]).toEqual([7]);
-    expect(s.toasts.some((x) => x.text === "The letter opened in the background.")).toBe(true);
+    expect([...s.selection.selected]).toEqual([7]);
+    expect(s.ui.toasts.some((x) => x.text === "The letter opened in the background.")).toBe(true);
     // The question still waits for its answer.
     s.confirmation?.resolve(null);
     await expect(answer).resolves.toBe(false);
@@ -170,7 +170,7 @@ describe("a click on a summary", () => {
     emit("notification-open", { account_id: "a", folder: "INBOX", id: null, ids: [1, 2, 3], gone: null });
     await flush();
     expect(s.view).toEqual({ kind: "folder", account_id: "a", folder: "INBOX" });
-    expect(s.selected.size).toBe(0);
+    expect(s.selection.selected.size).toBe(0);
     expect(s.opened).toBeNull();
     expect([1, 2, 3, 4].map((id) => arrivals.isFresh(s.view, id))).toEqual([true, true, true, false]);
     expect(arrivals.freshCount(s.view)).toBe(3);

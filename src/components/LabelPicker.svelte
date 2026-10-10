@@ -55,13 +55,13 @@
   }
 
   function find(l: Label) {
-    app.setView({ kind: "search", text: `метка:${l.name}` });
+    app.selection.setView({ kind: "search", text: `метка:${l.name}` });
   }
 
   async function remove(l: Label) {
     if (!account) return;
     const n = app.labels.count(account, l.keyword);
-    const ok = await app.confirm({
+    const ok = await app.ui.confirm({
       title: t("label.deleteTitle", { name: l.name }),
       text: t("label.deleteText", { n }),
       okLabel: t("label.deleteOk"),
@@ -69,7 +69,7 @@
     });
     if (!ok) return;
     await app.labels.strip(account, l.name);
-    app.toast(t("label.deleted"));
+    app.ui.toast(t("label.deleted"));
   }
 </script>
 

@@ -73,7 +73,7 @@
   /** Every letter of this sender, wherever it lies. */
   function fromSender() {
     card = false;
-    if (from?.email) app.setView({ kind: "search", text: peopleBook.allMail(from.email) });
+    if (from?.email) app.selection.setView({ kind: "search", text: peopleBook.allMail(from.email) });
   }
 
   /** The card of the sender (#66): what a click on the name opens now; «All mail» in it

@@ -47,7 +47,7 @@ beforeEach(() => {
   i18n.lang = "ru";
   api.avatar.mockReset();
   api.avatar.mockResolvedValue(null);
-  app.selected = new Set();
+  app.selection.selected = new Set();
 });
 afterEach(() => {
   if (view) unmount(view);
@@ -98,14 +98,14 @@ describe("chosen rows and the open letter (#108, 2.5 Б)", () => {
   it("puts a tick in the place of the circle of the rows chosen together, and not of the one letter that is open", () => {
     const t = draw([row(1, "a@x.example"), row(2, "b@x.example"), row(3, "c@x.example")]);
     // A single selection is only the letter that is open: the circle stays, no ground, no tick.
-    app.selected = new Set([2]);
+    app.selection.selected = new Set([2]);
     flushSync();
     let rows = t.querySelectorAll(".row");
     expect(rows[1].querySelector(".pic")).not.toBeNull();
     expect(rows[1].querySelector(".pick")).toBeNull();
     expect(rows[1].classList.contains("selected")).toBe(false);
     // Two chosen: both have the tick and the ground, the third keeps its circle.
-    app.selected = new Set([1, 2]);
+    app.selection.selected = new Set([1, 2]);
     flushSync();
     rows = t.querySelectorAll(".row");
     for (const i of [0, 1]) {
@@ -119,7 +119,7 @@ describe("chosen rows and the open letter (#108, 2.5 Б)", () => {
 
   it("keeps the tick in the strip at the left of the text when the circles are off: the text does not move", () => {
     const t = draw([row(1, "a@x.example"), row(2, "b@x.example")], { list_avatars: false });
-    app.selected = new Set([1, 2]);
+    app.selection.selected = new Set([1, 2]);
     flushSync();
     expect(t.querySelectorAll(".row .pick").length).toBe(2);
     expect(t.querySelector(".row .pick.round")).toBeNull();
@@ -134,10 +134,10 @@ describe("the cursor bar moves with the key (#108, 2.5 Б)", () => {
     const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
     // j: the old letter is still open, the new one only selected.
     app.reader.opened = { row: row(1, "a@cur.example") } as never;
-    app.selected = new Set([1]);
+    app.selection.selected = new Set([1]);
     flushSync();
     expect(cursors(t)).toEqual([true, false, false]);
-    app.selected = new Set([2]);
+    app.selection.selected = new Set([2]);
     flushSync();
     expect(cursors(t)).toEqual([false, true, false]);
     app.reader.opened = null;
@@ -147,14 +147,14 @@ describe("the cursor bar moves with the key (#108, 2.5 Б)", () => {
     const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example")]);
     app.reader.opened = null;
     app.reader.openingRow = null;
-    app.selected = new Set([2]);
+    app.selection.selected = new Set([2]);
     flushSync();
     expect(cursors(t)).toEqual([false, true]);
   });
 
   it("follows the letter being opened, then the open one, with several chosen", () => {
     const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
-    app.selected = new Set([1, 2]);
+    app.selection.selected = new Set([1, 2]);
     app.reader.opened = { row: row(1, "a@cur.example") } as never;
     flushSync();
     expect(cursors(t)).toEqual([true, false, false]);
@@ -184,13 +184,13 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
     // Letter 40 is the open one, below the screen: the list went to it when it opened.
     app.reader.opened = { row: rows[39] } as never;
     app.reader.openingRow = null;
-    app.selected = new Set([1, 40]);
+    app.selection.selected = new Set([1, 40]);
     flushSync();
     const writes = watch(t);
     t.querySelector<HTMLElement>(".row")!.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
     flushSync();
     await tick();
-    expect([...app.selected]).toEqual([40]);
+    expect([...app.selection.selected]).toEqual([40]);
     expect(writes).toEqual([]);
     // The list refreshed under the same cursor (new mail, a sync) does not jump to it either.
     app.list.messages = [...app.messages];
@@ -198,7 +198,7 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
     await tick();
     expect(writes).toEqual([]);
     // A key afterwards does follow the cursor.
-    app.selected = new Set([39]);
+    app.selection.selected = new Set([39]);
     flushSync();
     expect(writes.length).toBeGreaterThan(0);
     app.reader.opened = null;
@@ -208,7 +208,7 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
     const t = draw(rows);
     app.reader.opened = null;
     app.reader.openingRow = null;
-    app.selected = new Set([41]);
+    app.selection.selected = new Set([41]);
     flushSync();
     const writes = watch(t);
     expect(writes).toEqual([]);

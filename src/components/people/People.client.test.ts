@@ -263,12 +263,12 @@ describe("the book of the main window", () => {
   it("opens at a person and the filter a link asked for", async () => {
     const formatted = person("Иван Петров", ["ivan@example.org"], { send_format: "plain" });
     await book([olga(), formatted]);
-    app.peopleFocus = { email: "ivan@example.org", filter: "ruled" };
+    app.ui.peopleFocus = { email: "ivan@example.org", filter: "ruled" };
     const root = show(PeopleView);
     await tick();
     expect([...root.querySelectorAll(".pr .nm")].map((n) => n.textContent)).toEqual(["Иван Петров"]);
     expect(root.querySelector(".pd")?.textContent).toContain("Иван Петров");
-    expect(app.peopleFocus).toBeNull();
+    expect(app.ui.peopleFocus).toBeNull();
   });
 
   it("turns an open book to the place a later request asks for", async () => {
@@ -276,10 +276,10 @@ describe("the book of the main window", () => {
     const root = show(PeopleView);
     await tick();
     expect([...root.querySelectorAll(".pr .nm")]).toHaveLength(2);
-    app.peopleFocus = { email: "ivan@example.org", filter: "ruled" };
+    app.ui.peopleFocus = { email: "ivan@example.org", filter: "ruled" };
     await tick();
     expect([...root.querySelectorAll(".pr .nm")].map((n) => n.textContent)).toEqual(["Иван Петров"]);
-    expect(app.peopleFocus).toBeNull();
+    expect(app.ui.peopleFocus).toBeNull();
   });
 
 });
@@ -482,7 +482,7 @@ describe("removing a person added by hand", () => {
     await book([manual()]);
     api.personForget.mockResolvedValue({ removed: false, unmarked: true, undo: { persons: [] } });
     const asked: { title?: string; text: string }[] = [];
-    const choose = vi.spyOn(app, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
+    const choose = vi.spyOn(app.ui, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
     const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
     rowOf(root, "delete").click();
     await vi.waitFor(() => expect(app.lastUndo?.text).toContain("снята пометка"));
@@ -498,7 +498,7 @@ describe("removing a person added by hand", () => {
     await book([quiet]);
     api.personForget.mockResolvedValue({ removed: false, unmarked: true, undo: { persons: [] } });
     const asked: { text: string }[] = [];
-    const choose = vi.spyOn(app, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
+    const choose = vi.spyOn(app.ui, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
     const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
     rowOf(root, "delete").click();
     await vi.waitFor(() => expect(asked).toHaveLength(1));
@@ -511,7 +511,7 @@ describe("removing a person added by hand", () => {
     await book([lone]);
     api.personForget.mockResolvedValue({ removed: true, unmarked: false, undo: { persons: [] } });
     const asked: { text: string }[] = [];
-    const choose = vi.spyOn(app, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
+    const choose = vi.spyOn(app.ui, "choose").mockImplementation(async (q) => (asked.push(q), { answer: true } as never));
     const root = show(PersonCard, { email: "mine@example.org", name: "", onAllMail: () => {}, inBook: true });
     rowOf(root, "delete").click();
     await vi.waitFor(() => expect(app.lastUndo?.text).toContain("Удалено"));
@@ -541,7 +541,7 @@ describe("the list after a merge", () => {
     const b = person("Смирнова Ольга", ["o.smirnova@example.net"]);
     await book([a, b]);
     api.personMerge.mockResolvedValue({ person: a, undo: {} });
-    const fail = vi.spyOn(app, "fail").mockImplementation(() => {});
+    const fail = vi.spyOn(app.ui, "fail").mockImplementation(() => {});
     const boom = new Error("после слияния");
     peopleOps.merge([a, b], () => {
       throw boom;

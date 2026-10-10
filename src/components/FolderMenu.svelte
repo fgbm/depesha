@@ -54,9 +54,9 @@
     const label = folder?.display_name ?? accountLabel(account);
     onclose();
     try {
-      await app.track(api.syncNow(id, f));
+      await app.ui.track(api.syncNow(id, f));
     } catch (e) {
-      app.fail(e, label);
+      app.ui.fail(e, label);
     }
   }
 
@@ -66,10 +66,10 @@
     onclose();
     if (!f) return;
     try {
-      const unread = await app.track(api.messages({ account_id: id, folder: f, unread_only: true, limit: 100_000 }));
-      await app.flag("seen", true, unread.map((m) => m.id));
+      const unread = await app.ui.track(api.messages({ account_id: id, folder: f, unread_only: true, limit: 100_000 }));
+      await app.selection.flag("seen", true, unread.map((m) => m.id));
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -80,10 +80,10 @@
     const parent = folder?.name ?? null;
     onclose();
     try {
-      await app.track(api.folderCreate(id, parent, leaf));
-      app.toast(t("folder.created", { name: leaf }));
+      await app.ui.track(api.folderCreate(id, parent, leaf));
+      app.ui.toast(t("folder.created", { name: leaf }));
     } catch (e) {
-      app.fail(e, t("folder.createFailed"));
+      app.ui.fail(e, t("folder.createFailed"));
     }
   }
 </script>
@@ -91,7 +91,7 @@
 <Popover {at} bind:open={() => !showingProps, (v) => !v && !naming && !showingProps && onclose()}>
   {#if folder}
     <div class="mt">{folder.display_name}</div>
-    <button class="mi" onclick={() => run(() => app.setView({ kind: "folder", account_id: account.id, folder: folder.name }))}><FolderOpen size={15} /> {t("folder.open")}</button>
+    <button class="mi" onclick={() => run(() => app.selection.setView({ kind: "folder", account_id: account.id, folder: folder.name }))}><FolderOpen size={15} /> {t("folder.open")}</button>
     <button class="mi" onclick={sync}><RotateCw size={15} /> {t("folder.sync")}</button>
     <button class="mi" disabled={folder.unread === 0} onclick={markAllRead}><MailOpen size={15} /> {t("folder.markAllRead")}</button>
     <!-- «Clear» (#74): the same command as the button above the list and the palette's, in Trash, Spam and Drafts only. -->
@@ -117,8 +117,8 @@
     <button class="mi" onclick={() => (naming = true)}><FolderPlus size={15} /> {t("folder.new")}</button>
     <hr />
     <button class="mi" onclick={() => run(() => app.accountSettings(account))}><Settings size={15} /> {t("account.settings")}</button>
-    <button class="mi" onclick={() => run(() => app.openSettings("accounts"))}><Inbox size={15} /> {t("accounts.manage")}</button>
-    <button class="mi" onclick={() => run(() => (app.tasksOpen = true))}><Activity size={15} /> {t("tasks.title")}…</button>
+    <button class="mi" onclick={() => run(() => app.ui.openSettings("accounts"))}><Inbox size={15} /> {t("accounts.manage")}</button>
+    <button class="mi" onclick={() => run(() => (app.ui.tasksOpen = true))}><Activity size={15} /> {t("tasks.title")}…</button>
   {/if}
 </Popover>
 

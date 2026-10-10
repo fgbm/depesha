@@ -118,9 +118,9 @@ class Labels {
     if (!app) return;
     try {
       await api.setLabel(ids, name, value);
-      app.scheduleReload();
+      app.selection.scheduleReload();
     } catch (e) {
-      app.fail(e, t(value ? "label.addFailed" : "label.removeFailed"));
+      app.ui.fail(e, t(value ? "label.addFailed" : "label.removeFailed"));
     }
   }
 

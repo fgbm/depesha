@@ -90,13 +90,13 @@
     const id = single?.id;
     onclose();
     if (id === undefined) return;
-    if (app.opened?.row.id !== id) await app.select(id);
+    if (app.opened?.row.id !== id) await app.selection.select(id);
     if (app.opened?.row.id === id) fn();
   }
 
   function fromSender() {
     const email = single?.from?.email;
-    if (email) run(() => app.setView({ kind: "search", text: peopleBook.allMail(email) }));
+    if (email) run(() => app.selection.setView({ kind: "search", text: peopleBook.allMail(email) }));
   }
 </script>
 
@@ -105,16 +105,16 @@
     <button class="mi" onclick={() => withOpened(() => app.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint"><Keys of="core.reply" /></span></button>
     <button class="mi" onclick={() => withOpened(() => app.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint"><Keys of="core.reply-all" /></span></button>
     <button class="mi" onclick={() => withOpened(() => app.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint"><Keys of="core.forward" /></span></button>
-    <button class="mi" onclick={() => single && run(() => app.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>
+    <button class="mi" onclick={() => single && run(() => app.selection.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>
     <hr />
   {/if}
   {#if single}
     <button class="mi" onclick={() => run(() => printRow(single.id))}><Printer size={15} /> {t("act.print")}<span class="hint"><Keys of="core.print" /></span></button>
   {/if}
-  <button class="mi" onclick={() => run(() => app.flag("seen", anyUnread, ids))}>
+  <button class="mi" onclick={() => run(() => app.selection.flag("seen", anyUnread, ids))}>
     {#if anyUnread}<MailOpen size={15} /> {t("act.markRead")}{:else}<Mail size={15} /> {t("act.markUnread")}{/if}<span class="hint"><Keys of="core.unread" /></span>
   </button>
-  <button class="mi" disabled={!canWrite} title={!canWrite ? t("folder.noRightHint") : undefined} onclick={() => run(() => app.flag("flagged", !allFlagged, ids))}>
+  <button class="mi" disabled={!canWrite} title={!canWrite ? t("folder.noRightHint") : undefined} onclick={() => run(() => app.selection.flag("flagged", !allFlagged, ids))}>
     <Flag size={15} /> {allFlagged ? t("act.unflag") : t("act.setFlag")}<span class="hint"><Keys of="core.flag" /></span>
   </button>
   {#if labelAccount}

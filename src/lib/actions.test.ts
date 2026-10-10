@@ -59,7 +59,7 @@ describe("an action", () => {
     breakIt();
     await expect(s.archive([1])).resolves.toBeUndefined();
     // A server error is told as such (#42, frame 8): not about rights, and it can be retried.
-    expect(s.toasts.some((x) => x.error && x.text === t("refuse.error", { folder: "INBOX" }))).toBe(true);
+    expect(s.ui.toasts.some((x) => x.error && x.text === t("refuse.error", { folder: "INBOX" }))).toBe(true);
     expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
     expect(s.list.leaving.size).toBe(0);
     await expect(s.undo()).resolves.toBeUndefined();
@@ -73,7 +73,7 @@ describe("an action", () => {
     };
     await expect(s.perform("Done", [4], run, "Plugin")).resolves.toBeUndefined();
     expect(ids(s)).toContain(4);
-    expect(s.busy).toBe(0);
+    expect(s.ui.busy).toBe(0);
   });
 });
 
@@ -85,7 +85,7 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
     // The letter is back in place.
     expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
     // One notice, of the "no rights" kind, with a way to the folder's properties.
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe(t("refuse.noRights", { folder: "INBOX" }));
     expect(toast.error).toBe(true);
     expect(toast.action?.label).toBe(t("folder.properties"));
@@ -96,7 +96,7 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
     api.archive.mockRejectedValue({ kind: "other", message: "NO Internal error" });
     await s.archive([4]);
     expect(ids(s)).toContain(4);
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe(t("refuse.error", { folder: "INBOX" }));
   });
 
@@ -104,7 +104,7 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
     const s = await inbox();
     api.archive.mockRejectedValue({ kind: "network", message: "timed out" });
     await s.archive([4]);
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe(t("refuse.noAnswer", { folder: "INBOX" }));
     expect(toast.error).toBe(false);
   });
@@ -126,7 +126,7 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     const moved = { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<4@example.com>"], snoozed: [snoozed] };
     const text = vi.fn((m: { to: string }[]) => `Возвращено во «${m[0].to}»: Счёт`);
     await s.perform(text, [4], async () => [moved], "fail");
-    expect(s.toasts.some((x) => x.text === "Возвращено во «INBOX»: Счёт")).toBe(true);
+    expect(s.ui.toasts.some((x) => x.text === "Возвращено во «INBOX»: Счёт")).toBe(true);
     await s.undo();
     // The backend sets the time again from what the move carried.
     expect(api.undo).toHaveBeenCalledWith([moved]);
@@ -164,7 +164,7 @@ describe("an offer to take back something that is not a move (#104)", () => {
       const run = vi.fn(async () => {});
       s.offerUndo("Объединено: «Ольга», 2 адреса.", run);
       expect(s.lastUndo?.text).toBe("Объединено: «Ольга», 2 адреса.");
-      expect(s.toasts.at(-1)?.action?.label).toBe(t("undo"));
+      expect(s.ui.toasts.at(-1)?.action?.label).toBe(t("undo"));
       await s.undo();
       expect(run).toHaveBeenCalledTimes(1);
       expect(s.lastUndo).toBeNull();

@@ -25,7 +25,7 @@
 
   function open() {
     onopen?.();
-    app.openSettings(`account:${account.id}`, "storage");
+    app.ui.openSettings(`account:${account.id}`, "storage");
   }
 </script>
 

@@ -28,14 +28,14 @@
 
   // Every change of the tasks may move the counters.
   $effect(() => {
-    void app.tasks;
+    void app.ui.tasks;
     loadOverview();
   });
 
-  const running = $derived(app.tasks.filter((x) => x.state === "running"));
-  const failed = $derived(app.tasks.filter((x) => x.state === "failed" && x.kind !== "stuck-copy"));
+  const running = $derived(app.ui.tasks.filter((x) => x.state === "running"));
+  const failed = $derived(app.ui.tasks.filter((x) => x.state === "failed" && x.kind !== "stuck-copy"));
   // A copy the server refuses is not a failure to dismiss: it waits for a decision.
-  const stuck = $derived(stuckTasks(app.tasks));
+  const stuck = $derived(stuckTasks(app.ui.tasks));
   const offline = $derived(app.settings.offline !== "off");
 
   function percent(x: { done: number; total: number }): number {
@@ -52,7 +52,7 @@
     try {
       await api.syncNow(id);
     } catch (e) {
-      app.fail(e, accountName(id));
+      app.ui.fail(e, accountName(id));
     } finally {
       syncing[id] = false;
       loadOverview();
@@ -63,7 +63,7 @@
     try {
       await api.offlinePause(id, paused);
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
     loadOverview();
   }
@@ -77,13 +77,13 @@
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
-      app.tasksOpen = false;
+      app.ui.tasksOpen = false;
     }
   }
 
   function openSettings() {
-    app.tasksOpen = false;
-    app.openSettings("storage");
+    app.ui.tasksOpen = false;
+    app.ui.openSettings("storage");
   }
 </script>
 
@@ -101,7 +101,7 @@
               {#if task.account_id && app.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
               {#if task.kind === "empty"}
                 {#if task.total > 0}<span class="muted small num">{t("clear.progress", { done: task.done, total: task.total })}</span>{/if}
-                <button class="btn ghost small-btn" onclick={() => api.taskStop(task.key).catch((e) => app.fail(e))}>{t("clear.stop")}</button>
+                <button class="btn ghost small-btn" onclick={() => api.taskStop(task.key).catch((e) => app.ui.fail(e))}>{t("clear.stop")}</button>
               {:else if task.total > 0}<span class="muted small num">{task.done} / {task.total}</span>{/if}
             </div>
             {#if task.total > 0}<div class="bar"><span style:width="{percent(task)}%"></span></div>{/if}
@@ -183,7 +183,7 @@
     </div>
     <footer>
       <span class="spacer"></span>
-      <button class="btn primary" onclick={() => (app.tasksOpen = false)}>{t("close")}</button>
+      <button class="btn primary" onclick={() => (app.ui.tasksOpen = false)}>{t("close")}</button>
     </footer>
   </div>
 </div>

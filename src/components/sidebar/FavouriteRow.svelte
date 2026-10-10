@@ -49,7 +49,7 @@
     role={picked ? "menuitem" : undefined}
     onclick={() => {
       picked?.();
-      app.setView(v);
+      app.selection.setView(v);
     }}
     oncontextmenu={(e) => !isLabel && found && !gone && sidebarUi.contextMenu(e, account, found)}
     title={gone ? t("favourites.gone", { name: fav.display }) : (found?.display_name ?? fav.display)}

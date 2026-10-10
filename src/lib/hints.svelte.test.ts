@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await import("./testing")).api }));
 const { fail } = vi.hoisted(() => ({ fail: vi.fn() }));
-vi.mock("./store.svelte", () => ({ app: { settings: { hints: true }, toast: () => {}, fail } }));
+vi.mock("./store.svelte", () => ({ app: { settings: { hints: true }, ui: { toast: () => {}, fail } } }));
 
 import { hints } from "./hints.svelte";
 import { peopleBook } from "./peopleBook.svelte";

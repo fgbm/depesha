@@ -56,7 +56,7 @@ beforeEach(() => {
   resetFakes();
   vi.useFakeTimers();
   i18n.lang = "ru";
-  app.confirm = vi.fn(async () => false) as unknown as typeof app.confirm;
+  app.ui.confirm = vi.fn(async () => false) as unknown as typeof app.ui.confirm;
 });
 
 afterEach(() => vi.useRealTimers());
@@ -149,10 +149,10 @@ describe("leaving and taking back (#102, 1.7 Б)", () => {
     const { form } = open();
     form.composeFormat = "html";
     expect(await form.mayLeave()).toBe(true);
-    expect(app.confirm).not.toHaveBeenCalled();
+    expect(app.ui.confirm).not.toHaveBeenCalled();
     form.smtp.port = 25;
     expect(await form.mayLeave()).toBe(false);
-    expect(app.confirm).toHaveBeenCalledTimes(1);
+    expect(app.ui.confirm).toHaveBeenCalledTimes(1);
   });
 
   it("writes what is typed before the page is left", async () => {
@@ -275,7 +275,7 @@ describe("a partly refused write (#120, 2)", () => {
   });
 
   it("names only what was written in the toast", async () => {
-    app.toasts.splice(0);
+    app.ui.toasts.splice(0);
     const { form, own } = open();
     const write = api.accountPatchOwn.getMockImplementation()!;
     api.accountPatchOwn.mockImplementation(async (id: string, patch: Record<string, unknown>) => {
@@ -286,7 +286,7 @@ describe("a partly refused write (#120, 2)", () => {
     form.composeFormat = "html";
     own.touch();
     await vi.advanceTimersByTimeAsync(100);
-    const text = app.toasts.map((x) => x.text).join("\n");
+    const text = app.ui.toasts.map((x) => x.text).join("\n");
     expect(text).toContain(t("wizard.composeFormat"));
     expect(text).not.toContain(t("wizard.attachmentsDir"));
   });
@@ -380,7 +380,7 @@ describe("the exit does not outrun the write (#120, ревью 1)", () => {
 describe("a write that fails does not stop the next ones (#120, ревью 2)", () => {
   it("is told, and the following change is still written", async () => {
     const { form, own, stored } = open();
-    const fail = vi.spyOn(app, "fail").mockImplementation(() => {});
+    const fail = vi.spyOn(app.ui, "fail").mockImplementation(() => {});
     api.accounts.mockRejectedValueOnce(new Error("no answer"));
     form.label = "One";
     own.touch();

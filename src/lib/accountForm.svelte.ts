@@ -228,7 +228,7 @@ export class AccountForm {
     if (this.busy) return false;
     if (this.settle) await this.settle();
     if (!this.connectionDirty) return true;
-    return app.confirm({ text: t("account.leaveConfirm"), okLabel: t("account.leaveDiscard"), cancelLabel: t("compose.goBack"), danger: true });
+    return app.ui.confirm({ text: t("account.leaveConfirm"), okLabel: t("account.leaveDiscard"), cancelLabel: t("compose.goBack"), danger: true });
   }
 
   /** Saving needs a login first: the server, the login or the secret changed. A new mailbox always does. */
@@ -445,9 +445,9 @@ export class AccountForm {
       // What was typed meanwhile (the name, a signature) is not lost with the page.
       if (this.afterConnection) await this.afterConnection();
       this.done();
-      app.toast(existing ? t("wizard.saved") : t("wizard.added", { email: acc.email }));
+      app.ui.toast(existing ? t("wizard.saved") : t("wizard.added", { email: acc.email }));
       app.scheduleFolders();
-      if (!existing && app.accounts.length === 1) app.setView(app.home());
+      if (!existing && app.accounts.length === 1) app.selection.setView(app.home());
     } catch (e) {
       const error = asError(e);
       this.error = error;
@@ -474,7 +474,7 @@ export class AccountForm {
   }
 
   async allowPlain() {
-    const ok = await app.confirm({ title: t("wizard.plainTitle"), text: t("wizard.plainWarning"), okLabel: t("wizard.plainAllow"), danger: true });
+    const ok = await app.ui.confirm({ title: t("wizard.plainTitle"), text: t("wizard.plainWarning"), okLabel: t("wizard.plainAllow"), danger: true });
     if (!ok) return;
     (this.errorProto === "SMTP" ? this.smtp : this.imap).security = "plain";
     this.checkAndSave();
@@ -483,13 +483,13 @@ export class AccountForm {
   async remove() {
     const existing = this.existing;
     if (!existing) return;
-    const ok = await app.confirm({ text: t("wizard.removeConfirm", { email: existing.email }), okLabel: t("act.delete"), danger: true });
+    const ok = await app.ui.confirm({ text: t("wizard.removeConfirm", { email: existing.email }), okLabel: t("act.delete"), danger: true });
     if (!ok) return;
     try {
       await api.accountRemove(existing.id);
       await Promise.all([app.loadAccounts(), app.loadFolders()]);
       this.done();
-      app.setView(app.home());
+      app.selection.setView(app.home());
     } catch (e) {
       this.error = asError(e);
     }

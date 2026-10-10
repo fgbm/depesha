@@ -14,7 +14,7 @@ import { printOpened } from "./print";
 import { PRESETS, RELEVANCE, reversed } from "./sort";
 import { app, type View } from "./store.svelte";
 
-const go = (v: View) => () => app.setView(v);
+const go = (v: View) => () => app.selection.setView(v);
 
 /** "Largest letters" in the middle of a phrase; "MB" stays as it is. */
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -24,7 +24,7 @@ const MAIN_ONLY = /^core\.(search|ready\.|go\.|open\.|people$|sort\.|show\.|empt
 
 export function coreCommands(): Command[] {
   const msg = app.opened;
-  const target = app.selectedIds();
+  const target = app.selection.selectedIds();
   const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), run: () => app.newMessage() }];
   if (msg) {
     list.push(
@@ -39,8 +39,8 @@ export function coreCommands(): Command[] {
       { id: "core.archive", title: () => t("cmd.done"), run: () => app.archive() },
       { id: "core.delete", title: () => t("act.delete"), run: () => app.remove() },
       { id: "core.spam", title: () => t("act.spam"), run: () => app.spam() },
-      { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.flag("flagged", !msg.row.flags.flagged) },
-      { id: "core.unread", title: () => t("act.markUnread"), run: () => app.flag("seen", false) },
+      { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.selection.flag("flagged", !msg.row.flags.flagged) },
+      { id: "core.unread", title: () => t("act.markUnread"), run: () => app.selection.flag("seen", false) },
     );
     const account = msg?.row.account_id ?? app.messages.find((m) => m.id === target[0])?.account_id;
     for (const f of app.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
@@ -70,16 +70,16 @@ export function coreCommands(): Command[] {
   const undo = app.lastUndo;
   if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), run: () => app.undo() });
 
-  if (app.listKey()) {
+  if (app.selection.listKey()) {
     // Search results keep an order of their own: the rank means nothing elsewhere.
     const search = app.view.kind === "search";
     for (const p of search ? [RELEVANCE, ...PRESETS] : PRESETS) {
       const how = t(`sort.preset.${p.id}`).toLowerCase();
-      list.push({ id: `core.sort.${p.id}`, title: () => t("sort.cmd", { how }), run: () => app.setSort(p.sort, search || app.ownSort()) });
+      list.push({ id: `core.sort.${p.id}`, title: () => t("sort.cmd", { how }), run: () => app.selection.setSort(p.sort, search || app.selection.ownSort()) });
     }
-    list.push({ id: "core.sort.reverse", title: () => t("sort.cmdReverse"), run: () => app.setSort(reversed(app.sort()), search || app.ownSort()) });
+    list.push({ id: "core.sort.reverse", title: () => t("sort.cmdReverse"), run: () => app.selection.setSort(reversed(app.selection.sort()), search || app.selection.ownSort()) });
   }
-  const lf = app.listFilter();
+  const lf = app.selection.listFilter();
   if (lf) {
     for (const o of lf.filter.options()) {
       list.push({ id: `core.show.${o.id}`, title: () => t("sort.show", { what: o.title.toLowerCase() }), run: () => lf.filter.select(lf.list, o.id) });
@@ -100,14 +100,14 @@ export function coreCommands(): Command[] {
       hint: () => q.text,
       run: () => {
         recentSearches.remember(q.text);
-        app.setView({ kind: "search", text: q.text });
+        app.selection.setView({ kind: "search", text: q.text });
       },
     });
   }
   list.push(
     app.accounts.length > 1
       ? { id: "core.go.inboxes", title: where(t("nav.allInboxes")), run: go({ kind: "unified", role: "inbox" }) }
-      : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.setView(app.home()) },
+      : { id: "core.go.inboxes", title: where(roleLabel("inbox")), run: () => app.selection.setView(app.home()) },
     { id: "core.go.unread", title: where(t("nav.unread")), run: go({ kind: "unified", role: "inbox", unread: true }) },
     { id: "core.go.flagged", title: where(t("nav.flagged")), run: go({ kind: "unified", role: "inbox", flagged: true }) },
   );
@@ -144,9 +144,9 @@ export function coreCommands(): Command[] {
           title: () => t("cmd.dndHour"),
           run: () => void app.patchSettings({ dnd_until: Math.floor(Date.now() / 1000) + 3600 }),
         },
-    { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.fail(e)) },
-    { id: "core.settings", title: () => t("settings.title"), run: () => app.openSettings() },
-    { id: "core.plugins", title: () => t("cmd.plugins"), run: () => app.openSettings("plugins") },
+    { id: "core.sync", title: () => t("cmd.sync"), run: () => api.syncNow().catch((e) => app.ui.fail(e)) },
+    { id: "core.settings", title: () => t("settings.title"), run: () => app.ui.openSettings() },
+    { id: "core.plugins", title: () => t("cmd.plugins"), run: () => app.ui.openSettings("plugins") },
     { id: "core.add-account", title: () => t("cmd.addAccount"), run: () => app.accountSettings(null) },
   );
   return app.windowOf === null ? list : list.filter((c) => !MAIN_ONLY.test(c.id));

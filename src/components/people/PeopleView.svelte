@@ -61,10 +61,10 @@
 
   // Where the book was asked to open: a person and a filter, once; a book already open turns to it.
   $effect(() => {
-    const want = app.peopleFocus;
+    const want = app.ui.peopleFocus;
     if (!want) return;
     untrack(() => {
-      app.peopleFocus = null;
+      app.ui.peopleFocus = null;
       if (want.filter) filter = want.filter;
       if (want.email) {
         query = "";
@@ -209,7 +209,7 @@
       await tick();
       listEl?.focus();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -226,7 +226,7 @@
   }
 
   function allMail(p: Person) {
-    void app.setView({ kind: "search", text: allMailQuery(p) });
+    void app.selection.setView({ kind: "search", text: allMailQuery(p) });
   }
 </script>
 

@@ -80,7 +80,7 @@ describe("acting on a letter", () => {
     await flush();
     vi.advanceTimersByTime(200);
     // A star, not a read flag: the mark the window was about to make still lands.
-    await s.flag("flagged", true);
+    await s.selection.flag("flagged", true);
     vi.advanceTimersByTime(1200);
     await flush();
     expect(markedSeen()).toEqual([1]);
@@ -117,8 +117,8 @@ describe("`u` by the letter's own state", () => {
     await flush();
 
     // The keys moved to letter 2 while letter 1 is still the open one for a moment.
-    s.selected = new Set([2]);
-    await s.toggleSeen();
+    s.selection.selected = new Set([2]);
+    await s.selection.toggleSeen();
     // Letter 2 is unread, so it becomes read — never unread because letter 1 was read.
     expect(markedSeen()).toEqual([2]);
     expect(api.setFlag).toHaveBeenCalledWith([2], { flag: "seen", value: true });
@@ -136,8 +136,8 @@ describe("`s` by the letter's own state", () => {
     await flush();
 
     // `j` moved to letter 2 while letter 1 (flagged) is still the open one for a moment.
-    s.selected = new Set([2]);
-    await s.toggleFlagged();
+    s.selection.selected = new Set([2]);
+    await s.selection.toggleFlagged();
     expect(api.setFlag).toHaveBeenCalledWith([2], { flag: "flagged", value: true });
   });
 });
@@ -151,6 +151,6 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     await s.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     await s.open(1);
     await flush();
-    expect(s.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);
+    expect(s.ui.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);
   });
 });

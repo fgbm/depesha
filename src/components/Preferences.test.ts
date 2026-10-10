@@ -24,8 +24,8 @@ let target: HTMLElement;
 function open(page: string, accounts: AccountView[] = []) {
   app.settings = settings();
   app.accounts = accounts;
-  app.settingsPage = page;
-  app.settingsOpen = true;
+  app.ui.settingsPage = page;
+  app.ui.settingsOpen = true;
   target = document.createElement("div");
   document.body.append(target);
   view = mount(Preferences, { target });
@@ -75,7 +75,7 @@ describe("the settings window on the channel", () => {
   it("turns an open window to the page openSettings asks for, and stops listening when it goes", async () => {
     open("reading");
     expect(heading()).not.toBe("Хранение");
-    app.openSettings("storage");
+    app.ui.openSettings("storage");
     await vi.waitFor(() => expect(heading()).toBe("Хранение"));
     expect(bus.count("settings.open")).toBe(1);
     unmount(view!);

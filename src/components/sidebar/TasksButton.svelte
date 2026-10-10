@@ -12,7 +12,7 @@
   );
 </script>
 
-<button class="foot-btn tasks-btn" class:busy={sidebarUi.tasksRunning > 0} class:failed={sidebarUi.tasksFailed} onclick={() => (app.tasksOpen = true)} title={title} aria-label={t("tasks.title")}>
+<button class="foot-btn tasks-btn" class:busy={sidebarUi.tasksRunning > 0} class:failed={sidebarUi.tasksFailed} onclick={() => (app.ui.tasksOpen = true)} title={title} aria-label={t("tasks.title")}>
   <span class="idle"><Activity size={16} /></span>
   {#if sidebarUi.tasksRunning > 0}<span class="spin"><RotateCw size={16} /></span>{/if}
 </button>

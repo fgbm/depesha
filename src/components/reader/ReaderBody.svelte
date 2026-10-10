@@ -92,7 +92,7 @@
     try {
       await peopleBook.save({ ...(person ?? blankPerson(email)), view });
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -102,7 +102,7 @@
       app.openMailto(href);
       return;
     }
-    await app.openLink(href);
+    await app.ui.openLink(href);
   }
 </script>
 
@@ -122,7 +122,7 @@
     onNotNow={() => hints.notNow()}
     onNeverThis={() => hints.neverThis()}
     onNeverAnyone={() => hints.neverAnyone()}
-    onAll={() => app.openSettings("look")}
+    onAll={() => app.ui.openSettings("look")}
     onUndo={() => setRule("")}
   />
 {/if}

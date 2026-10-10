@@ -101,8 +101,8 @@ export class AccountAutosave {
     this.auto = new SettingsAutosave({
       settings: () => ownOf(this.saved()),
       patch: (patch) => this.write(patch),
-      toast: (text, action) => app.toast(text, false, action),
-      dismiss: (toast) => app.dismiss(toast),
+      toast: (text, action) => app.ui.toast(text, false, action),
+      dismiss: (toast) => app.ui.dismiss(toast),
       // Taken back: the fields it concerned show what the mailbox is now, the others stay as typed.
       restored: (keys) => {
         form.adopt(this.saved(), keys);
@@ -203,7 +203,7 @@ export class AccountAutosave {
         this.seen = {};
         for (const part of split(patch, groups)) await this.save(part);
       })
-      .catch((e) => app.fail(e))
+      .catch((e) => app.ui.fail(e))
       .finally(() => this.inflight--);
     return this.chain;
   }

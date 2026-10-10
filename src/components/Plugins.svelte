@@ -30,7 +30,7 @@
       if (preview.previous && !widens(preview.manifest, preview.previous.granted)) await put(dir, preview.manifest, true);
       else consent = { preview, path: dir };
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -40,7 +40,7 @@
     extensions.stop(installed.id);
     await extensions.load();
     const name = textOf(installed.name);
-    app.toast(update ? t("ext.updated", { name, version: installed.version }) : t("ext.installed", { name }));
+    app.ui.toast(update ? t("ext.updated", { name, version: installed.version }) : t("ext.installed", { name }));
   }
 
   async function answer(ok: boolean) {
@@ -52,10 +52,10 @@
       else {
         await api.extensionApprove(c.preview.manifest.id, grantOf(c.preview.manifest));
         await extensions.load();
-        app.toast(t("ext.approved", { name: textOf(c.preview.manifest.name) }));
+        app.ui.toast(t("ext.approved", { name: textOf(c.preview.manifest.name) }));
       }
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -67,7 +67,7 @@
       await app.loadSettings();
       await extensions.load();
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 

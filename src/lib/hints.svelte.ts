@@ -159,7 +159,7 @@ class Hints {
     try {
       await peopleBook.save({ ...person, ...sets, via: `hint:${hint.id}` });
     } catch (e) {
-      app.fail(e);
+      app.ui.fail(e);
     }
   }
 
@@ -210,7 +210,7 @@ class Hints {
     const row = { ...(this.counters[id] ?? {}) };
     delete row[sub];
     this.counters = { ...this.counters, [id]: row };
-    await api.clearHintCount(id, subject.trim().toLowerCase()).catch((e) => app.fail(e, t("hints.saveFailed")));
+    await api.clearHintCount(id, subject.trim().toLowerCase()).catch((e) => app.ui.fail(e, t("hints.saveFailed")));
   }
 
   private async persist(id: string, subject: string): Promise<boolean> {
@@ -218,7 +218,7 @@ class Hints {
     if (!state) return true;
     return api.hintSave(state).then(
       () => true,
-      (e) => (app.fail(e, t("hints.saveFailed")), false),
+      (e) => (app.ui.fail(e, t("hints.saveFailed")), false),
     );
   }
 

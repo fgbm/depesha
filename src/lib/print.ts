@@ -114,7 +114,7 @@ export async function printMessage(msg: OpenedMessage): Promise<void> {
 /** A print another print from the same window took the place of (macOS): not a failure to show, the newer one is what was asked for. */
 function failed(e: unknown) {
   if (e && typeof e === "object" && "kind" in e && e.kind === "superseded") return;
-  app.fail(e);
+  app.ui.fail(e);
 }
 
 /** Ctrl+P, the palette, «More»: the open letter. Nothing is open: nothing to print. */

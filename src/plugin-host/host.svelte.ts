@@ -79,7 +79,7 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
     commands: allCommands,
     keyOf: (command) => shortcuts.key(command),
     keyTitle: (text, command) => shortcuts.titled(text, command),
-    editKeys: (command, title) => app.editKeys(command, title),
+    editKeys: (command, title) => app.ui.editKeys(command, title),
     people: {
       find: (query) =>
         peopleBook.list
@@ -87,24 +87,24 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
           .slice(0, 6)
           .map((p) => ({ name: p.name || p.email, email: p.email, emails: addressesOf(p) })),
       open: (email) => void app.openPeople({ email }),
-      allMail: (email) => void app.setView({ kind: "search", text: allMailQuery(peopleBook.find(email) ?? blankPerson(email)) }),
+      allMail: (email) => void app.selection.setView({ kind: "search", text: allMailQuery(peopleBook.find(email) ?? blankPerson(email)) }),
     },
     mail: {
       opened: () => app.opened,
-      selection: () => app.selectedIds(),
+      selection: () => app.selection.selectedIds(),
       accounts: () => app.accounts,
       folders: () => app.folders,
       perform: (text, ids, run, failText) => app.perform(text, ids, run, failText),
       offerUndo: (text, run) => app.offerUndo(text, run),
-      reload: () => app.reload(), scheduleReload: () => app.scheduleReload(),
-      showView: (view) => app.setView({ kind: "plugin", id: view }),
+      reload: () => app.selection.reload(), scheduleReload: () => app.selection.scheduleReload(),
+      showView: (view) => app.selection.setView({ kind: "plugin", id: view }),
       viewing: (view) => app.view.kind === "plugin" && app.view.id === view,
       compose: () => app.newMessage(),
       reply: (all) => app.replyTo(all),
       open: async (id, view) => {
         if (app.windowOf !== null) return;
-        if (view) await app.setView({ kind: "plugin", id: view });
-        await app.select(id);
+        if (view) await app.selection.setView({ kind: "plugin", id: view });
+        await app.selection.select(id);
       },
       main: () => app.windowOf === null,
     },
@@ -113,9 +113,9 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       const off = listen(event, (e) => run(e.payload));
       disposers.push(() => void off.then((f) => f()));
     },
-    openLink: (url) => app.openLink(url),
-    toast: (text, o) => app.toast(text, o?.error ?? false, o?.action, o?.ms),
-    fail: (e, prefix) => app.fail(e, prefix),
+    openLink: (url) => app.ui.openLink(url),
+    toast: (text, o) => app.ui.toast(text, o?.error ?? false, o?.action, o?.ms),
+    fail: (e, prefix) => app.ui.fail(e, prefix),
     anchor: () => keyAnchor(),
     workTime: () => workTimeFrom(app.settings),
     settings: {

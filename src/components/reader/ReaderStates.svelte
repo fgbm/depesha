@@ -26,10 +26,10 @@
   } = $props();
 
   let bulkMoveOpen = $state(false);
-  const selectedSize = $derived(app.selectedSize());
-  const canSelectAll = $derived(app.view.kind === "search" && app.messages.length > app.selected.size);
+  const selectedSize = $derived(app.selection.selectedSize());
+  const canSelectAll = $derived(app.view.kind === "search" && app.messages.length > app.selection.selected.size);
   const bulkAccount = $derived.by(() => {
-    const ids = [...app.selected];
+    const ids = [...app.selection.selected];
     const accs = new Set(app.messages.filter((m) => ids.includes(m.id)).map((m) => m.account_id));
     return accs.size === 1 ? [...accs][0] : null;
   });
@@ -38,13 +38,13 @@
 
 {#if which === "bulk"}
   <div class="center">
-    <h3>{tn("bulk.selected", app.selected.size, { n: app.selected.size, size: size(selectedSize) })}</h3>
+    <h3>{tn("bulk.selected", app.selection.selected.size, { n: app.selection.selected.size, size: size(selectedSize) })}</h3>
     <div class="actions">
       <button class="btn" onclick={() => app.archive()}><Archive size={15} /> {t("act.done")}</button>
       {#each registry.lists.bulkToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
-      <button class="btn" onclick={() => app.flag("seen", true)}>{t("act.read")}</button>
-      <button class="btn" onclick={() => app.flag("seen", false)}>{t("act.unread")}</button>
-      <button class="btn" onclick={() => app.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
+      <button class="btn" onclick={() => app.selection.flag("seen", true)}>{t("act.read")}</button>
+      <button class="btn" onclick={() => app.selection.flag("seen", false)}>{t("act.unread")}</button>
+      <button class="btn" onclick={() => app.selection.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
       <button class="btn" onclick={() => app.remove()}><Trash size={15} /> {t("act.delete")}</button>
       {#if bulkFolders.length}
         <span class="anchor">
@@ -61,7 +61,7 @@
       {/if}
     </div>
     {#if canSelectAll}
-      <button class="btn ghost select-all" onclick={() => app.selectAll()}>
+      <button class="btn ghost select-all" onclick={() => app.selection.selectAll()}>
         {tn("bulk.selectAll", app.messages.length, { n: app.messages.length })} {#if shortcuts.key("core.select-all")}<kbd>{shortcuts.hint("core.select-all")}</kbd>{/if}
       </button>
     {/if}
@@ -69,8 +69,8 @@
 {:else if which === "error"}
   <div class="center">
     <p class="danger-text">{app.openError?.message}</p>
-    {#if app.opened === null && app.selected.size === 1}
-      <button class="btn" onclick={() => app.open([...app.selected][0])}>{t("retry")}</button>
+    {#if app.opened === null && app.selection.selected.size === 1}
+      <button class="btn" onclick={() => app.open([...app.selection.selected][0])}>{t("retry")}</button>
     {/if}
   </div>
 {:else if which === "opening"}

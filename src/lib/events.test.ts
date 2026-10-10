@@ -15,7 +15,7 @@ import type { AppStore } from "./store.svelte";
 describe("quit, cancel, quit", () => {
   it("saves the drafts both times and reports them again after the cancel", async () => {
     const saveComposes = vi.fn(async () => {});
-    const app = { composes: [{}], saveComposes, settings: {}, accounts: [] } as unknown as AppStore;
+    const app = { composes: [{}], saveComposes, ui: {}, settings: {}, accounts: [] } as unknown as AppStore;
     await listenMain(app);
 
     emit("save-drafts");
@@ -35,7 +35,7 @@ describe("a quit while a text is typed in a mailbox's page (#120, 3)", () => {
     const order: string[] = [];
     const saveComposes = vi.fn(async () => void order.push("drafts"));
     const settingsSettle = vi.fn(async () => void order.push("settings"));
-    const app = { composes: [], saveComposes, settingsSettle, settingsTyping: true, settings: {}, accounts: [] } as unknown as AppStore;
+    const app = { composes: [], saveComposes, ui: { settingsSettle, settingsTyping: true }, settings: {}, accounts: [] } as unknown as AppStore;
     api.composeSaved.mockReset();
     api.composeSaved.mockImplementation(async () => void order.push("through"));
     await listenMain(app);
@@ -47,7 +47,7 @@ describe("a quit while a text is typed in a mailbox's page (#120, 3)", () => {
   });
 
   it("is still reported as unsaved after a cancel while the text is not left", async () => {
-    const app = { composes: [], saveComposes: vi.fn(async () => {}), settingsTyping: true, settings: {}, accounts: [] } as unknown as AppStore;
+    const app = { composes: [], saveComposes: vi.fn(async () => {}), ui: { settingsTyping: true }, settings: {}, accounts: [] } as unknown as AppStore;
     api.composeUnsaved.mockReset();
     await listenMain(app);
     emit("quit-cancelled");
@@ -60,7 +60,7 @@ describe("a quit called off while the drafts are being saved (#91)", () => {
   it("does not report the window as through after the cancel", async () => {
     let finish = () => {};
     const saveComposes = vi.fn(() => new Promise<void>((r) => (finish = r)));
-    const app = { composes: [{}], saveComposes, settings: {}, accounts: [] } as unknown as AppStore;
+    const app = { composes: [{}], saveComposes, ui: {}, settings: {}, accounts: [] } as unknown as AppStore;
     api.composeSaved.mockReset();
     api.composeUnsaved.mockReset();
     await listenMain(app);
@@ -102,7 +102,7 @@ describe("toasts after an answer that archives its letter (#106)", () => {
     resetFakes();
     api.undo.mockClear();
     toast = vi.fn();
-    app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null }, toast, reload: vi.fn(), fail: vi.fn() } as never;
+    app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null }, ui: { toast, fail: vi.fn() }, selection: { reload: vi.fn() } } as never;
     await listenMain(app as unknown as AppStore);
   });
 
@@ -167,7 +167,7 @@ describe("toasts after an answer that parks its letter (#106)", () => {
     resetFakes();
     api.undo.mockClear();
     toast = vi.fn();
-    app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null }, toast, reload: vi.fn(), fail: vi.fn() } as never;
+    app = { composes: [], settings: {}, accounts: [], actions: { lastUndo: null }, ui: { toast, fail: vi.fn() }, selection: { reload: vi.fn() } } as never;
     await listenMain(app as unknown as AppStore);
   });
 
@@ -200,7 +200,7 @@ describe("toasts after an answer that parks its letter (#106)", () => {
 describe("snoozed letters that did not all come back (#101)", () => {
   it("warns that some stayed in Snoozed", async () => {
     const toast = vi.fn();
-    const app = { composes: [], settings: {}, accounts: [], toast } as unknown as AppStore;
+    const app = { composes: [], settings: {}, accounts: [], ui: { toast } } as unknown as AppStore;
     await listenMain(app);
 
     emit("unsnooze-partial");
@@ -211,7 +211,7 @@ describe("snoozed letters that did not all come back (#101)", () => {
 
 describe("a quit while a text is being written (#120, ревью 1 и 2)", () => {
   const typing = (settle: () => Promise<void>) =>
-    ({ composes: [], saveComposes: vi.fn(async () => {}), settingsSettle: settle, settingsTyping: true, settings: {}, accounts: [] }) as unknown as AppStore;
+    ({ composes: [], saveComposes: vi.fn(async () => {}), ui: { settingsSettle: settle, settingsTyping: true }, settings: {}, accounts: [] }) as unknown as AppStore;
 
   it("does not say the window is free while the write is under way", async () => {
     let done = () => {};

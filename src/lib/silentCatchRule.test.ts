@@ -42,9 +42,9 @@ describe("no-silent-catch", () => {
     ["an inline comment in the handler", "p.catch(() => { /* why */ });"],
     ["a comment inside the second argument of .then", "p.then(ok, () => {\n  // why\n});"],
     ["a comment above the handler on its own line", "p.then(\n  ok,\n  // why\n  () => null,\n);"],
-    ["a handler that uses the error", "p.catch((e) => app.fail(e));"],
-    ["a catch that uses the error", "try { f(); } catch (e) { app.fail(e); }"],
-    ["a .then with a handler that uses the error", "p.then(ok, (e) => app.fail(e));"],
+    ["a handler that uses the error", "p.catch((e) => app.ui.fail(e));"],
+    ["a catch that uses the error", "try { f(); } catch (e) { app.ui.fail(e); }"],
+    ["a .then with a handler that uses the error", "p.then(ok, (e) => app.ui.fail(e));"],
   ])("lets pass %s", (_name, code) => {
     expect(lint(code)).toBe(0);
   });

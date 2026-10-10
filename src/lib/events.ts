@@ -33,11 +33,11 @@ function common(app: AppStore) {
     }),
     // An answer going to "Waiting for reply" says so in one toast, once the letter has moved.
     listen<{ subject: string; parking?: boolean }>("sent", (e) => {
-      if (!e.payload.parking) app.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }));
+      if (!e.payload.parking) app.ui.toast(t("toast.sent", { subject: e.payload.subject || t("noSubject") }));
     }),
     // "Release" brought some of the snoozed letters back and some stayed in "Snoozed".
-    listen("unsnooze-partial", () => app.toast(t("toast.unsnoozePartial"), true)),
-    listen<{ error: CmdError }>("send-failed", (e) => app.toast(t("toast.sendFailed", { error: e.payload.error.message }), true)),
+    listen("unsnooze-partial", () => app.ui.toast(t("toast.unsnoozePartial"), true)),
+    listen<{ error: CmdError }>("send-failed", (e) => app.ui.toast(t("toast.sendFailed", { error: e.payload.error.message }), true)),
     // The address book changed in another window: the cache follows.
     listen("people-changed", () => peopleBook.changed()),
     // Settings saved elsewhere (another window, a plugin) may change the language too.
@@ -71,14 +71,14 @@ export function listenMain(app: AppStore) {
       // My answers and drafts change how conversations look in every grouped list.
       const role = app.folder(e.payload.account_id, e.payload.folder)?.role;
       const threadPart = app.settings.threads && (role === "sent" || role === "drafts");
-      if (threadPart || app.list.includes(e.payload.account_id, e.payload.folder)) app.scheduleReload();
+      if (threadPart || app.list.includes(e.payload.account_id, e.payload.folder)) app.selection.scheduleReload();
       if (app.opened?.row.account_id === e.payload.account_id) app.reader.scheduleConversation();
       app.scheduleFolders();
     }),
     // A queued answer marks its letter at once, and taking it back unmarks it.
     listen("outbox-changed", () => {
       app.loadOutbox();
-      app.scheduleReload();
+      app.selection.scheduleReload();
     }),
     listen<Parked>("parked", (e) => parked(app, e.payload)),
     // An answer took its letter to the archive (#106): the same undo as the command "Archive".
@@ -86,18 +86,18 @@ export function listenMain(app: AppStore) {
     listen<ParkFailed>("park-failed", (e) => {
       const p = e.payload;
       if (p.refused)
-        app.toast(t("toast.parkRefused", { folder: p.folder }), true, {
+        app.ui.toast(t("toast.parkRefused", { folder: p.folder }), true, {
           label: t("toast.chooseFolder"),
-          run: () => app.openSettings(`account:${p.account_id}`, "letters"),
+          run: () => app.ui.openSettings(`account:${p.account_id}`, "letters"),
         });
-      else app.toast(t("toast.parkFailed", { error: p.error ?? "" }), true);
+      else app.ui.toast(t("toast.parkFailed", { error: p.error ?? "" }), true);
     }),
     // The folder a wait parks in is gone: the letters cannot come back on their own.
     listen<BringFailed>("bring-failed", (e) =>
-      app.toast(t("toast.bringFailed", { folder: e.payload.folder, error: e.payload.error ?? "" }), true),
+      app.ui.toast(t("toast.bringFailed", { folder: e.payload.folder, error: e.payload.error ?? "" }), true),
     ),
-    listen<Task[]>("tasks-changed", (e) => (app.tasks = e.payload)),
-    listen<{ message: string }>("app-error", (e) => app.toast(e.payload.message, true)),
+    listen<Task[]>("tasks-changed", (e) => (app.ui.tasks = e.payload)),
+    listen<{ message: string }>("app-error", (e) => app.ui.toast(e.payload.message, true)),
     listen<{ id: string }>("extensions-changed", (e) => {
       // A reinstalled extension starts with its new code.
       extensions.stop(e.payload.id);
@@ -110,13 +110,13 @@ export function listenMain(app: AppStore) {
     // A message window hands over what concerns the list.
     listen<Undoable>("window-moved", (e) => {
       app.actions.lastUndo = e.payload;
-      app.toast(e.payload.text, false, { label: t("undo"), run: () => app.undo() });
-      app.reload();
+      app.ui.toast(e.payload.text, false, { label: t("undo"), run: () => app.undo() });
+      app.selection.reload();
     }),
     listen<View>("window-view", (e) => {
       // Focus is cosmetic.
       getCurrentWindow().setFocus().catch(() => {});
-      app.setView(e.payload);
+      app.selection.setView(e.payload);
     }),
     // The closed window, quitting, the tray menu, a click on a notification (#4, #63).
     ...listenBackground(app),
@@ -139,7 +139,7 @@ function quitDrafts(app: AppStore) {
       const mine = ++quit;
       // The text typed in a mailbox's page is written with the drafts: a quit does not wait for the focus to leave.
       // Neither a refused write nor a hung one holds the quit: it waits four seconds at most.
-      const settle = app.settingsSettle?.();
+      const settle = app.ui.settingsSettle?.();
       const patience = new Promise<void>((r) => setTimeout(r, 4000));
       await Promise.allSettled([app.saveComposes(4000), settle && Promise.race([settle, patience])]);
       // A lost «saved» leaves this window in the backend's list of unsaved ones: the quit keeps waiting for it and is asked again.
@@ -148,7 +148,7 @@ function quitDrafts(app: AppStore) {
     cancel() {
       quit++;
       // Only tells the backend whether a quit must ask; the next change tells again.
-      void api.composeUnsaved(app.composes.length > 0 || app.settingsTyping).catch(() => {});
+      void api.composeUnsaved(app.composes.length > 0 || app.ui.settingsTyping).catch(() => {});
     },
   };
 }
@@ -190,10 +190,10 @@ function parked(app: AppStore, p: Parked) {
   const keep = () => api.followupUnpark(p.account_id, p.key);
   const mine: Undoable = { moved: [], text, run: keep };
   app.actions.lastUndo = mine;
-  app.toast(text, false, {
+  app.ui.toast(text, false, {
     label: t("toast.keepInInbox"),
     run: () => {
-            if (takeUndo(app, mine)) keep().then(() => app.toast(t("done.undone")), (err) => app.fail(err));
+            if (takeUndo(app, mine)) keep().then(() => app.ui.toast(t("done.undone")), (err) => app.ui.fail(err));
     },
   });
 }
@@ -204,15 +204,15 @@ function archivedAfterSend(app: AppStore, p: { subject: string; moved: Moved }) 
   const mine: Undoable = { moved: [p.moved], text };
   app.actions.lastUndo = mine;
   // The toast undoes its own move, once, even after other actions; not after "z" has undone it.
-  app.toast(text, false, {
+  app.ui.toast(text, false, {
     label: t("undo"),
     run: () => {
       if (!takeUndo(app, mine)) return;
-      api.undo([p.moved]).then(() => app.toast(t("done.undone")), (err) => app.fail(err, t("err.undo")));
-      void app.reload();
+      api.undo([p.moved]).then(() => app.ui.toast(t("done.undone")), (err) => app.ui.fail(err, t("err.undo")));
+      void app.selection.reload();
     },
   });
-  app.reload();
+  app.selection.reload();
 }
 
 /** A message window: no list, only the letter it shows. */

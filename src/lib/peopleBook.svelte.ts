@@ -41,7 +41,7 @@ export class PeopleBook {
         this.failed = false;
       })
       .catch((e) => {
-        if (!this.failed) app.fail(e, t("people.readFailed"));
+        if (!this.failed) app.ui.fail(e, t("people.readFailed"));
         this.failed = true;
       })
       .finally(() => {

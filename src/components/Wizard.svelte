@@ -20,9 +20,9 @@
 
   /** A new mailbox; an existing one is edited on its page in the settings (account/AccountPage). */
   // svelte-ignore state_referenced_locally
-  const form = new AccountForm(embedded ? null : (app.wizard?.account ?? null), () => {
+  const form = new AccountForm(embedded ? null : (app.ui.wizard?.account ?? null), () => {
     if (embedded) onDone?.();
-    else app.wizard = null;
+    else app.ui.wizard = null;
   });
   const existing = form.existing;
 </script>
@@ -107,7 +107,7 @@
     <header>
       <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
       {#if app.accounts.length > 0 || existing}
-        <button class="btn ghost" onclick={() => (app.wizard = null)} disabled={form.busy}>×</button>
+        <button class="btn ghost" onclick={() => (app.ui.wizard = null)} disabled={form.busy}>×</button>
       {/if}
     </header>
 

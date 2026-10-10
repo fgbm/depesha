@@ -49,7 +49,7 @@ describe("the main window starting", () => {
     api.accounts.mockRejectedValue({ kind: "other", message: "accounts file broken" });
     const s = new AppStore();
     await expect(s.init()).resolves.toBeUndefined();
-    expect(s.toasts.some((x) => x.error && x.text.includes("accounts file broken"))).toBe(true);
+    expect(s.ui.toasts.some((x) => x.error && x.text.includes("accounts file broken"))).toBe(true);
     for (const name of ["mail-changed", "account-status", "sent", "window-moved", "window-view"]) expect(handlers.has(name)).toBe(true);
     expect(s.wizard).toBeNull();
     expect(api.messages).toHaveBeenCalled();
@@ -60,7 +60,7 @@ describe("the main window starting", () => {
     api.tasks.mockRejectedValue({ kind: "other", message: "no tasks" });
     const s = new AppStore();
     await s.init();
-    const texts = s.toasts.map((x) => x.text);
+    const texts = s.ui.toasts.map((x) => x.text);
     expect(texts).toContain("no folders");
     expect(texts).toContain("no tasks");
   });
@@ -409,7 +409,7 @@ describe("the toast of a letter taken to Waiting for reply (#106)", () => {
     const s = new AppStore();
     await s.init();
     emit("parked", { account_id: "a", key: "r@x", subject: "Счёт" });
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     const other = { moved: [], text: "другое" };
     s.actions.lastUndo = other;
     api.followupUnpark.mockResolvedValue(undefined);
@@ -426,9 +426,9 @@ describe("an answer that takes its letter to the archive (#106)", () => {
     i18n.lang = "ru";
     const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["q@x"] };
     emit("sent", { id: 1, subject: "Счёт", parking: false });
-    expect(s.toasts.map((x) => x.text)).toEqual(["Отправлено: Счёт"]);
+    expect(s.ui.toasts.map((x) => x.text)).toEqual(["Отправлено: Счёт"]);
     emit("archived-after-send", { subject: "Счёт", moved });
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe("Письмо — в архиве");
     expect(toast.action?.label).toBe("Отменить");
     expect(s.actions.lastUndo).toEqual({ moved: [moved], text: toast.text });
@@ -439,7 +439,7 @@ describe("an answer that takes its letter to the archive (#106)", () => {
     await s.init();
     const moved = { account_id: "a", from: "INBOX", to: "Archive", message_ids: ["q@x"] };
     emit("archived-after-send", { subject: "Счёт", moved });
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     const other = { moved: [{ account_id: "a", from: "INBOX", to: "Trash", message_ids: ["z@x"] }], text: "другое" };
     s.actions.lastUndo = other;
     api.undo.mockResolvedValue(undefined);
@@ -462,9 +462,9 @@ describe("an answer that takes its letter to Waiting for reply", () => {
     const s = await started();
     emit("sent", { id: 1, subject: "Счёт за сентябрь", parking: true });
     // One toast, when the move is done: «Sent» alone would be taken back a moment later.
-    expect(s.toasts).toEqual([]);
+    expect(s.ui.toasts).toEqual([]);
     emit("parked", { account_id: "a", key: "r@x", subject: "Счёт за сентябрь" });
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe("Отправлено: Счёт за сентябрь. Письмо — в «Ждут ответа»");
     expect(toast.error).toBe(false);
     expect(toast.action?.label).toBe("Оставить во входящих");
@@ -486,24 +486,24 @@ describe("an answer that takes its letter to Waiting for reply", () => {
   it("a folder the server refused is said in red, with the way out", async () => {
     const s = await started();
     emit("park-failed", { account_id: "a", subject: "Счёт", folder: "Ждут ответа", refused: true });
-    const toast = s.toasts.at(-1)!;
+    const toast = s.ui.toasts.at(-1)!;
     expect(toast.error).toBe(true);
     expect(toast.text).toBe("Не удалось создать папку «Ждут ответа»: сервер не разрешает. Письмо осталось во входящих");
     expect(toast.action?.label).toBe("Выбрать папку");
     toast.action!.run();
-    expect([s.settingsOpen, s.settingsPage, s.settingsSection]).toEqual([true, "account:a", "letters"]);
+    expect([s.settingsOpen, s.ui.settingsPage, s.ui.settingsSection]).toEqual([true, "account:a", "letters"]);
   });
 
   it("a move that failed for another reason says why", async () => {
     const s = await started();
     emit("park-failed", { account_id: "a", subject: "Счёт", folder: "Ждут ответа", refused: false, error: "нет связи" });
-    expect(s.toasts.at(-1)!.text).toBe("Письмо не перенесено в «Ждут ответа»: нет связи. Оно осталось во входящих");
+    expect(s.ui.toasts.at(-1)!.text).toBe("Письмо не перенесено в «Ждут ответа»: нет связи. Оно осталось во входящих");
   });
 
   it("an ordinary letter says «Sent» as before", async () => {
     const s = await started();
     emit("sent", { id: 1, subject: "Обед" });
-    expect(s.toasts.at(-1)!.text).toBe("Отправлено: Обед");
+    expect(s.ui.toasts.at(-1)!.text).toBe("Отправлено: Обед");
   });
 });
 
@@ -512,13 +512,13 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     api.draftCacheList.mockRejectedValue(new Error("cache broken"));
     const s = new AppStore();
     await s.offerLocalDrafts();
-    expect(s.toasts.some((x) => x.error && x.text.includes("local drafts") && x.text.includes("cache broken"))).toBe(true);
+    expect(s.ui.toasts.some((x) => x.error && x.text.includes("local drafts") && x.text.includes("cache broken"))).toBe(true);
   });
 
   it("tells when the stuck copies cannot be listed", async () => {
     api.stuckCopies.mockRejectedValue(new Error("copies broken"));
     const s = new AppStore();
     await s.tellStuckCopies();
-    expect(s.toasts.some((x) => x.error && x.text.includes("sent letters") && x.text.includes("copies broken"))).toBe(true);
+    expect(s.ui.toasts.some((x) => x.error && x.text.includes("sent letters") && x.text.includes("copies broken"))).toBe(true);
   });
 });

@@ -14,7 +14,7 @@
   let open = $state(false);
 
   const search = $derived(app.view.kind === "search");
-  const sort = $derived(app.sort());
+  const sort = $derived(app.selection.sort());
   const preset = $derived(presetOf(sort));
   const presets = $derived(search ? [RELEVANCE, ...PRESETS] : PRESETS);
   const fields = $derived<SortField[]>(search ? ["relevance", ...SORT_FIELDS] : SORT_FIELDS);
@@ -22,7 +22,7 @@
   const keys = $derived<SortKey[]>(sort.length ? sort : [{ by: "date", desc: true }]);
   const unused = $derived(fields.filter((f) => !keys.some((k) => k.by === f)));
 
-  const lf = $derived(app.listFilter());
+  const lf = $derived(app.selection.listFilter());
   const options = $derived(lf ? lf.filter.options() : []);
   const shown = $derived(lf ? lf.filter.current(lf.list) : "");
   /** A filter is on: the button names it, so hidden mail is not forgotten. */
@@ -31,10 +31,10 @@
   const sortTitle = $derived(preset ? t(`sort.preset.${preset.id}`) : t("sort.custom"));
 
   // Search results keep their order apart: the rank means nothing in other lists.
-  const own = $derived(search || app.ownSort());
+  const own = $derived(search || app.selection.ownSort());
 
   function apply(next: SortKey[], ownList = own) {
-    app.setSort(next, search || ownList);
+    app.selection.setSort(next, search || ownList);
   }
 
   function setDirection(i: number) {
@@ -107,7 +107,7 @@
         {#each unused as f (f)}<button class="chip" onclick={() => add(f)}>{t(`sort.field.${f}`)}</button>{/each}
       </div>
     {/if}
-    {#if !search && app.listKey()}
+    {#if !search && app.selection.listKey()}
       <hr />
       <label class="scope"><input type="checkbox" checked={own} onchange={(e) => apply(sort, e.currentTarget.checked)} /> {t("sort.ownList")}</label>
     {/if}

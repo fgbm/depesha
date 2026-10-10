@@ -90,7 +90,7 @@
     onclick={() => {
       picked?.();
       // The waiting folder opens the "Waiting for reply" section (#42, #59), not its letters.
-      app.setView(isWaiting ? { kind: "plugin", id: "followups" } : v);
+      app.selection.setView(isWaiting ? { kind: "plugin", id: "followups" } : v);
     }}
     oncontextmenu={(e) => folder.selectable && sidebarUi.contextMenu(e, account, folder)}
     title={folder.display_name}

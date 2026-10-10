@@ -81,10 +81,10 @@
   <span class="anchor">
     <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
     <Popover bind:open={moreOpen} align="left">
-      <button class="mi" onclick={() => { moreOpen = false; app.flag("flagged", !msg.row.flags.flagged); }}>
+      <button class="mi" onclick={() => { moreOpen = false; app.selection.flag("flagged", !msg.row.flags.flagged); }}>
         <Flag size={15} /> {msg.row.flags.flagged ? t("act.unflag") : t("act.setFlag")}<span class="hint">s</span>
       </button>
-      <button class="mi" onclick={() => { moreOpen = false; app.flag("seen", !msg.row.flags.seen); }}>
+      <button class="mi" onclick={() => { moreOpen = false; app.selection.flag("seen", !msg.row.flags.seen); }}>
         {#if msg.row.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}<span class="hint">u</span>
       </button>
       <button class="mi" disabled={!canLabel} title={!canLabel ? t("label.noRightHint") : undefined} onclick={() => { moreOpen = false; app.labels.openPick([msg.row.id]); }}>
@@ -94,7 +94,7 @@
         <button class="mi" onclick={() => { moreOpen = false; moveOpen = true; }}><Folder size={15} /> {t("act.moveTo")}</button>
       {/if}
       {#if app.windowOf === null && !isDraft}
-        <button class="mi" onclick={() => { moreOpen = false; app.openWindow(msg.row); }}><AppWindow size={15} /> {t("act.newWindow")}</button>
+        <button class="mi" onclick={() => { moreOpen = false; app.selection.openWindow(msg.row); }}><AppWindow size={15} /> {t("act.newWindow")}</button>
       {/if}
       <button class="mi" onclick={() => { moreOpen = false; printOpened(); }}><Printer size={15} /> {t("act.print")}<span class="hint"><Keys of="core.print" /></span></button>
       <hr />
