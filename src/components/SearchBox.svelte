@@ -25,9 +25,9 @@
   let text = $state("");
   let open = $state(false);
   /** The highlighted suggestion; -1 for none: Enter searches the text as it is. */
-  // A new list of suggestions starts with no row highlighted.
+  // Other text starts with no row highlighted; a list that loads more at the same text keeps it.
   let active = $derived.by(() => {
-    void items;
+    void text;
     return -1;
   });
   let timer: ReturnType<typeof setTimeout> | null = null;

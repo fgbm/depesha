@@ -11,6 +11,7 @@ vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await 
 import { flushSync, mount, unmount } from "svelte";
 import SearchBox from "./SearchBox.svelte";
 import { app } from "../lib/store.svelte";
+import { recentSearches } from "../lib/recentSearches.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { resetFakes, settings } from "../lib/testing";
 
@@ -46,5 +47,22 @@ describe("the highlighted suggestion", () => {
     expect(lit()).toBe(1);
     type("fro");
     expect(lit()).toBe(0);
+  });
+
+  it("stays while the same text gets more suggestions", () => {
+    recentSearches.remember("первый");
+    const props = $state<{ input: HTMLInputElement | null }>({ input: null });
+    view = mount(SearchBox, { target: document.body, props });
+    flushSync();
+    props.input!.dispatchEvent(new Event("focus"));
+    flushSync();
+    props.input!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    flushSync();
+    const lit = () => [...document.querySelectorAll(".sg")].findIndex((r) => r.classList.contains("active"));
+    const at = lit();
+    expect(at).toBeGreaterThanOrEqual(0);
+    recentSearches.remember("второй");
+    flushSync();
+    expect(lit()).toBe(at);
   });
 });
