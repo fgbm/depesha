@@ -4266,7 +4266,12 @@ mod tests {
         assert_eq!(q.words, ["отпуск"]);
 
         let store = mailbox();
-        let from = |email: &str| Some(Addr { name: None, email: email.into() });
+        let from = |email: &str| {
+            Some(Addr {
+                name: None,
+                email: email.into(),
+            })
+        };
         let mut quoted = with_ids("Квота", 100, "a@x", None);
         quoted.from = from(r#""a b"@x"#);
         put(&store, "INBOX", 1, &quoted, true);
