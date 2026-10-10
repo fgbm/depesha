@@ -209,9 +209,4 @@
     gap: 8px;
     padding: 8px 10px 10px 14px;
   }
-
-  .quick-actions kbd {
-    border-color: rgb(255 255 255 / 40%);
-    color: var(--accent-ink);
-  }
 </style>
