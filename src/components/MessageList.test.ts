@@ -203,6 +203,20 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
     expect(writes.length).toBeGreaterThan(0);
     app.reader.opened = null;
   });
+
+  it("goes to a cursor row that was not in the list yet once it is loaded", async () => {
+    const t = draw(rows);
+    app.reader.opened = null;
+    app.reader.openingRow = null;
+    app.selected = new Set([41]);
+    flushSync();
+    const writes = watch(t);
+    expect(writes).toEqual([]);
+    app.list.messages = [...rows, row(41, "p41@cur.example")];
+    flushSync();
+    await tick();
+    expect(writes.length).toBeGreaterThan(0);
+  });
 });
 
 describe("the logos by folder (#108)", () => {

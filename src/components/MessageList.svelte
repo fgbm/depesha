@@ -184,12 +184,13 @@
   $effect(() => {
     const id = cursor;
     if (!viewport || id === null) return;
+    // Read first, so that the row arriving later (a page loaded) runs this again.
+    const i = app.messages.findIndex((m) => m.id === id);
+    if (i < 0) return;
     // The list refreshing under the same cursor, or a choice by the mouse, is no reason to jump.
     const fresh = id !== followed;
     followed = id;
     if (!fresh || byMouse) return;
-    const i = app.messages.findIndex((m) => m.id === id);
-    if (i < 0) return;
     const top = i * ROW;
     if (top < viewport.scrollTop) viewport.scrollTop = top;
     else if (top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top + ROW - viewport.clientHeight;
