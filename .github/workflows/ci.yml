@@ -235,8 +235,8 @@ jobs:
   # runner is slow; it runs on pushes to main and release/**, and by hand (`gh workflow run ci.yml`).
   mac-print:
     name: Print a sheet (macOS)
-    if: github.event_name != 'pull_request'
     if: github.event_name != 'pull_request' && !inputs.windows_only
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7

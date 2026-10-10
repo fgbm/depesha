@@ -2,6 +2,11 @@
   import { t } from "../lib/i18n.svelte";
   // Renders sanitized message HTML in a sandboxed iframe: no scripts, no network
   // except images the user allowed, links go through onLink.
+  // `allow-scripts` is there for the page's own listeners, not for the letter's scripts: WebKitGTK does
+  // not run a listener the page added to the document of a frame sandboxed without scripts, so
+  // links, hover and keys of the letter's text were dead (#70). Scripts of the letter stay shut by the
+  // frame's own Content-Security-Policy (`default-src 'none'`), by the window's (`script-src 'self'`)
+  // and by the sanitizer; the sandbox still keeps forms, popups and top navigation off.
   // A srcdoc document also takes the window's CSP (tauri.conf.json), and its own <meta> only
   // narrows it: so the window's policy keeps `img-src https: http:` (remote images, once
   // allowed) and `style-src 'unsafe-inline'` (the letters' own styles) for this frame alone.
@@ -84,9 +89,18 @@ ${themed ? themeCss() : ""}
     };
   });
 
-  function attach() {
-    const doc = frame?.contentDocument;
-    if (!doc) return;
+  /** The documents that already have the listeners: a load and the first look must not add them twice. */
+  const attached = new WeakSet<Document>();
+
+  /**
+   * Takes the frame's own element, not `frame`: WebKitGTK may load the document before
+   * `bind:this` has set `frame` (the load comes with the srcdoc), and a handler that waits
+   * for `frame` finds nothing, so no link, hover or key of the letter's text reaches the app.
+   */
+  function attach(el: HTMLIFrameElement | null) {
+    const doc = el?.contentDocument;
+    if (!el || !doc || attached.has(doc)) return;
+    attached.add(doc);
     doc.addEventListener("click", (e) => {
       const a = (e.target as Element | null)?.closest?.("a");
       if (!a) return;
@@ -115,13 +129,16 @@ ${themed ? themeCss() : ""}
         bubbles: true,
         cancelable: true,
       });
-      if (!frame?.dispatchEvent(copy)) e.preventDefault();
+      if (!el.dispatchEvent(copy)) e.preventDefault();
     });
   }
+
+  // The load may have come before the frame was bound: look at the document once it is.
+  $effect(() => attach(frame));
 </script>
 
 <div class="wrap">
-  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-same-origin" {srcdoc} onload={attach}></iframe>
+  <iframe class:themed bind:this={frame} title={t("reader.message")} sandbox="allow-same-origin allow-scripts" {srcdoc} onload={(e) => attach(e.currentTarget as HTMLIFrameElement)}></iframe>
   {#if hover}<div class="status" title={hover}>{hover}</div>{/if}
 </div>
 

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "svelte/server";
 import MailFrame from "./MailFrame.svelte";
@@ -11,6 +12,22 @@ function srcdoc(props: Record<string, unknown>): string {
   const doc = body.match(/srcdoc="([^"]*)"/)?.[1] ?? body;
   return doc.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
+
+describe("the frame's sandbox and policies", () => {
+  it("lets the page's listeners run, and keeps the letter's own scripts shut", () => {
+    const { body } = render(MailFrame, { props: { html: "<p>x</p>", allowRemote: false, onLink: () => {} } });
+    // Without allow-scripts WebKitGTK never calls the listeners of links, hover and keys (#70).
+    expect(body).toContain('sandbox="allow-same-origin allow-scripts"');
+    // Forms, popups, top navigation and downloads stay off.
+    expect(body).not.toMatch(/allow-(forms|popups|top-navigation|downloads|modals)/);
+    const doc = srcdoc({});
+    expect(doc).toContain("default-src 'none'");
+    expect(doc).not.toMatch(/script-src|unsafe-eval/);
+    // The window's policy, which the srcdoc takes too, has no inline scripts either.
+    const csp = JSON.parse(readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf-8")).app.security.csp;
+    expect(csp["script-src"]).toBe("'self'");
+  });
+});
 
 describe("the frame Depesha draws Markdown in", () => {
   afterEach(() => vi.unstubAllGlobals());

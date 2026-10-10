@@ -2256,18 +2256,76 @@ try {
     await d.exec(`window.__keys = [];
       const log = (where) => (e) => window.__keys.push([where, e.key, e.code, e.ctrlKey, e.isTrusted, e.target.tagName || 'doc']);
       window.addEventListener('keydown', log('window'), true);
-      const doc = document.querySelector('.reader iframe').contentDocument;
-      doc.addEventListener('keydown', log('frame'), true);`);
+      document.querySelector('.reader iframe').contentDocument.addEventListener('keydown', log('frame'), true);`);
+    // The frame's handlers are attached (a link's hover shows its address); WebKitGTK loads the document
+    // before the component knows its frame, and a handler that waited for it left links and keys dead.
+    await d.exec("document.querySelector('.reader iframe').contentDocument.querySelector('a').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))");
+    await d.until("link hover reaches the app", async () => (await textOf(".reader .status")).includes("example.com/news"));
+    // And a click on it is the app's: it asks before opening the address, instead of the frame following it.
+    await d.exec("document.querySelector('.reader iframe').contentDocument.querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))");
+    await d.until("link asks first", async () => (await textOf(".confirm")).includes("example.com"));
+    await press("Escape");
+    await d.until("question closed", async () => (await d.findAll(".confirm")).length === 0);
+    const paletteOpen = async () => (await d.findAll(".palette")).length === 1;
+    const closePalette = async () => {
+      await d.pressKey("\uE00C");
+      await d.until("palette closed", async () => !(await paletteOpen()));
+    };
+    const waitMs = (ms) => new Promise((r) => setTimeout(r, ms));
+    // 7a. Real key events, as the driver sends them, with the focus on the page and then inside the frame.
+    // Control: if the driver's keys do not reach the page at all, the frame cannot be blamed.
+    await d.exec("document.activeElement?.blur()");
+    await d.chord(["\uE009"], "k");
+    await waitMs(800);
+    const driverKeysWork = await paletteOpen();
+    if (driverKeysWork) await closePalette();
     await inFrame();
     await d.chord(["\uE009"], "k");
-    await d.until("palette from the letter's frame", async () => (await d.findAll(".palette")).length === 1).catch(async (e) => {
-      throw new Error(`${e.message}; клавиши: ${JSON.stringify(await d.exec("return window.__keys"))}; фокус: ${await d.exec("return document.activeElement?.tagName")}`);
-    });
-    await d.pressKey("\uE00C");
-    await d.until("palette closed", async () => (await d.findAll(".palette")).length === 0);
+    await waitMs(800);
+    const frameKeysWork = await paletteOpen();
+    if (frameKeysWork) await closePalette();
+    const heard = JSON.stringify(await d.exec("return window.__keys"));
+    console.log(`  · клавиши драйвера: на странице ${driverKeysWork}, в кадре письма ${frameKeysWork}; слышно: ${heard}`);
+    if (driverKeysWork && !frameKeysWork) {
+      // The driver's key events are not delivered to a frame at all here (no listener of the frame's own
+      // document hears them either), so it is the driver on Xvfb, not the relay; say what the page knows.
+      const probe = await d.exec(`const f = document.querySelector('.reader iframe'), doc = f.contentDocument;
+        return { topFocus: document.hasFocus(), frameFocus: doc.hasFocus(), active: document.activeElement?.tagName, inFrame: doc.activeElement?.tagName, sandbox: f.getAttribute('sandbox') };`);
+      console.log(`  ! клавиши драйвера в кадр письма не доставляются (их не слышит и документ кадра): ${JSON.stringify(probe)}`);
+      // Does the frame hear them once something inside it has the focus?
+      await d.exec("const doc = document.querySelector('.reader iframe').contentDocument; doc.body.tabIndex = -1; doc.body.focus();");
+      await d.chord(["\uE009"], "k");
+      await waitMs(800);
+      console.log(`  ! с фокусом на теле письма: палитра ${await paletteOpen()}; слышно: ${JSON.stringify(await d.exec("return window.__keys.slice(3)"))}`);
+      if (await paletteOpen()) await closePalette();
+    }
+    // 7b. The same keys as events of the frame's own document, which is where the user's keys land:
+    // the frame replays them to the window (MailFrame.svelte), so the palette opens and the letter prints.
+    const keyInFrame = (key, code) =>
+      d.exec(
+        `const e = new KeyboardEvent('keydown', { key: arguments[0], code: arguments[1], ctrlKey: true, bubbles: true, cancelable: true });
+         const doc = document.querySelector('.reader iframe').contentDocument;
+         return [doc.body.dispatchEvent(e), e.defaultPrevented];`,
+        key,
+        code,
+      );
+    const [, kPrevented] = await keyInFrame("k", "KeyK");
+    if (!kPrevented) {
+      // Is the relay attached at all? A link's hover is set by the same `attach` (the status line).
+      const hover = await d.exec(`const doc = document.querySelector('.reader iframe').contentDocument, a = doc.querySelector('a');
+        if (!a) return 'нет ссылки';
+        a.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        return document.querySelector('.reader .status')?.textContent ?? 'строки состояния нет';`);
+      const direct = await d.exec(`const e = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
+        return [document.querySelector('.reader iframe').dispatchEvent(e), e.defaultPrevented];`);
+      const open = await paletteOpen();
+      throw new Error(`Ctrl+K в кадре письма не передан приложению; слышно: ${JSON.stringify(await d.exec("return window.__keys.slice(3)"))}; наведение на ссылку: ${hover}; то же событие прямо на элементе кадра: ${JSON.stringify(direct)}, палитра ${open}`);
+    }
+    await d.until("palette from the letter's frame", paletteOpen);
+    await closePalette();
     const before = await count();
-    await inFrame();
-    await d.chord(["\uE009"], "p");
+    const [, pPrevented] = await keyInFrame("p", "KeyP");
+    if (!pPrevented) throw new Error("Ctrl+P в кадре письма достался браузеру");
     p = await sheet(before + 1, "frame-key");
     expectIn("лист по Ctrl+P из кадра письма", p.html, "<h1>HTML-письмо с картинками</h1>");
 
