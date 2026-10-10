@@ -14,6 +14,7 @@
 # Падает только ухудшение, каждое снимается строкой с причиной в DIR/exceptions.txt
 # (`вид<TAB>имя<TAB>причина`, пробелы по краям причины не в счёт):
 #   app-members   новый член app.*, которого нет в baseline
+#   app-nested    новый член app.ui.* или app.selection.* (`ui.toast`), которого нет в baseline
 #   aria-attrs    пропавшее имя aria-*
 #   roles         пропавшее литеральное значение role=
 #   data-kinds    пропавший вид data-*, но только если он встречается в e2e/*.mjs
@@ -65,6 +66,8 @@ role_values() { grep -rhoE '\brole="[^"]+"' --include='*.svelte' src | sed -E 's
 aria_names() { grep -rhoE '\baria-[a-z-]+=' --include='*.svelte' src | sed 's/=$//' | LC_ALL=C sort -u || true; }
 data_kinds() { grep -rhoE '\bdata-[a-z-]+' --include='*.svelte' src | LC_ALL=C sort -u || true; }
 app_members() { grep -rhoE '\bapp\.[A-Za-z_][A-Za-z0-9_]*' --include='*.svelte' src | sed 's/^app\.//' | LC_ALL=C sort -u || true; }
+# Второй уровень: что компоненты берут из app.ui и app.selection (`ui.toast`, `selection.reload`).
+app_nested() { grep -rhoE '\bapp\.(ui|selection)\.[A-Za-z_][A-Za-z0-9_]*' --include='*.svelte' src | sed 's/^app\.//' | LC_ALL=C sort -u || true; }
 
 # --- счётчики ---------------------------------------------------------------
 
@@ -116,6 +119,7 @@ if [[ "$mode" == save ]]; then
   aria_names > "$dir/aria-attrs.txt"
   data_kinds > "$dir/data-kinds.txt"
   app_members > "$dir/app-members.txt"
+  app_nested > "$dir/app-nested.txt"
   summary > "$dir/summary.txt"
   echo "baseline записан: $dir"
   print_summary
@@ -137,6 +141,9 @@ if [[ "$mode" == tighten ]]; then
   # Члены app.*: только пересечение с текущими; новые не добавляются (их судит исключение).
   app_members | LC_ALL=C comm -12 - "$dir/app-members.txt" > "$tmp"
   cp "$tmp" "$dir/app-members.txt"
+  [[ -f "$dir/app-nested.txt" ]] || : > "$dir/app-nested.txt"
+  app_nested | LC_ALL=C comm -12 - <(LC_ALL=C sort -u "$dir/app-nested.txt") > "$tmp"
+  cp "$tmp" "$dir/app-nested.txt"
   rm -f "$tmp"
   t_keys > "$dir/t-keys.txt"
   role_values > "$dir/roles.txt"
@@ -188,20 +195,26 @@ require_exception() {
   done
 }
 
-# Члены app.*: рост — ухудшение (компонент тянет больше состояния из App).
+# Члены app.* (kind app-members) и app.ui.*, app.selection.* (kind app-nested):
+# рост — ухудшение (компонент тянет больше состояния из App).
 check_members() {
-  local basef="$1" nowf="$2" b n
+  local basef="$1" nowf="$2" kind="${3:-app-members}" b n label="app.*"
+  [[ $kind == app-nested ]] && label="app.ui.* и app.selection.*"
   b=$(mktemp); n=$(mktemp)
   sorted_file "$basef" > "$b"; sorted_file "$nowf" > "$n"
-  LC_ALL=C comm -23 "$b" "$n" | sed 's/^/исчезло (app.*): /'
-  require_exception app-members "новый член app." < <(LC_ALL=C comm -13 "$b" "$n")
+  LC_ALL=C comm -23 "$b" "$n" | sed "s/^/исчезло ($label): /"
+  require_exception "$kind" "новый член ${label%\*}" < <(LC_ALL=C comm -13 "$b" "$n")
   rm -f "$b" "$n"
 }
 
 if [[ "$mode" == guard ]]; then
   [[ -f "$ref/app-members.txt" && -f "$dir/app-members.txt" ]] || { echo "нет app-members.txt в $ref или $dir" >&2; exit 1; }
   check_members "$ref/app-members.txt" "$dir/app-members.txt"
-  warn_stale app-members
+  # Файла второго уровня в main может ещё не быть (его вводит эта проверка): тогда сверять не с чем.
+  if [[ -f "$ref/app-nested.txt" && -f "$dir/app-nested.txt" ]]; then
+    check_members "$ref/app-nested.txt" "$dir/app-nested.txt" app-nested
+  fi
+  warn_stale app-members app-nested
   [[ "$status" == 0 ]] && echo "инварианты baseline против main: роста нет"
   exit "$status"
 fi
@@ -256,6 +269,11 @@ if need_file "$dir/app-members.txt"; then
   check_members "$dir/app-members.txt" "$now_members"
   rm -f "$now_members"
 fi
+if need_file "$dir/app-nested.txt"; then
+  now_nested=$(mktemp); app_nested > "$now_nested"
+  check_members "$dir/app-nested.txt" "$now_nested" app-nested
+  rm -f "$now_nested"
+fi
 
 # Счётчики доступности не убывают.
 if [[ -f "$dir/summary.txt" ]]; then
@@ -278,7 +296,7 @@ else
   echo "НЕТ ФАЙЛА: $dir/summary.txt" >&2; status=1
 fi
 
-warn_stale app-members aria-attrs roles data-kinds summary
+warn_stale app-members app-nested aria-attrs roles data-kinds summary
 
 print_summary
 if [[ "$status" == 0 ]]; then

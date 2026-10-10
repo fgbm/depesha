@@ -82,6 +82,24 @@ cp -r "$tmp/grew-inv" "$tmp/tight-grew"
 $i --tighten "$tmp/tight-grew" >/dev/null
 grep -qx "$member" "$tmp/tight-grew/app-members.txt" && fail "инварианты: --tighten добавил новый член"
 
+# Второй уровень: app.ui.* и app.selection.* (#140). Новый `app.ui.newThing` падает.
+nested=$(head -1 "$tmp/inv/app-nested.txt")
+[[ -n $nested ]] || fail "нет члена app.ui/selection.* для проверки"
+cp -r "$tmp/inv" "$tmp/grew-nested"
+sed -i "/^${nested}\$/d" "$tmp/grew-nested/app-nested.txt"
+if INVARIANTS_DIR="$tmp/grew-nested" $i --check >/dev/null 2>&1; then fail "инварианты: новый app.ui/selection.* не пойман"; fi
+printf 'app-nested\t%s\tпотому что так надо\n' "$nested" > "$tmp/grew-nested/exceptions.txt"
+INVARIANTS_DIR="$tmp/grew-nested" $i --check >/dev/null || fail "инварианты: новый app.ui/selection.* с обоснованием не прошёл"
+cp -r "$tmp/inv" "$tmp/shrunk-nested"
+echo "ui.zzzGone" >> "$tmp/shrunk-nested/app-nested.txt"
+$i --compare "$tmp/shrunk-nested" >/dev/null || fail "инварианты: исчезновение app.ui.* уронило проверку"
+$i --tighten "$tmp/shrunk-nested" >/dev/null
+grep -qx "ui.zzzGone" "$tmp/shrunk-nested/app-nested.txt" && fail "инварианты: --tighten не убрал исчезнувший app.ui.*"
+cp -r "$tmp/inv" "$tmp/tight-nested"
+sed -i "/^${nested}\$/d" "$tmp/tight-nested/app-nested.txt"
+$i --tighten "$tmp/tight-nested" >/dev/null
+grep -qx "$nested" "$tmp/tight-nested/app-nested.txt" && fail "инварианты: --tighten добавил новый app.ui/selection.*"
+
 # --- 0.8.1: ревью #141 -------------------------------------------------------
 
 # Метрики: перенос с раздуванием. Новый component больше максимума baseline или суммы
@@ -136,6 +154,14 @@ sed -i "/^${mem2}\$/d" "$tmp/main-ref/app-members.txt"
 if INVARIANTS_DIR="$tmp/inv-cur" $g --from "$tmp/main-ref" >/dev/null 2>&1; then fail "guard: новый член app.* в baseline без исключения не пойман"; fi
 printf 'app-members\t%s\tпотому что так надо\n' "$mem2" >> "$tmp/inv-cur/exceptions.txt"
 INVARIANTS_DIR="$tmp/inv-cur" $g --from "$tmp/main-ref" >/dev/null || fail "guard: новый член с исключением не прошёл"
+
+# Второй уровень в guard: main знает на один член меньше.
+cp docs/frontend-invariants/app-nested.txt "$tmp/main-ref/app-nested.txt"
+nest2=$(head -1 docs/frontend-invariants/app-nested.txt)
+sed -i "/^${nest2}\$/d" "$tmp/main-ref/app-nested.txt"
+if INVARIANTS_DIR="$tmp/inv-cur" $g --from "$tmp/main-ref" >/dev/null 2>&1; then fail "guard: новый app.ui/selection.* без исключения не пойман"; fi
+printf 'app-nested\t%s\tпотому что так надо\n' "$nest2" >> "$tmp/inv-cur/exceptions.txt"
+INVARIANTS_DIR="$tmp/inv-cur" $g --from "$tmp/main-ref" >/dev/null || fail "guard: новый app.ui/selection.* с исключением не прошёл"
 
 # --- инварианты доступности --------------------------------------------------
 

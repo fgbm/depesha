@@ -5,7 +5,7 @@
 #   scripts/frontend-baseline-guard.sh              против origin/main
 #   scripts/frontend-baseline-guard.sh REF          против REF (ветка, тег, коммит)
 #   scripts/frontend-baseline-guard.sh --from DIR   против файлов из DIR
-#                                                   (frontend-metrics-baseline.txt, app-members.txt)
+#                                                   (frontend-metrics-baseline.txt, app-members.txt, app-nested.txt)
 #
 # На main и на ветке, равной main, роста нет по определению. Исключения —
 # docs/frontend-metrics-exceptions.txt и docs/frontend-invariants/exceptions.txt.
@@ -30,6 +30,8 @@ if [[ -z $from ]]; then
   trap 'rm -rf "$from"' EXIT
   git show "$ref:docs/frontend-metrics-baseline.txt" > "$from/frontend-metrics-baseline.txt"
   git show "$ref:docs/frontend-invariants/app-members.txt" > "$from/app-members.txt"
+  # Файла второго уровня в main может ещё не быть.
+  git show "$ref:docs/frontend-invariants/app-nested.txt" > "$from/app-nested.txt" 2>/dev/null || rm -f "$from/app-nested.txt"
 fi
 
 scripts/frontend-metrics.sh --diff "$from/frontend-metrics-baseline.txt" docs/frontend-metrics-baseline.txt
