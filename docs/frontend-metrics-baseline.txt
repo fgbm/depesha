@@ -4,13 +4,13 @@ component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	271	128	43	100
 component	src/components/AttachmentMenu.svelte	158	9	99	50
 component	src/components/Avatar.svelte	46	12	7	27
-component	src/components/Compose.svelte	1246	391	334	521
+component	src/components/Compose.svelte	1267	398	337	532
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	155	88	50	17
 component	src/components/FolderPicker.svelte	40	18	11	11
-component	src/components/FormatBar.svelte	414	263	74	77
+component	src/components/FormatBar.svelte	415	264	74	77
 component	src/components/HintLine.svelte	134	43	29	62
 component	src/components/Keys.svelte	70	16	9	45
 component	src/components/LabelColors.svelte	87	29	17	41
@@ -18,7 +18,7 @@ component	src/components/LabelMenu.svelte	41	25	12	4
 component	src/components/LabelPicker.svelte	229	73	64	92
 component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
-component	src/components/MailFrame.svelte	189	147	8	34
+component	src/components/MailFrame.svelte	190	148	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	48	7	8	33
 component	src/components/MessageList.svelte	809	234	132	443
@@ -68,7 +68,7 @@ component	src/components/people/PickPerson.svelte	128	54	23	51
 component	src/components/prefs/AccountsPanel.svelte	29	18	11	0
 component	src/components/prefs/FolderProps.svelte	415	19	179	217
 component	src/components/prefs/HintsList.svelte	84	32	23	29
-component	src/components/prefs/KeysPanel.svelte	678	72	164	442
+component	src/components/prefs/KeysPanel.svelte	684	78	164	442
 component	src/components/prefs/LayerMark.svelte	44	6	6	32
 component	src/components/prefs/PluginsPanel.svelte	43	8	11	24
 component	src/components/prefs/RowControl.svelte	126	50	67	9
@@ -83,10 +83,10 @@ component	src/components/prefs/controls/ValueField.svelte	114	80	24	10
 component	src/components/reader/AttachmentStrip.svelte	249	81	52	116
 component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	773	350	113	310
-component	src/components/reader/QuickReply.svelte	218	57	31	130
+component	src/components/reader/QuickReply.svelte	212	56	31	125
 component	src/components/reader/ReaderBody.svelte	187	108	43	36
 component	src/components/reader/ReaderHeader.svelte	259	90	46	123
-component	src/components/reader/ReaderStates.svelte	240	35	75	130
+component	src/components/reader/ReaderStates.svelte	243	36	77	130
 component	src/components/reader/ReaderToolbar.svelte	172	70	52	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
 component	src/components/sidebar/DndButton.svelte	46	29	17	0
@@ -158,7 +158,7 @@ function	plugins/followups/fixtures.ts::sayIn	11
 function	plugins/followups/fixtures.ts::wait	20
 function	plugins/followups/fixtures.ts::letter	29
 function	plugins/followups/fixtures.ts::incoming	13
-function	plugins/followups/index.test.ts::fakeContext	21
+function	plugins/followups/index.test.ts::fakeContext	22
 function	plugins/followups/index.test.ts::opened	1
 function	plugins/followups/index.ts::waiting	4
 function	plugins/followups/index.ts::repick	1
@@ -175,8 +175,8 @@ function	plugins/followups/rows.test.ts::f	1
 function	plugins/followups/rows.ts::rowTag	43
 function	plugins/followups/rows.ts::goingTag	9
 function	plugins/followups/rows.ts::since	6
-function	plugins/followups/stop.ts::stopWaiting	20
-function	plugins/followups/stop.ts::resumeWaiting	13
+function	plugins/followups/stop.ts::stopWaiting	21
+function	plugins/followups/stop.ts::resumeWaiting	15
 function	plugins/followups/stop.ts::isWaiting	4
 function	plugins/followups/stop.ts::registerStop	27
 function	plugins/followups/strings.test.ts::holes	1
@@ -524,6 +524,7 @@ function	src/components/prefs/FolderProps.svelte::runCheck	9
 function	src/components/prefs/FolderProps.svelte::pos	8
 function	src/components/prefs/HintsList.svelte::load	7
 function	src/components/prefs/HintsList.svelte::clear	10
+function	src/components/prefs/KeysPanel.svelte::paletteNote	4
 function	src/components/prefs/KeysPanel.svelte::pluginName	4
 function	src/components/prefs/KeysPanel.svelte::problemText	3
 function	src/components/prefs/KeysPanel.svelte::messageText	3
@@ -650,11 +651,11 @@ function	src/lib/background.test.ts::started	6
 function	src/lib/banner.test.ts::run	1
 function	src/lib/banner.ts::foldBanner	13
 function	src/lib/clearFolder.svelte.ts::text	1
-function	src/lib/clearFolder.svelte.ts::left	19
+function	src/lib/clearFolder.svelte.ts::left	22
 function	src/lib/clearFolder.svelte.ts::taskKey	3
 function	src/lib/clearFolder.svelte.ts::parseKey	5
 function	src/lib/clearFolder.test.ts::folder	11
-function	src/lib/clearFolder.test.ts::host	21
+function	src/lib/clearFolder.test.ts::host	27
 function	src/lib/commands.ts::coreCommands	129
 function	src/lib/compose.test.ts::sig	3
 function	src/lib/compose.test.ts::msg	34
@@ -783,6 +784,7 @@ function	src/lib/format.ts::messagesCount	3
 function	src/lib/format.ts::avatarColor	5
 function	src/lib/format.ts::initials	9
 function	src/lib/format.ts::matches	8
+function	src/lib/frameLink.ts::linkAt	3
 function	src/lib/hints.svelte.test.ts::draft	2
 function	src/lib/hints.svelte.ts::now	3
 function	src/lib/hints.svelte.ts::bySubject	5
@@ -831,7 +833,8 @@ function	src/lib/keymap.ts::physical	8
 function	src/lib/keymap.ts::pressName	6
 function	src/lib/keymap.ts::pressNames	8
 function	src/lib/keymap.ts::heldMods	7
-function	src/lib/keymap.ts::partName	4
+function	src/lib/keymap.ts::modName	3
+function	src/lib/keymap.ts::partName	5
 function	src/lib/keymap.ts::caps	13
 function	src/lib/keymap.ts::keyText	5
 function	src/lib/keymap.ts::problem	11
@@ -847,7 +850,8 @@ function	src/lib/keymap.ts::replace	5
 function	src/lib/keymap.ts::canSwap	5
 function	src/lib/keymap.ts::swap	6
 function	src/lib/keymap.ts::removeKey	5
-function	src/lib/keymap.ts::matches	9
+function	src/lib/keymap.ts::plain	5
+function	src/lib/keymap.ts::matches	10
 function	src/lib/labels.svelte.test.ts::props	3
 function	src/lib/labels.test.ts::rights	18
 function	src/lib/labels.test.ts::folder	13
@@ -994,7 +998,7 @@ function	src/lib/mdedit.ts::linesEdit	14
 function	src/lib/mdedit.ts::linkEdit	6
 function	src/lib/mdedit.ts::clearEdit	13
 function	src/lib/menuScroll.ts::scrollToRow	4
-function	src/lib/office.ts::clean	3
+function	src/lib/office.ts::clean	4
 function	src/lib/office.ts::docxHtml	14
 function	src/lib/office.ts::sheetsHtml	19
 function	src/lib/people.test.ts::person	1
@@ -1002,7 +1006,7 @@ function	src/lib/people.ts::blankPerson	16
 function	src/lib/people.ts::addressesOf	3
 function	src/lib/people.ts::hasAddress	4
 function	src/lib/people.ts::findPerson	4
-function	src/lib/people.ts::allMailQuery	4
+function	src/lib/people.ts::allMailQuery	6
 function	src/lib/people.ts::strictestFormat	3
 function	src/lib/people.ts::sendFormatFor	3
 function	src/lib/people.ts::recipientParts	7
@@ -1260,7 +1264,7 @@ function	src/plugin-host/host.svelte.ts::fill	3
 function	src/plugin-host/host.svelte.ts::pick	3
 function	src/plugin-host/host.svelte.ts::sharedCounters	21
 function	src/plugin-host/host.svelte.ts::allCommands	3
-function	src/plugin-host/host.svelte.ts::context	79
+function	src/plugin-host/host.svelte.ts::context	80
 function	src/plugin-host/host.svelte.ts::rest#1	2
 function	src/plugin-host/host.svelte.ts::rest#2	2
 function	src/plugin-host/host.test.ts::run#1	1
