@@ -19,7 +19,7 @@ const row = (id: number) => ({ id, account_id: "a", folder: "INBOX", from: { nam
 const opened = (id: number): OpenedMessage =>
   ({
     row: row(id),
-    view: { summary: { message_id: `m${id}`, subject: "Тема", from: { name: "Иван", email: "ivan@x.example" }, to: [], cc: [], date: 1000 }, attachments: [], text: "text", views: ["text"] },
+    view: { summary: { message_id: null, subject: "Тема", from: { name: "Иван", email: "ivan@x.example" }, to: [], cc: [], date: 1000 }, attachments: [], text: "text", views: ["text"] },
   }) as unknown as OpenedMessage;
 
 let view: ReturnType<typeof mount> | null = null;
@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe("the folded conversation", () => {
-  it("unfolds with «N more» and folds again when another letter opens", () => {
+  it("unfolds with «N more» and folds again when another letter opens, whatever its Message-ID", () => {
     expect(more()).toBe(1);
     document.querySelector<HTMLButtonElement>(".card.more")!.click();
     flushSync();
@@ -55,5 +55,13 @@ describe("the folded conversation", () => {
     app.reader.opened = opened(6);
     flushSync();
     expect(more()).toBe(1);
+  });
+
+  it("stays unfolded when the same letter is loaded again", () => {
+    document.querySelector<HTMLButtonElement>(".card.more")!.click();
+    flushSync();
+    app.reader.opened = opened(7);
+    flushSync();
+    expect(more()).toBe(0);
   });
 });
