@@ -2572,7 +2572,7 @@ try {
     if (p.overHeader) throw new Error(`письмо легло поверх шапки листа: ${p.overHeader} блоков`);
   });
 
-  await step("9.2", "карточка человека: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
+  await step("9.2", "карточка контакта: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
     const subj = `Карточка ${stamp}`;
     helper("deliver", subj);
     await d.button("Входящие");
@@ -2593,7 +2593,7 @@ try {
     await d.until("search by sender", async () => (await d.exec("return document.querySelector('.list .search input')?.value ?? ''")).includes("from:petr@example.org"));
     await rowBySubject(subj, 10000);
   });
-  await step("9.3", "адресная книга (#104): открыть с клавиатуры, найти человека, изменить настройку, объединить и вернуть; ссылка «Своё у …» из настроек; карточка письма клавишей, имя в карточке", async () => {
+  await step("9.3", "адресная книга (#104): открыть с клавиатуры, найти контакт, изменить настройку, объединить и вернуть; ссылка «Своё у …» из настроек; карточка письма клавишей, имя в карточке", async () => {
     const people = () => invoke("people", { query: "" });
     const byEmail = async (email) => (await people()).find((p) => p.emails.some((a) => a.email.toLowerCase() === email));
     const night = (on) => d.exec("document.documentElement.dataset.theme = arguments[0]", on ? "night" : "paper");
@@ -2610,10 +2610,10 @@ try {
     // The book opens from the keyboard: the palette, «go to people».
     await press("k", { ctrlKey: true });
     await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
-    await d.type(await d.find(".palette .q"), "перейти люди");
+    await d.type(await d.find(".palette .q"), "перейти контакты");
     await d.type(await d.find(".palette .q"), "\uE007");
     await d.until("book", async () => (await d.findAll(".people")).length === 1);
-    if (!(await d.findAll("nav.side .item.active")).length) throw new Error("в боковой панели «Люди» не отмечены");
+    if (!(await d.findAll("nav.side .item.active")).length) throw new Error("в боковой панели «Контакты» не отмечены");
     await screenshot("people-book");
     await night(true);
     await screenshot("people-book-night");
@@ -2679,7 +2679,7 @@ try {
     await d.until("book from settings", async () => (await d.findAll(".people")).length === 1 && (await d.findAll(".prefs")).length === 0);
     if (!(await textOf(".people .fchip.on")).includes("С особым форматом")) throw new Error("список не отфильтрован по «С особым форматом»");
     await screenshot("people-from-settings");
-    if ((await d.findAll(".prefs .tab[data-page='people']")).length) throw new Error("в настройках остался пункт «Люди»");
+    if ((await d.findAll(".prefs .tab[data-page='people']")).length) throw new Error("в настройках остался пункт «Контакты»");
 
     // The test people go away; the letter of 9.2 gets its card by the key, and the name is written in it.
     for (const email of ["olga.e2e@example.org", "smirnova.e2e@example.net"]) await invoke("person_forget", { email });

@@ -230,7 +230,7 @@ describe("an address that may be another person's", () => {
     const smirnova = person("Смирнова Ольга", ["o.smirnova@example.net"]);
     await book([olga(), smirnova]);
     const root = show(PersonCard, { email: "o.smirnova@example.net", name: "", onAllMail: () => {}, inBook: true });
-    expect(root.textContent).toContain("Возможно, это один человек: Ольга Смирнова");
+    expect(root.textContent).toContain("Возможно, это один и тот же контакт: Ольга Смирнова");
     press(rowOf(root, "all"), "n");
     await tick();
     expect(api.hintSave).toHaveBeenCalledWith(
@@ -290,7 +290,7 @@ describe("the keys of the book", () => {
   it("shows the suggestion over the list, M joins the pair and N says they are two", async () => {
     await book([olga(), person("Смирнова Ольга", ["o.smirnova@example.net"]), ivan()]);
     const root = show(PeopleView);
-    expect(root.querySelector(".banner")?.textContent).toContain("Возможно, это один человек");
+    expect(root.querySelector(".banner")?.textContent).toContain("Возможно, это один и тот же контакт");
     const list = root.querySelector<HTMLElement>("[role=listbox]")!;
     press(list, "m");
     expect(peopleOps.dialog?.plan.people.map((p) => p.name).sort()).toEqual(["Ольга Смирнова", "Смирнова Ольга"]);
@@ -320,7 +320,7 @@ describe("the merge dialog", () => {
     api.personMerge.mockResolvedValue({ person: { ...a, emails: [...a.emails, ...b.emails] }, undo: { persons: [] } });
     peopleOps.merge([b, a]);
     const root = show(MergeDialog);
-    expect(root.textContent).toContain("Объединить 2 человека в одного");
+    expect(root.textContent).toContain("Объединить 2 контакта в один");
     // The format differs: the strictest, plain text, is chosen; the hiding differs: «Hide» wins.
     expect(root.querySelector<HTMLInputElement>('input[name="merge-format"]:checked')?.value).toBe("plain");
     expect(root.querySelector<HTMLInputElement>('input[name="merge-name"]:checked')?.value).toBe("Ольга Смирнова");

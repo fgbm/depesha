@@ -40,6 +40,14 @@ describe("palette order", () => {
     expect(rank(commands, "arch", r).map((c) => c.id)).toEqual(["archive", "move.archive"]);
   });
 
+  it("finds a command by its synonyms, together with a word of the title", () => {
+    const book: Command = { id: "people", title: () => "Go: contacts", synonyms: () => "people person", run() {} };
+    const r = new Recency(memory());
+    expect(rank([book, ...commands], "go people", r).map((c) => c.id)).toEqual(["people"]);
+    expect(rank([book, ...commands], "pers", r).map((c) => c.id)).toEqual(["people"]);
+    expect(rank([book, ...commands], "contacts", r).map((c) => c.id)).toEqual(["people"]);
+  });
+
   it("remembers across restarts and forgets what it cannot read", () => {
     const storage = memory();
     new Recency(storage).touch("archive", 42);

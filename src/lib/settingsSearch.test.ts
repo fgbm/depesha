@@ -72,6 +72,8 @@ describe("finding a setting by name", () => {
   });
 
   it("finds the page «People» and the hints (#66, #69)", () => {
+    expect(searchSettings(index(), "контакты").some((h) => h.page === "people")).toBe(true);
+    // The old name still finds it.
     expect(searchSettings(index(), "люди").some((h) => h.page === "people")).toBe(true);
     expect(searchSettings(index(), "подсказки").some((h) => h.page === "look" && h.anchor === "hints")).toBe(true);
   });

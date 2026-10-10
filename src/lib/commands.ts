@@ -116,7 +116,7 @@ export function coreCommands(): Command[] {
   }
   list.push({ id: "core.go.outbox", title: where(t("nav.outbox")), run: go({ kind: "outbox" }) });
   // The address book (#104): the folder, this command and, when the user gives it, a key.
-  list.push({ id: "core.people", title: where(t("nav.people")), run: () => void app.openPeople() });
+  list.push({ id: "core.people", title: where(t("nav.people")), synonyms: () => t("cmd.peopleAlso"), run: () => void app.openPeople() });
   if (msg?.view.summary.from?.email) {
     list.push({ id: "core.sender-card", title: () => t("cmd.senderCard"), run: () => app.openSenderCard() });
   }

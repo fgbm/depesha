@@ -169,7 +169,7 @@ describe("the people moved to the main window (#104)", () => {
     field.value = "формат писем";
     field.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
-    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Люди"))!;
+    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Контакты"))!;
     hit.click();
     await vi.waitFor(() => expect(book).toHaveBeenCalled());
     book.mockRestore();

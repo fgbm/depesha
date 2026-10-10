@@ -122,7 +122,7 @@ export async function peopleBook(kit, names) {
   // 02 and 01. The book of people: the two spellings of one person, then the merged card.
   await press("k", { ctrlKey: true });
   await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
-  await d.type(await d.find(".palette .q"), "перейти люди");
+  await d.type(await d.find(".palette .q"), "перейти контакты");
   await d.type(await d.find(".palette .q"), "");
   await d.until("book", async () => (await d.findAll(".people")).length === 1);
   await d.exec("document.querySelector('.people [role=listbox]').focus()");

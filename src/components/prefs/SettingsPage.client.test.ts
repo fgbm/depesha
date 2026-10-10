@@ -201,7 +201,7 @@ describe("the way to the format of individual people (#102)", () => {
   it("is on the page though nobody has a format of their own yet, and leads to the people", async () => {
     page = setup("writing");
     const way = page.row("layer_format");
-    expect(way.textContent).toContain("Задать для отдельных людей");
+    expect(way.textContent).toContain("Задать для отдельных контактов");
     way.querySelector<HTMLElement>(".lnk")!.click();
     expect(page.went).toEqual(["people"]);
   });

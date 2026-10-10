@@ -55,10 +55,16 @@ export function matchQuality(title: string, query: string): number {
   return first && word.startsWith(first) ? 2 : 1;
 }
 
+/** `matchQuality` of a command; its synonyms count as more words of the title ("go people" finds «Go: contacts»). */
+function commandQuality(c: Command, query: string): number {
+  const q = matchQuality(c.title(), query);
+  return q < 0 && c.synonyms && matches(`${c.title()} ${c.synonyms()}`, query) ? 1 : q;
+}
+
 /** The commands that match, best first, recent first among equals, then in their own order. */
 export function rank(commands: Command[], query: string, recency: Pick<Recency, "at">): Command[] {
   return commands
-    .map((c, i) => ({ c, i, q: query.trim() ? matchQuality(c.title(), query) : 0, at: recency.at(c.id) }))
+    .map((c, i) => ({ c, i, q: query.trim() ? commandQuality(c, query) : 0, at: recency.at(c.id) }))
     .filter((x) => x.q >= 0)
     .sort((a, b) => b.q - a.q || b.at - a.at || a.i - b.i)
     .map((x) => x.c);

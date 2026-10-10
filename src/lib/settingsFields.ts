@@ -35,7 +35,7 @@ export function buildSettingsIndex(): SearchEntry[] {
       }
     }
   }
-  out.push({ page: "people", group: t("people.title"), section: "", label: t("people.title"), anchor: null });
+  out.push({ page: "people", group: t("people.title"), section: "", label: t("people.title"), synonyms: t("cmd.peopleAlso"), anchor: null });
   for (const f of PEOPLE_FIELDS) {
     out.push({ page: "people", group: t("people.title"), section: t("people.card"), label: t(f.label), synonyms: f.also?.map((k) => t(k)).join(" ") ?? "", anchor: f.anchor });
   }

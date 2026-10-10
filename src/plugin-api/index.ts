@@ -64,6 +64,8 @@ export interface Command {
   title: () => string;
   /** Shown next to the title, e.g. "h". */
   hint?: () => string;
+  /** Extra words the palette finds the command by, besides its title. */
+  synonyms?: () => string;
   /** Offered only when this holds. */
   when?: () => boolean;
   run: () => void;

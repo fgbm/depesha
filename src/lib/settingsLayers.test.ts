@@ -35,8 +35,8 @@ describe("whose value differs from the general one (#102, 3.1 В)", () => {
 
 describe("the line on the general setting", () => {
   it("names the people and the mailboxes by number, with the right word for each", () => {
-    expect(layerSummary({ people: [person("a@x")], accounts: [account("w"), account("h")] })).toBe("Своё у 1 человека, 2 ящиков");
-    expect(layerSummary({ people: [person("a"), person("b"), person("c")], accounts: [] })).toBe("Своё у 3 людей");
+    expect(layerSummary({ people: [person("a@x")], accounts: [account("w"), account("h")] })).toBe("Своё у 1 контакта, 2 ящиков");
+    expect(layerSummary({ people: [person("a"), person("b"), person("c")], accounts: [] })).toBe("Своё у 3 контактов");
   });
 
   it("is empty when nothing differs", () => {
@@ -44,7 +44,7 @@ describe("the line on the general setting", () => {
   });
 
   it("still names the way when nothing differs: to set the value for individual people", () => {
-    expect(layerText({ people: [], accounts: [] })).toBe("Задать для отдельных людей");
-    expect(layerText({ people: [person("a@x")], accounts: [] })).toBe("Своё у 1 человека");
+    expect(layerText({ people: [], accounts: [] })).toBe("Задать для отдельных контактов");
+    expect(layerText({ people: [person("a@x")], accounts: [] })).toBe("Своё у 1 контакта");
   });
 });

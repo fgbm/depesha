@@ -12,7 +12,7 @@
     placeholder: { en: "What to do? E.g. “sno tom” or “mov arch”", ru: "Что сделать? Например: «отл завт» или «пер архив»" },
     none: { en: "No such command", ru: "Нет такой команды" },
     edit: { en: "Alt+Enter — edit the key", ru: "Alt+Enter — изменить клавишу" },
-    people: { en: "People", ru: "Люди" },
+    people: { en: "Contacts", ru: "Контакты" },
   };
 
   /** Opens Settings → «Keys», at this command when there is one (Alt+Enter, #46). */
