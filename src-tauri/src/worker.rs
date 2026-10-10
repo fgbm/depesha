@@ -528,6 +528,18 @@ impl depesha_core::port::MailQueue for Queue {
         self.run(Work::CreateFolder(name.to_owned())).await.map(drop)
     }
 
+    async fn strip_label(&mut self, folder: &str, keyword: &str) -> Result<usize> {
+        let work = Work::StripLabel {
+            folder: folder.to_owned(),
+            keyword: keyword.to_owned(),
+        };
+        // Any other answer is a folder with nothing to count.
+        Ok(match self.run(work).await? {
+            Output::Count(n) => n,
+            _ => 0,
+        })
+    }
+
     async fn copy_to_sent(&mut self, folder: &str, raw: &[u8], flags: &str, message_id: Option<&str>) -> Result<()> {
         let work = Work::CopyToSent {
             folder: folder.to_owned(),

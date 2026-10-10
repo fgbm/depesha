@@ -89,6 +89,10 @@ pub trait MailQueue: Send {
         message_id: Option<&str>,
     ) -> impl Future<Output = Result<()>> + Send;
 
+    /// Takes the keyword off every letter of `folder`; how many letters had it. A refusal
+    /// (no rights) is an error the caller skips the folder for.
+    fn strip_label(&mut self, folder: &str, keyword: &str) -> impl Future<Output = Result<usize>> + Send;
+
     /// Changes a flag of the letter `message_id` in `folder` (as the cache names it); the
     /// implementation finds the letter. `Error::NotFound` when it is not there.
     fn set_flag(
@@ -118,6 +122,8 @@ pub(crate) mod fake {
         /// The answers of `copy_to_sent`; `Ok` once they run out.
         pub copied: VecDeque<Result<()>>,
         pub copies: Vec<(String, Vec<u8>)>,
+        /// The answers of `strip_label`, in order; `Ok(0)` once they run out.
+        pub stripped: VecDeque<Result<usize>>,
         /// The answers of `set_flag`; `Ok` once they run out.
         pub flagged: VecDeque<Result<()>>,
     }
@@ -142,6 +148,11 @@ pub(crate) mod fake {
             self.log.lock().unwrap().push(format!("copy {folder}"));
             self.copies.push((folder.to_owned(), raw.to_vec()));
             self.copied.pop_front().unwrap_or(Ok(()))
+        }
+
+        async fn strip_label(&mut self, folder: &str, keyword: &str) -> Result<usize> {
+            self.log.lock().unwrap().push(format!("strip {folder} {keyword}"));
+            self.stripped.pop_front().unwrap_or(Ok(0))
         }
 
         async fn create_folder(&mut self, name: &str) -> Result<()> {

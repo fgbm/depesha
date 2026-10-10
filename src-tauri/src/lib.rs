@@ -205,8 +205,7 @@ pub fn run() {
                 archivals: Default::default(),
                 refused: Default::default(),
                 bounds: Default::default(),
-                label_running: Default::default(),
-                label_stalled: Default::default(),
+                label_strip: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();

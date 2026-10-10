@@ -13,6 +13,7 @@ pub mod ews;
 pub(crate) mod http;
 pub mod idle_pace;
 pub mod imap;
+pub mod label_strip;
 pub mod lang;
 pub mod mail;
 pub mod message;

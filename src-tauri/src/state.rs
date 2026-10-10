@@ -68,10 +68,8 @@ pub struct AppState {
     pub refused: depesha_core::waiting::Refused,
     /// The counts the «Clear» dialogs made, kept for the run that follows.
     pub bounds: depesha_core::clear::Bounds<depesha_core::mail::Bound>,
-    /// Labels whose strip is running, by `(account, name)` (#145).
-    pub label_running: Mutex<HashSet<(String, String)>>,
-    /// Strips that ended in a retry without progress, by `(account, name)`, and when.
-    pub label_stalled: Mutex<HashMap<(String, String), std::time::Instant>>,
+    /// Labels whose strip is running, and the strips that ended in a retry without progress (#136).
+    pub label_strip: Arc<depesha_core::label_strip::Stripping>,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load
