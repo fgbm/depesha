@@ -4,7 +4,7 @@
 //! the drafts on disk. The rules of what is wiped and what stays are in the core.
 
 use depesha_core::account::Account;
-use depesha_core::clear::{self, Emptied, Emptying};
+use depesha_core::clear::{self, Emptied, Emptying, Forgot};
 use depesha_core::domain::FolderRole;
 use depesha_core::lang::pick;
 use depesha_core::mail::{self, Conn};
@@ -72,12 +72,13 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
         state.task(key, "empty", Some(id), req.label.clone(), done as u64, total as u64);
         !state.task_stop_requested(key)
     };
-    let mut cache_forgot = |forgot: Result<()>| match forgot {
-        Ok(()) => {
+    let mut cache_forgot = |forgot: Forgot| match forgot {
+        Forgot::Done => {
             state.emit("mail-changed", json!({ "account_id": id, "folder": folder }));
             state.emit("counters-changed", json!({}));
         }
-        Err(e) => tracing::warn!(account = %id, "cache of {folder} not cleared: {e}"),
+        Forgot::NotRead(e) => tracing::warn!(account = %id, "cache of {folder} not read: {e}"),
+        Forgot::NotCleared(e) => tracing::warn!(account = %id, "cache of {folder} not cleared: {e}"),
     };
     let done = mail::clear_folder(
         conn,
@@ -162,6 +163,10 @@ pub async fn run(
     state.clearing.confirm(bound);
     let mut copies = Vec::new();
     if drafts {
+        // The windows' record is read after the copies on disk (`leaving_copies`), so what shifts
+        // in between errs on the safe side: a draft opened since is spared (its id is in the
+        // record), a copy written since is not in `copies` and so is never dropped, and a window
+        // that closed leaves its draft on the server, whose copy then follows it as it is meant to.
         copies = crate::drafts::read_all(&crate::drafts::dir(&state.app)?).await?;
     }
     let (keep_ids, leaving) = clear::leaving_copies(

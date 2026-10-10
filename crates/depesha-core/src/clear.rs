@@ -136,7 +136,7 @@ pub struct Performed {
 }
 
 /// Runs the request on the server. `progress` is the one of `empty_folder`; `cache_changed`
-/// is told what came of dropping the cached letters the run takes, once, as the erasing
+/// is told what came of dropping the cached letters (`Forgot`) the run takes, once, as the erasing
 /// begins and not before: the folder shows empty while the server catches up (the sync after
 /// the run brings back whatever was left).
 pub async fn perform<S: MailServer>(
@@ -146,7 +146,7 @@ pub async fn perform<S: MailServer>(
     account_id: &str,
     req: &Request,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
-    cache_forgot: &mut (dyn FnMut(Result<()>) + Send),
+    cache_forgot: &mut (dyn FnMut(Forgot) + Send),
 ) -> Performed {
     let mut last = (0usize, 0usize);
     let mut forgotten = false;
@@ -170,10 +170,26 @@ pub async fn perform<S: MailServer>(
     Performed { result, last, kept_ids }
 }
 
+/// What came of dropping the cached letters a run takes.
+#[derive(Debug)]
+pub enum Forgot {
+    Done,
+    /// The cache could not say which letters those are: it is left as it was.
+    NotRead(Error),
+    /// The letters were found but not removed.
+    NotCleared(Error),
+}
+
 /// Takes the folder's cached letters that the run takes (but `keep`) out of the cache.
-fn forget_cached(store: &Store, account_id: &str, folder: &str, keep: &[u32], bound: &Bound) -> Result<()> {
-    let gone = uids_to_forget(store, account_id, folder, keep, bound)?;
-    store.remove_uids(account_id, folder, &gone).map(drop)
+fn forget_cached(store: &Store, account_id: &str, folder: &str, keep: &[u32], bound: &Bound) -> Forgot {
+    let gone = match uids_to_forget(store, account_id, folder, keep, bound) {
+        Ok(gone) => gone,
+        Err(e) => return Forgot::NotRead(e),
+    };
+    match store.remove_uids(account_id, folder, &gone) {
+        Ok(_) => Forgot::Done,
+        Err(e) => Forgot::NotCleared(e),
+    }
 }
 
 /// The role of a folder that «Clear» is offered for; anything else is not cleared.
@@ -841,8 +857,11 @@ mod tests {
         validity: u32,
         folders: HashMap<String, Vec<u32>>,
         batch: usize,
-        /// The n-th erase or move (from 1) fails, once.
+        /// The n-th erase or move (from 1) fails, once, before it changed anything.
         fail_at: Option<usize>,
+        /// The n-th erase or move (from 1) applies the first half of its batch and then
+        /// fails, once: a connection that dropped in the middle of a request.
+        half_at: Option<usize>,
         requests: Vec<Vec<u32>>,
     }
 
@@ -853,6 +872,7 @@ mod tests {
                 folders: HashMap::from([(folder.to_owned(), uids.into_iter().collect())]),
                 batch: 2,
                 fail_at: None,
+                half_at: None,
                 requests: Vec::new(),
             }
         }
@@ -861,13 +881,19 @@ mod tests {
             self.folders.get(folder).cloned().unwrap_or_default()
         }
 
-        fn request(&mut self, items: &[u32]) -> Result<()> {
+        /// Records a request; what of it the server applies, and how it ends.
+        fn take<'a>(&mut self, items: &'a [u32]) -> (&'a [u32], Result<()>) {
             self.requests.push(items.to_vec());
-            if self.fail_at == Some(self.requests.len()) {
+            let n = self.requests.len();
+            if self.fail_at == Some(n) {
                 self.fail_at = None;
-                return Err(Error::Closed);
+                return (&items[..0], Err(Error::Closed));
             }
-            Ok(())
+            if self.half_at == Some(n) {
+                self.half_at = None;
+                return (&items[..items.len() / 2], Err(Error::Closed));
+            }
+            (items, Ok(()))
         }
     }
 
@@ -891,22 +917,25 @@ mod tests {
         }
 
         async fn erase(&mut self, folder: &str, items: &[u32]) -> Result<()> {
-            self.request(items)?;
+            let (applied, end) = self.take(items);
             self.folders
                 .entry(folder.to_owned())
                 .or_default()
-                .retain(|u| !items.contains(u));
-            Ok(())
+                .retain(|u| !applied.contains(u));
+            end
         }
 
         async fn move_to(&mut self, folder: &str, items: &[u32], to: &str) -> Result<()> {
-            self.request(items)?;
+            let (applied, end) = self.take(items);
             self.folders
                 .entry(folder.to_owned())
                 .or_default()
-                .retain(|u| !items.contains(u));
-            self.folders.entry(to.to_owned()).or_default().extend_from_slice(items);
-            Ok(())
+                .retain(|u| !applied.contains(u));
+            self.folders
+                .entry(to.to_owned())
+                .or_default()
+                .extend_from_slice(applied);
+            end
         }
 
         fn batch(&self) -> usize {
@@ -1145,7 +1174,7 @@ mod tests {
                 seen.push((d, t));
                 true
             },
-            &mut |forgot| told.push(forgot.is_ok()),
+            &mut |forgot| told.push(matches!(forgot, Forgot::Done)),
         )
         .await;
         assert_eq!(done.result.unwrap().done, 3);
@@ -1177,5 +1206,54 @@ mod tests {
         assert_eq!(leaving, ["one"]);
         assert_eq!(open_in_drafts(&store, &clearing, "a"), 1);
         assert_eq!(open_in_drafts(&store, &clearing, "b"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_batch_cut_in_the_middle_is_repeated_from_the_same_bound_to_an_empty_folder() {
+        let mut server = Fake::with("Trash", 1..=5);
+        server.half_at = Some(2);
+        let bound = counted_bound(&mut server).await;
+        let (run, seen) = empty(&mut server, &Emptying::Erase, &bound, &[], None).await;
+        assert!(run.is_err());
+        // The server applied 3 and told of 2: the repeat finds what is really left.
+        assert_eq!(seen, [(0, 5), (2, 5)]);
+        assert_eq!(server.left("Trash"), [4, 5]);
+        let (run, _) = empty(&mut server, &Emptying::Erase, &bound, &[], None).await;
+        let run = run.unwrap();
+        assert_eq!((run.total, run.done), (2, 2), "done is what was left");
+        assert!(server.left("Trash").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_run_reports_how_far_it_got_and_tells_the_cache_once() {
+        let store = Store::open_in_memory().unwrap();
+        drafts_folder(&store);
+        for uid in 1..=5 {
+            cached(&store, uid, &format!("{uid}@x"));
+        }
+        let mut server = Fake::with("Drafts", 1..=5);
+        server.fail_at = Some(2);
+        let bound = server.count("Drafts").await.unwrap().1;
+        let req = Request {
+            folder: "Drafts".into(),
+            how: Emptying::Erase,
+            bound,
+            keep_ids: Vec::new(),
+            drafts: false,
+        };
+        let mut told = Vec::new();
+        let done = perform(
+            &mut server,
+            &store,
+            &Clearing::default(),
+            "a",
+            &req,
+            &mut |_, _| true,
+            &mut |forgot| told.push(matches!(forgot, Forgot::Done)),
+        )
+        .await;
+        assert!(done.result.is_err());
+        assert_eq!(done.last, (2, 5));
+        assert_eq!(told, [true], "the cache is told once, as the erasing begins");
     }
 }

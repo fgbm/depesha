@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::account::{Account, Credentials};
 use crate::avatar::Receiver;
-use crate::clear::{self, Clearing, EMPTY_BATCH, Emptied, Emptying, Performed};
+use crate::clear::{self, Clearing, EMPTY_BATCH, Emptied, Emptying, Forgot, Performed};
 use crate::domain::{FlagChange, Folder};
 use crate::imap::{self, IdleOutcome};
 use crate::port::{Bound, MailServer};
@@ -416,7 +416,7 @@ pub async fn clear_folder(
     account_id: &str,
     req: &clear::Request,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
-    cache_forgot: &mut (dyn FnMut(Result<()>) + Send),
+    cache_forgot: &mut (dyn FnMut(Forgot) + Send),
 ) -> Performed {
     match conn {
         Conn::Imap(c) => {
@@ -432,20 +432,26 @@ pub async fn clear_folder(
 
 /// The port of the mail server over an IMAP connection. It remembers the UIDVALIDITY the
 /// UIDs it handed out were read under, and every change by them is checked against it.
-pub struct ImapServer<'a> {
+pub(crate) struct ImapServer<'a> {
     conn: &'a mut imap::Conn,
     batch: usize,
     validity: Option<u32>,
 }
 
 impl<'a> ImapServer<'a> {
-    pub fn new(conn: &'a mut imap::Conn, batch: usize) -> Self {
+    pub(crate) fn new(conn: &'a mut imap::Conn, batch: usize) -> Self {
         Self {
             conn,
             batch,
             validity: None,
         }
     }
+}
+
+/// The UIDVALIDITY the UIDs were read under. UIDs nobody counted name nothing, and without the
+/// validity the server would not check them (`imap::select_at` skips a `None`).
+fn counted_under(validity: Option<u32>) -> Result<u32> {
+    validity.ok_or_else(|| Error::Protocol("UIDs were changed that were never counted".into()))
 }
 
 impl MailServer for ImapServer<'_> {
@@ -464,11 +470,11 @@ impl MailServer for ImapServer<'_> {
     }
 
     async fn erase(&mut self, folder: &str, items: &[u32]) -> Result<()> {
-        imap::delete_permanently(self.conn, folder, self.validity, items).await
+        imap::delete_permanently(self.conn, folder, Some(counted_under(self.validity)?), items).await
     }
 
     async fn move_to(&mut self, folder: &str, items: &[u32], to: &str) -> Result<()> {
-        imap::move_messages(self.conn, folder, self.validity, items, to).await
+        imap::move_messages(self.conn, folder, Some(counted_under(self.validity)?), items, to).await
     }
 
     fn batch(&self) -> usize {
@@ -481,7 +487,7 @@ const EWS_EMPTY_BATCH: usize = 100;
 
 /// The port of the mail server over an Exchange session. Its items are named by id; the
 /// cache says which of them the cached UIDs are.
-pub struct EwsServer<'a> {
+pub(crate) struct EwsServer<'a> {
     s: &'a mut ews::Session,
     store: &'a Store,
     account_id: &'a str,
@@ -643,6 +649,12 @@ pub async fn wait_for_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uids_that_were_never_counted_are_not_changed() {
+        assert!(matches!(counted_under(None), Err(Error::Protocol(_))));
+        assert_eq!(counted_under(Some(7)).unwrap(), 7);
+    }
 
     /// UIDs read before an Exchange folder was cached anew name other items: refused.
     #[test]
