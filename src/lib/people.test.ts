@@ -139,6 +139,13 @@ describe("a person with several addresses", () => {
     expect(allMailQuery(blankPerson("ivan@x"))).toBe("from:ivan@x");
   });
 
+  it("keeps an address with a space in one token, and no quote of its own breaks the search", () => {
+    const q = allMailQuery({ email: '"a b"@x', emails: [{ email: '"a b"@x' }, { email: "c@y" }] } as never);
+    expect(q).toBe('from:"a b@x|c@y"');
+    // Quotes open and close the value once; the address's own are gone.
+    expect(q.match(/"/g)?.length).toBe(2);
+  });
+
   it("is matched by the search through any address", () => {
     expect(matchPerson(olga, "smirnova@ex")).toBe(true);
     expect(matchPerson(olga, "nope")).toBe(false);

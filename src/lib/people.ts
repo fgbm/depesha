@@ -130,8 +130,10 @@ export function findPerson(people: Person[], email: string): Person | undefined 
 
 /** The search that finds the letters of a person, from any of their addresses (#104, 4.2 А). */
 export function allMailQuery(person: Pick<Person, "email" | "emails">): string {
-  const all = person.emails?.length ? person.emails.map((a) => a.email) : [person.email];
-  return `from:${all.join("|")}`;
+  const all = (person.emails?.length ? person.emails.map((a) => a.email) : [person.email]).map((a) => a.replace(/"/g, ""));
+  // The search splits on spaces outside quotes and takes no escape: a value with a space goes in quotes whole.
+  const value = all.join("|");
+  return /\s/.test(value) ? `from:"${value}"` : `from:${value}`;
 }
 
 // ---- Format of what is written (#44) ----
