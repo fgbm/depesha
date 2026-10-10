@@ -118,6 +118,12 @@
     if (mode === "single") layout.showLetter();
     // A result opened: the search was worth it, it goes among the recent ones.
     if (app.view.kind === "search") recentSearches.remember(app.view.text);
+    // A choice by the mouse leaves the list where it is: the row clicked is in sight, and the
+    // cursor that is left over (the one selected row below the screen) is not worth a jump (#122).
+    if (mode !== "single") {
+      byMouse = true;
+      void tick().then(() => (byMouse = false));
+    }
     app.select(m.id, mode);
   }
 
@@ -168,10 +174,13 @@
   /** The row with the cursor bar: it moves with the key, not with the answer of the server (#108). */
   const cursor = $derived(cursorId(app.selected, app.openingRow?.id, app.opened?.row.id));
 
+  /** The selection is changing by a Ctrl or Shift click, not by a key or by opening a letter. */
+  let byMouse = false;
+
   // Keep the row with the cursor visible when moving with the keyboard.
   $effect(() => {
     const id = cursor;
-    if (!viewport || id === null) return;
+    if (!viewport || id === null || byMouse) return;
     const i = app.messages.findIndex((m) => m.id === id);
     if (i < 0) return;
     const top = i * ROW;

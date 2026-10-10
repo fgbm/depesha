@@ -166,6 +166,38 @@ describe("the cursor bar moves with the key (#108, 2.5 Б)", () => {
   });
 });
 
+describe("the list scrolls after the cursor only when the cursor moves by a key (#122)", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => row(i + 1, `p${i + 1}@cur.example`));
+
+  /** jsdom has no layout: the viewport remembers what the list wrote to its scrollTop. */
+  function watch(t: HTMLElement) {
+    const viewport = t.querySelector<HTMLElement>(".viewport")!;
+    let top = 0;
+    const writes: number[] = [];
+    Object.defineProperty(viewport, "scrollTop", { get: () => top, set: (v: number) => { top = v; writes.push(v); }, configurable: true });
+    Object.defineProperty(viewport, "clientHeight", { get: () => 128, configurable: true });
+    return writes;
+  }
+
+  it("stays where it is when a Ctrl click takes a visible row out and leaves a row below the screen", async () => {
+    const t = draw(rows);
+    app.reader.opened = null;
+    app.reader.openingRow = null;
+    app.selected = new Set([1, 40]);
+    flushSync();
+    const writes = watch(t);
+    t.querySelector<HTMLElement>(".row")!.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    flushSync();
+    await tick();
+    expect([...app.selected]).toEqual([40]);
+    expect(writes).toEqual([]);
+    // A key afterwards does follow the cursor.
+    app.selected = new Set([39]);
+    flushSync();
+    expect(writes.length).toBeGreaterThan(0);
+  });
+});
+
 describe("the logos by folder (#108)", () => {
   it("asks for no logo of a letter in Spam or in Trash, in the list (#108)", async () => {
     app.mailboxes.folders = [
