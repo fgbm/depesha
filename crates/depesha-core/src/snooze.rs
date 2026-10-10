@@ -3,32 +3,13 @@
 //! was first snoozed from). Bringing it back, by the clock or by hand, moves it by Message-ID
 //! (UIDs change on every move), unread, and only then drops its time: a crash in between must
 //! not leave a letter in Snoozed with no time to come back at. The moving itself is the
-//! caller's (`Bring` goes to the mailbox's queue), and so is the clock: the rules take `now`.
+//! caller's (`Move` goes to the mailbox's queue, `port::MailQueue`), and so is the clock: the rules take `now`.
 
 use std::collections::BTreeMap;
 
 use crate::Result;
+use crate::port::{MailQueue, Move};
 use crate::store::{MessageRow, Snooze, Store};
-
-/// A move of snoozed letters back to a folder, found by Message-ID. They come back unread.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Bring {
-    pub from: String,
-    pub message_ids: Vec<String>,
-    pub to: String,
-    pub unseen: bool,
-}
-
-impl Bring {
-    fn of(from: &str, to: &str, message_ids: Vec<String>) -> Self {
-        Self {
-            from: from.to_owned(),
-            message_ids,
-            to: to.to_owned(),
-            unseen: true,
-        }
-    }
-}
 
 /// The letters a snooze can keep: those with a Message-ID, which finds them again once they
 /// have moved, and what is kept of them, `(Message-ID, subject)`.
@@ -62,9 +43,18 @@ impl Release {
         self.snoozed.iter().map(|s| s.message_id.clone()).collect()
     }
 
-    /// The move that brings the group back.
-    pub fn bring(&self) -> Bring {
-        Bring::of(&self.folder, &self.to, self.message_ids())
+    /// The move that brings the group back: unread, as when the time comes.
+    pub fn bring(&self) -> Move {
+        back(&self.folder, &self.to, self.message_ids())
+    }
+}
+
+fn back(from: &str, to: &str, message_ids: Vec<String>) -> Move {
+    Move {
+        from: from.to_owned(),
+        message_ids,
+        to: to.to_owned(),
+        unseen: true,
     }
 }
 
@@ -143,39 +133,34 @@ pub fn due_by_account(store: &Store, now: i64) -> Result<BTreeMap<String, Vec<Sn
 }
 
 /// What came of bringing the due snoozes of a mailbox back.
-#[derive(Debug)]
-pub struct Returned<E> {
+#[derive(Debug, Default)]
+pub struct Returned {
     /// Some time was dropped: the counters are to be read again.
     pub changed: bool,
     /// Times that could not be dropped: the next round meets them again and finds their
     /// letters gone. The core does not log; the caller does.
     pub not_dropped: Vec<crate::Error>,
-    /// What `bring` failed with (offline, the mailbox paused), one per letter that stays.
-    pub failed: Vec<E>,
+    /// What the queue failed with (offline, the mailbox paused), one per letter that stays.
+    pub failed: Vec<crate::Error>,
 }
 
-/// Brings the due snoozes back one after another through `bring`, which answers how many
-/// letters it moved. None moved: they were moved elsewhere by hand (another client), there is
-/// nothing to bring back and the time goes. An error leaves the time: the next round tries
-/// again. `on_back` hears of each letter as soon as it has come back, before the next is
-/// moved: the user is told of it at once, not after the whole batch.
-pub async fn return_due<E, F, Fut>(
+/// Brings the due snoozes back one after another through the queue. None moved: they were
+/// moved elsewhere by hand (another client), there is nothing to bring back and the time goes.
+/// An error leaves the time: the next round tries again. `on_back` hears of each letter as
+/// soon as it has come back, before the next is moved: the user is told of it at once, not
+/// after the whole batch.
+pub async fn return_due<Q: MailQueue>(
     store: &Store,
     due: &[Snooze],
-    mut bring: F,
+    queue: &mut Q,
     on_back: &mut (dyn FnMut(&Snooze) + Send),
-) -> Returned<E>
-where
-    F: FnMut(Bring) -> Fut,
-    Fut: std::future::Future<Output = std::result::Result<usize, E>>,
-{
-    let mut out = Returned {
-        changed: false,
-        not_dropped: Vec::new(),
-        failed: Vec::new(),
-    };
+) -> Returned {
+    let mut out = Returned::default();
     for s in due {
-        let count = match bring(Bring::of(&s.folder, &s.return_to, vec![s.message_id.clone()])).await {
+        let count = match queue
+            .move_by_message_id(back(&s.folder, &s.return_to, vec![s.message_id.clone()]))
+            .await
+        {
             Ok(count) => count,
             Err(e) => {
                 out.failed.push(e);
@@ -196,8 +181,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error;
     use crate::domain::{Folder, FolderRole};
     use crate::message::Summary;
+    use crate::port::fake::Queue;
     use crate::store::NewMessage;
 
     fn store() -> Store {
@@ -288,7 +275,7 @@ mod tests {
         // They come back unread, from where they wait to where they were.
         assert_eq!(
             groups[1].bring(),
-            Bring {
+            Move {
                 from: "Snoozed".into(),
                 message_ids: ids(&["<2@x>"]),
                 to: "Work".into(),
@@ -352,38 +339,35 @@ mod tests {
         let back = snooze(&store, "a", "<back@x>", "INBOX", 10);
         let gone = snooze(&store, "a", "<gone@x>", "INBOX", 10);
         let down = snooze(&store, "a", "<down@x>", "Work", 10);
-        let mut asked = Vec::new();
+        let mut queue = Queue {
+            moved: [Ok(1), Ok(0), Err(Error::Closed)].into(),
+            ..Default::default()
+        };
         let mut told = Vec::new();
         let out = return_due(
             &store,
             &[back.clone(), gone.clone(), down.clone()],
-            |bring| {
-                asked.push(bring.clone());
-                let id = bring.message_ids[0].clone();
-                async move {
-                    match id.as_str() {
-                        "<back@x>" => Ok(1),
-                        "<gone@x>" => Ok(0),
-                        _ => Err("offline"),
-                    }
-                }
-            },
+            &mut queue,
             &mut |s| told.push(s.message_id.clone()),
         )
         .await;
         assert_eq!(told, ["<back@x>"], "only a letter that came back is told of");
         assert!(out.changed);
         // The failure is seen outside, one per letter that stays.
-        assert_eq!(out.failed, ["offline"]);
+        assert!(matches!(out.failed.as_slice(), [Error::Closed]));
         // One letter at a time, unread, to the folder it left.
-        assert_eq!(asked.len(), 3);
-        assert!(asked.iter().all(|b| b.unseen && b.from == "Snoozed"));
-        assert_eq!(asked[2].to, "Work");
+        assert_eq!(queue.moves.len(), 3);
+        assert!(queue.moves.iter().all(|m| m.unseen && m.from == "Snoozed"));
+        assert_eq!(queue.moves[2].to, "Work");
         // The letter nobody found is forgotten, the offline one is tried again.
         let left = store.snoozes_due(100).unwrap();
         assert_eq!(left, [down]);
         // Nothing moved, nothing changed.
-        let out = return_due(&store, &left, |_| async { Err::<usize, _>("offline") }, &mut |_| {}).await;
+        let mut queue = Queue {
+            moved: [Err(Error::Closed)].into(),
+            ..Default::default()
+        };
+        let out = return_due(&store, &left, &mut queue, &mut |_| {}).await;
         assert!(!out.changed && out.not_dropped.is_empty());
         assert_eq!(out.failed.len(), 1);
     }
@@ -393,19 +377,14 @@ mod tests {
         let store = store();
         let one = snooze(&store, "a", "<1@x>", "INBOX", 10);
         let two = snooze(&store, "a", "<2@x>", "INBOX", 10);
-        let log = std::sync::Mutex::new(Vec::new());
-        return_due(
-            &store,
-            &[one, two],
-            |bring| {
-                log.lock().unwrap().push(format!("move {}", bring.message_ids[0]));
-                async { Ok::<_, ()>(1) }
-            },
-            &mut |s| log.lock().unwrap().push(format!("told {}", s.message_id)),
-        )
+        let mut queue = Queue::default();
+        let log = queue.log.clone();
+        return_due(&store, &[one, two], &mut queue, &mut |s| {
+            log.lock().unwrap().push(format!("told {}", s.message_id));
+        })
         .await;
         assert_eq!(
-            *log.lock().unwrap(),
+            *queue.log.lock().unwrap(),
             ["move <1@x>", "told <1@x>", "move <2@x>", "told <2@x>"]
         );
     }

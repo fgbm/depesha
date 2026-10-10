@@ -11,6 +11,7 @@ use depesha_core::domain::Addr;
 use depesha_core::domain::{Act, ActsOn, BodyFormat, Draft, FlagChange, FolderRole, OutgoingAttachment};
 use depesha_core::ews::{self, EwsDetection};
 use depesha_core::message::{self, MessageView, Unsubscribe};
+use depesha_core::port::MailQueue;
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp;
 use depesha_core::snooze;
@@ -19,6 +20,7 @@ use depesha_core::store::{
     Person, SearchTotals, Snapshot, Snooze, SortKey, Split, Suggestion,
 };
 use depesha_core::unsubscribe::Way;
+use depesha_core::waiting;
 use depesha_core::{Error, avatar, mail, oauth};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -29,7 +31,7 @@ use crate::error::{CmdError, CmdResult};
 use crate::paths::Use;
 use crate::secrets;
 use crate::state::{AccountStatus, AppState, lock};
-use crate::worker::{self, Output, Work};
+use crate::worker::{self, Output, Queue, Work};
 use depesha_core::lang::pick;
 use depesha_core::tr;
 
@@ -1383,21 +1385,13 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                 snoozed: group.snoozed.clone(),
             };
             // A mailbox that is not running is not a failure of the move: nothing was tried.
-            let worker = state.worker(&group.account_id)?;
-            let out = worker
-                .run(Work::MoveByMessageId {
-                    from: bring.from,
-                    message_ids: bring.message_ids,
-                    to: bring.to,
-                    unseen: bring.unseen,
-                })
-                .await
-                .map_err(CmdError::from);
-            match out {
+            let mut queue = Queue::urgent(state.worker(&group.account_id)?);
+            match queue.move_by_message_id(bring).await {
                 // Moved, whole or in part: the cache tells which letters left.
-                Ok(Output::Count(n)) if n > 0 => {}
+                Ok(n) if n > 0 => {}
                 Ok(_) => return Ok(None),
                 Err(e) => {
+                    let e = CmdError::from(e);
                     tracing::warn!("unsnooze: a group of letters stayed: {}", e.message);
                     return Err(e);
                 }
@@ -1515,15 +1509,14 @@ pub fn counters(state: St<'_>) -> CmdResult<Counters> {
 #[tauri::command(async)]
 pub fn followup_postpone(state: St<'_>, id: i64, secs: i64, deadline: Option<bool>) -> CmdResult<i64> {
     let r = row(&state, id)?;
-    let now = chrono::Utc::now().timestamp();
-    let due = now + secs.max(60);
-    let deadline = deadline.unwrap_or(false);
-    if let Some(mid) = &r.message_id {
-        state.store.followup_postpone(&r.account_id, mid, due, deadline)?;
-        if deadline {
-            state.store.followup_reopen(&r.account_id, mid, due, now)?;
-        }
-    }
+    let due = waiting::postpone(
+        &state.store,
+        &r.account_id,
+        r.message_id.as_deref(),
+        chrono::Utc::now().timestamp(),
+        secs,
+        deadline.unwrap_or(false),
+    )?;
     state.emit("counters-changed", serde_json::json!({}));
     Ok(due)
 }
@@ -1534,20 +1527,17 @@ pub fn followup_postpone(state: St<'_>, id: i64, secs: i64, deadline: Option<boo
 #[tauri::command(async)]
 pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<Option<i64>> {
     let r = row(&state, id)?;
-    let now = chrono::Utc::now().timestamp();
-    let stopped = match &r.message_id {
-        Some(mid) => {
-            let to = crate::waiting::stop_to(&state, &r.account_id);
-            state
-                .store
-                .followup_stop_undoable(&r.account_id, mid, now, to.as_deref())?
-        }
-        None => false,
-    };
+    let stopped = waiting::stop(
+        &state.store,
+        &r.account_id,
+        state.account(&r.account_id).is_ok_and(|a| a.waiting.stop_to_archive),
+        r.message_id.as_deref(),
+        chrono::Utc::now().timestamp(),
+    )?;
     // Letters waiting in the folder go back, after the undo toast.
     state.scheduler_notify.notify_one();
     state.emit("counters-changed", serde_json::json!({}));
-    Ok(stopped.then_some(now))
+    Ok(stopped)
 }
 
 /// "Undo" of the toast after "Stop waiting": the wait closed at `ended` waits again as it was.
@@ -2769,7 +2759,7 @@ pub async fn send(
         .max(0);
     let mut followup = followup.unwrap_or_default();
     // Decided now, as the letter answered lies now: the outbox keeps the decision.
-    let (park, archive) = crate::waiting::decide(&state, &account, &draft, followup_secs, &followup)?;
+    let (park, archive) = depesha_core::waiting::decide(&state.store, &account, &draft, followup_secs, &followup)?;
     followup.park = Some(park);
     followup.archive = Some(archive);
     let id = state

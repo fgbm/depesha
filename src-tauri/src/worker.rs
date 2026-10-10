@@ -471,6 +471,67 @@ pub struct Worker {
     paused: Arc<AtomicBool>,
 }
 
+/// The mailbox's queue as the core's scenarios see it (`MailQueue`): background work by
+/// default, which a paused mailbox refuses, or the user's own (`Queue::urgent`).
+pub struct Queue {
+    worker: Worker,
+    background: bool,
+}
+
+impl Queue {
+    pub fn background(worker: Worker) -> Self {
+        Self {
+            worker,
+            background: true,
+        }
+    }
+
+    pub fn urgent(worker: Worker) -> Self {
+        Self {
+            worker,
+            background: false,
+        }
+    }
+
+    async fn run(&self, work: Work) -> Result<Output> {
+        if self.background {
+            self.worker.run_background(work).await
+        } else {
+            self.worker.run(work).await
+        }
+    }
+}
+
+impl depesha_core::port::MailQueue for Queue {
+    async fn move_by_message_id(&mut self, m: depesha_core::port::Move) -> Result<usize> {
+        let work = Work::MoveByMessageId {
+            from: m.from,
+            message_ids: m.message_ids,
+            to: m.to,
+            unseen: m.unseen,
+        };
+        // Any other answer is a move that was done.
+        Ok(match self.run(work).await? {
+            Output::Count(n) => n,
+            _ => 1,
+        })
+    }
+
+    async fn create_folder(&mut self, name: &str) -> Result<()> {
+        self.run(Work::CreateFolder(name.to_owned())).await.map(drop)
+    }
+
+    async fn set_flag(&mut self, folder: &str, validity: u32, uids: &[u32], change: FlagChange) -> Result<()> {
+        let work = Work::SetFlag {
+            folder: folder.to_owned(),
+            validity,
+            uids: uids.to_vec(),
+            change,
+        };
+        self.run(work).await.map(drop)
+    }
+}
+
 impl Worker {
     pub fn stop(&self) {
         for t in self.tasks.iter() {

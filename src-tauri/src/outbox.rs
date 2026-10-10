@@ -220,7 +220,7 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
                 // A letter going to wait says so once it has moved ("parked"), in one toast. One
                 // going to the archive is "sent" at once; its move, queued behind the mailbox's
                 // loads, says "archived-after-send" in a toast of its own (#106).
-                let parking = crate::waiting::will_park(&item);
+                let parking = depesha_core::waiting::will_park(&item);
                 state.emit(
                     "sent",
                     json!({ "id": item.id, "subject": item.draft.subject, "parking": parking }),
@@ -283,7 +283,7 @@ async fn finish_sent(
     letter_cached: bool,
 ) -> Result<(), CmdError> {
     let left = crate::waiting::after_sent(state, account, item, message_id, letter_cached).await?;
-    if crate::waiting::will_park(item) && !left.parks {
+    if depesha_core::waiting::will_park(item) && !left.parks {
         // Nothing to move after all (the letter left the inbox meanwhile): plain "sent".
         state.emit("sent", json!({ "id": item.id, "subject": item.draft.subject }));
     }

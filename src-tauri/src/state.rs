@@ -62,6 +62,10 @@ pub struct AppState {
     pub pending_deep_link: Mutex<Option<String>>,
     /// The drafts windows have open and the bounds of «Clear» counts (#74).
     pub clearing: depesha_core::clear::Clearing,
+    /// Archivals of answered letters under way, which a wait must not take a conversation out from under (#109).
+    pub archivals: Arc<depesha_core::waiting::Archivals>,
+    /// Folders a server refused to make: not tried again until another is chosen.
+    pub refused: depesha_core::waiting::Refused,
     /// The counts the «Clear» dialogs made, kept for the run that follows.
     pub bounds: depesha_core::clear::Bounds<depesha_core::mail::Bound>,
     /// Labels whose strip is running, by `(account, name)` (#145).

@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::followups;
 use crate::state::AppState;
-use crate::worker::{Output, Work};
+use crate::worker::Queue;
 use depesha_core::lang::pick;
 use depesha_core::snooze;
 
@@ -103,33 +103,16 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
             false,
         );
     };
-    let returned = snooze::return_due(
-        &state.store,
-        &due,
-        |bring| {
-            let worker = state.worker(&account_id);
-            async move {
-                let work = Work::MoveByMessageId {
-                    from: bring.from,
-                    message_ids: bring.message_ids,
-                    to: bring.to,
-                    unseen: bring.unseen,
-                };
-                // Offline or the account is paused: tried again on the next tick.
-                match worker?.run_background(work).await? {
-                    Output::Count(n) => Ok::<usize, crate::error::CmdError>(n),
-                    _ => Ok(1),
-                }
-            }
-        },
-        &mut on_back,
-    )
-    .await;
+    // Offline or the account is paused: tried again on the next tick.
+    let Ok(worker) = state.worker(&account_id) else {
+        return;
+    };
+    let returned = snooze::return_due(&state.store, &due, &mut Queue::background(worker), &mut on_back).await;
     for e in &returned.not_dropped {
         tracing::warn!("scheduler: {e}");
     }
     for e in &returned.failed {
-        tracing::debug!(account = %account_id, "snooze return failed: {}", e.message);
+        tracing::debug!(account = %account_id, "snooze return failed: {e}");
     }
     if returned.changed {
         state.emit("counters-changed", json!({}));
