@@ -11,7 +11,7 @@
     title: { en: "Commands", ru: "Команды" },
     placeholder: { en: "What to do? E.g. “sno tom” or “mov arch”", ru: "Что сделать? Например: «отл завт» или «пер архив»" },
     none: { en: "No such command", ru: "Нет такой команды" },
-    edit: { en: "Alt+Enter — edit the key", ru: "Alt+Enter — изменить клавишу" },
+    edit: { en: "Edit the key", ru: "Изменить клавишу" },
     people: { en: "Contacts", ru: "Контакты" },
   };
 
@@ -89,7 +89,7 @@
           <button class="item" class:active={i === active} role="option" aria-selected={i === active} onpointermove={() => (active = i)} onclick={() => run(c)}>
             <span>{c.title()}</span>
             {#if ctx.keyOf(c.id)}<span class="hint"><Keys of={c.id} /></span>{:else if c.hint}<span class="hint">{c.hint()}</span>{/if}
-            {#if i === active}<span class="pedit" class:solo={!ctx.keyOf(c.id) && !c.hint} title={ctx.t(S.edit)}><Pencil size={12} /> Alt+Enter</span>{/if}
+            {#if i === active}<span class="pedit" class:solo={!ctx.keyOf(c.id) && !c.hint} title={ctx.t(S.edit)}><Pencil size={12} /> <Keys key="Alt+Enter" /></span>{/if}
           </button>
         {:else}
           {#if !people.length}<div class="none muted">{ctx.t(S.none)}</div>{/if}
