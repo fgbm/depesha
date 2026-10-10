@@ -11,7 +11,7 @@ import { debounce } from "./debounce";
 import { t } from "./i18n.svelte";
 import type { ListController, View } from "./list.svelte";
 import type { Reader } from "./reader.svelte";
-import type { FolderInfo, MessageRow, Settings, SortKey } from "./types";
+import type { MessageRow, SortKey } from "./types";
 
 /** What the list view and the selection need from the app store. */
 export interface SelectionHost {

@@ -8,7 +8,7 @@ import { t } from "./i18n.svelte";
 import { debounce } from "./debounce";
 import { extensions } from "./extensions.svelte";
 import type { ListController } from "./list.svelte";
-import type { AccountView, CmdError, MessageRow, OpenedMessage } from "./types";
+import type { CmdError, MessageRow, OpenedMessage } from "./types";
 
 /** A letter counts as read once it was shown this long; flitting through the list does not. */
 const SEEN_MS = 1000;

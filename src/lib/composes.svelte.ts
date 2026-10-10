@@ -12,7 +12,7 @@ import { when } from "./later";
 import { emptyDraft, formatFor, forward, isForward, reply } from "./compose";
 import { defaultSignature, replySignature, withSignature } from "./signatures";
 import { dropPlan, offersZones, type DropZone } from "./images";
-import type { Account, AccountView, AttachmentSource, CachedDraft, ComposeDraft, FollowupPlan, OpenedMessage, OutboxItem, Settings } from "./types";
+import type { Account, AccountView, AttachmentSource, CachedDraft, ComposeDraft, FollowupPlan } from "./types";
 
 export interface ComposeState {
   account_id: string;

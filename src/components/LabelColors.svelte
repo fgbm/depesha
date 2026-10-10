@@ -1,7 +1,6 @@
 <script lang="ts">
   // Выбор цвета метки (#42, кадр 5Б): палитра и свой цвет в той же строке. Цвет живёт
   // только в Депеше; выбранный применяется сразу.
-  import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
   import { LABEL_PALETTE } from "../lib/format";
   import type { Label } from "../lib/types";

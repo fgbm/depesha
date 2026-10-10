@@ -13,7 +13,7 @@ import { compareRows } from "./sort";
 import { LARGEST_FIRST, asksLarge } from "./largeMail";
 import { registry } from "../plugin-host/registry.svelte";
 import type { ListFilter, ListScope } from "../plugin-api";
-import type { FolderInfo, FolderRole, ListQuery, MessageRow, Pin, SearchTotals, Settings, SortKey } from "./types";
+import type { FolderRole, ListQuery, MessageRow, Pin, SearchTotals, SortKey } from "./types";
 
 export type View =
   | { kind: "unified"; role: FolderRole; unread?: boolean; flagged?: boolean }

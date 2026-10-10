@@ -13,7 +13,7 @@ import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
 import { refusalOf } from "./labels";
 import type { ListController } from "./list.svelte";
-import type { FolderInfo, MessageRow, Moved, OpenedMessage, Settings } from "./types";
+import type { MessageRow, Moved } from "./types";
 
 /** The toast's words: given, or made from the moves done (when they say where the letters went). */
 export type Text = string | ((moved: Moved[]) => string);

@@ -26,7 +26,6 @@
   import Users from "@lucide/svelte/icons/users";
   import User from "@lucide/svelte/icons/user";
   import X from "@lucide/svelte/icons/x";
-  import { app } from "../../lib/store.svelte";
   import { t, type Key } from "../../lib/i18n.svelte";
   import { when } from "../../lib/later";
   import { actionsOf, canCheckLabels, readOnly } from "../../lib/labels";

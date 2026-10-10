@@ -9,8 +9,6 @@ import type { SelectionController } from "./selection.svelte";
 import { t } from "./i18n.svelte";
 import { layout } from "./layout.svelte";
 import type { View } from "./list.svelte";
-import type { MessageRow } from "./types";
-import type { Confirmation } from "./ui.svelte";
 
 /** What the backend sends on a click: `notification-open`. */
 export interface NotificationOpen {

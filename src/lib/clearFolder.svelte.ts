@@ -14,9 +14,8 @@ import type { UiController } from "./ui.svelte";
 import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
 import type { ComposeWindow } from "./composes.svelte";
-import type { View } from "./list.svelte";
 import type { Confirmation } from "./ui.svelte";
-import type { AccountView, FolderInfo, Task } from "./types";
+import type { FolderInfo, Task } from "./types";
 
 /** The seconds between the confirmation and the first request. */
 export const DELAY_SECS = 5;

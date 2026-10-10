@@ -14,7 +14,7 @@
 # Падает только ухудшение, каждое снимается строкой с причиной в DIR/exceptions.txt
 # (`вид<TAB>имя<TAB>причина`, пробелы по краям причины не в счёт):
 #   app-members   новый член app.*, которого нет в baseline
-#   app-nested    новый член app.ui.* или app.selection.* (`ui.toast`), которого нет в baseline
+#   app-nested    новый член app.<контроллер>.* (`ui.toast`, `list.view`), которого нет в baseline
 #   aria-attrs    пропавшее имя aria-*
 #   roles         пропавшее литеральное значение role=
 #   data-kinds    пропавший вид data-*, но только если он встречается в e2e/*.mjs
@@ -66,8 +66,8 @@ role_values() { grep -rhoE '\brole="[^"]+"' --include='*.svelte' src | sed -E 's
 aria_names() { grep -rhoE '\baria-[a-z-]+=' --include='*.svelte' src | sed 's/=$//' | LC_ALL=C sort -u || true; }
 data_kinds() { grep -rhoE '\bdata-[a-z-]+' --include='*.svelte' src | LC_ALL=C sort -u || true; }
 app_members() { grep -rhoE '\bapp\.[A-Za-z_][A-Za-z0-9_]*' --include='*.svelte' src | sed 's/^app\.//' | LC_ALL=C sort -u || true; }
-# Второй уровень: что компоненты берут из app.ui и app.selection (`ui.toast`, `selection.reload`).
-app_nested() { grep -rhoE '\bapp\.(ui|selection)\.[A-Za-z_][A-Za-z0-9_]*' --include='*.svelte' src | sed 's/^app\.//' | LC_ALL=C sort -u || true; }
+# Второй уровень: что компоненты берут у контроллеров напрямую (`ui.toast`, `list.view`, `reader.opened`).
+app_nested() { grep -rhoE '\bapp\.(ui|selection|mailboxes|settingsCtl|list|reader|actions|compose|clearing)\.[A-Za-z_][A-Za-z0-9_]*' --include='*.svelte' src | sed 's/^app\.//' | LC_ALL=C sort -u || true; }
 
 # --- счётчики ---------------------------------------------------------------
 
@@ -199,11 +199,11 @@ require_exception() {
 # рост — ухудшение (компонент тянет больше состояния из App).
 check_members() {
   local basef="$1" nowf="$2" kind="${3:-app-members}" b n label="app.*"
-  [[ $kind == app-nested ]] && label="app.ui.* и app.selection.*"
+  [[ $kind == app-nested ]] && label="app.<контроллер>.*"
   b=$(mktemp); n=$(mktemp)
   sorted_file "$basef" > "$b"; sorted_file "$nowf" > "$n"
   LC_ALL=C comm -23 "$b" "$n" | sed "s/^/исчезло ($label): /"
-  require_exception "$kind" "новый член ${label%\*}" < <(LC_ALL=C comm -13 "$b" "$n")
+  require_exception "$kind" "новый член ${label}" < <(LC_ALL=C comm -13 "$b" "$n")
   rm -f "$b" "$n"
 }
 

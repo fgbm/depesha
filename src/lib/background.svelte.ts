@@ -14,8 +14,6 @@ import { t, tn } from "./i18n.svelte";
 import { when } from "./later";
 import { arrivals, type ArrivalsHost, type NotificationOpen } from "./arrivals.svelte";
 import type { View } from "./list.svelte";
-import type { Settings } from "./types";
-import type { Choice, Confirmation } from "./ui.svelte";
 
 /** What the background needs from the app store. */
 export interface BackgroundHost extends ArrivalsHost {
