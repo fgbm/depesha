@@ -20,6 +20,8 @@ export interface Undoable {
   run?: () => Promise<void>;
   /** Set once the move is taken back, by "z" or by the toast's button: a move is taken back once. */
   undone?: boolean;
+  /** Set when the offer's time ran out: it is no longer on offer, nor given back by a `hold` that let go. */
+  expired?: boolean;
 }
 
 /** What actions need from the app store. */
@@ -183,19 +185,22 @@ export class ActionRunner {
     this.lastUndo = u;
     this.host.toast(text, false, { label: t("undo"), run: () => void this.undo() }, ms);
     setTimeout(() => {
+      u.expired = true;
       if (this.lastUndo === u) this.lastUndo = null;
     }, ms);
   }
 
   /**
    * Makes `run` what "z" takes back for as long as something else counts down (a clearing's wait):
-   * "z" always means the latest action. The returned function lets go of it, unless a newer action took the place.
+   * "z" always means the latest action. The returned function lets go of it, unless a newer action took
+   * the place; the undo it covered comes back if it is still on offer.
    */
   hold(text: string, run: () => Promise<void>): () => void {
+    const prev = this.lastUndo;
     const u: Undoable = { moved: [], text, run };
     this.lastUndo = u;
     return () => {
-      if (this.lastUndo === u) this.lastUndo = null;
+      if (this.lastUndo === u) this.lastUndo = prev && !prev.undone && !prev.expired ? prev : null;
     };
   }
 

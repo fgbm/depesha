@@ -203,3 +203,44 @@ describe("an undo held while something else counts down", () => {
     release();
   });
 });
+
+describe("an undo held over an older one", () => {
+  it("gives the older back when it is let go, if it is still on offer", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = new AppStore();
+      const older = vi.fn(async () => {});
+      s.offerUndo("Старое", older);
+      const release = s.holdUndo("Очистка", async () => {});
+      expect(s.lastUndo?.text).toBe("Очистка");
+      release();
+      expect(s.lastUndo?.text).toBe("Старое");
+      await s.undo();
+      expect(older).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not give back one that ran out meanwhile, or was taken back", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = new AppStore();
+      s.offerUndo("Старое", async () => {});
+      const release = s.holdUndo("Очистка", async () => {});
+      vi.advanceTimersByTime(10_001);
+      release();
+      expect(s.lastUndo).toBeNull();
+
+      const run = vi.fn(async () => {});
+      s.offerUndo("Другое", run);
+      const again = s.holdUndo("Очистка", async () => {});
+      await s.undo();
+      again();
+      expect(s.lastUndo).toBeNull();
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
