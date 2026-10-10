@@ -177,10 +177,17 @@
   /** The selection is changing by a Ctrl or Shift click, not by a key or by opening a letter. */
   let byMouse = false;
 
+  /** The cursor the list last followed (or let be, after a mouse choice): only a new one scrolls. */
+  let followed: number | null = null;
+
   // Keep the row with the cursor visible when moving with the keyboard.
   $effect(() => {
     const id = cursor;
-    if (!viewport || id === null || byMouse) return;
+    if (!viewport || id === null) return;
+    // The list refreshing under the same cursor, or a choice by the mouse, is no reason to jump.
+    const fresh = id !== followed;
+    followed = id;
+    if (!fresh || byMouse) return;
     const i = app.messages.findIndex((m) => m.id === id);
     if (i < 0) return;
     const top = i * ROW;

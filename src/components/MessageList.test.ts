@@ -181,7 +181,8 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
 
   it("stays where it is when a Ctrl click takes a visible row out and leaves a row below the screen", async () => {
     const t = draw(rows);
-    app.reader.opened = null;
+    // Letter 40 is the open one, below the screen: the list went to it when it opened.
+    app.reader.opened = { row: rows[39] } as never;
     app.reader.openingRow = null;
     app.selected = new Set([1, 40]);
     flushSync();
@@ -191,10 +192,16 @@ describe("the list scrolls after the cursor only when the cursor moves by a key 
     await tick();
     expect([...app.selected]).toEqual([40]);
     expect(writes).toEqual([]);
+    // The list refreshed under the same cursor (new mail, a sync) does not jump to it either.
+    app.list.messages = [...app.messages];
+    flushSync();
+    await tick();
+    expect(writes).toEqual([]);
     // A key afterwards does follow the cursor.
     app.selected = new Set([39]);
     flushSync();
     expect(writes.length).toBeGreaterThan(0);
+    app.reader.opened = null;
   });
 });
 
