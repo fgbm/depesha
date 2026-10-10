@@ -9,6 +9,7 @@ import type { ActsOn, ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, List
 export type { ActsOn, ComposeDraft, FolderInfo, FollowupInfo, FollowupPlan, ListQuery, MessageRow, Moved, OpenedMessage, Waiting };
 export { Keys, LaterMenu, Popover, Select, type KeysProps, type LaterMenuProps, type PopoverProps, type SelectProps } from "./components";
 export { fromLocalInput, sendLaterPresets, toLocalInput, when, type Preset } from "../lib/later";
+// @experimental, not part of the v1 contract (see whenMenu.svelte.ts).
 export { closeWhenMenu, openWhenMenu, provideWhenMenu, whenMenuAvailable, whenMenuRequest, type WhenExtras, type WhenMenuRequest } from "./whenMenu.svelte";
 export { placeMenu, placeSide, type Anchor, type Placed } from "../lib/anchor";
 export { DEFAULT_WORK_TIME, formatClock, parseClock, type Clock, type WorkTime } from "../lib/workTime";

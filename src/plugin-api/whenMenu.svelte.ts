@@ -2,16 +2,21 @@
 // of a letter in writing (#103) opens the same menu, with two rows more. The snooze plugin draws it
 // (`available` says it is there); the plugin that asks only names where it hangs, what a chosen moment
 // does and the words. Covered by the menu tests of the snooze plugin and the followups'.
+//
+// @experimental: not part of the v1 contract (#82). Two built-in plugins lend each other a service
+// through the core here, which a contract between the core and a plugin should not be; it stays
+// until plugins can offer each other services in a way the contract describes, and then it goes.
 
 import type { Anchor } from "../lib/anchor";
 
-/** Two rows under the moments of the menu: whether no choice is made now, and the words of both. */
+/** @experimental Two rows under the moments of the menu: whether no choice is made now, and the words of both. */
 export interface WhenExtras {
   none: boolean;
   noneLabel: string;
   setupLabel: string;
 }
 
+/** @experimental */
 export interface WhenMenuRequest {
   anchor: Anchor;
   extras: WhenExtras;
@@ -33,28 +38,29 @@ const state = $state({
   request: null as WhenMenuRequest | null,
 });
 
-/** Whether somebody draws the menu now; a borrower without one has to do with its own form. */
+/** @experimental Whether somebody draws the menu now; a borrower without one has to do with its own form. */
 export function whenMenuAvailable(): boolean {
   return state.available;
 }
 
-/** The plugin that draws the menu says it is there, and later that it is gone. */
+/** @experimental The plugin that draws the menu says it is there, and later that it is gone. */
 export function provideWhenMenu(on: boolean) {
   state.available = on;
 }
 
-/** What is asked of the menu now; the drawing plugin reads it. */
+/** @experimental What is asked of the menu now; the drawing plugin reads it. */
 export function whenMenuRequest(): WhenMenuRequest | null {
   return state.request;
 }
 
-/** Hangs the menu for `request`; the request it replaces is told it went away. */
+/** @experimental Hangs the menu for `request`; the request it replaces is told it went away. */
 export function openWhenMenu(request: WhenMenuRequest) {
   const old = state.request;
   state.request = request;
   old?.onclose();
 }
 
+/** @experimental */
 export function closeWhenMenu() {
   state.request = null;
 }

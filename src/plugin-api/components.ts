@@ -3,7 +3,7 @@
 // own use, a plugin sees and relies on these only. Assigning the component to its contract type is
 // what makes the compiler check that the promise holds.
 
-import type { Component, Snippet } from "svelte";
+import type { Component, ComponentProps, Snippet } from "svelte";
 import PopoverImpl from "../components/Popover.svelte";
 import SelectImpl from "../components/Select.svelte";
 import KeysImpl from "../components/Keys.svelte";
@@ -53,7 +53,10 @@ export interface LaterMenuProps {
 /** A menu that hangs under its parent and takes the focus. */
 export const Popover: Component<PopoverProps, object, "open"> = PopoverImpl;
 
-/** A drop-down list drawn like the app's menus, in place of the system <select>. */
+/**
+ * A drop-down list drawn like the app's menus, in place of the system <select>. It is not generic
+ * for a plugin: `value` and the `options` are `any`, so the compiler does not tie them together.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const Select: Component<SelectProps<any>, object, "value"> = SelectImpl;
 
@@ -62,3 +65,17 @@ export const Keys: Component<KeysProps> = KeysImpl;
 
 /** The content of a «later» menu: the moments to pick and a field for one's own. Goes in a `Popover`. */
 export const LaterMenu: Component<LaterMenuProps> = LaterMenuImpl;
+
+// The other direction of the promise. Assigning a component to its contract type checks that it
+// takes the props of the contract with the right types, but not that it still has all of them: a
+// prop dropped from the component would only turn up in a plugin. Each key of a contract must be
+// a prop of the component, or `Assert` below does not compile.
+type Assert<T extends true> = T;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Kept<Props, Impl extends Component<any>> = keyof Props extends keyof ComponentProps<Impl> ? true : false;
+export type PromisedProps = [
+  Assert<Kept<PopoverProps, typeof PopoverImpl>>,
+  Assert<Kept<SelectProps<unknown>, typeof SelectImpl>>,
+  Assert<Kept<KeysProps, typeof KeysImpl>>,
+  Assert<Kept<LaterMenuProps, typeof LaterMenuImpl>>,
+];
