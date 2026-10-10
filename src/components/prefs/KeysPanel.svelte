@@ -12,7 +12,7 @@
   import { app } from "../../lib/store.svelte";
   import { host } from "../../plugin-host/host.svelte";
   import { keyText, type Group, type Problem } from "../../lib/keymap";
-  import type { TitledCommand } from "../../lib/shortcuts.svelte";
+  import { shortcuts, type TitledCommand } from "../../lib/shortcuts.svelte";
   import type { Settings } from "../../lib/types";
   import Keys from "../Keys.svelte";
   import { useKeyEditor, type Message, type Note, type SwapProblem } from "./useKeyEditor.svelte";
@@ -40,11 +40,17 @@
   /** Former keys in a quiet line: Latin only, "was Delete, #". */
   const plain = (keys: string[]) => keys.map((x) => keyText(x, "en")).join(", ");
 
+  /** The palette's own key, as the keymap has it now. */
+  function paletteNote(): string {
+    const key = shortcuts.hint("command-palette.open");
+    return key ? t("keys.group.otherNote", { key }) : t("keys.group.otherNoteNoKey");
+  }
+
   const GROUPS: { id: Group; title: () => string; note: () => string }[] = [
     { id: "everywhere", title: () => t("keys.group.everywhere"), note: () => t("keys.group.everywhereNote") },
     { id: "list", title: () => t("keys.group.list"), note: () => t("keys.group.listNote") },
     { id: "compose", title: () => t("keys.group.compose"), note: () => t("keys.group.composeNote") },
-    { id: "other", title: () => t("keys.group.other"), note: () => t("keys.group.otherNote") },
+    { id: "other", title: () => t("keys.group.other"), note: () => paletteNote() },
   ];
   const groups = $derived(GROUPS.map((g) => ({ ...g, rows: k.rows(g.id) })).filter((g) => g.rows.length));
 

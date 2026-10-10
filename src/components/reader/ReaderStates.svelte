@@ -11,6 +11,7 @@
   import { addrName, longDate, size } from "../../lib/format";
   import { t, tn } from "../../lib/i18n.svelte";
   import { shortcuts } from "../../lib/shortcuts.svelte";
+  import Keys from "../Keys.svelte";
   import { registry } from "../../plugin-host/registry.svelte";
   import { arrivals } from "../../lib/arrivals.svelte";
 
@@ -93,6 +94,8 @@
 {:else}
   <!-- One way in instead of a wall of keys: the palette lists every command with its key. -->
   {@const fresh = arrivals.freshCount(app.view)}
+  <!-- The palette's key as the keymap has it; a palette without a key says nothing of it. -->
+  {@const palette = shortcuts.key("command-palette.open")}
   <div class="center muted">
     <div class="hint">
       {#if fresh}
@@ -101,7 +104,7 @@
         <p class="small"><kbd>Enter</kbd> — {t("arrivals.openFirst")}</p>
       {:else}
         <p>{t("reader.choose")}</p>
-        <p class="small"><kbd>Ctrl</kbd>+<kbd>K</kbd> — {t("keys.all")}</p>
+        {#if palette}<p class="small"><Keys key={palette} cap /> — {t("keys.all")}</p>{/if}
       {/if}
     </div>
   </div>
