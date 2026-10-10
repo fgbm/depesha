@@ -7,6 +7,7 @@
   imap_helper.py header FOLDER SUBJECT HEADER
   imap_helper.py flag FOLDER SUBJECT        set \\Flagged from "another client"
   imap_helper.py big FOLDER SUBJECT KB      deliver a read letter with a KB-sized attachment
+  imap_helper.py many FOLDER SUBJECT N      deliver a read letter with N small text attachments
   imap_helper.py delete FOLDER SUBJECT      expunge the letters with that subject
 """
 
@@ -294,6 +295,30 @@ def big(subject, kb, when=None):
     ).encode()
 
 
+def many(subject, n):
+    """A letter with `n` small text attachments of mixed name lengths: the reader folds them to two rows."""
+    names = ["Акт сверки {i:02d}.txt", "Скан договора поставки №{i}, приложение к спецификации (подписано).txt", "{i}.txt", "Счёт-фактура {i:03d} от октября.txt"]
+    subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
+    body = "".join(f"Строка {k} письма с акта сверки: платёж по договору поставки закрыт.\r\n" for k in range(1, 15))
+    parts = [
+        f"From: =?utf-8?B?{base64.b64encode('Отдел закупок'.encode()).decode()}?= <buy@example.org>\r\n"
+        f"To: {ME}\r\nSubject: {subj}\r\nDate: {email.utils.formatdate(time.time(), localtime=True)}\r\n"
+        f"Message-ID: <many-{n}-{int(time.time())}@example.org>\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="mix"\r\n\r\n'
+        f"--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}"
+    ]
+    for i in range(1, n + 1):
+        name = names[i % len(names)].format(i=i)
+        data = base64.encodebytes(f"Файл {i}\r\n".encode()).decode().replace("\n", "\r\n")
+        enc = "utf-8''" + __import__("urllib.parse").parse.quote(name)
+        parts.append(
+            f'--mix\r\nContent-Type: text/plain; charset=utf-8; name*={enc}\r\nContent-Disposition: attachment; filename*={enc}\r\n'
+            f"Content-Transfer-Encoding: base64\r\n\r\n{data}"
+        )
+    parts.append("--mix--\r\n")
+    return "".join(parts).encode()
+
+
 def utf7_path(name):
     """Modified UTF-7 of a folder path: each level apart, GreenMail's "." left as it is."""
     return '"' + ".".join(imaplib_utf7(part).strip('"') for part in name.split(".")) + '"'
@@ -340,6 +365,13 @@ def main():
         c = conn()
         # Read: unread counters of later steps stay as they were.
         append(c, utf7_path(sys.argv[2]), big(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
+        c.logout()
+        print("ok")
+        return
+    if cmd == "many":
+        c = conn()
+        # Read: unread counters of later steps stay as they were.
+        append(c, utf7_path(sys.argv[2]), many(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
         c.logout()
         print("ok")
         return

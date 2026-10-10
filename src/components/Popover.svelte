@@ -115,7 +115,10 @@
       if (!list.length) return;
       e.preventDefault();
       e.stopPropagation();
-      const i = list.indexOf(document.activeElement as HTMLElement);
+      // A row's own button (a file's «Save») stands in for the row's item: ↑↓ go on from the row.
+      const at = document.activeElement as HTMLElement;
+      const row = at.closest("[data-menu-row]");
+      const i = list.findIndex((el) => el === at || (row !== null && row.contains(el)));
       const next =
         e.key === "Home" ? 0 : e.key === "End" ? list.length - 1 : e.key === "ArrowDown" ? (i + 1) % list.length : (i - 1 + list.length) % list.length;
       list[next].focus();

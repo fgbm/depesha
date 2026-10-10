@@ -4,9 +4,6 @@
   // the pane (Reader.svelte) as a snippet: a plugin's component knows its own contract, so
   // its call stays where the plugins are read.
   import { app } from "../../lib/store.svelte";
-  import Paperclip from "@lucide/svelte/icons/paperclip";
-  import Download from "@lucide/svelte/icons/download";
-  import FolderOutput from "@lucide/svelte/icons/folder-output";
   import Forward from "@lucide/svelte/icons/forward";
   import Reply from "@lucide/svelte/icons/reply";
   import ReplyAll from "@lucide/svelte/icons/reply-all";
@@ -16,6 +13,7 @@
   import Recipients from "../Recipients.svelte";
   import Popover from "../Popover.svelte";
   import PersonCard from "./PersonCard.svelte";
+  import AttachmentStrip from "./AttachmentStrip.svelte";
   import { peopleBook } from "../../lib/peopleBook.svelte";
   import type { AccountView, OpenedMessage } from "../../lib/types";
   import { untrack, type Snippet } from "svelte";
@@ -133,22 +131,7 @@
   </div>
 </div>
 
-{#if files.length}
-  <div class="files">
-    {#each files as a (a.index)}
-      {@const current = viewing && files[viewingAt] === a}
-      <div class="file" class:current>
-        <button class="file-name" onclick={() => onViewAttachment(a)} title={current ? t("viewer.close") : `${t("file.open")}: ${a.name}`} aria-pressed={current}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
-        <span class="fsize muted">{size(a.size)}</span>
-        <button class="btn ghost small-btn" onclick={() => onSaveAttachment(a)} title={saveDir ? t("file.saveIn", { dir: saveDir }) : t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
-        {#if saveDir}
-          <button class="btn ghost small-btn" onclick={() => onSaveAttachmentAs(a)} title={t("file.saveAs")} aria-label={t("file.saveAs")}><FolderOutput size={14} /></button>
-        {/if}
-      </div>
-    {/each}
-    {#if files.length > 1}<button class="btn ghost small-btn" onclick={onSaveAll}>{t("file.saveAll")}</button>{/if}
-  </div>
-{/if}
+<AttachmentStrip {files} {viewing} {viewingAt} {onViewAttachment} {onSaveAttachment} {onSaveAttachmentAs} {onSaveAll} {saveDir} />
 
 <style>
   .head {
@@ -272,82 +255,5 @@
 
   .sender:hover {
     text-decoration: underline;
-  }
-
-  .files {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 0 22px 10px;
-    align-items: center;
-  }
-
-  .file {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    max-width: 340px;
-    height: 32px;
-    border: 1px solid var(--line);
-    background: var(--paper);
-    border-radius: 6px;
-    padding: 0 2px 0 8px;
-  }
-
-  /* The name shrinks with an ellipsis; the icon, size and button keep their room. */
-  .file-name {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    background: none;
-    border: none;
-    padding: 0;
-    color: var(--link);
-  }
-
-  .file-name :global(svg) {
-    flex: none;
-  }
-
-  .fname {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .fname:hover {
-    text-decoration: underline;
-  }
-
-  .fsize {
-    flex: none;
-    font-size: 12px;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .file .small-btn {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-  }
-
-  .small-btn {
-    padding: 2px 6px;
-    font-size: 12px;
-  }
-
-  .file.current {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, var(--paper));
   }
 </style>

@@ -145,7 +145,8 @@
   /* In the reading pane, in place of the letter's text: what is left of its height. */
   .viewer {
     flex: 1;
-    min-height: 0;
+    /* The pane gives it no less than the composition window gives the text (#103, 2.2 Б): a low pane scrolls. */
+    min-height: 160px;
     display: flex;
     flex-direction: column;
     margin: 0 16px 16px;

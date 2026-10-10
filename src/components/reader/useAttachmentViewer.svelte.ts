@@ -66,8 +66,9 @@ export class AttachmentViewerState {
     this.viewingId = null;
     queueMicrotask(() => {
       if (this.scrollBox) this.scrollBox.scrollTop = this.scrollBefore;
-      // Focus goes back to the attachment the viewer ended on.
-      this.scrollBox?.querySelectorAll<HTMLElement>(".file-name")[at]?.focus({ preventScroll: true });
+      // Focus goes back to the attachment the viewer ended on; a folded one, to «+N more».
+      const names = this.scrollBox?.querySelectorAll<HTMLElement>(".file-name");
+      (names?.[at] ?? this.scrollBox?.querySelector<HTMLElement>(".files .more"))?.focus({ preventScroll: true });
     });
   }
 

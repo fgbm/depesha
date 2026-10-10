@@ -331,6 +331,6 @@
 
   /* An attachment in place of the text: the header and the attachments stay, the viewer takes the rest. */
   .scroll.viewing {
-    overflow: hidden;
+    overflow-x: hidden;
   }
 </style>

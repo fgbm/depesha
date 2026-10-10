@@ -840,6 +840,119 @@ try {
     await d.until("viewer closed", async () => (await d.findAll(".viewer")).length === 0);
   });
 
+  await step("4.10", "много вложений в письме: не больше двух рядов фишек и «+N ещё ›», текст виден; список с клавиатуры, Enter — просмотр, «Сохранить все» в конце списка", async () => {
+    const subj = "Сканы акта сверки, 29 файлов";
+    helper("many", "Работа", subj, "29");
+    await openFolder("Работа");
+    await rowBySubject(subj, 30000);
+    await openBySubject(subj);
+    const dir = process.env.E2E_SHOTS_DIR;
+    const shotTo = async (name) => {
+      if (!dir) return;
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `${name}.png`), await d.screenshot());
+    };
+    const strip = () =>
+      d.exec(`
+        const files = [...document.querySelectorAll('.reader .files .file')];
+        const more = document.querySelector('.reader .files .more');
+        const tops = new Set(files.map((f) => Math.round(f.getBoundingClientRect().top)));
+        const body = document.querySelector('.reader .body').getBoundingClientRect();
+        const box = document.querySelector('.reader .scroll').getBoundingClientRect();
+        return {
+          chips: files.length,
+          rows: tops.size,
+          more: more ? more.innerText.trim() : '',
+          width: document.querySelector('.reader .files').clientWidth,
+          seen: Math.max(0, Math.min(body.bottom, box.bottom) - Math.max(body.top, box.top)),
+          text: document.querySelector('.reader .body').innerText.includes('Строка 1 '),
+          saveAll: [...document.querySelectorAll('.reader .files > button')].length,
+        };`);
+    const check = (s, label) => {
+      const m = /^\+(\d+) ещё ›$/.exec(s.more);
+      if (!m) throw new Error(`${label}: нет «+N ещё ›»: ${JSON.stringify(s)}`);
+      if (s.chips + Number(m[1]) !== 29) throw new Error(`${label}: ${s.chips} фишек и «${s.more}», а файлов 29`);
+      if (s.rows > 2) throw new Error(`${label}: фишки в ${s.rows} рядах`);
+      if (s.seen < 160) throw new Error(`${label}: текст письма виден на ${s.seen} px, нужно не меньше 160`);
+      if (!s.text) throw new Error(`${label}: текста письма нет в панели`);
+      if (s.saveAll) throw new Error(`${label}: «Сохранить все» осталось в ряду при свёртке`);
+    };
+    const settings = await invoke("settings_get");
+    const theme = async (name) => {
+      await invoke("settings_set", { settings: { ...settings, theme: name } });
+      await d.until(`theme ${name}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === name, 10000);
+    };
+    const rect = await d.rect();
+    try {
+      const wide = await d.until("folded", async () => {
+        const s = await strip();
+        return s.more ? s : null;
+      }, 15000);
+      check(wide, "широкая панель");
+      for (const name of ["paper", "night"]) {
+        await theme(name);
+        await screenshot(`many-attach-wide-${name}`);
+        await shotTo(`wide-${name}`);
+      }
+      await theme("paper");
+
+      // The pane resized: the rows are counted again for its width.
+      await d.setRect(960, rect.height);
+      const narrow = await d.until("recounted", async () => {
+        const s = await strip();
+        return s.more && s.width !== wide.width ? s : null;
+      }, 15000);
+      check(narrow, "узкая панель");
+      if (Math.abs(narrow.width - wide.width) > 120 && narrow.chips === wide.chips) throw new Error(`ширина ${wide.width} → ${narrow.width}, а фишек всё столько же: ${wide.chips}`);
+      for (const name of ["paper", "night"]) {
+        await theme(name);
+        await screenshot(`many-attach-narrow-${name}`);
+        await shotTo(`narrow-${name}`);
+      }
+      await theme("paper");
+      await d.setRect(rect.width, rect.height);
+      await d.until("wide again", async () => (await strip()).width === wide.width);
+      check(await strip(), "широкая панель снова");
+
+      // By Tab the last chip is followed by «+N ещё ›», which opens the list of every file.
+      const active = (js) => d.exec(`const a = document.activeElement; return ${js};`);
+      await d.exec("const f = [...document.querySelectorAll('.reader .files .file')].pop(); f.querySelectorAll('button')[f.querySelectorAll('button').length - 1].focus();");
+      await d.pressKey("");
+      if (!(await active("a.classList.contains('more')"))) throw new Error("после последней фишки Tab не на «+N ещё ›»");
+      await d.pressKey("");
+      await d.until("list of 29", async () => (await d.findAll(".pop [data-att]")).length === 29);
+      if (!(await active("a.dataset.att === '0'"))) throw new Error("фокус не на первом файле списка");
+      await shotTo("list-paper");
+      await d.pressKey("");
+      if (!(await active("a.dataset.att === '1'"))) throw new Error("↓ не на втором файле");
+      await d.pressKey("");
+      if (!(await active("a.dataset.act !== undefined"))) throw new Error("→ не на «Сохранить» у файла");
+      await d.pressKey("");
+      if (!(await active("a.dataset.att === '2'"))) throw new Error("↓ от «Сохранить» не на следующем файле");
+      // Enter on a file shows it, as a click on its chip does.
+      await d.pressKey("");
+      await d.until("viewer from the list", async () => (await d.findAll(".reader .viewer")).length === 1);
+      if ((await d.findAll(".pop [data-att]")).length) throw new Error("список остался после просмотра");
+      const viewerHeight = await d.exec("return document.querySelector('.reader .viewer').getBoundingClientRect().height");
+      if (viewerHeight < 160) throw new Error(`просмотр сжат до ${viewerHeight} px`);
+      if ((await d.findAll(".reader .files .more.current")).length !== 1) throw new Error("«+N ещё ›» не показывает, что открыт свёрнутый файл");
+      await press("Escape");
+      await d.until("viewer closed", async () => (await d.findAll(".reader .viewer")).length === 0);
+
+      // «Save all» ends the list; Esc closes it.
+      await d.exec("document.querySelector('.reader .files .more').click()");
+      await d.until("list again", async () => (await d.findAll(".pop [data-att]")).length === 29);
+      await d.pressKey("\uE010");
+      if (!(await active("a.innerText.trim() === 'Сохранить все'"))) throw new Error("«Сохранить все» не последнее в списке");
+      await d.pressKey("");
+      await d.until("list closed", async () => (await d.findAll(".pop [data-att]")).length === 0);
+    } finally {
+      await invoke("settings_set", { settings });
+      await d.setRect(rect.width, rect.height);
+      helper("delete", "Работа", subj);
+    }
+  });
+
   await step("4.11", "письмо в отдельном окне: двойной щелчок, ответ в этом окне, «Готово» закрывает окно, z в главном", async () => {
     const subj = "Документы на проверку";
     const main = await d.req("GET", d.s("/window"));

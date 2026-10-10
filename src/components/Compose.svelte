@@ -38,6 +38,7 @@
   import type { Hint } from "../lib/hints";
   import AddressInput from "./AddressInput.svelte";
   import Popover from "./Popover.svelte";
+  import AttachmentMenu from "./AttachmentMenu.svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { ComposeFormat } from "../lib/compose/format.svelte";
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
@@ -617,16 +618,19 @@
                 {t("compose.attach.more", { n: c.draft.attachments.length - chips })} ›
               </button>
             {/if}
-            <Popover bind:open={m.filesOpen} align="left">
-              <div class="mt">{t("compose.attach.list", { n: c.draft.attachments.length })}</div>
-              {#each c.draft.attachments as a, i (i)}
-                <button class="mi" role="menuitem" data-att={i} onkeydown={(e) => onFileKey(e, i)} onclick={() => dropFile(i)} title={t("remove")}>
-                  <span class="fname">{a.name}</span><span class="hint">{size(a.size)} ×</span>
-                </button>
-              {/each}
-              <hr />
-              <button class="mi" role="menuitem" onclick={() => { m.filesOpen = false; m.attach(); }}>{t("compose.attach.add")}</button>
-            </Popover>
+            <AttachmentMenu
+              bind:open={m.filesOpen}
+              title={t("compose.attach.list", { n: c.draft.attachments.length })}
+              files={c.draft.attachments}
+              rowTitle={t("remove")}
+              hint={(a) => `${size(a.size)} ×`}
+              onPick={dropFile}
+              onRowKey={onFileKey}
+            >
+              {#snippet footer()}
+                <button class="mi" role="menuitem" onclick={() => { m.filesOpen = false; m.attach(); }}>{t("compose.attach.add")}</button>
+              {/snippet}
+            </AttachmentMenu>
           </span>
           <span class="muted total" class:danger-text={m.total > 25 * 1024 * 1024}>
             {t("compose.total", { size: size(m.total) })}{m.total > 25 * 1024 * 1024 ? t("compose.tooBig") : ""}
