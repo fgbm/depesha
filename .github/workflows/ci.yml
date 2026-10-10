@@ -1,9 +1,9 @@
 name: CI
 
 on:
+  # Every branch: the green run on the branch is what a merge needs (scripts/check.sh --ci).
   push:
-    branches: [main, "release/**"]
-  pull_request:
+    branches: ["**"]
   # A branch is tried before it is merged: gh workflow run ci.yml --ref <branch> -f windows_only=true
   workflow_dispatch:
     inputs:
@@ -14,7 +14,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a branch takes over from the run of the older one; main and releases run to the end.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,6 +23,38 @@ env:
   IMAGE_PREFIX: mirror.gcr.io/
 
 jobs:
+  # What the heavy platform jobs (Windows, macOS) are run for. main, release/** and a manual run: always.
+  # A branch: only when it touches what those jobs test (the shell of the app, the drop code, their scripts, this file).
+  changes:
+    name: Which platforms
+    runs-on: ubuntu-24.04
+    outputs:
+      platform: ${{ steps.pick.outputs.platform }}
+      build_os: ${{ steps.pick.outputs.build_os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: pick
+        env:
+          ALWAYS: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+        run: |
+          paths='^(src-tauri/|src/lib/drops\.ts|e2e/(drops\.mjs|drop-steps\.mjs|native-drop\.ps1|windows-display\.ps1)|\.github/workflows/ci\.yml)'
+          platform=false
+          if [ "$ALWAYS" = true ]; then
+            platform=true
+          else
+            git fetch --no-tags origin main
+            if git diff --name-only "$(git merge-base HEAD origin/main)" HEAD | grep -qE "$paths"; then platform=true; fi
+          fi
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+          if [ "$platform" = true ]; then
+            echo 'build_os=["ubuntu-24.04","windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build_os=["ubuntu-24.04"]' >> "$GITHUB_OUTPUT"
+          fi
+          echo "platform jobs: $platform"
+
   check:
     if: ${{ !inputs.windows_only }}
     name: Lint and unit tests (Linux)
@@ -65,9 +98,15 @@ jobs:
         run: python3 scripts/wait-stand.py
       - run: DEPESHA_IT=1 cargo test -p depesha-core --test greenmail --test dovecot
 
+  # The scenario in three parts, each on a machine of its own with its own stand and profile
+  # (sections: e2e/shard.mjs, what a part runs: DEPESHA_E2E_SHARD).
   e2e:
     if: ${{ !inputs.windows_only }}
-    name: End-to-end GUI (Linux, Xvfb)
+    name: End-to-end GUI (Linux, Xvfb, part ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/3", "2/3", "3/3"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -94,11 +133,11 @@ jobs:
           Xvfb :99 -screen 0 1440x900x24 -nolisten tcp &
           dbus-run-session -- bash -c '
             echo -n "ci" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
-            WEBKIT_DRIVER=/usr/bin/WebKitWebDriver E2E_DISPLAY=:99 node e2e/run.mjs'
+            DEPESHA_E2E_SHARD=${{ matrix.shard }} WEBKIT_DRIVER=/usr/bin/WebKitWebDriver E2E_DISPLAY=:99 node e2e/run.mjs'
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: e2e-screens
+          name: e2e-screens-${{ strategy.job-index }}
           path: e2e/screens
 
   # Files dropped on a letter being written (#79) on a real Windows: the backend makes the
@@ -107,8 +146,9 @@ jobs:
   # `scale` 2 asks WebView2 for a device pixel ratio of 2, as on a 200 % screen.
   e2e-windows:
     name: Drop on Windows (${{ matrix.name }})
-    # Not on every pull request: a Windows build and three runs take their time.
-    if: github.event_name != 'pull_request'
+    # A Windows build and three runs take their time: see `changes` for the branches it is run on.
+    needs: changes
+    if: needs.changes.outputs.platform == 'true'
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -190,10 +230,11 @@ jobs:
   build:
     if: ${{ !inputs.windows_only }}
     name: Build ${{ matrix.os }}
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
+        os: ${{ fromJSON(needs.changes.outputs.build_os) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

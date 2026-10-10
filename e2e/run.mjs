@@ -6,7 +6,8 @@
 //   e2e/keyring.sh node e2e/run.mjs   (a throwaway keyring, see e2e/README.md)
 //
 // Env: DEPESHA_APP (binary), WEBKIT_DRIVER (WebKitWebDriver), E2E_DISPLAY (default :99),
-// DEPESHA_STAND_LOCK (the stand lock file, default $XDG_RUNTIME_DIR/depesha-e2e.lock).
+// DEPESHA_STAND_LOCK (the stand lock file, default $XDG_RUNTIME_DIR/depesha-e2e.lock),
+// DEPESHA_E2E_SHARD (one part of the scenario: `2/3` or `list,send`; without it all the steps, see e2e/shard.mjs).
 //
 // The stand is one for every worktree: unless scripts/check.sh already holds the lock
 // (DEPESHA_STAND_LOCKED=1), the run starts itself again under `flock` and waits its turn.
@@ -19,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { Driver } from "./webdriver.mjs";
 import { Abort, createStepRunner } from "./step.mjs";
 import { dropFixtures, dropOn, dropSteps } from "./drop-steps.mjs";
+import { createSectionGate, selectSections } from "./shard.mjs";
 
 if (!process.env.DEPESHA_STAND_LOCKED) {
   const lock = process.env.DEPESHA_STAND_LOCK ?? join(process.env.XDG_RUNTIME_DIR ?? "/tmp", "depesha-e2e.lock");
@@ -92,7 +94,11 @@ async function screenshot(name, { toasts = false } = {}) {
 const retried = [];
 
 /** Only a step marked `{ retry: true }` is restarted (see e2e/step.mjs); `critical` aborts the run. */
-const step = createStepRunner({ screenshot, tidyUp, log: console.log, results, retried });
+const runStep = createStepRunner({ screenshot, tidyUp, log: console.log, results, retried });
+
+/** DEPESHA_E2E_SHARD=2/3 (or a list of sections): this run is one part of the scenario (e2e/shard.mjs); the steps of the other parts are not run. */
+const { section, gate } = createSectionGate(selectSections(process.env.DEPESHA_E2E_SHARD));
+const step = gate(runStep);
 
 /** Closes what a failed step left open (menus, the viewer, dialogs): it would cover the next step's clicks. */
 async function tidyUp() {
@@ -468,6 +474,7 @@ try {
     await rowBySubject("Массовое письмо 000", 5000);
   });
 
+  section("list");
   await step("108.1", "аватары в списке: круг в каждой строке, снимки в обеих темах, выключатель #108", async () => {
     await d.button("Входящие");
     await d.exec("document.querySelector('.viewport').scrollTop = 0");
@@ -1541,6 +1548,7 @@ try {
     await composeClosed();
   });
 
+  section("send");
   let sentAt = 0;
   await step("5.1", "новое письмо уходит через очередь", async () => {
     await d.button("Написать");
@@ -1872,6 +1880,7 @@ try {
     }
   });
 
+  section("triage");
   await step("1.4", "«Готово» подряд: убранные письма не возвращаются в список, пока сервер их переносит", async () => {
     const subjects = ["Массовое письмо 605", "Массовое письмо 604", "Массовое письмо 603"];
     await openBySubject(subjects[0]);
@@ -2235,6 +2244,7 @@ try {
     await d.until("card closed", async () => (await d.findAll(".pcard")).length === 0);
     await d.exec("document.documentElement.dataset.theme = arguments[0]", was);
   });
+  section("sendlater");
   await step("5.8", "проверка перед отправкой и отмена отправки", async () => {
     const subj = `Отмена ${stamp}`;
     await newMessage("carol@local.test", subj, "Договор во вложении.");
@@ -2325,6 +2335,7 @@ try {
     await d.until("sent", async () => !(await textOf(".outbox")).includes(subj), 60000, 1000);
   });
 
+  section("reminders");
   await step("5.10", "«Ждут ответа»: напоминание снимается, когда приходит ответ", async () => {
     const subj = `Вопрос ${stamp}`;
     await newMessage("carol@local.test", subj, "Когда будет готово?");
@@ -2602,6 +2613,7 @@ try {
     await composeClosed();
   });
 
+  section("settings");
   await step("7.7", "палитра команд (Ctrl+K) и шаблоны ответов", async () => {
     await press("k", { ctrlKey: true });
     await d.until("palette", async () => (await d.findAll(".palette")).length === 1);
@@ -3135,6 +3147,7 @@ try {
     await closeModules();
   });
 
+  section("second");
   await step("1.4, 2.2", "второй ящик по TLS: недоверенный сертификат принимается по отпечатку в мастере", async () => {
     // With one account, adding another lives in its menu.
     await d.click(await d.find(".menu-btn"));

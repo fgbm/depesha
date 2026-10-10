@@ -6,9 +6,14 @@
 #   scripts/check.sh --fast   static checks and unit tests only
 #   scripts/check.sh --changed  only what the branch touched (against the merge-base with
 #                               origin/main, plus uncommitted files); for work on a branch.
-#                               Merging into main still takes the full run. e2e is never run here.
+#                               e2e is never run here.
+#   scripts/check.sh --ci     the checks of --fast over the whole project, then a push of the current
+#                             branch and a wait for its CI run (`gh run watch`); the exit code is the
+#                             run's. The e2e (in parts), integration and platform jobs run there, not
+#                             on this machine, so the stand below is not needed. The merge into main
+#                             wants this green on the branch (again after a rebase on main).
 #
-# The full run takes a lock on the shared stand ($DEPESHA_STAND_LOCK, default
+# The full run (no flag) takes a lock on the shared stand ($DEPESHA_STAND_LOCK, default
 # ${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock) before GreenMail and waits if another run holds it;
 # e2e/run.mjs started by hand takes the same lock. --fast and --changed do not touch it.
 #
@@ -32,6 +37,31 @@ if [[ -z "${RUSTC_WRAPPER:-}" && -z "${DEPESHA_NO_SCCACHE:-}" ]] && command -v s
     echo "sccache не отвечает: собираю без него. DEPESHA_NO_SCCACHE=1 отключает эту проверку." >&2
   fi
 fi
+
+ci_preflight() {
+  branch=$(git symbolic-ref --short -q HEAD || true)
+  if [[ -z $branch ]]; then
+    echo "--ci: HEAD не на ветке, пушить нечего. Перейди на ветку." >&2
+    exit 1
+  fi
+  if [[ $branch == main ]]; then
+    echo "--ci работает на ветке задачи, не на main." >&2
+    exit 1
+  fi
+  if ! upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null); then
+    echo "--ci: у ветки «$branch» нет upstream, пушить некуда. Один раз: git push -u origin $branch" >&2
+    exit 1
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "--ci: нужен gh (GitHub CLI), он не найден." >&2
+    exit 1
+  fi
+  if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
+    echo "Внимание: есть незакоммиченные изменения; CI увидит только коммиты." >&2
+  fi
+}
+
+[[ "${1:-}" == "--ci" ]] && ci_preflight
 
 if [[ "${1:-}" == "--changed" ]]; then
   base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main)
@@ -90,7 +120,7 @@ if [[ "${1:-}" == "--changed" ]]; then
     step "e2e (синтаксис и тест прогона)"
     while IFS= read -r f; do [[ $f == *.mjs && -f $f ]] && node --check "$f"; done <<<"$e2e"
     npx vitest run e2e
-    echo "e2e не запускается в --changed: прогон на стенде только при слиянии (полный scripts/check.sh)."
+    echo "e2e не запускается в --changed: он идёт в CI на ветке (scripts/check.sh --ci)."
   fi
   step "хук персональных данных"
   scripts/hooks/pre-commit.test.sh
@@ -121,6 +151,25 @@ cargo test -p depesha --lib
 
 if [[ "${1:-}" == "--fast" ]]; then
   exit 0
+fi
+
+if [[ "${1:-}" == "--ci" ]]; then
+  step "CI на ветке"
+  git push
+  sha=$(git rev-parse HEAD)
+  run=""
+  for i in $(seq 30); do
+    run=$(gh run list --workflow ci.yml --branch "$branch" --commit "$sha" --event push --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+    [[ -n $run ]] && break
+    sleep 2
+  done
+  if [[ -z $run ]]; then
+    echo "--ci: запуск CI для ${sha:0:9} на ветке $branch не появился за минуту." >&2
+    exit 1
+  fi
+  echo "запуск: $(gh run view "$run" --json url --jq .url)"
+  gh run watch "$run" --exit-status --interval 20
+  exit $?
 fi
 
 # The build needs no stand, so it goes before the lock and does not hold the others up.
