@@ -6,8 +6,9 @@ import DOMPurify from "dompurify";
 export const SHEET_ROWS = 5000;
 
 /** Output of the libraries is shown in the sandboxed frame; it still goes through the sanitizer. */
-function clean(html: string): string {
-  return DOMPurify.sanitize(html, { FORCE_BODY: true, ADD_TAGS: ["style"], FORBID_TAGS: ["meta", "link", "base", "form"] });
+export function clean(html: string): string {
+  // Image maps are links the frame would follow by itself: no `<map>`, `<area>` or `usemap`.
+  return DOMPurify.sanitize(html, { FORCE_BODY: true, ADD_TAGS: ["style"], FORBID_TAGS: ["meta", "link", "base", "form", "map", "area"], FORBID_ATTR: ["usemap"] });
 }
 
 export async function docxHtml(data: ArrayBuffer): Promise<string> {

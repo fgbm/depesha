@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from "../lib/i18n.svelte";
+  import { linkAt } from "../lib/frameLink";
   // Renders sanitized message HTML in a sandboxed iframe: no scripts, no network
   // except images the user allowed, links go through onLink.
   // `allow-scripts` is there for the page's own listeners, not for the letter's scripts: WebKitGTK does
@@ -112,14 +113,14 @@ ${themed ? themeCss() : ""}
     if (!el || !doc || attached.has(doc)) return;
     attached.add(doc);
     doc.addEventListener("click", (e) => {
-      const a = (e.target as Element | null)?.closest?.("a");
+      const a = linkAt(e.target);
       if (!a) return;
       e.preventDefault();
       const href = a.getAttribute("href") ?? "";
       if (href && !href.startsWith("#")) onLink(href);
     });
     doc.addEventListener("mouseover", (e) => {
-      const a = (e.target as Element | null)?.closest?.("a");
+      const a = linkAt(e.target);
       hover = a?.getAttribute("href") ?? "";
     });
     doc.addEventListener("mouseleave", () => (hover = ""));
