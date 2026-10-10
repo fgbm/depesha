@@ -2,7 +2,9 @@
 //! cannot be tested without a server: for now «Clear» (`clear`), the operations it needs and
 //! no others. IMAP and Exchange implement it in `mail`; the tests of the rules, a fake. The
 //! rules know no protocol: what a count names (`Count`) and how a message is named (`Item`)
-//! are the implementation's own.
+//! are the implementation's own. `clear::Bounds<B>` is generic only so the core need not name
+//! the app's `mail::Bound`, the sum of the two kinds that the app holds (it learns the kind from
+//! the connection); beyond that, the tests with their own fake bound are its only other user.
 
 use std::future::Future;
 

@@ -90,27 +90,8 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
     let Some(account_id) = due.first().map(|s| s.account_id.clone()) else {
         return;
     };
-    let returned = snooze::return_due(&state.store, &due, |bring| {
-        let worker = state.worker(&account_id);
-        async move {
-            let work = Work::MoveByMessageId {
-                from: bring.from,
-                message_ids: bring.message_ids,
-                to: bring.to,
-                unseen: bring.unseen,
-            };
-            // Offline or the account is paused: tried again on the next tick.
-            match worker?.run_background(work).await? {
-                Output::Count(n) => Ok::<usize, crate::error::CmdError>(n),
-                _ => Ok(1),
-            }
-        }
-    })
-    .await;
-    for e in &returned.not_dropped {
-        tracing::warn!("scheduler: {e}");
-    }
-    for s in &returned.back {
+    // The user is told of each letter as soon as it is back, not after the whole batch.
+    let mut on_back = |s: &depesha_core::store::Snooze| {
         let subject = if s.subject.is_empty() {
             pick("(no subject)", "(без темы)")
         } else {
@@ -121,6 +102,34 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
             subject,
             false,
         );
+    };
+    let returned = snooze::return_due(
+        &state.store,
+        &due,
+        |bring| {
+            let worker = state.worker(&account_id);
+            async move {
+                let work = Work::MoveByMessageId {
+                    from: bring.from,
+                    message_ids: bring.message_ids,
+                    to: bring.to,
+                    unseen: bring.unseen,
+                };
+                // Offline or the account is paused: tried again on the next tick.
+                match worker?.run_background(work).await? {
+                    Output::Count(n) => Ok::<usize, crate::error::CmdError>(n),
+                    _ => Ok(1),
+                }
+            }
+        },
+        &mut on_back,
+    )
+    .await;
+    for e in &returned.not_dropped {
+        tracing::warn!("scheduler: {e}");
+    }
+    for e in &returned.failed {
+        tracing::debug!(account = %account_id, "snooze return failed: {}", e.message);
     }
     if returned.changed {
         state.emit("counters-changed", json!({}));

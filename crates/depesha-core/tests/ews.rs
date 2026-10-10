@@ -836,6 +836,65 @@ async fn clearing_exchange_folders() {
     .unwrap();
     assert_eq!(run, depesha_core::clear::Emptied::default());
 
+    // What the cache names to keep stays on the server: three items are cached, one is kept.
+    {
+        let mut mb = mailbox.lock().unwrap();
+        for n in 1..=3 {
+            mb.items.push(item(&format!("kept{n}"), "J", t0 + n, "Оставить"));
+        }
+    }
+    let mail::Conn::Ews(s) = &mut conn else { unreachable!() };
+    ews::sync_folder(s, &store, ACCOUNT, junk, SyncOptions { initial_limit: 10 })
+        .await
+        .unwrap();
+    let cached = store.ews_items(ACCOUNT, junk).unwrap();
+    assert_eq!(cached.len(), 3);
+    let (keep_uid, keep_item, _) = cached[0].clone();
+    let bound = bound_of(&mut conn, &store, ACCOUNT, junk).await;
+    let run = mail::empty_folder(
+        &mut conn,
+        &store,
+        ACCOUNT,
+        junk,
+        &depesha_core::clear::Emptying::Erase,
+        &bound,
+        &[keep_uid],
+        500,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+    assert_eq!((run.total, run.done), (2, 2));
+    {
+        let mb = mailbox.lock().unwrap();
+        let left: Vec<&str> = mb
+            .items
+            .iter()
+            .filter(|i| i.folder == "J")
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(
+            left,
+            [keep_item.as_str()],
+            "the item of the kept UID stays on the server"
+        );
+    }
+    // Put things in order for what follows.
+    let bound = bound_of(&mut conn, &store, ACCOUNT, junk).await;
+    mail::empty_folder(
+        &mut conn,
+        &store,
+        ACCOUNT,
+        junk,
+        &depesha_core::clear::Emptying::Erase,
+        &bound,
+        &[],
+        500,
+        &mut |_, _| true,
+    )
+    .await
+    .unwrap();
+
     // An item that arrives after the dialog counted is not wiped; the same bound run again
     // meets items that are gone already and goes on.
     {
@@ -886,7 +945,7 @@ async fn clearing_exchange_folders() {
         ACCOUNT,
         junk,
         &depesha_core::clear::Emptying::Erase,
-        &mail::Bound::Imap { validity: 1, next: 1 },
+        &mail::Bound::Imap(mail::ImapBound { validity: 1, next: 1 }),
         &[],
         500,
         &mut |_, _| true,

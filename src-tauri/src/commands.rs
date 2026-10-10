@@ -1344,8 +1344,7 @@ pub async fn snooze(state: St<'_>, ids: Vec<i64>, until: i64) -> CmdResult<Vec<M
     let mut done = Vec::new();
     for (key, rows) in group_rows(&state, &ids)? {
         let (account_id, folder, _) = &key;
-        let rows: Vec<MessageRow> = rows.into_iter().filter(|r| r.message_id.is_some()).collect();
-        let Some(batch) = snooze::trackable(&rows) else {
+        let Some(snooze::Trackable { rows, batch }) = snooze::trackable(rows) else {
             return Err(CmdError::new(
                 "other",
                 tr!(
@@ -1392,8 +1391,9 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                 unseen: Vec::new(),
                 snoozed: group.snoozed.clone(),
             };
-            let out = state
-                .worker(&group.account_id)?
+            // A mailbox that is not running is not a failure of the move: nothing was tried.
+            let worker = state.worker(&group.account_id)?;
+            let out = worker
                 .run(Work::MoveByMessageId {
                     from: bring.from,
                     message_ids: bring.message_ids,
@@ -1856,7 +1856,7 @@ pub async fn folder_total(state: St<'_>, account_id: String, folder: String) -> 
     {
         Output::Counted(total, bound) => Ok(crate::empty::FolderCount {
             total,
-            bound: state.clearing.hold(&account_id, &folder, bound),
+            bound: state.bounds.hold(&account_id, &folder, bound),
         }),
         _ => Err(CmdError::new("other", "no count")),
     }

@@ -498,13 +498,13 @@ async fn clears_a_folder(conn: imap::Conn, tag: &str) {
         let mail::Conn::Imap(c) = &mut conn else { unreachable!() };
         imap::append(c, &junk, &letter("late", 1), "").await.unwrap();
     }
-    let mail::Bound::Imap { validity, next } = bound.clone() else {
+    let mail::Bound::Imap(depesha_core::mail::ImapBound { validity, next }) = bound.clone() else {
         unreachable!()
     };
-    let stale = mail::Bound::Imap {
+    let stale = mail::Bound::Imap(mail::ImapBound {
         validity: validity + 1,
         next,
-    };
+    });
     let refused = mail::empty_folder(
         &mut conn,
         &store,

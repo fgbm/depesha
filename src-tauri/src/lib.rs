@@ -202,6 +202,7 @@ pub fn run() {
                 open_seq: Default::default(),
                 pending_deep_link: Mutex::new(None),
                 clearing: Default::default(),
+                bounds: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();

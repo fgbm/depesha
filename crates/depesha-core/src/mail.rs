@@ -373,8 +373,14 @@ pub async fn folder_total(conn: &mut Conn, store: &Store, account_id: &str, fold
 /// How many messages the folder holds on the server and the bound that counted them.
 pub async fn folder_count(conn: &mut Conn, store: &Store, account_id: &str, folder: &str) -> Result<(usize, Bound)> {
     match conn {
-        Conn::Imap(c) => ImapServer::new(c, EMPTY_BATCH).count(folder).await,
-        Conn::Ews(s) => EwsServer { s, store, account_id }.count(folder).await,
+        Conn::Imap(c) => {
+            let (n, bound) = ImapServer::new(c, EMPTY_BATCH).count(folder).await?;
+            Ok((n, Bound::Imap(bound)))
+        }
+        Conn::Ews(s) => {
+            let (n, bound) = EwsServer { s, store, account_id }.count(folder).await?;
+            Ok((n, Bound::Ews(bound)))
+        }
     }
 }
 
@@ -392,19 +398,14 @@ pub async fn empty_folder(
     batch: usize,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
 ) -> Result<Emptied> {
-    match conn {
-        Conn::Imap(c) => clear::empty_folder(&mut ImapServer::new(c, batch), folder, how, bound, keep, progress).await,
-        Conn::Ews(s) => {
-            clear::empty_folder(
-                &mut EwsServer { s, store, account_id },
-                folder,
-                how,
-                bound,
-                keep,
-                progress,
-            )
-            .await
+    match (conn, bound) {
+        (Conn::Imap(c), Bound::Imap(b)) => {
+            clear::empty_folder(&mut ImapServer::new(c, batch), folder, how, b, keep, progress).await
         }
+        (Conn::Ews(s), Bound::Ews(b)) => {
+            clear::empty_folder(&mut EwsServer { s, store, account_id }, folder, how, b, keep, progress).await
+        }
+        _ => Err(not_of_this_mailbox()),
     }
 }
 
@@ -413,78 +414,104 @@ pub async fn empty_folder(
 pub async fn clear_folder(
     conn: &mut Conn,
     store: &Store,
-    clearing: &Clearing<Bound>,
+    clearing: &Clearing,
     account_id: &str,
     req: &clear::Request<Bound>,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
     cache_forgot: &mut (dyn FnMut(Forgot) + Send),
 ) -> Performed {
-    match conn {
-        Conn::Imap(c) => {
+    match (conn, &req.bound) {
+        (Conn::Imap(c), Bound::Imap(b)) => {
             let mut server = ImapServer::new(c, EMPTY_BATCH);
-            clear::perform(&mut server, store, clearing, account_id, req, progress, cache_forgot).await
+            let req = req.with_bound(b.clone());
+            clear::perform(&mut server, store, clearing, account_id, &req, progress, cache_forgot).await
         }
-        Conn::Ews(s) => {
+        (Conn::Ews(s), Bound::Ews(b)) => {
             let mut server = EwsServer { s, store, account_id };
-            clear::perform(&mut server, store, clearing, account_id, req, progress, cache_forgot).await
+            let req = req.with_bound(b.clone());
+            clear::perform(&mut server, store, clearing, account_id, &req, progress, cache_forgot).await
         }
+        _ => Performed {
+            result: Err(not_of_this_mailbox()),
+            last: (0, 0),
+            kept_ids: Vec::new(),
+        },
     }
 }
 
 /// What a count of a folder named (#74): the folder as it was when the dialog counted it. What
 /// arrives afterwards is not in it and is never wiped, and a run repeated from the same bound
-/// goes on with what is left of it. It is the adapters' own business: the rules only hold it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// goes on with what is left of it. Each kind of mailbox counts its own way (`ImapBound`,
+/// `EwsBound`); the app, which learns the kind only from the connection, holds either.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bound {
-    /// IMAP: the messages of this UIDVALIDITY with a UID below `next` (the UIDNEXT then).
-    Imap { validity: u32, next: u32 },
-    /// Exchange: the items the folder held then.
-    Items(Vec<String>),
+    Imap(ImapBound),
+    Ews(EwsBound),
 }
 
+/// IMAP: the messages of this UIDVALIDITY with a UID below `next` (the UIDNEXT then).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImapBound {
+    pub validity: u32,
+    pub next: u32,
+}
+
+/// Exchange: the items the folder held then.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EwsBound(pub Vec<String>);
+
 impl Count for Bound {
-    /// IMAP: below the UIDNEXT of the count, a letter that arrived since is outside it. Exchange:
-    /// an item of the snapshot, by the cache's table of items.
     fn covers<'a>(&'a self, store: &Store, account_id: &str, folder: &str) -> Box<dyn Fn(u32) -> bool + Send + 'a> {
         match self {
-            Bound::Imap { next, .. } => Box::new(move |uid| uid < *next),
-            Bound::Items(snapshot) => {
-                let snapshot: HashSet<&str> = snapshot.iter().map(String::as_str).collect();
-                let inside: HashSet<u32> = store
-                    .ews_items(account_id, folder)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|(_, item, _)| snapshot.contains(item.as_str()))
-                    .map(|(uid, _, _)| uid)
-                    .collect();
-                Box::new(move |uid| inside.contains(&uid))
-            }
+            Bound::Imap(b) => b.covers(store, account_id, folder),
+            Bound::Ews(b) => b.covers(store, account_id, folder),
         }
     }
 }
 
+impl Count for ImapBound {
+    /// Below the UIDNEXT of the count: a letter that arrived since is outside it.
+    fn covers<'a>(&'a self, _: &Store, _: &str, _: &str) -> Box<dyn Fn(u32) -> bool + Send + 'a> {
+        Box::new(|uid| uid < self.next)
+    }
+}
+
+impl Count for EwsBound {
+    /// An item of the snapshot, by the cache's table of items.
+    fn covers<'a>(&'a self, store: &Store, account_id: &str, folder: &str) -> Box<dyn Fn(u32) -> bool + Send + 'a> {
+        let snapshot: HashSet<&str> = self.0.iter().map(String::as_str).collect();
+        let inside: HashSet<u32> = store
+            .ews_items(account_id, folder)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, item, _)| snapshot.contains(item.as_str()))
+            .map(|(uid, _, _)| uid)
+            .collect();
+        Box::new(move |uid| inside.contains(&uid))
+    }
+}
+
+/// The connection and the bound of a run are of different kinds of mailbox: the one thing the
+/// types cannot tell, as the app learns the kind at run time.
 fn not_of_this_mailbox() -> Error {
     Error::Protocol("the bound of the clearing is not of this mailbox".into())
 }
 
 /// The UIDs of an IMAP folder (`uids`, read under `validity`) that the `bound` names, but
 /// `keep`: those below the UIDNEXT of the count. A folder renumbered since is `FolderChanged`.
-fn within_bound(validity: u32, uids: Vec<u32>, bound: &Bound, keep: &[u32]) -> Result<Vec<u32>> {
-    let Bound::Imap { validity: asked, next } = bound else {
-        return Err(not_of_this_mailbox());
-    };
-    if validity != *asked {
+fn within_bound(validity: u32, uids: Vec<u32>, bound: &ImapBound, keep: &[u32]) -> Result<Vec<u32>> {
+    if validity != bound.validity {
         return Err(Error::FolderChanged);
     }
-    Ok(uids.into_iter().filter(|u| u < next && !keep.contains(u)).collect())
+    Ok(uids
+        .into_iter()
+        .filter(|u| *u < bound.next && !keep.contains(u))
+        .collect())
 }
 
 /// The items of an Exchange folder that the `bound` (a snapshot of its items) names, but `kept`.
-fn within_snapshot(bound: &Bound, kept: &[String]) -> Result<Vec<String>> {
-    let Bound::Items(snapshot) = bound else {
-        return Err(not_of_this_mailbox());
-    };
-    Ok(snapshot.iter().filter(|id| !kept.contains(id)).cloned().collect())
+fn within_snapshot(bound: &EwsBound, kept: &[String]) -> Vec<String> {
+    bound.0.iter().filter(|id| !kept.contains(id)).cloned().collect()
 }
 
 /// The port of the mail server over an IMAP connection. It remembers the UIDVALIDITY the
@@ -513,11 +540,11 @@ fn counted_under(validity: Option<u32>) -> Result<u32> {
 
 impl MailServer for ImapServer<'_> {
     type Item = u32;
-    type Bound = Bound;
+    type Bound = ImapBound;
 
-    async fn count(&mut self, folder: &str) -> Result<(usize, Bound)> {
+    async fn count(&mut self, folder: &str) -> Result<(usize, ImapBound)> {
         let (exists, validity, next) = imap::folder_mark(self.conn, folder).await?;
-        Ok((exists as usize, Bound::Imap { validity, next }))
+        Ok((exists as usize, ImapBound { validity, next }))
     }
 
     /// The cache numbers the messages by their UIDs.
@@ -525,7 +552,7 @@ impl MailServer for ImapServer<'_> {
         Ok(cached.to_vec())
     }
 
-    async fn counted(&mut self, folder: &str, bound: &Bound, keep: &[u32]) -> Result<Vec<u32>> {
+    async fn counted(&mut self, folder: &str, bound: &ImapBound, keep: &[u32]) -> Result<Vec<u32>> {
         let (validity, uids) = imap::folder_uids(self.conn, folder).await?;
         let uids = within_bound(validity, uids, bound, keep)?;
         self.validity = Some(validity);
@@ -558,19 +585,19 @@ pub(crate) struct EwsServer<'a> {
 
 impl MailServer for EwsServer<'_> {
     type Item = String;
-    type Bound = Bound;
+    type Bound = EwsBound;
 
-    async fn count(&mut self, folder: &str) -> Result<(usize, Bound)> {
+    async fn count(&mut self, folder: &str) -> Result<(usize, EwsBound)> {
         let ids = ews::folder_item_ids(self.s, self.store, self.account_id, folder).await?;
-        Ok((ids.len(), Bound::Items(ids)))
+        Ok((ids.len(), EwsBound(ids)))
     }
 
     async fn items_of(&mut self, folder: &str, cached: &[u32]) -> Result<Vec<String>> {
         self.store.ews_item_ids(self.account_id, folder, cached)
     }
 
-    async fn counted(&mut self, _folder: &str, bound: &Bound, keep: &[String]) -> Result<Vec<String>> {
-        within_snapshot(bound, keep)
+    async fn counted(&mut self, _folder: &str, bound: &EwsBound, keep: &[String]) -> Result<Vec<String>> {
+        Ok(within_snapshot(bound, keep))
     }
 
     async fn erase(&mut self, _folder: &str, items: &[String]) -> Result<()> {
@@ -715,7 +742,7 @@ mod tests {
 
     #[test]
     fn an_imap_count_names_the_uids_below_its_uidnext_of_its_own_validity() {
-        let bound = Bound::Imap { validity: 7, next: 4 };
+        let bound = ImapBound { validity: 7, next: 4 };
         // UID 4 arrived after the count, 2 must stay.
         assert_eq!(within_bound(7, vec![1, 2, 3, 4], &bound, &[2]).unwrap(), [1, 3]);
         // The folder was renumbered since: nothing is named.
@@ -723,20 +750,14 @@ mod tests {
             within_bound(8, vec![1], &bound, &[]),
             Err(Error::FolderChanged)
         ));
-        // A count of the other kind of mailbox names nothing here.
-        assert!(matches!(
-            within_bound(7, vec![1], &Bound::Items(vec![]), &[]),
-            Err(Error::Protocol(_))
-        ));
         let inside = bound.covers(&Store::open_in_memory().unwrap(), "a", "F");
         assert!(inside(3) && !inside(4));
     }
 
     #[test]
     fn an_exchange_snapshot_gives_up_what_must_stay() {
-        let snapshot = Bound::Items(vec!["a".into(), "b".into(), "c".into()]);
-        assert_eq!(within_snapshot(&snapshot, &["b".to_owned()]).unwrap(), ["a", "c"]);
-        assert!(within_snapshot(&Bound::Imap { validity: 1, next: 2 }, &[]).is_err());
+        let snapshot = EwsBound(vec!["a".into(), "b".into(), "c".into()]);
+        assert_eq!(within_snapshot(&snapshot, &["b".to_owned()]), ["a", "c"]);
     }
 
     #[test]

@@ -104,6 +104,19 @@ pub struct Request<B> {
     pub drafts: bool,
 }
 
+impl<B> Request<B> {
+    /// The same request with the bound of one kind of mailbox, once the connection says which.
+    pub fn with_bound<C>(&self, bound: C) -> Request<C> {
+        Request {
+            folder: self.folder.clone(),
+            how: self.how.clone(),
+            bound,
+            keep_ids: self.keep_ids.clone(),
+            drafts: self.drafts,
+        }
+    }
+}
+
 /// What came of a run: how far it got whatever the end, and the cache ids of the drafts it kept.
 pub struct Performed {
     pub result: Result<Emptied>,
@@ -119,7 +132,7 @@ pub struct Performed {
 pub async fn perform<S: MailServer>(
     server: &mut S,
     store: &Store,
-    clearing: &Clearing<S::Bound>,
+    clearing: &Clearing,
     account_id: &str,
     req: &Request<S::Bound>,
     progress: &mut (dyn FnMut(usize, usize) -> bool + Send),
@@ -187,7 +200,7 @@ pub fn clearable_role(store: &Store, account_id: &str, folder: &str) -> Option<F
 /// copies that leave with the drafts the count named.
 pub fn leaving_copies<B: Count>(
     store: &Store,
-    clearing: &Clearing<B>,
+    clearing: &Clearing,
     copies: &[CachedDraft],
     account_id: &str,
     folder: &str,
@@ -216,7 +229,7 @@ pub fn leaving_copies<B: Count>(
 
 /// How many drafts of the mailbox's Drafts folder windows have open: the number the dialog
 /// says will stay.
-pub fn open_in_drafts<B>(store: &Store, clearing: &Clearing<B>, account_id: &str) -> usize {
+pub fn open_in_drafts(store: &Store, clearing: &Clearing, account_id: &str) -> usize {
     let folder = store.folder_by_role(account_id, FolderRole::Drafts).ok().flatten();
     let Some(folder) = folder else { return 0 };
     clearing
@@ -247,9 +260,9 @@ struct OpenDraft {
     message_id: Option<String>,
 }
 
-/// What the backend knows about the clearings: the drafts that windows have open, and the
-/// bounds the dialogs counted.
-pub struct Clearing<B> {
+/// What the backend knows about the drafts windows have open.
+#[derive(Default)]
+pub struct Clearing {
     /// Drafts open in a window, by the window's label: `(local_id, cache id of its server copy)`.
     /// A window reports them as it opens a composition, saves it and closes it, and the
     /// window's entry goes with it, so a letter's window the main one does not see is still
@@ -260,17 +273,19 @@ pub struct Clearing<B> {
     /// The page of each window by its load: a save of a page that is gone (an older number) is
     /// not heard.
     generations: Mutex<HashMap<String, u64>>,
-    bounds: Mutex<HashMap<u64, HeldBound<B>>>,
     seq: AtomicU64,
 }
 
-impl<B> Default for Clearing<B> {
+/// The counts the dialogs made, kept for the run that is then asked for.
+pub struct Bounds<B> {
+    held: Mutex<HashMap<u64, HeldBound<B>>>,
+    seq: AtomicU64,
+}
+
+impl<B> Default for Bounds<B> {
     fn default() -> Self {
         Self {
-            open: Default::default(),
-            closed: Default::default(),
-            generations: Default::default(),
-            bounds: Default::default(),
+            held: Default::default(),
             seq: Default::default(),
         }
     }
@@ -286,7 +301,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-impl<B> Clearing<B> {
+impl Clearing {
     /// A window says which server draft its composition `local_id` is now (`None`: none, the
     /// composition closed), and the Message-ID of that copy when it knows it. A composition
     /// that closed stays closed: a save that was still running does not bring it back.
@@ -359,13 +374,15 @@ impl<B> Clearing<B> {
     fn open_drafts(&self) -> Vec<OpenDraft> {
         lock(&self.open).values().flatten().cloned().collect()
     }
+}
 
+impl<B> Bounds<B> {
     /// Keeps the bound of a count; the number it is asked for by is returned. The older count
     /// of the folder stays until a run is confirmed (`confirm`): a count that was cancelled
     /// leaves the «Retry» of an earlier run its bound.
     pub fn hold(&self, account_id: &str, folder: &str, bound: B) -> u64 {
         let token = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut held = lock(&self.bounds);
+        let mut held = lock(&self.held);
         held.insert(
             token,
             HeldBound {
@@ -387,7 +404,7 @@ impl<B> Clearing<B> {
     where
         B: Clone,
     {
-        lock(&self.bounds)
+        lock(&self.held)
             .get(&token)
             .filter(|h| h.account_id == account_id && h.folder == folder)
             .map(|h| h.bound.clone())
@@ -396,7 +413,7 @@ impl<B> Clearing<B> {
     /// A run is asked for with the bound of `token`: the older counts of that folder are of no
     /// use any more.
     pub fn confirm(&self, token: u64) {
-        let mut held = lock(&self.bounds);
+        let mut held = lock(&self.held);
         let Some((account_id, folder)) = held.get(&token).map(|h| (h.account_id.clone(), h.folder.clone())) else {
             return;
         };
@@ -404,7 +421,7 @@ impl<B> Clearing<B> {
     }
 
     pub fn release(&self, token: u64) {
-        lock(&self.bounds).remove(&token);
+        lock(&self.held).remove(&token);
     }
 }
 
@@ -429,9 +446,9 @@ fn uids_to_forget<B: Count>(
 /// record) that stand in `folder` now. A number handed out anew to another draft is not
 /// taken for the open one: the record's Message-ID has to agree, else the copy is looked for
 /// by it.
-pub fn keep_uids<B>(
+pub fn keep_uids(
     store: &Store,
-    clearing: &Clearing<B>,
+    clearing: &Clearing,
     account_id: &str,
     folder: &str,
     window_ids: &[i64],
@@ -539,7 +556,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    type Clearing = super::Clearing<FakeBound>;
+    type Bounds = super::Bounds<FakeBound>;
 
     fn copy(key: &str, draft_id: Option<i64>, mid: Option<&str>) -> CachedDraft {
         CachedDraft {
@@ -788,7 +805,7 @@ mod tests {
 
     #[test]
     fn a_bound_is_kept_for_a_retry_and_a_newer_count_of_the_folder_replaces_it() {
-        let c = Clearing::default();
+        let c = Bounds::default();
         let first = c.hold("a", "Trash", FakeBound { generation: 1, upto: 9 });
         let spam = c.hold("a", "Spam", FakeBound { generation: 2, upto: 0 });
         assert_eq!(c.bound(first, "a", "Trash"), Some(FakeBound { generation: 1, upto: 9 }));

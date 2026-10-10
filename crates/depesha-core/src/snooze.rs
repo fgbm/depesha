@@ -30,14 +30,22 @@ impl Bring {
     }
 }
 
-/// What a snooze keeps of the letters: `(Message-ID, subject)` of those that can be tracked.
-/// A letter without a Message-ID cannot be found again once it has moved. `None`: none can.
-pub fn trackable(rows: &[MessageRow]) -> Option<Vec<(String, String)>> {
+/// The letters a snooze can keep: those with a Message-ID, which finds them again once they
+/// have moved, and what is kept of them, `(Message-ID, subject)`.
+#[derive(Debug)]
+pub struct Trackable {
+    pub rows: Vec<MessageRow>,
+    pub batch: Vec<(String, String)>,
+}
+
+/// Of the letters, those that can be snoozed. `None`: none can.
+pub fn trackable(rows: Vec<MessageRow>) -> Option<Trackable> {
+    let rows: Vec<MessageRow> = rows.into_iter().filter(|r| r.message_id.is_some()).collect();
     let batch: Vec<(String, String)> = rows
         .iter()
         .filter_map(|r| r.message_id.clone().map(|mid| (mid, r.subject.clone())))
         .collect();
-    (!batch.is_empty()).then_some(batch)
+    (!rows.is_empty()).then_some(Trackable { rows, batch })
 }
 
 /// Snoozed letters that come back together: of one mailbox, from one folder, to one folder.
@@ -135,36 +143,51 @@ pub fn due_by_account(store: &Store, now: i64) -> Result<BTreeMap<String, Vec<Sn
 }
 
 /// What came of bringing the due snoozes of a mailbox back.
-#[derive(Debug, Default)]
-pub struct Returned {
-    /// The letters that came back, for the user to be told of.
-    pub back: Vec<Snooze>,
+#[derive(Debug)]
+pub struct Returned<E> {
     /// Some time was dropped: the counters are to be read again.
     pub changed: bool,
     /// Times that could not be dropped: the next round meets them again and finds their
     /// letters gone. The core does not log; the caller does.
     pub not_dropped: Vec<crate::Error>,
+    /// What `bring` failed with (offline, the mailbox paused), one per letter that stays.
+    pub failed: Vec<E>,
 }
 
 /// Brings the due snoozes back one after another through `bring`, which answers how many
 /// letters it moved. None moved: they were moved elsewhere by hand (another client), there is
-/// nothing to bring back and the time goes. An error (offline, the mailbox paused) leaves the
-/// time: the next round tries again.
-pub async fn return_due<E, F, Fut>(store: &Store, due: &[Snooze], mut bring: F) -> Returned
+/// nothing to bring back and the time goes. An error leaves the time: the next round tries
+/// again. `on_back` hears of each letter as soon as it has come back, before the next is
+/// moved: the user is told of it at once, not after the whole batch.
+pub async fn return_due<E, F, Fut>(
+    store: &Store,
+    due: &[Snooze],
+    mut bring: F,
+    on_back: &mut (dyn FnMut(&Snooze) + Send),
+) -> Returned<E>
 where
     F: FnMut(Bring) -> Fut,
     Fut: std::future::Future<Output = std::result::Result<usize, E>>,
 {
-    let mut out = Returned::default();
+    let mut out = Returned {
+        changed: false,
+        not_dropped: Vec::new(),
+        failed: Vec::new(),
+    };
     for s in due {
-        let moved = bring(Bring::of(&s.folder, &s.return_to, vec![s.message_id.clone()])).await;
-        let Ok(count) = moved else { continue };
+        let count = match bring(Bring::of(&s.folder, &s.return_to, vec![s.message_id.clone()])).await {
+            Ok(count) => count,
+            Err(e) => {
+                out.failed.push(e);
+                continue;
+            }
+        };
         out.changed = true;
         if let Err(e) = store.snooze_remove(&s.account_id, &s.message_id) {
             out.not_dropped.push(e);
         }
         if count > 0 {
-            out.back.push(s.clone());
+            on_back(s);
         }
     }
     out
@@ -300,12 +323,12 @@ mod tests {
         };
         let with = row(1, Some("<w@x>"), "Есть");
         let without = row(2, None, "Нет");
-        assert_eq!(
-            trackable(&[with.clone(), without.clone()]),
-            Some(vec![("<w@x>".to_owned(), "Есть".to_owned())])
-        );
-        assert_eq!(trackable(&[without]), None);
-        assert_eq!(trackable(&[]), None);
+        let kept = trackable(vec![with.clone(), without.clone()]).unwrap();
+        assert_eq!(kept.batch, [("<w@x>".to_owned(), "Есть".to_owned())]);
+        // Only those are to be moved: a letter moved without a time would never come back.
+        assert_eq!(kept.rows.iter().map(|r| r.uid).collect::<Vec<_>>(), [1]);
+        assert!(trackable(vec![without]).is_none());
+        assert!(trackable(Vec::new()).is_none());
     }
 
     #[test]
@@ -330,20 +353,28 @@ mod tests {
         let gone = snooze(&store, "a", "<gone@x>", "INBOX", 10);
         let down = snooze(&store, "a", "<down@x>", "Work", 10);
         let mut asked = Vec::new();
-        let out = return_due(&store, &[back.clone(), gone.clone(), down.clone()], |bring| {
-            asked.push(bring.clone());
-            let id = bring.message_ids[0].clone();
-            async move {
-                match id.as_str() {
-                    "<back@x>" => Ok(1),
-                    "<gone@x>" => Ok(0),
-                    _ => Err("offline"),
+        let mut told = Vec::new();
+        let out = return_due(
+            &store,
+            &[back.clone(), gone.clone(), down.clone()],
+            |bring| {
+                asked.push(bring.clone());
+                let id = bring.message_ids[0].clone();
+                async move {
+                    match id.as_str() {
+                        "<back@x>" => Ok(1),
+                        "<gone@x>" => Ok(0),
+                        _ => Err("offline"),
+                    }
                 }
-            }
-        })
+            },
+            &mut |s| told.push(s.message_id.clone()),
+        )
         .await;
-        assert_eq!(out.back, [back]);
+        assert_eq!(told, ["<back@x>"], "only a letter that came back is told of");
         assert!(out.changed);
+        // The failure is seen outside, one per letter that stays.
+        assert_eq!(out.failed, ["offline"]);
         // One letter at a time, unread, to the folder it left.
         assert_eq!(asked.len(), 3);
         assert!(asked.iter().all(|b| b.unseen && b.from == "Snoozed"));
@@ -352,8 +383,31 @@ mod tests {
         let left = store.snoozes_due(100).unwrap();
         assert_eq!(left, [down]);
         // Nothing moved, nothing changed.
-        let out = return_due(&store, &left, |_| async { Err::<usize, _>("offline") }).await;
-        assert!(out.back.is_empty() && !out.changed && out.not_dropped.is_empty());
+        let out = return_due(&store, &left, |_| async { Err::<usize, _>("offline") }, &mut |_| {}).await;
+        assert!(!out.changed && out.not_dropped.is_empty());
+        assert_eq!(out.failed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_letter_is_told_of_as_soon_as_it_is_back_before_the_next_is_moved() {
+        let store = store();
+        let one = snooze(&store, "a", "<1@x>", "INBOX", 10);
+        let two = snooze(&store, "a", "<2@x>", "INBOX", 10);
+        let log = std::sync::Mutex::new(Vec::new());
+        return_due(
+            &store,
+            &[one, two],
+            |bring| {
+                log.lock().unwrap().push(format!("move {}", bring.message_ids[0]));
+                async { Ok::<_, ()>(1) }
+            },
+            &mut |s| log.lock().unwrap().push(format!("told {}", s.message_id)),
+        )
+        .await;
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["move <1@x>", "told <1@x>", "move <2@x>", "told <2@x>"]
+        );
     }
 
     #[tokio::test]

@@ -151,7 +151,7 @@ pub async fn run(
             ),
         ));
     };
-    let held = state.clearing.bound(bound, account_id, folder).ok_or_else(|| {
+    let held = state.bounds.bound(bound, account_id, folder).ok_or_else(|| {
         CmdError::new(
             "other",
             tr!(
@@ -160,7 +160,7 @@ pub async fn run(
             ),
         )
     })?;
-    state.clearing.confirm(bound);
+    state.bounds.confirm(bound);
     let mut copies = Vec::new();
     if drafts {
         // The windows' record is read after the copies on disk (`leaving_copies`), so what shifts
@@ -196,7 +196,7 @@ pub async fn run(
     // Only a finished run takes the copies with it: after a stop the drafts left in the folder
     // keep theirs.
     if !run.stopped {
-        state.clearing.release(bound);
+        state.bounds.release(bound);
     }
     if drafts && !run.stopped {
         // A draft opened while the run waited stayed in the folder, and so does its copy.

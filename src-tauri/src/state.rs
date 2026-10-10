@@ -61,7 +61,9 @@ pub struct AppState {
     /// taken once by the main window when it listens (`deep_link_take`).
     pub pending_deep_link: Mutex<Option<String>>,
     /// The drafts windows have open and the bounds of «Clear» counts (#74).
-    pub clearing: depesha_core::clear::Clearing<depesha_core::mail::Bound>,
+    pub clearing: depesha_core::clear::Clearing,
+    /// The counts the «Clear» dialogs made, kept for the run that follows.
+    pub bounds: depesha_core::clear::Bounds<depesha_core::mail::Bound>,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load
