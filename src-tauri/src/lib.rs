@@ -7,6 +7,7 @@ mod drops;
 mod empty;
 mod error;
 mod extensions;
+mod flights;
 mod followups;
 mod install_secret;
 mod label_strip;

@@ -2118,6 +2118,9 @@ pub fn notify_full(state: St<'_>, title: String, body: String) {
 /// Pictures are looked for again after a week, missing ones after a day.
 const AVATAR_TTL: i64 = 7 * 86_400;
 const AVATAR_MISS_TTL: i64 = 86_400;
+/// The pictures being fetched now by key (`photo:…`, `bimi:…`): one fetch for all who ask.
+static AVATAR_FLIGHTS: std::sync::LazyLock<crate::flights::Flights<CmdResult<Option<String>>>> =
+    std::sync::LazyLock::new(Default::default);
 
 /// The picture of a sender as a `data:` URI: the colleague's photo from the
 /// account's Exchange, otherwise, for mail that passed DMARC, the brand's BIMI logo.
@@ -2142,23 +2145,30 @@ pub async fn avatar(
         let key = format!("photo:{account_id}:{email}");
         let uri = match state.store.avatar(&key)?.filter(fresh) {
             Some((uri, _)) => uri,
-            None => match state
-                .worker(&account_id)?
-                .run_background(Work::UserPhoto(email.clone()))
-                .await
-            {
-                Ok(Output::Body(bytes)) => {
-                    let uri = avatar::data_uri(&bytes);
-                    state.store.set_avatar(&key, Some(&uri), now)?;
-                    Some(uri)
-                }
-                Ok(_) => {
-                    state.store.set_avatar(&key, None, now)?;
-                    None
-                }
-                // Offline or a busy server: initials now, another try next time.
-                Err(_) => None,
-            },
+            // Many rows of one sender ask at once: the server is asked once.
+            None => {
+                AVATAR_FLIGHTS
+                    .run(&key, || async {
+                        match state
+                            .worker(&account_id)?
+                            .run_background(Work::UserPhoto(email.clone()))
+                            .await
+                        {
+                            Ok(Output::Body(bytes)) => {
+                                let uri = avatar::data_uri(&bytes);
+                                state.store.set_avatar(&key, Some(&uri), now)?;
+                                Ok(Some(uri))
+                            }
+                            Ok(_) => {
+                                state.store.set_avatar(&key, None, now)?;
+                                Ok(None)
+                            }
+                            // Offline or a busy server: initials now, another try next time.
+                            Err(_) => Ok(None),
+                        }
+                    })
+                    .await?
+            }
         };
         if uri.is_some() {
             return Ok(uri);
@@ -2180,9 +2190,13 @@ pub async fn avatar(
     if let Some((uri, _)) = state.store.avatar(&key)?.filter(fresh) {
         return Ok(uri);
     }
-    let uri = avatar::bimi_logo(&domain).await;
-    state.store.set_avatar(&key, uri.as_deref(), now)?;
-    Ok(uri)
+    AVATAR_FLIGHTS
+        .run(&key, || async {
+            let uri = avatar::bimi_logo(&domain).await;
+            state.store.set_avatar(&key, uri.as_deref(), now)?;
+            Ok(uri)
+        })
+        .await
 }
 
 #[tauri::command(async)]
