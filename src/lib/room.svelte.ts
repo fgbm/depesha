@@ -14,7 +14,8 @@ const WARNED_KEY = "depesha.quotaWarned";
 function readWarned(): Record<string, Warned> {
   try {
     return JSON.parse(localStorage.getItem(WARNED_KEY) ?? "{}");
-  } catch { // A broken stored value starts from nothing.
+  } catch {
+    // A broken stored value starts from nothing.
     return {};
   }
 }
@@ -47,7 +48,8 @@ class Rooms {
     try {
       const list = await api.quotas();
       this.quotas = Object.fromEntries(list.map((q) => [q.account_id, q]));
-    } catch { // No bars until the next refresh.
+    } catch {
+      // No bars until the next refresh.
       return;
     }
     this.warn();
@@ -78,9 +80,10 @@ class Rooms {
     }
   }
 
-  /** Reads the quota again when the "Storage" section opens; quietly, it is not asked for. */
+  /** Reads the quota again when the "Storage" section opens. */
   refresh(accountId: string) {
-    api.quotaRefresh(accountId).catch(() => {}); // Quiet: the section was not asked for.
+    // Quiet: the section was not asked for.
+    api.quotaRefresh(accountId).catch(() => {});
   }
 
   async count(accountId: string) {
@@ -93,7 +96,8 @@ class Rooms {
   }
 
   async stop(accountId: string) {
-    await api.folderSizesStop(accountId).catch(() => {}); // Stopping is best effort; the info loaded below shows the real state.
+    // Stopping is best effort; the info loaded below shows the real state.
+    await api.folderSizesStop(accountId).catch(() => {});
     await this.loadInfo(accountId);
   }
 
@@ -134,7 +138,8 @@ class Rooms {
       const action = { label: t("storage.findLarge"), run: () => this.findLarge() };
       if (level === 3) {
         app.toast(t("quota.toastFull", { name, used, limit, source }), true, action);
-        api.notifyFull(t("quota.notifyTitle", { name }), t("quota.notifyBody", { used, limit })).catch(() => {}); // The system notification only repeats the toast above.
+        // The system notification only repeats the toast above.
+        api.notifyFull(t("quota.notifyTitle", { name }), t("quota.notifyBody", { used, limit })).catch(() => {});
       } else {
         app.toast(t("quota.toast", { name, p: wholePercent(percent(r)), used, limit, source }), false, action);
       }

@@ -25,6 +25,7 @@ export class MailboxController {
   constructor(private host: MailboxHost) {}
 
   initVersion() {
+    // The version is shown in «About» only; without it the line stays empty.
     getVersion().then((v) => (this.version = v), () => {});
   }
 

@@ -49,7 +49,8 @@ class Hints {
         this.states = states;
         this.counters = bySubject(counts);
       })
-      .catch(() => {}) // A failure leaves hints off (see above).
+      // A failure leaves hints off (see above).
+      .catch(() => {})
       .finally(() => {
         this.reading = null;
       });
@@ -64,7 +65,8 @@ class Hints {
       const at = now();
       localStorage.setItem(SINCE, String(at));
       return at;
-    } catch { // No localStorage: counted as the first run, which keeps hints quiet.
+    } catch {
+      // No localStorage: counted as the first run, which keeps hints quiet.
       return 0;
     }
   }
@@ -197,7 +199,8 @@ class Hints {
       const sub = subject.trim().toLowerCase();
       this.counters = { ...this.counters, [id]: { ...(this.counters[id] ?? {}), [sub]: n } };
       return n;
-    } catch { // A counter that cannot be kept only delays a suggestion.
+    } catch {
+      // A counter that cannot be kept only delays a suggestion.
       return 0;
     }
   }

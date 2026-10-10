@@ -46,7 +46,8 @@ export function listenBackground(host: BackgroundHost) {
 
 /** Ctrl+Q: quits for real; the backend asks first when letters wait for their time. */
 export function quitApp() {
-  api.appQuit(false).catch(() => {}); // Quitting is best effort: a failing request leaves the app running, which is visible.
+  // Quitting is best effort: a failing request leaves the app running, which is visible.
+  api.appQuit(false).catch(() => {});
 }
 
 /** The close button: keep working in the background or quit, remembered unless untold. */
@@ -105,14 +106,16 @@ function trayAction(host: BackgroundHost, action: string, accountId?: string | n
 /** A toast click while Depesha was closed: the backend kept the `depesha://` URL for the
  * window that just started. Asked once, as the missed letters are. */
 export async function takePendingOpen(host: BackgroundHost) {
-  const open = await api.deepLinkTake().catch(() => null); // Asked once at start: a link that cannot be taken opens nothing, as if it was never clicked.
+  // Asked once at start: a link that cannot be taken opens nothing, as if it was never clicked.
+  const open = await api.deepLinkTake().catch(() => null);
   if (open) await arrivals.open(host, open);
 }
 
 /** Letters that missed their time wait in the outbox: one toast offers to send them now.
  * Asked again once the window started, in its language: held back before it listened. */
 export async function tellMissed(host: BackgroundHost) {
-  const ids = (await api.outboxMissed().catch(() => null)) ?? []; // Asked again once the window started; a failing outbox read offers nothing, the letters stay in the outbox.
+  // Asked again once the window started; a failing outbox read offers nothing, the letters stay in the outbox.
+  const ids = (await api.outboxMissed().catch(() => null)) ?? [];
   if (!ids.length) return;
   host.toast(
     tn("bg.missed", ids.length, { n: ids.length }),

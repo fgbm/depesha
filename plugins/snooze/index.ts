@@ -32,7 +32,8 @@ export default {
       ctx
         .backend<{ snoozed: number }>("counters")
         .then((c) => (snooze.count = c.snoozed))
-        .catch(() => {}); // The counter is a sidebar nicety; the next refresh reads it again.
+        // The counter is a sidebar nicety; the next refresh reads it again.
+        .catch(() => {});
     refresh();
     ctx.onBackend("counters-changed", () => {
       refresh();

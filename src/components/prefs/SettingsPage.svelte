@@ -51,6 +51,7 @@
 
   onMount(() => {
     void peopleBook.load();
+    // Without the status the tray hint is not shown (noTray stays false).
     if (page.id === "start") api.backgroundStatus().then((b) => (noTray = b.tray === "absent"), () => {});
   });
 

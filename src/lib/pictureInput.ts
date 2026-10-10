@@ -57,7 +57,8 @@ export async function picturesFromFiles(paths: string[]): Promise<{ found: Found
     const name = path.split(/[\\/]/).pop() ?? path;
     try {
       found.push({ name, dataUrl: await api.inlineImage(path) });
-    } catch { // A picture that cannot be read is refused: the caller attaches it as a file.
+    } catch {
+      // A picture that cannot be read is refused: the caller attaches it as a file.
       refused.push(path);
     }
   }
@@ -80,7 +81,8 @@ export async function clipboardPictures(): Promise<Blob[] | null> {
       const type = item.types.find((x) => /^image\/(png|jpeg|gif|webp)$/.test(x));
       if (type) blobs.push(await item.getType(type));
     }
-  } catch { // No clipboard access or no image: nothing to paste.
+  } catch {
+    // No clipboard access or no image: nothing to paste.
     return null;
   }
   return blobs;

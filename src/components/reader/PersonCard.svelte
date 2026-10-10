@@ -91,7 +91,8 @@
     api
       .search(query)
       .then((rows) => current && (recent = rows.slice(0, 4)))
-      .catch(() => current && (recent = [])); // No recent letters are shown when the search fails; the card itself stays.
+      // No recent letters are shown when the search fails; the card itself stays.
+      .catch(() => current && (recent = []));
     return () => (current = false);
   });
 

@@ -149,6 +149,7 @@ export class ClearFolder {
       };
     }
     // Windows of letters are not the main one's: the backend knows the drafts open in all of them.
+    // Without its answer the count is this window's own: only the dialog's number is lower, no draft is touched by it.
     const opened = Math.max(this.open(account_id).length, await api.openDrafts(account_id).catch(() => 0));
     const moving = Math.max(0, total - opened);
     if (moving === 0) {
@@ -157,7 +158,8 @@ export class ClearFolder {
     }
     // A copy that never reached the server stays, and so does the one of an open window.
     const openKeys = new Set(this.host.composes.map((w) => w.local_id));
-    const lonely = (await api.draftCacheList().catch(() => [])) // Only the number in the warning: the copies stay in any case.
+    // Only the number in the warning: the copies stay in any case.
+    const lonely = (await api.draftCacheList().catch(() => []))
       .filter((c) => c.account_id === account_id && c.draft_id == null && !openKeys.has(c.key)).length;
     const items = [
       ...(opened ? [tn("clear.keptOpen", opened)] : []),
@@ -243,7 +245,8 @@ export class ClearFolder {
   async retryTask(task: Pick<Task, "key" | "account_id">): Promise<void> {
     const parsed = parseKey(task);
     if (!parsed) return;
-    await api.taskDismiss(task.key).catch(() => {}); // A task not dismissed is replaced by the new run.
+    // A task not dismissed is replaced by the new run.
+    await api.taskDismiss(task.key).catch(() => {});
     const bound = this.bounds.get(`${parsed.account_id}\0${parsed.folder}`);
     if (bound === undefined) return this.begin(parsed.account_id, parsed.folder);
     await this.run(parsed.account_id, parsed.folder, bound);

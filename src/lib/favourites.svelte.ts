@@ -36,7 +36,8 @@ export function readFavourites(raw: string | null): Record<string, Favourite[]> 
         }));
     }
     return out;
-  } catch { // A broken stored list is read as empty.
+  } catch {
+    // A broken stored list is read as empty.
     return {};
   }
 }

@@ -51,7 +51,8 @@ export class PeopleBook {
   }
 
   private async read() {
-    const [list, hints] = await Promise.all([api.people(""), api.hints().catch(() => [] as HintState[])]); // No refusals known: a pair may be offered again, and the user can refuse again.
+    // No refusals known: a pair may be offered again, and the user can refuse again.
+    const [list, hints] = await Promise.all([api.people(""), api.hints().catch(() => [] as HintState[])]);
     this.list = list;
     this.refused = new Set((hints ?? []).filter((h) => h.id === SAME_PERSON && h.decision === "never").map((h) => h.subject));
   }
@@ -68,7 +69,8 @@ export class PeopleBook {
   /** Tells the other windows the book changed; the local cache is already up to date. */
   private announce() {
     this.ownChanges++;
-    emit("people-changed", {}).catch(() => { // The other windows will not hear of it: the own change is no longer pending.
+    // The other windows will not hear of it: the own change is no longer pending.
+    emit("people-changed", {}).catch(() => {
       this.ownChanges--;
     });
   }

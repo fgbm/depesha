@@ -58,6 +58,7 @@ export class ComposeManager {
 
   constructor(private host: ComposeHost) {
     // A page loaded anew has no compositions: what the backend was told by the page before is stale (#74).
+    // A lost reset only leaves stale marks that spare drafts a clear would remove: the safe side.
     void api.draftOpenReset().catch(() => {});
   }
 
@@ -74,6 +75,7 @@ export class ComposeManager {
     const win = { ...c, id, mode, savedAt: null, local_id: newKey() };
     this.windows.push(win);
     // The backend spares an open server draft when Drafts are cleared from any window (#74).
+    // A lost call spares less only for other windows: the clear passes the drafts of its own window itself.
     if (win.draft_id !== null) void api.draftOpen(win.local_id, win.draft_id, win.draft_message_id ?? null).catch(() => {});
     return id;
   }
@@ -191,6 +193,7 @@ export class ComposeManager {
   close(id: number) {
     const gone = this.windows.find((w) => w.id === id);
     // Told even of a window without a draft yet: a save still on its way must not register one.
+    // A mark left behind only spares a draft from a clear: the safe side.
     if (gone) void api.draftOpen(gone.local_id, null).catch(() => {});
     this.windows = this.windows.filter((w) => w.id !== id);
   }
@@ -280,7 +283,8 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 function decoded(s: string): string {
   try {
     return decodeURIComponent(s);
-  } catch { // A malformed escape stays as it is.
+  } catch {
+    // A malformed escape stays as it is.
     return s;
   }
 }

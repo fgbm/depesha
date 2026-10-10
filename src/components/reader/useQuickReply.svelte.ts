@@ -69,7 +69,8 @@ export class QuickReplyState {
       const saved = await api.draftSave(account_id, draft, null, null);
       // Without the saved copy's id a window would save a second draft beside it.
       this.host.keptAsDraft(saved === null ? null : () => app.openCompose({ account_id, draft, draft_id: saved.id, draft_message_id: saved.message_id }));
-    } catch { // The draft could not be kept: the text goes to a window, unsaved, so nothing is lost.
+    } catch {
+      // The draft could not be kept: the text goes to a window, unsaved, so nothing is lost.
       app.openCompose({ account_id, draft, draft_id: null, unsaved: true }, "min");
     }
   }

@@ -158,7 +158,8 @@ export class Reader {
     const opened = this.opened;
     if (!opened) return;
     const seq = this.openSeq;
-    const rows = await api.thread(opened.row.id).catch(() => []); // The shown conversation stays as it is; it is read again on the next open.
+    // The shown conversation stays as it is; it is read again on the next open.
+    const rows = await api.thread(opened.row.id).catch(() => []);
     // A letter moved or deleted meanwhile keeps its conversation until opened again.
     if (seq !== this.openSeq || rows.length === 0) return;
     const next = shownConversation(rows, opened.row.id, opened.row.folder);
@@ -174,7 +175,8 @@ export class Reader {
   async checkStillThere() {
     const id = this.opened?.row.id ?? this.host.windowOf;
     if (id === null) return;
-    const rows = await api.messagesById([id]).catch(() => null); // A failed check leaves the letter shown; it is repeated on the next sync.
+    // A failed check leaves the letter shown; it is repeated on the next sync.
+    const rows = await api.messagesById([id]).catch(() => null);
     if (rows && rows.length === 0) {
       this.opened = null;
       this.openError = { kind: "not-found", message: t("window.gone") };

@@ -40,6 +40,7 @@
         await win.destroy();
       }
       // Kept: a quit waiting for this window stops.
+      // A lost cancel leaves the quit waiting for the window; the next quit asks again.
       else api.quitCancel().catch(() => {});
     });
     // Files dropped on this window are attached to its own draft (#107).
@@ -52,7 +53,8 @@
 
   // A quit asks this window first when a letter is being written here.
   $effect(() => {
-    api.composeUnsaved(app.composes.length > 0).catch(() => {}); // Only tells the backend whether a quit must ask; the next change tells again.
+    // Only tells the backend whether a quit must ask; the next change tells again.
+    api.composeUnsaved(app.composes.length > 0).catch(() => {});
   });
 
   // Plugins add their buttons and banners to the reader here as in the main window.
@@ -64,7 +66,8 @@
 
   $effect(() => {
     const subject = app.opened?.view.summary.subject;
-    if (subject !== undefined) win.setTitle(subject || t("noSubject")).catch(() => {}); // The window title is cosmetic.
+    // The window title is cosmetic.
+    if (subject !== undefined) win.setTitle(subject || t("noSubject")).catch(() => {});
   });
 
   function onKey(e: KeyboardEvent) {

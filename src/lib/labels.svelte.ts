@@ -196,7 +196,8 @@ class Labels {
     try {
       const raw = JSON.parse(localStorage.getItem(PROPS_KEY) ?? "{}");
       return raw && typeof raw === "object" ? (raw as Record<string, FolderProps>) : {};
-    } catch { // A broken stored value starts with no properties.
+    } catch {
+      // A broken stored value starts with no properties.
       return {};
     }
   }

@@ -39,7 +39,8 @@ export function securityLabel(s: Security): string {
 function hostOf(url: string): string {
   try {
     return new URL(url.trim()).host || url.trim();
-  } catch { // Not a URL: shown as typed.
+  } catch {
+    // Not a URL: shown as typed.
     return url.trim();
   }
 }

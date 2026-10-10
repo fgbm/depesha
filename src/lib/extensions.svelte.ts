@@ -303,7 +303,8 @@ class ExtensionHost {
         try {
           const res = (await this.call(ext, "beforeSend", [data], HOOK_TIMEOUT)) as { warnings?: unknown[] } | null;
           return (res?.warnings ?? []).slice(0, 5).map((w) => `${textOf(ext.name)}: ${String(w).slice(0, 300)}`);
-        } catch { // The warnings of a plugin are advisory: a failing hook does not stop the send.
+        } catch {
+          // The warnings of a plugin are advisory: a failing hook does not stop the send.
           return [];
         }
       }),

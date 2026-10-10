@@ -57,7 +57,8 @@
     registry.items("rowActions").filter((a) => {
       try {
         return !a.when || a.when(ids, rows);
-      } catch { // A faulty condition of a plugin hides its item, not the menu.
+      } catch {
+        // A faulty condition of a plugin hides its item, not the menu.
         return false;
       }
     }),

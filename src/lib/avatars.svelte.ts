@@ -22,6 +22,7 @@ export function avatarOf(accountId: string, email: string | undefined, logoOf: n
     queueMicrotask(() =>
       api.avatar(accountId, email, logoOf).then(
         (uri) => pictures.set(key, uri),
+        // No picture is remembered as none: the initials are shown.
         () => pictures.set(key, null),
       ),
     );

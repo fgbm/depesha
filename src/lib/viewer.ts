@@ -101,7 +101,8 @@ export function decodeText(bytes: Uint8Array): { text: string; cut: boolean } {
   try {
     // A cut may split a character: `stream` keeps the tail instead of failing on it.
     return { text: new TextDecoder("utf-8", { fatal: true }).decode(part, { stream: cut }), cut };
-  } catch { // Not UTF-8: read as windows-1251.
+  } catch {
+    // Not UTF-8: read as windows-1251.
     return { text: new TextDecoder("windows-1251").decode(part), cut };
   }
 }
