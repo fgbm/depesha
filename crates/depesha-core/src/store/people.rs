@@ -1234,9 +1234,13 @@ impl Store {
                 .transpose()?;
             if let (Some(row), Some(holder)) = (row, holder) {
                 let note = row.note.trim();
+                // Whole paragraphs only: a short note ("Иван") is not "found" inside a longer one.
+                let held: String =
+                    tx.query_row("SELECT note FROM persons WHERE id = ?1", [holder], |r| r.get(0))?;
+                let note = if held.split("\n\n").any(|para| para.trim() == note) { "" } else { note };
                 tx.execute(
                     "UPDATE persons SET
-                         note = CASE WHEN ?2 = '' OR instr(note, ?2) > 0 THEN note
+                         note = CASE WHEN ?2 = '' THEN note
                                      WHEN note = '' THEN ?2 ELSE note || char(10) || char(10) || ?2 END,
                          send_format = CASE WHEN send_format = '' THEN ?3 ELSE send_format END,
                          view = CASE WHEN view = '' THEN ?4 ELSE view END
@@ -2475,5 +2479,32 @@ mod tests {
         let held = store.person("b@example.org").unwrap().unwrap();
         assert_eq!(held.id, split.person.id);
         assert_eq!(held.note, "свой\n\nБ");
+    }
+
+    #[test]
+    fn a_short_note_is_not_taken_for_a_part_of_a_longer_one() {
+        let store = mailbox();
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Иван".into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        store.person_split("b@example.org").unwrap().unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = "Иван Петров, бухгалтер".into()))
+            .unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        let held = store.person("b@example.org").unwrap().unwrap();
+        assert_eq!(held.note, "Иван Петров, бухгалтер\n\nИван");
     }
 }
