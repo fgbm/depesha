@@ -2752,17 +2752,7 @@ pub async fn send(
     followup: Option<FollowupPlan>,
 ) -> CmdResult<Queued> {
     let account = state.account(&account_id)?;
-    let dropped: Vec<String> = draft
-        .attachments
-        .iter()
-        .filter_map(|a| match a {
-            AttachmentSource::File { path } => Some(path.clone()),
-            _ => None,
-        })
-        .collect();
     let draft = resolve(&state, window.label(), draft).await?;
-    // The files are in the letter now: what was dropped for it is used up (#115).
-    state.paths.release_dropped(window.label(), &dropped);
     smtp::build(&draft)?; // validate addresses now, not in the background
     let now = chrono::Utc::now().timestamp();
     let at = at.unwrap_or(now + i64::from(state.settings().undo_send_secs));

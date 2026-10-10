@@ -28,7 +28,7 @@ pub enum Use {
 pub struct Paths {
     granted: Mutex<HashSet<(Use, PathBuf)>>,
     /// Files dropped on a window (#115): good for that window only, until it is closed
-    /// or the letter they went into is sent.
+    /// (the main window's: until the app quits).
     dropped: Mutex<HashSet<(String, PathBuf)>>,
     /// Test builds only (`e2e` feature): folders whose contents count as chosen,
     /// for a run that cannot click through system dialogs.
@@ -53,16 +53,11 @@ impl Paths {
         lock(&self.dropped).insert((label.to_owned(), key(&path)));
     }
 
-    /// The window is closed: what was dropped on it is no longer good for anything.
-    pub fn forget_window(&self, label: &str) {
-        lock(&self.dropped).retain(|(l, _)| l != label);
-    }
-
-    /// The files are attached for good (the letter is sent): the drop grant is used up.
-    pub fn release_dropped(&self, label: &str, paths: &[String]) {
-        let mut dropped = lock(&self.dropped);
-        for path in paths {
-            dropped.remove(&(label.to_owned(), key(Path::new(path))));
+    /// A window was destroyed: what was dropped on it is no longer good for anything. The
+    /// main window's drops live until the app quits, and it takes the app with it.
+    pub fn window_closed(&self, label: &str) {
+        if label != "main" {
+            lock(&self.dropped).retain(|(l, _)| l != label);
         }
     }
 
@@ -224,19 +219,36 @@ mod tests {
         assert!(paths.check_in(Some("main"), Use::Attach, &file).is_err());
         assert!(paths.check(Use::Attach, &file).is_err());
         assert!(paths.check_in(Some("message-1"), Use::SaveFolder, &file).is_err());
-        paths.forget_window("message-1");
+        paths.window_closed("message-1");
         assert!(paths.check_in(Some("message-1"), Use::Attach, &file).is_err());
     }
 
     #[test]
-    fn a_dropped_file_is_used_up_by_the_send() {
+    fn a_dropped_file_stays_good_through_sends_of_the_window() {
+        // A send does not take the grant away: a failed one is tried again, and a second
+        // draft of the window may hold the same file.
         let paths = Paths::default();
-        let (a, b) = (abs("home/me/a.txt"), abs("home/me/b.txt"));
-        paths.allow_dropped("main", PathBuf::from(&a));
-        paths.allow_dropped("main", PathBuf::from(&b));
-        paths.release_dropped("main", std::slice::from_ref(&a));
-        assert!(paths.check_in(Some("main"), Use::Attach, &a).is_err());
-        assert!(paths.check_in(Some("main"), Use::Attach, &b).is_ok());
+        let file = abs("home/me/a.txt");
+        paths.allow_dropped("main", PathBuf::from(&file));
+        for _ in 0..3 {
+            assert!(paths.check_in(Some("main"), Use::Attach, &file).is_ok());
+        }
+    }
+
+    #[test]
+    fn every_closed_window_but_main_forgets_its_drops() {
+        let paths = Paths::default();
+        let file = abs("home/me/a.txt");
+        for label in ["main", "message-1", "compose-2"] {
+            paths.allow_dropped(label, PathBuf::from(&file));
+        }
+        paths.window_closed("compose-2");
+        paths.window_closed("message-1");
+        assert!(paths.check_in(Some("compose-2"), Use::Attach, &file).is_err());
+        assert!(paths.check_in(Some("message-1"), Use::Attach, &file).is_err());
+        // The main window lives until the app quits.
+        paths.window_closed("main");
+        assert!(paths.check_in(Some("main"), Use::Attach, &file).is_ok());
     }
 
     #[test]

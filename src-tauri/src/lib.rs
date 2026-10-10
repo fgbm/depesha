@@ -440,12 +440,15 @@ pub fn run() {
                 ..
             } = &event
             {
+                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    state.paths.window_closed(label);
+                }
                 if label == "main" {
                     app.exit(0);
-                } else if label.starts_with("message-") {
+                }
+                if label.starts_with("message-") {
                     if let Some(state) = app.try_state::<Arc<AppState>>() {
                         state.clearing.window_gone(label);
-                        state.paths.forget_window(label);
                     }
                     background::window_gone(app, label);
                 }
