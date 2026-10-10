@@ -22,6 +22,7 @@
   import { t } from "../lib/i18n.svelte";
   import { escapeHtml } from "../lib/richtext";
   import { keyLabel } from "../lib/composeKeys";
+  import { modName } from "../lib/keymap";
   import { clearEdit, linesEdit, linkEdit, wrapEdit, type Edit, type LineKind } from "../lib/mdedit";
   import type { MarkdownField } from "../lib/markdown/types";
 
@@ -280,7 +281,7 @@
       {#if x.id === "picture"}
         <Popover bind:open={pictureMenu} align="left">
           <button class="mi" onclick={() => { pictureMenu = false; onpicturefile(); }}>{t("compose.picture.fromFile")}</button>
-          <button class="mi" onclick={() => { pictureMenu = false; onpictureclipboard(); }}>{t("compose.picture.fromClipboard")}<span class="hint">Ctrl+V</span></button>
+          <button class="mi" onclick={() => { pictureMenu = false; onpictureclipboard(); }}>{t("compose.picture.fromClipboard")}<span class="hint">{modName()}+V</span></button>
         </Popover>
       {/if}
     </span>

@@ -9,8 +9,8 @@ export default {
     id: "command-palette",
     name: NAME,
     description: {
-      en: "Ctrl+K: any action, view or folder by a few letters of its name.",
-      ru: "Ctrl+K: любое действие, раздел или папка по нескольким буквам названия.",
+      en: "Any action, view or folder by a few letters of its name.",
+      ru: "Любое действие, раздел или папка по нескольким буквам названия.",
     },
   },
   activate(ctx) {
