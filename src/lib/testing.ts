@@ -32,7 +32,10 @@ export const eventModule = {
 /** Listeners of the current webview: they hear only what is sent to it, unlike the global `listen`. */
 export const webviewListen = vi.fn(async (name: string, h: Handler) => {
   handlers.set(name, h);
-  return () => {};
+  // Stopping takes the handler away, so that a later event reaches nobody.
+  return () => {
+    if (handlers.get(name) === h) handlers.delete(name);
+  };
 });
 export const webviewOnDragDrop = vi.fn(async (_h: Handler) => () => {});
 export const webviewModule = { getCurrentWebview: () => ({ listen: webviewListen, onDragDropEvent: webviewOnDragDrop }) };

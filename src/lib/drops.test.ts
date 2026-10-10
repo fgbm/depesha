@@ -83,6 +83,10 @@ describe("every window that can hold a draft hears drops (#107)", () => {
     await flush();
     expect(dropFiles).toHaveBeenCalledWith(c, ["/a/b.pdf"], null);
     stop();
+    await flush();
+    // After stop() the drop reaches nobody (#115).
+    expect(() => emit("files-dropped", { paths: ["/c/d.pdf"], position: { x: 1, y: 2 } })).toThrow(/nobody listens/);
+    expect(dropFiles).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
 

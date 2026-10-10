@@ -19,11 +19,12 @@ fn files(paths: &[PathBuf], is_file: impl Fn(&PathBuf) -> bool) -> (Vec<PathBuf>
     (files, rest)
 }
 
-/// Where the allowed files are recorded: the state of the app. `false` while the app is not ready.
-pub fn allow_in_state<R: Runtime>(manager: &impl Manager<R>) -> impl Fn(PathBuf) -> bool + '_ {
+/// Where the allowed files are recorded: the state of the app, for the window they were
+/// dropped on (#115). `false` while the app is not ready.
+pub fn allow_in_state<'a, R: Runtime>(manager: &'a impl Manager<R>, label: &'a str) -> impl Fn(PathBuf) -> bool + 'a {
     move |path| match manager.try_state::<Arc<AppState>>() {
         Some(state) => {
-            state.paths.allow(paths::Use::Attach, path);
+            state.paths.allow_dropped(label, path);
             true
         }
         None => false,
@@ -121,12 +122,12 @@ mod tests {
             });
         }
         let granted = paths::Paths::default();
-        let allow = |p: PathBuf| {
-            granted.allow(paths::Use::Attach, p);
-            true
-        };
         for (label, other) in [("main", "message-1"), ("message-1", "main")] {
             heard.lock().unwrap().clear();
+            let allow = |p: PathBuf| {
+                granted.allow_dropped(label, p);
+                true
+            };
             let file = tmp_file(label);
             let window = app.get_webview_window(label).unwrap().as_ref().window();
             let event = WindowEvent::DragDrop(DragDropEvent::Drop {
@@ -135,10 +136,14 @@ mod tests {
             });
             window_event(&window, &event, allow);
 
-            assert!(granted.check(paths::Use::Attach, file.to_str().unwrap()).is_ok());
+            let f = file.to_str().unwrap();
+            // Only the window it was dropped on may attach it (#115).
+            assert!(granted.check_in(Some(label), paths::Use::Attach, f).is_ok());
+            assert!(granted.check_in(Some(other), paths::Use::Attach, f).is_err());
+            assert!(granted.check(paths::Use::Attach, f).is_err());
             assert!(
                 granted
-                    .check(paths::Use::Attach, std::env::temp_dir().to_str().unwrap())
+                    .check_in(Some(label), paths::Use::Attach, std::env::temp_dir().to_str().unwrap())
                     .is_err()
             );
             let heard = heard.lock().unwrap();

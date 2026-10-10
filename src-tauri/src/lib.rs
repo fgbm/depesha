@@ -260,7 +260,7 @@ pub fn run() {
         // Closing the main window hides it or quits, as the settings say (#4); its page
         // keeps the mail rules and plugins running in the background.
         .on_window_event(|window, event| {
-            drops::window_event(window, event, drops::allow_in_state(window));
+            drops::window_event(window, event, drops::allow_in_state(window, window.label()));
             if window.label() != "main" {
                 return;
             }
@@ -281,7 +281,7 @@ pub fn run() {
         // instead, once the files are allowed. A window's own content reports the drop as a
         // window event, a webview inside a window as a webview event: both are heard.
         .on_webview_event(|webview, event| {
-            drops::webview_event(webview, event, drops::allow_in_state(webview));
+            drops::webview_event(webview, event, drops::allow_in_state(webview, webview.label()));
         })
         .invoke_handler(tauri::generate_handler![
             commands::accounts,
@@ -445,6 +445,7 @@ pub fn run() {
                 } else if label.starts_with("message-") {
                     if let Some(state) = app.try_state::<Arc<AppState>>() {
                         state.clearing.window_gone(label);
+                        state.paths.forget_window(label);
                     }
                     background::window_gone(app, label);
                 }

@@ -2621,14 +2621,15 @@ pub struct ComposeDraft {
     importance: depesha_core::domain::Importance,
 }
 
-async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {
+/// `label`: the window the letter is written in, whose dropped files it may attach (#115).
+async fn resolve(state: &AppState, label: &str, d: ComposeDraft) -> CmdResult<Draft> {
     let mut attachments = Vec::new();
     let mut total = 0u64;
     for a in d.attachments {
         let att = match a {
             AttachmentSource::File { path } => {
-                let checked = state.paths.check(Use::Attach, &path)?;
-                ensure_file(&checked)?;
+                let checked = state.paths.check_in(Some(label), Use::Attach, &path)?;
+                ensure_file(&checked).await?;
                 let data = tokio::fs::read(&path)
                     .await
                     .map_err(|e| CmdError::new("io", format!("{path}: {e}")))?;
@@ -2739,6 +2740,7 @@ pub struct Queued {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn send(
+    window: tauri::Window,
     state: St<'_>,
     account_id: String,
     draft: ComposeDraft,
@@ -2750,7 +2752,17 @@ pub async fn send(
     followup: Option<FollowupPlan>,
 ) -> CmdResult<Queued> {
     let account = state.account(&account_id)?;
-    let draft = resolve(&state, draft).await?;
+    let dropped: Vec<String> = draft
+        .attachments
+        .iter()
+        .filter_map(|a| match a {
+            AttachmentSource::File { path } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    let draft = resolve(&state, window.label(), draft).await?;
+    // The files are in the letter now: what was dropped for it is used up (#115).
+    state.paths.release_dropped(window.label(), &dropped);
     smtp::build(&draft)?; // validate addresses now, not in the background
     let now = chrono::Utc::now().timestamp();
     let at = at.unwrap_or(now + i64::from(state.settings().undo_send_secs));
@@ -2914,7 +2926,7 @@ pub async fn draft_save(
     // A mailbox without Drafts gets one, as it gets an Archive for "Done".
     let folder = role_folder(&state, &account.id, FolderRole::Drafts, pick("Drafts", "Черновики")).await?;
     let send_at = draft.send_at;
-    let mut draft = resolve(&state, draft).await?;
+    let mut draft = resolve(&state, window.label(), draft).await?;
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         // A draft may have no recipients yet; the builder insists on one.
         draft.to.push(draft.from.clone().unwrap_or(Addr {
@@ -3103,8 +3115,8 @@ pub struct FileInfo {
 
 /// A path allowed to attach is read only if it is a file now: it may have become a folder
 /// or vanished since it was chosen.
-fn ensure_file(path: &Path) -> CmdResult<()> {
-    match std::fs::metadata(path) {
+async fn ensure_file(path: &Path) -> CmdResult<()> {
+    match tokio::fs::metadata(path).await {
         Ok(meta) if meta.is_file() => Ok(()),
         Ok(_) => Err(CmdError::new(
             "not-a-file",
@@ -3137,9 +3149,9 @@ const MAX_PICTURE_FILE: u64 = 25 * 1024 * 1024;
 /// A picture chosen to attach (picked or dropped on the window), as a `data:` URL for
 /// the text of a letter. Other files and files nobody chose are refused.
 #[tauri::command]
-pub async fn inline_image(state: St<'_>, path: String) -> CmdResult<String> {
-    let path = state.paths.check(Use::Attach, &path)?;
-    ensure_file(&path)?;
+pub async fn inline_image(window: tauri::Window, state: St<'_>, path: String) -> CmdResult<String> {
+    let path = state.paths.check_in(Some(window.label()), Use::Attach, &path)?;
+    ensure_file(&path).await?;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -3169,8 +3181,8 @@ pub async fn inline_image(state: St<'_>, path: String) -> CmdResult<String> {
 
 /// Name and size of a file chosen to attach (dropped on the window); nothing about others.
 #[tauri::command]
-pub async fn file_info(state: St<'_>, path: String) -> CmdResult<FileInfo> {
-    info_of(state.paths.check(Use::Attach, &path)?).await
+pub async fn file_info(window: tauri::Window, state: St<'_>, path: String) -> CmdResult<FileInfo> {
+    info_of(state.paths.check_in(Some(window.label()), Use::Attach, &path)?).await
 }
 
 /// The system's file dialog, opened by the backend so that it knows what the user chose.
@@ -3509,7 +3521,7 @@ pub fn e2e_drop(window: tauri::Window, paths: Vec<String>, x: f64, y: f64, phase
         "leave" => told("tauri://drag-leave", serde_json::Value::Null)?,
         "drop" => {
             let event = tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position });
-            crate::drops::window_event(&window, &event, crate::drops::allow_in_state(&window));
+            crate::drops::window_event(&window, &event, crate::drops::allow_in_state(&window, window.label()));
         }
         other => return Err(CmdError::new("bad-request", format!("e2e_drop: unknown phase {other}"))),
     }
@@ -3696,10 +3708,11 @@ mod tests {
         let dir = std::env::temp_dir();
         let file = dir.join(format!("depesha-ensure-{}", std::process::id()));
         std::fs::write(&file, b"x").unwrap();
-        assert!(super::ensure_file(&file).is_ok());
+        let ensure = |p: &Path| tauri::async_runtime::block_on(super::ensure_file(p));
+        assert!(ensure(&file).is_ok());
         std::fs::remove_file(&file).unwrap();
-        assert_eq!(super::ensure_file(&file).unwrap_err().kind, "io");
-        assert_eq!(super::ensure_file(&dir).unwrap_err().kind, "not-a-file");
+        assert_eq!(ensure(&file).unwrap_err().kind, "io");
+        assert_eq!(ensure(&dir).unwrap_err().kind, "not-a-file");
     }
 
     #[test]

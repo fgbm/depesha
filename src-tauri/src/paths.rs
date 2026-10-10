@@ -27,6 +27,9 @@ pub enum Use {
 #[derive(Default)]
 pub struct Paths {
     granted: Mutex<HashSet<(Use, PathBuf)>>,
+    /// Files dropped on a window (#115): good for that window only, until it is closed
+    /// or the letter they went into is sent.
+    dropped: Mutex<HashSet<(String, PathBuf)>>,
     /// Test builds only (`e2e` feature): folders whose contents count as chosen,
     /// for a run that cannot click through system dialogs.
     trusted: Vec<PathBuf>,
@@ -36,6 +39,7 @@ impl Paths {
     pub fn new() -> Self {
         Self {
             granted: Default::default(),
+            dropped: Default::default(),
             trusted: trusted_roots(),
         }
     }
@@ -44,14 +48,39 @@ impl Paths {
         lock(&self.granted).insert((to, key(&path)));
     }
 
+    /// A file dropped on the window `label`: only that window may attach it.
+    pub fn allow_dropped(&self, label: &str, path: PathBuf) {
+        lock(&self.dropped).insert((label.to_owned(), key(&path)));
+    }
+
+    /// The window is closed: what was dropped on it is no longer good for anything.
+    pub fn forget_window(&self, label: &str) {
+        lock(&self.dropped).retain(|(l, _)| l != label);
+    }
+
+    /// The files are attached for good (the letter is sent): the drop grant is used up.
+    pub fn release_dropped(&self, label: &str, paths: &[String]) {
+        let mut dropped = lock(&self.dropped);
+        for path in paths {
+            dropped.remove(&(label.to_owned(), key(Path::new(path))));
+        }
+    }
+
     /// The path, if the user chose it for this use; a save target is used up by the check.
     pub fn check(&self, to: Use, path: &str) -> CmdResult<PathBuf> {
+        self.check_in(None, to, path)
+    }
+
+    /// As `check`, for a request from the window `label`: a file dropped on that window
+    /// also counts as chosen to attach, a file dropped on another one does not.
+    pub fn check_in(&self, label: Option<&str>, to: Use, path: &str) -> CmdResult<PathBuf> {
         let path = PathBuf::from(path);
         let granted = if to == Use::SaveFile {
             lock(&self.granted).remove(&(to, key(&path)))
         } else {
             lock(&self.granted).contains(&(to, key(&path)))
-        };
+        } || (to == Use::Attach
+            && label.is_some_and(|l| lock(&self.dropped).contains(&(l.to_owned(), key(&path)))));
         if granted || self.trusted.iter().any(|root| within(root, &path)) {
             return Ok(path);
         }
@@ -186,6 +215,31 @@ mod tests {
     }
 
     #[test]
+    fn a_dropped_file_is_good_for_its_window_until_it_closes() {
+        let paths = Paths::default();
+        let file = abs("home/me/a.txt");
+        paths.allow_dropped("message-1", PathBuf::from(&file));
+        assert!(paths.check_in(Some("message-1"), Use::Attach, &file).is_ok());
+        // Not in another window, nor without one, nor for another use.
+        assert!(paths.check_in(Some("main"), Use::Attach, &file).is_err());
+        assert!(paths.check(Use::Attach, &file).is_err());
+        assert!(paths.check_in(Some("message-1"), Use::SaveFolder, &file).is_err());
+        paths.forget_window("message-1");
+        assert!(paths.check_in(Some("message-1"), Use::Attach, &file).is_err());
+    }
+
+    #[test]
+    fn a_dropped_file_is_used_up_by_the_send() {
+        let paths = Paths::default();
+        let (a, b) = (abs("home/me/a.txt"), abs("home/me/b.txt"));
+        paths.allow_dropped("main", PathBuf::from(&a));
+        paths.allow_dropped("main", PathBuf::from(&b));
+        paths.release_dropped("main", std::slice::from_ref(&a));
+        assert!(paths.check_in(Some("main"), Use::Attach, &a).is_err());
+        assert!(paths.check_in(Some("main"), Use::Attach, &b).is_ok());
+    }
+
+    #[test]
     fn only_chosen_paths_pass() {
         let paths = Paths::default();
         let doc = abs("home/me/report.pdf");
@@ -282,6 +336,7 @@ mod tests {
         let root = PathBuf::from(abs("tmp/e2e"));
         let paths = Paths {
             granted: Default::default(),
+            dropped: Default::default(),
             trusted: vec![root],
         };
         assert!(paths.check(Use::SaveFile, &abs("tmp/e2e/report.pdf")).is_ok());
