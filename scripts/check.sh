@@ -104,6 +104,9 @@ if [[ "${1:-}" == "--changed" ]]; then
     scripts/frontend-metrics.sh
     step "инварианты фронтенда"
     scripts/frontend-invariants.sh
+    step "baseline против main"
+    git fetch -q --no-tags origin main 2>/dev/null || true
+    scripts/frontend-baseline-guard.sh
     if grep -qE '^scripts/frontend-' <<<"$front"; then
       step "тест проверок метрик и инвариантов"
       scripts/frontend-checks.test.sh
@@ -145,6 +148,9 @@ step "метрики фронтенда"
 scripts/frontend-metrics.sh
 step "инварианты фронтенда"
 scripts/frontend-invariants.sh
+step "baseline против main"
+git fetch -q --no-tags origin main 2>/dev/null || true
+scripts/frontend-baseline-guard.sh
 step "тест проверок метрик и инвариантов"
 scripts/frontend-checks.test.sh
 step "vitest"

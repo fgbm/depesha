@@ -1,4 +1,10 @@
-# Исключения для scripts/frontend-invariants.sh: новые члены app.*, принятые осознанно.
-# Строка: app-members<TAB>имя<TAB>причина. Причина обязательна. Когда член войдёт в baseline
-# (scripts/frontend-invariants.sh --tighten не добавляет новое; --save добавляет), строку убери.
+# Исключения для scripts/frontend-invariants.sh. Строка: вид<TAB>имя<TAB>причина; причина обязательна.
+# Виды:
+#   app-members  новый член app.*; строка живёт, пока член нужен и его нет в baseline из main
+#   aria-attrs   пропавшее имя aria-*
+#   roles        пропавшее литеральное значение role=
+#   data-kinds   пропавший вид data-*, который читает e2e
+#   summary      уменьшение счётчика: aria_attrs или role_attrs
+# `scripts/frontend-invariants.sh --save` для этого не запускают: baseline остаётся как есть,
+# разрешает рост эта строка. Когда строка не нужна, проверка печатает предупреждение.
 # Пока пусто.

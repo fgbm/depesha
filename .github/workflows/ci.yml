@@ -81,6 +81,11 @@ jobs:
       - run: npm run lint
       - run: scripts/frontend-metrics.sh
       - run: scripts/frontend-invariants.sh
+      - name: Baseline against main
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          scripts/frontend-baseline-guard.sh origin/main
+      - run: scripts/frontend-checks.test.sh
       - run: npx vitest run
       - run: cargo test -p depesha-core
       - run: cargo test -p depesha --lib

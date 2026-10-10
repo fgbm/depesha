@@ -11,16 +11,27 @@
 #   scripts/frontend-invariants.sh --tighten [DIR] убрать из baseline исчезнувшие члены
 #                                                  app.* и обновить остальные наборы
 #
-# Падает только ухудшение: новый член app.*, которого нет в baseline и нет в
-# DIR/exceptions.txt (`app-members<TAB>имя<TAB>причина`, причина обязательна).
-# Исчезнувший член проходит без пересборки baseline (--tighten подтягивает его).
-# Остальные наборы (ключи t(), role=, aria-*, data-*) и счётчики только
-# печатаются как разница, не роняя проверку: «ровно как было» не требуется.
+# Падает только ухудшение, каждое снимается строкой с причиной в DIR/exceptions.txt
+# (`вид<TAB>имя<TAB>причина`, пробелы по краям причины не в счёт):
+#   app-members   новый член app.*, которого нет в baseline
+#   aria-attrs    пропавшее имя aria-*
+#   roles         пропавшее литеральное значение role=
+#   data-kinds    пропавший вид data-*, но только если он встречается в e2e/*.mjs
+#   summary       уменьшение счётчика aria_attrs или role_attrs (имя — счётчик)
+# Исчезнувший член app.* проходит без пересборки baseline. Ключи t(), остальные
+# виды data-* и счётчики только печатаются как разница. Исключение, которое больше
+# не нужно, печатается предупреждением. Члены baseline сортируются на лету.
+#
+# --guard REFDIR [DIR]  сверить членов app.* в DIR с REFDIR (baseline из main):
+#                       `--save` поднимает baseline молча, здесь это видно.
+# --tighten запускается один раз при слиянии, не в ветке. Рост — только строкой
+# в exceptions.txt, `--save` для этого не запускают.
 # Только POSIX sh/awk/grep/sort, без нового инструментария.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DEFAULT_DIR="docs/frontend-invariants"
+DEFAULT_DIR="${INVARIANTS_DIR:-docs/frontend-invariants}"
+E2E_DIR="${E2E_DIR:-e2e}"
 
 mode="compare"
 dir="$DEFAULT_DIR"
@@ -29,9 +40,10 @@ case "${1:-}" in
   --print) mode="print" ;;
   --save) mode="save"; dir="${2:-$DEFAULT_DIR}" ;;
   --tighten) mode="tighten"; dir="${2:-$DEFAULT_DIR}" ;;
+  --guard) mode="guard"; ref="${2:?--guard REFDIR [DIR]}"; dir="${3:-$DEFAULT_DIR}" ;;
   --compare) mode="compare"; dir="${2:-$DEFAULT_DIR}" ;;
   -h|--help)
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   *) echo "unknown argument: $1" >&2; exit 2 ;;
 esac
@@ -135,52 +147,143 @@ if [[ "$mode" == tighten ]]; then
   exit 0
 fi
 
-# compare
+# compare / guard
 status=0
 exc="$dir/exceptions.txt"
+usedf=$(mktemp)
+trap 'rm -f "$usedf"' EXIT
 
-# Разница набора с baseline: что добавилось и что пропало. Не роняет проверку.
-info_set() {
-  local name="$1" file="$2" gen="$3" tmp
-  [[ -f "$file" ]] || return 0
-  tmp=$(mktemp)
-  "$gen" > "$tmp"
-  LC_ALL=C comm -13 "$file" "$tmp" | sed "s|^|новое ($name): |"
-  LC_ALL=C comm -23 "$file" "$tmp" | sed "s|^|исчезло ($name): |"
-  rm -f "$tmp"
+# Причина исключения (без пробелов по краям); пусто, если исключения нет или причины нет.
+exc_reason() {
+  printf '%s\t%s\n' "$1" "$2" >> "$usedf"
+  [[ -f "$exc" ]] || return 0
+  awk -F'\t' -v k="$1" -v n="$2" '$1 == k && $2 == n { r = $3; sub(/^[ \t]+/, "", r); sub(/[ \t]+$/, "", r); print r; exit }' "$exc"
 }
 
-info_set "ключ t()/tn()" "$dir/t-keys.txt"     t_keys
-info_set "role="         "$dir/roles.txt"      role_values
-info_set "aria-*"        "$dir/aria-attrs.txt" aria_names
-info_set "data-*"        "$dir/data-kinds.txt" data_kinds
+# Предупреждение об исключениях видов $@, которые ничего не оправдали.
+warn_stale() {
+  [[ -f "$exc" ]] || return 0
+  local kind name
+  while IFS=$'\t' read -r kind name _; do
+    [[ -z $kind || $kind == \#* ]] && continue
+    printf '%s\n' "$@" | grep -qxF -- "$kind" || continue
+    grep -qxF -- "$kind"$'\t'"$name" "$usedf" || echo "предупреждение: исключение не нужно: $kind $name"
+  done < "$exc"
+}
 
-# Члены app.*: рост — ухудшение (компонент тянет больше состояния из App).
-if [[ ! -f "$dir/app-members.txt" ]]; then
-  echo "НЕТ ФАЙЛА: $dir/app-members.txt" >&2; status=1
-else
-  tmp=$(mktemp)
-  app_members > "$tmp"
-  LC_ALL=C comm -23 "$dir/app-members.txt" "$tmp" | sed 's/^/исчезло (app.*): /'
-  while IFS= read -r m; do
-    why=""
-    if [[ -f "$exc" ]]; then
-      why=$(awk -F'\t' -v m="$m" '$1 == "app-members" && $2 == m { print $3; exit }' "$exc")
-    fi
-    if [[ -n "$why" ]]; then
-      echo "рост допущен (app.$m): $why"
+sorted_file() { LC_ALL=C sort -u "$1"; }
+
+# Новые строки now против base требуют исключения вида $1; $2 — как называть в сообщении.
+require_exception() {
+  local kind="$1" label="$2" name why
+  while IFS= read -r name; do
+    [[ -z $name ]] && continue
+    why=$(exc_reason "$kind" "$name")
+    if [[ -n $why ]]; then
+      echo "допущено ($label $name): $why"
     else
-      echo "РОСТ: новый член app.$m (обоснуйте строкой в $exc: app-members<TAB>$m<TAB>причина)" >&2
+      echo "РОСТ/ПОТЕРЯ: $label: $name (обоснуйте строкой в $exc: $kind<TAB>$name<TAB>причина; --save не запускайте)" >&2
       status=1
     fi
-  done < <(LC_ALL=C comm -13 "$dir/app-members.txt" "$tmp")
-  rm -f "$tmp"
+  done
+}
+
+# Члены app.*: рост — ухудшение (компонент тянет больше состояния из App).
+check_members() {
+  local basef="$1" nowf="$2" b n
+  b=$(mktemp); n=$(mktemp)
+  sorted_file "$basef" > "$b"; sorted_file "$nowf" > "$n"
+  LC_ALL=C comm -23 "$b" "$n" | sed 's/^/исчезло (app.*): /'
+  require_exception app-members "новый член app." < <(LC_ALL=C comm -13 "$b" "$n")
+  rm -f "$b" "$n"
+}
+
+if [[ "$mode" == guard ]]; then
+  [[ -f "$ref/app-members.txt" && -f "$dir/app-members.txt" ]] || { echo "нет app-members.txt в $ref или $dir" >&2; exit 1; }
+  check_members "$ref/app-members.txt" "$dir/app-members.txt"
+  warn_stale app-members
+  [[ "$status" == 0 ]] && echo "инварианты baseline против main: роста нет"
+  exit "$status"
 fi
 
-if [[ "$status" == 0 ]]; then
-  echo "инварианты: роста нет"
-  print_summary
+# Печатает набор: имена, которых нет в baseline ($1=new) или которых больше нет ($1=lost).
+set_diff() {
+  local which="$1" file="$2" gen="$3" tmp base
+  tmp=$(mktemp); base=$(mktemp)
+  "$gen" > "$tmp"; sorted_file "$file" > "$base"
+  if [[ "$which" == new ]]; then LC_ALL=C comm -13 "$base" "$tmp"; else LC_ALL=C comm -23 "$base" "$tmp"; fi
+  rm -f "$tmp" "$base"
+}
+
+need_file() { [[ -f "$1" ]] || { echo "НЕТ ФАЙЛА: $1" >&2; status=1; return 1; }; }
+
+# Набор с потерей: пропавшее печатается и требует исключения вида $1.
+lost_set() {
+  local kind="$1" label="$2" file="$3" gen="$4" lost
+  need_file "$file" || return 0
+  set_diff new "$file" "$gen" | sed "s|^|новое ($label): |"
+  lost=$(set_diff lost "$file" "$gen")
+  [[ -z $lost ]] && return 0
+  sed "s|^|исчезло ($label): |" <<<"$lost"
+  require_exception "$kind" "пропало ($label)" <<<"$lost"
+}
+
+# Пропавшие виды data-*, которые читает e2e, — потеря; остальные — только разница.
+check_data_kinds() {
+  local file="$dir/data-kinds.txt" k
+  need_file "$file" || return 0
+  set_diff new "$file" data_kinds | sed 's/^/новое (data-*): /'
+  while IFS= read -r k; do
+    [[ -z $k ]] && continue
+    echo "исчезло (data-*): $k"
+    if grep -rqF --include='*.mjs' -- "$k" "$E2E_DIR" 2>/dev/null; then
+      require_exception data-kinds "пропал вид из e2e" <<<"$k"
+    fi
+  done < <(set_diff lost "$file" data_kinds)
+}
+
+# Ключи t() — только информация.
+if need_file "$dir/t-keys.txt"; then
+  set_diff new "$dir/t-keys.txt" t_keys | sed 's/^/новое (t()): /'
+  set_diff lost "$dir/t-keys.txt" t_keys | sed 's/^/исчезло (t()): /'
+fi
+
+lost_set aria-attrs "aria-*" "$dir/aria-attrs.txt" aria_names
+lost_set roles "role=" "$dir/roles.txt" role_values
+check_data_kinds
+if need_file "$dir/app-members.txt"; then
+  now_members=$(mktemp); app_members > "$now_members"
+  check_members "$dir/app-members.txt" "$now_members"
+  rm -f "$now_members"
+fi
+
+# Счётчики доступности не убывают.
+if [[ -f "$dir/summary.txt" ]]; then
+  cur=$(mktemp); summary > "$cur"
+  for c in aria_attrs role_attrs; do
+    was=$(awk -v n="$c" '$1 == n { print $2 }' "$dir/summary.txt")
+    now=$(awk -v n="$c" '$1 == n { print $2 }' "$cur")
+    if [[ -n $was && -n $now ]] && (( now < was )); then
+      echo "уменьшилось ($c): $was -> $now"
+      why=$(exc_reason summary "$c")
+      if [[ -n $why ]]; then echo "допущено ($c): $why"
+      else
+        echo "ПОТЕРЯ: счётчик $c $was -> $now (обоснуйте строкой в $exc: summary<TAB>$c<TAB>причина)" >&2
+        status=1
+      fi
+    fi
+  done
+  rm -f "$cur"
 else
-  echo "инварианты: есть рост без обоснования" >&2
+  echo "НЕТ ФАЙЛА: $dir/summary.txt" >&2; status=1
+fi
+
+warn_stale app-members aria-attrs roles data-kinds summary
+
+print_summary
+if [[ "$status" == 0 ]]; then
+  echo "инварианты: потерь и роста нет"
+else
+  echo "инварианты: есть рост или потеря без обоснования" >&2
 fi
 exit "$status"

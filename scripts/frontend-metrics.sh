@@ -9,15 +9,22 @@
 #   scripts/frontend-metrics.sh --compare FILE  сравнить с FILE вместо базового
 #   scripts/frontend-metrics.sh --tighten [FILE] подтянуть baseline вниз: уменьшившиеся
 #                                               значения записать, исчезнувшие убрать,
-#                                               новые добавить; выросшие не трогать
+#                                               новые добавить; выросшие не трогать.
+#                                               Один раз при слиянии, не в ветке.
+#   scripts/frontend-metrics.sh --diff BASE NOW  сравнить два файла метрик (BASE как
+#                                               baseline, NOW как текущие), без замера дерева
 #
 # Метрики размера — ориентир, не закон. Регрессией считается только рост любого
 # размера против baseline (компонент или функция); уменьшение проходит без
 # пересборки baseline (её подтягивает --tighten). Рост допускается записью в
 # файле исключений (METRICS_EXCEPTIONS, по умолчанию
 # docs/frontend-metrics-exceptions.txt): `kind<TAB>имя<TAB>предел<TAB>причина`.
-# Причина обязательна, значение выше предела — снова регрессия. Новые и
-# исчезнувшие записи печатаются, но не роняют проверку.
+# Причина обязательна (пробелы по краям не в счёт), значение выше предела —
+# снова регрессия. Исключение, которое больше не нужно, печатается предупреждением.
+# Новая запись component — рост, если она больше максимума baseline или больше
+# суммы исчезнувших в том же прогоне компонентов (перенос с раздуванием); новые
+# функции предел держит eslint (max-lines-per-function), здесь они не роняют.
+# Исчезнувшие записи печатаются, но не роняют проверку.
 # Инструментов не добавляем: только POSIX sh/awk/grep/sort.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -34,8 +41,11 @@ case "${1:-}" in
   --save) mode="save"; baseline="${2:-$DEFAULT_BASELINE}" ;;
   --tighten) mode="tighten"; baseline="${2:-$DEFAULT_BASELINE}" ;;
   --compare) mode="compare"; baseline="${2:-$DEFAULT_BASELINE}" ;;
+  --diff)
+    [[ $# -eq 3 ]] || { echo "--diff BASE NOW" >&2; exit 2; }
+    mode="diff"; baseline="$2"; now_file="$3" ;;
   -h|--help)
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   *) echo "unknown argument: $1" >&2; exit 2 ;;
 esac
@@ -105,8 +115,10 @@ function_metrics() {
 
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
-component_metrics > "$tmp"
-function_metrics >> "$tmp"
+if [[ "$mode" != diff ]]; then
+  component_metrics > "$tmp"
+  function_metrics >> "$tmp"
+fi
 
 print_report() {
   printf '== Компоненты (всего/скрипт/разметка/стиль)\n'
@@ -142,41 +154,62 @@ case "$mode" in
     rm -f "$new"
     echo "baseline подтянут: $baseline ($(grep -c . "$baseline") записей)"
     ;;
-  compare)
+  compare|diff)
     if [[ ! -f "$baseline" ]]; then
       echo "нет baseline: $baseline (создайте: scripts/frontend-metrics.sh --save $baseline)" >&2
       exit 1
     fi
-    print_report
-    printf '\n== Сверка с %s\n' "$baseline"
+    now="$tmp"
+    if [[ "$mode" == diff ]]; then
+      now="$now_file"
+      printf '== Сверка %s с %s\n' "$now" "$baseline"
+    else
+      print_report
+      printf '\n== Сверка с %s\n' "$baseline"
+    fi
     exc="$EXCEPTIONS"
     [[ -f "$exc" ]] || exc=/dev/null
     # Сравниваем по ключу kind+name; рост значения — регрессия, если его не
     # оправдывает исключение (причина непустая, значение не выше предела).
     awk -F'\t' '
+      function trim(x) { sub(/^[ \t]+/, "", x); sub(/[ \t]+$/, "", x); return x }
+      function allowed(k, v) { used[k] = 1; return (k in ehas) && ewhy[k] != "" && v <= emax[k] + 0 }
       FILENAME == ARGV[1] {
-        if ($0 !~ /^#/ && NF >= 2) { ek=$1"\t"$2; emax[ek]=$3; ewhy[ek]=$4; ehas[ek]=1 }
+        if ($0 !~ /^#/ && NF >= 2) { ek=$1"\t"$2; emax[ek]=trim($3); ewhy[ek]=trim($4); ehas[ek]=1 }
         next
       }
-      FILENAME == ARGV[2] { base[$1"\t"$2]=$3; next }
-      {
-        k=$1"\t"$2
-        if (!(k in base)) { printf "новое:   %-8s %s\n", $1, $2; next }
-        if ($3 > base[k]) {
-          if ((k in ehas) && ewhy[k] != "" && $3 <= emax[k] + 0) {
-            printf "рост допущен: %-8s %s  %d -> %d  (%s)\n", $1, $2, base[k], $3, ewhy[k]
-          } else {
-            if (k in ehas) printf "исключение не годится (нужны предел не ниже значения и причина): %s\n", $2
-            printf "РОСТ:    %-8s %s  %d -> %d\n", $1, $2, base[k], $3; bad=1
-          }
-        }
-        else if ($3 < base[k]) { printf "уменьш.: %-8s %s  %d -> %d\n", $1, $2, base[k], $3 }
-        found[k]=1
-      }
+      FILENAME == ARGV[2] { base[$1"\t"$2]=$3; if ($1 == "component") { if ($3 + 0 > maxb) maxb = $3 + 0 } next }
+      { n++; nk[n]=$1"\t"$2; nkind[n]=$1; nname[n]=$2; nv[n]=$3; found[$1"\t"$2]=1 }
       END {
-        for (k in base) if (!(k in found)) { n=split(k, a, "\t"); printf "удалено: %-8s %s\n", a[1], a[2] }
+        for (k in base) if (!(k in found)) {
+          m=split(k, a, "\t"); printf "удалено: %-8s %s\n", a[1], a[2]
+          if (a[1] == "component") removed += base[k]
+        }
+        for (i = 1; i <= n; i++) {
+          k=nk[i]; v=nv[i]
+          if (!(k in base)) {
+            printf "новое:   %-8s %s\n", nkind[i], nname[i]
+            if (nkind[i] == "component" && (v + 0 > maxb || (removed > 0 && v + 0 > removed))) {
+              if (allowed(k, v)) printf "рост допущен: %-8s %s  новый, %d  (%s)\n", nkind[i], nname[i], v, ewhy[k]
+              else {
+                printf "РОСТ:    %-8s %s  новый, %d (максимум baseline %d, исчезло %d)\n", nkind[i], nname[i], v, maxb, removed; bad=1
+              }
+            }
+            continue
+          }
+          if (v > base[k]) {
+            if (allowed(k, v)) {
+              printf "рост допущен: %-8s %s  %d -> %d  (%s)\n", nkind[i], nname[i], base[k], v, ewhy[k]
+            } else {
+              if (k in ehas) printf "исключение не годится (нужны предел не ниже значения и причина): %s\n", nname[i]
+              printf "РОСТ:    %-8s %s  %d -> %d\n", nkind[i], nname[i], base[k], v; bad=1
+            }
+          }
+          else if (v < base[k]) { printf "уменьш.: %-8s %s  %d -> %d\n", nkind[i], nname[i], base[k], v }
+        }
+        for (k in ehas) if (!(k in used)) { split(k, a, "\t"); printf "предупреждение: исключение не нужно: %s %s\n", a[1], a[2] }
         exit bad
-      }' "$exc" "$baseline" "$tmp"
+      }' "$exc" "$baseline" "$now"
     echo "метрики: регрессий нет"
     ;;
 esac
