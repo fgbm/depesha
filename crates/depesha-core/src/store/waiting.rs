@@ -412,12 +412,12 @@ impl Store {
     /// The letters of the wait `key` are in `folder` now. A wait the user closed while the
     /// move was still running (`done`) has its letters brought back, not left there: after the
     /// hold `stop` set (the undo toast), and to the place the stop named.
-    pub fn followup_parked(&self, account_id: &str, key: &str, folder: &str) -> Result<()> {
+    pub fn followup_parked(&self, account_id: &str, key: &str, folder: &str, now: i64) -> Result<()> {
         self.conn().execute(
             "UPDATE followups SET park = CASE WHEN park = 'done' THEN 'back' ELSE 'parked' END, park_folder = ?3,
-                park_since = CASE WHEN park = 'done' THEN MAX(CAST(strftime('%s','now') AS INTEGER), park_since) ELSE park_since END
+                park_since = CASE WHEN park = 'done' THEN MAX(?4, park_since) ELSE park_since END
              WHERE account_id = ?1 AND message_id = ?2 AND park IN ('pending', 'done')",
-            params![account_id, bare(key), folder],
+            params![account_id, bare(key), folder, now],
         )?;
         Ok(())
     }
@@ -510,8 +510,8 @@ impl Store {
     /// taken in again, the plan forgotten. Only what this stop moved is touched: a wait that was
     /// «done» before it (kept in the inbox) stays so. False when nothing was resumed: the wait
     /// ended another way since, or is waiting already, or its letters are back or lost (`stop_from`
-    /// is then `gone`: nothing is moved behind the user's back).
-    pub fn followup_resume(&self, account_id: &str, message_id: &str, ended: i64) -> Result<bool> {
+    /// is then `gone`: nothing is moved behind the user's back). `now` is the caller's clock.
+    pub fn followup_resume(&self, account_id: &str, message_id: &str, ended: i64, now: i64) -> Result<bool> {
         let n = self.conn().execute(
             "UPDATE followups SET status = 'waiting', ended = NULL, stop_to = NULL,
                 park = CASE WHEN park = 'back' THEN 'parked'
@@ -519,19 +519,19 @@ impl Store {
                             ELSE park END,
                 parked = CASE WHEN park = 'done' AND stop_from = 'parked' THEN '[]' ELSE parked END,
                 park_since = CASE WHEN park = 'done' AND stop_from IN ('pending', 'parked')
-                                  THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
+                                  THEN ?4 ELSE park_since END
              WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed' AND ended = ?3
                AND stop_from <> 'gone'
                AND NOT EXISTS (SELECT 1 FROM followups
                  WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting')",
-            params![account_id, bare(message_id), ended],
+            params![account_id, bare(message_id), ended, now],
         )?;
         Ok(n > 0)
     }
 
     /// "Keep in the inbox" right after the answer: the letters go back, and a wait made
     /// only for the folder is forgotten; one with a reminder keeps it.
-    pub fn followup_unpark(&self, account_id: &str, message_id: &str) -> Result<()> {
+    pub fn followup_unpark(&self, account_id: &str, message_id: &str, now: i64) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let which = "account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting'";
@@ -542,10 +542,10 @@ impl Store {
         tx.execute(
             &format!(
                 "UPDATE followups SET park = CASE park WHEN 'parked' THEN 'undo' ELSE 'done' END,
-                    park_since = CASE WHEN park = 'parked' THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
+                    park_since = CASE WHEN park = 'parked' THEN ?3 ELSE park_since END
                  WHERE {which} AND park IN ('pending', 'parked')"
             ),
-            params![account_id, bare(message_id)],
+            params![account_id, bare(message_id), now],
         )?;
         tx.commit()?;
         Ok(())
@@ -753,7 +753,7 @@ mod tests {
                 .followup_start(&answer("r@x", SENT, due), Some("q2@x"), Some(&park))
                 .unwrap()
         );
-        store.followup_parked("a", "r@x", WAIT).unwrap();
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         moved(store, "INBOX", &[1, 2], WAIT, &[(1, &first), (2, &second)]);
         (first, second)
     }
@@ -864,7 +864,7 @@ mod tests {
         store.followup_park_plan("a", "r@x", &found).unwrap();
         // The user stops waiting while the move runs: the letters go back where they were taken from.
         store.followup_stop("a", "r@x", 5, None).unwrap();
-        store.followup_parked("a", "r@x", "Waiting").unwrap();
+        store.followup_parked("a", "r@x", "Waiting", NOW).unwrap();
         let back = store.park_jobs().unwrap().remove(0);
         assert_eq!(
             (
@@ -951,7 +951,7 @@ mod tests {
         assert!(store.followups_due(SENT * 100).unwrap().is_empty());
 
         // The server moved them.
-        store.followup_parked("a", "r@x", WAIT).unwrap();
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         moved(&store, "INBOX", &[2], WAIT, &[(2, &second)]);
         assert!(store.park_jobs().unwrap().is_empty());
         let rows = listed(&store, FollowupFilter::Active);
@@ -1146,7 +1146,7 @@ mod tests {
         );
 
         // Undone in time: parked as before, nothing to move, and the place it returns to is its own.
-        assert!(store.followup_resume("a", "q2@x", ended).unwrap());
+        assert!(store.followup_resume("a", "q2@x", ended, NOW).unwrap());
         let f = the_wait(&store, FollowupFilter::Active);
         assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Waiting, "parked"));
         assert!(store.park_jobs().unwrap().is_empty());
@@ -1157,7 +1157,7 @@ mod tests {
         moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
         store.followup_moved_back("a", "r@x").unwrap();
         assert!(store.park_jobs().unwrap().is_empty());
-        assert!(!store.followup_resume("a", "q2@x", ended + 100).unwrap());
+        assert!(!store.followup_resume("a", "q2@x", ended + 100, NOW).unwrap());
         assert!(store.park_jobs().unwrap().is_empty());
     }
 
@@ -1181,10 +1181,10 @@ mod tests {
                 .followup_start(&answer("r@x", SENT, SENT + 500), Some("q@x"), Some(&park))
                 .unwrap()
         );
-        store.followup_unpark("a", "r@x").unwrap();
+        store.followup_unpark("a", "r@x", NOW).unwrap();
         assert!(store.park_jobs().unwrap().is_empty());
         assert!(store.followup_stop_undoable("a", "r@x", SENT + 10, None).unwrap());
-        assert!(store.followup_resume("a", "r@x", SENT + 10).unwrap());
+        assert!(store.followup_resume("a", "r@x", SENT + 10, NOW).unwrap());
         assert!(
             store.park_jobs().unwrap().is_empty(),
             "no move is owed that the stop did not make"
@@ -1218,9 +1218,9 @@ mod tests {
         };
         store.followup_park_plan("a", "r@x", &found).unwrap();
         assert!(store.followup_stop_undoable("a", "r@x", SENT + 10, None).unwrap());
-        assert!(store.followup_resume("a", "r@x", SENT + 10).unwrap());
+        assert!(store.followup_resume("a", "r@x", SENT + 10, NOW).unwrap());
         // The move that was running ends: the letters are in the folder, and the wait knows them.
-        store.followup_parked("a", "r@x", WAIT).unwrap();
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         let parked: String = store
             .conn()
             .query_row("SELECT parked FROM followups WHERE message_id = 'r@x'", [], |r| {
@@ -1260,7 +1260,7 @@ mod tests {
                 .followup_stop_undoable("a", "r@x", stopped, Some("Archive"))
                 .unwrap()
         );
-        store.followup_parked("a", "r@x", WAIT).unwrap();
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         let jobs = store.park_jobs().unwrap();
         assert_eq!((jobs[0].kind, jobs[0].to.as_str()), (ParkKind::Back, "Archive"));
         assert!(
@@ -1270,7 +1270,7 @@ mod tests {
             stopped + UNDO_SECS
         );
         // Undone while the letters were still in the folder: they stay, the return is gone.
-        assert!(store.followup_resume("a", "r@x", stopped).unwrap());
+        assert!(store.followup_resume("a", "r@x", stopped, NOW).unwrap());
         assert!(store.park_jobs().unwrap().is_empty());
     }
 
@@ -1311,10 +1311,10 @@ mod tests {
         let stopped = NOW;
         assert!(store.followup_stop_undoable("a", "r@x", stopped, None).unwrap());
         assert!(kinds(&store).is_empty(), "a closed wait is not moved in");
-        assert!(store.followup_resume("a", "r@x", stopped).unwrap());
+        assert!(store.followup_resume("a", "r@x", stopped, NOW).unwrap());
         assert_eq!(kinds(&store), [ParkKind::In], "one job, not two");
         // The first move reports: the wait stands parked and nothing is left to do.
-        store.followup_parked("a", "r@x", WAIT).unwrap();
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         assert!(store.park_jobs().unwrap().is_empty());
         assert_eq!(status_and_park(&store), ("waiting".to_owned(), "parked".to_owned()));
     }
@@ -1342,8 +1342,8 @@ mod tests {
         );
         let stopped = NOW;
         assert!(store.followup_stop_undoable("a", "r@x", stopped, None).unwrap());
-        store.followup_parked("a", "r@x", WAIT).unwrap();
-        assert!(store.followup_resume("a", "r@x", stopped).unwrap());
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
+        assert!(store.followup_resume("a", "r@x", stopped, NOW).unwrap());
         assert!(store.park_jobs().unwrap().is_empty(), "no second move, no return");
         assert_eq!(status_and_park(&store), ("waiting".to_owned(), "parked".to_owned()));
     }
@@ -1356,14 +1356,14 @@ mod tests {
         store.followup_stop_undoable("a", "q2@x", ended, None).unwrap();
         moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
         store.followup_moved_back("a", "r@x").unwrap();
-        assert!(!store.followup_resume("a", "q2@x", ended).unwrap());
+        assert!(!store.followup_resume("a", "q2@x", ended, NOW).unwrap());
         assert!(store.park_jobs().unwrap().is_empty());
 
         let store = mailbox();
         waiting(&store, 0);
         store.followup_stop_undoable("a", "q2@x", ended, None).unwrap();
         store.followup_return_failed("a", "r@x").unwrap();
-        assert!(!store.followup_resume("a", "q2@x", ended).unwrap());
+        assert!(!store.followup_resume("a", "q2@x", ended, NOW).unwrap());
         assert!(store.park_jobs().unwrap().is_empty());
     }
 
@@ -1408,7 +1408,7 @@ mod tests {
             .query_row("SELECT stop_to FROM followups", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stop_to, None);
-        assert!(!store.followup_resume("a", "q2@x", SENT + 10).unwrap());
+        assert!(!store.followup_resume("a", "q2@x", SENT + 10, NOW).unwrap());
         assert!(store.park_jobs().unwrap().is_empty());
     }
 
@@ -1416,7 +1416,7 @@ mod tests {
     fn keeping_the_letter_in_the_inbox_forgets_a_wait_made_only_for_it() {
         let store = mailbox();
         let (first, second) = waiting(&store, 0);
-        store.followup_unpark("a", "r@x").unwrap();
+        store.followup_unpark("a", "r@x", NOW).unwrap();
         let jobs = store.park_jobs().unwrap();
         assert_eq!((jobs[0].kind, jobs[0].to.as_str()), (ParkKind::Undo, "INBOX"));
         moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
@@ -1429,7 +1429,7 @@ mod tests {
         // With a reminder the wait stays, without the folder.
         let store = mailbox();
         let (first, second) = waiting(&store, SENT + 86_400);
-        store.followup_unpark("a", "q2@x").unwrap();
+        store.followup_unpark("a", "q2@x", NOW).unwrap();
         moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
         store.followup_moved_back("a", "r@x").unwrap();
         let f = the_wait(&store, FollowupFilter::Active);
@@ -1454,7 +1454,7 @@ mod tests {
         store
             .followup_start(&answer("r@x", SENT, 0), Some("q1@x"), Some(&park))
             .unwrap();
-        store.followup_unpark("a", "r@x").unwrap();
+        store.followup_unpark("a", "r@x", NOW).unwrap();
         assert!(store.park_jobs().unwrap().is_empty());
         assert_eq!(store.followups_count().unwrap().active, 0);
     }
@@ -1635,7 +1635,7 @@ mod tests {
         // The move is still pending; "Не ждать" closes the wait meanwhile.
         store.followup_stop("a", "r@x", SENT + 10, None).unwrap();
         // The move lands: the letter must come back, not stay in the folder.
-        store.followup_parked("a", "r@x", WAIT).unwrap();
+        store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         let jobs = store.park_jobs().unwrap();
         assert_eq!(jobs.len(), 1, "{jobs:#?}");
         assert_eq!(

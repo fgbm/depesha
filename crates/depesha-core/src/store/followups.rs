@@ -750,8 +750,8 @@ mod tests {
         );
 
         // Another moment is not the stop the toast spoke of.
-        assert!(!store.followup_resume("a", "q@x", now + 1).unwrap());
-        assert!(store.followup_resume("a", "<q@x>", now).unwrap());
+        assert!(!store.followup_resume("a", "q@x", now + 1, NOW).unwrap());
+        assert!(store.followup_resume("a", "<q@x>", now, NOW).unwrap());
         assert_eq!(
             store.followups_count().unwrap(),
             FollowupCounts { active: 1, closed: 0 }
@@ -778,7 +778,7 @@ mod tests {
             )
         );
         // Once: a wait that is waiting is not resumed again.
-        assert!(!store.followup_resume("a", "q@x", now).unwrap());
+        assert!(!store.followup_resume("a", "q@x", now, NOW).unwrap());
     }
 
     #[test]

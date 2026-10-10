@@ -458,7 +458,7 @@ pub async fn take_in<Q: MailQueue>(
             Ok(Taken::Elsewhere)
         }
         Ok(_) => {
-            store.followup_parked(&job.account_id, &job.key, &folder)?;
+            store.followup_parked(&job.account_id, &job.key, &folder, now)?;
             Ok(Taken::Parked { folder })
         }
         Err(e) if e.is_transient() && now - job.since < GIVE_UP_SECS => Ok(Taken::Later),
@@ -1392,7 +1392,7 @@ mod tests {
         assert!(jobs_due(&store, 1_000).unwrap().is_empty());
         assert_eq!(jobs_due(&store, job.since).unwrap()["a"].len(), 1);
         // The undo within the toast: the wait waits again and nothing moves.
-        assert!(store.followup_resume("a", "<s@x>", 1_000).unwrap());
+        assert!(store.followup_resume("a", "<s@x>", 1_000, 1_001).unwrap());
         assert!(jobs_due(&store, job.since + 1).unwrap().is_empty());
     }
 
@@ -1458,5 +1458,31 @@ mod tests {
         // The message is not known: the time is told, nothing is changed.
         assert_eq!(postpone(&store, "a", None, 1_000, 120, true).unwrap(), 1_120);
         assert_eq!(postpone(&store, "a", Some("<s@x>"), 2_000, 3_600, true).unwrap(), 5_600);
+    }
+
+    #[tokio::test]
+    async fn keeping_the_letters_in_the_inbox_brings_them_back_by_the_clock_it_is_given() {
+        let store = store();
+        let job = sent_to_wait(&store, 100).await;
+        let mut queue = Queue::default();
+        take_in_at(&store, &mut queue, &job, 110).await;
+        // "Keep in the inbox" at a moment the caller names: no system clock is read.
+        store.followup_unpark("a", "<s@x>", 1_000).unwrap();
+        let back = &jobs_due(&store, 1_000).unwrap()["a"];
+        assert_eq!((back.len(), back[0].since), (1, 1_000));
+        assert!(jobs_due(&store, 999).unwrap().is_empty());
+        // It is given up on an hour after that moment, not before.
+        let mut down = Queue {
+            moved: [Err(Error::Closed), Err(Error::Closed)].into(),
+            ..Default::default()
+        };
+        let early = bring_back(&store, &mut down, &back[0], 1_000 + GIVE_UP_SECS - 1)
+            .await
+            .unwrap();
+        assert!(matches!(early, Brought::Retry(_)), "{early:?}");
+        let late = bring_back(&store, &mut down, &back[0], 1_000 + GIVE_UP_SECS)
+            .await
+            .unwrap();
+        assert!(matches!(late, Brought::GaveUp(_)), "{late:?}");
     }
 }

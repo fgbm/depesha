@@ -59,7 +59,7 @@ async fn round(state: Arc<AppState>, resolve: bool) -> depesha_core::Result<()> 
         async move { return_snoozes(&state, due).await }
     })
     .await;
-    if resolve && state.store.followups_resolve(now)? > 0 {
+    if resolve && state.store.followups_resolve(chrono::Utc::now().timestamp())? > 0 {
         state.emit("counters-changed", json!({}));
     }
     // Letters to the folder "Waiting for reply" after an answer, and back with the reply.

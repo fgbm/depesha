@@ -33,7 +33,10 @@ pub fn resume_all(state: &Arc<AppState>) {
 
 /// Starts the strip of one label unless it is running already.
 pub fn start(state: &Arc<AppState>, account_id: &str, name: &str, keyword: &str) {
-    let Some(running) = state.label_strip.claim(account_id, name) else {
+    let Some(running) = state
+        .label_strip
+        .claim(account_id, name, chrono::Utc::now().timestamp())
+    else {
         return;
     };
     let state = state.clone();
@@ -59,7 +62,7 @@ async fn run(state: &AppState, account_id: &str, name: &str, keyword: &str) {
         account_id,
         name,
         keyword,
-        chrono::Utc::now().timestamp(),
+        &|| chrono::Utc::now().timestamp(),
         &mut |done, total| state.task(&task, "labels", Some(account_id), label.to_owned(), done, total),
     )
     .await;

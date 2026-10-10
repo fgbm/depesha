@@ -528,10 +528,10 @@ impl depesha_core::port::MailQueue for Queue {
         self.run(Work::CreateFolder(name.to_owned())).await.map(drop)
     }
 
-    async fn strip_label(&mut self, folder: &str, keyword: &str) -> Result<usize> {
+    async fn strip_label(&mut self, folder: &str, label: &str) -> Result<usize> {
         let work = Work::StripLabel {
             folder: folder.to_owned(),
-            keyword: keyword.to_owned(),
+            keyword: label.to_owned(),
         };
         // Any other answer is a folder with nothing to count.
         Ok(match self.run(work).await? {

@@ -89,9 +89,10 @@ pub trait MailQueue: Send {
         message_id: Option<&str>,
     ) -> impl Future<Output = Result<()>> + Send;
 
-    /// Takes the keyword off every letter of `folder`; how many letters had it. A refusal
-    /// (no rights) is an error the caller skips the folder for.
-    fn strip_label(&mut self, folder: &str, keyword: &str) -> impl Future<Output = Result<usize>> + Send;
+    /// Takes the label off every letter of `folder` (`label` is its keyword on IMAP, its
+    /// category on Exchange); how many letters had it. A refusal (no rights) is an error the
+    /// caller skips the folder for.
+    fn strip_label(&mut self, folder: &str, label: &str) -> impl Future<Output = Result<usize>> + Send;
 
     /// Changes a flag of the letter `message_id` in `folder` (as the cache names it); the
     /// implementation finds the letter. `Error::NotFound` when it is not there.
@@ -150,8 +151,8 @@ pub(crate) mod fake {
             self.copied.pop_front().unwrap_or(Ok(()))
         }
 
-        async fn strip_label(&mut self, folder: &str, keyword: &str) -> Result<usize> {
-            self.log.lock().unwrap().push(format!("strip {folder} {keyword}"));
+        async fn strip_label(&mut self, folder: &str, label: &str) -> Result<usize> {
+            self.log.lock().unwrap().push(format!("strip {folder} {label}"));
             self.stripped.pop_front().unwrap_or(Ok(0))
         }
 

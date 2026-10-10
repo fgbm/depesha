@@ -1552,7 +1552,9 @@ pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<Option<i64>> {
 pub fn followup_resume(state: St<'_>, id: i64, ended: i64) -> CmdResult<bool> {
     let r = row(&state, id)?;
     let resumed = match &r.message_id {
-        Some(mid) => state.store.followup_resume(&r.account_id, mid, ended)?,
+        Some(mid) => state
+            .store
+            .followup_resume(&r.account_id, mid, ended, chrono::Utc::now().timestamp())?,
         None => false,
     };
     state.scheduler_notify.notify_one();
@@ -1564,7 +1566,9 @@ pub fn followup_resume(state: St<'_>, id: i64, ended: i64) -> CmdResult<bool> {
 /// the wait goes unless it has a reminder.
 #[tauri::command(async)]
 pub fn followup_unpark(state: St<'_>, account_id: String, message_id: String) -> CmdResult<()> {
-    state.store.followup_unpark(&account_id, &message_id)?;
+    state
+        .store
+        .followup_unpark(&account_id, &message_id, chrono::Utc::now().timestamp())?;
     state.scheduler_notify.notify_one();
     state.emit("counters-changed", serde_json::json!({}));
     Ok(())
