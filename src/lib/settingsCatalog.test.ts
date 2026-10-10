@@ -17,6 +17,13 @@ describe("the menu (#102, 2.1 В)", () => {
     expect(MENU[1].pages).toEqual(["look", "notify", "start", "keys"]);
   });
 
+  it("names the notification choice «people» for people, not for the address book (#153)", () => {
+    const options = (pageSpec("notify")!.groups.flatMap((g) => g.rows).find((r) => r.id === "notify") as Extract<RowSpec, { kind: "choice" }>).options({} as Settings);
+    expect(options.find((o) => o.value === "people")!.label()).toBe("Только о письмах от людей");
+    i18n.lang = "en";
+    expect(options.find((o) => o.value === "people")!.label()).toBe("Only for mail from people");
+  });
+
   it("has no page «People»: the people moved to the main window (#104), the menu is ten entries", () => {
     expect(menuPages()).not.toContain("people");
     expect(menuPages()).toHaveLength(10);
