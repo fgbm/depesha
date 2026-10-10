@@ -443,4 +443,67 @@ mod tests {
         assert_eq!(Importance::from_db(5), Importance::High);
         assert_eq!(Importance::from_db(-3), Importance::Low);
     }
+
+    /// A draft as 0.8.0 writes it to the outbox (`git show v0.8.0:crates/depesha-core/src/smtp.rs`).
+    const DRAFT_080: &str = r#"{
+        "from": {"name": "Ольга", "email": "o@x.ru"},
+        "to": [{"name": null, "email": "a@x.ru"}], "cc": [], "bcc": [],
+        "subject": "Re: план", "text": "**да**", "html": null,
+        "signature": "<p>--<br>Ольга</p>", "format": "markdown",
+        "in_reply_to": "<m1@x>", "references": ["<m0@x>", "<m1@x>"],
+        "attachments": [{"name": "a.txt", "mime": "text/plain", "data": "aGk="}],
+        "acts_on": {"account_id": "acc", "message_id": "<m1@x>", "folder": "INBOX", "act": "reply_all", "waiting": true},
+        "importance": "high"
+    }"#;
+
+    /// An outbox entry from before formats, signatures, importance and acts existed.
+    const DRAFT_OLD: &str = r#"{
+        "from": null, "to": [{"name": "Б", "email": "b@x.ru"}], "cc": [], "bcc": [],
+        "subject": "s", "text": "t", "html": null,
+        "in_reply_to": null, "references": [], "attachments": []
+    }"#;
+
+    #[test]
+    fn reads_a_draft_as_080_wrote_it() {
+        let d: Draft = serde_json::from_str(DRAFT_080).unwrap();
+        assert_eq!(d.format, BodyFormat::Markdown);
+        assert_eq!(d.signature.as_deref(), Some("<p>--<br>Ольга</p>"));
+        assert_eq!(d.importance, Importance::High);
+        assert_eq!(d.from.as_ref().unwrap().email, "o@x.ru");
+        assert_eq!(d.references, ["<m0@x>", "<m1@x>"]);
+        assert_eq!(d.attachments[0].data, b"hi");
+        let on = d.acts_on.as_ref().unwrap();
+        assert_eq!((on.act, on.waiting, on.folder.as_str()), (Act::ReplyAll, true, "INBOX"));
+        // Written back, it is the same JSON.
+        assert_eq!(
+            serde_json::to_value(&d).unwrap(),
+            serde_json::from_str::<serde_json::Value>(DRAFT_080).unwrap()
+        );
+    }
+
+    #[test]
+    fn reads_a_draft_older_than_080() {
+        let d: Draft = serde_json::from_str(DRAFT_OLD).unwrap();
+        assert_eq!(d.format, BodyFormat::Plain);
+        assert_eq!(d.signature, None);
+        assert_eq!(d.importance, Importance::Normal);
+        assert!(d.acts_on.is_none());
+        assert_eq!(d.to[0].name.as_deref(), Some("Б"));
+        let on: ActsOn =
+            serde_json::from_str(r#"{"account_id":"a","message_id":"m","folder":"f","act":"forward"}"#).unwrap();
+        assert!(!on.waiting);
+    }
+
+    #[test]
+    fn act_names_in_the_cache_and_headers_are_stable() {
+        for (act, name) in [
+            (Act::Reply, "reply"),
+            (Act::ReplyAll, "reply_all"),
+            (Act::Forward, "forward"),
+        ] {
+            assert_eq!(act.as_str(), name);
+            assert_eq!(Act::parse(name), Some(act));
+        }
+        assert_eq!(Act::parse("answer"), None);
+    }
 }
