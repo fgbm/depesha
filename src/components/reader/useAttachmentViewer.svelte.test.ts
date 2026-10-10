@@ -50,4 +50,28 @@ describe("the attachment viewer", () => {
     flushSync();
     expect(state.viewing).toBe(true);
   });
+
+  it("keeps what was written while nothing read it, for the reader that comes later", () => {
+    app.reader.opened = letter(1);
+    let state!: AttachmentViewerState;
+    const seen: boolean[] = [];
+    let drop = () => {};
+    stop = $effect.root(() => {
+      state = new AttachmentViewerState({} as AttachmentViewerHost);
+      drop = $effect.root(() => {
+        $effect(() => void seen.push(state.viewing));
+      });
+    });
+    flushSync();
+    drop();
+    state.viewingId = 1;
+    flushSync();
+    const late = $effect.root(() => {
+      $effect(() => void seen.push(state.viewing));
+    });
+    flushSync();
+    late();
+    expect(seen).toEqual([false, true]);
+    expect(state.viewing).toBe(true);
+  });
 });
