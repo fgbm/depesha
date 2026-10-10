@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use tauri::{DragDropEvent, Emitter, Manager, Runtime, WebviewEvent, WindowEvent};
 
-use crate::paths;
 use crate::state::AppState;
 
 /// The files among the dropped paths; the rest (folders) are only counted.
@@ -79,6 +78,7 @@ fn dropped<R, T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paths;
 
     fn p(s: &str) -> Vec<PathBuf> {
         s.split(',').map(PathBuf::from).collect()
