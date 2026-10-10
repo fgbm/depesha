@@ -41,6 +41,49 @@ fn registrable(host: &str) -> Option<String> {
     String::from_utf8(registrable.as_bytes().to_vec()).ok()
 }
 
+/// Regional second-level zones the list may not know (`nsk.ru`): a name directly under one is
+/// the zone's, so the organization is one label more. The generic ones are those of [`org_domain`].
+const ZONES: [&str; 22] = [
+    "co",
+    "com",
+    "net",
+    "org",
+    "gov",
+    "edu",
+    "ac",
+    "pp",
+    "or",
+    "ne",
+    "msk",
+    "spb",
+    "nsk",
+    "ekb",
+    "nnov",
+    "kzn",
+    "samara",
+    "omsk",
+    "chel",
+    "vrn",
+    "krasnodar",
+    "kuban",
+];
+
+/// The domain the owner of a server holds, for judging whose `authserv-id` a header carries:
+/// the registrable domain of the list, private suffixes included (`firm.msk.ru` is a firm's),
+/// one label more under a regional zone the list lacks (`evil.nsk.ru`, not `nsk.ru`).
+fn own_domain(host: &str) -> Option<String> {
+    let registrable = psl::domain(host.as_bytes())?;
+    let name = std::str::from_utf8(registrable.as_bytes()).ok()?;
+    let labels: Vec<&str> = name.split('.').collect();
+    let zone = matches!(labels.as_slice(), [zone, tld] if tld.len() == 2 && ZONES.contains(zone));
+    if !zone {
+        return Some(name.to_owned());
+    }
+    let host_labels: Vec<&str> = host.split('.').collect();
+    let keep = (labels.len() + 1).min(host_labels.len());
+    Some(host_labels[host_labels.len() - keep..].join("."))
+}
+
 /// The logo of an organizational domain as a `data:` URI, or `None` when it publishes none
 /// or does not enforce DMARC (a logo then proves nothing). Only `domain` itself is asked
 /// about (`_dmarc.`, `default._bimi.`): see [`logo_domain`]. The message itself must have
@@ -200,7 +243,7 @@ impl Receiver {
             if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') {
                 continue;
             }
-            let Some(org) = registrable(&host) else {
+            let Some(org) = own_domain(&host) else {
                 continue;
             };
             let family = FAMILIES.iter().find(|f| f.contains(&org.as_str()));
@@ -212,7 +255,7 @@ impl Receiver {
         }
         let exchange_online = account.is_ews()
             && ["office365.com", "outlook.com"]
-                .contains(&registrable(&server.to_ascii_lowercase()).unwrap_or_default().as_str());
+                .contains(&own_domain(&server.to_ascii_lowercase()).unwrap_or_default().as_str());
         Self {
             domains,
             exchange_online,
@@ -222,7 +265,7 @@ impl Receiver {
 
     fn owns(&self, authserv_id: &str) -> bool {
         let id = authserv_id.trim_end_matches('.').to_ascii_lowercase();
-        id.contains('.') && registrable(&id).is_some_and(|d| self.domains.contains(&d))
+        id.contains('.') && own_domain(&id).is_some_and(|d| self.domains.contains(&d))
     }
 }
 
@@ -417,7 +460,20 @@ mod tests {
         assert!(!dmarc_passed(&ar("mx.evil.kiev.ua"), "bank.ru", &kiev));
         let nsk = imap("me@firm.nsk.ru", "imap.firm.nsk.ru");
         assert!(dmarc_passed(&ar("mx.firm.nsk.ru"), "bank.ru", &nsk));
-        // A box on a private suffix has no organization of its own to believe.
+        assert!(!dmarc_passed(&ar("mx.evil.nsk.ru"), "bank.ru", &nsk));
+        // Zones the list holds as private are no reason to leave a box without a receiver.
+        for zone in ["msk.ru", "spb.ru", "com.ru", "net.ru", "org.ru", "pp.ru"] {
+            let firm = imap(&format!("me@firm.{zone}"), &format!("imap.firm.{zone}"));
+            assert!(
+                dmarc_passed(&ar(&format!("mx.firm.{zone}")), "bank.ru", &firm),
+                "{zone}"
+            );
+            assert!(
+                !dmarc_passed(&ar(&format!("mx.evil.{zone}")), "bank.ru", &firm),
+                "{zone}"
+            );
+        }
+        // A box under a private suffix believes its own name only.
         let pages = imap("me@x.github.io", "imap.x.github.io");
         assert!(!dmarc_passed(&ar("mx.y.github.io"), "bank.ru", &pages));
         let gmail = imap("me@gmail.com", "imap.gmail.com");
