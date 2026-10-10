@@ -24,6 +24,16 @@ cd "$(dirname "$0")/.."
 
 step() { printf '\n== %s\n' "$*"; }
 
+# Unused dependencies (cargo machete); CI installs it, here it runs only where it is installed.
+machete() {
+  if command -v cargo-machete >/dev/null 2>&1; then
+    step "cargo machete"
+    cargo machete
+  else
+    echo "cargo-machete не установлен: проверка лишних зависимостей идёт в CI (cargo install cargo-machete --locked)"
+  fi
+}
+
 # One compile cache for every worktree, only where sccache is installed. It does not cache
 # incremental crates, hence CARGO_INCREMENTAL=0. It also hashes every CARGO_* variable of the
 # environment, CARGO_TARGET_DIR included: a per-worktree value would make every key unique,
@@ -97,6 +107,7 @@ if [[ "${1:-}" == "--changed" ]]; then
     cargo clippy --workspace --all-targets -- -D warnings
     step "TS-типы совпадают с Rust"
     scripts/gen-types.sh --check
+    machete
     if grep -qE '^(crates/|Cargo)' <<<"$rust"; then
       step "cargo test -p depesha-core"
       cargo test -p depesha-core
@@ -159,6 +170,7 @@ step "clippy"
 cargo clippy --workspace --all-targets -- -D warnings
 step "TS-типы совпадают с Rust"
 scripts/gen-types.sh --check
+machete
 step "svelte-check"
 npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
 step "eslint"

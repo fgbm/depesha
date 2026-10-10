@@ -119,6 +119,7 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 
 ### Коммиты test → fix
 
+- Правила Rust — `[workspace.lints.clippy]` в корневом `Cargo.toml` (`lints.workspace = true` в каждом крейте), CI гоняет clippy с `-D warnings`: `unwrap_used`, `expect_used` (в тестах можно, `clippy.toml`), `let_underscore_must_use`, `allow_attributes_without_reason`, `too_many_lines`. Исключение — точечный `#[allow(…, reason = "…")]` с настоящей причиной, а не отключение правила в `Cargo.toml`. Проглоченная ошибка, которую некому разобрать, идёт через `depesha_core::best_effort("что", результат)` (в журнал на уровне debug) или `unheard(send)` для канала без получателя, не через `let _ =`. Длинную функцию, которая читается целиком, не дроби ради цифры: `allow` с причиной; дроби, если она делает несколько дел. Лишние зависимости ищет `cargo machete` (CI и `check.sh`, если он установлен).
 - Если тест требует новый API, коммить его вместе с правкой. Отдельный `test:` не собирается, а `pub` в приватном модуле не спасает от `cargo clippy --all-targets -D warnings` (dead_code). Делить `test:`/`fix:` можно только там, где тест собирается до правки.
 - Переплетённые в одних файлах хунки `git add -p` не берёт. Нарезка: `git diff > all.patch`, порезать на `diff --git` + заголовок файла + один `@@`, затем `grep -v '^index ' <hunk> | git apply --cached --recount -` (без строки `index` и с `--recount` частичный хунк ложится в индекс), `git diff --cached --stat`, коммит. Промежуточный коммит проверяй в `git worktree add --detach <sha>`.
 

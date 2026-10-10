@@ -81,6 +81,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: TypeScript types against the Rust types
         run: scripts/gen-types.sh --check
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - name: No unused dependencies
+        run: cargo machete
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
       - run: npm run lint
       - run: scripts/frontend-metrics.sh
