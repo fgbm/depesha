@@ -8,6 +8,7 @@
   import { isPictureType } from "../lib/images";
   import { t } from "../lib/i18n.svelte";
   import { inSight, placeLockedBlock, type BlockPlace } from "../lib/compose/lockedBlock";
+  import { placePicture, type PicturePlace } from "../lib/compose/pictureFrame";
 
   let {
     html = $bindable(""),
@@ -247,7 +248,8 @@
 
   // The picked picture: a frame around it and the panel under it.
   let picked = $state<HTMLImageElement | null>(null);
-  let frame = $state<{ left: number; top: number; width: number; height: number } | null>(null);
+  let frame = $state<PicturePlace | null>(null);
+  let pictureBarHeight = $state(32);
   const fits = $derived(!!picked && frame !== null && picked.style.width === "100%");
 
   // The locked block: where it stands, and whether the pointer is over it.
@@ -277,9 +279,8 @@
       frame = null;
       return;
     }
-    const r = picked.getBoundingClientRect();
-    const w = wrap.getBoundingClientRect();
-    frame = { left: r.left - w.left, top: r.top - w.top, width: r.width, height: r.height };
+    // Cut to the letter's area in sight, as the locked block is: a picture scrolled half away must not draw over the fields above.
+    frame = el ? placePicture(picked.getBoundingClientRect(), inSight(el), wrap.getBoundingClientRect(), pictureBarHeight) : null;
   }
 
   function setSize(fit: boolean) {
@@ -340,8 +341,10 @@
     </div>
   {/if}
   {#if picked && frame}
-    <div class="frame" style="left:{frame.left}px;top:{frame.top}px;width:{frame.width}px;height:{frame.height}px" aria-hidden="true"></div>
-    <div class="picture-bar" role="toolbar" aria-label={t("compose.picture.title")} style="left:{frame.left}px;top:{frame.top + frame.height + 6}px">
+    <div class="frame-clip" style="left:{frame.clip.left}px;top:{frame.clip.top}px;width:{frame.clip.width}px;height:{frame.clip.height}px" aria-hidden="true">
+      <div class="frame" style="left:{frame.frame.left}px;top:{frame.frame.top}px;width:{frame.frame.width}px;height:{frame.frame.height}px"></div>
+    </div>
+    <div class="picture-bar" role="toolbar" aria-label={t("compose.picture.title")} style="left:{frame.bar.left}px;top:{frame.bar.top}px" bind:offsetHeight={pictureBarHeight}>
       <button class:on={fits} aria-pressed={fits} onmousedown={(e) => e.preventDefault()} onclick={() => setSize(true)}>{t("compose.picture.fit")}</button>
       <button class:on={!fits} aria-pressed={!fits} onmousedown={(e) => e.preventDefault()} onclick={() => setSize(false)}>{t("compose.picture.natural")}</button>
       <button onmousedown={(e) => e.preventDefault()} onclick={removePicked}>{t("act.delete")}</button>
@@ -483,6 +486,12 @@
   .block-bar:focus-within,
   .block-bar:has(:global(.open)) {
     opacity: 1;
+  }
+
+  .frame-clip {
+    position: absolute;
+    pointer-events: none;
+    overflow: hidden;
   }
 
   .frame {

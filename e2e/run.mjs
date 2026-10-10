@@ -277,6 +277,61 @@ async function newMessage(to, subject, text) {
   );
 }
 
+/**
+ * A tall picture is picked and the text is scrolled until its top is out of sight (#122): the frame and the panel must stay inside the text box, not climb over the fields and the toolbar above it. The clipped rectangle is read the way the eye sees it: the frame's box cut by every ancestor that clips.
+ */
+async function pictureFrameInSight(label) {
+  const seen = () =>
+    d.exec(`
+      const rich = document.querySelector('.compose .rich');
+      const rb = rich.getBoundingClientRect();
+      const view = { left: rb.left + rich.clientLeft, top: rb.top + rich.clientTop, right: rb.left + rich.clientLeft + rich.clientWidth, bottom: rb.top + rich.clientTop + rich.clientHeight };
+      const cut = (el) => {
+        let r = el.getBoundingClientRect();
+        let box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const cs = getComputedStyle(p);
+          if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+          const q = p.getBoundingClientRect();
+          box = { left: Math.max(box.left, q.left), top: Math.max(box.top, q.top), right: Math.min(box.right, q.right), bottom: Math.min(box.bottom, q.bottom) };
+        }
+        return box.right > box.left && box.bottom > box.top ? box : null;
+      };
+      const frame = document.querySelector('.compose .rich-wrap .frame');
+      const bar = document.querySelector('.compose .rich-wrap .picture-bar');
+      const img = rich.querySelector('img');
+      const ir = img.getBoundingClientRect();
+      return { view, frame: frame && cut(frame), bar: bar && cut(bar), imgTop: ir.top, imgBottom: ir.bottom };
+    `);
+  const inside = (b, v) => b.left >= v.left - 1 && b.top >= v.top - 1 && b.right <= v.right + 1 && b.bottom <= v.bottom + 1;
+  await d.exec(
+    `const r = document.querySelector('.compose .rich'); r.focus(); document.execCommand('insertHTML', false, '<div>Верх</div>');
+     const c = document.createElement('canvas'); c.width = 400; c.height = r.clientHeight * 2;
+     const g = c.getContext('2d'); g.fillStyle = '#9ab'; g.fillRect(0, 0, c.width, c.height);
+     document.execCommand('insertHTML', false, '<img src="' + c.toDataURL('image/png') + '"><div style="height:' + r.clientHeight * 2 + 'px">Низ</div>');`,
+  );
+  await d.click(await d.until("picture", () => d.find(".compose .rich img")));
+  await d.until("frame", async () => (await d.findAll(".compose .rich-wrap .frame")).length === 1);
+  await d.until("panel", async () => (await d.findAll(".compose .rich-wrap .picture-bar")).length === 1);
+  await screenshot(`picture-frame-${label}-whole`);
+  // The top of the picture goes 150 px past the upper edge of the text.
+  await d.exec("const r = document.querySelector('.compose .rich'); const img = r.querySelector('img'); r.scrollTop += img.getBoundingClientRect().top - r.getBoundingClientRect().top + 150;");
+  const s = await d.until("scrolled", async () => {
+    const now = await seen();
+    return now.imgTop < now.view.top - 100 && now.frame ? now : null;
+  }, 5000);
+  await screenshot(`picture-frame-${label}-scrolled`);
+  if (!inside(s.frame, s.view)) throw new Error(`${label}: рамка картинки выходит из поля текста: ${JSON.stringify({ frame: s.frame, view: s.view })}`);
+  if (s.bar && !inside(s.bar, s.view)) throw new Error(`${label}: плашка картинки выходит из поля текста: ${JSON.stringify({ bar: s.bar, view: s.view })}`);
+  // The picture is scrolled away altogether: no frame to see.
+  await d.exec("const r = document.querySelector('.compose .rich'); const img = r.querySelector('img'); r.scrollTop += img.getBoundingClientRect().bottom - r.getBoundingClientRect().top + 40;");
+  const gone = await d.until("out of sight", async () => {
+    const now = await seen();
+    return now.imgBottom < now.view.top ? now : null;
+  }, 5000);
+  if (gone.frame || gone.bar) throw new Error(`${label}: картинки не видно, а рамка или плашка на месте: ${JSON.stringify(gone)}`);
+}
+
 async function composeClosed() {
   await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
 }
@@ -3099,6 +3154,29 @@ try {
     await d.type(await d.find(name), "\uE007");
     await d.until("name back", async () => ((await invoke("accounts"))[0].label ?? "") === (me.label ?? ""), 20000);
     await closeSettings();
+  });
+
+  await step("7.29", "картинка в тексте выделена и прокручена за край: рамка и плашка не выходят из поля текста, в обычном и «Во весь экран» (#122)", async () => {
+    await d.button("Написать");
+    try {
+      await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+      // The mailbox's own format decides what opens: the letter is switched to HTML by the footer's menu.
+      if ((await d.findAll(".compose .rich")).length === 0) {
+        await d.click(await d.find(".compose footer button[aria-label='Формат письма']"));
+        await d.click(await d.until("HTML", () => d.xpath("//div[contains(@class,'pop')]//*[@role='menuitemradio'][contains(., 'HTML')]")));
+      }
+      await d.until("rich", async () => (await d.findAll(".compose .rich")).length === 1);
+      await pictureFrameInSight("normal");
+      await d.click(await d.find(".compose [aria-label='Во весь экран']"));
+      await d.until("maximized", async () => (await d.findAll(".compose [aria-label='Обычный размер']")).length === 1);
+      await pictureFrameInSight("max");
+    } finally {
+      if ((await d.findAll(".compose")).length) {
+        await d.click(await d.find(".compose header > button:last-child"));
+        if ((await d.findAll(".confirm")).length) await d.click(await d.xpath("//div[contains(@class,'confirm')]//button[contains(@class,'primary')]"));
+        await composeClosed();
+      }
+    }
   });
 
   await step("7.25", "фон без значка: согласие даётся действием строки, а не выбором", async () => {
