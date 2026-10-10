@@ -339,6 +339,17 @@ pub async fn load_older(conn: &mut Conn, store: &Store, account_id: &str, folder
     Ok(uids.len())
 }
 
+/// Runs a heavy call of the cache on a multi-thread runtime without keeping the worker thread:
+/// a batch of 200 headers holds the writer for about 100 ms on the first sync of a big mailbox
+/// (`tests/cache_perf.rs`, #149), and the tasks queued on that thread would wait it out.
+fn off_runtime_thread<T>(f: impl FnOnce() -> T) -> T {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
+        _ => f(),
+    }
+}
+
 async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder: &str, uids: &[u32]) -> Result<usize> {
     let mut added = 0;
     for chunk in uids.chunks(BATCH) {
@@ -377,7 +388,7 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .collect();
         // One commit for the batch: either all of it is cached or none, and the
         // folder's state, written after, never claims what is missing.
-        store.insert_messages(account_id, folder, &msgs)?;
+        off_runtime_thread(|| store.insert_messages(account_id, folder, &msgs))?;
         added += msgs.len();
     }
     Ok(added)
@@ -518,6 +529,29 @@ mod tests {
 
     fn listed(names: &[&str]) -> Vec<Folder> {
         names.iter().map(|n| folder(n)).collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn heavy_call_leaves_the_worker_thread_to_other_tasks() {
+        let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = ran.clone();
+        tokio::spawn(async move { flag.store(true, std::sync::atomic::Ordering::SeqCst) });
+        let seen = off_runtime_thread(|| {
+            let t = std::time::Instant::now();
+            while !ran.load(std::sync::atomic::Ordering::SeqCst) && t.elapsed() < std::time::Duration::from_secs(5) {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            ran.load(std::sync::atomic::Ordering::SeqCst)
+        });
+        assert!(
+            seen,
+            "a task queued on the only worker did not run during the heavy call"
+        );
+    }
+
+    #[tokio::test]
+    async fn heavy_call_runs_on_a_current_thread_runtime() {
+        assert_eq!(off_runtime_thread(|| 7), 7);
     }
 
     #[tokio::test]

@@ -3196,6 +3196,16 @@ fn dialog(window: &tauri::Window, title: String) -> tauri_plugin_dialog::FileDia
     builder
 }
 
+/// Waits for a dialog opened with a callback (the plugin's non-blocking calls): a tokio thread
+/// is not held while the user chooses. A dialog dropped without an answer counts as closed.
+async fn dialog_answer<T: Send + 'static>(open: impl FnOnce(Box<dyn FnOnce(Option<T>) + Send>)) -> Option<T> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    open(Box::new(move |answer| {
+        let _ = tx.send(answer);
+    }));
+    rx.await.ok().flatten()
+}
+
 /// Files to attach, picked in the open dialog. Empty when the dialog was closed.
 #[tauri::command]
 pub async fn pick_files(
@@ -3208,7 +3218,7 @@ pub async fn pick_files(
     if images.unwrap_or(false) {
         builder = builder.add_filter(pick("Pictures", "Картинки"), &PICTURES);
     }
-    let picked = builder.blocking_pick_files().unwrap_or_default();
+    let picked = dialog_answer(|done| builder.pick_files(done)).await.unwrap_or_default();
     let mut files = Vec::new();
     for path in picked.into_iter().filter_map(|p| p.into_path().ok()) {
         state.paths.allow(Use::Attach, path.clone());
@@ -3239,7 +3249,10 @@ pub async fn pick_folder(
     if let Some(dir) = current.filter(|d| !d.trim().is_empty()) {
         builder = builder.set_directory(dir);
     }
-    let Some(path) = builder.blocking_pick_folder().and_then(|p| p.into_path().ok()) else {
+    let Some(path) = dialog_answer(|done| builder.pick_folder(done))
+        .await
+        .and_then(|p| p.into_path().ok())
+    else {
         return Ok(None);
     };
     let to = match to {
@@ -3258,9 +3271,9 @@ pub async fn pick_save_file(
     title: String,
     name: String,
 ) -> CmdResult<Option<String>> {
-    let picked = dialog(&window, title)
-        .set_file_name(safe_name(&name))
-        .blocking_save_file()
+    let builder = dialog(&window, title).set_file_name(safe_name(&name));
+    let picked = dialog_answer(|done| builder.save_file(done))
+        .await
         .and_then(|p| p.into_path().ok());
     Ok(picked.map(|path| {
         state.paths.allow(Use::SaveFile, path.clone());
@@ -3558,6 +3571,24 @@ pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn dialog_answer_waits_for_the_callback_from_another_thread() {
+        let got = dialog_answer(|done| {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                done(Some(5));
+            });
+        })
+        .await;
+        assert_eq!(got, Some(5));
+    }
+
+    #[tokio::test]
+    async fn dialog_answer_treats_a_closed_dialog_and_a_dropped_callback_as_nothing() {
+        assert_eq!(dialog_answer::<u8>(|done| done(None)).await, None);
+        assert_eq!(dialog_answer::<u8>(drop).await, None);
+    }
 
     fn mailbox() -> Account {
         serde_json::from_str(

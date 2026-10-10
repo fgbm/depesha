@@ -254,6 +254,10 @@ fn large_cache() {
         .unwrap_or(50_000);
     let (dir, store, inbox, filled) = open(n);
     println!("all headers ({n}): {:.1} s", filled.as_secs_f64());
+    // The first sync of a big mailbox (#149): the longest one batch of 200 headers held the
+    // writer, i.e. how long another command (and the tokio thread running it) could wait.
+    let fill_hold = store.take_longest_lock();
+    println!("first sync, longest hold of the cache: {:.2} ms", ms(fill_hold));
     if std::env::var_os("DEPESHA_PERF_KEEP").is_some() {
         // For EXPLAIN QUERY PLAN in the sqlite3 shell.
         println!("cache kept in {}", dir.keep().display());
