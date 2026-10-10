@@ -234,10 +234,10 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
     let mut last = (0usize, 0usize);
     let mut forgotten = false;
     // The drafts that stay are those open now, as the erasing begins: the run waited in the queue.
-    let keep = if req.drafts {
+    let (keep, kept_ids) = if req.drafts {
         keep_uids(&state.store, &state.clearing, id, &req.folder, &req.keep_ids)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     let run = {
         let mut step = |done: usize, total: usize| {
@@ -278,7 +278,7 @@ pub async fn perform(state: &AppState, account: &Account, conn: &mut Conn, req: 
     match run {
         Ok(run) => {
             state.task_done(key);
-            Ok(Output::Emptied(run))
+            Ok(Output::Emptied(run, kept_ids))
         }
         Err(e) => {
             let mut shown = CmdError::from(clone_error(&e));
@@ -329,7 +329,13 @@ fn uids_to_forget(store: &Store, account_id: &str, folder: &str, keep: &[u32], b
 /// record) that stand in `folder` now. A number handed out anew to another draft is not
 /// taken for the open one: the record's Message-ID has to agree, else the copy is looked for
 /// by it.
-pub fn keep_uids(store: &Store, clearing: &Clearing, account_id: &str, folder: &str, window_ids: &[i64]) -> Vec<u32> {
+pub fn keep_uids(
+    store: &Store,
+    clearing: &Clearing,
+    account_id: &str,
+    folder: &str,
+    window_ids: &[i64],
+) -> (Vec<u32>, Vec<i64>) {
     let mut open = clearing.open_drafts();
     for id in window_ids {
         if !open.iter().any(|d| d.id == *id) {
@@ -342,6 +348,7 @@ pub fn keep_uids(store: &Store, clearing: &Clearing, account_id: &str, folder: &
     }
     let bare = |m: &str| m.trim().trim_matches(['<', '>']).to_owned();
     let mut uids = Vec::new();
+    let mut ids = Vec::new();
     for d in open {
         let row = store.get_at(d.id).ok().flatten().map(|(r, _)| r).filter(|r| {
             r.account_id == account_id
@@ -359,10 +366,28 @@ pub fn keep_uids(store: &Store, clearing: &Clearing, account_id: &str, folder: &
             && !uids.contains(&r.uid)
         {
             uids.push(r.uid);
+            ids.push(r.id);
         }
     }
     uids.sort_unstable();
-    uids
+    ids.sort_unstable();
+    (uids, ids)
+}
+
+/// The keys of the local copies to drop once the drafts left: not those of the drafts the run
+/// kept (`kept_ids`, as the queue found them when the erasing began). A draft that was open
+/// then stayed on the server, and its copy stays, though its window has closed since.
+fn copies_to_drop(leaving: Vec<String>, copies: &[CachedDraft], kept_ids: &[i64]) -> Vec<String> {
+    leaving
+        .into_iter()
+        .filter(|key| {
+            copies
+                .iter()
+                .find(|c| &c.key == key)
+                .and_then(|c| c.draft_id)
+                .is_none_or(|id| !kept_ids.contains(&id))
+        })
+        .collect()
 }
 
 /// Takes the folder's cached letters that the run takes (but `keep`) out of the cache and
@@ -492,7 +517,7 @@ pub async fn run(
         copies = crate::drafts::read_all(&crate::drafts::dir(&state.app)?).await?;
     }
     let inside = counted(&state.store, account_id, folder, &held);
-    let mut leaving = copies_following(&copies, account_id, folder, &keep_ids, &inside, |id| {
+    let leaving = copies_following(&copies, account_id, folder, &keep_ids, &inside, |id| {
         state
             .store
             .get_at(id)
@@ -511,9 +536,9 @@ pub async fn run(
         label: label(role),
         key: task_key(account_id, folder),
     };
-    let run = match state.worker(account_id)?.run(Work::EmptyFolder(request)).await? {
-        Output::Emptied(run) => run,
-        _ => Emptied::default(),
+    let (run, kept_ids) = match state.worker(account_id)?.run(Work::EmptyFolder(request)).await? {
+        Output::Emptied(run, kept) => (run, kept),
+        _ => (Emptied::default(), Vec::new()),
     };
     // Only a finished run takes the copies with it: after a stop the drafts left in the folder
     // keep theirs.
@@ -522,15 +547,7 @@ pub async fn run(
     }
     if drafts && !run.stopped {
         // A draft opened while the run waited stayed in the folder, and so does its copy.
-        let open_now = state.clearing.open_ids();
-        leaving.retain(|key| {
-            copies
-                .iter()
-                .find(|c| &c.key == key)
-                .and_then(|c| c.draft_id)
-                .is_none_or(|id| !open_now.contains(&id))
-        });
-        crate::drafts::drop_all(&state.app, &leaving).await?;
+        crate::drafts::drop_all(&state.app, &copies_to_drop(leaving, &copies, &kept_ids)).await?;
     }
     Ok(run)
 }
@@ -661,13 +678,40 @@ mod tests {
         let c = Clearing::default();
         c.draft_set("main", "k1", Some(first), None);
         // What the queue reads when the erasing begins, not what `run` read earlier.
-        assert_eq!(keep_uids(&store, &c, "a", "Drafts", &[]), [1]);
+        assert_eq!(keep_uids(&store, &c, "a", "Drafts", &[]).0, [1]);
         c.draft_set("message-4", "k2", Some(second), Some("two@depesha.local".into()));
-        assert_eq!(keep_uids(&store, &c, "a", "Drafts", &[]), [1, 2]);
+        assert_eq!(keep_uids(&store, &c, "a", "Drafts", &[]).0, [1, 2]);
         // The window's own word counts too, and a number of another folder or mailbox names nothing.
-        assert_eq!(keep_uids(&store, &Clearing::default(), "a", "Drafts", &[second]), [2]);
-        assert!(keep_uids(&store, &Clearing::default(), "a", "Trash", &[second]).is_empty());
-        assert!(keep_uids(&store, &Clearing::default(), "b", "Drafts", &[second]).is_empty());
+        assert_eq!(keep_uids(&store, &Clearing::default(), "a", "Drafts", &[second]).0, [2]);
+        assert!(
+            keep_uids(&store, &Clearing::default(), "a", "Trash", &[second])
+                .0
+                .is_empty()
+        );
+        assert!(
+            keep_uids(&store, &Clearing::default(), "b", "Drafts", &[second])
+                .0
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_copy_of_a_draft_the_run_kept_stays_though_its_window_closed_before_the_end() {
+        let store = Store::open_in_memory().unwrap();
+        drafts_folder(&store);
+        let open = cached(&store, 1, "one@depesha.local");
+        let gone = cached(&store, 2, "two@depesha.local");
+        let c = Clearing::default();
+        // Registered after `run` was asked for, as the queue reads the record.
+        c.draft_set("main", "k1", Some(open), None);
+        let (_, kept) = keep_uids(&store, &c, "a", "Drafts", &[]);
+        assert_eq!(kept, [open]);
+        // The window closes before the run ends: the record is empty, the kept draft is not.
+        c.draft_set("main", "k1", None, None);
+        assert!(c.open_ids().is_empty());
+        let copies = vec![copy("kept", Some(open), None), copy("left", Some(gone), None)];
+        let leaving = vec!["kept".to_owned(), "left".to_owned()];
+        assert_eq!(copies_to_drop(leaving, &copies, &kept), ["left"]);
     }
 
     #[test]
@@ -679,7 +723,7 @@ mod tests {
         let c = Clearing::default();
         // The window's draft was saved as `mine`, but its old number now names `other`.
         c.draft_set("main", "k1", Some(other), Some("<mine@depesha.local>".into()));
-        assert_eq!(keep_uids(&store, &c, "a", "Drafts", &[]), [2]);
+        assert_eq!(keep_uids(&store, &c, "a", "Drafts", &[]).0, [2]);
     }
 
     #[test]

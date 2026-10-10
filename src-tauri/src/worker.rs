@@ -193,7 +193,8 @@ pub enum Output {
     /// What a folder held on the server when it was counted.
     Counted(usize, mail::Bound),
     /// How far an emptying of a folder got.
-    Emptied(mail::Emptied),
+    /// How far it got, and the cache ids of the drafts it kept.
+    Emptied(mail::Emptied, Vec<i64>),
 }
 
 type Reply = oneshot::Sender<Result<Output>>;
