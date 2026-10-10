@@ -1271,6 +1271,80 @@ mod tests {
         assert!(store.park_jobs().unwrap().is_empty());
     }
 
+    fn status_and_park(store: &Store) -> (String, String) {
+        store
+            .conn()
+            .query_row("SELECT status, park FROM followups WHERE message_id = 'r@x'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap()
+    }
+
+    /// Guards `followup_resume` on a wait whose move into the folder is still running: the undo
+    /// neither starts a second move nor loses the first one's end (`round` is serial, and
+    /// `followup_parked` turns `pending` into `parked`).
+    #[test]
+    fn an_undo_while_the_move_in_still_runs_makes_one_move_and_ends_parked() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &letter("Счёт", 90_000, "q@x", None, "maria@example.org"),
+            true,
+        );
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: Vec::new(),
+        };
+        assert!(
+            store
+                .followup_start(&answer("r@x", SENT, SENT + 500), Some("q@x"), Some(&park))
+                .unwrap()
+        );
+        let kinds = |store: &Store| -> Vec<ParkKind> { store.park_jobs().unwrap().iter().map(|j| j.kind).collect() };
+        assert_eq!(kinds(&store), [ParkKind::In]);
+        // The round has the job in hand; stop, then undo, before the move reports.
+        let stopped = chrono::Utc::now().timestamp();
+        assert!(store.followup_stop_undoable("a", "r@x", stopped, None).unwrap());
+        assert!(kinds(&store).is_empty(), "a closed wait is not moved in");
+        assert!(store.followup_resume("a", "r@x", stopped).unwrap());
+        assert_eq!(kinds(&store), [ParkKind::In], "one job, not two");
+        // The first move reports: the wait stands parked and nothing is left to do.
+        store.followup_parked("a", "r@x", WAIT).unwrap();
+        assert!(store.park_jobs().unwrap().is_empty());
+        assert_eq!(status_and_park(&store), ("waiting".to_owned(), "parked".to_owned()));
+    }
+
+    /// The move finished while the wait was closed: its letters are in the folder, the return
+    /// held back by the toast; the undo keeps them there and cancels the return.
+    #[test]
+    fn an_undo_after_the_move_in_ended_during_the_stop_keeps_the_letters_parked() {
+        let store = mailbox();
+        put(
+            &store,
+            "INBOX",
+            1,
+            &letter("Счёт", 90_000, "q@x", None, "maria@example.org"),
+            true,
+        );
+        let park = Parking {
+            from: "INBOX".into(),
+            chain: Vec::new(),
+        };
+        assert!(
+            store
+                .followup_start(&answer("r@x", SENT, SENT + 500), Some("q@x"), Some(&park))
+                .unwrap()
+        );
+        let stopped = chrono::Utc::now().timestamp();
+        assert!(store.followup_stop_undoable("a", "r@x", stopped, None).unwrap());
+        store.followup_parked("a", "r@x", WAIT).unwrap();
+        assert!(store.followup_resume("a", "r@x", stopped).unwrap());
+        assert!(store.park_jobs().unwrap().is_empty(), "no second move, no return");
+        assert_eq!(status_and_park(&store), ("waiting".to_owned(), "parked".to_owned()));
+    }
+
     #[test]
     fn an_undo_is_refused_once_the_letters_are_back_or_the_return_failed() {
         let store = mailbox();
