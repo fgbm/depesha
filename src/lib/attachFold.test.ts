@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHIP_GAP_PX, MORE_RESERVE_PX, STRIP_ROWS, foldChips } from "./attachFold";
+import { CHIP_GAP_PX, MORE_RESERVE_PX, STRIP_ROWS, foldChips, keepFit } from "./attachFold";
 
 const chips = (n: number, w = 200) => Array.from({ length: n }, () => w);
 
@@ -77,5 +77,18 @@ describe("the fold of many attachments (two rows and «+N more»)", () => {
 
   it("shows one file in sight however narrow the pane", () => {
     expect(foldChips(chips(5), 60)).toBe(1);
+  });
+});
+
+describe("the widths kept while the strip is measured again", () => {
+  const old = { widths: [100, 100, 100] };
+
+  it("keeps the previous measure for the same number of files, so the list does not unmount", () => {
+    expect(keepFit(old, 3)).toBe(old);
+  });
+
+  it("drops it for another number of files: those widths are not these files'", () => {
+    expect(keepFit(old, 4)).toBeNull();
+    expect(keepFit(null, 3)).toBeNull();
   });
 });

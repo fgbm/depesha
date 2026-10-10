@@ -969,6 +969,15 @@ try {
       await d.pressKey(ENTER);
       await listOf(29);
       await d.until("cursor on the shown file", () => active(`a.dataset.att === '${folded}'`));
+      // Enter on the shown file keeps it: only a click on its chip closes the viewer.
+      await d.pressKey(ENTER);
+      await d.until("list closed by Enter", async () => (await d.findAll(".pop [data-att]")).length === 0);
+      if ((await d.findAll(".reader .viewer")).length !== 1 || (await shown()) !== name) throw new Error("Enter на показанном файле закрыл или сменил просмотр");
+      if (!(await active("a.classList.contains('viewer')"))) throw new Error("после Enter на показанном файле фокус не на просмотре");
+      await d.exec("document.querySelector('.reader .files .more').focus()");
+      await d.pressKey(ENTER);
+      await listOf(29);
+      await d.until("cursor on the shown file again", () => active(`a.dataset.att === '${folded}'`));
       await d.pressKey(DOWN);
       if (!(await active(`a.dataset.att === '${folded + 1}'`))) throw new Error("↓ при открытом просмотре не на следующем файле");
       await d.pressKey(RIGHT);

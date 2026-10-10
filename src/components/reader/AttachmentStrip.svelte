@@ -8,7 +8,7 @@
   import { size } from "../../lib/format";
   import { i18n, t } from "../../lib/i18n.svelte";
   import { onMount, tick } from "svelte";
-  import { foldChips } from "../../lib/attachFold";
+  import { foldChips, keepFit } from "../../lib/attachFold";
   import type { AttachmentInfo } from "../../lib/types";
   import AttachmentMenu, { type RowAction } from "../AttachmentMenu.svelte";
 
@@ -50,7 +50,8 @@
   });
 
   const key = $derived(`${i18n.lang}|${fonts}|${saveDir ? 1 : 0}|${files.map((f) => `${f.index}:${f.name}:${f.size}`).join("|")}`);
-  const fit = $derived(measured?.key === key ? measured : null);
+  // While a new measure is taken the old one stays: the strip and its list are not unmounted for it.
+  const fit = $derived(keepFit(measured, files.length));
 
   $effect(() => {
     if (!measureBox || measured?.key === key) return;
@@ -67,7 +68,8 @@
   /** A file chosen in the list is shown; the focus follows it into the viewer, or back to the button. */
   async function pick(i: number) {
     listOpen = false;
-    onViewAttachment(files[i]);
+    // The file shown already: Enter keeps it (a click on its chip is what closes the viewer).
+    if (!(viewing && i === viewingAt)) onViewAttachment(files[i]);
     await tick();
     const viewer = moreButton?.closest(".scroll")?.querySelector<HTMLElement>(".viewer");
     (viewer ?? moreButton)?.focus({ preventScroll: true });
@@ -118,7 +120,7 @@
       <button class="btn ghost small-btn" onclick={onSaveAll}>{t("file.saveAll")}</button>
     {/if}
   </div>
-  {#if !fit}
+  {#if measured?.key !== key}
     <!-- Every chip once, out of sight, to know how wide each is. -->
     <div class="measure" bind:this={measureBox} aria-hidden="true">
       {#each files as a (a.index)}{@render chip(a, true)}{/each}

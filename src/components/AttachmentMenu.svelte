@@ -17,6 +17,7 @@
   import type { Snippet } from "svelte";
   import Popover from "./Popover.svelte";
   import { size } from "../lib/format";
+  import { scrollToRow } from "../lib/menuScroll";
 
   let {
     open = $bindable(false),
@@ -57,7 +58,11 @@
     if (!open || !box) return;
     const frame = requestAnimationFrame(() => {
       const row = box?.querySelector<HTMLElement>(`[data-att="${current >= 0 ? current : start}"]`);
-      if (row && document.activeElement !== row) row.focus();
+      const pop = row?.closest<HTMLElement>(".pop");
+      if (!row || !pop) return;
+      // Without preventScroll the page scrolls too, and a scrolled page closes the list.
+      row.focus({ preventScroll: true });
+      pop.scrollTop = scrollToRow({ top: row.offsetTop, height: row.offsetHeight, scrollTop: pop.scrollTop, viewHeight: pop.clientHeight });
     });
     return () => cancelAnimationFrame(frame);
   });

@@ -54,3 +54,8 @@ export function foldChips(widths: number[], avail: number, { rows = STRIP_ROWS, 
   }
   return 1;
 }
+
+/** The measure of the strip kept while a new one is taken: the widths of as many files, else none. */
+export function keepFit<T extends { widths: number[] }>(m: T | null, n: number): T | null {
+  return m && m.widths.length === n ? m : null;
+}
