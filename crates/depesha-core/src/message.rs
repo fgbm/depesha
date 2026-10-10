@@ -219,10 +219,10 @@ pub const FORMAT_HEADER: &str = "X-Depesha-Format";
 /// mark and the signature of this installation; a mark without a signature is not followed.
 pub const ACTS_ON_HEADER: &str = "X-Depesha-Acts-On";
 
-/// What a saved draft does with the letter it is written from: `reply`, `reply_all` or
-/// `forward` (`Act`). It is not signed and names no letter: after a reinstall, when the
-/// signed mark no longer checks, it tells an answer from a forward without guessing by the
-/// subject, which the user may have rewritten (#100).
+/// What a draft saved by an older version said about what it does with the letter it is
+/// written from: `reply`, `reply_all` or `forward` (`Act`). Only read now: the kind lives in
+/// the `Acts-On` mark, so a draft in a shared or Exchange mailbox, which another client may
+/// send as it is, carries one `X-Depesha-*` line less about the letter it answers (#117).
 pub const ACT_HEADER: &str = "X-Depesha-Act";
 
 /// The domain of a Message-ID Depesha puts on its own drafts, so a saved draft shows which
@@ -289,9 +289,18 @@ pub fn trusted_acts_on(raw: &[u8], verify: impl Fn(&[u8], &str) -> bool) -> Opti
     decode_acts_on(payload)
 }
 
-/// What the draft says it does (`ACT_HEADER`); None for an old draft and for any other letter.
+/// What the draft says it does: the kind in its `Acts-On` mark, read without the signature
+/// (the old `ACT_HEADER` was no more trusted, and a forged kind names no letter), so that after
+/// a reinstall, when the signature no longer checks, an answer is told from a forward without
+/// guessing by the subject (#100). A draft of an older version has the kind in `ACT_HEADER`.
+/// None for a draft with neither and for any other letter.
 pub fn draft_act(raw: &[u8]) -> Option<Act> {
     let msg = MessageParser::default().parse_headers(raw)?;
+    if let Some(act) = raw_header(&msg, ACTS_ON_HEADER)
+        .and_then(|value| split_signed(&value).and_then(|(payload, _)| decode_acts_on(payload)))
+    {
+        return Some(act.act);
+    }
     Act::parse(raw_header(&msg, ACT_HEADER)?.trim())
 }
 
@@ -1180,6 +1189,20 @@ JVBERi0xLjQK\r\n\
         assert_eq!(draft_act(with("forward").as_bytes()), Some(Act::Forward));
         assert_eq!(draft_act(with("reply_all").as_bytes()), Some(Act::ReplyAll));
         assert_eq!(draft_act(with("sing").as_bytes()), None);
+        assert_eq!(draft_act(draft_with("", DRAFT_DOMAIN).as_bytes()), None);
+    }
+
+    #[test]
+    fn the_kind_of_the_action_is_read_from_the_mark_even_when_its_signature_does_not_check() {
+        let acts = ActsOn {
+            act: Act::Forward,
+            ..acts()
+        };
+        let value = encode_acts_on(&acts).unwrap();
+        let signed = signed_acts_on(&value, "sig").unwrap();
+        let raw = draft_with(&format!("{ACTS_ON_HEADER}: {signed}\r\n"), DRAFT_DOMAIN);
+        assert_eq!(draft_act(raw.as_bytes()), Some(Act::Forward));
+        // Nothing to tell it by in a letter with no mark and no old header.
         assert_eq!(draft_act(draft_with("", DRAFT_DOMAIN).as_bytes()), None);
     }
 

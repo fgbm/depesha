@@ -1008,3 +1008,65 @@ async fn clearing_exchange_folders() {
         "the rest, not just the cached, is in the trash"
     );
 }
+
+/// #117: a draft in an Exchange mailbox may be sent from Outlook or OWA as it is. The kind of
+/// its action travels inside the `Acts-On` mark and no `X-Depesha-Act` line is written, yet
+/// the draft read back from the server still tells a forward from an answer.
+#[tokio::test]
+async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
+    use depesha_core::domain::{Act, ActsOn};
+    use depesha_core::message::{self, ACT_HEADER, ACTS_ON_HEADER};
+    let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+        items: Vec::new(),
+        next_id: 100,
+        created: Vec::new(),
+        windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
+        find_items: 0,
+    }));
+    let port = fake_exchange(mailbox.clone()).await;
+    let config = EwsConfig {
+        url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+        trusted_cert: None,
+    };
+    let mut s = ews::connect(&config, &Credentials::new("CORP\\me", "secret"), "me@corp.ru")
+        .await
+        .unwrap();
+    let store = Store::open_in_memory().unwrap();
+    ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
+
+    let acts_on = ActsOn {
+        account_id: ACCOUNT.into(),
+        message_id: "<orig@corp.ru>".into(),
+        folder: "INBOX".into(),
+        act: Act::Forward,
+        waiting: false,
+    };
+    let value = message::encode_acts_on(&acts_on).unwrap();
+    let signed = message::signed_acts_on(&value, "sig").unwrap();
+    let raw = format!(
+        "{ACTS_ON_HEADER}: {signed}\r\nMessage-ID: <d1@depesha.local>\r\nFrom: me@corp.ru\r\nTo: boss@corp.ru\r\nSubject: Fwd: x\r\n\r\nтекст\r\n"
+    );
+    ews::append_unless_exists(
+        &mut s,
+        &store,
+        ACCOUNT,
+        "Черновики",
+        raw.as_bytes(),
+        "(\\Draft \\Seen)",
+        None,
+    )
+    .await
+    .unwrap();
+
+    let created = mailbox.lock().unwrap().created.pop().unwrap();
+    let mime = created.split("<t:MimeContent CharacterSet=\"UTF-8\">").nth(1).unwrap();
+    let mime = BASE64.decode(mime.split("</t:MimeContent>").next().unwrap()).unwrap();
+    let mime = String::from_utf8(mime).unwrap();
+    assert!(
+        !mime.contains(&format!("{ACT_HEADER}:")),
+        "no separate line for the kind"
+    );
+    assert_eq!(message::draft_act(mime.as_bytes()), Some(Act::Forward));
+}

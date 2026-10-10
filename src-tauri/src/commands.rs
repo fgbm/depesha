@@ -1398,7 +1398,13 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
             }
             // The letters are back: a failure to forget their times is logged, not allowed to
             // take the undo of this and the earlier groups away.
-            if let Err(e) = snooze::drop_left(&state.store, &group.account_id, &group.folder, &moved.message_ids) {
+            if let Err(e) = snooze::drop_left(
+                &state.store,
+                &group.account_id,
+                &group.folder,
+                &group.to,
+                &moved.message_ids,
+            ) {
                 tracing::warn!("unsnooze: the times of the letters were not dropped: {e}");
             }
             Ok(Some(moved))
@@ -2799,8 +2805,8 @@ fn is_own_draft(
 /// The letter an answer draft is written to when its signed mark no longer checks (the
 /// install secret is gone after a reinstall, #78): a draft of this mailbox that Depesha wrote
 /// is bound again by its `In-Reply-To`, if that letter is in the cache. A forward is not:
-/// it carries the same header, and `act` (the draft's own `X-Depesha-Act`) tells it from an
-/// answer. A draft saved before that header is told by its subject prefix, as a last resort.
+/// it carries the same header, and `act` (the kind in the draft's own `Acts-On` mark) tells it from an
+/// answer. A draft saved before that mark is told by its subject prefix, as a last resort.
 /// Only our own drafts count, so a letter from anywhere else cannot name what it answers.
 fn rebound_acts_on(
     store: &depesha_core::store::Store,
@@ -2940,11 +2946,6 @@ pub async fn draft_save(
     if draft.format != BodyFormat::Plain {
         // Markdown looks like plain text in the letter: the draft says how it was written.
         let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
-        raw.splice(0..0, header.into_bytes());
-    }
-    if let Some(acts_on) = &draft.acts_on {
-        // The kind of the action stays readable when the signed mark below is lost (#100).
-        let header = format!("{}: {}\r\n", message::ACT_HEADER, acts_on.act.as_str());
         raw.splice(0..0, header.into_bytes());
     }
     if let Some(acts_on) = &draft.acts_on

@@ -104,17 +104,21 @@ where
     }
 }
 
-/// Drops the times of the letters a move has taken out of `folder`, one by one. The server
-/// reports only a count, and by UIDs, not by Message-ID (a short count may hide a letter that
-/// was not found next to another with the same Message-ID), so the letters are told by the
-/// cache: the move synced the folder, and a letter no longer in it has left. A letter still
-/// there keeps its time and comes back at it. If the sync failed the cache is stale, every
-/// letter looks to be there and nothing is dropped, which is harmless: the clock removes the
-/// time of a letter it finds gone from Snoozed.
-pub fn drop_left(store: &Store, account_id: &str, folder: &str, message_ids: &[String]) -> Result<()> {
+/// Drops the times of the letters a move has taken out of `folder` to `to`, one by one. The
+/// server reports only a count, and by UIDs, not by Message-ID (a short count may hide a letter
+/// that was not found next to another with the same Message-ID), so the letters are told by the
+/// cache: the move synced both folders, and a letter has left when it is no longer in `folder`
+/// AND has arrived in `to`. Absence from `folder` alone proves nothing: a cache cleared by a
+/// new UIDVALIDITY is refilled with the newest letters only, and the rest are still on the
+/// server. A letter that did not show in either keeps its time and comes back at it. If the
+/// sync failed the cache is stale, every letter looks to be in `folder` and nothing is
+/// dropped, which is harmless: the clock removes the time of a letter it finds gone from Snoozed.
+pub fn drop_left(store: &Store, account_id: &str, folder: &str, to: &str, message_ids: &[String]) -> Result<()> {
     let mut left = Vec::new();
     for mid in message_ids {
-        if store.find_by_message_id(account_id, folder, mid)?.is_none() {
+        if store.find_by_message_id(account_id, folder, mid)?.is_none()
+            && store.find_by_message_id(account_id, to, mid)?.is_some()
+        {
             left.push(mid.clone());
         }
     }
@@ -197,7 +201,13 @@ mod tests {
             selectable: true,
             hidden: false,
         };
-        store.replace_folders("a", &[snoozed]).unwrap();
+        let inbox = Folder {
+            name: "INBOX".into(),
+            display_name: "INBOX".into(),
+            role: Some(FolderRole::Inbox),
+            ..snoozed.clone()
+        };
+        store.replace_folders("a", &[snoozed, inbox]).unwrap();
         store
     }
 
@@ -215,6 +225,10 @@ mod tests {
     }
 
     fn cache(store: &Store, uid: u32, mid: &str) {
+        cache_in(store, "Snoozed", uid, mid);
+    }
+
+    fn cache_in(store: &Store, folder: &str, uid: u32, mid: &str) {
         let s = Summary {
             message_id: Some(mid.into()),
             date: Some(1),
@@ -228,7 +242,7 @@ mod tests {
             flags: Default::default(),
             keywords: Vec::new(),
         };
-        store.insert_message("a", "Snoozed", &msg).unwrap();
+        store.insert_message("a", folder, &msg).unwrap();
     }
 
     fn ids(list: &[&str]) -> Vec<String> {
@@ -246,11 +260,29 @@ mod tests {
         // UIDs: the count of the server cannot tell it from two letters) and not "a", "c".
         cache(&store, 1, "b@x");
         cache(&store, 2, "b@x");
+        cache_in(&store, "INBOX", 1, "a@x");
+        cache_in(&store, "INBOX", 2, "c@x");
         // Reading the times drops nothing: a crash before the move leaves them.
         assert_eq!(store.snoozes_in_folder("a", "Snoozed", &all).unwrap().len(), 3);
-        drop_left(&store, "a", "Snoozed", &all).unwrap();
+        drop_left(&store, "a", "Snoozed", "INBOX", &all).unwrap();
         let left = store.snoozes_in_folder("a", "Snoozed", &all).unwrap();
         assert_eq!(left.len(), 1, "only the letter still snoozed keeps its time");
+        assert_eq!(left[0].message_id, "<b@x>");
+    }
+
+    #[test]
+    fn a_letter_missing_from_the_cache_without_arriving_keeps_its_time() {
+        let store = store();
+        let all = ids(&["<a@x>", "<b@x>"]);
+        for id in &all {
+            snooze(&store, "a", id, "INBOX", 100);
+        }
+        // "a" arrived in the inbox; "b" is in neither cache (a cleared folder cache refilled
+        // only with the newest letters): it may still be on the server, in Snoozed.
+        cache_in(&store, "INBOX", 1, "a@x");
+        drop_left(&store, "a", "Snoozed", "INBOX", &all).unwrap();
+        let left = store.snoozes_in_folder("a", "Snoozed", &all).unwrap();
+        assert_eq!(left.len(), 1);
         assert_eq!(left[0].message_id, "<b@x>");
     }
 
