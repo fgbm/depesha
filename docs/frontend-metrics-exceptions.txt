@@ -5,3 +5,14 @@
 # Новый component больше максимума baseline или суммы исчезнувших компонентов — тоже рост: исключение с видом component и именем файла.
 # `scripts/frontend-metrics.sh --save` для этого не запускают. Когда строка не нужна, проверка печатает предупреждение.
 # Пока пусто. Исключение не заменяет разбор: «ради цифры» дробить нельзя, но и расти молча.
+component	src/MessageWindow.svelte	143	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/FolderMenu.svelte	156	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/LabelPicker.svelte	230	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/RowMenu.svelte	163	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/account/FoldersTable.svelte	187	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/account/LabelsSection.svelte	309	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/reader/ReaderToolbar.svelte	173	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/sidebar/FavouriteRow.svelte	73	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/sidebar/FolderRow.svelte	105	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+component	src/components/sidebar/Labels.svelte	61	строка импорта labels вместо проброса app.labels (#140, шаг 2)
+function	src/lib/clearFolder.test.ts::host	34	вложенные ui/mailboxes/list/compose/actions вместо плоского хоста (#140, шаг 2)
