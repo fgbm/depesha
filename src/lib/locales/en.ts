@@ -556,7 +556,6 @@ export const en = {
   "reader.alwaysFor": "Always for {email}",
   "reader.choose": "Choose a message",
   "reader.downloading": "Downloading the message from the server…",
-  "reader.quickReplyHint": "Ctrl+Enter to send",
   "reader.stuck": "The server is slow to answer.",
   "reader.toWindow": "Open in window",
   "reader.quickKept": "The reply is saved in Drafts",

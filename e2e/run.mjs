@@ -4224,12 +4224,12 @@ try {
 
     // Trash: the button with the count, then the question with the number of letters.
     await openFolder("Корзина");
-    const button = await clearButton("Очистить корзину (7)");
+    const button = await clearButton("Очистить Корзину (7)");
     await screenshot("clear-button");
     await d.click(button);
     await dialog();
     const text = await textOf(".modal.confirm");
-    if (!text.includes("Очистить корзину?") || !text.includes("7") || !text.includes("Отменить это нельзя")) throw new Error(`диалог: «${text}»`);
+    if (!text.includes("Очистить Корзину?") || !text.includes("7") || !text.includes("Отменить это нельзя")) throw new Error(`диалог: «${text}»`);
     const focused = await d.exec("return document.activeElement?.innerText?.trim() ?? ''");
     if (focused !== "Отмена") throw new Error(`фокус на «${focused}», а не на «Отмена»`);
     await screenshot("clear-confirm");
@@ -4239,17 +4239,17 @@ try {
     if (count("Trash") !== 7) throw new Error(`после отказа в Корзине ${count("Trash")} писем`);
 
     // Confirmed, then cancelled during the delay: nothing is touched.
-    await d.click(await clearButton("Очистить корзину (7)"));
+    await d.click(await clearButton("Очистить Корзину (7)"));
     await dialog();
     await d.click(await d.xpath("//div[contains(@class,'modal') and contains(@class,'confirm')]//button[contains(@class,'primary')]"));
-    await toast("Очищаю корзину через");
+    await toast("Очищаю Корзину через");
     await screenshot("clear-countdown", { toasts: true });
     await d.click(await d.find(".toasts .toast .act"));
     await wait(6500);
     if (count("Trash") !== 7) throw new Error(`после отмены в задержке в Корзине ${count("Trash")} писем`);
 
     // Confirmed and left alone: erased on the server, the list and the counter drop to zero.
-    await d.click(await clearButton("Очистить корзину (7)"));
+    await d.click(await clearButton("Очистить Корзину (7)"));
     await dialog();
     await d.click(await d.xpath("//div[contains(@class,'modal') and contains(@class,'confirm')]//button[contains(@class,'primary')]"));
     await toast("Корзина очищена: 7");
