@@ -3072,8 +3072,16 @@ pub async fn draft_save(
 /// A window says which server draft its composition is (`None` for none, or once it closed),
 /// so that «Clear» in Drafts, run from any window, leaves it in place (#74).
 #[tauri::command]
-pub fn draft_open(window: tauri::Window, state: St<'_>, local_id: String, draft_id: Option<i64>) {
-    state.clearing.draft_set(window.label(), &local_id, draft_id, None);
+pub fn draft_open(
+    window: tauri::Window,
+    state: St<'_>,
+    local_id: String,
+    draft_id: Option<i64>,
+    message_id: Option<String>,
+) {
+    state
+        .clearing
+        .draft_set(window.label(), &local_id, draft_id, message_id);
 }
 
 /// A window's page was loaded anew: the drafts it reported belong to a page that is gone.

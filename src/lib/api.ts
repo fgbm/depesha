@@ -168,7 +168,7 @@ export const api = {
   /** How many drafts of the mailbox windows have open (the main one and the letters'), as the backend knows. */
   openDrafts: (accountId: string) => call<number>("open_drafts", { accountId }),
   /** A window says which server draft its composition is (null: none, or closed). */
-  draftOpen: (localId: string, draftId: number | null) => call<void>("draft_open", { localId, draftId }),
+  draftOpen: (localId: string, draftId: number | null, messageId: string | null = null) => call<void>("draft_open", { localId, draftId, messageId }),
   draftOpenReset: async () => {
     draftGeneration = await call<number>("draft_open_reset");
   },

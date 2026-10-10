@@ -457,7 +457,6 @@ fn v24_sender_verdict(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high,
 /// Whether the first bytes of a cached letter hold all of its headers: the blank line is
 /// there, or the sample is the whole letter.
 fn headers_ended(head: &[u8]) -> bool {
@@ -467,6 +466,7 @@ fn headers_ended(head: &[u8]) -> bool {
 /// How much of a cached letter `Store::backfill_importance` reads to find its headers.
 const IMPORTANCE_HEAD: usize = 16 * 1024;
 
+/// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high,
 /// NULL not read yet: a letter cached before this step has no importance until its headers
 /// are read (`Store::backfill_importance`, opening it) and an unknown one is the only kind
 /// a search by importance on the server may mark (`Store::set_importance`).
@@ -1722,12 +1722,14 @@ impl Store {
         Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
     }
 
+    /// The letter of the folder with this Message-ID; of duplicates the newest (the highest UID).
     pub fn find_by_message_id(&self, account_id: &str, folder: &str, message_id: &str) -> Result<Option<MessageRow>> {
         Ok(self
             .conn()
             .query_row(
                 &format!(
-                    "SELECT {COLUMNS} FROM messages m WHERE m.account_id = ?1 AND m.folder = ?2 AND m.message_id = ?3"
+                    "SELECT {COLUMNS} FROM messages m WHERE m.account_id = ?1 AND m.folder = ?2 AND m.message_id = ?3
+                     ORDER BY m.uid DESC LIMIT 1"
                 ),
                 params![account_id, folder, message_id.trim_matches(['<', '>'])],
                 message_row,
@@ -2483,10 +2485,12 @@ impl Store {
             }
             let found: Vec<(i64, Vec<u8>)> = conn
                 .prepare(
-                    "SELECT message_id, substr(raw, 1, 16384) FROM bodies WHERE message_id > ?1
+                    "SELECT message_id, substr(raw, 1, ?3) FROM bodies WHERE message_id > ?1
                      ORDER BY message_id LIMIT ?2",
                 )?
-                .query_map(params![cursor, batch], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map(params![cursor, batch, IMPORTANCE_HEAD as i64], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?
                 .collect::<rusqlite::Result<_>>()?;
             (cursor, found)
         };
@@ -3855,6 +3859,22 @@ mod tests {
             stored.is_none() || stored == Some(Importance::High.to_db()),
             "not Normal: {stored:?}"
         );
+    }
+
+    #[test]
+    fn of_duplicate_message_ids_the_newest_copy_is_found() {
+        let store = mailbox();
+        let mut s = summary("Черновик", 100);
+        s.message_id = Some("dup@depesha.local".into());
+        let old = put(&store, "INBOX", 3, &s, true);
+        let new = put(&store, "INBOX", 9, &s, true);
+        let middle = put(&store, "INBOX", 5, &s, true);
+        assert_ne!(old, middle);
+        let found = store
+            .find_by_message_id("a", "INBOX", "<dup@depesha.local>")
+            .unwrap()
+            .unwrap();
+        assert_eq!((found.id, found.uid), (new, 9));
     }
 
     #[test]

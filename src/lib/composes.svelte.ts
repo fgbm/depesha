@@ -74,7 +74,7 @@ export class ComposeManager {
     const win = { ...c, id, mode, savedAt: null, local_id: newKey() };
     this.windows.push(win);
     // The backend spares an open server draft when Drafts are cleared from any window (#74).
-    if (win.draft_id !== null) void api.draftOpen(win.local_id, win.draft_id).catch(() => {});
+    if (win.draft_id !== null) void api.draftOpen(win.local_id, win.draft_id, win.draft_message_id ?? null).catch(() => {});
     return id;
   }
 

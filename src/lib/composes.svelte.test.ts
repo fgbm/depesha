@@ -79,9 +79,16 @@ describe("the drafts the backend spares when Drafts are cleared (#74)", () => {
     const draft = emptyDraft({ name: "Me", email: "me@example.com" });
     const id = mgr.open({ account_id: "a", draft, draft_id: 42 });
     const local = mgr.windows[0].local_id;
-    expect(api.draftOpen).toHaveBeenCalledWith(local, 42);
+    expect(api.draftOpen).toHaveBeenCalledWith(local, 42, null);
     mgr.close(id);
     expect(api.draftOpen).toHaveBeenLastCalledWith(local, null);
+  });
+
+  it("gives the Message-ID of the draft it opens on, by which the backend finds it again", () => {
+    const mgr = manager();
+    api.draftOpen.mockClear();
+    mgr.open({ account_id: "a", draft: emptyDraft({ name: "Me", email: "me@example.com" }), draft_id: 42, draft_message_id: "<x@depesha.local>" });
+    expect(api.draftOpen).toHaveBeenCalledWith(mgr.windows[0].local_id, 42, "<x@depesha.local>");
   });
 
   it("tells the backend to forget the drafts of an earlier page when a page loads", () => {
