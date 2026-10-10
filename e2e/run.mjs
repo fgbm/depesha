@@ -3270,6 +3270,16 @@ try {
     const subj = `Черновик Боба ${stamp}`;
     const accounts = await invoke("accounts");
     const bob = accounts.find((a) => a.email === "bob@local.test");
+    // The draft of step 5.5 is written by another part when the sections run apart: write it here if the server has none.
+    if (helper("count", "Drafts", `Черновик ${stamp}`) !== "1") {
+      await d.button("Написать");
+      await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
+      await setInput(".compose .subject", `Черновик ${stamp}`);
+      await d.type(await d.find(".compose textarea"), "Недописанное письмо");
+      await d.click(await d.find(".compose header > button:last-child"));
+      await d.until("compose closed", async () => (await d.findAll(".compose")).length === 0, 15000);
+      await d.until("draft on server", async () => helper("count", "Drafts", `Черновик ${stamp}`) === "1", 15000);
+    }
     await d.button("Написать");
     await d.until("compose", async () => (await d.findAll(".compose")).length === 1);
     // Alt+M opens the mailboxes of the title; Esc closes it; a click on the label opens it again and one is chosen.
