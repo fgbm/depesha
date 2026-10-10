@@ -22,10 +22,35 @@ describe("the frame's sandbox and policies", () => {
     expect(body).not.toMatch(/allow-(forms|popups|top-navigation|downloads|modals)/);
     const doc = srcdoc({});
     expect(doc).toContain("default-src 'none'");
-    expect(doc).not.toMatch(/script-src|unsafe-eval/);
+    expect(doc).not.toMatch(/unsafe-eval|script-src[^;]*'unsafe/);
     // The window's policy, which the srcdoc takes too, has no inline scripts either.
     const csp = JSON.parse(readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf-8")).app.security.csp;
     expect(csp["script-src"]).toBe("'self'");
+  });
+});
+
+describe("the frame's own policy", () => {
+  const policy = (doc: string) => doc.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)">/)?.[1] ?? "";
+
+  it("stands first in the head, before the charset and anything of the letter", () => {
+    const doc = srcdoc({ html: "<meta http-equiv='Content-Security-Policy' content=\"script-src *\"><p>x</p>" });
+    expect(doc).toMatch(/^<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="[^"]*">\n<meta charset="utf-8">/);
+    expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(doc.indexOf("charset"));
+    // The letter's own meta, if one gets through, comes after ours (and a policy can only be narrowed).
+    expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(doc.indexOf("script-src *"));
+  });
+
+  it("shuts scripts, plugins, frames, <base> and forms by itself, not through the window's policy", () => {
+    const csp = policy(srcdoc({}));
+    for (const part of ["default-src 'none'", "script-src 'none'", "object-src 'none'", "frame-src 'none'", "base-uri 'none'", "form-action 'none'"]) {
+      expect(csp).toContain(part);
+    }
+    expect(csp).not.toMatch(/unsafe-eval|script-src[^;]*'unsafe|script-src[^;]*'self/);
+  });
+
+  it("lets pictures in from the network only when allowed", () => {
+    expect(policy(srcdoc({ allowRemote: false }))).toMatch(/img-src data: ;/);
+    expect(policy(srcdoc({ allowRemote: true }))).toContain("img-src data: https: http:;");
   });
 });
 

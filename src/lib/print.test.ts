@@ -149,12 +149,32 @@ describe("the print key on each system", () => {
     expect(frames()).toHaveLength(1);
   });
 
-  it("on macOS leaves Ctrl+P to the text field: no print, no cancel", () => {
+  /** The key as it arrives from `target`: the handler sees `e.target` only once the event is dispatched. */
+  const from = (target: HTMLElement, init: KeyboardEventInit, mac: boolean) => {
+    let settled: boolean | undefined;
+    target.addEventListener("keydown", (e) => (settled = printKey(e, false, mac)), { once: true });
+    const e = cmd(init);
+    target.dispatchEvent(e);
+    return { settled, prevented: e.defaultPrevented };
+  };
+
+  it("on macOS leaves Ctrl+P to a text field: no print, no cancel", () => {
     app.reader.opened = message(7);
-    const e = cmd({ ctrlKey: true });
-    expect(printKey(e, false, true)).toBe(true);
-    expect(e.defaultPrevented).toBe(false);
+    for (const tag of ["input", "textarea"]) {
+      const field = document.body.appendChild(document.createElement(tag));
+      const r = from(field, { ctrlKey: true, bubbles: true }, true);
+      field.remove();
+      expect(r).toEqual({ settled: true, prevented: false });
+    }
     expect(frames()).toHaveLength(0);
+  });
+
+  it("on macOS Ctrl+P outside a text field is the ordinary key of the command", async () => {
+    app.reader.opened = message(7);
+    const r = from(document.body, { ctrlKey: true, bubbles: true }, true);
+    expect(r).toEqual({ settled: true, prevented: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames()).toHaveLength(1);
   });
 
   it("elsewhere is Ctrl+P", () => {
@@ -162,6 +182,10 @@ describe("the print key on each system", () => {
     expect(printKey(e, true, false)).toBe(true);
     expect(e.defaultPrevented).toBe(true);
   });
+});
+
+describe("the print key beside the other commands and the other print", () => {
+  const cmd = (init: KeyboardEventInit) => key({ key: "p", code: "KeyP", ...init });
 
   it("cancels the browser's print even when the key of «Print» is another", async () => {
     shortcuts.use(() => ({ custom: { "core.print": ["Mod+Alt+x"] }, dismissed: [] }));

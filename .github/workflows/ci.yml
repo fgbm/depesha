@@ -251,6 +251,12 @@ jobs:
       - run: npm run build
       - run: brew install poppler
       - run: cargo test -p depesha --test mac_print -- --nocapture
+      # A crash of the test leaves nothing in the log: run it again under the debugger to get the stack.
+      - name: Where the print test crashed
+        if: failure()
+        run: |
+          bin=$(ls -t target/debug/deps/mac_print-* | grep -v '\.d$' | head -1)
+          lldb --batch -o run -o "bt all" -o quit -- "$bin" || true
 
   build:
     if: ${{ !inputs.windows_only }}

@@ -53,9 +53,19 @@ body th,body td{border:1px solid var(--md-line);padding:4px 10px}
 body th{background:var(--md-head);font-weight:600}`;
   }
 
-  const srcdoc = $derived(`<!doctype html><html><head><meta charset="utf-8">
+  /**
+   * The frame's own policy, whatever the window's says (and in `dev`, where it is another one):
+   * no script of any kind, no plugins, no frames, no `<base>`, no forms. Pictures from the
+   * network only when allowed; the letters' own styles.
+   */
+  const csp = $derived(
+    `default-src 'none'; script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; img-src data: ${allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:`,
+  );
+
+  // The policy comes first in the head: nothing the letter writes can stand before it.
+  const srcdoc = $derived(`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta charset="utf-8">
 <meta http-equiv="x-dns-prefetch-control" content="off">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${allowRemote ? "https: http:" : ""}; style-src 'unsafe-inline'; font-src data:">
 <style>
 html{background:#fff;color:#1d232b}
 body{margin:18px 22px;font:14px/1.5 system-ui,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;overflow-wrap:anywhere}

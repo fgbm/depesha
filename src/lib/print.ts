@@ -129,19 +129,26 @@ function browserPrint(e: KeyboardEvent, mac: boolean): boolean {
   return mod && !e.altKey && !e.shiftKey && (e.code === "KeyP" || e.key.toLowerCase() === "p" || e.key.toLowerCase() === "з");
 }
 
+/** The focus is in a field that takes text: macOS gives Ctrl+P to its cursor there («previous line»). */
+function inTextField(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null;
+  return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+}
+
 /**
  * The print key in a window's key handler. The browser's own accelerator prints the whole
  * interface (WebView2 and WebKitGTK alike), so it is cancelled wherever the focus is, a text
  * field and a composition included, and whatever the key of «Print» is set to. The letter
- * prints only where there is one to print (`blocked`: not here). On macOS only Cmd+P is the
- * print key; Ctrl+P is the text field's own «previous line» and is left alone.
+ * prints only where there is one to print (`blocked`: not here). On macOS the browser's key is
+ * Cmd+P; Ctrl+P there is passed untouched only in a text field, where it moves the cursor, and
+ * is an ordinary key of the commands elsewhere.
  * Returns whether the key is settled here, so the window's handler goes no further.
  */
 export function printKey(e: KeyboardEvent, blocked = false, mac = isMac()): boolean {
-  if (mac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "KeyP") return true;
+  if (mac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.code === "KeyP" && inTextField(e)) return true;
   const browser = browserPrint(e, mac);
   if (browser) e.preventDefault();
-  const id = (mac ? e.metaKey : e.ctrlKey || e.metaKey) ? shortcuts.find(e, "main") : undefined;
+  const id = e.ctrlKey || e.metaKey ? shortcuts.find(e, "main") : undefined;
   if (id === "core.print") {
     e.preventDefault();
     if (!blocked) printOpened();
