@@ -298,6 +298,18 @@ nav.side {
     padding-right: 6px;
   }
 
+  /* A heading over a run of rows inside a group (labels, shared folders, a shared owner):
+     the account name's type and indent, so its icon stands in the folders' icon column. */
+  .side .subhead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 4px;
+    color: var(--side-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
   .side .account-name {
     flex: 1;
     min-width: 0;
