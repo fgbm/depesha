@@ -458,6 +458,15 @@ fn v24_sender_verdict(conn: &Connection) -> Result<()> {
 }
 
 /// 25: how much the sender wants the letter read first (#72): -1 low, 0 normal, 1 high,
+/// Whether the first bytes of a cached letter hold all of its headers: the blank line is
+/// there, or the sample is the whole letter.
+fn headers_ended(head: &[u8]) -> bool {
+    head.len() < IMPORTANCE_HEAD || head.windows(4).any(|w| w == b"\r\n\r\n") || head.windows(2).any(|w| w == b"\n\n")
+}
+
+/// How much of a cached letter `Store::backfill_importance` reads to find its headers.
+const IMPORTANCE_HEAD: usize = 16 * 1024;
+
 /// NULL not read yet: a letter cached before this step has no importance until its headers
 /// are read (`Store::backfill_importance`, opening it) and an unknown one is the only kind
 /// a search by importance on the server may mark (`Store::set_importance`).
@@ -2481,9 +2490,15 @@ impl Store {
                 .collect::<rusqlite::Result<_>>()?;
             (cursor, found)
         };
+        // A head that stops before the headers end says nothing about Normal: the header may come
+        // below (Microsoft 365 puts `Importance` after kilobytes of `Received` and `X-Microsoft-*`).
+        // Such a letter keeps NULL, the "not known" that the server's search may still mark.
         let high_or_low: Vec<(i64, i64)> = found
             .iter()
-            .map(|(id, head)| (*id, crate::message::parse_summary(head).importance.to_db()))
+            .filter_map(|(id, head)| {
+                let importance = crate::message::parse_summary(head).importance;
+                (importance != Importance::Normal || headers_ended(head)).then(|| (*id, importance.to_db()))
+            })
             .collect();
         let finished = found.len() < batch as usize;
         let last = found.last().map_or(cursor, |f| f.0);
@@ -3814,6 +3829,31 @@ mod tests {
                 "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'importance' AND \"notnull\" = 0"
             ),
             1
+        );
+    }
+
+    #[test]
+    fn a_backfill_does_not_call_normal_a_letter_whose_headers_do_not_end_in_the_head() {
+        let store = mailbox();
+        let junk: String = (0..400)
+            .map(|i| format!("X-Microsoft-Antispam-Mailbox-Delivery: {i:0>40}\r\n"))
+            .collect();
+        let raw = format!("From: a@x\r\n{junk}Importance: High\r\nSubject: x\r\n\r\nтело").into_bytes();
+        assert!(raw.len() > 20_000);
+        let id = put(&store, "INBOX", 1, &summary("Письмо", 100), false);
+        store
+            .conn()
+            .execute("INSERT INTO bodies (message_id, raw) VALUES (?1, ?2)", params![id, raw])
+            .unwrap();
+        store.forget_importance(id);
+        assert!(store.backfill_importance(10).unwrap());
+        let stored: Option<i64> = store
+            .conn()
+            .query_row("SELECT importance FROM messages WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        assert!(
+            stored.is_none() || stored == Some(Importance::High.to_db()),
+            "not Normal: {stored:?}"
         );
     }
 
