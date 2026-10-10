@@ -111,13 +111,10 @@
   const at = $derived(msg ? app.conversation.findIndex((m) => m.id === msg.row.id) : -1);
   const before = $derived(at > 0 ? app.conversation.slice(0, at) : []);
   const after = $derived(at >= 0 ? app.conversation.slice(at + 1) : []);
-  let showAll = $state(false);
-  let showAllAfter = $state(false);
-  $effect(() => {
-    void msg?.view.summary.message_id;
-    showAll = false;
-    showAllAfter = false;
-  });
+  // The folds close again when another letter opens (not when the same one is loaded again).
+  const letterId = $derived(msg?.view.summary.message_id);
+  let showAll = $derived.by(() => (void letterId, false));
+  let showAllAfter = $derived.by(() => (void letterId, false));
   const folded = $derived(!showAll && before.length > 3 ? before.length - 2 : 0);
   const foldedAfter = $derived(!showAllAfter && after.length > 3 ? after.length - 2 : 0);
 

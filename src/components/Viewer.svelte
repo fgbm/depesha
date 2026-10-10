@@ -41,7 +41,10 @@
   const a = $derived(files[Math.min(at, files.length - 1)]);
   const viewer = $derived(a ? pickViewer(registry.items("fileViewers"), a.name, a.mime) : null);
   /** Why the renderer gave up; the fallback offers the application instead. */
-  let failed = $state<string | null>(null);
+  let failed = $derived.by<string | null>(() => {
+    void file;
+    return null;
+  });
   let loading = $state(false);
 
   /** The file as renderers see it; content is fetched once per opening. */
@@ -67,11 +70,6 @@
         failed = asError(e).message;
       },
     };
-  });
-
-  $effect(() => {
-    void file;
-    failed = null;
   });
 
   function go(step: 1 | -1) {

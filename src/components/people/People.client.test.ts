@@ -12,6 +12,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import PersonCard from "../reader/PersonCard.svelte";
 import PeopleView from "./PeopleView.svelte";
 import MergeDialog from "./MergeDialog.svelte";
+import PickPerson from "./PickPerson.svelte";
 import { app } from "../../lib/store.svelte";
 import { i18n } from "../../lib/i18n.svelte";
 import { blankPerson, type Person } from "../../lib/people";
@@ -55,7 +56,7 @@ const rowOf = (root: ParentNode, mark: string) => root.querySelector<HTMLElement
 let view: ReturnType<typeof mount> | null = null;
 let target: HTMLElement;
 
-function show(component: typeof PersonCard | typeof PeopleView | typeof MergeDialog, props: Record<string, unknown> = {}) {
+function show(component: typeof PersonCard | typeof PeopleView | typeof MergeDialog | typeof PickPerson, props: Record<string, unknown> = {}) {
   target = document.createElement("div");
   document.body.append(target);
   view = mount(component as never, { target, props });
@@ -281,6 +282,41 @@ describe("the book of the main window", () => {
     expect(app.peopleFocus).toBeNull();
   });
 
+});
+
+describe("the cursor of the book", () => {
+  const nameAtCursor = (root: ParentNode) => root.querySelector(".pr.on .nm")?.textContent;
+
+  it("starts on the first person and moves to the first when the filter hides the one it was on", async () => {
+    await book([olga(), person("Иван Петров", ["ivan@example.org"], { send_format: "plain" }), person("Мария", ["maria@example.org"])]);
+    const root = show(PeopleView);
+    const list = root.querySelector<HTMLElement>("[role=listbox]")!;
+    expect(nameAtCursor(root)).toBe("Ольга Смирнова");
+    list.focus();
+    press(list, "ArrowDown");
+    expect(nameAtCursor(root)).toBe("Иван Петров");
+    const search = root.querySelector<HTMLInputElement>("input[type=search]")!;
+    search.value = "maria";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(nameAtCursor(root)).toBe("Мария");
+  });
+});
+
+describe("the choice of the second person", () => {
+  it("highlights the first match again when the query changes", async () => {
+    await book([olga(), ivan(), person("Иван Сидоров", ["sidorov@example.org"]), person("Иван Волков", ["volkov@example.org"])]);
+    peopleOps.pick(olga());
+    const root = show(PickPerson);
+    const lit = () => [...root.querySelectorAll(".item")].findIndex((r) => r.classList.contains("on"));
+    press(window as never, "ArrowDown");
+    expect(lit()).toBe(1);
+    const q = root.querySelector<HTMLInputElement>("input.q")!;
+    q.value = "иван";
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(lit()).toBe(0);
+  });
 });
 
 describe("the keys of the book", () => {

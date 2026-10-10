@@ -40,3 +40,28 @@ describe("the palette's hint about editing a key", () => {
     expect(chip.title).toBe("Изменить клавишу");
   });
 });
+
+describe("the highlighted row", () => {
+  it("goes back to the first one when the query changes", () => {
+    const commands: Command[] = ["Написать", "Найти", "Настроить"].map((n, i) => ({ id: `core.c${i}`, title: () => n, run: () => {} }));
+    const ctx = {
+      t: (text: { en: string; ru: string }) => text.ru,
+      commands: () => commands,
+      keyOf: () => undefined,
+      people: { find: () => [] },
+    } as unknown as PluginContext;
+    palette.open = true;
+    view = mount(Palette, { target: document.body, props: { ctx } });
+    flushSync();
+    const input = document.querySelector<HTMLInputElement>("input.q")!;
+    const lit = () => [...document.querySelectorAll(".item")].findIndex((r) => r.classList.contains("active"));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    flushSync();
+    expect(lit()).toBe(2);
+    input.value = "на";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(lit()).toBe(0);
+  });
+});

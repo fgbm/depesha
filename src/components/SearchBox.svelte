@@ -25,7 +25,11 @@
   let text = $state("");
   let open = $state(false);
   /** The highlighted suggestion; -1 for none: Enter searches the text as it is. */
-  let active = $state(-1);
+  // A new list of suggestions starts with no row highlighted.
+  let active = $derived.by(() => {
+    void items;
+    return -1;
+  });
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   type Item = { kind: "query"; title: string; text: string; icon: "large" | "files" | "recent" } | { kind: "completion"; c: Completion };
@@ -47,11 +51,6 @@
   const empty = $derived(!text.trim());
   const items = $derived<Item[]>(empty ? [...ready, ...recent] : typed);
   const shown = $derived(open && (empty || typed.length > 0));
-
-  $effect(() => {
-    void items;
-    active = -1;
-  });
 
   // The box shows the search the list shows, however it was started ("Mail from", Ctrl+K).
   $effect(() => {

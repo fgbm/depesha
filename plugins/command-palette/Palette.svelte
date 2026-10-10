@@ -22,7 +22,11 @@
   }
 
   let query = $state("");
-  let active = $state(0);
+  // Another query starts at the first row.
+  let active = $derived.by(() => {
+    void query;
+    return 0;
+  });
   let input = $state<HTMLInputElement | null>(null);
 
   /** The best matches, the ones used last first among equals: what was run before is near. */
@@ -31,10 +35,6 @@
   const people = $derived(palette.open && query.trim().length >= 2 ? ctx.people.find(query).slice(0, 5) : []);
   const count = $derived(shown.length + people.length);
 
-  $effect(() => {
-    void query;
-    active = 0;
-  });
 
   $effect(() => {
     if (palette.open) {

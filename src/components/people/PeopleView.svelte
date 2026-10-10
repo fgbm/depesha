@@ -24,8 +24,8 @@
 
   let query = $state("");
   let filter = $state<PeopleFilter>("all");
-  /** An address of the person under the cursor; it stays theirs when the primary one changes. */
-  let cursor = $state("");
+  /** An address of the person the cursor was put on; it stays theirs when the primary one changes. */
+  let asked = $state("");
   let marked = $state<Set<string>>(new Set());
   let adding = $state(false);
   let draft = $state("");
@@ -38,6 +38,12 @@
   peopleBook.load();
 
   const shown = $derived(filterPeople(peopleBook.list.filter((p) => matchPerson(p, query)), filter));
+  // The cursor stays on a person the list shows; otherwise it goes to the first.
+  const cursor = $derived.by(() => {
+    const own = peopleBook.find(asked);
+    if (own && shown.some((p) => personKey(p) === personKey(own))) return asked;
+    return shown[0]?.email ?? asked;
+  });
   const current = $derived(peopleBook.find(cursor) ?? null);
   const at = $derived(current ? shown.findIndex((p) => personKey(p) === personKey(current)) : -1);
   // The suggestion stands only when both people are in the list as it is filtered now.
@@ -56,16 +62,9 @@
       if (want.filter) filter = want.filter;
       if (want.email) {
         query = "";
-        cursor = want.email;
+        asked = want.email;
       }
     });
-  });
-
-  // The cursor stays on a person the list shows; otherwise it goes to the first.
-  $effect(() => {
-    if (!shown.length) return;
-    if (current && at >= 0) return;
-    cursor = shown[0].email;
   });
 
   // Marks of people who are no longer in the list go.
@@ -94,7 +93,7 @@
   });
 
   function select(p: Person) {
-    cursor = p.email;
+    asked = p.email;
   }
 
   function move(delta: number, to?: number) {
@@ -113,7 +112,7 @@
   /** Follows the person that came of a merge or a split. */
   function follow(p: Person) {
     marked = new Set();
-    cursor = p.email;
+    asked = p.email;
   }
 
   function mergeMarked() {
@@ -335,9 +334,9 @@
           name={current.name}
           inBook
           onAllMail={() => allMail(current)}
-          onSplit={(origin) => (cursor = origin.email)}
+          onSplit={(origin) => (asked = origin.email)}
           onGone={() => {
-            cursor = "";
+            asked = "";
             listEl?.focus();
           }}
         />

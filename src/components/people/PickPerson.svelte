@@ -9,7 +9,11 @@
   const first = $derived(peopleOps.picking);
 
   let query = $state("");
-  let at = $state(0);
+  // Another query starts at the first match.
+  let at = $derived.by(() => {
+    void query;
+    return 0;
+  });
   const before = document.activeElement as HTMLElement | null;
 
   const found = $derived(
@@ -18,10 +22,6 @@
       : [],
   );
 
-  $effect(() => {
-    void query;
-    at = 0;
-  });
 
   function close() {
     peopleOps.stopPicking();

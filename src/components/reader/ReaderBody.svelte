@@ -52,16 +52,13 @@
   peopleBook.load();
 
   /** The form picked above this letter: it holds while the letter is open and is not kept. */
-  let picked = $state<{ id: number; view: BodyView } | null>(null);
   // The choice belongs to the letter open now: another letter, or the same one opened
   // again after leaving it, shows the form the setting asks for.
-  let shownId: number | null = null;
-  $effect(() => {
-    const id = msg.row.id;
-    if (id !== shownId) {
-      shownId = id;
-      picked = null;
-    }
+  // The id has its own derived: the same letter loaded again is a new object, not a new letter.
+  const letterId = $derived(msg.row.id);
+  let picked = $derived.by<{ id: number; view: BodyView } | null>(() => {
+    void letterId;
+    return null;
   });
   /** The sender and their rule: what the «▾» of #44 sets, and what the hint is about (#69). */
   const from = $derived(msg.view.summary.from);

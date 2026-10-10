@@ -36,12 +36,8 @@
   // Connecting is not offline: only a failed connection makes the numbers old.
   const offline = $derived(account.status?.state === "error" || account.status?.state === "paused");
   const largest = $derived(Math.max(1, ...counted.map((f) => f.bytes ?? 0)));
-  let ownMode = $state(false);
+  let ownMode = $derived(!!form.quotaLimitGb.trim());
   let ownInput = $state<HTMLInputElement>();
-
-  $effect.pre(() => {
-    ownMode = !!form.quotaLimitGb.trim();
-  });
 
   onMount(() => {
     // The numbers are read again while the section is open; the cache shows the last ones meanwhile.

@@ -61,6 +61,7 @@ export default tseslint.config(
     // рекомендацию плагина отключаем целиком, а не по строкам.
     rules: {
       "svelte/prefer-svelte-reactivity": "off",
+      "svelte/prefer-writable-derived": "error",
     },
   },
   {

@@ -30,8 +30,14 @@ export class AttachmentViewerState {
   readonly account = $derived(this.msg ? app.account(this.msg.row.account_id) : undefined);
   /** The folder attachments go to without asking: the mailbox's own, else the settings'. */
   readonly saveDir = $derived(this.account?.attachments_dir?.trim() || app.settings.attachments_dir?.trim() || "");
+  private readonly openId = $derived(this.msg?.row.id ?? null);
   /** The letter the viewer belongs to: null while the letter's text is shown. */
-  viewingId = $state<number | null>(null);
+  viewingId = $derived.by<number | null>(() => {
+    // Another letter opened: the viewer of the previous one closes. The id is read through
+    // its own derived: the same letter loaded again is another object, but not another letter.
+    void this.openId;
+    return null;
+  });
   /** The shown attachment's place among the files; the attachments row highlights it. */
   at = $state(0);
   /** The letter's place in the pane while an attachment is shown: it comes back as it was. */
@@ -44,10 +50,6 @@ export class AttachmentViewerState {
 
   constructor(host: AttachmentViewerHost) {
     this.host = host;
-    $effect(() => {
-      // Another letter opened: the viewer of the previous one closes.
-      if (this.viewingId !== null && this.viewingId !== this.msg?.row.id) this.viewingId = null;
-    });
   }
 
   /** The row works as a switch: the shown attachment again takes back to the letter. */
