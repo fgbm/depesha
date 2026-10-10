@@ -2414,7 +2414,7 @@ try {
     // The toast says so and takes it back (#98): the wait returns, with its reminder.
     const stopToast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Не ждём ответа')]";
     await d.until("stop toast", () => d.xpath(stopToast));
-    await screenshot("followups-stop-toast");
+    await screenshot("followups-stop-toast", { toasts: true });
     await d.click(await d.xpath(`${stopToast}//button[contains(@class,'act')]`));
     await d.until("waiting again", async () => (await invoke("counters")).followups > 0, 20000);
     await d.until("wait banner back", async () => (await textOf(".reader")).includes("Не ждать"), 20000);
