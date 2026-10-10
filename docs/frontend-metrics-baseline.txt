@@ -30,7 +30,7 @@ component	src/components/QuotaLine.svelte	119	29	13	77
 component	src/components/Reader.svelte	336	136	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
-component	src/components/RichEditor.svelte	525	304	48	173
+component	src/components/RichEditor.svelte	545	316	50	179
 component	src/components/RowMenu.svelte	161	99	55	7
 component	src/components/SearchBox.svelte	343	133	68	142
 component	src/components/Segments.svelte	49	6	11	32
@@ -412,10 +412,10 @@ function	src/components/RichEditor.svelte::pasted	7
 function	src/components/RichEditor.svelte::pictures	3
 function	src/components/RichEditor.svelte::onpaste	7
 function	src/components/RichEditor.svelte::ondrop	14
-function	src/components/RichEditor.svelte::onkeydown	8
+function	src/components/RichEditor.svelte::onkeydown	11
 function	src/components/RichEditor.svelte::placeBlock	5
 function	src/components/RichEditor.svelte::onpointermove	8
-function	src/components/RichEditor.svelte::place	11
+function	src/components/RichEditor.svelte::place	10
 function	src/components/RichEditor.svelte::setSize	14
 function	src/components/RichEditor.svelte::removePicked	5
 function	src/components/RowMenu.svelte::run	4
@@ -689,6 +689,9 @@ function	src/lib/compose/lockedBlock.test.ts::onScreen	6
 function	src/lib/compose/lockedBlock.test.ts::barBox	1
 function	src/lib/compose/lockedBlock.ts::inSight	6
 function	src/lib/compose/lockedBlock.ts::placeLockedBlock	13
+function	src/lib/compose/pictureFrame.test.ts::pic	1
+function	src/lib/compose/pictureFrame.ts::placePicture	9
+function	src/lib/compose/pictureFrame.ts::pictureKey	4
 function	src/lib/compose/sending.svelte.ts::makeOptions	34
 function	src/lib/compose/sending.svelte.ts::withArchive	4
 function	src/lib/compose/sending.svelte.ts::within	3
