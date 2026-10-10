@@ -763,7 +763,13 @@ try {
     await d.until("second copy beside", async () => readdirSync(dir).includes("report (1).pdf"), 10000);
     await openFolder("Работа");
     await openBySubject("Документы на проверку");
-    await d.button("Сохранить все");
+    // With a few files more than two rows hold, «Save all» ends the list behind «+N more».
+    if ((await d.findAll(".reader .files > button")).length) {
+      await d.button("Сохранить все");
+    } else {
+      await d.click(await d.find(".reader .files .more"));
+      await d.click(await d.until("save all in the list", () => d.xpath("//div[contains(@class,'pop')]//button[normalize-space(.)='Сохранить все']")));
+    }
     await d.until("all saved", async () => ["contract.pdf", "sums.csv"].every((f) => readdirSync(dir).includes(f)), 10000);
     await d.button("Входящие");
     if (readFileSync(join(dir, "report (1).pdf")).subarray(0, 8).toString() !== "%PDF-1.4") throw new Error("копия искажена");
@@ -794,7 +800,9 @@ try {
   });
 
   await step("4.10", "просмотрщик вложений в области чтения: PDF, Word, Excel, Markdown, CSV в cp1251; ←/→ и Esc", async () => {
-    const current = () => d.exec("return [...document.querySelectorAll('.reader .file.current .fname')].map((e) => e.innerText)");
+    // The shown file's chip is framed; a file behind «+N more» frames that button instead.
+    const current = () =>
+      d.exec("const c = [...document.querySelectorAll('.reader .file.current .fname')].map((e) => e.innerText); if (document.querySelector('.reader .files .more.current')) c.push('+N ещё'); return c;");
     const frameText = () =>
       d.exec("return document.querySelector('.viewer iframe')?.contentDocument?.body?.innerText ?? ''");
     await openFolder("Работа");
@@ -820,7 +828,7 @@ try {
     await press("ArrowRight");
     await d.until("csv in cp1251", async () => (await textOf(".viewer table")).includes("Петров"));
     const csv = await current();
-    if (csv.length !== 1 || !csv[0].endsWith(".csv")) throw new Error(`подсвечено: ${csv}`);
+    if (csv.length !== 1 || !(csv[0].endsWith(".csv") || csv[0] === "+N ещё")) throw new Error(`подсвечено: ${csv}`);
     await press("Escape");
     await d.until("viewer closed", async () => (await d.findAll(".viewer")).length === 0);
     if ((await current()).length) throw new Error("подсветка осталась после Esc");
@@ -842,7 +850,7 @@ try {
 
   await step("4.10", "много вложений в письме: не больше двух рядов фишек и «+N ещё ›», текст виден; список с клавиатуры, Enter — просмотр, «Сохранить все» в конце списка", async () => {
     const subj = "Сканы акта сверки, 29 файлов";
-    helper("many", "Работа", subj, "29");
+    helper("many-files", "Работа", subj, "29")
     await openFolder("Работа");
     await rowBySubject(subj, 30000);
     await openBySubject(subj);
@@ -921,8 +929,7 @@ try {
       if (!(await active("a.classList.contains('more')"))) throw new Error("после последней фишки Tab не на «+N ещё ›»");
       await d.pressKey("");
       await d.until("list of 29", async () => (await d.findAll(".pop [data-att]")).length === 29);
-      if (!(await active("a.dataset.att === '0'"))) throw new Error("фокус не на первом файле списка");
-      await shotTo("list-paper");
+      await d.until("focus on the first file", () => active("a.dataset.att === '0'"));
       await d.pressKey("");
       if (!(await active("a.dataset.att === '1'"))) throw new Error("↓ не на втором файле");
       await d.pressKey("");
@@ -944,6 +951,11 @@ try {
       await d.until("list again", async () => (await d.findAll(".pop [data-att]")).length === 29);
       await d.pressKey("\uE010");
       if (!(await active("a.innerText.trim() === 'Сохранить все'"))) throw new Error("«Сохранить все» не последнее в списке");
+      await shotTo("list-paper");
+      await theme("night");
+      if (!(await d.findAll(".pop [data-att]")).length) throw new Error("список закрылся при смене темы");
+      await shotTo("list-night");
+      await theme("paper");
       await d.pressKey("");
       await d.until("list closed", async () => (await d.findAll(".pop [data-att]")).length === 0);
     } finally {

@@ -7,7 +7,7 @@
   imap_helper.py header FOLDER SUBJECT HEADER
   imap_helper.py flag FOLDER SUBJECT        set \\Flagged from "another client"
   imap_helper.py big FOLDER SUBJECT KB      deliver a read letter with a KB-sized attachment
-  imap_helper.py many FOLDER SUBJECT N      deliver a read letter with N small text attachments
+  imap_helper.py many-files FOLDER SUBJECT N deliver a read letter with N small text attachments
   imap_helper.py delete FOLDER SUBJECT      expunge the letters with that subject
 """
 
@@ -295,7 +295,7 @@ def big(subject, kb, when=None):
     ).encode()
 
 
-def many(subject, n):
+def many_files(subject, n):
     """A letter with `n` small text attachments of mixed name lengths: the reader folds them to two rows."""
     names = ["Акт сверки {i:02d}.txt", "Скан договора поставки №{i}, приложение к спецификации (подписано).txt", "{i}.txt", "Счёт-фактура {i:03d} от октября.txt"]
     subj = "=?utf-8?B?" + base64.b64encode(subject.encode()).decode() + "?="
@@ -368,10 +368,10 @@ def main():
         c.logout()
         print("ok")
         return
-    if cmd == "many":
+    if cmd == "many-files":
         c = conn()
         # Read: unread counters of later steps stay as they were.
-        append(c, utf7_path(sys.argv[2]), many(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
+        append(c, utf7_path(sys.argv[2]), many_files(sys.argv[3], int(sys.argv[4])), "(\\Seen)")
         c.logout()
         print("ok")
         return
