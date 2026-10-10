@@ -4151,6 +4151,22 @@ try {
     // A label with one letter on it.
     await invoke("label_save", { accountId: acc.id, name: labelName, color: "#3f9fd0" });
     if (letter) await invoke("set_label", { ids: [letter.id], name: labelName, value: true });
+
+    // The «Метки» heading in the sidebar stands in the folders' icon column, not at the window's edge.
+    const edges = () =>
+      d.exec(
+        `const icon = document.querySelector('nav.side .labels .subhead svg');
+         const row = document.querySelector('nav.side .labels .item .icon');
+         const folder = document.querySelector('nav.side .group .folder-row:not(.label-row) .item .icon');
+         if (!icon || !row || !folder) return null;
+         return { head: icon.getBoundingClientRect().left, label: row.getBoundingClientRect().left, folder: folder.getBoundingClientRect().left };`,
+      );
+    const seen = await d.until("sidebar labels heading", async () => (await edges().catch(() => null)) ?? null, 30000);
+    await screenshot("sidebar-subhead");
+    if (Math.abs(seen.head - seen.label) > 2 || Math.abs(seen.head - seen.folder) > 2) {
+      throw new Error(`заголовок «Метки» сбит: иконка ${seen.head}px, метка ${seen.label}px, папка ${seen.folder}px`);
+    }
+
     await openLabels();
     const rowLink = (name) =>
       d.xpath(`//section[@data-section='labels']//button[contains(@class,'link') and normalize-space(.)=${JSON.stringify(name)}]`).catch(() => null);
