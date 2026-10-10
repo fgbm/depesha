@@ -1126,7 +1126,7 @@ async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
         let _: Vec<_> = conn.session.uid_expunge(set).await?.try_collect().await?;
         return Ok(());
     }
-    expunge_keeping(conn, &foreign).await
+    expunge_keeping(conn, set, &foreign).await
 }
 
 /// What `expunge_keeping` asks of the connection: the `\Deleted` mark of a set of UIDs set or
@@ -1156,8 +1156,10 @@ impl Expunging for Conn {
 /// Plain `EXPUNGE` that spares `kept`: their `\Deleted` is cleared first and set again
 /// afterwards, also when the `EXPUNGE` failed. A batch that could not be cleared stops the
 /// `EXPUNGE` (the marks of others still on would be wiped), and every batch gets its mark
-/// back all the same: one that failed to come back must not keep the rest from it.
-async fn expunge_keeping(conn: &mut impl Expunging, kept: &[u32]) -> Result<()> {
+/// back all the same: one that failed to come back must not keep the rest from it. When the
+/// run fails, the `\Deleted` of `ours` (the set marked for wiping) is taken off again, so that
+/// no mark of ours stays on the server for another client's `EXPUNGE` to wipe.
+async fn expunge_keeping(conn: &mut impl Expunging, ours: &str, kept: &[u32]) -> Result<()> {
     // Many marks of others are cleared and set again in batches: a command line with a
     // thousand UIDs is refused by some servers.
     let mut failure = None;
@@ -1174,6 +1176,9 @@ async fn expunge_keeping(conn: &mut impl Expunging, kept: &[u32]) -> Result<()> 
         if let Err(e) = conn.mark(uid_set(chunk), true).await {
             failure.get_or_insert(e);
         }
+    }
+    if failure.is_some() {
+        let _ = conn.mark(ours.to_owned(), false).await;
     }
     failure.map_or(Ok(()), Err)
 }
@@ -1720,7 +1725,7 @@ mod tests {
 
         // All goes well: cleared, expunged, set again.
         let mut ok = Fake::default();
-        expunge_keeping(&mut ok, &kept).await.unwrap();
+        expunge_keeping(&mut ok, "1:5", &kept).await.unwrap();
         assert!(ok.expunged);
         assert_eq!((sets(&ok, false), sets(&ok, true)), (3, 3));
 
@@ -1730,16 +1735,19 @@ mod tests {
             fail_clearing_of: Some(1),
             ..Fake::default()
         };
-        assert!(expunge_keeping(&mut stuck, &kept).await.is_err());
+        assert!(expunge_keeping(&mut stuck, "1:5", &kept).await.is_err());
         assert!(!stuck.expunged);
         assert_eq!(sets(&stuck, true), 3);
+        // Our own marks do not stay on the server either: the last thing asked takes them off.
+        assert_eq!(stuck.asked.last(), Some(&("1:5".to_owned(), false)));
+        assert_eq!(ok.asked.iter().filter(|(set, _)| set == "1:5").count(), 0);
 
         // A batch that fails to come back does not keep the later ones from it.
         let mut lost = Fake {
             fail_setting_of: Some(0),
             ..Fake::default()
         };
-        assert!(expunge_keeping(&mut lost, &kept).await.is_err());
+        assert!(expunge_keeping(&mut lost, "1:5", &kept).await.is_err());
         assert!(lost.expunged);
         assert_eq!(sets(&lost, true), 3);
     }
