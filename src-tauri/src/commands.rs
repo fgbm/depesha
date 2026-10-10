@@ -1385,7 +1385,7 @@ pub async fn unsnooze(state: St<'_>, ids: Vec<i64>) -> CmdResult<Vec<Moved>> {
                 snoozed: group.snoozed.clone(),
             };
             // A mailbox that is not running is not a failure of the move: nothing was tried.
-            let mut queue = Queue::urgent(state.worker(&group.account_id)?);
+            let mut queue = Queue::urgent(&state, &group.account_id)?;
             match queue.move_by_message_id(bring).await {
                 // Moved, whole or in part: the cache tells which letters left.
                 Ok(n) if n > 0 => {}

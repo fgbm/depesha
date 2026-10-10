@@ -26,7 +26,7 @@ pub async fn after_sent(
     message_id: Option<String>,
     letter_cached: bool,
 ) -> CmdResult<Left> {
-    let mut queue = state.worker(&account.id).ok().map(Queue::background);
+    let mut queue = Queue::background(state, &account.id).ok();
     let sent = waiting::record_sent(
         &state.store,
         queue.as_mut(),
@@ -38,6 +38,9 @@ pub async fn after_sent(
         chrono::Utc::now().timestamp(),
     )
     .await?;
+    if let Some(e) = &sent.mark_failed {
+        tracing::debug!(account = %account.id, "the server did not take the mark: {e}");
+    }
     if let Some(folder) = &sent.marked {
         state.emit("mail-changed", json!({ "account_id": account.id, "folder": folder }));
     }
@@ -68,16 +71,22 @@ async fn archive_answered(state: &AppState, account: &Account, item: &OutboxItem
         message_id,
         guard,
     } = archiving;
-    let worker = match state.worker(&account.id) {
-        Ok(worker) => worker,
-        Err(e) => {
-            tracing::warn!(account = %account.id, "archive of the answered letter: no worker: {}", e.message);
-            return;
-        }
-    };
     let now = chrono::Utc::now().timestamp();
-    let mut queue = Queue::background(worker);
-    match waiting::archive_answered(&state.store, &mut queue, &account.id, &from, &message_id, &guard, now).await {
+    let mut queue = Queue::background(state, &account.id).ok();
+    match waiting::archive_answered(
+        &state.store,
+        queue.as_mut(),
+        &account.id,
+        &from,
+        &message_id,
+        &guard,
+        now,
+    )
+    .await
+    {
+        Archived::NoQueue => {
+            tracing::warn!(account = %account.id, "archive of the answered letter: the mailbox is not running")
+        }
         Archived::NoArchive => {
             tracing::debug!(account = %account.id, "archive of the answered letter: the mailbox has no archive folder")
         }
@@ -146,7 +155,7 @@ async fn take_in(state: &AppState, job: &ParkJob) -> CmdResult<()> {
     let Ok(account) = state.account(&job.account_id) else {
         return Ok(state.store.followup_park_failed(&job.account_id, &job.key)?);
     };
-    let mut queue = Queue::background(state.worker(&account.id)?);
+    let mut queue = Queue::background(state, &account.id)?;
     let now = chrono::Utc::now().timestamp();
     let taken = waiting::take_in(
         &state.store,
@@ -186,12 +195,10 @@ async fn take_in(state: &AppState, job: &ParkJob) -> CmdResult<()> {
 }
 
 async fn bring_back(state: &AppState, job: &ParkJob) -> CmdResult<()> {
-    let worker = match state.worker(&job.account_id) {
-        Ok(w) => w,
+    let Ok(mut queue) = Queue::background(state, &job.account_id) else {
         // The mailbox is gone: nothing to bring back.
-        Err(_) => return Ok(state.store.followup_moved_back(&job.account_id, &job.key)?),
+        return Ok(state.store.followup_moved_back(&job.account_id, &job.key)?);
     };
-    let mut queue = Queue::background(worker);
     let now = chrono::Utc::now().timestamp();
     match waiting::bring_back(&state.store, &mut queue, job, now).await? {
         Brought::Back => state.emit("counters-changed", json!({})),

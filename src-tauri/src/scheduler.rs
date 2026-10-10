@@ -104,10 +104,11 @@ async fn return_snoozes(state: &AppState, due: Vec<depesha_core::store::Snooze>)
         );
     };
     // Offline or the account is paused: tried again on the next tick.
-    let Ok(worker) = state.worker(&account_id) else {
+    let Ok(mut queue) = Queue::background(state, &account_id) else {
+        tracing::debug!(account = %account_id, "snoozes are due, the mailbox is not running");
         return;
     };
-    let returned = snooze::return_due(&state.store, &due, &mut Queue::background(worker), &mut on_back).await;
+    let returned = snooze::return_due(&state.store, &due, &mut queue, &mut on_back).await;
     for e in &returned.not_dropped {
         tracing::warn!("scheduler: {e}");
     }

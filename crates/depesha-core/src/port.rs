@@ -1,8 +1,15 @@
-//! The mail server as the scenarios see it. A port is introduced where a scenario's rules
-//! cannot be tested without a server: for now «Clear» (`clear`), the operations it needs and
-//! no others. IMAP and Exchange implement it in `mail`; the tests of the rules, a fake. The
-//! rules know no protocol: what a count names (`Count`) and how a message is named (`Item`)
-//! are the implementation's own. `clear::Bounds<B>` is generic only so the core need not name
+//! The ports of the mail server. A port is introduced where a scenario's rules cannot be tested
+//! without a server, with the operations the scenario needs and no others. Two ports, for two
+//! ways the scenarios reach the server:
+//!
+//! - `MailServer`, a connection, for «Clear» (`clear`): IMAP and Exchange implement it in `mail`.
+//!   The rules know no protocol: what a count names (`Count`) and how a message is named
+//!   (`Item`) are the implementation's own.
+//! - `MailQueue`, the mailbox's queue, for the work nobody waits on with their hand on the
+//!   keyboard (`snooze`, `waiting`): the app implements it over its worker. It names letters by
+//!   folder and Message-ID, never by UID.
+//!
+//! In both the tests of the rules use a fake. `clear::Bounds<B>` is generic only so the core need not name
 //! the app's `mail::Bound`, the sum of the two kinds that the app holds (it learns the kind from
 //! the connection); beyond that, the tests with their own fake bound are its only other user.
 
@@ -72,12 +79,12 @@ pub trait MailQueue: Send {
     /// Makes a folder.
     fn create_folder(&mut self, name: &str) -> impl Future<Output = Result<()>> + Send;
 
-    /// Changes a flag by the UIDs of `folder` read under `validity`.
+    /// Changes a flag of the letter `message_id` in `folder` (as the cache names it); the
+    /// implementation finds the letter. `Error::NotFound` when it is not there.
     fn set_flag(
         &mut self,
         folder: &str,
-        validity: u32,
-        uids: &[u32],
+        message_id: &str,
         change: crate::domain::FlagChange,
     ) -> impl Future<Output = Result<()>> + Send;
 }
@@ -97,7 +104,9 @@ pub(crate) mod fake {
         pub moved: VecDeque<Result<usize>>,
         /// The answers of `create_folder`; `Ok` once they run out.
         pub created: VecDeque<Result<()>>,
-        pub flags: Vec<(String, u32, Vec<u32>, crate::domain::FlagChange)>,
+        pub flags: Vec<(String, String, crate::domain::FlagChange)>,
+        /// The answers of `set_flag`; `Ok` once they run out.
+        pub flagged: VecDeque<Result<()>>,
     }
 
     impl MailQueue for Queue {
@@ -115,16 +124,10 @@ pub(crate) mod fake {
             self.created.pop_front().unwrap_or(Ok(()))
         }
 
-        async fn set_flag(
-            &mut self,
-            folder: &str,
-            validity: u32,
-            uids: &[u32],
-            change: crate::domain::FlagChange,
-        ) -> Result<()> {
+        async fn set_flag(&mut self, folder: &str, message_id: &str, change: crate::domain::FlagChange) -> Result<()> {
             self.log.lock().unwrap().push(format!("flag {folder}"));
-            self.flags.push((folder.to_owned(), validity, uids.to_vec(), change));
-            Ok(())
+            self.flags.push((folder.to_owned(), message_id.to_owned(), change));
+            self.flagged.pop_front().unwrap_or(Ok(()))
         }
     }
 }

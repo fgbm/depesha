@@ -214,6 +214,8 @@ pub struct Sent {
     pub parks: bool,
     /// The folder whose letters the server was asked to mark: the lists are to be read again.
     pub marked: Option<String>,
+    /// The server did not take the mark. Depesha's own stands; the caller may note it.
+    pub mark_failed: Option<crate::Error>,
     /// The conversation goes to the archive: the task is the caller's, and the guard is
     /// counted already, so a wait that follows at once sees it.
     pub archive: Option<Archiving>,
@@ -244,6 +246,7 @@ pub async fn record_sent<Q: MailQueue>(
         counters: false,
         parks: false,
         marked: None,
+        mark_failed: None,
         archive: None,
     };
     let acts = item.draft.acts_on.as_ref().filter(|a| a.account_id == account.id);
@@ -270,7 +273,8 @@ pub async fn record_sent<Q: MailQueue>(
         return Ok(sent);
     };
     store.mark_done(&account.id, &acts.message_id, acts.act, now, Some(&message_id))?;
-    sent.marked = mark_on_server(store, queue, &account.id, &acts.folder, &acts.message_id, acts.act).await;
+    (sent.marked, sent.mark_failed) =
+        mark_on_server(store, queue, &account.id, &acts.folder, &acts.message_id, acts.act).await;
 
     // The conversation is found when the scheduler's move comes, not now: an archival of an
     // earlier answer may be taking it just now, and the send does not wait for it (#109).
@@ -310,8 +314,9 @@ pub async fn record_sent<Q: MailQueue>(
     Ok(sent)
 }
 
-/// The server's flag for what was done: `\Answered` and `$Forwarded`, Exchange's verb.
-/// The folder to read again, when the server was asked.
+/// The server's flag for what was done: `\Answered` and `$Forwarded`, Exchange's verb. The folder
+/// to read again, when the server was asked, and what it answered. A letter the cache does not
+/// know is not asked about.
 async fn mark_on_server<Q: MailQueue>(
     store: &Store,
     queue: Option<&mut Q>,
@@ -319,21 +324,22 @@ async fn mark_on_server<Q: MailQueue>(
     folder: &str,
     message_id: &str,
     act: Act,
-) -> Option<String> {
+) -> (Option<String>, Option<crate::Error>) {
     let change = match act {
         Act::Reply => FlagChange::Answered(true),
         Act::ReplyAll => FlagChange::AnsweredAll(true),
         Act::Forward => FlagChange::Forwarded(true),
     };
-    let found = store
+    let known = store
         .find_by_message_id(account_id, folder, message_id)
         .ok()
         .flatten()
-        .and_then(|r| store.get_at(r.id).ok().flatten());
-    let ((row, validity), queue) = found.zip(queue)?;
-    // A refusal is the server's: the mark Depesha keeps stands.
-    let _ = queue.set_flag(&row.folder, validity, &[row.uid], change).await;
-    Some(row.folder)
+        .is_some();
+    let (true, Some(queue)) = (known, queue) else {
+        return (None, None);
+    };
+    let failed = queue.set_flag(folder, message_id, change).await.err();
+    (Some(folder.to_owned()), failed)
 }
 
 /// What came of taking the conversation of an answer to the folder.
@@ -515,6 +521,8 @@ pub fn jobs_due(store: &Store, now: i64) -> Result<BTreeMap<String, Vec<ParkJob>
 pub enum Archived {
     /// The mailbox has no archive folder: nothing is created behind the user's back.
     NoArchive,
+    /// The mailbox is not running: nothing was tried.
+    NoQueue,
     /// The conversation was not read.
     NotRead(crate::Error),
     /// No letter was found to move.
@@ -533,7 +541,7 @@ pub enum Archived {
 /// letter. What it took is marked (`archived_mark`), so a wait can take it from the archive.
 pub async fn archive_answered<Q: MailQueue>(
     store: &Store,
-    queue: &mut Q,
+    queue: Option<&mut Q>,
     account_id: &str,
     from: &str,
     message_id: &str,
@@ -542,6 +550,9 @@ pub async fn archive_answered<Q: MailQueue>(
 ) -> Archived {
     let Ok(Some(archive)) = store.folder_by_role(account_id, FolderRole::Archive) else {
         return Archived::NoArchive;
+    };
+    let Some(queue) = queue else {
+        return Archived::NoQueue;
     };
     let mut chain = match store.inbox_chain(account_id, from, message_id) {
         Ok(chain) => chain,
@@ -935,6 +946,43 @@ mod tests {
             "the conversation is found when the move comes (#109)"
         );
         assert_eq!(job.since, 1_000);
+        // Depesha's own mark stands, with the time: the letter is shown as answered.
+        let row = store.find_by_message_id("a", "INBOX", "q@x").unwrap().unwrap();
+        assert_eq!(
+            row.marks,
+            [crate::store::Mark {
+                act: Act::Reply,
+                at: Some(1_000)
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_mark_the_server_refuses_is_reported_and_the_own_mark_stands() {
+        let store = store();
+        letter(&store, "INBOX", 4, "q@x");
+        let mut queue = Queue {
+            flagged: [Err(Error::Closed)].into(),
+            ..Default::default()
+        };
+        let sent = record_sent(
+            &store,
+            Some(&mut queue),
+            &Arc::default(),
+            &waits_in_wait(),
+            &parks(),
+            Some("<s@x>".into()),
+            true,
+            50,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(sent.mark_failed, Some(Error::Closed)));
+        // The lists are read again all the same, and the wait is not lost.
+        assert_eq!(sent.marked.as_deref(), Some("INBOX"));
+        assert!(sent.parks && store.park_jobs().unwrap().len() == 1);
+        let row = store.find_by_message_id("a", "INBOX", "q@x").unwrap().unwrap();
+        assert_eq!(row.marks.len(), 1);
     }
 
     #[tokio::test]
@@ -957,11 +1005,13 @@ mod tests {
         .unwrap();
         assert_eq!(sent.marked.as_deref(), Some("INBOX"));
         assert_eq!(queue.flags.len(), 1);
-        let (folder, _, uids, change) = &queue.flags[0];
+        // The letter is named by folder and Message-ID: finding its UID is the queue's.
+        let (folder, message_id, change) = &queue.flags[0];
         assert_eq!(
-            (folder.as_str(), uids.as_slice(), *change),
-            ("INBOX", &[4][..], FlagChange::Answered(true))
+            (folder.as_str(), message_id.as_str(), *change),
+            ("INBOX", "q@x", FlagChange::Answered(true))
         );
+        assert!(sent.mark_failed.is_none());
         // No queue: nothing asked of the server, the wait starts all the same.
         let store = self::store();
         letter(&store, "INBOX", 4, "q@x");
@@ -1039,7 +1089,7 @@ mod tests {
         // It is counted before the task starts, so a wait that follows at once sees it.
         assert_eq!(found(&store, &archivals, "q@x", true), Found::Later);
         let mut queue = Queue::default();
-        let done = archive_answered(&store, &mut queue, "a", "INBOX", "q@x", &archiving.guard, 5).await;
+        let done = archive_answered(&store, Some(&mut queue), "a", "INBOX", "q@x", &archiving.guard, 5).await;
         let Archived::Moved {
             archive,
             chain,
@@ -1075,19 +1125,25 @@ mod tests {
         let guard = archivals.begin("a", "q@x");
         let mut queue = Queue::default();
         // A mailbox without an archive folder keeps the letter; nothing is created.
-        let done = archive_answered(&store, &mut queue, "a", "INBOX", "q@x", &guard, 1).await;
+        let done = archive_answered(&store, Some(&mut queue), "a", "INBOX", "q@x", &guard, 1).await;
         assert!(matches!(done, Archived::NoArchive) && queue.log.lock().unwrap().is_empty());
+        // The archive folder is looked for before the queue: no folder and no queue is no archive,
+        // not a mailbox that is not running.
+        let done = archive_answered::<Queue>(&store, None, "a", "INBOX", "q@x", &guard, 1).await;
+        assert!(matches!(done, Archived::NoArchive), "{done:?}");
         let store = self::store();
+        let done = archive_answered::<Queue>(&store, None, "a", "INBOX", "q@x", &guard, 1).await;
+        assert!(matches!(done, Archived::NoQueue), "{done:?}");
         let mut queue = Queue {
             moved: [Ok(0), Err(Error::Closed)].into(),
             ..Default::default()
         };
         assert!(matches!(
-            archive_answered(&store, &mut queue, "a", "INBOX", "q@x", &guard, 1).await,
+            archive_answered(&store, Some(&mut queue), "a", "INBOX", "q@x", &guard, 1).await,
             Archived::NothingFound
         ));
         assert!(matches!(
-            archive_answered(&store, &mut queue, "a", "INBOX", "q@x", &guard, 1).await,
+            archive_answered(&store, Some(&mut queue), "a", "INBOX", "q@x", &guard, 1).await,
             Archived::Failed(_)
         ));
         assert!(

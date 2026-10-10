@@ -475,22 +475,27 @@ pub struct Worker {
 /// default, which a paused mailbox refuses, or the user's own (`Queue::urgent`).
 pub struct Queue {
     worker: Worker,
+    store: Arc<depesha_core::store::Store>,
+    account_id: String,
     background: bool,
 }
 
 impl Queue {
-    pub fn background(worker: Worker) -> Self {
-        Self {
-            worker,
+    /// The queue of the mailbox `account_id`; the error says it is not running.
+    pub fn background(state: &AppState, account_id: &str) -> crate::error::CmdResult<Self> {
+        Ok(Self {
+            worker: state.worker(account_id)?,
+            store: state.store.clone(),
+            account_id: account_id.to_owned(),
             background: true,
-        }
+        })
     }
 
-    pub fn urgent(worker: Worker) -> Self {
-        Self {
-            worker,
+    pub fn urgent(state: &AppState, account_id: &str) -> crate::error::CmdResult<Self> {
+        Ok(Self {
             background: false,
-        }
+            ..Self::background(state, account_id)?
+        })
     }
 
     async fn run(&self, work: Work) -> Result<Output> {
@@ -510,22 +515,29 @@ impl depesha_core::port::MailQueue for Queue {
             to: m.to,
             unseen: m.unseen,
         };
-        // Any other answer is a move that was done.
-        Ok(match self.run(work).await? {
-            Output::Count(n) => n,
-            _ => 1,
-        })
+        match self.run(work).await? {
+            Output::Count(n) => Ok(n),
+            _ => Err(Error::Protocol(
+                "a move was answered with something else than a count".into(),
+            )),
+        }
     }
 
     async fn create_folder(&mut self, name: &str) -> Result<()> {
         self.run(Work::CreateFolder(name.to_owned())).await.map(drop)
     }
 
-    async fn set_flag(&mut self, folder: &str, validity: u32, uids: &[u32], change: FlagChange) -> Result<()> {
+    async fn set_flag(&mut self, folder: &str, message_id: &str, change: FlagChange) -> Result<()> {
+        // The UID and the UIDVALIDITY it was read under are the cache's.
+        let (row, validity) = self
+            .store
+            .find_by_message_id(&self.account_id, folder, message_id)?
+            .and_then(|r| self.store.get_at(r.id).ok().flatten())
+            .ok_or(Error::NotFound)?;
         let work = Work::SetFlag {
-            folder: folder.to_owned(),
+            folder: row.folder,
             validity,
-            uids: uids.to_vec(),
+            uids: vec![row.uid],
             change,
         };
         self.run(work).await.map(drop)
