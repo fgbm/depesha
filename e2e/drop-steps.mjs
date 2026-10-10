@@ -75,7 +75,20 @@ async function zonePlace(d, paths, zone) {
   }
 }
 
-const names = (d) => d.exec("return [...document.querySelectorAll('.compose .files .file')].map((f) => f.innerText.trim())");
+/**
+ * The names of the attachments. The strip shows the files that fit one line and «+N ещё» for
+ * the rest (#103): in a narrow window, as the browser at scale 2 is, the others are read from
+ * the list that button opens.
+ */
+const names = async (d) => {
+  const chips = await d.exec("return [...document.querySelectorAll('.compose .files .file')].map((f) => f.innerText.trim())");
+  if (!(await d.findAll(".compose .files .more")).length) return chips;
+  await d.exec("document.querySelector('.compose .files .more').click()");
+  await d.until("list of files", async () => (await d.findAll(".compose [data-att]")).length > 0, 3000);
+  const all = await d.exec("return [...document.querySelectorAll('.compose [data-att] .fname')].map((f) => f.innerText.trim())");
+  await d.exec("document.querySelector('.compose [data-att]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+  return [...chips, ...all];
+};
 
 /**
  * The steps. `openCompose()` leaves a letter in HTML open in the current window and

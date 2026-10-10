@@ -55,6 +55,7 @@
   let showCc = $state(untrack(() => c.draft.cc.length > 0));
   let showBcc = $state(untrack(() => c.draft.bcc.length > 0));
   let toInput = $state<AddressInput | null>(null);
+  let bodyArea = $state<HTMLDivElement | null>(null);
   let ccInput = $state<AddressInput | null>(null);
   let bccInput = $state<AddressInput | null>(null);
   /** The window's width: the formatting row folds in a narrow one. */
@@ -304,6 +305,12 @@
     return () => cancelAnimationFrame(frame);
   });
 
+  // Files dragged over the letter offer their zones in the text area: in a low window it may be
+  // scrolled out of sight under the strips, and a drop target must be where the pointer can reach it.
+  $effect(() => {
+    if (m.zones) bodyArea?.scrollIntoView({ block: "nearest" });
+  });
+
   /** The chips of the one-line strip; at full screen all of them, in up to two rows. */
   const chips = $derived(c.mode === "max" ? c.draft.attachments.length : visibleChips(width, c.draft.attachments.length));
 
@@ -495,7 +502,7 @@
         />
       {/if}
 
-      <div class="body-area" bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
+      <div class="body-area" bind:this={bodyArea} bind:clientWidth={m.areaWidth} class:signed={m.format !== "html" && !!m.signature}>
         {#if m.format === "html"}
           <RichEditor
             bind:this={m.rich}
