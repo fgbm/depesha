@@ -75,6 +75,15 @@ describe("«Stop waiting» tells so and can be taken back, as «Bring back now»
     expect(backend).toHaveBeenCalledWith("followup_resume", { id: expect.any(Number), ended: 1_800_000_000 });
   });
 
+  it("lets the undo finish when the backend takes the wait back, and fails it when it cannot", async () => {
+    const { keys, offerUndo, backend } = fakeContext(opened("waiting"));
+    keys.find((k) => k.id === "core.release")!.run();
+    await vi.waitFor(() => expect(offerUndo).toHaveBeenCalled());
+    await expect(offerUndo.mock.calls[0][1]()).resolves.toBeUndefined();
+    backend.mockImplementation(async (command: string) => (command === "followup_resume" ? false : undefined));
+    await expect(offerUndo.mock.calls[0][1]()).rejects.toThrow();
+  });
+
   it("says nothing when the wait had ended meanwhile", async () => {
     const { keys, toast, offerUndo, backend, reload } = fakeContext(opened("waiting"));
     backend.mockImplementation(async () => null);
