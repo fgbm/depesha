@@ -154,6 +154,10 @@ const UNDO_SECS: i64 = 12;
 type Neighbour = (i64, String, Option<String>, i64, bool, Option<String>);
 
 impl Store {
+    fn stop_to(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<(String, String), String>> {
+        self.stop_to.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Message-IDs of the conversation of `anchor` in the folder `inbox`, the letter
     /// itself included; empty when it is not there. Only letters joined to it by an
     /// answer — its own In-Reply-To/References, or letters answering it — and only those
@@ -329,14 +333,16 @@ impl Store {
         let rows = stmt.query_map([], |r| {
             let park: String = r.get(2)?;
             let (home, folder): (String, String) = (r.get(3)?, r.get(4)?);
+            let (account_id, key): (String, String) = (r.get(0)?, r.get(1)?);
+            let stop_to = self.stop_to().get(&(account_id.clone(), key.clone())).cloned();
             let (kind, from, to) = match park.as_str() {
                 "pending" => (ParkKind::In, home, String::new()),
-                "back" => (ParkKind::Back, folder, home),
+                "back" => (ParkKind::Back, folder, stop_to.unwrap_or(home)),
                 _ => (ParkKind::Undo, folder, home),
             };
             Ok(ParkJob {
-                account_id: r.get(0)?,
-                key: r.get(1)?,
+                account_id,
+                key,
                 kind,
                 from,
                 to,
@@ -412,6 +418,7 @@ impl Store {
     /// The letters of the wait `key` are back: with the reply they say so until opened;
     /// taken back at once, a wait without a reminder is forgotten.
     pub fn followup_moved_back(&self, account_id: &str, key: &str) -> Result<()> {
+        self.stop_to().remove(&(account_id.to_owned(), bare(key).to_owned()));
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         tx.execute(
@@ -445,17 +452,86 @@ impl Store {
     }
 
     /// "Stop waiting" (and "Back to the inbox"): closed by hand at `now`; letters in the
-    /// folder go back to the inbox, or to `to`.
-    pub fn followup_stop(&self, account_id: &str, message_id: &str, now: i64, to: Option<&str>) -> Result<()> {
-        self.conn().execute(
-            "UPDATE followups SET status = 'closed', ended = ?3,
-                return_to = CASE WHEN park = 'parked' AND ?4 IS NOT NULL THEN ?4 ELSE return_to END,
-                park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END,
-                park_since = CASE WHEN park = 'parked' THEN ?3 ELSE park_since END
-             WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting'",
-            params![account_id, bare(message_id), now, to],
+    /// folder go back to the inbox, or to `to`. Answers whether a wait was closed.
+    pub fn followup_stop(&self, account_id: &str, message_id: &str, now: i64, to: Option<&str>) -> Result<bool> {
+        self.stop(account_id, message_id, now, to, 0)
+    }
+
+    /// `followup_stop` for the toast that offers an undo: the letters stay in the folder for
+    /// `UNDO_SECS`, so that `followup_resume` finds them there.
+    pub fn followup_stop_undoable(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        now: i64,
+        to: Option<&str>,
+    ) -> Result<bool> {
+        self.stop(account_id, message_id, now, to, UNDO_SECS)
+    }
+
+    fn stop(&self, account_id: &str, message_id: &str, now: i64, to: Option<&str>, hold: i64) -> Result<bool> {
+        let which = "account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting'";
+        let keys = if to.is_some() {
+            self.wait_keys(account_id, message_id, &format!("{which} AND park = 'parked'"))?
+        } else {
+            Vec::new()
+        };
+        let n = self.conn().execute(
+            &format!(
+                "UPDATE followups SET status = 'closed', ended = ?3,
+                    park = CASE park WHEN 'parked' THEN 'back' WHEN 'pending' THEN 'done' ELSE park END,
+                    park_since = CASE WHEN park = 'parked' THEN ?3 + ?4 ELSE park_since END
+                 WHERE {which}"
+            ),
+            params![account_id, bare(message_id), now, hold],
         )?;
-        Ok(())
+        if let Some(to) = to {
+            for key in keys {
+                self.stop_to().insert((account_id.to_owned(), key), to.to_owned());
+            }
+        }
+        Ok(n > 0)
+    }
+
+    /// The Message-IDs of the waits `which` picks (`?1` the account, `?2` the letter asked for).
+    fn wait_keys(&self, account_id: &str, message_id: &str, which: &str) -> Result<Vec<String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!("SELECT message_id FROM followups WHERE {which}"))?;
+        let rows = stmt.query_map(params![account_id, bare(message_id)], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// "Undo" of the toast after "Stop waiting": the wait closed at `ended` waits again as it
+    /// was (the reminder, the deadline, the repeat and the awaited address stay as stopping
+    /// leaves them). Letters still in the folder (their return held back) stay in it; ones
+    /// the return already took are taken in again: the wait goes back to «pending» and the
+    /// move runs once more. False when nothing was resumed: the wait ended another way since,
+    /// or is waiting already.
+    pub fn followup_resume(&self, account_id: &str, message_id: &str, ended: i64) -> Result<bool> {
+        let which = "account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed' AND ended = ?3 AND park IN ('back', 'done', '')";
+        let keys: Vec<String> = {
+            let conn = self.conn();
+            let mut stmt = conn.prepare(&format!("SELECT message_id FROM followups WHERE {which}"))?;
+            let rows = stmt.query_map(params![account_id, bare(message_id), ended], |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let n = self.conn().execute(
+            "UPDATE followups SET status = 'waiting', ended = NULL,
+                park = CASE park WHEN 'back' THEN 'parked' WHEN 'done' THEN 'pending' ELSE park END,
+                parked = CASE WHEN park = 'done' THEN '[]' ELSE parked END,
+                park_since = CASE WHEN park = 'done' THEN CAST(strftime('%s','now') AS INTEGER) ELSE park_since END
+             WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed' AND ended = ?3
+               AND park IN ('back', 'done', '')
+               AND NOT EXISTS (SELECT 1 FROM followups
+                 WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting')",
+            params![account_id, bare(message_id), ended],
+        )?;
+        if n > 0 {
+            for key in keys {
+                self.stop_to().remove(&(account_id.to_owned(), key));
+            }
+        }
+        Ok(n > 0)
     }
 
     /// "Keep in the inbox" right after the answer: the letters go back, and a wait made
@@ -1052,6 +1128,43 @@ mod tests {
         waiting(&store, 0);
         store.followup_stop("a", "q2@x", SENT + 10, Some("Archive")).unwrap();
         assert_eq!(store.park_jobs().unwrap()[0].to, "Archive");
+    }
+
+    #[test]
+    fn an_undone_stop_finds_the_letters_in_the_folder_or_takes_them_in_again() {
+        let store = mailbox();
+        let (first, second) = waiting(&store, 0);
+        let ended = SENT + 10;
+        assert!(
+            store
+                .followup_stop_undoable("a", "q2@x", ended, Some("Archive"))
+                .unwrap()
+        );
+        // The return is held back for the toast, and goes where the mailbox says.
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(
+            (jobs[0].kind, jobs[0].to.as_str(), jobs[0].since),
+            (ParkKind::Back, "Archive", ended + UNDO_SECS)
+        );
+
+        // Undone in time: parked as before, nothing to move, and the place it returns to is its own.
+        assert!(store.followup_resume("a", "q2@x", ended).unwrap());
+        let f = the_wait(&store, FollowupFilter::Active);
+        assert_eq!((f.status, f.park.as_str()), (FollowupStatus::Waiting, "parked"));
+        assert!(store.park_jobs().unwrap().is_empty());
+        store.followup_stop_undoable("a", "q2@x", ended + 100, None).unwrap();
+        assert_eq!(store.park_jobs().unwrap()[0].to, "INBOX");
+
+        // Undone after the letters went back: the move in is owed again.
+        moved(&store, WAIT, &[1, 2], "INBOX", &[(11, &first), (12, &second)]);
+        store.followup_moved_back("a", "r@x").unwrap();
+        assert!(store.park_jobs().unwrap().is_empty());
+        assert!(store.followup_resume("a", "q2@x", ended + 100).unwrap());
+        let jobs = store.park_jobs().unwrap();
+        assert_eq!(
+            (jobs.len(), jobs[0].kind, jobs[0].message_ids.is_empty()),
+            (1, ParkKind::In, true)
+        );
     }
 
     #[test]

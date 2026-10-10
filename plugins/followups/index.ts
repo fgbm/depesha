@@ -64,6 +64,8 @@ export default {
             done: () => {
               if (f) row.followup = { ...f, status: "closed", ended: now() };
               row.followup_due = null;
+              // The list of waits drops the row, as it does for the key and the menu.
+              ctx.mail.reload();
             },
             undone: () => {
               if (f) row.followup = f;

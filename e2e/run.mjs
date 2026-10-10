@@ -2375,6 +2375,44 @@ try {
   });
 
   await step("5.10", "«Ждут ответа»: свой срок через «Настроить…» запоминается в списке", async () => {
+  await step("5.10", "ответ с напоминанием и парковкой: «Не ждать» и «Отменить» — письмо остаётся в папке «Ждут ответа» (#98)", async () => {
+    const subj = `Парковка ${stamp}`;
+    const acc = (await invoke("accounts"))[0];
+    const waiting = (park) => invoke("account_save", { account: { ...acc, waiting: { park, folder: "", stop_to_archive: false } }, password: null, grant: null });
+    await waiting(true);
+    try {
+      await d.exec("location.reload()");
+      await d.button("Входящие");
+      helper("deliver", subj);
+      await d.until("letter in inbox", async () => helper("count", "INBOX", subj) === "1", 30000);
+      await openBySubject(subj);
+      await d.button("Ответить");
+      await d.until("reply compose", async () => (await d.findAll(".compose")).length === 1);
+      await remindBy("через 3 дня");
+      await d.type(await d.find(".compose textarea"), "Жду.");
+      await d.button("Отправить");
+      // The letter waits in the folder of the mailbox, out of the inbox.
+      const folder = await d.until("the waiting folder", async () => (await invoke("folders")).find((f) => f.display_name === "Ждут ответа")?.name ?? null, 60000, 1000);
+      await d.until("letter parked", async () => helper("count", folder, subj) === "1" && helper("count", "INBOX", subj) === "0", 60000, 1000);
+      await d.button("Ждут ответа");
+      await openBySubject(subj);
+      await d.button("Не ждать");
+      await d.until("not waiting", async () => (await invoke("counters")).followups === 0, 20000);
+      const toast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Не ждём ответа')]";
+      await d.click(await d.until("stop toast", () => d.xpath(`${toast}//button[contains(@class,'act')]`)));
+      await d.until("waiting again", async () => (await invoke("counters")).followups > 0, 20000);
+      // Past the time the return was held back for: the letter is still in the folder, not in the inbox.
+      await new Promise((r) => setTimeout(r, 20000));
+      if (helper("count", folder, subj) !== "1" || helper("count", "INBOX", subj) !== "0") throw new Error("после «Отменить» письмо не осталось в папке ожидания");
+      await d.until("row in the list", async () => (await textOf(".list")).includes(subj), 20000);
+      // Stopped for good: the letters go back to the inbox once the toast is gone.
+      await d.button("Не ждать");
+      await d.until("back in the inbox", async () => helper("count", "INBOX", subj) === "1" && helper("count", folder, subj) === "0", 90000, 1000);
+    } finally {
+      await waiting(false);
+    }
+  });
+
     const subj = `Свой срок ${stamp}`;
     await newMessage("carol@local.test", subj, "Жду ответа.");
     await remindMenu();
@@ -2412,6 +2450,8 @@ try {
     await d.button("Не ждать");
     await d.until("not waiting", async () => (await invoke("counters")).followups === 0, 20000);
     // The toast says so and takes it back (#98): the wait returns, with its reminder.
+    // The list of waits is read again after the button of the banner: the row is gone from «Активные».
+    await d.until("row left the list", async () => !(await textOf(".list")).includes(subj), 20000);
     const stopToast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Не ждём ответа')]";
     await d.until("stop toast", () => d.xpath(stopToast));
     await screenshot("followups-stop-toast", { toasts: true });
@@ -2419,6 +2459,7 @@ try {
     await d.until("waiting again", async () => (await invoke("counters")).followups > 0, 20000);
     await d.until("wait banner back", async () => (await textOf(".reader")).includes("Не ждать"), 20000);
     await d.button("Не ждать");
+    await d.until("row is back", async () => (await textOf(".list")).includes(subj), 20000);
     await d.until("not waiting again", async () => (await invoke("counters")).followups === 0, 20000);
     // Closed by hand: among the closed, and the banner offers to wait again.
     await d.until("closed banner", async () => (await textOf(".reader")).includes("Снова ждать ответа"), 20000);

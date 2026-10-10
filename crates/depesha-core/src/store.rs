@@ -1044,6 +1044,10 @@ pub struct Store {
     /// Flags changed here and not yet stored on the server: a sync in between
     /// must not bring the old value back.
     pending: Mutex<HashMap<(String, String, u32), PendingFlags>>,
+    /// Where "Stop waiting" takes the letters of a wait (the archive, by the mailbox's
+    /// word), until they are back: asked at the move, not written over the wait's own place,
+    /// so that an undo of the stop finds it as it was (`followup_resume`).
+    stop_to: Mutex<HashMap<(String, String), String>>,
     /// The longest the connection was held at once, nanoseconds: every other call waits
     /// that long. See `take_longest_lock`.
     longest_lock: AtomicU64,
@@ -1161,6 +1165,7 @@ impl Store {
             conn: Mutex::new(conn),
             read: None,
             pending: Mutex::new(HashMap::new()),
+            stop_to: Mutex::new(HashMap::new()),
             longest_lock: AtomicU64::new(0),
         })
     }

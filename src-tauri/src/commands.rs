@@ -1601,19 +1601,25 @@ pub fn followup_postpone(state: St<'_>, id: i64, secs: i64, deadline: Option<boo
 }
 
 /// Stops waiting for an answer: the wait is closed by hand and kept in the history. Answers
-/// the moment it was closed at, which `followup_resume` takes to undo exactly this stop.
+/// the moment it was closed at, which `followup_resume` takes to undo exactly this stop; none
+/// when no wait was waiting (it ended meanwhile): there is nothing to tell or to take back.
 #[tauri::command(async)]
-pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<i64> {
+pub fn followup_cancel(state: St<'_>, id: i64) -> CmdResult<Option<i64>> {
     let r = row(&state, id)?;
     let now = chrono::Utc::now().timestamp();
-    if let Some(mid) = &r.message_id {
-        let to = crate::waiting::stop_to(&state, &r.account_id);
-        state.store.followup_stop(&r.account_id, mid, now, to.as_deref())?;
-    }
-    // Letters waiting in the folder go back.
+    let stopped = match &r.message_id {
+        Some(mid) => {
+            let to = crate::waiting::stop_to(&state, &r.account_id);
+            state
+                .store
+                .followup_stop_undoable(&r.account_id, mid, now, to.as_deref())?
+        }
+        None => false,
+    };
+    // Letters waiting in the folder go back, after the undo toast.
     state.scheduler_notify.notify_one();
     state.emit("counters-changed", serde_json::json!({}));
-    Ok(now)
+    Ok(stopped.then_some(now))
 }
 
 /// "Undo" of the toast after "Stop waiting": the wait closed at `ended` waits again as it was.

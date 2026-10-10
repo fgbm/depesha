@@ -325,7 +325,7 @@ impl Store {
     /// The user stops waiting: closed by hand at `now`, out of the active list. Letters
     /// waiting in the folder go back to the inbox (`followup_stop` says where else).
     pub fn followup_close(&self, account_id: &str, message_id: &str, now: i64) -> Result<()> {
-        self.followup_stop(account_id, message_id, now, None)
+        self.followup_stop(account_id, message_id, now, None).map(|_| ())
     }
 
     /// A new time for the reminder of a waiting letter; it is announced again when that
@@ -364,23 +364,6 @@ impl Store {
             ],
         )?;
         Ok(())
-    }
-
-    /// "Undo" of the toast after "Stop waiting": the wait closed by hand at `ended` waits
-    /// again as it was: stopping leaves the reminder, the deadline, the repeat and the awaited
-    /// address as they are. Letters that had not yet left the folder stay in it; ones already
-    /// back in the inbox stay there. False when nothing was resumed: the wait ended another
-    /// way since, or is waiting already.
-    pub fn followup_resume(&self, account_id: &str, message_id: &str, ended: i64) -> Result<bool> {
-        let n = self.conn().execute(
-            "UPDATE followups SET status = 'waiting', ended = NULL,
-                park = CASE park WHEN 'back' THEN 'parked' ELSE park END
-             WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'closed' AND ended = ?3
-               AND NOT EXISTS (SELECT 1 FROM followups
-                 WHERE account_id = ?1 AND (message_id = ?2 OR anchor = ?2) AND status = 'waiting')",
-            params![account_id, message_id.trim_matches(['<', '>']), ended],
-        )?;
-        Ok(n > 0)
     }
 
     /// Marks waits that got an answer: the first message outside Sent and Drafts that

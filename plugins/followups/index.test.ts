@@ -74,6 +74,16 @@ describe("«Stop waiting» tells so and can be taken back, as «Bring back now»
     expect(backend).toHaveBeenCalledWith("followup_resume", { id: expect.any(Number), ended: 1_800_000_000 });
   });
 
+  it("says nothing when the wait had ended meanwhile", async () => {
+    const { keys, toast, backend, reload } = fakeContext(opened("waiting"));
+    backend.mockImplementation(async () => null);
+    keys.find((k) => k.id === "core.release")!.run();
+    await vi.waitFor(() => expect(backend).toHaveBeenCalledWith("followup_cancel", { id: expect.any(Number) }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(toast).not.toHaveBeenCalled();
+    expect(reload).toHaveBeenCalled();
+  });
+
   it("says so, once, when many rows are stopped, and tells when an undo is too late", async () => {
     const { actions, toast, backend } = fakeContext(null);
     const item = actions.find((a) => a.id === "followups.stop")!;

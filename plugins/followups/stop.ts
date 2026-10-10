@@ -22,19 +22,24 @@ export interface StopHooks {
 
 /**
  * Ends the waits on the backend and says so with a toast that takes it back, as "Bring back
- * now" does (#98): the waiting returns with the time it had. False (and the error told) when
- * none was ended.
+ * now" does (#98): the waiting returns with the time it had. False when none was ended
+ * (the error told, or the wait had ended already).
  */
 export async function stopWaiting(ctx: PluginContext, rows: Stopped[], hooks: StopHooks = {}): Promise<boolean> {
   const ended: { row: Stopped; at: number }[] = [];
   for (const row of rows) {
     try {
-      ended.push({ row, at: await ctx.backend<number>("followup_cancel", { id: row.id }) });
+      // None: the wait had ended meanwhile; there is nothing to tell and nothing to take back.
+      const at = await ctx.backend<number | null>("followup_cancel", { id: row.id });
+      if (at !== null && at !== undefined) ended.push({ row, at });
     } catch (e) {
       ctx.fail(e);
     }
   }
-  if (!ended.length) return false;
+  if (!ended.length) {
+    ctx.mail.reload();
+    return false;
+  }
   hooks.done?.();
   const what = ended.length === 1 ? ended[0].row.subject || ctx.t(S.noSubject) : ctx.plural(ended.length, S.stoppedMany);
   ctx.toast(ctx.t(S.stopped, { what }), { action: { label: ctx.t(S.undo), run: () => void resumeWaiting(ctx, ended, hooks) } });
