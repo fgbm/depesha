@@ -1234,9 +1234,11 @@ impl Store {
                 .transpose()?;
             if let (Some(row), Some(holder)) = (row, holder) {
                 let note = row.note.trim();
-                // Whole paragraphs only: a short note ("Иван") is not "found" inside a longer one.
+                // Whole paragraphs only: a short note ("Иван") is not "found" inside a longer one,
+                // and a note of several paragraphs is found as the run of them.
                 let held: String = tx.query_row("SELECT note FROM persons WHERE id = ?1", [holder], |r| r.get(0))?;
-                let note = if held.split("\n\n").any(|para| para.trim() == note) {
+                let lines = |t: &str| t.replace("\r\n", "\n").trim().to_owned();
+                let note = if format!("\n\n{}\n\n", lines(&held)).contains(&format!("\n\n{}\n\n", lines(note))) {
                     ""
                 } else {
                     note
@@ -2509,5 +2511,35 @@ mod tests {
         store.person_restore(&merged.undo).unwrap();
         let held = store.person("b@example.org").unwrap().unwrap();
         assert_eq!(held.note, "Иван Петров, бухгалтер\n\nИван");
+    }
+
+    #[test]
+    fn a_note_of_two_paragraphs_the_holder_already_has_is_not_doubled() {
+        let store = mailbox();
+        let two = "Бухгалтер\n\nЗвонить после обеда";
+        store
+            .save_person(&person("a@example.org", |p| p.note = "А".into()))
+            .unwrap();
+        store
+            .save_person(&person("b@example.org", |p| p.note = two.into()))
+            .unwrap();
+        let merged = store
+            .person_merge(&merge(
+                &["a@example.org", "b@example.org"],
+                "АБ",
+                "a@example.org",
+                |_| {},
+            ))
+            .unwrap()
+            .unwrap();
+        store.person_split("b@example.org").unwrap().unwrap();
+        store
+            .save_person(&person("b@example.org", |p| {
+                p.note = format!("Свой\r\n\r\n{two}\r\n\r\nЕщё")
+            }))
+            .unwrap();
+        store.person_restore(&merged.undo).unwrap();
+        let held = store.person("b@example.org").unwrap().unwrap();
+        assert_eq!(held.note.matches("Бухгалтер").count(), 1, "{:?}", held.note);
     }
 }
