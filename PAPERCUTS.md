@@ -42,3 +42,7 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-09 23:12 — claude-sonnet-5-5
 
 В e2e клавиша окна письма с Alt: `press()` шлёт keydown на `window`, а обработчик ключей окна письма висит на самом диалоге → Alt-клавиши не доходят. Слать через `pressIn(<элемент внутри .compose>, key, { altKey: true, code })` (хелпер `altKey` в `e2e/run.mjs`); `code` нужен, раскладка берётся по физической клавише.
+
+## 2026-10-10 14:30 — claude-opus-5-5
+
+Новые worktree в `depesha-wt/q-*` для `check.sh --changed`/`--ci` → нет `node_modules`, svelte-check не находит `@tsconfig/svelte`; агенты кто `npm ci` (минуты), кто симлинк на основное дерево. Нужен один способ в `AGENTS.md` или шаг в `check.sh` («нет node_modules — `npm ci`»). Плюс `git push -u` забывают: upstream остаётся `origin/main`, первый `--ci` падает на push.
