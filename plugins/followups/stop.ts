@@ -46,7 +46,7 @@ export async function stopWaiting(ctx: PluginContext, rows: Stopped[], hooks: St
   return true;
 }
 
-/** "Undo" of the toast: each wait stopped waits again; one that cannot (its letters came back, or it ended another way since) is told. */
+/** "Undo" of the toast: each wait stopped waits again; one that cannot (its letters came back, or it changed some other way since) is told. */
 async function resumeWaiting(ctx: PluginContext, ended: { row: Stopped; at: number }[], hooks: StopHooks) {
   let lost = false;
   for (const { row, at } of ended) {

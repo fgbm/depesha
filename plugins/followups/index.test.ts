@@ -96,6 +96,6 @@ describe("«Stop waiting» tells so and can be taken back, as «Bring back now»
     toast.mock.calls[0][1].action.run();
     await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(2));
     expect(toast.mock.calls[1][1]).toEqual({ error: true });
-    expect(toast.mock.calls[1][0]).toBe("Не удалось вернуть: письма уже вернулись — ожидание не восстановить");
+    expect(toast.mock.calls[1][0]).toBe("Не удалось вернуть: ожидание уже изменилось");
   });
 });
