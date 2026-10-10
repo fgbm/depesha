@@ -1248,12 +1248,23 @@ async fn many_foreign_deleted_marks_are_spared_in_batches() {
         .expect("login over STARTTLS");
     assert!(!conn.caps.uidplus, "the stand must not offer UIDPLUS");
     conn.session.create("Many").await.unwrap();
-    // Every other letter is marked by another client: 800 UIDs that are not a range.
-    for n in 1..=1600 {
-        let flags = if n % 2 == 0 { "(\\Deleted)" } else { "" };
-        imap::append(&mut conn, "Many", &mail("many", n), flags).await.unwrap();
+    // Every other letter is marked by another client: 800 UIDs that are not a range. Two letters
+    // are appended and the folder is doubled with COPY, which keeps the flags: eleven commands
+    // instead of sixteen hundred appends.
+    imap::append(&mut conn, "Many", &mail("many", 1), "").await.unwrap();
+    imap::append(&mut conn, "Many", &mail("many", 2), "(\\Deleted)")
+        .await
+        .unwrap();
+    let mut exists = conn.session.select("Many").await.unwrap().exists;
+    while exists < 1600 {
+        // The last copy stops at 1600, an even number, so the alternation holds.
+        let upto = exists.min(1600 - exists);
+        conn.session.copy(format!("1:{upto}"), "Many").await.unwrap();
+        exists += upto;
     }
-    let validity = conn.session.select("Many").await.unwrap().uid_validity;
+    let mailbox = conn.session.select("Many").await.unwrap();
+    assert_eq!(mailbox.exists, 1600);
+    let validity = mailbox.uid_validity;
     let all = imap::uid_search(&mut conn, "ALL").await.unwrap();
     let foreign = imap::uid_search(&mut conn, "DELETED").await.unwrap();
     assert_eq!((all.len(), foreign.len()), (1600, 800));
