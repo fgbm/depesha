@@ -1,15 +1,15 @@
 component	src/App.svelte	335	213	76	46
 component	src/MessageWindow.svelte	136	98	33	5
 component	src/components/Accounts.svelte	153	59	35	59
-component	src/components/AddressInput.svelte	252	110	42	100
+component	src/components/AddressInput.svelte	271	128	43	100
 component	src/components/Avatar.svelte	45	11	7	27
-component	src/components/Compose.svelte	1026	289	275	462
+component	src/components/Compose.svelte	1235	383	331	521
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
 component	src/components/FolderMenu.svelte	155	88	50	17
 component	src/components/FolderPicker.svelte	40	18	11	11
-component	src/components/FormatBar.svelte	433	267	80	86
+component	src/components/FormatBar.svelte	414	263	74	77
 component	src/components/HintLine.svelte	134	43	29	62
 component	src/components/Keys.svelte	70	16	9	45
 component	src/components/LabelColors.svelte	87	29	17	41
@@ -19,7 +19,7 @@ component	src/components/LaterMenu.svelte	38	13	13	12
 component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	162	120	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
-component	src/components/MarkdownPartsNote.svelte	94	22	18	54
+component	src/components/MarkdownPartsNote.svelte	48	7	8	33
 component	src/components/MessageList.svelte	791	216	132	443
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
@@ -119,7 +119,13 @@ function	plugins/command-palette/rank.ts::rank	7
 function	plugins/followups/DueForm.svelte::apply	8
 function	plugins/followups/RemindLine.svelte::iso	4
 function	plugins/followups/RemindLine.svelte::setDeadline	7
-function	plugins/followups/RemindSelect.svelte::apply	12
+function	plugins/followups/RemindMenu.svelte::close	4
+function	plugins/followups/RemindMenu.svelte::open	22
+function	plugins/followups/RemindMenu.svelte::toggle	5
+function	plugins/followups/RemindMenu.svelte::pick	5
+function	plugins/followups/RemindMenu.svelte::none	4
+function	plugins/followups/RemindMenu.svelte::choose	5
+function	plugins/followups/RemindMenu.svelte::apply	12
 function	plugins/followups/RemindSettings.svelte::move	7
 function	plugins/followups/RemindSettings.svelte::change	9
 function	plugins/followups/RemindSettings.svelte::repeatOf	1
@@ -150,7 +156,7 @@ function	plugins/followups/fixtures.ts::sayIn	11
 function	plugins/followups/fixtures.ts::wait	20
 function	plugins/followups/fixtures.ts::letter	29
 function	plugins/followups/fixtures.ts::incoming	13
-function	plugins/followups/index.test.ts::fakeContext	18
+function	plugins/followups/index.test.ts::fakeContext	21
 function	plugins/followups/index.test.ts::opened	1
 function	plugins/followups/index.ts::waiting	4
 function	plugins/followups/index.ts::repick	1
@@ -167,8 +173,10 @@ function	plugins/followups/rows.test.ts::f	1
 function	plugins/followups/rows.ts::rowTag	43
 function	plugins/followups/rows.ts::goingTag	9
 function	plugins/followups/rows.ts::since	6
+function	plugins/followups/stop.ts::stopWaiting	20
+function	plugins/followups/stop.ts::resumeWaiting	13
 function	plugins/followups/stop.ts::isWaiting	4
-function	plugins/followups/stop.ts::registerStop	22
+function	plugins/followups/stop.ts::registerStop	27
 function	plugins/followups/strings.test.ts::holes	1
 function	plugins/followups/strings.test.ts::pairs	10
 function	plugins/followups/view.test.ts::fakeContext	13
@@ -192,16 +200,17 @@ function	plugins/preflight/check.ts::ownText	8
 function	plugins/preflight/check.ts::domain	3
 function	plugins/preflight/check.ts::preflight	19
 function	plugins/snooze/SnoozeButton.svelte::toggle	4
-function	plugins/snooze/SnoozeMenu.svelte::env	6
+function	plugins/snooze/SnoozeMenu.svelte::env	8
 function	plugins/snooze/SnoozeMenu.svelte::win	1
 function	plugins/snooze/SnoozeMenu.svelte::place	6
 function	plugins/snooze/SnoozeMenu.svelte::focusPicker	8
-function	plugins/snooze/SnoozeMenu.svelte::apply	8
+function	plugins/snooze/SnoozeMenu.svelte::apply	14
 function	plugins/snooze/SnoozeMenu.svelte::onKey	26
 function	plugins/snooze/SnoozeMenu.svelte::outside	5
 function	plugins/snooze/SnoozeMenu.svelte::weekday	1
 function	plugins/snooze/SnoozeMenu.svelte::title	1
 function	plugins/snooze/SnoozeMenu.svelte::clock	1
+function	plugins/snooze/SnoozeOverlay.svelte::leave	5
 function	plugins/snooze/actions.ts::unsnoozeMail	16
 function	plugins/snooze/actions.ts::snoozeMail	8
 function	plugins/snooze/anchor.ts::anchorOfButton	4
@@ -219,6 +228,8 @@ function	plugins/snooze/menu.test.ts::open	3
 function	plugins/snooze/menu.test.ts::press	1
 function	plugins/snooze/menu.test.ts::stamp	1
 function	plugins/snooze/menu.test.ts::type	4
+function	plugins/snooze/menu.test.ts::reminder	2
+function	plugins/snooze/menu.test.ts::scheduled	1
 function	plugins/snooze/parse.test.ts::stamp	1
 function	plugins/snooze/parse.test.ts::when	4
 function	plugins/snooze/parse.ts::weekdayOf	9
@@ -267,6 +278,9 @@ function	src/components/Accounts.svelte::look	8
 function	src/components/Accounts.svelte::saveName	6
 function	src/components/Accounts.svelte::onRowKey	7
 function	src/components/Accounts.svelte::settings	3
+function	src/components/AddressInput.svelte::focus	3
+function	src/components/AddressInput.svelte::hasFocus	3
+function	src/components/AddressInput.svelte::hasText	3
 function	src/components/AddressInput.svelte::commit	13
 function	src/components/AddressInput.svelte::onInput	23
 function	src/components/AddressInput.svelte::offered	5
@@ -278,6 +292,11 @@ function	src/components/AddressInput.test.ts::type	8
 function	src/components/Compose.svelte::formatLabel	3
 function	src/components/Compose.svelte::commitAll	4
 function	src/components/Compose.svelte::name	2
+function	src/components/Compose.svelte::openCopyField	17
+function	src/components/Compose.svelte::openPart	17
+function	src/components/Compose.svelte::dropFile	12
+function	src/components/Compose.svelte::onFileKey	5
+function	src/components/Compose.svelte::closePartsNote	3
 function	src/components/Compose.svelte::acceptHint	3
 function	src/components/Compose.svelte::undoHint	11
 function	src/components/Confirm.svelte::answer	4
@@ -324,8 +343,6 @@ function	src/components/MailFrame.svelte::markdownCss	9
 function	src/components/MailFrame.svelte::repaint	7
 function	src/components/MailFrame.svelte::attach	34
 function	src/components/MailFrame.test.ts::srcdoc	7
-function	src/components/MarkdownPartsNote.svelte::onWindowDown	3
-function	src/components/MarkdownPartsNote.svelte::onKey	6
 function	src/components/MessageList.svelte::tagsOf	3
 function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
@@ -661,6 +678,8 @@ function	src/lib/compose/autosave.svelte.test.ts::setup	8
 function	src/lib/compose/autosave.svelte.ts::serverDue	3
 function	src/lib/compose/format.svelte.ts::ruleReturnPlan	3
 function	src/lib/compose/format.svelte.ts::weigh	4
+function	src/lib/compose/layout.ts::visibleChips	5
+function	src/lib/compose/layout.ts::mailboxName	3
 function	src/lib/compose/lockedBlock.test.ts::box	1
 function	src/lib/compose/lockedBlock.test.ts::onScreen	6
 function	src/lib/compose/lockedBlock.test.ts::barBox	1
@@ -669,11 +688,14 @@ function	src/lib/compose/lockedBlock.ts::placeLockedBlock	13
 function	src/lib/compose/sending.svelte.ts::makeOptions	34
 function	src/lib/compose/sending.svelte.ts::withArchive	4
 function	src/lib/compose/sending.svelte.ts::within	3
-function	src/lib/compose/sending.svelte.ts::makeContext	13
+function	src/lib/compose/sending.svelte.ts::makeContext	14
 function	src/lib/compose/sending.test.ts::control	5
 function	src/lib/compose/sending.test.ts::win	3
 function	src/lib/compose/sending.test.ts::host	7
+function	src/lib/compose/sending.test.ts::alt	1
+function	src/lib/compose/sending.test.ts::press	1
 function	src/lib/composeKeys.test.ts::press	8
+function	src/lib/composeKeys.test.ts::alt	1
 function	src/lib/composeKeys.ts::composeAction	4
 function	src/lib/composeKeys.ts::keyLabel	4
 function	src/lib/composes.svelte.test.ts::manager	3
@@ -789,7 +811,7 @@ function	src/lib/keymap.test.ts::press	3
 function	src/lib/keymap.test.ts::cmd	8
 function	src/lib/keymap.ts::mods	3
 function	src/lib/keymap.ts::typed	4
-function	src/lib/keymap.ts::physical	7
+function	src/lib/keymap.ts::physical	8
 function	src/lib/keymap.ts::pressName	6
 function	src/lib/keymap.ts::pressNames	8
 function	src/lib/keymap.ts::heldMods	7
@@ -1182,6 +1204,12 @@ function	src/lib/viewer.ts::blobType	4
 function	src/lib/viewer.ts::decodeText	12
 function	src/lib/viewer.ts::parseCsv	34
 function	src/lib/viewers.ts::registerCoreViewers	3
+function	src/lib/whenMenu.svelte.test.ts::request	9
+function	src/lib/whenMenu.svelte.ts::whenMenuAvailable	3
+function	src/lib/whenMenu.svelte.ts::provideWhenMenu	3
+function	src/lib/whenMenu.svelte.ts::whenMenuRequest	3
+function	src/lib/whenMenu.svelte.ts::openWhenMenu	5
+function	src/lib/whenMenu.svelte.ts::closeWhenMenu	3
 function	src/lib/workTime.ts::parseClock	7
 function	src/lib/workTime.ts::formatClock	3
 function	src/lib/workTime.ts::workTimeFrom	8

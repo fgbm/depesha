@@ -89,6 +89,9 @@ clear.progress
 clear.stop
 close
 cmd.addAccount
+compose.attach.add
+compose.attach.list
+compose.attach.more
 compose.attachHint
 compose.attachTitle
 compose.badAddresses
@@ -141,11 +144,12 @@ compose.fwd.to
 compose.goBack
 compose.importance
 compose.importance.off
-compose.markdown.markup
-compose.markdown.markupHint
+compose.mailbox.change
+compose.mailbox.is
 compose.markdown.note
+compose.markdown.noteClose
 compose.markdown.partsNote
-compose.markdown.partsTitle
+compose.markdown.showMarkup
 compose.markdownPlaceholder
 compose.maximize
 compose.minimize
@@ -165,8 +169,6 @@ compose.picture.pickTitle
 compose.picture.title
 compose.picture.useCtrlV
 compose.quote
-compose.quoteHide
-compose.quoteShow
 compose.restore
 compose.rule.because
 compose.rule.narrow
@@ -187,6 +189,7 @@ compose.signature.none
 compose.signature.settings
 compose.signature.title
 compose.signature.unnamed
+compose.state
 compose.tooBig
 compose.total
 compose.unschedule
