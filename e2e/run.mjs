@@ -62,6 +62,9 @@ const env = {
   DEPESHA_E2E_ROOT: [profile, root].join(delimiter),
   // A copy of a sent letter the server refuses waits seconds, not half an hour, before its next try (#88).
   DEPESHA_E2E_COPY_BACKOFF: "3",
+  // Test builds only: an own-fields write of a mailbox lands 200 ms late and a check of the connection takes 3 s, so a step can tell a quit that waits for the write from one that does not (7.28) and act while a check is under way (7.26).
+  DEPESHA_E2E_PATCH_DELAY_MS: "200",
+  DEPESHA_E2E_CHECK_DELAY_MS: "3000",
   // The scenario reads Russian text; the language follows the locale (LANGUAGE wins).
   LANGUAGE: "ru",
   // E2E_DARK=1: the whole run in the dark theme, for its screenshots.
@@ -2815,12 +2818,13 @@ try {
     const name = ".account-page .grid input";
     await setInput(name, "Проверка 7.26");
     await d.type(await d.find(name), "\uE007");
-    // The name waits for the check: while it is under way (no outcome yet, the button dim) nothing is written.
-    const checking = async () =>
-      (await d.findAll(".account-page .outcome")).length === 0 && (await d.findAll(".account-page footer .btn.primary[disabled]")).length === 1;
-    const busy = await checking();
+    // The name waits for the check: while it is under way (the button says «Проверяем…») nothing is written.
+    const checking = async () => (await textOf(".account-page footer .btn.primary")).includes("Проверяем");
+    // The check takes 3 s in the test build (DEPESHA_E2E_CHECK_DELAY_MS): it must still be under way here, or the step proves nothing.
+    if (!(await checking())) throw new Error("проверка подключения уже закончилась: шаг ничего не доказывает");
     const written = (await invoke("accounts"))[0].label ?? "";
-    if (busy && (await checking()) && written === "Проверка 7.26") throw new Error("название записано во время проверки");
+    if (written === "Проверка 7.26") throw new Error("название записано во время проверки");
+    if (!(await checking())) throw new Error("проверка закончилась до чтения записанного названия");
     // The check ends with its error: the connection is not saved, the name is.
     await d.until("name saved", async () => (await invoke("accounts"))[0].label === "Проверка 7.26", 90000);
     await d.until("check failed", async () => (await d.findAll(".account-page .outcome")).length === 1, 90000);
@@ -3797,6 +3801,10 @@ try {
   // The last step: the quit ends the app, so the answer is read from the config on disk.
   await step("7.28", "выход по Ctrl+Q с текстом в поле «Название» записывает его (#120)", async () => {
     const me = (await invoke("accounts"))[0];
+    // A letter due within a day makes the quit ask first (quit-asked) and the answer is not the text's: the outbox must be empty. Earlier steps send; give them a minute, then drop what is left, since this step ends the run.
+    await d.until("outbox empty", async () => (await invoke("outbox")).length === 0, 60000).catch(async () => {
+      for (const item of await invoke("outbox")) await invoke("outbox_cancel", { id: item.id });
+    });
     await openMailboxPage(me.id);
     const typed = "Выход 7.28";
     await setInput(".account-page .grid input", typed);

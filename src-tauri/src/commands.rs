@@ -69,6 +69,14 @@ pub async fn account_check(
     password: Option<String>,
     grant: Option<String>,
 ) -> CmdResult<()> {
+    // Test builds: a check that takes a known time, so a test can act while it is under way.
+    #[cfg(feature = "e2e")]
+    if let Some(ms) = std::env::var("DEPESHA_E2E_CHECK_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
     let creds = match (&account.auth, grant) {
         (AuthMethod::OAuth { .. }, Some(grant)) => {
             let token = state
@@ -229,6 +237,14 @@ fn apply_own(account: &mut Account, patch: OwnPatch) {
 pub fn account_patch_own(state: St<'_>, id: String, patch: OwnPatch) -> CmdResult<Account> {
     if let Some(folder) = &patch.attachments_dir {
         check_save_folder(&state, &state.account(&id)?.attachments_dir, folder)?;
+    }
+    // Test builds: the write lands late, so a test can tell a quit that waits for it from one that does not.
+    #[cfg(feature = "e2e")]
+    if let Some(ms) = std::env::var("DEPESHA_E2E_PATCH_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
     }
     state.patch_account(&id, |account| apply_own(account, patch))
 }
@@ -3613,6 +3629,15 @@ mod tests {
             (a.compose_format, a.letter_view, a.default_signature),
             (None, None, None)
         );
+    }
+
+    /// The command is the config's alone: it neither restarts the mailbox's connection nor saves the whole mailbox.
+    #[test]
+    fn an_own_patch_keeps_the_mailboxs_connection_alone() {
+        let src = include_str!("commands.rs");
+        let body = &src[src.find("pub fn account_patch_own").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(!body.contains("worker") && !body.contains("save_account"), "{body}");
     }
 
     /// What the connection holds is not the patch's to name: the command refuses the key instead
