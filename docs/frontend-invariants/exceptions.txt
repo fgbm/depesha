@@ -15,3 +15,7 @@ app-members	list	контроллер уже поле AppStore; компонен
 app-members	mailboxes	контроллер уже поле AppStore; компоненты берут его напрямую вместо проброса (#140, шаг 2)
 app-members	reader	контроллер уже поле AppStore; компоненты берут его напрямую вместо проброса (#140, шаг 2)
 app-members	settingsCtl	контроллер уже поле AppStore; компоненты берут его напрямую вместо проброса (#140, шаг 2)
+app-nested	actions.archive	был app.archive на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
+app-nested	actions.moveTo	был app.moveTo на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
+app-nested	actions.remove	был app.remove на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
+app-nested	actions.spam	был app.spam на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
