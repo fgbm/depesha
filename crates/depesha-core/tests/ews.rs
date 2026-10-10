@@ -1009,13 +1009,13 @@ async fn clearing_exchange_folders() {
     );
 }
 
-/// #117: a draft in an Exchange mailbox may be sent from Outlook or OWA as it is. The kind of
-/// its action travels inside the `Acts-On` mark and no `X-Depesha-Act` line is written, yet
-/// the draft read back from the server still tells a forward from an answer.
+/// #117: the kind of a draft's action travels inside the `Acts-On` mark through the MIME the
+/// draft is saved with in Exchange (which lines Depesha writes is `with_service_headers`, tested
+/// in the app), and the draft read back still tells a forward from an answer.
 #[tokio::test]
 async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
     use depesha_core::domain::{Act, ActsOn};
-    use depesha_core::message::{self, ACT_HEADER, ACTS_ON_HEADER};
+    use depesha_core::message::{self, ACTS_ON_HEADER};
     let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
         items: Vec::new(),
         next_id: 100,
@@ -1064,9 +1064,5 @@ async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
     let mime = created.split("<t:MimeContent CharacterSet=\"UTF-8\">").nth(1).unwrap();
     let mime = BASE64.decode(mime.split("</t:MimeContent>").next().unwrap()).unwrap();
     let mime = String::from_utf8(mime).unwrap();
-    assert!(
-        !mime.contains(&format!("{ACT_HEADER}:")),
-        "no separate line for the kind"
-    );
     assert_eq!(message::draft_act(mime.as_bytes()), Some(Act::Forward));
 }

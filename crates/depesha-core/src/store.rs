@@ -4539,7 +4539,10 @@ mod tests {
                 .unwrap()
         };
         let inbox = list("INBOX", false);
-        assert!(inbox.iter().all(|r| r.snoozed_until.is_none()), "the inbox shows no time");
+        assert!(
+            inbox.iter().all(|r| r.snoozed_until.is_none()),
+            "the inbox shows no time"
+        );
         assert_eq!(list("Snoozed", false)[0].snoozed_until, Some(1000));
         let view = store
             .list(&ListQuery {

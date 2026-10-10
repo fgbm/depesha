@@ -2896,6 +2896,49 @@ fn replace_once(raw: Vec<u8>, from: &[u8], to: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The lines Depesha puts on top of a saved draft so that it opens the same way: its own
+/// Message-ID domain, the scheduled time, how it was written and what it answers. Only
+/// drafts carry them (#117: another client may send a draft as it is).
+fn with_service_headers(
+    mut raw: Vec<u8>,
+    draft: &Draft,
+    send_at: Option<i64>,
+    sign: impl Fn(&[u8]) -> String,
+) -> Vec<u8> {
+    // The draft's Message-ID says Depesha wrote it. The mark below is trusted only when its
+    // signature checks, not because of this domain. Another client's draft keeps its own.
+    if let Some(mid) = message::parse_summary(&raw).message_id
+        && let Some(own) = own_message_id(&mid)
+        && own != mid
+    {
+        raw = replace_once(raw, mid.as_bytes(), own.as_bytes());
+    }
+    if let Some(at) = send_at {
+        // A header line on top is as good as any other place for it.
+        raw.splice(0..0, format!("{}: {at}\r\n", message::SEND_AT_HEADER).into_bytes());
+    }
+    if draft.format != BodyFormat::Plain {
+        // Markdown looks like plain text in the letter: the draft says how it was written.
+        let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
+        raw.splice(0..0, header.into_bytes());
+    }
+    if let Some(acts_on) = &draft.acts_on {
+        let signed =
+            message::encode_acts_on(acts_on).and_then(|value| message::signed_acts_on(&value, &sign(value.as_bytes())));
+        let header = match signed {
+            // The draft says what it answers or forwards, and signs that with the install
+            // secret: opening it marks the letter only when the signature still checks. An
+            // unsigned mark (an old draft, or no secret) is not written and not followed (#71).
+            Some(signed) => format!("{}: {signed}\r\n", message::ACTS_ON_HEADER),
+            // No mark fits (a long folder name) or none can be signed: the kind alone, which
+            // names no letter, still tells an answer from a forward (#100). Only here.
+            None => format!("{}: {}\r\n", message::ACT_HEADER, acts_on.act.as_str()),
+        };
+        raw.splice(0..0, header.into_bytes());
+    }
+    raw
+}
+
 /// The server copy a save made: its number in the cache and its Message-ID, which the next
 /// save, the send or the discard must find on that number to delete it (#92).
 #[derive(Serialize)]
@@ -2930,34 +2973,8 @@ pub async fn draft_save(
             email: account.email.clone(),
         }));
     }
-    let mut raw = smtp::build(&draft)?.formatted();
-    // The draft's Message-ID says Depesha wrote it. The mark below is trusted only when its
-    // signature checks, not because of this domain. Another client's draft keeps its own.
-    if let Some(mid) = message::parse_summary(&raw).message_id
-        && let Some(own) = own_message_id(&mid)
-        && own != mid
-    {
-        raw = replace_once(raw, mid.as_bytes(), own.as_bytes());
-    }
-    if let Some(at) = send_at {
-        // A header line on top is as good as any other place for it.
-        raw.splice(0..0, format!("{}: {at}\r\n", message::SEND_AT_HEADER).into_bytes());
-    }
-    if draft.format != BodyFormat::Plain {
-        // Markdown looks like plain text in the letter: the draft says how it was written.
-        let header = format!("{}: {}\r\n", message::FORMAT_HEADER, draft.format.as_str());
-        raw.splice(0..0, header.into_bytes());
-    }
-    if let Some(acts_on) = &draft.acts_on
-        && let Some(value) = message::encode_acts_on(acts_on)
-        && let Some(signed) = message::signed_acts_on(&value, &crate::install_secret::sign(value.as_bytes()))
-    {
-        // The draft says what it answers or forwards, and signs that with the install
-        // secret: opening it marks the letter only when the signature still checks. An
-        // unsigned mark (an old draft, or no secret) is not written and not followed (#71).
-        let header = format!("{}: {signed}\r\n", message::ACTS_ON_HEADER);
-        raw.splice(0..0, header.into_bytes());
-    }
+    let raw = smtp::build(&draft)?.formatted();
+    let raw = with_service_headers(raw, &draft, send_at, crate::install_secret::sign);
     let message_id = message::parse_summary(&raw).message_id;
     let worker = state.worker(&account.id)?;
     worker
@@ -3579,6 +3596,51 @@ pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResul
 
 #[cfg(test)]
 mod tests {
+    fn answer_draft(act: Act, folder: &str) -> Draft {
+        Draft {
+            from: Some(Addr {
+                name: None,
+                email: "me@x.ru".into(),
+            }),
+            to: vec![Addr {
+                name: None,
+                email: "a@x.ru".into(),
+            }],
+            subject: "Тема".into(),
+            text: "текст".into(),
+            acts_on: Some(ActsOn {
+                account_id: "acc".into(),
+                message_id: "<orig@x.ru>".into(),
+                folder: folder.into(),
+                act,
+                waiting: false,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn saved_with(draft: &Draft) -> String {
+        let raw = smtp::build(draft).unwrap().formatted();
+        let raw = with_service_headers(raw, draft, None, |_| "sig".into());
+        String::from_utf8(raw).unwrap()
+    }
+
+    #[test]
+    fn a_draft_whose_mark_is_too_long_still_tells_its_kind() {
+        let long = answer_draft(Act::Forward, &"п".repeat(900));
+        let raw = saved_with(&long);
+        assert!(!raw.contains(message::ACTS_ON_HEADER), "the mark does not fit a header");
+        assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
+    }
+
+    #[test]
+    fn a_draft_with_a_mark_has_no_separate_line_for_its_kind() {
+        let raw = saved_with(&answer_draft(Act::Forward, "INBOX"));
+        assert!(raw.contains(&format!("{}:", message::ACTS_ON_HEADER)));
+        assert!(!raw.contains(&format!("{}:", message::ACT_HEADER)));
+        assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
+    }
+
     use super::*;
 
     #[tokio::test]
