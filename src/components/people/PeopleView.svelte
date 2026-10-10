@@ -44,6 +44,12 @@
     if (own && shown.some((p) => personKey(p) === personKey(own))) return asked;
     return shown[0]?.email ?? asked;
   });
+  /** The search or the filter changed: the cursor stays on whoever it shows now, even if its person comes back later. */
+  function narrow(next: { query?: string; filter?: PeopleFilter }) {
+    if (next.query !== undefined) query = next.query;
+    if (next.filter) filter = next.filter;
+    asked = cursor;
+  }
   const current = $derived(peopleBook.find(cursor) ?? null);
   const at = $derived(current ? shown.findIndex((p) => personKey(p) === personKey(current)) : -1);
   // The suggestion stands only when both people are in the list as it is filtered now.
@@ -157,7 +163,7 @@
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      if (query) query = "";
+      if (query) narrow({ query: "" });
       else listEl?.focus();
     } else if (e.key === "ArrowDown" || e.key === "Enter") {
       e.preventDefault();
@@ -232,7 +238,7 @@
         <input
           type="search"
           bind:this={searchEl}
-          bind:value={query}
+          value={query} oninput={(e) => narrow({ query: e.currentTarget.value })}
           onkeydown={onSearchKey}
           placeholder={t("people.search")}
           aria-label={t("people.search")}
@@ -240,7 +246,7 @@
       </div>
       <div class="chips">
         {#each FILTERS as f (f)}
-          <button class="fchip" class:on={filter === f} aria-pressed={filter === f} onclick={() => (filter = f)}>{t(`people.filter.${f}`)}</button>
+          <button class="fchip" class:on={filter === f} aria-pressed={filter === f} onclick={() => narrow({ filter: f })}>{t(`people.filter.${f}`)}</button>
         {/each}
       </div>
     </div>

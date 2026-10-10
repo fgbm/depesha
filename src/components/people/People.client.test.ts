@@ -303,6 +303,39 @@ describe("the cursor of the book", () => {
   });
 });
 
+describe("the cursor when the list narrows and widens", () => {
+  it("stays on the person it was moved to when the one it was on comes back", async () => {
+    await book([olga(), person("Иван Петров", ["ivan@example.org"]), person("Мария", ["maria@example.org"])]);
+    const root = show(PeopleView);
+    const list = root.querySelector<HTMLElement>("[role=listbox]")!;
+    list.focus();
+    press(list, "ArrowDown");
+    const search = root.querySelector<HTMLInputElement>("input[type=search]")!;
+    const type = (v: string) => {
+      search.value = v;
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      flushSync();
+    };
+    type("maria");
+    expect(root.querySelector(".pr.on .nm")?.textContent).toBe("Мария");
+    type("");
+    expect(root.querySelector(".pr.on .nm")?.textContent).toBe("Мария");
+  });
+
+  it("stays on the one shown when a filter hid its person and is lifted", async () => {
+    await book([olga(), person("Иван Петров", ["ivan@example.org"], { send_format: "plain" })]);
+    const root = show(PeopleView);
+    const chip = (label: string) => [...root.querySelectorAll<HTMLButtonElement>(".fchip")].find((b) => b.textContent === label)!;
+    expect(root.querySelector(".pr.on .nm")?.textContent).toBe("Ольга Смирнова");
+    chip("С особым форматом").click();
+    flushSync();
+    expect(root.querySelector(".pr.on .nm")?.textContent).toBe("Иван Петров");
+    chip("Все").click();
+    flushSync();
+    expect(root.querySelector(".pr.on .nm")?.textContent).toBe("Иван Петров");
+  });
+});
+
 describe("the choice of the second person", () => {
   it("highlights the first match again when the query changes", async () => {
     await book([olga(), ivan(), person("Иван Сидоров", ["sidorov@example.org"]), person("Иван Волков", ["volkov@example.org"])]);
