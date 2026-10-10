@@ -645,3 +645,34 @@ async fn clearing_a_folder() {
         .expect("carol login");
     clears_a_folder(conn, &std::process::id().to_string()).await;
 }
+
+/// #130: a quoted local part (`"a b"@x`) keeps its quotes through the query parser and
+/// reaches the server's SEARCH FROM escaped, so the server finds the letter.
+#[tokio::test]
+async fn server_search_finds_a_quoted_local_part() {
+    if !enabled() {
+        return;
+    }
+    let tag = format!("quoted-{}", std::process::id());
+    let raw = format!(
+        "From: \"a b\"@quoted.test\r\nTo: carol@local.test\r\nSubject: {tag}\r\n\
+         Message-ID: <{tag}@local.test>\r\nDate: Sat, 10 Oct 2026 10:00:00 +0000\r\n\r\nbody\r\n"
+    );
+    let mut conn = imap::connect(&imap_server(), &Credentials::new("carol", "secret"))
+        .await
+        .unwrap();
+    imap::append(&mut conn, "INBOX", raw.as_bytes(), "")
+        .await
+        .expect("append");
+    let q = depesha_core::query::SearchQuery::parse(r#"from:"a b"@quoted.test"#);
+    let uids = imap::search(&mut conn, "INBOX", &depesha_core::query::imap_criteria(&q))
+        .await
+        .expect("search");
+    assert!(!uids.is_empty(), "the letter from \"a b\"@quoted.test is not found");
+    // An ordinary address still searches as before.
+    let plain = depesha_core::query::SearchQuery::parse("from:nobody@quoted.test");
+    let none = imap::search(&mut conn, "INBOX", &depesha_core::query::imap_criteria(&plain))
+        .await
+        .expect("search");
+    assert!(none.is_empty());
+}

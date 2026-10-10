@@ -148,9 +148,27 @@ fn tokens(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut quoted = false;
-    for ch in text.chars() {
+    // Whether the open quote stays: it closes in the middle of a word (`"a b"@x`), so the
+    // quotes are the address's own (RFC 5321 quoted local part), not the query's.
+    let mut keep = false;
+    let chars: Vec<char> = text.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
         match ch {
-            '"' => quoted = !quoted,
+            '"' if !quoted => {
+                quoted = true;
+                let close = chars[i + 1..].iter().position(|&c| c == '"').map(|p| i + 1 + p);
+                keep = close.is_some_and(|j| chars.get(j + 1).is_some_and(|c| !c.is_whitespace()));
+                if keep {
+                    cur.push('"');
+                }
+            }
+            '"' => {
+                quoted = false;
+                if keep {
+                    cur.push('"');
+                    keep = false;
+                }
+            }
             c if c.is_whitespace() && !quoted => {
                 if !cur.is_empty() {
                     out.push(std::mem::take(&mut cur));
@@ -480,6 +498,17 @@ mod tests {
         assert!(keys[0].key.contains("HEADER Importance high") && keys[0].key.contains("X-Priority 2"));
         assert!(keys[0].value.is_none());
         assert!(!SearchQuery::parse("is:flagged").important);
+    }
+
+    #[test]
+    fn quotes_inside_an_address_stay() {
+        // `"a b"@x`: the quotes belong to the address, not to the query syntax.
+        let q = SearchQuery::parse(r#"from:"a b"@x.org"#);
+        assert_eq!(q.from, [r#""a b"@x.org"#]);
+        assert_eq!(imap_criteria(&q)[0].value.as_deref(), Some(r#""a b"@x.org"#));
+        // A quoted value that ends the word is still unwrapped.
+        assert_eq!(SearchQuery::parse(r#"from:"ivan petrov" док"#).from, ["ivan petrov"]);
+        assert_eq!(SearchQuery::parse(r#""два слова" x"#).words, ["два слова", "x"]);
     }
 
     #[test]

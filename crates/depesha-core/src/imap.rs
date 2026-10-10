@@ -1361,7 +1361,7 @@ pub async fn search(conn: &mut Conn, folder: &str, criteria: &[Criterion]) -> Re
             // LARGER and SMALLER take a number, not a string; digits are a valid atom anywhere.
             line.push_str(&format!(" {value}"));
         } else if value.is_ascii() {
-            line.push_str(&format!(" \"{}\"", value.replace(['\\', '"'], "")));
+            line.push_str(&format!(" {}", quoted(&value)));
         } else if conn.caps.literal_plus {
             line.push_str(&format!(" {{{}+}}\r\n{value}", value.len()));
         } else {
@@ -1586,6 +1586,14 @@ mod tests {
             selectable: true,
             hidden: false,
         }
+    }
+
+    #[test]
+    fn quoted_keeps_the_quotes_of_an_address() {
+        // SEARCH FROM "a b"@x: a quoted local part reaches the server with its quotes escaped.
+        assert_eq!(quoted(r#""a b"@x.org"#), r#""\"a b\"@x.org""#);
+        assert_eq!(quoted("olga@example.org"), r#""olga@example.org""#);
+        assert_eq!(quoted(r"a\b"), r#""a\\b""#);
     }
 
     #[test]
