@@ -792,7 +792,7 @@ fn list_filter(q: &ListQuery) -> (String, Vec<rusqlite::types::Value>) {
     }
     if q.snoozed_only {
         cond.push_str(
-            " AND EXISTS (SELECT 1 FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id)",
+            " AND EXISTS (SELECT 1 FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id AND s.folder = m.folder)",
         );
     } else if q.followups_only {
         cond.push_str(&followups::list_condition(q.followup_status));
@@ -2155,7 +2155,8 @@ impl Store {
     pub fn snoozed_count(&self, threads: bool) -> Result<u32> {
         let sql = if threads {
             "SELECT COUNT(DISTINCT s.account_id || char(0) || COALESCE(m.thread, '#' || s.message_id))
-             FROM snoozed s LEFT JOIN messages m ON m.account_id = s.account_id AND m.message_id = s.message_id"
+             FROM snoozed s LEFT JOIN messages m
+               ON m.account_id = s.account_id AND m.message_id = s.message_id AND m.folder = s.folder"
         } else {
             "SELECT COUNT(*) FROM snoozed"
         };
@@ -3100,7 +3101,8 @@ fn fill_sort_keys(conn: &Connection) -> Result<()> {
 const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_reply_to, m.refs, m.subject,
     m.from_addr, m.to_addrs, m.cc_addrs, m.reply_to, m.date, m.size,
     m.seen, m.answered, m.flagged, m.draft, m.has_attachments, m.thread, m.bulk,
-    (SELECT s.until FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id),
+    (SELECT s.until FROM snoozed s WHERE s.account_id = m.account_id AND s.message_id = m.message_id
+        AND s.folder = m.folder),
     (SELECT json_object('status', fu.status, 'due', fu.due,
             'deadline', fu.deadline, 'own_deadline', json(CASE WHEN fu.own_deadline THEN 'true' ELSE 'false' END),
             'repeat_secs', fu.repeat_secs, 'expect', fu.expect, 'kind', fu.kind,
@@ -4503,6 +4505,52 @@ mod tests {
         assert_eq!(store.snoozes_due(1000).unwrap().len(), 1);
         assert!(store.snooze_remove("a", "s@x").unwrap().is_some());
         assert_eq!(store.snoozed_count(false).unwrap(), 0);
+    }
+
+    /// #117: a time belongs to the letter waiting in the folder it names; a copy of the same
+    /// Message-ID elsewhere shows no time, is not in the view and does not join a thread count.
+    #[test]
+    fn a_time_is_seen_only_on_the_letter_in_the_folder_it_names() {
+        let store = mailbox();
+        // "x@x" waits in Snoozed; "y@x" has left it and its copy is in the inbox, in the
+        // thread of "x@x".
+        put(&store, "Snoozed", 1, &with_ids("Тема", 100, "x@x", None), true);
+        put(&store, "INBOX", 1, &with_ids("Re: Тема", 200, "y@x", Some("x@x")), true);
+        put(&store, "INBOX", 2, &with_ids("Тема", 100, "x@x", None), true);
+        for mid in ["x@x", "y@x"] {
+            store
+                .snooze_add(&Snooze {
+                    account_id: "a".into(),
+                    message_id: mid.into(),
+                    folder: "Snoozed".into(),
+                    return_to: "INBOX".into(),
+                    until: 1000,
+                    subject: "Тема".into(),
+                })
+                .unwrap();
+        }
+        let list = |folder: &str, snoozed_only: bool| {
+            store
+                .list(&ListQuery {
+                    folder: Some(folder.into()),
+                    snoozed_only,
+                    ..Default::default()
+                })
+                .unwrap()
+        };
+        let inbox = list("INBOX", false);
+        assert!(inbox.iter().all(|r| r.snoozed_until.is_none()), "the inbox shows no time");
+        assert_eq!(list("Snoozed", false)[0].snoozed_until, Some(1000));
+        let view = store
+            .list(&ListQuery {
+                snoozed_only: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(view.len(), 1, "only the letter in Snoozed is in the view");
+        assert_eq!(view[0].folder, "Snoozed");
+        // "y@x" has no letter in Snoozed: it is not a thread of its own there.
+        assert_eq!(store.snoozed_count(true).unwrap(), 2);
     }
 
     #[test]
