@@ -50,8 +50,61 @@ impl FolderSync {
 
 pub async fn sync_folder_list(conn: &mut Conn, store: &Store, account_id: &str) -> Result<Vec<Folder>> {
     let folders = imap::list_folders(conn).await?;
-    store.replace_folders(account_id, &folders)?;
+    apply_folder_list(conn, store, account_id, &folders).await?;
     Ok(folders)
+}
+
+/// Missing folders at which a LIST is taken for a cut one: this many at least, and more than
+/// half of the cache. A list cut short loses everything after the cut, while a real change (a
+/// folder deleted, one renamed) takes one or two; a small account losing two of three is still
+/// believed, and each missing folder is asked of the server anyway.
+const MISSING_SUSPICIOUS: usize = 5;
+
+/// Stores the listed folders and takes out of the cache only the folders the server itself
+/// says are not there. A LIST on a dying connection may end early without an error, and a
+/// folder missing from it would take its letters along: so each missing one is asked with
+/// `STATUS`, and only a `NO` about existence deletes it. Any other answer keeps the folder; a
+/// dead connection stops the asking and its error is returned (the worker tries again). At
+/// `MISSING_SUSPICIOUS` missing nothing is asked and nothing deleted: the next pass looks
+/// again (the core has no log, so the skip is silent).
+async fn apply_folder_list<P: imap::Probing>(
+    probe: &mut P,
+    store: &Store,
+    account_id: &str,
+    folders: &[Folder],
+) -> Result<()> {
+    store.upsert_folders(account_id, folders)?;
+    let cached = store.cached_folder_names(account_id)?;
+    let missing: Vec<&String> = cached
+        .iter()
+        .filter(|n| !folders.iter().any(|f| &f.name == *n))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    if missing.len() >= MISSING_SUSPICIOUS && missing.len() * 2 > cached.len() {
+        return Ok(());
+    }
+    let mut gone = Vec::new();
+    let mut failure = None;
+    for name in missing {
+        match imap::folder_gone(probe, name).await {
+            Ok(true) => gone.push(name.clone()),
+            Ok(false) => {}
+            // The connection is not to be trusted: the rest is not asked.
+            Err(e) if e.is_transient() => {
+                failure = Some(e);
+                break;
+            }
+            // An answer that says nothing of existence: the folder stays.
+            Err(_) => {}
+        }
+    }
+    store.drop_folders(account_id, &gone)?;
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// Brings one folder of the cache in line with the server: new headers,
@@ -387,6 +440,167 @@ pub async fn load_body(conn: &mut Conn, store: &Store, id: i64) -> Result<Vec<u8
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error;
+    use crate::imap::{FolderRole, Probing};
+    use crate::store::NewMessage;
+    use std::collections::HashMap;
+
+    fn folder(name: &str) -> Folder {
+        Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role: (name == "INBOX").then_some(FolderRole::Inbox),
+            selectable: true,
+            hidden: false,
+        }
+    }
+
+    /// What the server answers to `STATUS` of a folder; no entry = it exists.
+    #[derive(Default)]
+    struct Fake {
+        answers: HashMap<&'static str, fn() -> Error>,
+        asked: Vec<String>,
+    }
+
+    fn nonexistent() -> Error {
+        Error::Imap(async_imap::error::Error::No(
+            "[NONEXISTENT] Mailbox doesn't exist".into(),
+        ))
+    }
+
+    fn cut() -> Error {
+        Error::Imap(async_imap::error::Error::ConnectionLost)
+    }
+
+    impl Probing for Fake {
+        async fn status(&mut self, folder: &str) -> Result<()> {
+            self.asked.push(folder.to_owned());
+            match self.answers.get(folder) {
+                Some(make) => Err(make()),
+                None => Ok(()),
+            }
+        }
+    }
+
+    /// A cache of the account "a" with the folders and a letter in each.
+    fn cached(names: &[&str]) -> Store {
+        let store = Store::open_in_memory().unwrap();
+        let folders: Vec<Folder> = names.iter().map(|n| folder(n)).collect();
+        store.replace_folders("a", &folders).unwrap();
+        let summary = message::Summary {
+            subject: "Письмо".into(),
+            ..Default::default()
+        };
+        for n in names {
+            let msg = NewMessage {
+                uid: 1,
+                summary: &summary,
+                fallback_date: 1,
+                size: 1,
+                flags: Flags::default(),
+                keywords: Vec::new(),
+            };
+            store.insert_message("a", n, &msg).unwrap();
+        }
+        store
+    }
+
+    fn names(store: &Store) -> Vec<String> {
+        let mut n = store.cached_folder_names("a").unwrap();
+        n.sort();
+        n
+    }
+
+    fn listed(names: &[&str]) -> Vec<Folder> {
+        names.iter().map(|n| folder(n)).collect()
+    }
+
+    #[tokio::test]
+    async fn a_list_cut_short_keeps_folders_the_server_still_has() {
+        let store = cached(&["INBOX", "Sent", "Work"]);
+        // LIST ended after INBOX; STATUS finds the others.
+        let mut p = Fake::default();
+        apply_folder_list(&mut p, &store, "a", &listed(&["INBOX"]))
+            .await
+            .unwrap();
+        assert_eq!(names(&store), ["INBOX", "Sent", "Work"]);
+        assert_eq!(store.known_uids("a", "Work").unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_folder_the_server_says_is_gone_loses_its_cache() {
+        let store = cached(&["INBOX", "Sent", "Work"]);
+        let mut p = Fake::default();
+        p.answers.insert("Work", nonexistent);
+        apply_folder_list(&mut p, &store, "a", &listed(&["INBOX", "Sent"]))
+            .await
+            .unwrap();
+        assert_eq!(names(&store), ["INBOX", "Sent"]);
+        assert_eq!(store.known_uids("a", "Work").unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_connection_cut_during_status_deletes_nothing() {
+        let store = cached(&["INBOX", "Sent", "Work"]);
+        let mut p = Fake::default();
+        p.answers.insert("Sent", cut);
+        let err = apply_folder_list(&mut p, &store, "a", &listed(&["INBOX"]))
+            .await
+            .unwrap_err();
+        assert!(err.is_transient());
+        assert_eq!(names(&store), ["INBOX", "Sent", "Work"]);
+    }
+
+    #[tokio::test]
+    async fn a_rename_drops_the_old_name_and_adds_the_new() {
+        let store = cached(&["INBOX", "Old"]);
+        let mut p = Fake::default();
+        p.answers.insert("Old", nonexistent);
+        apply_folder_list(&mut p, &store, "a", &listed(&["INBOX", "New"]))
+            .await
+            .unwrap();
+        assert_eq!(names(&store), ["INBOX", "New"]);
+    }
+
+    #[tokio::test]
+    async fn a_no_that_is_not_about_existence_keeps_the_folder() {
+        let store = cached(&["INBOX", "Shared"]);
+        let mut p = Fake::default();
+        p.answers.insert("Shared", || {
+            Error::Imap(async_imap::error::Error::No("[NOPERM] Permission denied".into()))
+        });
+        apply_folder_list(&mut p, &store, "a", &listed(&["INBOX"]))
+            .await
+            .unwrap();
+        assert_eq!(names(&store), ["INBOX", "Shared"]);
+    }
+
+    #[tokio::test]
+    async fn most_of_the_cache_missing_is_a_cut_list_even_if_the_server_says_no() {
+        let store = cached(&["INBOX", "A", "B", "C", "D", "E"]);
+        let mut p = Fake::default();
+        for n in ["A", "B", "C", "D", "E"] {
+            p.answers.insert(n, nonexistent);
+        }
+        apply_folder_list(&mut p, &store, "a", &listed(&["INBOX"]))
+            .await
+            .unwrap();
+        assert_eq!(names(&store).len(), 6);
+        // Nothing was even asked: the number alone says it.
+        assert!(p.asked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_full_list_asks_nothing() {
+        let store = cached(&["INBOX", "Sent"]);
+        let mut p = Fake::default();
+        apply_folder_list(&mut p, &store, "a", &listed(&["INBOX", "Sent", "New"]))
+            .await
+            .unwrap();
+        assert!(p.asked.is_empty());
+        assert_eq!(names(&store), ["INBOX", "New", "Sent"]);
+    }
 
     #[test]
     fn a_cached_letter_the_server_found_by_importance_is_in_the_results() {

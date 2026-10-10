@@ -1142,6 +1142,32 @@ async fn remove(conn: &mut Conn, set: &str) -> Result<()> {
     expunge_keeping(conn, set, &foreign).await
 }
 
+/// What `folder_gone` asks of the connection: `STATUS` of one folder, which touches no
+/// selection. A trait so that a cut connection can be tried.
+pub(crate) trait Probing {
+    async fn status(&mut self, folder: &str) -> Result<()>;
+}
+
+impl Probing for Conn {
+    async fn status(&mut self, folder: &str) -> Result<()> {
+        self.session.status(folder, "(MESSAGES)").await?;
+        Ok(())
+    }
+}
+
+/// Whether the server says the folder does not exist: only its own `NO` counts. A dead
+/// connection, a timeout or any other error is no answer and comes back as the error; a `NO`
+/// of rights, a busy folder or a limit says nothing of existence (`false`). Not the wording
+/// (`Error::folder_gone` reads it): servers phrase "no such mailbox" their own ways, and a
+/// `NO` to the `STATUS` of a folder the LIST left out is the server's own answer.
+pub(crate) async fn folder_gone<P: Probing>(p: &mut P, folder: &str) -> Result<bool> {
+    match p.status(folder).await {
+        Ok(()) => Ok(false),
+        Err(e @ Error::Imap(async_imap::error::Error::No(_))) => Ok(!(e.no_rights() || e.retry_later())),
+        Err(e) => Err(e),
+    }
+}
+
 /// What `expunge_keeping` asks of the connection: the `\Deleted` mark of a set of UIDs set or
 /// cleared, and the plain `EXPUNGE`. A trait so that a failure in the middle can be tried.
 trait Expunging {

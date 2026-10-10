@@ -1204,6 +1204,59 @@ impl Store {
         Duration::from_nanos(self.longest_lock.swap(0, Ordering::Relaxed))
     }
 
+    /// Stores the folders the server listed, losing none: a list that may be cut short is
+    /// no proof of a folder's absence (`sync::apply_folder_list` asks the server).
+    pub fn upsert_folders(&self, account_id: &str, folders: &[Folder]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        {
+            let mut upsert = tx.prepare(
+                "INSERT INTO folders (account_id, name, display_name, delimiter, role, selectable, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (account_id, name) DO UPDATE SET
+                    display_name = excluded.display_name, delimiter = excluded.delimiter,
+                    role = excluded.role, selectable = excluded.selectable, hidden = excluded.hidden",
+            )?;
+            for f in folders {
+                upsert.execute(params![
+                    account_id,
+                    f.name,
+                    f.display_name,
+                    f.delimiter,
+                    f.role.map(FolderRole::as_str),
+                    f.selectable,
+                    f.hidden
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Names of the account's folders in the cache.
+    pub fn cached_folder_names(&self, account_id: &str) -> Result<Vec<String>> {
+        let conn = self.read();
+        let names = conn
+            .prepare("SELECT name FROM folders WHERE account_id = ?1")?
+            .query_map([account_id], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(names)
+    }
+
+    /// Takes the folders out of the cache with their letters.
+    pub fn drop_folders(&self, account_id: &str, names: &[String]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for name in names {
+            tx.execute(
+                "DELETE FROM folders WHERE account_id = ?1 AND name = ?2",
+                params![account_id, name],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Stores the server's folder list; folders gone from the server lose their cache.
     pub fn replace_folders(&self, account_id: &str, folders: &[Folder]) -> Result<()> {
         let mut conn = self.conn();
