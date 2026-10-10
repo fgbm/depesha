@@ -24,7 +24,7 @@ import {
   withoutHtmlSignature,
 } from "../signatures";
 import type { ComposeWindow } from "../composes.svelte";
-import type { AccountView, BodyFormat, ComposeDraft, Signature } from "../types";
+import type { BodyFormat, ComposeDraft, Signature } from "../types";
 import type RichEditor from "../../components/RichEditor.svelte";
 import type FormatBar from "../../components/FormatBar.svelte";
 import type { MarkdownField } from "../markdown/types";
@@ -359,7 +359,6 @@ export class ComposeFormat {
     try {
       if (!(await this.confirmSwitch(next))) return;
       const current = $state.snapshot(win.draft) as ComposeDraft;
-      const from = this.format;
       const before = { ...current, attachments: [...current.attachments] };
       // Leaving HTML, the pictures inside the letter go as files, or they would be lost
       // (a forward carries the forwarded letter's pictures inside it).

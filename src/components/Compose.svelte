@@ -25,7 +25,6 @@
   import { accountLabel, listDate, shortDateTime, size } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import type { BodyFormat, Signature } from "../lib/types";
-  import type { MarkdownField } from "../lib/markdown/types";
   import RichEditor from "./RichEditor.svelte";
   import SignaturePicker from "./SignaturePicker.svelte";
   import FormatBar from "./FormatBar.svelte";

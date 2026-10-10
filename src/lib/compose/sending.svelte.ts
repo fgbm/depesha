@@ -12,7 +12,6 @@ import { composeAction } from "../composeKeys";
 import { isDirty } from "../compose";
 import { registry } from "../../plugin-host/registry.svelte";
 import type { ComposeWindow } from "../composes.svelte";
-import type { AccountView, ComposeDraft } from "../types";
 import type { ComposeContext, FollowupPlan } from "../../plugin-api";
 import type { ComposeFormat } from "./format.svelte";
 import type { ComposeAutosave } from "./autosave.svelte";

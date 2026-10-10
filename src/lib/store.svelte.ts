@@ -17,7 +17,7 @@ import { MailboxController } from "./mailboxes.svelte";
 import { UiController, type Confirmation } from "./ui.svelte";
 import { SelectionController } from "./selection.svelte";
 import { ClearFolder } from "./clearFolder.svelte";
-import type { AccountView, CachedDraft, ComposeDraft, FollowupPlan, KeySettings, MessageRow, Moved, SortKey, StuckCopy } from "./types";
+import type { AccountView, CachedDraft, ComposeDraft, FollowupPlan, KeySettings, Moved, StuckCopy } from "./types";
 
 export type { View } from "./list.svelte";
 export type { ComposeState, ComposeWindow } from "./composes.svelte";
