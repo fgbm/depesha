@@ -37,16 +37,16 @@ export function coreCommands(): Command[] {
   }
   if (target.length) {
     list.push(
-      { id: "core.archive", title: () => t("cmd.done"), run: () => app.archive() },
-      { id: "core.delete", title: () => t("act.delete"), run: () => app.remove() },
-      { id: "core.spam", title: () => t("act.spam"), run: () => app.spam() },
+      { id: "core.archive", title: () => t("cmd.done"), run: () => app.actions.archive() },
+      { id: "core.delete", title: () => t("act.delete"), run: () => app.actions.remove() },
+      { id: "core.spam", title: () => t("act.spam"), run: () => app.actions.spam() },
       { id: "core.flag", title: () => t("cmd.flag"), run: () => msg && app.selection.flag("flagged", !msg.row.flags.flagged) },
       { id: "core.unread", title: () => t("act.markUnread"), run: () => app.selection.flag("seen", false) },
     );
     const account = msg?.row.account_id ?? app.list.messages.find((m) => m.id === target[0])?.account_id;
     for (const f of app.mailboxes.folders.filter((f) => f.account_id === account && f.selectable && !f.hidden)) {
       const folder = f.role ? roleLabel(f.role) : f.display_name;
-      list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.moveTo(f.name) });
+      list.push({ id: `core.move.${f.name}`, title: () => t("cmd.moveTo", { folder }), run: () => app.actions.moveTo(f.name) });
     }
   }
   // «Clear» (#74): one command, only in Trash, Spam and Drafts.

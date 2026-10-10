@@ -8,6 +8,7 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
 import { t } from "./i18n.svelte";
+import { labels } from "./labels.svelte";
 import { api, deferred, flush, resetFakes, row } from "./testing";
 import type { MessageRow } from "./types";
 
@@ -29,7 +30,7 @@ describe("an action", () => {
     const s = await inbox();
     const pending = deferred<MessageRow[]>();
     api.thread.mockReturnValue(pending.promise);
-    void s.archive([1]);
+    void s.actions.archive([1]);
     expect(ids(s)).not.toContain(1);
     expect(api.thread).toHaveBeenCalledWith(1);
     expect(api.archive).not.toHaveBeenCalled();
@@ -38,7 +39,7 @@ describe("an action", () => {
   it("asks about every conversation at once", async () => {
     const s = await inbox();
     api.thread.mockReturnValue(new Promise(() => {}));
-    void s.archive([1, 2, 3]);
+    void s.actions.archive([1, 2, 3]);
     await flush();
     for (const id of [1, 2, 3]) expect(api.thread).toHaveBeenCalledWith(id);
   });
@@ -46,7 +47,7 @@ describe("an action", () => {
   it("applies to the whole conversation of a row", async () => {
     const s = await inbox();
     api.thread.mockImplementation(async (id: number) => [row(id), row(id + 100), row(id + 200, { folder: "Sent" })]);
-    await s.archive([1]);
+    await s.actions.archive([1]);
     expect(api.archive).toHaveBeenCalledWith(expect.arrayContaining([1, 101]), [1]);
     expect(api.archive.mock.calls[0][0]).not.toContain(201);
   });
@@ -57,7 +58,7 @@ describe("an action", () => {
   ])("that fails because %s is told, and the app goes on", async (_, breakIt) => {
     const s = await inbox();
     breakIt();
-    await expect(s.archive([1])).resolves.toBeUndefined();
+    await expect(s.actions.archive([1])).resolves.toBeUndefined();
     // A server error is told as such (#42, frame 8): not about rights, and it can be retried.
     expect(s.ui.toasts.some((x) => x.error && x.text === t("refuse.error", { folder: "INBOX" }))).toBe(true);
     expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
@@ -81,7 +82,7 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
   it("brings the letter back and says so, with the folder's properties one click away", async () => {
     const s = await inbox();
     api.archive.mockRejectedValue({ kind: "no-rights", message: "сервер отказал: NOPERM" });
-    await s.archive([4]);
+    await s.actions.archive([4]);
     // The letter is back in place.
     expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
     // One notice, of the "no rights" kind, with a way to the folder's properties.
@@ -89,12 +90,16 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
     expect(toast.text).toBe(t("refuse.noRights", { folder: "INBOX" }));
     expect(toast.error).toBe(true);
     expect(toast.action?.label).toBe(t("folder.properties"));
+    // The button opens the folder's card.
+    const card = vi.spyOn(labels, "openCard").mockImplementation(() => {});
+    toast.action!.run();
+    expect(card).toHaveBeenCalledWith("a", "INBOX");
   });
 
   it("a server error says it is not about rights", async () => {
     const s = await inbox();
     api.archive.mockRejectedValue({ kind: "other", message: "NO Internal error" });
-    await s.archive([4]);
+    await s.actions.archive([4]);
     expect(ids(s)).toContain(4);
     const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe(t("refuse.error", { folder: "INBOX" }));
@@ -103,7 +108,7 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
   it("no answer is not a refusal: the letter waits, the tone is not red", async () => {
     const s = await inbox();
     api.archive.mockRejectedValue({ kind: "network", message: "timed out" });
-    await s.archive([4]);
+    await s.actions.archive([4]);
     const toast = s.ui.toasts.at(-1)!;
     expect(toast.text).toBe(t("refuse.noAnswer", { folder: "INBOX" }));
     expect(toast.error).toBe(false);
@@ -112,7 +117,7 @@ describe("a refusal for lack of rights (#42, frame 8)", () => {
 
 describe("undo", () => {  it("takes back the last action that went through", async () => {
     const s = await inbox();
-    await s.archive([4]);
+    await s.actions.archive([4]);
     const moved = s.actions.lastUndo?.moved;
     expect(moved?.[0].message_ids).toEqual(["4"]);
     await s.actions.undo();
@@ -136,7 +141,7 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     const s = await inbox();
     const answer = deferred<{ account_id: string; from: string; to: string; message_ids: string[] }[]>();
     api.archive.mockReturnValue(answer.promise);
-    void s.archive([4]);
+    void s.actions.archive([4]);
     const undone = s.actions.undo();
     answer.resolve([{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ["4"] }]);
     await undone;
@@ -147,7 +152,7 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     const s = await inbox();
     const answer = deferred<never>();
     api.archive.mockReturnValue(answer.promise);
-    void s.archive([4]);
+    void s.actions.archive([4]);
     const undone = s.actions.undo();
     answer.reject({ kind: "other", message: "offline" });
     await expect(undone).resolves.toBeUndefined();
@@ -183,7 +188,7 @@ describe("an offer to take back something that is not a move (#104)", () => {
 describe("an undo held while something else counts down", () => {
   it("is what z takes back instead of the older move, and goes when released", async () => {
     const s = await inbox();
-    await s.archive([1]);
+    await s.actions.archive([1]);
     expect(s.actions.lastUndo?.moved.length).toBeGreaterThan(0);
     const run = vi.fn(async () => {});
     const release = s.actions.hold("Очистка Корзины", run);

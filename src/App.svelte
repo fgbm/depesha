@@ -116,13 +116,13 @@
     "core.reply": () => app.compose.replyTo(false),
     "core.reply-all": () => app.compose.replyTo(true),
     "core.forward": () => app.compose.forwardOpened(),
-    "core.archive": () => app.archive(),
-    "core.delete": () => app.remove(),
+    "core.archive": () => app.actions.archive(),
+    "core.delete": () => app.actions.remove(),
     "core.empty-folder": () => {
       const here = app.clearing.here();
       if (here) void app.clearing.begin(here.account_id, here.folder.name);
     },
-    "core.spam": () => app.spam(),
+    "core.spam": () => app.actions.spam(),
     "core.unread": () => app.selection.toggleSeen(),
     "core.flag": () => app.selection.toggleFlagged(),
     "core.labels": () => labels.openPick(labelTarget()),

@@ -40,12 +40,12 @@
   <div class="center">
     <h3>{tn("bulk.selected", app.selection.selected.size, { n: app.selection.selected.size, size: size(selectedSize) })}</h3>
     <div class="actions">
-      <button class="btn" onclick={() => app.archive()}><Archive size={15} /> {t("act.done")}</button>
+      <button class="btn" onclick={() => app.actions.archive()}><Archive size={15} /> {t("act.done")}</button>
       {#each registry.lists.bulkToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
       <button class="btn" onclick={() => app.selection.flag("seen", true)}>{t("act.read")}</button>
       <button class="btn" onclick={() => app.selection.flag("seen", false)}>{t("act.unread")}</button>
       <button class="btn" onclick={() => app.selection.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
-      <button class="btn" onclick={() => app.remove()}><Trash size={15} /> {t("act.delete")}</button>
+      <button class="btn" onclick={() => app.actions.remove()}><Trash size={15} /> {t("act.delete")}</button>
       {#if bulkFolders.length}
         <span class="anchor">
           <button class="btn" onclick={() => (bulkMoveOpen = !bulkMoveOpen)}><Folder size={15} /> {t("act.toFolder")}</button>
@@ -53,7 +53,7 @@
             <div class="mt">{t("act.moveTitle")}</div>
             <div class="folder-list">
               {#each bulkFolders as f (f.name)}
-                <button class="mi" onclick={() => { bulkMoveOpen = false; app.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
+                <button class="mi" onclick={() => { bulkMoveOpen = false; app.actions.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
               {/each}
             </div>
           </Popover>

@@ -80,7 +80,7 @@ describe("archiving through the list", () => {
     vi.useFakeTimers();
 
     for (let n = 1; n <= 20; n++) {
-      void s.archive();
+      void s.actions.archive();
       expect(s.list.messages.map((m) => m.id)).not.toContain(n);
       expect([...s.selection.selected]).toEqual([n + 1]);
     }

@@ -12,6 +12,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, asError } from "./api";
 import { t, tn } from "./i18n.svelte";
 import { refusalOf } from "./labels";
+import { labels } from "./labels.svelte";
 import type { ListController } from "./list.svelte";
 import type { MessageRow, Moved } from "./types";
 
@@ -39,9 +40,6 @@ export interface ActionHost {
   /** The letter of a separate message window; null in the main window. */
   readonly windowOf: number | null;
   readonly list: ListController;
-  /** The letters are acted on: their read mark lands at once (#71). */
-  /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
-  folderProperties?(accountId: string, folder: string): void;
 }
 
 export class ActionRunner {
@@ -124,7 +122,7 @@ export class ActionRunner {
         this.host.ui.toast(t("refuse.noRights", { folder }), true, {
           label: t("folder.properties"),
           run: () => {
-            if (account) this.host.folderProperties?.(account, row!.folder);
+            if (account) labels.openCard(account, row!.folder);
           },
         });
         break;
@@ -158,21 +156,22 @@ export class ActionRunner {
     return [...out];
   }
 
-  remove(ids: number[]) {
+  /** Without `ids`: the selected rows. */
+  remove(ids = this.host.selection.selectedIds()) {
     return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"));
   }
 
-  moveTo(folder: string, ids: number[]) {
+  moveTo(folder: string, ids = this.host.selection.selectedIds()) {
     const name = this.host.mailboxes.folders.find((f) => f.name === folder)?.display_name ?? folder;
     return this.perform(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
   }
 
   /** "Done": out of the inbox, into the archive. */
-  archive(ids: number[]) {
+  archive(ids = this.host.selection.selectedIds()) {
     return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"));
   }
 
-  spam(ids: number[]) {
+  spam(ids = this.host.selection.selectedIds()) {
     return this.perform(t("done.spam"), ids, api.spam, t("err.spam"));
   }
 

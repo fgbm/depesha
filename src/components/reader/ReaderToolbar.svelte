@@ -76,9 +76,9 @@
   {#if isDraft}
     <button class="btn primary" onclick={editDraft}><Pencil size={15} /> {t("act.continueDraft")}</button>
   {/if}
-  <button class="btn ghost" onclick={() => app.archive()} title={shortcuts.titled(t("act.doneHint"), "core.archive")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
+  <button class="btn ghost" onclick={() => app.actions.archive()} title={shortcuts.titled(t("act.doneHint"), "core.archive")}><Archive size={16} /><span class="lbl2">{t("act.done")}</span></button>
   {#each registry.lists.readerToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
-  <button class="btn ghost icon" onclick={() => app.remove()} title={shortcuts.titled(t("act.deleteHint"), "core.delete")} aria-label={t("act.delete")}><Trash size={16} /></button>
+  <button class="btn ghost icon" onclick={() => app.actions.remove()} title={shortcuts.titled(t("act.deleteHint"), "core.delete")} aria-label={t("act.delete")}><Trash size={16} /></button>
   <span class="anchor">
     <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
     <Popover bind:open={moreOpen} align="left">
@@ -99,7 +99,7 @@
       {/if}
       <button class="mi" onclick={() => { moreOpen = false; printOpened(); }}><Printer size={15} /> {t("act.print")}<span class="hint"><Keys of="core.print" /></span></button>
       <hr />
-      <button class="mi" onclick={() => { moreOpen = false; app.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
+      <button class="mi" onclick={() => { moreOpen = false; app.actions.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
       {#each messageCommands as c (c.ext.id + c.id)}
         <button class="mi ext-cmd" onclick={() => { moreOpen = false; extensions.command(c.ext, c.id, message); }}><Puzzle size={15} /> {c.title}</button>
       {/each}
@@ -111,7 +111,7 @@
       <div class="mt">{t("act.moveTitle")}</div>
       <div class="folder-list">
         {#each folders as f (f.name)}
-          <button class="mi" onclick={() => { moveOpen = false; app.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
+          <button class="mi" onclick={() => { moveOpen = false; app.actions.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
         {/each}
       </div>
     </Popover>

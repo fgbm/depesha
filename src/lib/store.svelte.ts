@@ -117,11 +117,6 @@ export class AppStore {
   }
 
 
-  remove(ids = this.selection.selectedIds()) { return this.actions.remove(ids); }
-  moveTo(folder: string, ids = this.selection.selectedIds()) { return this.actions.moveTo(folder, ids); }
-  /** "Done": out of the inbox, into the archive. */
-  archive(ids = this.selection.selectedIds()) { return this.actions.archive(ids); }
-  spam(ids = this.selection.selectedIds()) { return this.actions.spam(ids); }
 
 
 

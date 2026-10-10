@@ -127,12 +127,12 @@
     </button>
   {/each}
   <hr />
-  <button class="mi" onclick={() => run(() => app.archive(ids))}><Archive size={15} /> {t("act.done")}<span class="hint"><Keys of="core.archive" /></span></button>
+  <button class="mi" onclick={() => run(() => app.actions.archive(ids))}><Archive size={15} /> {t("act.done")}<span class="hint"><Keys of="core.archive" /></span></button>
   {#if folders.length}
     <button class="mi" onclick={() => (sub = { kind: "move" })}><Folder size={15} /> {t("act.moveTo")}<span class="hint"><ChevronRight size={13} /></span></button>
   {/if}
-  <button class="mi" onclick={() => run(() => app.spam(ids))}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint"><Keys of="core.spam" /></span></button>
-  <button class="mi" disabled={!canDelete} title={!canDelete ? t("folder.noRightHint") : undefined} onclick={() => run(() => app.remove(ids))}><Trash size={15} /> {t("act.delete")}<span class="hint"><Keys of="core.delete" /></span></button>
+  <button class="mi" onclick={() => run(() => app.actions.spam(ids))}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint"><Keys of="core.spam" /></span></button>
+  <button class="mi" disabled={!canDelete} title={!canDelete ? t("folder.noRightHint") : undefined} onclick={() => run(() => app.actions.remove(ids))}><Trash size={15} /> {t("act.delete")}<span class="hint"><Keys of="core.delete" /></span></button>
   {#if single?.from?.email}
     <hr />
     <button class="mi" onclick={fromSender}><UserSearch size={15} /> {t("reader.fromSender")}</button>
@@ -144,7 +144,7 @@
     <div class="mt">{t("act.moveTitle")}</div>
     <div class="folder-list">
       {#each folders as f (f.name)}
-        <button class="mi" onclick={() => run(() => app.moveTo(f.name, ids))}><Folder size={15} /> {f.display_name}</button>
+        <button class="mi" onclick={() => run(() => app.actions.moveTo(f.name, ids))}><Folder size={15} /> {f.display_name}</button>
       {/each}
     </div>
   {:else if sub?.kind === "plugin" && sub.action.menu}
