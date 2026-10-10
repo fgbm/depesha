@@ -1463,9 +1463,15 @@ pub enum IdleOutcome {
     Timeout,
 }
 
-/// Waits for changes in `folder` with IDLE, or polls it when IDLE is not supported.
+/// Waits for changes in `folder` with IDLE (renewed after `renew`, see `IdlePace`), or polls
+/// it when IDLE is not supported.
 /// Returns the connection back so it can be reused.
-pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> Result<(Conn, IdleOutcome)> {
+pub async fn wait_for_changes(
+    mut conn: Conn,
+    folder: &str,
+    poll: Duration,
+    renew: Duration,
+) -> Result<(Conn, IdleOutcome)> {
     conn.session.select(folder).await?;
     drain_unsolicited(&conn.session);
     if !conn.caps.idle {
@@ -1501,7 +1507,7 @@ pub async fn wait_for_changes(mut conn: Conn, folder: &str, poll: Duration) -> R
         return Err(e.into());
     }
     idling.store(true, Ordering::Relaxed);
-    let (wait, _stop) = handle.wait_with_timeout(IDLE_RENEW);
+    let (wait, _stop) = handle.wait_with_timeout(renew);
     let response = wait.await;
     idling.store(false, Ordering::Relaxed);
     let response = response?;

@@ -11,6 +11,7 @@ pub mod domain;
 pub(crate) mod error;
 pub mod ews;
 pub(crate) mod http;
+pub mod idle_pace;
 pub mod imap;
 pub mod lang;
 pub mod mail;

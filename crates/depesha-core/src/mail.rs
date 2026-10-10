@@ -723,10 +723,11 @@ pub async fn wait_for_changes(
     store: &Store,
     account_id: &str,
     poll: Duration,
+    renew: Duration,
 ) -> Result<(Conn, IdleOutcome)> {
     match conn {
         Conn::Imap(c) => {
-            let (c, outcome) = imap::wait_for_changes(c, "INBOX", poll).await?;
+            let (c, outcome) = imap::wait_for_changes(c, "INBOX", poll, renew).await?;
             Ok((Conn::Imap(c), outcome))
         }
         Conn::Ews(mut s) => {

@@ -261,7 +261,7 @@ async fn idle_sees_new_mail() {
     let carol = Credentials::new("carol", "secret");
     let conn = imap::connect(&imap_server(), &carol).await.unwrap();
     let waiter = tokio::spawn(async move {
-        imap::wait_for_changes(conn, "INBOX", std::time::Duration::from_secs(2))
+        imap::wait_for_changes(conn, "INBOX", std::time::Duration::from_secs(2), imap::IDLE_RENEW)
             .await
             .map(|(_, o)| o)
     });

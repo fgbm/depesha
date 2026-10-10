@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use depesha_core::account::Account;
 use depesha_core::domain::{FlagChange, FolderRole};
+use depesha_core::idle_pace::IdlePace;
 use depesha_core::imap::IdleOutcome;
 use depesha_core::mail::{self, Conn};
 use depesha_core::store::ListQuery;
@@ -1895,6 +1896,7 @@ async fn idle_loop(
     net_up: Arc<AtomicBool>,
 ) {
     let mut backoff = Duration::from_secs(5);
+    let mut pace = IdlePace::new();
     loop {
         if paused.load(Ordering::Relaxed) {
             tokio::time::sleep(Duration::from_secs(10)).await;
@@ -1934,19 +1936,38 @@ async fn idle_loop(
         };
         backoff = Duration::from_secs(5);
         loop {
+            let waiting_since = Instant::now();
             tokio::select! {
-                r = mail::wait_for_changes(conn, &state.store, &account.id, POLL_WITHOUT_IDLE) => match r {
+                r = mail::wait_for_changes(conn, &state.store, &account.id, POLL_WITHOUT_IDLE, pace.renew()) => match r {
                     Ok((c, outcome)) => {
                         conn = c;
+                        pace.renewed();
                         if matches!(outcome, IdleOutcome::Changed) {
                             queue(&tx, &queued, Work::SyncFolder("INBOX".into())).await;
                         }
                     }
                     Err(e) => {
-                        tracing::debug!(account = %account.id, "idle dropped: {e}");
                         // A link that breaks at once (a proxy cutting long answers) must not spin;
-                        // a busy Exchange gets the pause it asked for.
-                        let wait = if e.is_busy() { busy_pause(e.back_off(), 0) } else { Duration::from_secs(5) };
+                        // a busy Exchange gets the pause it asked for. A server or proxy that cuts
+                        // an idle link every N seconds makes the next IDLEs shorter than N.
+                        let wait = if e.is_busy() {
+                            tracing::debug!(account = %account.id, "idle dropped: {e}");
+                            busy_pause(e.back_off(), 0)
+                        } else {
+                            let lived = waiting_since.elapsed();
+                            let d = pace.dropped(lived);
+                            let renew = pace.renew();
+                            if d.log {
+                                tracing::warn!(
+                                    account = %account.id,
+                                    "idle dropped after {}s: {e} (in a row: {}, renewing IDLE every {}s, pause {}s)",
+                                    lived.as_secs(), d.drops, renew.as_secs(), d.pause.as_secs()
+                                );
+                            } else {
+                                tracing::debug!(account = %account.id, "idle dropped after {}s: {e} (in a row: {})", lived.as_secs(), d.drops);
+                            }
+                            d.pause
+                        };
                         tokio::time::sleep(wait).await;
                         break;
                     }

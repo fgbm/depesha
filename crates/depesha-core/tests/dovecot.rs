@@ -486,7 +486,7 @@ async fn idle_wakes_up_on_append_from_another_session() {
     }
     let idle = connect("idle").await;
     let waiter = tokio::spawn(async move {
-        imap::wait_for_changes(idle, "INBOX", std::time::Duration::from_secs(2))
+        imap::wait_for_changes(idle, "INBOX", std::time::Duration::from_secs(2), imap::IDLE_RENEW)
             .await
             .map(|(_, o)| o)
     });
@@ -772,7 +772,7 @@ async fn idle_wakes_up_on_an_expunge_while_another_session_uses_qresync() {
 
     let idle = connect("idlegone").await;
     let waiter = tokio::spawn(async move {
-        imap::wait_for_changes(idle, "INBOX", std::time::Duration::from_secs(2))
+        imap::wait_for_changes(idle, "INBOX", std::time::Duration::from_secs(2), imap::IDLE_RENEW)
             .await
             .map(|(_, o)| o)
     });
@@ -1621,4 +1621,72 @@ async fn clearing_a_folder_without_uidplus() {
         .expect("login over STARTTLS");
     assert!(!conn.caps.uidplus, "the stand must not offer UIDPLUS");
     clears_a_folder(conn, "B").await;
+}
+
+/// A transparent TCP proxy in front of the stand that cuts a connection which the client
+/// has not written to for `idle`: what a firewall or a corporate server does to a
+/// quiet IDLE (#114). TLS passes through, so the pinned certificate still fits.
+async fn cutting_proxy(idle: std::time::Duration) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut client, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let Ok(mut upstream) = tokio::net::TcpStream::connect(("127.0.0.1", 31143)).await else {
+                    return;
+                };
+                let (mut cr, mut cw) = client.split();
+                let (mut ur, mut uw) = upstream.split();
+                let up = async {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match tokio::time::timeout(idle, cr.read(&mut buf)).await {
+                            Ok(Ok(n)) if n > 0 => uw.write_all(&buf[..n]).await?,
+                            _ => return std::io::Result::Ok(()),
+                        }
+                    }
+                };
+                let down = tokio::io::copy(&mut ur, &mut cw);
+                tokio::select! { _ = up => {}, _ = down => {} }
+            });
+        }
+    });
+    port
+}
+
+async fn wait_through_cuts(renew: std::time::Duration) -> Result<(), Error> {
+    let port = cutting_proxy(std::time::Duration::from_secs(3)).await;
+    let mut conn = imap::connect(&server_at(port).await, &user("cut")).await?;
+    let began = std::time::Instant::now();
+    while began.elapsed() < std::time::Duration::from_secs(10) {
+        conn = imap::wait_for_changes(conn, "INBOX", std::time::Duration::from_secs(2), renew)
+            .await?
+            .0;
+    }
+    Ok(())
+}
+
+/// With the default renewal (25 minutes) the cut link is a plain drop: the loop of #114.
+#[tokio::test]
+async fn a_link_cut_when_idle_drops_a_long_idle() {
+    if !enabled() {
+        return;
+    }
+    let err = wait_through_cuts(imap::IDLE_RENEW).await.expect_err("must be cut");
+    assert!(err.is_transient(), "{err:?}");
+}
+
+/// IDLE renewed inside the cut time keeps the link alive over several cut periods.
+#[tokio::test]
+async fn idle_renewed_inside_the_cut_time_survives_it() {
+    if !enabled() {
+        return;
+    }
+    wait_through_cuts(std::time::Duration::from_secs(1))
+        .await
+        .expect("no drop");
 }
