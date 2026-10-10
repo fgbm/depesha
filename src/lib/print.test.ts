@@ -214,6 +214,37 @@ describe("the print key beside the other commands and the other print", () => {
       shortcuts.use(() => undefined);
     }
   });
+});
+
+describe("printing on macOS", () => {
+  it("on macOS a print another print took the place of shows no error; a real failure does", async () => {
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+    const fail = vi.spyOn(app, "fail").mockImplementation(() => {});
+    try {
+      app.reader.opened = message(7);
+      rememberForm(7, "html");
+      api.printSheet.mockRejectedValueOnce({ kind: "superseded", message: "печать заменена другой" });
+      printOpened();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.printSheet).toHaveBeenCalledOnce();
+      expect(fail).not.toHaveBeenCalled();
+      // From a row, too.
+      api.printSheet.mockRejectedValueOnce({ kind: "superseded", message: "печать заменена другой" });
+      printRow(7);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.printSheet).toHaveBeenCalledTimes(2);
+      expect(fail).not.toHaveBeenCalled();
+      // Anything else is shown.
+      const broken = { kind: "print", message: "панель печати не открылась" };
+      api.printSheet.mockRejectedValueOnce(broken);
+      printOpened();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fail).toHaveBeenCalledWith(broken);
+    } finally {
+      fail.mockRestore();
+      Object.defineProperty(navigator, "platform", { value: "", configurable: true });
+    }
+  });
 
   it("on macOS the sheet goes to the backend, not to a frame", async () => {
     Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });

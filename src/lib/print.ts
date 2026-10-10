@@ -110,17 +110,23 @@ export async function printMessage(msg: OpenedMessage): Promise<void> {
   await printHtml(printPage(letterOf(msg, form, allowRemote, date, marked), labels()));
 }
 
+/** A print another print from the same window took the place of (macOS): not a failure to show, the newer one is what was asked for. */
+function failed(e: unknown) {
+  if (e && typeof e === "object" && "kind" in e && e.kind === "superseded") return;
+  app.fail(e);
+}
+
 /** Ctrl+P, the palette, «More»: the open letter. Nothing is open: nothing to print. */
 export function printOpened() {
   const msg = app.opened;
-  if (msg) printMessage(msg).catch((e) => app.fail(e));
+  if (msg) printMessage(msg).catch(failed);
 }
 
 /** The context menu of a row: the letter is printed without being opened in the reader. */
 export function printRow(id: number) {
   const open = app.opened;
   const msg = open?.row.id === id ? Promise.resolve(open) : api.open(id, false);
-  msg.then(printMessage).catch((e) => app.fail(e));
+  msg.then(printMessage).catch(failed);
 }
 
 /** The key the browser prints the whole interface with: Cmd+P on macOS, Ctrl+P elsewhere. */
