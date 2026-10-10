@@ -277,6 +277,18 @@ describe("Clear on Drafts", () => {
     expect(q.items).toEqual([tn("clear.keptOpen", 2)]);
   });
 
+  it("keeps its role and the open drafts when the folder is not found any more by the time it runs", async () => {
+    const x = host({ role: "drafts", total: 5, windows: [{ account_id: "a", draft_id: 7, local_id: "k1" }] });
+    api.folderTotal.mockResolvedValue({ total: 5, bound: 11 });
+    await x.clear.begin("a", "Drafts");
+    // The folder list is being rebuilt (a sync, a rename): nothing is found between the question and the run.
+    x.h.folder = () => undefined;
+    await vi.advanceTimersByTimeAsync(DELAY_SECS * 1000 + 100);
+    expect(api.folderEmpty).toHaveBeenCalledWith("a", "Drafts", [7], 11);
+    await flush();
+    expect(x.toasts.at(-1)?.text).toBe(t("clear.done.drafts", { n: 128 }));
+  });
+
   it("has nothing to do when every draft is open", async () => {
     const x = host({ role: "drafts", windows: [{ account_id: "a", draft_id: 7, local_id: "k1" }] });
     api.folderTotal.mockResolvedValue({ total: 1, bound: 11 });

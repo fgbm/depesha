@@ -51,6 +51,8 @@ export class ClearFolder {
   private pending = new Set<string>();
   /** The bound each folder's last confirmed count gave, `account\0folder`: a retry goes on with it. */
   private bounds = new Map<string, number>();
+  /** The role each folder had when it was confirmed, `account\0folder`: the run and a retry go on with it, not with a new lookup. */
+  private roles = new Map<string, Role>();
 
   constructor(private host: ClearHost) {}
 
@@ -118,6 +120,7 @@ export class ClearFolder {
       .then(async (go) => {
         if (go) {
           this.bounds.set(key, bound);
+          this.roles.set(key, target.role);
           await this.run(accountId, name, bound);
         }
       })
@@ -209,11 +212,17 @@ export class ClearFolder {
 
   /** Asks the backend; what it did is told in a toast, and a failure leaves its summary to retry. */
   private async run(accountId: string, name: string, bound: number): Promise<void> {
-    const role = this.target(accountId, name)?.role ?? "trash";
+    // The folder list may be under rebuilding just now; the role is what the question was asked for.
+    const role = this.roles.get(`${accountId}\0${name}`) ?? this.target(accountId, name)?.role;
+    if (!role) return;
+    // The windows of letters are added by the backend, which knows the drafts open in all of them.
     const keep = this.open(accountId).map((w) => w.draft_id as number);
     try {
       const run = await this.host.track(api.folderEmpty(accountId, name, role === "drafts" ? keep : [], bound));
-      if (!run.stopped) this.bounds.delete(`${accountId}\0${name}`);
+      if (!run.stopped) {
+        this.bounds.delete(`${accountId}\0${name}`);
+        this.roles.delete(`${accountId}\0${name}`);
+      }
       this.host.toast(run.stopped ? t("clear.stopped", { done: run.done, total: run.total }) : t(`clear.done.${role}`, { n: run.done }));
     } catch (e) {
       // The backend left a task with the summary of how far it got; the toast says it too.
