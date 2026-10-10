@@ -1,23 +1,33 @@
 // Guard against dead IPC commands (#148): every command registered in `generate_handler!` has a
 // caller in the interface (`src/`), a built-in plugin (`plugins/`) or the e2e harness (`e2e/`).
-// A call is the command's name as a string literal in a file that is not a unit test: a test that
-// only checks a stub does not keep a command alive. An exception goes in EXCEPTIONS with a reason.
+// A call is `invoke(`, `call(` or `backend(` with the name as the first string argument, in a file that
+// is not a unit test. A command only e2e calls must stand behind `#[cfg(feature = "e2e")]`. An exception goes in EXCEPTIONS with a reason.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..");
 const HANDLER = "src-tauri/src/lib.rs";
-const CALLERS = ["src", "plugins", "e2e"];
 
 /** Commands with no caller in the places above. Empty today; add `name: "why it stays"`. */
 export const EXCEPTIONS = {};
 
-/** Command names in the `generate_handler![ ... ]` list, including the ones behind `#[cfg]`. */
+/** Commands in the `generate_handler![ ... ]` list: `{ name, e2e }`, `e2e` for those behind `#[cfg(feature = "e2e")]`. */
 export function handlerCommands(source) {
   const list = source.split("generate_handler![")[1]?.split("])")[0];
   if (list === undefined) throw new Error("generate_handler![...] not found");
-  return [...list.matchAll(/^\s*(?:[a-z_]+::)+([a-z0-9_]+),\s*(?:\/\/.*)?$/gm)].map((m) => m[1]);
+  const bare = list.replace(/\/\/.*$/gm, "");
+  return [...bare.matchAll(/((?:#\[[^\]]*\]\s*)*)(?:[A-Za-z_][A-Za-z0-9_]*::)+([A-Za-z0-9_]+)/g)].map((m) => ({
+    name: m[2],
+    e2e: /feature\s*=\s*"e2e"/.test(m[1]),
+  }));
+}
+
+/** The names in build.rs `COMMANDS`. */
+export function manifestCommands(source) {
+  const list = source.split("COMMANDS: &[&str] = &[")[1]?.split("];")[0];
+  if (list === undefined) throw new Error("COMMANDS in build.rs not found");
+  return [...list.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]);
 }
 
 function* files(dir) {
@@ -29,24 +39,57 @@ function* files(dir) {
   }
 }
 
-/** The commands without a caller, minus the declared exceptions. */
-export function uncalled(commands, texts, exceptions = EXCEPTIONS) {
-  const joined = texts.join("\n");
-  return commands.filter((c) => !(c in exceptions) && !new RegExp(`["'\`]${c}["'\`]`).test(joined));
+const STR = (c) => `["'\`]${c}["'\`]`;
+
+/** A call: `invoke(`, `call(`, `backend(` (also `ctx.backend(`), a generic allowed, the name first. */
+function calledIn(command, text) {
+  return new RegExp(`\\b(?:invoke|call|backend)\\s*(?:<[^()]*>)?\\s*\\(\\s*${STR(command)}`).test(text);
 }
 
-/** Exceptions that are not commands, or that got a caller: the list must not rot. */
-export function staleExceptions(commands, texts, exceptions = EXCEPTIONS) {
-  const joined = texts.join("\n");
-  return Object.keys(exceptions).filter((c) => !commands.includes(c) || new RegExp(`["'\`]${c}["'\`]`).test(joined));
+/** The e2e harness's own helper: `invoke(driver, "name", ...)`. */
+function calledInE2e(command, text) {
+  return calledIn(command, text) || new RegExp(`\\binvoke\\s*\\(\\s*[A-Za-z_$][\\w$]*\\s*,\\s*${STR(command)}`).test(text);
+}
+
+/**
+ * Problems with the commands, given the text of the app (`src/`, `plugins/`) and of the e2e files.
+ * `commands` are `{ name, e2e }`.
+ */
+export function problemsOf(commands, app, e2e, exceptions = EXCEPTIONS) {
+  const problems = [];
+  const appText = app.join("\n");
+  const e2eText = e2e.join("\n");
+  for (const { name, e2e: gated } of commands) {
+    if (name in exceptions) continue;
+    const inApp = calledIn(name, appText);
+    const inE2e = calledInE2e(name, e2eText);
+    if (!inApp && !inE2e) problems.push(`${name}: no call in src/, plugins/ or e2e/ — remove it or list it in EXCEPTIONS with a reason`);
+    else if (!inApp && !gated) problems.push(`${name}: called only from e2e/, so it must stand under #[cfg(feature = "e2e")] in generate_handler!`);
+  }
+  const names = commands.map((c) => c.name);
+  for (const c of Object.keys(exceptions)) {
+    if (!names.includes(c) || calledIn(c, appText) || calledInE2e(c, e2eText)) problems.push(`${c}: listed in EXCEPTIONS but is not a command or has a caller now — drop the exception`);
+  }
+  return problems;
+}
+
+/** The `generate_handler!` list against build.rs `COMMANDS`: any difference is a problem. */
+export function manifestProblems(commands, manifest) {
+  const names = commands.map((c) => c.name);
+  const problems = [];
+  for (const n of names) if (!manifest.includes(n)) problems.push(`${n}: in generate_handler! but not in build.rs COMMANDS`);
+  for (const n of manifest) if (!names.includes(n)) problems.push(`${n}: in build.rs COMMANDS but not in generate_handler!`);
+  return problems;
 }
 
 export function check(root = ROOT) {
   const commands = handlerCommands(readFileSync(join(root, HANDLER), "utf8"));
-  const texts = CALLERS.flatMap((d) => [...files(join(root, d))]).map((f) => readFileSync(f, "utf8"));
-  const problems = [];
-  for (const c of uncalled(commands, texts)) problems.push(`${c}: no caller in src/, plugins/ or e2e/ — remove it or list it in EXCEPTIONS with a reason`);
-  for (const c of staleExceptions(commands, texts)) problems.push(`${c}: listed in EXCEPTIONS but is not a command or has a caller now — drop the exception`);
+  const read = (d) => [...files(join(root, d))].map((f) => readFileSync(f, "utf8"));
+  const app = ["src", "plugins"].flatMap(read);
+  const problems = [
+    ...manifestProblems(commands, manifestCommands(readFileSync(join(root, "src-tauri/build.rs"), "utf8"))),
+    ...problemsOf(commands, app, read("e2e")),
+  ];
   return { commands, problems };
 }
 
