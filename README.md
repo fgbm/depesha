@@ -39,7 +39,9 @@
 - **Настройки по задачам.** Окно настроек разложено на «Почту» и «Программу», изменения сохраняются сразу, последнее можно отменить. Настройки работают слоями: общие, затем ящик, затем человек.
 - **Окно письма.** Служебные полосы не съедают место: поле текста не ниже 160 пикселей, даже когда вложений много. Когда вложений много, они занимают две строки, остальные прячутся за «+N ещё ›».
 
-<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="Редактор письма: строка оформления и подпись"> <img src="docs/screenshots/signatures.png" width="420" alt="Подписи в настройках ящика"></p>
+<p align="center"><img src="docs/screenshots/people.png" width="420" alt="Адресная книга «Люди»: карточка человека с двумя адресами"> <img src="docs/screenshots/reader-attachments.png" width="420" alt="Открытое письмо: вложения в две строки и список «+N ещё ›»"></p>
+<p align="center"><img src="docs/screenshots/settings.png" width="420" alt="Настройки: страница «Чтение и список»"> <img src="docs/screenshots/clear.png" width="420" alt="Подтверждение «Очистить» в Корзине"></p>
+<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="Редактор письма: строка оформления"> <img src="docs/screenshots/signatures.png" width="420" alt="Подписи в настройках ящика"></p>
 <p align="center"><img src="docs/screenshots/followups.png" width="420" alt="«Ждут ответа»"> <img src="docs/screenshots/snooze.png" width="420" alt="Меню «Отложить»"></p>
 <p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Проверка перед отправкой"> <img src="docs/screenshots/dark.png" width="420" alt="Тёмная тема, переписка"></p>
 <p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="Узкое окно: боковая полоса и список"> <img src="docs/screenshots/narrow-message.png" width="300" alt="Узкое окно: письмо"></p>

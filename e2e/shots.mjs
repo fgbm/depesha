@@ -19,22 +19,19 @@ import { clearConfirm, importanceReader, peopleBook, readerAttachments, seed080,
 const kit = createKit({ out: join(root, "docs/screenshots"), tag: "depesha-shots-", v8: true });
 const { d, sleep, db, shot, textOf, setInput, setSelect, press, invoke, sidebarText, rowBySubject, openBySubject, palette, closeSettings, discardCompose } = kit;
 
-/** Switches the interface language in Settings and saves. */
-async function setLanguage(search, value) {
-  await palette(search);
-  await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-  await d.click(await d.find(`.prefs input[type=radio][name=language][value="${value}"]`));
-  await d.click(await d.find(".prefs footer .btn.primary"));
-  await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+/** Saves a setting; settings take effect at once, the window follows. */
+async function setSetting(key, value) {
+  await invoke("settings_set", { settings: { ...(await invoke("settings_get")), [key]: value } });
 }
 
-/** Picks an appearance theme in Settings and saves. */
-async function setTheme(search, value) {
-  await palette(search);
-  await d.until("settings", async () => (await d.findAll(".prefs")).length === 1);
-  await d.click(await d.xpath(`//div[contains(@class,'themes')]//label[.//input[@value=${JSON.stringify(value)}]]`));
-  await d.click(await d.find(".prefs footer .btn.primary"));
-  await d.until("settings closed", async () => (await d.findAll(".prefs")).length === 0);
+/** Switches the interface language. */
+const setLanguage = (value) => setSetting("language", value);
+
+/** Picks an appearance theme. */
+async function setTheme(value) {
+  await setSetting("theme", value);
+  await d.until(`theme ${value}`, async () => (await d.exec("return document.documentElement.dataset.theme")) === value, 10000);
+  await sleep(300);
 }
 
 try {
@@ -159,7 +156,7 @@ try {
   await settingsPage(kit, "settings", "reading");
 
   // 8. Dark theme, a conversation: the whole thread of three letters with its cards.
-  await setTheme("настр", "night");
+  await setTheme("night");
   await d.button("Входящие");
   await openBySubject("Re: Смета на монтаж");
   await d.click(await d.find(".reader .thread"));
@@ -170,8 +167,8 @@ try {
 
   // 9. Trusting a certificate by fingerprint: the wizard meets GreenMail's self-signed one.
   //    The English README's main shot is light: the night theme goes back first.
-  await setTheme("настр", "snow");
-  await setLanguage("настр", "en");
+  await setTheme("snow");
+  await setLanguage("en");
   await d.until("English sidebar", async () => (await sidebarText()).includes("Inbox"), 10000);
   await d.button("Inbox");
   await openBySubject("Re: Смета на монтаж");
@@ -197,7 +194,9 @@ try {
   }
   await d.button("Check and save");
   await d.until("certificate question", async () => (await d.bodyText()).includes("SHA-256"), 20000);
-  await sleep(300);
+  // The question is below the form in the settings window: bring it into view.
+  await d.exec("[...document.querySelectorAll('.wizard *')].find((e) => !e.children.length && e.innerText?.includes('SHA-256'))?.scrollIntoView({ block: 'center' })");
+  await sleep(500);
   await shot("certificate");
 
   console.log("Готово.");

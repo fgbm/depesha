@@ -255,9 +255,9 @@ def demo_seed(version=""):
     # The owner of the mailbox: in the 0.8 pictures an everyday made-up name, not a test one.
     owner, me = ("Анна Крылова", "anna@example.org") if v8 else ("Кэрол Тестова", "carol@example.org")
 
-    def put(folder, subject, sender, body, when, mid, refs=None, extra="", seen=True, attach=None):
+    def put(folder, subject, sender, body, when, mid, refs=None, extra="", seen=True, attach=None, to=None):
         reply = f"In-Reply-To: <{refs[-1]}>\r\nReferences: {' '.join(f'<{r}>' for r in refs)}\r\n" if refs else ""
-        append(c, folder, msg(subject, body, sender=sender, to=me, when=when, mid=mid, extra=reply + extra, attach=attach),
+        append(c, folder, msg(subject, body, sender=sender, to=to or me, when=when, mid=mid, extra=reply + extra, attach=attach),
                "(\\Seen)" if seen else "", when)
 
     # INBOX: one conversation of three letters, two people, one newsletter.
@@ -307,12 +307,15 @@ def demo_seed(version=""):
     # «Отправленные»: answers the user waits for (the wait itself is added by shots.mjs).
     now = int(time.time())
     put("Sent", "Проверка датчиков на складе", f"{owner} <{me}>",
-        "Коллеги, когда закончите проверку датчиков?", now - 10 * day, "f-done@example.org")
+        "Коллеги, когда закончите проверку датчиков?", now - 10 * day, "f-done@example.org",
+        to="maria@example.org" if v8 else None)
     put("Sent", "Заявка на пропуск для подрядчиков", f"{owner} <{me}>",
-        "Прошу продлить пропуска для подрядчиков на ноябрь.", now - 5400, "f-wait@example.org")
+        "Прошу продлить пропуска для подрядчиков на ноябрь.", now - 5400, "f-wait@example.org",
+        to="petr@example.com" if v8 else None)
     # A draft, as if a letter were being written and left for later.
     put("Drafts", "Re: Смета на монтаж", f"{owner} <{me}>",
-        "Коллеги, посмотрела смету — по-моему, завышена доставка.", now - 3 * day, "draft-1@example.org")
+        "Коллеги, посмотрела смету — по-моему, завышена доставка.", now - 3 * day, "draft-1@example.org",
+        to="petr@example.com" if v8 else None)
     c.logout()
 
 

@@ -41,7 +41,9 @@ Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for
 - **Settings by task.** The settings window is split into "Mail" and "App", changes are saved at once and the last one can be undone. Settings work in layers: general, then mailbox, then person.
 - **The compose window.** Service strips no longer eat the room: the text field is never lower than 160 pixels, even with many attachments. Many attachments take two rows and the rest hide behind "+N more ›".
 
-<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="The compose editor with the formatting bar and a signature"> <img src="docs/screenshots/signatures.png" width="420" alt="Signatures in the mailbox settings"></p>
+<p align="center"><img src="docs/screenshots/people.png" width="420" alt="The People book: a person's card with two addresses"> <img src="docs/screenshots/reader-attachments.png" width="420" alt="An open letter: attachments in two rows and the «+N more ›» list"></p>
+<p align="center"><img src="docs/screenshots/settings.png" width="420" alt="Settings: the Reading and list page"> <img src="docs/screenshots/clear.png" width="420" alt="The «Clear» confirmation in Trash"></p>
+<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="The compose editor with the formatting bar"> <img src="docs/screenshots/signatures.png" width="420" alt="Signatures in the mailbox settings"></p>
 <p align="center"><img src="docs/screenshots/followups.png" width="420" alt="Waiting for reply"> <img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"></p>
 <p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"> <img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"></p>
 <p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="A narrow window: the sidebar as a strip, the list"> <img src="docs/screenshots/narrow-message.png" width="300" alt="A narrow window: the letter"></p>

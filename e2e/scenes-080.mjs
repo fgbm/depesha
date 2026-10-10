@@ -70,7 +70,7 @@ export async function clearConfirm(kit, name) {
   const { d, sleep, textOf, shot, press, openFolder } = kit;
   // 05. «Очистить» in the Trash: the question with the number of letters.
   await openFolder("Корзина");
-  const clear = await d.until("clear button", async () => ((await textOf(".list .title button.clear")).includes("Очистить корзину (7)") ? d.find(".list .title button.clear") : null), 30000);
+  const clear = await d.until("clear button", async () => ((await textOf(".list .title button.clear")).includes("(7)") ? d.find(".list .title button.clear") : null), 30000);
   await d.click(clear);
   await d.until("clear dialog", async () => (await d.findAll(".modal.confirm")).length === 1, 10000);
   await sleep(400);
