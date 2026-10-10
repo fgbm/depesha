@@ -8,7 +8,6 @@
   import { addrFull } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
   import { shortcuts } from "../../lib/shortcuts.svelte";
-  import { keyLabel } from "../../lib/composeKeys";
   import type { QuickReplyState } from "./useQuickReply.svelte";
 
   let {
@@ -74,7 +73,7 @@
         <textarea style:height={height === null ? null : `${height}px`} bind:this={answer.box} bind:value={answer.text} onkeydown={(e) => answer.onKey(e)} spellcheck="true" rows="4" placeholder={t("compose.bodyPlaceholder")}></textarea>
       </div>
       <div class="quick-actions">
-        <button class="btn primary" onclick={() => answer.send()} disabled={answer.busy || !answer.text.trim()}>{t("compose.send")}{#if keyLabel("send")} <kbd>{keyLabel("send")}</kbd>{/if}</button>
+        <button class="btn primary" onclick={() => answer.send()} disabled={answer.busy || !answer.text.trim()}>{t("compose.send")}</button>
         <button class="btn ghost" onclick={() => answer.toWindow()}>{t("reader.toWindow")}</button>
         <span class="sep"></span>
         <button class="btn ghost icon" onclick={() => { answer.quick = null; answer.text = ""; }} title={t("compose.discardDraft")} aria-label={t("compose.discardDraft")}><Trash size={15} /></button>
