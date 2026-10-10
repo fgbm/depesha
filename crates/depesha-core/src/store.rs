@@ -1965,15 +1965,14 @@ impl Store {
             params![id, raw],
         )?;
         tx.execute("UPDATE search SET body = ?2 WHERE rowid = ?1", params![id, text])?;
-        // The headers came with the letter: a letter cached before the importance was kept
-        // says it now (#72).
+        // The headers came with the letter: a letter cached before the importance was kept, or
+        // left unknown by the backfill because the body came after it, says it now (#72). Normal
+        // fills only an unknown one.
         let importance = crate::message::parse_summary(raw).importance;
-        if importance != Importance::Normal {
-            tx.execute(
-                "UPDATE messages SET importance = ?2 WHERE id = ?1",
-                params![id, importance.to_db()],
-            )?;
-        }
+        tx.execute(
+            "UPDATE messages SET importance = ?2 WHERE id = ?1 AND (importance IS NULL OR ?2 != 0)",
+            params![id, importance.to_db()],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -3998,6 +3997,17 @@ mod tests {
         // An unknown importance still learns from it.
         store.forget_importance(id);
         put(&store, "INBOX", 1, &blind, false);
+        assert_eq!(stored_importance(&store, id), Some(Importance::Normal.to_db()));
+    }
+
+    #[test]
+    fn a_letter_whose_body_came_after_the_backfill_learns_its_importance_from_it() {
+        let store = mailbox();
+        let id = put(&store, "INBOX", 1, &summary("Письмо", 100), false);
+        store.forget_importance(id);
+        store
+            .save_body(id, "From: a@x\r\nSubject: x\r\n\r\nтело".as_bytes(), "тело")
+            .unwrap();
         assert_eq!(stored_importance(&store, id), Some(Importance::Normal.to_db()));
     }
 
