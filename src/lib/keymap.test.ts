@@ -309,6 +309,13 @@ describe("assigning a key", () => {
 
 describe("search", () => {
   it("finds a command by a letter of its key, Russian or Latin", () => {
+    // Mod is found by any of its names, whatever the system shows it as.
+    for (const mac of [true, false]) {
+      for (const q of ["ctrl", "cmd", "⌘", "command"]) expect(matches(q, "Выделить всё", ["Mod+a"], mac)).toBe(true);
+      expect(matches("cmd", "Удалить", ["Delete"], mac)).toBe(false);
+      expect(matches("⌘", "Удалить", ["Delete"], mac)).toBe(false);
+    }
+    expect(matches("⌘+a", "Выделить всё", ["Mod+a"], true)).toBe(true);
     expect(matches("у", "Готово: убрать в архив", ["e"])).toBe(true);
     expect(matches("e", "Готово: убрать в архив", ["e"])).toBe(true);
     // One letter is a key: "у" does not find every title with "у" in it.

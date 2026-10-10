@@ -335,18 +335,23 @@ export function removeKey(cmds: KeyCommand[], custom: Custom, id: string, idx: n
 }
 
 /** The key as search text: "Ctrl+L", "e". */
-const plain = (key: string) => keyText(key, "en").toLowerCase();
+const plain = (key: string, mac: boolean) => {
+  const text = keyText(key, "en", mac).toLowerCase();
+  // Mod is found by every name it has, on whatever system.
+  return key.includes("Mod") ? `${text} ${text.replace(/⌘|ctrl/, "cmd")} ${text.replace(/⌘|ctrl/, "command")} ${text.replace(/⌘|ctrl/, mac ? "ctrl" : "⌘")}` : text;
+};
 
 /**
  * The search on the «Keys» page. One character is a key, Russian or Latin ("у" finds e,
  * not every title with "у"); from two on, titles and key names ("ctrl") too.
  */
-export function matches(query: string, title: string, keys: string[]): boolean {
+export function matches(query: string, title: string, keys: string[], mac = isMac()): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
+  if (q === "⌘") return keys.some((k) => k.includes("Mod"));
   if (q.length === 1) {
     const k = FROM_RU[q] ?? q;
     return keys.includes(k) || keys.includes(q);
   }
-  return title.toLowerCase().includes(q) || keys.some((k) => plain(k).includes(q));
+  return title.toLowerCase().includes(q) || keys.some((k) => plain(k, mac).includes(q));
 }
