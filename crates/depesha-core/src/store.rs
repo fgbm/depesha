@@ -687,6 +687,10 @@ pub struct MessageRow {
 pub struct Voice {
     pub from: Addr,
     pub dmarc: bool,
+    /// The letter of theirs the verdict is from: a logo is asked about by it (the backend
+    /// reads the verdict and the folder itself).
+    #[serde(default)]
+    pub id: i64,
 }
 
 /// Largest message downloaded for offline reading with attachments, bytes. A product
@@ -1741,7 +1745,7 @@ impl Store {
                     }
                     // Oldest first: a writer who wrote again moves to the end.
                     voices.retain(|v| !v.from.email.eq_ignore_ascii_case(&a.email));
-                    voices.push(Voice { from: a, dmarc });
+                    voices.push(Voice { from: a, dmarc, id });
                 }
             }
             row.thread_count = count.max(1);
@@ -2504,6 +2508,29 @@ impl Store {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .optional()?)
+    }
+
+    /// Whether a brand logo may be asked about for the sender of a cached letter (#108): the
+    /// receiving server vouched for it (`dmarc`), the sender is the one named, and the letter
+    /// is not in Spam or Trash. The network is let in on this word and not on the caller's.
+    pub fn logo_allowed(&self, message_id: i64, email: &str) -> Result<bool> {
+        let found: Option<(bool, Option<String>, Option<String>)> = self
+            .read()
+            .query_row(
+                "SELECT m.dmarc, m.from_addr, f.role FROM messages m
+                 LEFT JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder
+                 WHERE m.id = ?1",
+                [message_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        Ok(found.is_some_and(|(dmarc, from, role)| {
+            dmarc
+                && !matches!(role.as_deref(), Some("trash" | "junk"))
+                && from
+                    .and_then(|s| serde_json::from_str::<Addr>(&s).ok())
+                    .is_some_and(|a| a.email.eq_ignore_ascii_case(email))
+        }))
     }
 
     /// What opening a letter learned about it (#108): letters cached before the column
@@ -3791,12 +3818,44 @@ mod tests {
             .map(|v| (v.from.email.as_str(), v.dmarc))
             .collect();
         assert_eq!(voices, [("ozon@ozon.example", true), ("me@x", false)]);
+        assert!(row.thread_voices.iter().all(|v| v.id > 0));
         assert!(!rows.iter().find(|r| r.subject == "Другое").unwrap().dmarc);
 
         // A letter cached before the column learns it when opened.
         assert!(!store.get(other).unwrap().unwrap().dmarc);
         store.note_verdict(other, true).unwrap();
         assert!(store.get(other).unwrap().unwrap().dmarc);
+    }
+
+    #[test]
+    fn a_logo_is_allowed_only_for_a_vouched_letter_outside_spam_and_trash() {
+        let store = mailbox();
+        store
+            .replace_folders(
+                "a",
+                &[
+                    folder("INBOX", Some(FolderRole::Inbox)),
+                    folder("Junk", Some(FolderRole::Junk)),
+                    folder("Trash", Some(FolderRole::Trash)),
+                ],
+            )
+            .unwrap();
+        let letter = |dmarc: bool| {
+            let mut s = from_to(with_ids("Скидки", 100, "a@x", None), "ozon@ozon.example", "me@x");
+            s.dmarc = dmarc;
+            s
+        };
+        let inbox = put(&store, "INBOX", 1, &letter(true), true);
+        let unvouched = put(&store, "INBOX", 2, &letter(false), true);
+        let spam = put(&store, "Junk", 1, &letter(true), true);
+        let bin = put(&store, "Trash", 1, &letter(true), true);
+        assert!(store.logo_allowed(inbox, "OZON@ozon.example").unwrap());
+        assert!(!store.logo_allowed(unvouched, "ozon@ozon.example").unwrap());
+        assert!(!store.logo_allowed(spam, "ozon@ozon.example").unwrap());
+        assert!(!store.logo_allowed(bin, "ozon@ozon.example").unwrap());
+        // Another sender than the letter's, and a letter that is not there.
+        assert!(!store.logo_allowed(inbox, "evil@evil.example").unwrap());
+        assert!(!store.logo_allowed(9999, "ozon@ozon.example").unwrap());
     }
 
     #[test]
@@ -5499,7 +5558,7 @@ mod tests {
                         senders.push(a.clone());
                     }
                     voices.retain(|v| !v.from.email.eq_ignore_ascii_case(&a.email));
-                    voices.push(Voice { from: a, dmarc });
+                    voices.push(Voice { from: a, dmarc, id });
                 }
             }
             row.thread_count = count.max(1);

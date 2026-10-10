@@ -6,9 +6,10 @@
   import { avatarOf } from "../lib/avatars.svelte";
   import type { Addr } from "../lib/types";
 
-  let { addr, accountId, brand }: { addr: Addr | null; accountId: string; brand: boolean } = $props();
+  /** `logoOf`: the cached letter a company logo may be asked for; null: no logo. */
+  let { addr, accountId, logoOf }: { addr: Addr | null; accountId: string; logoOf: number | null } = $props();
 
-  const picture = $derived(avatarOf(accountId, addr?.email, brand));
+  const picture = $derived(avatarOf(accountId, addr?.email, logoOf));
 </script>
 
 <span class="avatar" class:pic={picture} style:background={picture ? null : avatarColor(addr?.email ?? "")} aria-hidden="true">

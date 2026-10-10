@@ -179,8 +179,8 @@ export const api = {
   trustSender: (email: string) => call<void>("trust_sender", { email }),
   accountsArrange: (ids: string[]) => call<void>("accounts_arrange", { ids }),
   accountLook: (id: string, label: string, color: string) => call<void>("account_look", { id, label, color }),
-  avatar: (accountId: string, email: string, authenticated: boolean) =>
-    call<string | null>("avatar", { accountId, email, authenticated }),
+  avatar: (accountId: string, email: string, messageId: number | null) =>
+    call<string | null>("avatar", { accountId, email, messageId }),
   /** People for completion: each with the address to insert and the others to choose (#104). */
   addresses: (prefix: string) => call<Suggestion[]>("addresses", { prefix }),
   /** The address book (#66), filtered by a query over name, address and note. */

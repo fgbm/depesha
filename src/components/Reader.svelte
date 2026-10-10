@@ -37,7 +37,9 @@
     msg ? avatarOf(
         msg.row.account_id,
         msg.view.summary.from?.email,
-        msg.view.authenticated && app.settings.sender_logos && mayAskLogo(app.folder(msg.row.account_id, msg.row.folder)?.role),
+        msg.view.authenticated && app.settings.sender_logos && mayAskLogo(app.folder(msg.row.account_id, msg.row.folder)?.role)
+          ? msg.row.id
+          : null,
       ) : null,
   );
 

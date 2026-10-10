@@ -16,15 +16,17 @@ export interface RowAvatar {
   addr: Addr | null;
   /** The receiving server vouched for this address: a company logo may stand in the circle. */
   brand: boolean;
+  /** The cached letter that verdict is from: the backend is asked about a logo by it. */
+  id: number;
 }
 
 /** `mine`: the addresses of my mailboxes, lower-cased; `sentLike`: the row lists my own letters. */
 export function rowAvatar(m: MessageRow, sentLike: boolean, mine: ReadonlySet<string>): RowAvatar {
-  if (sentLike) return { addr: m.to[0] ?? null, brand: false };
+  if (sentLike) return { addr: m.to[0] ?? null, brand: false, id: m.id };
   const voices = m.thread_voices ?? [];
   if (voices.length > 1) {
     const voice = [...voices].reverse().find((v) => !mine.has(v.from.email.toLowerCase())) ?? voices[voices.length - 1];
-    return { addr: voice.from, brand: voice.dmarc };
+    return { addr: voice.from, brand: voice.dmarc, id: voice.id };
   }
-  return { addr: m.from, brand: m.dmarc ?? false };
+  return { addr: m.from, brand: m.dmarc ?? false, id: m.id };
 }

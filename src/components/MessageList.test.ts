@@ -66,15 +66,15 @@ describe("the pictures of the list (#108)", () => {
   it("asks for a company logo only for a sender the server vouched for, and only with the logos on", async () => {
     draw([row(1, "ozon@two.example", { dmarc: true }), row(2, "ivan@two.example")]);
     await tick();
-    expect(api.avatar).toHaveBeenCalledWith("a", "ozon@two.example", true);
-    expect(api.avatar).toHaveBeenCalledWith("a", "ivan@two.example", false);
+    expect(api.avatar).toHaveBeenCalledWith("a", "ozon@two.example", 1);
+    expect(api.avatar).toHaveBeenCalledWith("a", "ivan@two.example", null);
   });
 
   it("never lets the network in when the logos are off: the circle asks without the brand flag", async () => {
     draw([row(1, "ozon@three.example", { dmarc: true })], { sender_logos: false });
     await tick();
-    expect(api.avatar).toHaveBeenCalledWith("a", "ozon@three.example", false);
-    expect(api.avatar).not.toHaveBeenCalledWith("a", "ozon@three.example", true);
+    expect(api.avatar).toHaveBeenCalledWith("a", "ozon@three.example", null);
+    expect(api.avatar).not.toHaveBeenCalledWith("a", "ozon@three.example", 1);
   });
 
   it("draws nothing and asks nothing with the avatars of the list off", async () => {
@@ -232,9 +232,9 @@ describe("the logos by folder (#108)", () => {
       row(3, "ok@inbox.example", { dmarc: true, folder: "INBOX" }),
     ]);
     await tick();
-    expect(api.avatar).toHaveBeenCalledWith("a", "spam@junk.example", false);
-    expect(api.avatar).toHaveBeenCalledWith("a", "old@trash.example", false);
-    expect(api.avatar).toHaveBeenCalledWith("a", "ok@inbox.example", true);
+    expect(api.avatar).toHaveBeenCalledWith("a", "spam@junk.example", null);
+    expect(api.avatar).toHaveBeenCalledWith("a", "old@trash.example", null);
+    expect(api.avatar).toHaveBeenCalledWith("a", "ok@inbox.example", 3);
     app.mailboxes.folders = [];
   });
 });

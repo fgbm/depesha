@@ -148,7 +148,8 @@
   function pictureOf(m: MessageRow) {
     const mine = isSentLike && (app.view.kind !== "plugin" || ["sent", "drafts"].includes(app.folder(m.account_id, m.folder)?.role ?? ""));
     const who = rowAvatar(m, mine, myAddresses);
-    return { addr: who.addr, brand: who.brand && app.settings.sender_logos && mayAskLogo(app.folder(m.account_id, m.folder)?.role) };
+    const brand = who.brand && app.settings.sender_logos && mayAskLogo(app.folder(m.account_id, m.folder)?.role);
+    return { addr: who.addr, logoOf: brand ? who.id : null };
   }
 
   const MARK_ICON = { reply: Reply, reply_all: ReplyAll, forward: Forward };
@@ -321,7 +322,7 @@
             <span class="pick" class:round={avatars} aria-hidden="true"><Check size={avatars ? 18 : 10} strokeWidth={3} /></span>
           {:else if avatars}
             {@const pic = pictureOf(m)}
-            <span class="pic"><Avatar addr={pic.addr} accountId={m.account_id} brand={pic.brand} /></span>
+            <span class="pic"><Avatar addr={pic.addr} accountId={m.account_id} logoOf={pic.logoOf} /></span>
           {/if}
           <div class="line1">
             <span class="from">{who(m)}</span>

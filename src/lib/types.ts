@@ -331,6 +331,8 @@ export type Importance = "low" | "normal" | "high";
 export interface Voice {
   from: Addr;
   dmarc: boolean;
+  /** Their letter the verdict is from. */
+  id: number;
 }
 
 /** Overdue is a waiting one past its deadline. */

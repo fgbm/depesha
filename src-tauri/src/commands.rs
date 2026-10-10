@@ -2121,12 +2121,15 @@ const AVATAR_MISS_TTL: i64 = 86_400;
 
 /// The picture of a sender as a `data:` URI: the colleague's photo from the
 /// account's Exchange, otherwise, for mail that passed DMARC, the brand's BIMI logo.
+/// `message_id`: the cached letter the logo is for; the backend reads its verdict and its
+/// folder itself, so no logo is asked about for Spam, Trash, an unvouched letter, or without a
+/// letter (the address book keeps to initials and Exchange photos).
 #[tauri::command]
 pub async fn avatar(
     state: St<'_>,
     account_id: String,
     email: String,
-    authenticated: bool,
+    message_id: Option<i64>,
 ) -> CmdResult<Option<String>> {
     let email = email.trim().to_ascii_lowercase();
     if !email.contains('@') {
@@ -2162,7 +2165,10 @@ pub async fn avatar(
         }
     }
 
-    if !authenticated || !state.settings().sender_logos {
+    let Some(message_id) = message_id else {
+        return Ok(None);
+    };
+    if !state.settings().sender_logos || !state.store.logo_allowed(message_id, &email)? {
         return Ok(None);
     }
     // By the organizational domain only (#108): a subdomain is free to mint, and asking
