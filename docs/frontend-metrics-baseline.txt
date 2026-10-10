@@ -1,8 +1,9 @@
-component	src/App.svelte	334	212	76	46
+component	src/App.svelte	335	213	76	46
 component	src/MessageWindow.svelte	136	98	33	5
 component	src/components/Accounts.svelte	153	59	35	59
 component	src/components/AddressInput.svelte	252	110	42	100
-component	src/components/Compose.svelte	1004	287	264	453
+component	src/components/Avatar.svelte	45	11	7	27
+component	src/components/Compose.svelte	1026	289	275	462
 component	src/components/Confirm.svelte	128	34	23	71
 component	src/components/Dock.svelte	103	9	24	70
 component	src/components/ExtensionConsent.svelte	177	54	46	77
@@ -19,14 +20,14 @@ component	src/components/LetterViewSwitch.svelte	141	42	27	72
 component	src/components/MailFrame.svelte	162	120	8	34
 component	src/components/MarkdownEditor.svelte	92	66	9	17
 component	src/components/MarkdownPartsNote.svelte	94	22	18	54
-component	src/components/MessageList.svelte	711	196	120	395
+component	src/components/MessageList.svelte	791	216	132	443
 component	src/components/Outbox.svelte	90	11	37	42
 component	src/components/PluginBanner.svelte	93	15	26	52
 component	src/components/Plugins.svelte	254	81	86	87
 component	src/components/Popover.svelte	232	125	33	74
 component	src/components/Preferences.svelte	577	225	80	272
 component	src/components/QuotaLine.svelte	119	29	13	77
-component	src/components/Reader.svelte	331	131	97	103
+component	src/components/Reader.svelte	336	136	97	103
 component	src/components/RecipientRule.svelte	159	91	18	50
 component	src/components/Recipients.svelte	70	28	20	22
 component	src/components/RichEditor.svelte	525	304	48	173
@@ -82,7 +83,7 @@ component	src/components/reader/Conversation.svelte	131	31	24	76
 component	src/components/reader/PersonCard.svelte	773	350	113	310
 component	src/components/reader/QuickReply.svelte	218	57	31	130
 component	src/components/reader/ReaderBody.svelte	183	104	43	36
-component	src/components/reader/ReaderHeader.svelte	341	90	60	191
+component	src/components/reader/ReaderHeader.svelte	353	92	61	200
 component	src/components/reader/ReaderStates.svelte	240	35	75	130
 component	src/components/reader/ReaderToolbar.svelte	169	68	51	50
 component	src/components/reader/ReplyActions.svelte	66	20	11	35
@@ -330,9 +331,12 @@ function	src/components/MessageList.svelte::chipsOf	5
 function	src/components/MessageList.svelte::onScroll	5
 function	src/components/MessageList.svelte::click	8
 function	src/components/MessageList.svelte::context	7
+function	src/components/MessageList.svelte::pictureOf	5
 function	src/components/MessageList.svelte::who	12
 function	src/components/MessageList.svelte::firstName	4
 function	src/components/MessageList.svelte::rowKey	6
+function	src/components/MessageList.test.ts::row	1
+function	src/components/MessageList.test.ts::draw	10
 function	src/components/Outbox.svelte::retry	3
 function	src/components/Plugins.svelte::say	1
 function	src/components/Plugins.svelte::toggleExtension	4
@@ -561,6 +565,8 @@ function	src/components/reader/ReaderBody.svelte::setView	4
 function	src/components/reader/ReaderBody.svelte::setRule	9
 function	src/components/reader/ReaderBody.svelte::link	7
 function	src/components/reader/ReaderHeader.svelte::fromSender	4
+function	src/components/reader/ReaderHeader.test.ts::opened	8
+function	src/components/reader/ReaderHeader.test.ts::draw	11
 function	src/components/reader/ReaderToolbar.svelte::editDraft	8
 function	src/components/reader/useAttachmentViewer.svelte.ts::useAttachmentViewer	3
 function	src/components/reader/useQuickReply.svelte.ts::useQuickReply	3
@@ -592,6 +598,7 @@ function	src/lib/anchor.test.ts::row	1
 function	src/lib/anchor.ts::anchorOf	3
 function	src/lib/anchor.ts::placeMenu	13
 function	src/lib/anchor.ts::placeSide	7
+function	src/lib/anchor.ts::currentRow	3
 function	src/lib/anchor.ts::keyAnchor	4
 function	src/lib/api.ts::asError	4
 function	src/lib/api.ts::call	7
@@ -643,7 +650,7 @@ function	src/lib/compose.ts::reply	22
 function	src/lib/compose.ts::forwardHeader	11
 function	src/lib/compose.ts::forwardedInside	4
 function	src/lib/compose.ts::forward	13
-function	src/lib/compose.ts::fromDraft	30
+function	src/lib/compose.ts::fromDraft	32
 function	src/lib/compose.ts::isDirty	10
 function	src/lib/compose.ts::takeBodyPictures	6
 function	src/lib/compose.ts::leavingHtml	5
@@ -687,6 +694,7 @@ function	src/lib/consent.ts::grantOf	3
 function	src/lib/consent.ts::consentItems	7
 function	src/lib/consent.ts::widens	4
 function	src/lib/consent.ts::mailLeaves	6
+function	src/lib/cursor.ts::cursorId	4
 function	src/lib/debounce.ts::debounce	21
 function	src/lib/drops.ts::heard	3
 function	src/lib/drops.ts::zoneAt	5
@@ -855,6 +863,10 @@ function	src/lib/list.test.ts::serve	3
 function	src/lib/list.test.ts::going	1
 function	src/lib/list.test.ts::folder	1
 function	src/lib/list.test.ts::storeWith	9
+function	src/lib/listAvatar.test.ts::a	1
+function	src/lib/listAvatar.test.ts::row	2
+function	src/lib/listAvatar.ts::mayAskLogo	3
+function	src/lib/listAvatar.ts::rowAvatar	9
 function	src/lib/listFocus.ts::followFocus	5
 function	src/lib/markdown/dialect.test.ts::tagsOf	33
 function	src/lib/markdown/dialect.ts::markdownSupport	3
@@ -1152,7 +1164,7 @@ function	src/lib/stuckCopies.ts::stuckId	4
 function	src/lib/stuckCopies.ts::copyFileName	9
 function	src/lib/syntax.test.ts::runs	3
 function	src/lib/testing.ts::emit	5
-function	src/lib/testing.ts::settings	40
+function	src/lib/testing.ts::settings	41
 function	src/lib/testing.ts::resetFakes	23
 function	src/lib/testing.ts::row	29
 function	src/lib/testing.ts::rows	3
