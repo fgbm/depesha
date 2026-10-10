@@ -2452,6 +2452,8 @@ try {
     await d.until("not waiting", async () => (await invoke("counters")).followups === 0, 20000);
     // The list of waits is read again after the button of the banner: the row is gone from «Активные».
     await d.until("row left the list", async () => !(await textOf(".list")).includes(subj), 20000);
+    // The tab's count is read again with it: no «Активные 1» over an empty list.
+    await d.until("count follows the list", async () => !/Активные\s*\d/.test(await textOf(".list")), 20000);
     // The toast says so and takes it back (#98): the wait returns, with its reminder.
     const stopToast = "//div[contains(concat(' ', normalize-space(@class), ' '), ' toast ')][contains(., 'Не ждём ответа')]";
     await d.until("stop toast", () => d.xpath(stopToast));
