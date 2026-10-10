@@ -47,6 +47,17 @@
     footer?: Snippet;
   } = $props();
 
+  // The list takes no focus while it is not yet shown (the Popover's own try comes a frame too early):
+  // the file shown now, or the first one, gets it a frame later, and ↑↓ go on from there.
+  $effect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>(`.pop [data-att="${Math.max(current, 0)}"]`);
+      if (row && document.activeElement !== row) row.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
   /** → from the name to its first action, ← back; the row's buttons are one stop for ↑↓. */
   function onKey(e: KeyboardEvent, i: number) {
     const row = (e.currentTarget as HTMLElement).closest<HTMLElement>("[data-menu-row]");

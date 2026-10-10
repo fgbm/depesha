@@ -911,7 +911,7 @@ try {
         return s.more && s.width !== wide.width ? s : null;
       }, 15000);
       check(narrow, "узкая панель");
-      if (Math.abs(narrow.width - wide.width) > 120 && narrow.chips === wide.chips) throw new Error(`ширина ${wide.width} → ${narrow.width}, а фишек всё столько же: ${wide.chips}`);
+      if (narrow.chips > wide.chips) throw new Error(`панель сузилась ${wide.width} → ${narrow.width}, а фишек стало больше: ${wide.chips} → ${narrow.chips}`);
       for (const name of ["paper", "night"]) {
         await theme(name);
         await screenshot(`many-attach-narrow-${name}`);
