@@ -470,6 +470,9 @@ fn v25_importance(conn: &Connection) -> Result<()> {
 /// 26: where a slow, once-only reading of the cache stopped (`Store::backfill_importance`).
 /// A table of the cache, made by a step, not by the code that uses it.
 fn v26_backfills(conn: &Connection) -> Result<()> {
+    // A cache opened by a build of the #108 branch before the address book (#104) had an empty
+    // step 23: it gets the book's tables here. The step does nothing where they exist.
+    people::v23_persons_and_addresses(conn)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS backfills (
             name   TEXT PRIMARY KEY,
@@ -3766,6 +3769,36 @@ mod tests {
         assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::High);
         store.note_importance(urgent_id, Importance::Low).unwrap();
         assert_eq!(store.get(urgent_id).unwrap().unwrap().importance, Importance::Low);
+    }
+
+    /// Builds of the importance branch before the address book had an empty step 23.
+    #[test]
+    fn a_cache_that_skipped_the_address_book_gets_its_tables_in_step_26() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.sqlite");
+        {
+            let store = Store::open(&path).unwrap();
+            let conn = store.conn();
+            conn.execute_batch(
+                "DROP TABLE person_addresses; DROP TABLE persons; ALTER TABLE people_v22 RENAME TO people;
+                 DROP TABLE backfills;",
+            )
+            .unwrap();
+            conn.pragma_update(None, "user_version", 25).unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let conn = store.conn();
+        for table in ["persons", "person_addresses", "backfills"] {
+            assert_eq!(
+                count(
+                    &conn,
+                    &format!("SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = '{table}'")
+                ),
+                1,
+                "{table}"
+            );
+        }
+        assert_eq!(user_version(&conn).unwrap(), MIGRATIONS.len() as i64);
     }
 
     #[test]
