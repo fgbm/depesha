@@ -85,8 +85,16 @@ pub async fn draft_cache_list(app: AppHandle) -> CmdResult<Vec<CachedDraft>> {
 /// The draft reached the server (or was thrown away): the local copy goes.
 #[tauri::command]
 pub async fn draft_cache_drop(app: AppHandle, key: String) -> CmdResult<()> {
-    let _ = tokio::fs::remove_file(dir(&app)?.join(safe_key(&key))).await;
-    Ok(())
+    remove(&dir(&app)?, &key).await
+}
+
+/// Removes one copy. One that is already gone is fine; any other failure is told: a copy left
+/// behind is offered for restore at the next start, and a letter already sent could go twice.
+async fn remove(dir: &std::path::Path, key: &str) -> CmdResult<()> {
+    match tokio::fs::remove_file(dir.join(safe_key(key))).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
 }
 
 /// Drops the local copies of these keys: their drafts left the Drafts folder with «Clear» (#74).
@@ -142,7 +150,7 @@ pub async fn read_all(dir: &std::path::Path) -> CmdResult<Vec<CachedDraft>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CachedDraft, read_all, safe_key, write};
+    use super::{CachedDraft, read_all, remove, safe_key, write};
     use serde_json::json;
 
     fn entry(key: &str, updated: i64) -> CachedDraft {
@@ -212,6 +220,36 @@ mod tests {
         let found = read_all(&dir).await.unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].updated, 10);
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn a_copy_that_is_already_gone_drops_quietly() {
+        let dir = std::env::temp_dir().join(format!("depesha-drafts-gone-{}", std::process::id()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        remove(&dir, "never-written").await.unwrap();
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    /// A copy left behind would be offered for restore at the next start, and a letter already
+    /// sent could go twice: the failure has to reach the page.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_copy_that_cannot_be_removed_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("depesha-drafts-ro-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        write(&dir, &entry("one", 10)).await.unwrap();
+        tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555))
+            .await
+            .unwrap();
+        let dropped = remove(&dir, "one").await;
+        tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+        assert!(dropped.is_err());
+        // Still there: nothing was lost by the failed drop.
+        assert_eq!(read_all(&dir).await.unwrap().len(), 1);
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }
