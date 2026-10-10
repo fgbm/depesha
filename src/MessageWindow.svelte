@@ -19,7 +19,7 @@
   import MergeDialog from "./components/people/MergeDialog.svelte";
   import PickPerson from "./components/people/PickPerson.svelte";
   import { peopleOps } from "./lib/peopleOps.svelte";
-  import { host } from "./plugin-host/host.svelte";
+  import { host, keybindingRun } from "./plugin-host/host.svelte";
   import { registry } from "./plugin-host/registry.svelte";
 
   let { id }: { id: number } = $props();
@@ -78,7 +78,7 @@
     if (target?.closest?.(".compose")) return;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
     const opened = app.opened;
-    // The letter's commands, by the keys of the main window (keyCommands.ts, Settings → Keys).
+    // The letter's commands, by the keys of the main window (keyCommands.ts, Settings → Keys); a plugin's key (h, w) runs as there.
     const actions: Record<string, () => void> = {
       "core.reply": () => app.replyTo(false),
       "core.reply-all": () => app.replyTo(true),
@@ -96,7 +96,7 @@
     // Nothing being written: Esc closes the window, as a viewer of one letter.
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
     const id = shortcuts.find(e, "main");
-    const action = plain && e.key === "Escape" ? () => !app.composes.length && win.close() : id ? actions[id] : undefined;
+    const action = plain && e.key === "Escape" ? () => !app.composes.length && win.close() : id ? (actions[id] ?? keybindingRun(id)) : undefined;
     if (action) {
       e.preventDefault();
       action();

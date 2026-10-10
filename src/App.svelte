@@ -27,7 +27,7 @@
   import Popover from "./components/Popover.svelte";
   import { keyAnchor } from "./lib/anchor";
   import LabelPicker from "./components/LabelPicker.svelte";
-  import { allCommands, host } from "./plugin-host/host.svelte";
+  import { allCommands, host, keybindingRun } from "./plugin-host/host.svelte";
   import FolderPropsCard from "./components/prefs/FolderProps.svelte";
   import { registry } from "./plugin-host/registry.svelte";
 
@@ -135,7 +135,7 @@
   /** What a command does now: the core's, a plugin's key, or any command of the palette given a key. */
   function action(id: string | undefined): (() => void) | undefined {
     if (!id) return;
-    return actions[id] ?? registry.items("keybindings").find((b) => b.id === id && (!b.when || b.when()))?.run ?? allCommands().find((c) => c.id === id)?.run;
+    return actions[id] ?? keybindingRun(id) ?? allCommands().find((c) => c.id === id)?.run;
   }
 
   /** Text fields keep their own editing keys even when a command has them. */

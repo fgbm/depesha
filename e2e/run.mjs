@@ -1063,6 +1063,35 @@ try {
     await d.until("back in its folder", async () => helper("count", "Работа", subj) === "1", 20000);
   });
 
+  await step("4.11", "«Отложить» по h в отдельном окне письма (#125): меню открывается у письма, выбор откладывает его", async () => {
+    const subj = `Окно h ${stamp}`;
+    helper("deliver", subj);
+    await d.button("Входящие");
+    await rowBySubject(subj, 30000);
+    const main = await d.req("GET", d.s("/window"));
+    await d.exec(
+      `const row = [...document.querySelectorAll('.row')].find(r => r.innerText.includes(arguments[0]));
+       row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));`,
+      subj,
+    );
+    const handles = () => d.req("GET", d.s("/window/handles"));
+    await d.until("second window", async () => (await handles()).length === 2, 15000);
+    const other = (await handles()).find((h) => h !== main);
+    await d.req("POST", d.s("/window"), { handle: other });
+    try {
+      await d.until("letter in its window", async () => (await textOf(".reader h1")).includes(subj), 20000);
+      await press("h", { code: "KeyH" });
+      await d.until("snooze menu in the window", async () => (await textOf(".snooze .pop.main")).includes("Завтра"));
+      await d.click(await d.until("snooze preset", () => d.xpath("//div[contains(@class,'snooze')]//button[contains(., 'Завтра')]")));
+      await d.until("in Snoozed on server", async () => helper("count", "Отложенные", subj) === "1", 20000);
+    } finally {
+      await d.req("POST", d.s("/window"), { handle: main });
+    }
+    // Put things in order: back to the inbox for the steps that follow.
+    await d.click(await d.xpath("//div[contains(@class,'toasts')]//button[contains(., 'Отменить')]"));
+    await d.until("undone on server", async () => helper("count", "INBOX", subj) === "1" && helper("count", "Отложенные", subj) === "0", 20000);
+  });
+
   // A drop on a reply (#79): the backend makes the window report a drop of real files, the rest is the real path.
   const drops = dropFixtures();
   /** The reply is in the form of the letter it answers: the drop zones come with an HTML one, so the reply is switched to it. */

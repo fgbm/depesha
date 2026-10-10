@@ -59,6 +59,11 @@ export function allCommands(): Command[] {
   return [...coreCommands(), ...registry.items("commands")].filter((c) => !c.when || c.when());
 }
 
+/** What a plugin's key does now, if the plugin has one under this id and it applies; the windows' key handlers share it. */
+export function keybindingRun(id: string): (() => void) | undefined {
+  return registry.items("keybindings").find((b) => b.id === id && (!b.when || b.when()))?.run;
+}
+
 function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
   const id = plugin.manifest.id;
   const own = (): Record<string, unknown> => (app.settings.plugin_settings?.[id] as Record<string, unknown>) ?? {};

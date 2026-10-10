@@ -25,6 +25,7 @@ import { i18n } from "./lib/i18n.svelte";
 import { blankPerson } from "./lib/people";
 import { peopleOps } from "./lib/peopleOps.svelte";
 import { api, settings } from "./lib/testing";
+import { registry } from "./plugin-host/registry.svelte";
 
 (globalThis as { CSS?: unknown }).CSS ??= { escape: (s: string) => s };
 
@@ -46,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   peopleOps.cancel();
   peopleOps.stopPicking();
+  registry.removeOwner("snooze");
   if (view) unmount(view);
   view = null;
   document.body.innerHTML = "";
@@ -71,5 +73,18 @@ describe("the window of one letter", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", bubbles: true, cancelable: true }));
     expect(undo).toHaveBeenCalled();
     undo.mockRestore();
+  });
+
+  // #125: a plugin's key (Snooze's h, Waiting's w) is found by the same table as in the main window and must run here too.
+  it("runs a plugin's key as the main window does, and only while it applies (#125)", () => {
+    const run = vi.fn();
+    let applies = false;
+    registry.add("keybindings", "snooze", { id: "snooze.open", title: () => "Отложить", key: "h", run, when: () => applies });
+    const press = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "h", code: "KeyH", bubbles: true, cancelable: true }));
+    press();
+    expect(run).not.toHaveBeenCalled();
+    applies = true;
+    press();
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });
