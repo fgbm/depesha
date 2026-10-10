@@ -2635,6 +2635,36 @@ try {
     if (p.overHeader) throw new Error(`письмо легло поверх шапки листа: ${p.overHeader} блоков`);
   });
 
+  await step("4.16", "панель при запуске не сдвигается (#158): «Отложенные» стоят в первом кадре, «Входящие» через 2 с там же, где при загрузке", async () => {
+    const subj = `Сдвиг ${stamp}`;
+    helper("deliver", subj);
+    await d.button("Входящие");
+    await d.until("delivered", async () => helper("count", "INBOX", subj) === "1", 60000, 1000);
+    await openBySubject(subj);
+    const id = await idOf(subj);
+    // A snoozed letter: the row «Snoozed» is in the sidebar, and the count is what the next launch starts from.
+    await invoke("snooze", { ids: [id], until: Math.floor(Date.now() / 1000) + 86400 });
+    const rows = () =>
+      d.exec(`const items = [...document.querySelectorAll('nav.side .item')];
+        const at = (name) => items.find((b) => b.querySelector('.name')?.innerText.trim() === name)?.getBoundingClientRect().top ?? null;
+        return { loading: !!window.__before, snoozed: at('Отложенные'), inbox: at('Входящие') };`);
+    try {
+      await d.until("snoozed row", async () => (await rows()).snoozed !== null, 20000);
+      // A launch: the page is read anew, and the first frame that has the folder tree is taken.
+      await d.exec("window.__before = true; location.reload()");
+      const first = await d.until("tree at load", async () => {
+        const r = await rows();
+        return !r.loading && r.inbox !== null ? r : null;
+      }, 15000, 20);
+      await new Promise((r) => setTimeout(r, 2000));
+      const later = await rows();
+      if (first.snoozed === null) throw new Error(`в первом кадре нет строки «Отложенные»: ${JSON.stringify({ first, later })}`);
+      if (first.inbox !== later.inbox) throw new Error(`«Входящие» сдвинулись за 2 с после загрузки: ${JSON.stringify({ first, later })}`);
+    } finally {
+      await invoke("unsnooze", { ids: [id] });
+    }
+  });
+
   await step("9.2", "карточка контакта: щелчок по имени открывает её, «Все письма» в фокусе, Enter ищет отправителя (#66, #44)", async () => {
     const subj = `Карточка ${stamp}`;
     helper("deliver", subj);

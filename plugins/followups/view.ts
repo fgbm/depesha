@@ -3,7 +3,7 @@
 
 import MessageSquareReply from "@lucide/svelte/icons/message-square-reply";
 import type { PluginContext } from "@depesha/plugin-api";
-import { followups } from "./state.svelte";
+import { followups, setCounts } from "./state.svelte";
 import { S } from "./strings";
 
 /** Closed waits are kept this long unless the settings say otherwise; the backend agrees. */
@@ -13,10 +13,7 @@ export function registerView(ctx: PluginContext) {
   const refresh = () =>
     ctx
       .backend<{ followups: number; followups_closed?: number }>("counters")
-      .then((c) => {
-        followups.count = c.followups;
-        followups.closed = c.followups_closed ?? 0;
-      })
+      .then((c) => setCounts(c.followups, c.followups_closed ?? 0))
       // The counter is a sidebar nicety; the next refresh reads it again.
       .catch(() => {});
   refresh();

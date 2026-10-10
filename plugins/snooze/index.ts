@@ -6,7 +6,7 @@ import { readerButtonAnchor } from "./anchor";
 import { fmtDay } from "./format";
 import SnoozeButton from "./SnoozeButton.svelte";
 import SnoozeOverlay from "./SnoozeOverlay.svelte";
-import { closeSnooze, openSnooze, snooze } from "./state.svelte";
+import { closeSnooze, openSnooze, setCount, snooze } from "./state.svelte";
 import { S } from "./strings";
 import { slots, type SlotId } from "./times";
 
@@ -31,7 +31,7 @@ export default {
     const refresh = () =>
       ctx
         .backend<{ snoozed: number }>("counters")
-        .then((c) => (snooze.count = c.snoozed))
+        .then((c) => setCount(c.snoozed))
         // The counter is a sidebar nicety; the next refresh reads it again.
         .catch(() => {});
     refresh();
