@@ -7,9 +7,10 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use depesha_core::account::{self, Account, AuthMethod, Credentials, OAuthProvider, ServerConfig};
 use depesha_core::autodetect::{self, Detection};
 use depesha_core::avatar::Receiver;
+use depesha_core::domain::Addr;
 use depesha_core::domain::{Act, ActsOn, BodyFormat, Draft, FlagChange, FolderRole, OutgoingAttachment};
 use depesha_core::ews::{self, EwsDetection};
-use depesha_core::message::{self, Addr, MessageView, Unsubscribe};
+use depesha_core::message::{self, MessageView, Unsubscribe};
 use depesha_core::query::SearchQuery;
 use depesha_core::smtp;
 use depesha_core::store::{
@@ -2714,7 +2715,7 @@ pub struct ComposeDraft {
     acts_on: Option<ActsOn>,
     /// Asked to be read first (#72).
     #[serde(default)]
-    importance: depesha_core::message::Importance,
+    importance: depesha_core::domain::Importance,
 }
 
 async fn resolve(state: &AppState, d: ComposeDraft) -> CmdResult<Draft> {

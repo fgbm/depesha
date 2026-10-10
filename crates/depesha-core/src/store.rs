@@ -10,8 +10,9 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params, params_fro
 use serde::{Deserialize, Serialize};
 
 use crate::Result;
+use crate::domain::{Addr, Importance};
 use crate::domain::{Draft, FlagChange, Flags, Folder, FolderRole};
-use crate::message::{Addr, Importance, Summary, Unsubscribe};
+use crate::message::{Summary, Unsubscribe};
 use crate::query::SearchQuery;
 
 mod followups;

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{Store, add_column};
 use crate::Result;
+use crate::domain::Addr;
 use crate::domain::Draft;
-use crate::message::Addr;
 
 /// What a wait for an answer asks besides the time of the first reminder.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,10 +2,11 @@
 //! Skipped unless DEPESHA_IT=1.
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
+use depesha_core::domain::Addr;
 use depesha_core::domain::{Draft, FlagChange, FolderRole, OutgoingAttachment};
 use depesha_core::imap;
 use depesha_core::mail;
-use depesha_core::message::{self, Addr};
+use depesha_core::message;
 use depesha_core::smtp;
 use depesha_core::store::{ListQuery, Store};
 use depesha_core::sync::{self, SyncOptions};

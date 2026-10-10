@@ -421,7 +421,7 @@ fn found_rows(store: &Store, account_id: &str, folder: &str, q: &SearchQuery, ui
     for uid in uids.iter().rev() {
         if let Some(row) = store.find_by_uid(account_id, folder, *uid)?
             && (!q.has_attachment || row.has_attachments)
-            && (!q.important || row.importance == message::Importance::High)
+            && (!q.important || row.importance == crate::domain::Importance::High)
         {
             ids.push(row.id);
         }
@@ -678,11 +678,17 @@ mod tests {
         let id = store.insert_message("a", "INBOX", &msg).unwrap();
         // Cached before the importance was read: unknown.
         store.forget_importance(id);
-        assert_eq!(store.get(id).unwrap().unwrap().importance, message::Importance::Normal);
+        assert_eq!(
+            store.get(id).unwrap().unwrap().importance,
+            crate::domain::Importance::Normal
+        );
         let q = SearchQuery::parse("is:important");
         // The cache never read it, the server found it by its headers: it is in the results, high from now on.
         assert_eq!(found_rows(&store, "a", "INBOX", &q, &[7]).unwrap(), [id]);
-        assert_eq!(store.get(id).unwrap().unwrap().importance, message::Importance::High);
+        assert_eq!(
+            store.get(id).unwrap().unwrap().importance,
+            crate::domain::Importance::High
+        );
 
         // A letter whose summary was read says normal: the substring of the server is not believed.
         let calm = message::Summary {
@@ -706,7 +712,7 @@ mod tests {
         assert!(found_rows(&store, "a", "INBOX", &q, &[8]).unwrap().is_empty());
         assert_eq!(
             store.get(known).unwrap().unwrap().importance,
-            message::Importance::Normal
+            crate::domain::Importance::Normal
         );
         // An ordinary search leaves the cache alone.
         let ordinary = SearchQuery::parse("срочное");

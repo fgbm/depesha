@@ -15,9 +15,9 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use crate::account::{Credentials, Security, ServerConfig};
+use crate::domain::{Addr, Importance};
 use crate::domain::{BodyFormat, Draft};
 use crate::imap::Io;
-use crate::message::{Addr, Importance};
 use crate::tr;
 use crate::{Error, Result, tls};
 

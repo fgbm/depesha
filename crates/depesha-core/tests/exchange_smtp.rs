@@ -3,8 +3,8 @@
 //! Needs no network beyond localhost; always runs.
 
 use depesha_core::account::{Credentials, Security, ServerConfig};
+use depesha_core::domain::Addr;
 use depesha_core::domain::Draft;
-use depesha_core::message::Addr;
 use depesha_core::smtp;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;

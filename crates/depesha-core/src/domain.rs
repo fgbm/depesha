@@ -4,8 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::message::{Addr, Importance};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FolderRole {
@@ -150,6 +148,51 @@ pub enum FlagChange {
     /// Answered to all: `\Answered` on IMAP, its own verb on Exchange.
     AnsweredAll(bool),
     Forwarded(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Addr {
+    pub name: Option<String>,
+    pub email: String,
+}
+
+/// How much the sender wants the letter read first (#72). Only the high one is shown; the
+/// low one is kept in the cache, so it can be shown later without a new migration.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Importance {
+    Low,
+    #[default]
+    Normal,
+    High,
+}
+
+impl Importance {
+    /// The cache keeps it as -1, 0 or 1.
+    pub fn to_db(self) -> i64 {
+        match self {
+            Self::Low => -1,
+            Self::Normal => 0,
+            Self::High => 1,
+        }
+    }
+
+    pub fn from_db(n: i64) -> Self {
+        match n {
+            1.. => Self::High,
+            0 => Self::Normal,
+            _ => Self::Low,
+        }
+    }
+
+    /// Exchange's `Importance` property: `High`, `Normal` or `Low`.
+    pub fn from_word(word: &str) -> Self {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "high" | "urgent" => Self::High,
+            "low" | "non-urgent" => Self::Low,
+            _ => Self::Normal,
+        }
+    }
 }
 
 /// How a letter is written. It decides the parts that go out: plain text alone, or
@@ -375,5 +418,29 @@ mod tests {
         let back: Draft = serde_json::from_value(value).unwrap();
         assert_eq!(back.attachments[0].data, b"hi");
         assert_eq!(back.acts_on, draft.acts_on);
+    }
+
+    #[test]
+    fn addr_and_importance_wire_format_is_stable() {
+        let addr = Addr {
+            name: Some("Ольга".into()),
+            email: "o@x.ru".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&addr).unwrap(),
+            json!({"name": "Ольга", "email": "o@x.ru"})
+        );
+        assert_eq!(serde_json::to_value(Importance::High).unwrap(), json!("high"));
+        assert_eq!(serde_json::to_value(Importance::Low).unwrap(), json!("low"));
+        assert_eq!(
+            serde_json::from_value::<Importance>(json!("normal")).unwrap(),
+            Importance::Normal
+        );
+        assert_eq!(
+            [Importance::Low, Importance::Normal, Importance::High].map(Importance::to_db),
+            [-1, 0, 1]
+        );
+        assert_eq!(Importance::from_db(5), Importance::High);
+        assert_eq!(Importance::from_db(-3), Importance::Low);
     }
 }

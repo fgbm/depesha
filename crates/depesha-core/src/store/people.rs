@@ -1422,7 +1422,8 @@ impl Store {
 mod tests {
     use super::super::tests::{mailbox, put};
     use super::*;
-    use crate::message::{Addr, Summary};
+    use crate::domain::Addr;
+    use crate::message::Summary;
 
     fn wrote(from: &str, name: &str) -> Summary {
         Summary {

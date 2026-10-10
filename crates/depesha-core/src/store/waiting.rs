@@ -13,7 +13,7 @@ use super::{Followup, FollowupPlan, Store, add_column, json_list};
 use crate::Result;
 use crate::account::Waiting;
 use crate::domain::ActsOn;
-use crate::message::Addr;
+use crate::domain::Addr;
 
 /// 27: a stop remembers where the wait's move stood (`stop_from`) and where its letters go
 /// (`stop_to`, the archive by the mailbox's word), so that an undo takes back only what the
