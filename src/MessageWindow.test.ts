@@ -74,7 +74,7 @@ describe("the window of one letter", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", code: "KeyP", bubbles: true, cancelable: true }));
     off();
     expect(asked).toHaveBeenCalledTimes(1);
-    const undo = vi.spyOn(app, "undo").mockResolvedValue();
+    const undo = vi.spyOn(app.actions, "undo").mockResolvedValue();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", bubbles: true, cancelable: true }));
     expect(undo).toHaveBeenCalled();
     undo.mockRestore();

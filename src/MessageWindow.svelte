@@ -21,6 +21,7 @@
   import { peopleOps } from "./lib/peopleOps.svelte";
   import { host, keybindingRun } from "./plugin-host/host.svelte";
   import { registry } from "./plugin-host/registry.svelte";
+  import { labels } from "./lib/labels.svelte";
 
   let { id }: { id: number } = $props();
 
@@ -80,18 +81,18 @@
     const opened = app.reader.opened;
     // The letter's commands, by the keys of the main window (keyCommands.ts, Settings → Keys); a plugin's key (h, w) runs as there.
     const actions: Record<string, () => void> = {
-      "core.reply": () => app.replyTo(false),
-      "core.reply-all": () => app.replyTo(true),
-      "core.forward": () => app.forwardOpened(),
+      "core.reply": () => app.compose.replyTo(false),
+      "core.reply-all": () => app.compose.replyTo(true),
+      "core.forward": () => app.compose.forwardOpened(),
       "core.delete": () => app.remove(),
       "core.archive": () => app.archive(),
       "core.spam": () => app.spam(),
       "core.unread": () => app.selection.toggleSeen(),
       "core.flag": () => app.selection.toggleFlagged(),
-      "core.labels": () => opened && app.labels.openPick([opened.row.id]),
+      "core.labels": () => opened && labels.openPick([opened.row.id]),
       // The card of the sender, and the way back from a merge made in its card (#104).
       "core.sender-card": () => app.openSenderCard(),
-      "core.undo": () => app.undo(),
+      "core.undo": () => app.actions.undo(),
     };
     // Nothing being written: Esc closes the window, as a viewer of one letter.
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
@@ -107,16 +108,16 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="single">
-  <Reader onReply={(all) => app.replyTo(all)} onForward={() => app.forwardOpened()} />
+  <Reader onReply={(all) => app.compose.replyTo(all)} onForward={() => app.compose.forwardOpened()} />
 </div>
 
 <Dock />
-{#if app.labels.pick}
+{#if labels.pick}
   <Popover
-    bind:open={() => app.labels.pick !== null, (v) => !v && app.labels.closePick()}
-    at={app.labels.pick.at ?? { x: Math.round(window.innerWidth / 2 - 120), y: 90 }}
+    bind:open={() => labels.pick !== null, (v) => !v && labels.closePick()}
+    at={labels.pick.at ?? { x: Math.round(window.innerWidth / 2 - 120), y: 90 }}
   >
-    <LabelPicker rows={app.labels.pickRows()} />
+    <LabelPicker rows={labels.pickRows()} />
   </Popover>
 {/if}
 <!-- Dialogs plugins open from their banners, e.g. a new date for a reminder. -->

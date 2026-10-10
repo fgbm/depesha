@@ -206,10 +206,6 @@ export interface AppMock {
   compose?: Partial<AppStore["compose"]>;
   settingsCtl?: { settings?: Partial<AppStore["settingsCtl"]["settings"]> };
   mailboxes?: Partial<AppStore["mailboxes"]>;
-  activeCompose?: AppStore["activeCompose"];
-  closeCompose?: AppStore["closeCompose"];
-  showCompose?: AppStore["showCompose"];
-  send?: AppStore["send"];
 }
 
 export const appMock = <T extends AppMock>(parts: T) => parts satisfies AppMock;

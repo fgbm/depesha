@@ -33,7 +33,7 @@
 
 {#snippet card(m: MessageRow)}
   {@const pic = avatarOf(m.account_id, m.from?.email, null)}
-  <button class="card" class:unread={!m.flags.seen} onclick={() => app.open(m.id)}>
+  <button class="card" class:unread={!m.flags.seen} onclick={() => app.reader.open(m.id)}>
     <span class="mini" class:pic style:background={pic ? null : avatarColor(m.from?.email ?? "")}>
       {#if pic}<img src={pic} alt="" />{:else}{initials(m.from)}{/if}
     </span>

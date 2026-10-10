@@ -102,7 +102,7 @@
     const email = msg?.view.summary.from?.email;
     if (!email || !msg) return;
     await api.trustSender(email).catch((e) => app.ui.fail(e));
-    app.open(msg.row.id, true);
+    app.reader.open(msg.row.id, true);
   }
 
   // The conversation reads top to bottom around the opened letter, as in Gmail:
@@ -196,7 +196,7 @@
         <div class="remote" title={t("reader.remoteWhy")}>
           <ImageOff size={14} />
           <span>{t("reader.remoteHidden")}</span>
-          <button class="link" onclick={() => app.open(msg.row.id, true)}>{t("reader.show")}</button>
+          <button class="link" onclick={() => app.reader.open(msg.row.id, true)}>{t("reader.show")}</button>
           {#if msg.view.summary.from}
             <span aria-hidden="true">·</span>
             {#if msg.sender_unverified}

@@ -26,13 +26,13 @@ describe("marking a letter read", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
-    void s.open(1);
+    void s.reader.open(1);
     await flush();
     vi.advanceTimersByTime(300);
-    void s.open(2);
+    void s.reader.open(2);
     await flush();
     vi.advanceTimersByTime(300);
-    void s.open(3);
+    void s.reader.open(3);
     await flush();
     vi.advanceTimersByTime(300);
     // Nothing was shown long enough yet.
@@ -53,13 +53,13 @@ describe("acting on a letter", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
-    void s.open(1);
+    void s.reader.open(1);
     await flush();
     vi.advanceTimersByTime(200);
     expect(markedSeen()).toEqual([]);
 
     // The user archives it (or flags, moves, answers): read now.
-    s.markSeen([1]);
+    s.reader.saw([1]);
     await flush();
     expect(markedSeen()).toEqual([1]);
     // The wait that was pending does not mark it a second time.
@@ -76,7 +76,7 @@ describe("acting on a letter", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
-    void s.open(1);
+    void s.reader.open(1);
     await flush();
     vi.advanceTimersByTime(200);
     // A star, not a read flag: the mark the window was about to make still lands.
@@ -94,7 +94,7 @@ describe("acting on a letter", () => {
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
 
     vi.useFakeTimers();
-    void s.open(1);
+    void s.reader.open(1);
     await flush();
     vi.advanceTimersByTime(200);
     // "Done" a moment after opening: the letter is read all the same, locally. The
@@ -113,7 +113,7 @@ describe("`u` by the letter's own state", () => {
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    await s.open(1);
+    await s.reader.open(1);
     await flush();
 
     // The keys moved to letter 2 while letter 1 is still the open one for a moment.
@@ -132,7 +132,7 @@ describe("`s` by the letter's own state", () => {
     api.thread.mockResolvedValue([]);
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    await s.open(1);
+    await s.reader.open(1);
     await flush();
 
     // `j` moved to letter 2 while letter 1 (flagged) is still the open one for a moment.
@@ -149,7 +149,7 @@ describe("a failing backend is told, not swallowed (#147)", () => {
     api.thread.mockRejectedValue(new Error("thread broken"));
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
-    await s.open(1);
+    await s.reader.open(1);
     await flush();
     expect(s.ui.toasts.some((x) => x.error && x.text.includes("conversation") && x.text.includes("thread broken"))).toBe(true);
   });

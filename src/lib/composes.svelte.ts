@@ -44,7 +44,6 @@ export interface ComposeHost {
   /** The letter of a separate message window, where compositions open full screen; null in the main window. */
   readonly windowOf: number | null;
   /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[], server?: boolean): void;
   /** The mailbox a new letter is written from. */
   defaultAccount(): AccountView | undefined;
 }
@@ -120,7 +119,7 @@ export class ComposeManager {
       (c) => c.draft.in_reply_to && c.draft.in_reply_to === msg.view.summary.message_id && !isForward(c.draft.subject),
     );
     if (same) return this.show(same.id);
-    this.host.markSeen([msg.row.id]);
+    this.host.reader.saw([msg.row.id]);
     const draft = withSignature(reply(msg, { name: acc.display_name, email: acc.email }, all, this.format(acc)), replySignature(acc));
     this.open({ account_id: acc.id, draft, draft_id: null });
   }
@@ -129,7 +128,7 @@ export class ComposeManager {
     const msg = this.host.reader.opened;
     const acc = msg && this.host.mailboxes.account(msg.row.account_id);
     if (!msg || !acc) return;
-    this.host.markSeen([msg.row.id]);
+    this.host.reader.saw([msg.row.id]);
     const draft = withSignature(forward(msg, { name: acc.display_name, email: acc.email }, this.format(acc)), replySignature(acc));
     this.open({ account_id: acc.id, draft, draft_id: null });
   }

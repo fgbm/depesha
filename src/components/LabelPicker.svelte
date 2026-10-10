@@ -6,6 +6,7 @@
   import type { Label, MessageRow } from "../lib/types";
   import LabelMenu from "./LabelMenu.svelte";
   import LabelColors from "./LabelColors.svelte";
+  import { labels } from "../lib/labels.svelte";
 
   /** Выбор меток (#42, кадр 10): галочки на метках ящика, пустое состояние и форма
    *  новой метки, внизу — где метки хранятся. Общий для меню строки, панели письма
@@ -14,9 +15,9 @@
   let { rows }: { rows: MessageRow[] } = $props();
 
   const account = $derived(pickAccount(rows));
-  const known = $derived((account ? app.labels.of(account) : []).filter((l) => !l.stripping));
+  const known = $derived((account ? labels.of(account) : []).filter((l) => !l.stripping));
   const ids = $derived(rows.map((m) => m.id));
-  const storage = $derived(labelStorage(rows.map((m) => app.labels.prop(m.account_id, m.folder))));
+  const storage = $derived(labelStorage(rows.map((m) => labels.prop(m.account_id, m.folder))));
 
   let newLabel = $state("");
   let newColor = $state("#3f7fd0");
@@ -27,15 +28,15 @@
 
   async function toggle(keyword: string, on: boolean) {
     const l = known.find((x) => x.keyword === keyword);
-    if (l) await app.setLabel(ids, l.name, on);
+    if (l) await labels.set(ids, l.name, on);
   }
 
   async function add() {
     const name = newLabel.trim();
     if (!account || !name) return;
-    const label = await app.labels.save(account, name, newColor);
+    const label = await labels.save(account, name, newColor);
     newLabel = "";
-    if (label) await app.setLabel(ids, label.name, true);
+    if (label) await labels.set(ids, label.name, true);
   }
 
   function startRename(l: Label) {
@@ -47,7 +48,7 @@
     const name = draft.trim();
     editing = null;
     if (!account || !name || name === l.name) return;
-    await app.labels.rename(account, l.name, name);
+    await labels.rename(account, l.name, name);
   }
 
   function openMenu(e: MouseEvent, l: Label) {
@@ -60,7 +61,7 @@
 
   async function remove(l: Label) {
     if (!account) return;
-    const n = app.labels.count(account, l.keyword);
+    const n = labels.count(account, l.keyword);
     const ok = await app.ui.confirm({
       title: t("label.deleteTitle", { name: l.name }),
       text: t("label.deleteText", { n }),
@@ -68,7 +69,7 @@
       danger: true,
     });
     if (!ok) return;
-    await app.labels.strip(account, l.name);
+    await labels.strip(account, l.name);
     app.ui.toast(t("label.deleted"));
   }
 </script>

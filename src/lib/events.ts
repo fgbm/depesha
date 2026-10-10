@@ -16,6 +16,7 @@ import type { Undoable } from "./actions.svelte";
 import type { View } from "./list.svelte";
 import type { AppStore } from "./store.svelte";
 import type { AccountStatus, CmdError, Moved, Task, UpdateStatus } from "./types";
+import { labels } from "./labels.svelte";
 
 interface MailChanged {
   account_id: string;
@@ -44,7 +45,7 @@ function common(app: AppStore) {
     listen("settings-changed", () => settingsChanged()),
     // A label taken off every letter finishes in the background: the list follows.
     listen<{ account_id: string }>("labels-changed", (e) => {
-      if (e.payload.account_id) void app.labels.refresh(e.payload.account_id);
+      if (e.payload.account_id) void labels.refresh(e.payload.account_id);
     }),
   ];
 }
@@ -110,7 +111,7 @@ export function listenMain(app: AppStore) {
     // A message window hands over what concerns the list.
     listen<Undoable>("window-moved", (e) => {
       app.actions.lastUndo = e.payload;
-      app.ui.toast(e.payload.text, false, { label: t("undo"), run: () => app.undo() });
+      app.ui.toast(e.payload.text, false, { label: t("undo"), run: () => app.actions.undo() });
       app.selection.reload();
     }),
     listen<View>("window-view", (e) => {
@@ -141,7 +142,7 @@ function quitDrafts(app: AppStore) {
       // Neither a refused write nor a hung one holds the quit: it waits four seconds at most.
       const settle = app.ui.settingsSettle?.();
       const patience = new Promise<void>((r) => setTimeout(r, 4000));
-      await Promise.allSettled([app.saveComposes(4000), settle && Promise.race([settle, patience])]);
+      await Promise.allSettled([app.compose.saveAll(4000), settle && Promise.race([settle, patience])]);
       // A lost «saved» leaves this window in the backend's list of unsaved ones: the quit keeps waiting for it and is asked again.
       if (quit === mine) await api.composeSaved().catch(() => {});
     },

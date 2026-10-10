@@ -32,6 +32,7 @@
   import { actionsOf, canCheckLabels, readOnly } from "../../lib/labels";
   import type { AccountView, FolderAction, FolderInfo, LabelCheck } from "../../lib/types";
   import { untrack } from "svelte";
+  import { labels } from "../../lib/labels.svelte";
 
   let {
     at,
@@ -41,9 +42,9 @@
   }: { at: { x: number; y: number }; account: AccountView; folder: FolderInfo; onclose: () => void } = $props();
 
   // The card reads the cache at once and asks the server only on "Check again".
-  const info = $derived(app.labels.prop(account.id, folder.name));
+  const info = $derived(labels.prop(account.id, folder.name));
   const key = $derived(`${account.id}\u0000${folder.name}`);
-  const checking = $derived(!!app.labels.checking[key]);
+  const checking = $derived(!!labels.checking[key]);
   const rights = $derived(info?.rights ?? null);
   const owner = $derived(info?.owner ?? { kind: "mine" as const });
 
@@ -61,7 +62,7 @@
     confirmCheck = false;
     checkRunning = true;
     try {
-      checkResult = await app.labels.runLabelCheck(account.id, folder.name);
+      checkResult = await labels.runLabelCheck(account.id, folder.name);
     } finally {
       checkRunning = false;
     }
@@ -70,7 +71,7 @@
   // The card follows the folder's opening too: a read of props already asked for.
   $effect(() => {
     void folder.name;
-    if (!info) app.labels.loadProps(account.id, folder.name);
+    if (!info) labels.loadProps(account.id, folder.name);
   });
 
   const ACTION_KEY: Record<FolderAction, Key> = {
@@ -177,7 +178,7 @@
   <div class="ffoot">
     {#if info?.checked}<span>{t("folder.checked", { when: when(info.checked) })}</span>{:else}<span class="muted">{t("folder.never")}</span>{/if}
     <span class="sp"></span>
-    <button class="link" onclick={() => app.checkFolderProps(account.id, folder.name)} disabled={checking}>
+    <button class="link" onclick={() => labels.check(account.id, folder.name)} disabled={checking}>
       {checking ? t("server.checking") : t("folder.checkAgain")}
     </button>
     <button class="link" onclick={() => (details = !details)}>{t("folder.details")}</button>

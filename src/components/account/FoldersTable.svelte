@@ -9,6 +9,7 @@
   import { readOnly } from "../../lib/labels";
   import { app } from "../../lib/store.svelte";
   import type { AccountView, FolderInfo, FolderProps } from "../../lib/types";
+  import { labels } from "../../lib/labels.svelte";
 
   let { account, folders }: { account: AccountView; folders: FolderProps[] } = $props();
 
@@ -49,7 +50,7 @@
   }
 
   function open(f: FolderInfo) {
-    app.checkFolderProps(account.id, f.name);
+    labels.check(account.id, f.name);
   }
 </script>
 

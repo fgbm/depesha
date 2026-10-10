@@ -16,6 +16,7 @@
   import { readyQueries, threshold } from "../lib/largeMail";
   import { recentSearches } from "../lib/recentSearches.svelte";
   import { NEW_OPERATORS, OPERATORS, applyCompletion, completions, type Completion } from "../lib/searchSuggest";
+  import { labels as labelStore } from "../lib/labels.svelte";
 
   let { input = $bindable() }: { input: HTMLInputElement | null } = $props();
   /** The box's own ids: the input names its listbox and the highlighted option by them. */
@@ -44,7 +45,7 @@
           now: new Date(),
           folders: app.mailboxes.folders,
           accounts: app.mailboxes.accounts,
-          labels: [...new Set(app.mailboxes.accounts.flatMap((a) => app.labels.of(a.id).map((l) => l.name)))],
+          labels: [...new Set(app.mailboxes.accounts.flatMap((a) => labelStore.of(a.id).map((l) => l.name)))],
         }).map((c) => ({ kind: "completion" as const, c }))
       : [],
   );

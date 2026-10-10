@@ -20,6 +20,7 @@
   import { app, type View } from "../../lib/store.svelte";
   import { readOnly } from "../../lib/labels";
   import { sidebarUi, roleIcon } from "./sidebar.svelte";
+  import { labels } from "../../lib/labels.svelte";
 
   // `picked` is called when the row is chosen inside the strip's flyout.
   let { account, folder, hasChildren = false, picked = null }: {
@@ -33,7 +34,7 @@
   const v = $derived({ kind: "folder", account_id: account.id, folder: folder.name } as View);
   // A lock only where it says something: the folder is known to be read-only (#42, frame 6).
   const locked = $derived.by(() => {
-    const rights = app.labels.prop(account.id, folder.name)?.rights;
+    const rights = labels.prop(account.id, folder.name)?.rights;
     return !!rights && readOnly(rights);
   });
   // The server folder the inbox-as-queue keeps answered letters in: clicking it opens the

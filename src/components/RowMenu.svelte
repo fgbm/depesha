@@ -23,6 +23,7 @@
   import { untrack } from "svelte";
   import Popover from "./Popover.svelte";
   import Keys from "./Keys.svelte";
+  import { labels } from "../lib/labels.svelte";
 
   /** The context menu of list rows: what the toolbar and the keys do, at the pointer. */
   let { at, ids: given, onclose }: { at: { x: number; y: number }; ids: number[]; onclose: () => void } = $props();
@@ -49,7 +50,7 @@
       if (f.account_id !== account || !f.selectable || f.hidden) return false;
       if (from.size === 1 && from.has(f.name)) return false;
       // A folder known not to take letters is not offered (#42, frame 7, note 1).
-      const rights = app.labels.prop(account, f.name)?.rights;
+      const rights = labels.prop(account, f.name)?.rights;
       return !rights || rights.insert;
     });
   });
@@ -72,7 +73,7 @@
 
   /** The rights of the folders the rows lie in, when they all agree; unknown otherwise. */
   const rights = $derived.by(() => {
-    const seen = rows.map((m) => app.labels.prop(m.account_id, m.folder)?.rights ?? null);
+    const seen = rows.map((m) => labels.prop(m.account_id, m.folder)?.rights ?? null);
     if (!seen.length || seen.some((r) => r === null)) return null;
     return seen[0]!;
   });
@@ -102,9 +103,9 @@
 
 <Popover at={at} bind:open={() => sub === null, (v) => !v && sub === null && onclose()}>
   {#if single && !isDraft}
-    <button class="mi" onclick={() => withOpened(() => app.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint"><Keys of="core.reply" /></span></button>
-    <button class="mi" onclick={() => withOpened(() => app.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint"><Keys of="core.reply-all" /></span></button>
-    <button class="mi" onclick={() => withOpened(() => app.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint"><Keys of="core.forward" /></span></button>
+    <button class="mi" onclick={() => withOpened(() => app.compose.replyTo(false))}><Reply size={15} /> {t("act.reply")}<span class="hint"><Keys of="core.reply" /></span></button>
+    <button class="mi" onclick={() => withOpened(() => app.compose.replyTo(true))}><ReplyAll size={15} /> {t("menu.replyAll")}<span class="hint"><Keys of="core.reply-all" /></span></button>
+    <button class="mi" onclick={() => withOpened(() => app.compose.forwardOpened())}><Forward size={15} /> {t("act.forward")}<span class="hint"><Keys of="core.forward" /></span></button>
     <button class="mi" onclick={() => single && run(() => app.selection.openWindow(single))}><AppWindow size={15} /> {t("act.newWindow")}</button>
     <hr />
   {/if}
@@ -118,7 +119,7 @@
     <Flag size={15} /> {allFlagged ? t("act.unflag") : t("act.setFlag")}<span class="hint"><Keys of="core.flag" /></span>
   </button>
   {#if labelAccount}
-    <button class="mi" disabled={!canWrite} title={!canWrite ? t("label.noRightHint") : undefined} onclick={() => run(() => app.labels.openPick(ids, at))}><Tag size={15} /> {t("act.labels")}<span class="hint"><ChevronRight size={13} /></span></button>
+    <button class="mi" disabled={!canWrite} title={!canWrite ? t("label.noRightHint") : undefined} onclick={() => run(() => labels.openPick(ids, at))}><Tag size={15} /> {t("act.labels")}<span class="hint"><ChevronRight size={13} /></span></button>
   {/if}
   {#each pluginActions as a (a.id)}
     <button class="mi" onclick={() => (a.menu ? (sub = { kind: "plugin", action: a }) : run(() => a.run?.(ids, at)))}>

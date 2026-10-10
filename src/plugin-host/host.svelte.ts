@@ -94,13 +94,13 @@ function context(plugin: Plugin, disposers: (() => void)[]): PluginContext {
       selection: () => app.selection.selectedIds(),
       accounts: () => app.mailboxes.accounts,
       folders: () => app.mailboxes.folders,
-      perform: (text, ids, run, failText) => app.perform(text, ids, run, failText),
-      offerUndo: (text, run) => app.offerUndo(text, run),
+      perform: (text, ids, run, failText) => app.actions.perform(text, ids, run, failText),
+      offerUndo: (text, run) => app.actions.offer(text, run),
       reload: () => app.selection.reload(), scheduleReload: () => app.selection.scheduleReload(),
       showView: (view) => app.selection.setView({ kind: "plugin", id: view }),
       viewing: (view) => app.list.view.kind === "plugin" && app.list.view.id === view,
-      compose: () => app.newMessage(),
-      reply: (all) => app.replyTo(all),
+      compose: () => app.compose.newMessage(),
+      reply: (all) => app.compose.replyTo(all),
       open: async (id, view) => {
         if (app.windowOf !== null) return;
         if (view) await app.selection.setView({ kind: "plugin", id: view });

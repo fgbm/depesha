@@ -31,6 +31,7 @@
   import { allCommands, host, keybindingRun } from "./plugin-host/host.svelte";
   import FolderPropsCard from "./components/prefs/FolderProps.svelte";
   import { registry } from "./plugin-host/registry.svelte";
+  import { labels } from "./lib/labels.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -103,18 +104,18 @@
   const actions: Record<string, () => void> = {
     "core.settings": () => app.ui.openSettings(),
     "core.quit": () => quitApp(),
-    "core.compose": () => app.newMessage(),
+    "core.compose": () => app.compose.newMessage(),
     "core.search": () => (app.focusSearch()),
     "core.people": () => void app.openPeople(),
     "core.sender-card": () => app.openSenderCard(),
-    "core.undo": () => app.undo(),
+    "core.undo": () => app.actions.undo(),
     "core.sync": () => api.syncNow().catch((e) => app.ui.fail(e)),
     "core.next": () => app.selection.move(1),
     "core.prev": () => app.selection.move(-1),
     "core.select-all": () => app.selection.selectAll(),
-    "core.reply": () => app.replyTo(false),
-    "core.reply-all": () => app.replyTo(true),
-    "core.forward": () => app.forwardOpened(),
+    "core.reply": () => app.compose.replyTo(false),
+    "core.reply-all": () => app.compose.replyTo(true),
+    "core.forward": () => app.compose.forwardOpened(),
     "core.archive": () => app.archive(),
     "core.delete": () => app.remove(),
     "core.empty-folder": () => {
@@ -124,7 +125,7 @@
     "core.spam": () => app.spam(),
     "core.unread": () => app.selection.toggleSeen(),
     "core.flag": () => app.selection.toggleFlagged(),
-    "core.labels": () => app.labels.openPick(labelTarget()),
+    "core.labels": () => labels.openPick(labelTarget()),
   };
 
   /** The rows the labels command acts on: the selection, or the open letter (#42, frame 10). */
@@ -227,7 +228,7 @@
       ? `${layout.sideWidth}px 1px 1fr`
       : `${layout.sideWidth}px 1px ${layout.listWidth}px 1px 1fr`}
 >
-  <Sidebar onCompose={() => app.newMessage()} />
+  <Sidebar onCompose={() => app.compose.newMessage()} />
   {#if app.list.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
   {:else if app.list.view.kind === "people"}
@@ -242,7 +243,7 @@
       <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
     {/if}
     <div class="pane" class:away={column === "list"} inert={column === "list"} bind:this={readerPane}>
-      <Reader onReply={(all) => app.replyTo(all)} onForward={() => app.forwardOpened()} />
+      <Reader onReply={(all) => app.compose.replyTo(all)} onForward={() => app.compose.forwardOpened()} />
     </div>
   {/if}
 </div>
@@ -269,20 +270,20 @@
 {/key}
 {/if}
 
-{#if app.labels.card}
-  {@const acc = app.mailboxes.account(app.labels.card.accountId)}
-  {@const fol = app.mailboxes.folder(app.labels.card.accountId, app.labels.card.folder)}
+{#if labels.card}
+  {@const acc = app.mailboxes.account(labels.card.accountId)}
+  {@const fol = app.mailboxes.folder(labels.card.accountId, labels.card.folder)}
   {#if acc && fol}
-    <FolderPropsCard at={{ x: Math.round(window.innerWidth / 2 - 160), y: 120 }} account={acc} folder={fol} onclose={() => app.labels.closeCard()} />
+    <FolderPropsCard at={{ x: Math.round(window.innerWidth / 2 - 160), y: 120 }} account={acc} folder={fol} onclose={() => labels.closeCard()} />
   {/if}
 {/if}
 
-{#if app.labels.pick}
+{#if labels.pick}
   <Popover
-    bind:open={() => app.labels.pick !== null, (v) => !v && app.labels.closePick()}
-    at={app.labels.pick.at ?? keyAnchor()}
+    bind:open={() => labels.pick !== null, (v) => !v && labels.closePick()}
+    at={labels.pick.at ?? keyAnchor()}
   >
-    <LabelPicker rows={app.labels.pickRows()} />
+    <LabelPicker rows={labels.pickRows()} />
   </Popover>
 {/if}
 

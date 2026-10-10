@@ -28,6 +28,7 @@
   import { registry } from "../../plugin-host/registry.svelte";
   import type { AccountView, OpenedMessage } from "../../lib/types";
   import type { Snippet } from "svelte";
+  import { labels } from "../../lib/labels.svelte";
 
   let {
     msg,
@@ -58,11 +59,11 @@
     registry.items("messageActions").filter((a) => { try { return !a.when || a.when(msg); } catch { /* a faulty plugin hides its item */ return false; } }),
   );
   /** Метки в папке письма: известный запрет гасит пункт с подсказкой (#42, кадр 7). */
-  const canLabel = $derived(app.labels.writable([msg.row]));
+  const canLabel = $derived(labels.writable([msg.row]));
 
   function editDraft() {
     if (!account) return;
-    app.openCompose({
+    app.compose.open({
       account_id: account.id,
       draft: fromDraft(msg, { name: account.display_name, email: account.email }),
       draft_id: msg.row.id, draft_message_id: msg.row.message_id,
@@ -87,7 +88,7 @@
       <button class="mi" onclick={() => { moreOpen = false; app.selection.flag("seen", !msg.row.flags.seen); }}>
         {#if msg.row.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}<span class="hint">u</span>
       </button>
-      <button class="mi" disabled={!canLabel} title={!canLabel ? t("label.noRightHint") : undefined} onclick={() => { moreOpen = false; app.labels.openPick([msg.row.id]); }}>
+      <button class="mi" disabled={!canLabel} title={!canLabel ? t("label.noRightHint") : undefined} onclick={() => { moreOpen = false; labels.openPick([msg.row.id]); }}>
         <Tag size={15} /> {t("act.labels")}<span class="hint"><Keys of="core.labels" /></span>
       </button>
       {#if folders.length}

@@ -124,7 +124,7 @@ describe("quitting with letters waiting for their time", () => {
 describe("the tray menu's errands", () => {
   it("writes a letter, shows the unread ones and a mailbox's settings", async () => {
     const s = await started();
-    const write = vi.spyOn(s, "newMessage").mockImplementation(() => {});
+    const write = vi.spyOn(s.compose, "newMessage").mockImplementation(() => {});
     emit("tray-action", { action: "compose" });
     expect(write).toHaveBeenCalled();
     emit("tray-action", { action: "unread" });

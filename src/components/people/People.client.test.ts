@@ -418,7 +418,7 @@ describe("the merge dialog", () => {
     });
     expect(peopleOps.dialog).toBeNull();
     // The way back is on offer: the toast's button and Z.
-    await app.undo();
+    await app.actions.undo();
     expect(api.personRestore).toHaveBeenCalledWith({ persons: [] });
   });
 
@@ -487,7 +487,7 @@ describe("removing a person added by hand", () => {
     rowOf(root, "delete").click();
     await vi.waitFor(() => expect(app.actions.lastUndo?.text).toContain("снята пометка"));
     expect(asked[0].text).toContain("останется в книге");
-    await app.undo();
+    await app.actions.undo();
     expect(api.personRestore).toHaveBeenCalledWith({ persons: [] });
     choose.mockRestore();
   });

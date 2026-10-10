@@ -110,7 +110,7 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
     s.mailboxes.accounts = [acc("a"), acc("b")];
     s.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
-    s.replyTo(false);
+    s.compose.replyTo(false);
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
   });
 
@@ -119,9 +119,9 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
     s.mailboxes.accounts = [acc("a"), acc("b")];
     s.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
-    s.replyTo(true);
+    s.compose.replyTo(true);
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
-    s.forwardOpened();
+    s.compose.forwardOpened();
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
   });
 
@@ -141,7 +141,7 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
     s.settingsCtl.settings = { ...settings(), default_account_id: "a" };
     s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
-    s.openMailto("mailto:someone@example.org?subject=Hi%20there");
+    s.compose.openMailto("mailto:someone@example.org?subject=Hi%20there");
     const win = s.compose.windows.at(-1);
     expect(win?.account_id).toBe("a");
     expect(win?.draft.to.map((a) => a.email)).toEqual(["someone@example.org"]);
@@ -154,7 +154,7 @@ describe("the mailbox an answer, a forward or a link goes from", () => {
     s.settingsCtl.settings = { ...settings(), default_account_id: null };
     s.list.view = { kind: "folder", account_id: "b", folder: "INBOX" };
     s.reader.opened = opened(row(1, { account_id: "b" }));
-    s.openMailto("mailto:someone@example.org");
+    s.compose.openMailto("mailto:someone@example.org");
     expect(s.compose.windows.at(-1)?.account_id).toBe("b");
   });
 });
@@ -268,7 +268,7 @@ describe("the caret of a quick answer unfolded into a window", () => {
     app.mailboxes.accounts = [accWith("b", "plain")];
     app.settingsCtl.settings = { ...settings(), default_account_id: "b" };
     app.reader.opened = opened(row(1, { account_id: "b" }));
-    app.replyTo(false);
+    app.compose.replyTo(false);
     // Not an unfolded answer: the field is focused, the caret kept at the very top.
     expect(caret()).toEqual({ focus: 1, at: 0 });
   });
@@ -384,13 +384,13 @@ describe("extension banners", () => {
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
     for (let id = 1; id <= 20; id++) {
-      await s.open(id);
+      await s.reader.open(id);
       await flush();
     }
     expect(extensions.banners.map((b) => b.messageId)).toEqual([20]);
 
     // Its other letter opened from the conversation: both banners stay.
-    await s.open(99);
+    await s.reader.open(99);
     await flush();
     expect(extensions.banners.map((b) => b.messageId).sort()).toEqual([20, 99]);
     call.mockRestore();
@@ -472,7 +472,7 @@ describe("an answer that takes its letter to Waiting for reply", () => {
     const s = await started();
     emit("parked", { account_id: "a", key: "r@x", subject: "Счёт" });
     api.followupUnpark.mockResolvedValue(undefined);
-    await s.undo();
+    await s.actions.undo();
     expect(api.followupUnpark).toHaveBeenCalledWith("a", "r@x");
     expect(api.undo).not.toHaveBeenCalled();
   });

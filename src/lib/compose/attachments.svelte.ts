@@ -32,7 +32,7 @@ export class ComposeAttachments {
   get zones(): boolean {
     const win = this.host.win;
     const format = this.host.format.format;
-    return (format === "html" || format === "markdown") && win.mode !== "min" && !!app.compose.dragging?.zones && app.activeCompose()?.id === win.id;
+    return (format === "html" || format === "markdown") && win.mode !== "min" && !!app.compose.dragging?.zones && app.compose.active()?.id === win.id;
   }
 
   /** Pictures in the text of a letter. An HTML one takes them as `data:` images; a Markdown

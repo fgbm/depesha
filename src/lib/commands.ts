@@ -13,6 +13,7 @@ import { recentSearches } from "./recentSearches.svelte";
 import { printOpened } from "./print";
 import { PRESETS, RELEVANCE, reversed } from "./sort";
 import { app, type View } from "./store.svelte";
+import { labels } from "./labels.svelte";
 
 const go = (v: View) => () => app.selection.setView(v);
 
@@ -25,12 +26,12 @@ const MAIN_ONLY = /^core\.(search|ready\.|go\.|open\.|people$|sort\.|show\.|empt
 export function coreCommands(): Command[] {
   const msg = app.reader.opened;
   const target = app.selection.selectedIds();
-  const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), run: () => app.newMessage() }];
+  const list: Command[] = [{ id: "core.compose", title: () => t("cmd.compose"), run: () => app.compose.newMessage() }];
   if (msg) {
     list.push(
-      { id: "core.reply", title: () => t("act.reply"), run: () => app.replyTo(false) },
-      { id: "core.reply-all", title: () => t("cmd.replyAll"), run: () => app.replyTo(true) },
-      { id: "core.forward", title: () => t("act.forward"), run: () => app.forwardOpened() },
+      { id: "core.reply", title: () => t("act.reply"), run: () => app.compose.replyTo(false) },
+      { id: "core.reply-all", title: () => t("cmd.replyAll"), run: () => app.compose.replyTo(true) },
+      { id: "core.forward", title: () => t("act.forward"), run: () => app.compose.forwardOpened() },
       { id: "core.print", title: () => t("act.print"), run: printOpened },
     );
   }
@@ -60,7 +61,7 @@ export function coreCommands(): Command[] {
   // Labels (#42, frame 10): on the selected rows, or on the open letter.
   if (target.length || msg) {
     const ids = target.length ? target : [msg!.row.id];
-    list.push({ id: "core.labels", title: () => t("act.labels"), run: () => app.labels.openPick(ids) });
+    list.push({ id: "core.labels", title: () => t("act.labels"), run: () => labels.openPick(ids) });
   }
   for (const c of extensions.commands()) {
     if (c.message && !msg) continue;
@@ -68,7 +69,7 @@ export function coreCommands(): Command[] {
     list.push({ id: `ext.${c.ext.id}.${c.id}`, title: () => c.title, run: () => extensions.command(c.ext, c.id, message) });
   }
   const undo = app.actions.lastUndo;
-  if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), run: () => app.undo() });
+  if (undo) list.push({ id: "core.undo", title: () => t("cmd.undo", { what: undo.text }), run: () => app.actions.undo() });
 
   if (app.selection.listKey()) {
     // Search results keep an order of their own: the rank means nothing elsewhere.

@@ -12,12 +12,13 @@
   import type { SectionProps } from "./sections";
   import LabelMenu from "../LabelMenu.svelte";
   import LabelColors from "../LabelColors.svelte";
+  import { labels } from "../../lib/labels.svelte";
 
   let { account }: SectionProps = $props();
 
-  onMount(() => void app.labels.refresh(account.id));
+  onMount(() => void labels.refresh(account.id));
 
-  const all = $derived(app.labels.of(account.id));
+  const all = $derived(labels.of(account.id));
   let query = $state("");
   const list = $derived(
     all.filter((l) => !query.trim() || l.name.toLowerCase().includes(query.trim().toLowerCase())),
@@ -27,7 +28,7 @@
   const storage = $derived.by(() => {
     const props = app.mailboxes.folders
       .filter((f) => f.account_id === account.id)
-      .map((f) => app.labels.prop(account.id, f.name))
+      .map((f) => labels.prop(account.id, f.name))
       .filter((p) => !!p);
     const checked = props.filter((p) => (p?.checked ?? 0) > 0 || !!p?.label_check);
     if (!checked.length) return "unknown";
@@ -54,7 +55,7 @@
     const name = draft.trim();
     editing = null;
     if (!name || name === l.name) return;
-    await app.labels.rename(account.id, l.name, name);
+    await labels.rename(account.id, l.name, name);
   }
 
   // Меню действий и палитра, открытые по точке.
@@ -77,7 +78,7 @@
 
   /** Удаление: ключ снимается со всех писем на сервере, фоном (#42, кадр 4Б). */
   async function remove(label: Label) {
-    const n = app.labels.count(account.id, label.keyword);
+    const n = labels.count(account.id, label.keyword);
     const ok = await app.ui.confirm({
       title: t("label.deleteTitle", { name: label.name }),
       text: t("label.deleteText", { n }),
@@ -85,7 +86,7 @@
       danger: true,
     });
     if (!ok) return;
-    await app.labels.strip(account.id, label.name);
+    await labels.strip(account.id, label.name);
     app.ui.toast(t("label.deleted"));
   }
 
@@ -93,7 +94,7 @@
   const readOnlyFolder = $derived(
     app.mailboxes.folders.some((f) => {
       if (f.account_id !== account.id) return false;
-      const rights = app.labels.prop(account.id, f.name)?.rights;
+      const rights = labels.prop(account.id, f.name)?.rights;
       return !!rights && readOnly(rights);
     }),
   );
@@ -155,7 +156,7 @@
                 </span>
               </td>
             {/if}
-            <td class="num" title={t("label.countHint")}>≈{app.labels.count(account.id, l.keyword)}</td>
+            <td class="num" title={t("label.countHint")}>≈{labels.count(account.id, l.keyword)}</td>
             <td>
               <button
                 class="btn icon sm"

@@ -7,8 +7,7 @@ vi.mock("../store.svelte", async () => ({
   app: (await import("../testing")).appMock({
     ui: { confirm, fail: () => {}, toast: () => 0 },
     mailboxes: { account: () => undefined, accountColor: (id) => colors.map[id] ?? "#000000" },
-    send: async () => {},
-    closeCompose: () => {},
+    compose: { send: async () => {}, close: () => {} },
   }),
 }));
 import { emptyDraft } from "../compose";

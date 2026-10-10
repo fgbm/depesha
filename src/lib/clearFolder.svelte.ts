@@ -6,6 +6,7 @@
 // wait means it does not begin. Only what the question counted is cleared: the backend hands
 // back a bound with the number, and the run (also a retry) is asked for that bound.
 
+import type { ActionRunner } from "./actions.svelte";
 import type { MailboxController } from "./mailboxes.svelte";
 import type { ListController } from "./list.svelte";
 import type { ComposeManager } from "./composes.svelte";
@@ -26,6 +27,7 @@ const isClearable = (role: FolderInfo["role"]): role is Role => role === "trash"
 
 /** What the clearing needs from the app store. */
 export interface ClearHost {
+  readonly actions: ActionRunner;
   readonly mailboxes: MailboxController;
   readonly compose: ComposeManager;
   readonly list: ListController;
@@ -33,7 +35,6 @@ export interface ClearHost {
   /** The letter of a separate message window; the command lives in the main window only. */
   readonly windowOf: number | null;
   /** "z" takes `run` back while the wait lasts; the returned function lets go of it. */
-  holdUndo(text: string, run: () => Promise<void>): () => void;
 }
 
 /** The folder the command is offered for in the current view. */
@@ -185,7 +186,7 @@ export class ClearFolder {
     return new Promise((resolve) => {
       let toastId: number | void = undefined;
       // "z" means the latest action, and during the wait that is this one.
-      const release = this.host.holdUndo(this.title(role), async () => done(false));
+      const release = this.host.actions.hold(this.title(role), async () => done(false));
       const done = (go: boolean) => {
         release();
         clearTimeout(timer);

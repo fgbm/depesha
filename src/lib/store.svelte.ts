@@ -64,8 +64,6 @@ export class AppStore {
 
   /** Rows the user is on: the selection and the open letter. */
   using(): number[] { return [...this.selection.selected, ...(this.reader.opened ? [this.reader.opened.row.id] : [])]; }
-  /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[], server = true) { this.reader.saw(ids, server); }
 
   async init() {
     this.mailboxes.initVersion();
@@ -108,10 +106,9 @@ export class AppStore {
     await this.settingsCtl.loadLanguage();
     await Promise.all([this.mailboxes.loadAccounts().catch((e) => this.ui.fail(e)), this.mailboxes.loadFolders(), this.settingsCtl.loadSettings(), extensions.load(), hints.load(), peopleBook.load()]);
     this.selection.selected = new Set([id]);
-    await this.open(id);
+    await this.reader.open(id);
   }
 
-  open(id: number, allowRemote = false) { return this.reader.open(id, allowRemote); }
 
   /** A folder was opened: read its properties from the cache, or the server when never checked. */
   folderOpened(accountId: string, folder: string) {
@@ -119,41 +116,15 @@ export class AppStore {
     void labels.loadProps(accountId, folder);
   }
 
-  /** The labels of a mailbox and the properties of its folders (#42). */
-  get labels() { return labels; }
-  /** Puts a label on the rows or takes it off. */
-  setLabel(ids: number[], name: string, value: boolean) { return labels.set(ids, name, value); }
-  /** Reads a folder's properties, asking the server. */
-  checkFolderProps(accountId: string, folder: string) { return labels.check(accountId, folder); }
-  /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
-  folderProperties(accountId: string, folder: string) { labels.openCard(accountId, folder); }
-  /** Takes messages out of the list and runs `run`; the moves it returns can be undone. Never rejects. */
-  perform(text: Text, ids: number[], run: (ids: number[]) => Promise<Moved[]>, failText: string) {
-    return this.actions.perform(text, ids, run, failText);
-  }
 
   remove(ids = this.selection.selectedIds()) { return this.actions.remove(ids); }
   moveTo(folder: string, ids = this.selection.selectedIds()) { return this.actions.moveTo(folder, ids); }
   /** "Done": out of the inbox, into the archive. */
   archive(ids = this.selection.selectedIds()) { return this.actions.archive(ids); }
   spam(ids = this.selection.selectedIds()) { return this.actions.spam(ids); }
-  undo() { return this.actions.undo(); }
-  offerUndo(text: string, run: () => Promise<void>) { return this.actions.offer(text, run); }
-  holdUndo(text: string, run: () => Promise<void>) { return this.actions.hold(text, run); }
 
-  /** Queues the composition; it leaves after the undo delay or at `at`. */
-  send(accountId: string, draft: ComposeDraft, draftId: number | null, draftMessageId: string | null, at: number | null, followupSecs: number | null, followup: FollowupPlan | null = null) {
-    return this.compose.send(accountId, draft, draftId, draftMessageId, at, followupSecs, followup);
-  }
 
-  /** Takes a queued message back into the composer. */
-  reopenOutbox(id: number) { return this.compose.reopenOutbox(id); }
 
-  newMessage() { this.compose.newMessage(); }
-  replyTo(all: boolean) { this.compose.replyTo(all); }
-  forwardOpened() { this.compose.forwardOpened(); }
-  /** A `mailto:` link in a letter: a new letter to its address, from the default mailbox. */
-  openMailto(href: string) { this.compose.openMailto(href); }
 
   /** A mailbox's page in the settings; the very first one is set up by the wizard alone. */
   accountSettings(acc: AccountView | null) {
@@ -161,15 +132,8 @@ export class AppStore {
     else this.ui.openSettings(acc ? `account:${acc.id}` : "account:new");
   }
 
-  /** Opens a composition window; the others fold into bars, as in Gmail. */
-  openCompose(c: ComposeState, mode?: ComposeWindow["mode"]): number { return this.compose.open(c, mode); }
 
-  /** Unfolds a window and folds the rest. */
-  showCompose(id: number, mode: "open" | "max" = "open") { this.compose.show(id, mode); }
-  closeCompose(id: number) { this.compose.close(id); }
 
-  /** Keeps every composition of this window, each at most `ms`: a quit saves before it goes (#71). */
-  saveComposes(ms: number) { return this.compose.saveAll(ms); }
 
   /** Drafts kept locally when the app last stopped: offered for restore (#71). */
   async offerLocalDrafts() {
@@ -190,8 +154,6 @@ export class AppStore {
     this.ui.toast(tn("stuck.toast", stuck.length, { n: stuck.length }), false, { label: t("stuck.open"), run: () => (this.ui.tasksOpen = true) }, 30_000);
   }
 
-  /** The window that takes dropped files: the unfolded one, else the newest. */
-  activeCompose(): ComposeWindow | undefined { return this.compose.active(); }
 
   defaultAccount() {
     // A mailbox chosen as the default wins everywhere, the open folder included.

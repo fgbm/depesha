@@ -19,6 +19,7 @@
   import Popover from "./Popover.svelte";
   import Keys from "./Keys.svelte";
   import { untrack } from "svelte";
+  import { labels } from "../lib/labels.svelte";
 
   /** The context menu of a folder, or of an account when `folder` is null. */
   let props: { at: { x: number; y: number }; account: AccountView; folder: FolderInfo | null; onclose: () => void } = $props();
@@ -35,7 +36,7 @@
   // A known ban turns the menu item off with "нет прав" (#42, frame 4А).
   const canCreateChild = $derived.by(() => {
     if (!folder) return true;
-    const rights = app.labels.prop(account.id, folder.name)?.rights;
+    const rights = labels.prop(account.id, folder.name)?.rights;
     return !rights || rights.create_child;
   });
 

@@ -40,7 +40,6 @@ export interface ActionHost {
   readonly windowOf: number | null;
   readonly list: ListController;
   /** The letters are acted on: their read mark lands at once (#71). */
-  markSeen(ids: number[], server?: boolean): void;
   /** Opens a folder's properties card (#42): the "no rights" notice leads there. */
   folderProperties?(accountId: string, folder: string): void;
 }
@@ -72,7 +71,7 @@ export class ActionRunner {
     const hidden = new Set(ids);
     // A letter being dealt with is read now, not after the wait (#71). Locally only:
     // the move sets `\Seen` for these letters only, and a flag between moves would split the series.
-    this.host.markSeen(ids, false);
+    this.host.reader.saw(ids, false);
     for (const id of ids) list.leaving.add(id);
     // Out of sight at once; the server is asked afterwards.
     this.host.selection.takeOut(ids);

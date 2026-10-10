@@ -6,6 +6,7 @@
   import { LABEL_PALETTE } from "../lib/format";
   import type { Label } from "../lib/types";
   import Popover from "./Popover.svelte";
+  import { labels } from "../lib/labels.svelte";
 
   let {
     at,
@@ -24,7 +25,7 @@
 
   async function pick(value: string) {
     color = value;
-    await app.labels.save(account, label.name, value);
+    await labels.save(account, label.name, value);
     onclose();
   }
 </script>

@@ -295,7 +295,7 @@
        mailbox colour puts it on this bar through `--row-tint` (account-color). -->
   <header>
     {#each sending.controls.filter((x) => x.slot === "from") as x (x)}<x.component {...x.props} compose={sending.contextFor(x)} />{/each}
-    <button class="title" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : sending.minimize())} title={c.draft.subject.trim() || (c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold"))}>
+    <button class="title" onclick={() => (c.mode === "min" ? app.compose.show(c.id) : sending.minimize())} title={c.draft.subject.trim() || (c.mode === "min" ? "" : shortcuts.titled(t("compose.minimize"), "compose.fold"))}>
       {c.draft.subject.trim() || t("compose.newMessage")}
     </button>
     {#if c.mode !== "min"}
@@ -331,7 +331,7 @@
         </span>
       {/if}
     {/if}
-    <button class="hb" onclick={() => (c.mode === "min" ? app.showCompose(c.id) : sending.minimize())} title={c.mode === "min" ? t("compose.restore") : shortcuts.titled(t("compose.minimize"), "compose.fold")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
+    <button class="hb" onclick={() => (c.mode === "min" ? app.compose.show(c.id) : sending.minimize())} title={c.mode === "min" ? t("compose.restore") : shortcuts.titled(t("compose.minimize"), "compose.fold")} aria-label={c.mode === "min" ? t("compose.restore") : t("compose.minimize")}>
       <Minus size={15} />
     </button>
     <button class="hb" onclick={() => sending.toggleMax()} title={c.mode === "max" ? t("compose.restore") : t("compose.maximize")} aria-label={c.mode === "max" ? t("compose.restore") : t("compose.maximize")}>

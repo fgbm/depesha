@@ -4,6 +4,7 @@
 // their time (the toast of 9Б). The window itself only hides: its page keeps the
 // mail rules and plugins running.
 
+import type { ComposeManager } from "./composes.svelte";
 import type { SettingsController } from "./settings.svelte";
 import type { UiController } from "./ui.svelte";
 import type { SelectionController } from "./selection.svelte";
@@ -18,10 +19,10 @@ import type { Choice, Confirmation } from "./ui.svelte";
 
 /** What the background needs from the app store. */
 export interface BackgroundHost extends ArrivalsHost {
+  readonly compose: ComposeManager;
   readonly settingsCtl: SettingsController;
   readonly ui: UiController;
   readonly selection: SelectionController;
-  newMessage(): void;
 }
 
 /** Letters late are worth a longer look than the usual toast. */
@@ -99,7 +100,7 @@ async function askQuit(host: BackgroundHost, letters: Due[]) {
 
 /** An errand from the tray menu; the backend has brought the window forward already. */
 function trayAction(host: BackgroundHost, action: string, accountId?: string | null) {
-  if (action === "compose") host.newMessage();
+  if (action === "compose") host.compose.newMessage();
   else if (action === "unread") void host.selection.setView({ kind: "unified", role: "inbox", unread: true } satisfies View);
   else if (action === "account" && accountId) host.ui.openSettings(`account:${accountId}`);
 }

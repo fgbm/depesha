@@ -9,12 +9,13 @@
   import type { AccountView, Label } from "../../lib/types";
   import { sidebarUi } from "./sidebar.svelte";
   import { star } from "./FolderRow.svelte";
+  import { labels as labelStore } from "../../lib/labels.svelte";
 
   let { account, picked = null }: { account: AccountView; picked?: (() => void) | null } = $props();
 
-  onMount(() => void app.labels.loadCounts(account.id));
+  onMount(() => void labelStore.loadCounts(account.id));
 
-  const labels = $derived(app.labels.of(account.id));
+  const labels = $derived(labelStore.of(account.id));
   const view = (name: string): View => ({ kind: "search", text: `метка:${name}` });
   const fav = (l: Label): Favourite => ({ name: l.name, display: l.name, delimiter: null, kind: "label" });
 </script>
@@ -36,7 +37,7 @@
         >
           <span class="icon"><span class="lsw" style:--c={l.color || "var(--muted)"}></span></span>
           <span class="name">{l.name}</span>
-          <span class="count quiet">≈{app.labels.count(account.id, l.keyword)}</span>
+          <span class="count quiet">≈{labelStore.count(account.id, l.keyword)}</span>
         </button>
         {@render star(account, fav(l), true)}
       </div>

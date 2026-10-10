@@ -45,11 +45,13 @@ function host(over: { role?: FolderInfo["role"] | null; total?: number; online?:
       account: () => ({ id: "a", status: { state: state.online ? "online" : "error" } }) as AccountView,
       folder: (acc: string, name: string) => (acc === "a" && name === f.name ? f : undefined),
     } as unknown as ClearHost["mailboxes"],
-    holdUndo: (text, run) => {
-      const u = { text, run, released: false };
-      held.push(u);
-      return () => void (u.released = true);
-    },
+    actions: {
+      hold: (text: string, run: () => Promise<void>) => {
+        const u = { text, run, released: false };
+        held.push(u);
+        return () => void (u.released = true);
+      },
+    } as unknown as ClearHost["actions"],
   };
   return { h, f, state, toasts, asked, held, clear: new ClearFolder(h) };
 }

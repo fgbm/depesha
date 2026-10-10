@@ -152,10 +152,10 @@ export class ComposeSending {
       const draft = $state.snapshot(win.draft);
       // The detector of #69 counts a Markdown letter sent to a person without a rule.
       void hints.recordSend(draft);
-      await app.send(win.account_id, draft, win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withArchive(this.options.followup, this.park));
+      await app.compose.send(win.account_id, draft, win.draft_id, win.draft_message_id ?? null, at ?? this.options.at, this.options.followupSecs ?? (this.options.followupDays ? this.options.followupDays * 86_400 : null), withArchive(this.options.followup, this.park));
       // The letter left: its local copy is done with.
       await this.host.autosave.forgetLocal("sent");
-      app.closeCompose(win.id);
+      app.compose.close(win.id);
     } catch (e) {
       this.host.setError((e as { message: string }).message);
     } finally {
@@ -172,7 +172,7 @@ export class ComposeSending {
       if (!(await app.ui.confirm({ text: t("compose.closeAnyway"), okLabel: t("close"), cancelLabel: t("compose.goBack"), danger: true }))) return;
     }
     if (win.draft_id !== null) app.ui.toast(t("compose.draftSaved"));
-    app.closeCompose(win.id);
+    app.compose.close(win.id);
   }
 
   async discard() {
@@ -185,7 +185,7 @@ export class ComposeSending {
     await this.host.autosave.settled();
     await this.host.autosave.forgetLocal("discard");
     if (win.draft_id !== null) api.draftDiscard(win.account_id, win.draft_id, win.draft_message_id ?? null).catch((e) => app.ui.fail(e));
-    app.closeCompose(win.id);
+    app.compose.close(win.id);
   }
 
   minimize() {
@@ -211,7 +211,7 @@ export class ComposeSending {
 
   toggleMax() {
     if (this.host.win.mode === "max") this.host.win.mode = "open";
-    else app.showCompose(this.host.win.id, "max");
+    else app.compose.show(this.host.win.id, "max");
   }
 
   /** The window's keys come from one table (lib/composeKeys.ts); Ctrl+K is left to the palette. */

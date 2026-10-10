@@ -183,7 +183,7 @@ describe("marks kept by the view", () => {
     s.settingsCtl.settings = { ...settings(), threads: false, list_sort: [{ by: "unread", desc: true }] };
     await s.selection.setView({ kind: "unified", role: "inbox", unread: true });
     const gone = cache.slice(0, 50).map((m) => m.id);
-    for (const id of gone) await s.open(id);
+    for (const id of gone) await s.reader.open(id);
     await s.selection.reload();
     expect(lastQuery().keep_ids).toHaveLength(50);
 

@@ -62,7 +62,7 @@ describe("an action", () => {
     expect(s.ui.toasts.some((x) => x.error && x.text === t("refuse.error", { folder: "INBOX" }))).toBe(true);
     expect(ids(s)).toEqual([1, 2, 3, 4, 5]);
     expect(s.list.leaving.size).toBe(0);
-    await expect(s.undo()).resolves.toBeUndefined();
+    await expect(s.actions.undo()).resolves.toBeUndefined();
     expect(api.undo).not.toHaveBeenCalled();
   });
 
@@ -71,7 +71,7 @@ describe("an action", () => {
     const run = () => {
       throw new Error("plugin bug");
     };
-    await expect(s.perform("Done", [4], run, "Plugin")).resolves.toBeUndefined();
+    await expect(s.actions.perform("Done", [4], run, "Plugin")).resolves.toBeUndefined();
     expect(ids(s)).toContain(4);
     expect(s.ui.busy).toBe(0);
   });
@@ -115,7 +115,7 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     await s.archive([4]);
     const moved = s.actions.lastUndo?.moved;
     expect(moved?.[0].message_ids).toEqual(["4"]);
-    await s.undo();
+    await s.actions.undo();
     expect(api.undo).toHaveBeenCalledWith(moved);
     expect(s.actions.lastUndo).toBeNull();
   });
@@ -125,9 +125,9 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     const snoozed = { account_id: "a", message_id: "<4@example.com>", folder: "Snoozed", return_to: "INBOX", until: 5000, subject: "Счёт" };
     const moved = { account_id: "a", from: "Snoozed", to: "INBOX", message_ids: ["<4@example.com>"], snoozed: [snoozed] };
     const text = vi.fn((m: { to: string }[]) => `Возвращено во «${m[0].to}»: Счёт`);
-    await s.perform(text, [4], async () => [moved], "fail");
+    await s.actions.perform(text, [4], async () => [moved], "fail");
     expect(s.ui.toasts.some((x) => x.text === "Возвращено во «INBOX»: Счёт")).toBe(true);
-    await s.undo();
+    await s.actions.undo();
     // The backend sets the time again from what the move carried.
     expect(api.undo).toHaveBeenCalledWith([moved]);
   });
@@ -137,7 +137,7 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     const answer = deferred<{ account_id: string; from: string; to: string; message_ids: string[] }[]>();
     api.archive.mockReturnValue(answer.promise);
     void s.archive([4]);
-    const undone = s.undo();
+    const undone = s.actions.undo();
     answer.resolve([{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ["4"] }]);
     await undone;
     expect(api.undo).toHaveBeenCalledTimes(1);
@@ -148,10 +148,10 @@ describe("undo", () => {  it("takes back the last action that went through", asy
     const answer = deferred<never>();
     api.archive.mockReturnValue(answer.promise);
     void s.archive([4]);
-    const undone = s.undo();
+    const undone = s.actions.undo();
     answer.reject({ kind: "other", message: "offline" });
     await expect(undone).resolves.toBeUndefined();
-    await expect(s.undo()).resolves.toBeUndefined();
+    await expect(s.actions.undo()).resolves.toBeUndefined();
     expect(api.undo).not.toHaveBeenCalled();
   });
 });
@@ -162,17 +162,17 @@ describe("an offer to take back something that is not a move (#104)", () => {
     try {
       const s = new AppStore();
       const run = vi.fn(async () => {});
-      s.offerUndo("Объединено: «Ольга», 2 адреса.", run);
+      s.actions.offer("Объединено: «Ольга», 2 адреса.", run);
       expect(s.actions.lastUndo?.text).toBe("Объединено: «Ольга», 2 адреса.");
       expect(s.ui.toasts.at(-1)?.action?.label).toBe(t("undo"));
-      await s.undo();
+      await s.actions.undo();
       expect(run).toHaveBeenCalledTimes(1);
       expect(s.actions.lastUndo).toBeNull();
 
-      s.offerUndo("Ещё одно", run);
+      s.actions.offer("Ещё одно", run);
       vi.advanceTimersByTime(10_001);
       expect(s.actions.lastUndo).toBeNull();
-      await s.undo();
+      await s.actions.undo();
       expect(run).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -186,18 +186,18 @@ describe("an undo held while something else counts down", () => {
     await s.archive([1]);
     expect(s.actions.lastUndo?.moved.length).toBeGreaterThan(0);
     const run = vi.fn(async () => {});
-    const release = s.holdUndo("Очистка Корзины", run);
+    const release = s.actions.hold("Очистка Корзины", run);
     expect(s.actions.lastUndo?.text).toBe("Очистка Корзины");
-    await s.undo();
+    await s.actions.undo();
     expect(run).toHaveBeenCalledTimes(1);
     expect(api.undo).not.toHaveBeenCalled();
 
-    const again = s.holdUndo("Ещё", run);
+    const again = s.actions.hold("Ещё", run);
     again();
     expect(s.actions.lastUndo).toBeNull();
     // A release after something newer took the place does not remove the newer one.
-    const old = s.holdUndo("Старое", run);
-    s.offerUndo("Новое", run);
+    const old = s.actions.hold("Старое", run);
+    s.actions.offer("Новое", run);
     old();
     expect(s.actions.lastUndo?.text).toBe("Новое");
     release();
@@ -210,12 +210,12 @@ describe("an undo held over an older one", () => {
     try {
       const s = new AppStore();
       const older = vi.fn(async () => {});
-      s.offerUndo("Старое", older);
-      const release = s.holdUndo("Очистка", async () => {});
+      s.actions.offer("Старое", older);
+      const release = s.actions.hold("Очистка", async () => {});
       expect(s.actions.lastUndo?.text).toBe("Очистка");
       release();
       expect(s.actions.lastUndo?.text).toBe("Старое");
-      await s.undo();
+      await s.actions.undo();
       expect(older).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -226,16 +226,16 @@ describe("an undo held over an older one", () => {
     vi.useFakeTimers();
     try {
       const s = new AppStore();
-      s.offerUndo("Старое", async () => {});
-      const release = s.holdUndo("Очистка", async () => {});
+      s.actions.offer("Старое", async () => {});
+      const release = s.actions.hold("Очистка", async () => {});
       vi.advanceTimersByTime(10_001);
       release();
       expect(s.actions.lastUndo).toBeNull();
 
       const run = vi.fn(async () => {});
-      s.offerUndo("Другое", run);
-      const again = s.holdUndo("Очистка", async () => {});
-      await s.undo();
+      s.actions.offer("Другое", run);
+      const again = s.actions.hold("Очистка", async () => {});
+      await s.actions.undo();
       again();
       expect(s.actions.lastUndo).toBeNull();
       expect(run).not.toHaveBeenCalled();

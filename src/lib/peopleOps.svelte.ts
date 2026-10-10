@@ -62,7 +62,7 @@ class PeopleOps {
       const merged = await peopleBook.merge(open.plan, open.choice);
       if (!merged) return null;
       const { person } = merged;
-      app.offerUndo(
+      app.actions.offer(
         tn("people.merged", person.emails.length, { name: person.name || person.email }),
         async () => {
           await peopleBook.restore(merged.undo);
@@ -90,7 +90,7 @@ class PeopleOps {
     try {
       const split = await peopleBook.split(address);
       if (!split) return;
-      app.offerUndo(
+      app.actions.offer(
         t("people.split", { email: split.person.email, name: split.person.name || split.person.email }),
         async () => {
           await peopleBook.restore(split.undo);

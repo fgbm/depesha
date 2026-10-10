@@ -70,7 +70,7 @@
   <div class="center">
     <p class="danger-text">{app.reader.openError?.message}</p>
     {#if app.reader.opened === null && app.selection.selected.size === 1}
-      <button class="btn" onclick={() => app.open([...app.selection.selected][0])}>{t("retry")}</button>
+      <button class="btn" onclick={() => app.reader.open([...app.selection.selected][0])}>{t("retry")}</button>
     {/if}
   </div>
 {:else if which === "opening"}
@@ -87,7 +87,7 @@
     {#if waited >= 2}
       <div class="slow muted">
         {waited === 3 ? t("reader.stuck") : t("reader.downloading")}
-        {#if waited === 3 && r}<button class="btn" onclick={() => app.open(r.id)}>{t("retry")}</button>{/if}
+        {#if waited === 3 && r}<button class="btn" onclick={() => app.reader.open(r.id)}>{t("retry")}</button>{/if}
       </div>
     {/if}
   </div>

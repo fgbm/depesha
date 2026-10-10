@@ -14,6 +14,7 @@
   import type { AccountView } from "../../lib/types";
   import { sidebarUi, roleIcon } from "./sidebar.svelte";
   import { count, star } from "./FolderRow.svelte";
+  import { labels } from "../../lib/labels.svelte";
 
   // `picked` is called when the row is chosen inside the strip's flyout.
   let { account, favourite: fav, picked = null }: {
@@ -31,7 +32,7 @@
     (isLabel ? { kind: "search", text: `метка:${fav.name}` } : { kind: "folder", account_id: account.id, folder: fav.name }) as View,
   );
   const where = $derived(splitPath(found?.display_name ?? fav.display, found?.delimiter ?? fav.delimiter));
-  const labelColor = $derived(app.labels.of(account.id).find((l) => l.name === fav.name)?.color ?? "");
+  const labelColor = $derived(labels.of(account.id).find((l) => l.name === fav.name)?.color ?? "");
 
   /** The height of a removed favourite goes to zero shortly; at once when motion is reduced. */
   function closing(node: Element) {

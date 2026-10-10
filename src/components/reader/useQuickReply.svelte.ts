@@ -68,10 +68,10 @@ export class QuickReplyState {
     try {
       const saved = await api.draftSave(account_id, draft, null, null);
       // Without the saved copy's id a window would save a second draft beside it.
-      this.host.keptAsDraft(saved === null ? null : () => app.openCompose({ account_id, draft, draft_id: saved.id, draft_message_id: saved.message_id }));
+      this.host.keptAsDraft(saved === null ? null : () => app.compose.open({ account_id, draft, draft_id: saved.id, draft_message_id: saved.message_id }));
     } catch {
       // The draft could not be kept: the text goes to a window, unsaved, so nothing is lost.
-      app.openCompose({ account_id, draft, draft_id: null, unsaved: true }, "min");
+      app.compose.open({ account_id, draft, draft_id: null, unsaved: true }, "min");
     }
   }
 
@@ -106,7 +106,7 @@ export class QuickReplyState {
 
   /** Moves what was typed into a composition window; nothing typed is lost. */
   toWindow(mode: "open" | "min" = "open") {
-    if (this.quick) app.openCompose({ account_id: this.quick.account_id, draft: this.draft(this.quick), draft_id: null, unsaved: true }, mode);
+    if (this.quick) app.compose.open({ account_id: this.quick.account_id, draft: this.draft(this.quick), draft_id: null, unsaved: true }, mode);
     this.quick = null;
     this.text = "";
   }
@@ -120,7 +120,7 @@ export class QuickReplyState {
       const found = await sendWarnings(draft, q.email);
       // Warnings are read and answered in the full window.
       if (found.length) return this.toWindow();
-      await app.send(q.account_id, draft, null, null, null, null);
+      await app.compose.send(q.account_id, draft, null, null, null, null);
       this.quick = null;
       this.text = "";
     } catch (e) {

@@ -59,7 +59,7 @@ function zoneOrNull(zoneAt: (pos: PhysicalPosition) => DropZone | null, pos: Phy
 
 async function attach(app: AppStore, zoneAt: (pos: PhysicalPosition) => DropZone | null, drop: FilesDropped) {
   const pos = new PhysicalPosition(drop.position.x, drop.position.y);
-  const c = app.activeCompose();
+  const c = app.compose.active();
   if (!c) return noCompose(app, drop, pos);
   const zones = !!app.compose.dragging?.zones;
   const zone = zoneOrNull(zoneAt, pos);
@@ -82,7 +82,7 @@ function noCompose(app: AppStore, drop: FilesDropped, pos: PhysicalPosition) {
 export function watchDrops(app: AppStore): () => void {
   const here = (pos: PhysicalPosition) => zoneAt(pos, window.devicePixelRatio || 1);
   const unlisten = getCurrentWebview().onDragDropEvent((e) => {
-    const c = app.activeCompose();
+    const c = app.compose.active();
     const p = e.payload;
     if (!c) return;
     if (p.type === "enter") app.compose.dragEnter(c, p.paths);

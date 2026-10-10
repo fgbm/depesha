@@ -18,7 +18,7 @@ describe("files dropped on the window", () => {
   it("are attached on the backend's event, with the zone under the pointer", async () => {
     const dropFiles = vi.fn(async () => {});
     const c = { draft: { attachments: [] } };
-    const app = { activeCompose: () => c, compose: { dropFiles } } as unknown as AppStore;
+    const app = { compose: { active: () => c, dropFiles } } as unknown as AppStore;
     const zoneAt = vi.fn((_: unknown) => "attach" as const);
     await listenDrops(app, zoneAt);
 
@@ -32,7 +32,7 @@ describe("files dropped on the window", () => {
     const dropOutcome = vi.spyOn(api, "dropOutcome").mockResolvedValue(undefined);
     const dropFiles = vi.fn(async () => 2);
     const c = { draft: { attachments: [{}] } };
-    const app = { activeCompose: () => c, compose: { dropFiles, dragging: { zones: true, zone: "inline" } } } as unknown as AppStore;
+    const app = { compose: { active: () => c, dropFiles, dragging: { zones: true, zone: "inline" } } } as unknown as AppStore;
     await listenDrops(app, () => "inline");
     emit("files-dropped", { paths: ["/a/1.png", "/a/2.png"], position: { x: 30, y: 60 } });
     await flush();
@@ -43,7 +43,7 @@ describe("files dropped on the window", () => {
   it("go nowhere without an open composition, and say so (#79)", async () => {
     const dropFiles = vi.fn(async () => {});
     const toast = vi.fn();
-    const app = { activeCompose: () => null, compose: { dropFiles }, ui: { toast } } as unknown as AppStore;
+    const app = { compose: { active: () => null, dropFiles }, ui: { toast } } as unknown as AppStore;
     await listenDrops(app, () => null);
     emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
     await flush();
@@ -55,7 +55,7 @@ describe("files dropped on the window", () => {
   it("a drop beside the zones still attaches the files and is logged as a miss", async () => {
     const dropFiles = vi.fn(async () => {});
     const toast = vi.fn();
-    const app = { activeCompose: () => ({ draft: { attachments: [] } }), compose: { dropFiles, dragging: { zones: true, zone: null } }, ui: { toast } } as unknown as AppStore;
+    const app = { compose: { active: () => ({ draft: { attachments: [] } }), dropFiles, dragging: { zones: true, zone: null } }, ui: { toast } } as unknown as AppStore;
     await listenDrops(app, () => null);
     emit("files-dropped", { paths: ["/a/b.pdf"], position: { x: 0, y: 0 } });
     await flush();
@@ -64,7 +64,7 @@ describe("files dropped on the window", () => {
   });
 
   it("listen on the current webview, not on every window", async () => {
-    const app = { activeCompose: () => null, compose: {} } as unknown as AppStore;
+    const app = { compose: { active: () => null } } as unknown as AppStore;
     await listenDrops(app, () => null);
     expect(webviewListen).toHaveBeenCalledWith("files-dropped", expect.any(Function));
     expect(eventModule.listen).not.toHaveBeenCalled();
@@ -75,7 +75,7 @@ describe("every window that can hold a draft hears drops (#107)", () => {
   it("watchDrops attaches the dropped files to the window's own draft", async () => {
     const dropFiles = vi.fn(async () => {});
     const c = { draft: { attachments: [] } };
-    const app = { activeCompose: () => c, compose: { dropFiles } } as unknown as AppStore;
+    const app = { compose: { active: () => c, dropFiles } } as unknown as AppStore;
     vi.stubGlobal("window", { devicePixelRatio: 1 });
     vi.stubGlobal("document", { elementFromPoint: () => null });
     const stop = watchDrops(app);

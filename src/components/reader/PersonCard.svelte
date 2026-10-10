@@ -112,7 +112,7 @@
   }
 
   function write() {
-    app.openMailto(`mailto:${email}`);
+    app.compose.openMailto(`mailto:${email}`);
     onClose?.();
   }
 
@@ -287,7 +287,7 @@
     try {
       const done = await peopleBook.forget(person.email);
       if (!done.removed && !done.unmarked) return;
-      app.offerUndo(t(done.removed ? "people.removed" : "people.unmarked", { name: who }), () => peopleBook.restore(done.undo));
+      app.actions.offer(t(done.removed ? "people.removed" : "people.unmarked", { name: who }), () => peopleBook.restore(done.undo));
       if (done.removed) onGone?.();
     } catch (e) {
       app.ui.fail(e);
@@ -445,7 +445,7 @@
     <div class="pc-sec">
       <h5>{t("person.recent")}</h5>
       {#each recent as m (m.id)}
-        <button class="mail" role="menuitem" data-r={`m:${m.id}`} onclick={() => (app.open(m.id), onClose?.())}>
+        <button class="mail" role="menuitem" data-r={`m:${m.id}`} onclick={() => (app.reader.open(m.id), onClose?.())}>
           <span class="s">{m.subject || t("noSubject")}</span>
           <span class="d">{listDate(m.date)}</span>
         </button>

@@ -115,7 +115,7 @@
           {#each marks as mark (mark.act)}
             {@const Icon = MARK_ICON[mark.act]}
             {@const answer = mark.answer ? msg.row.my_answer : null}
-            <span><Icon size={13} /> {mark.text}{#if answer} · <button class="link" title={t("mark.openTitle")} onclick={() => app.open(answer)}>{t("mark.open")}</button>{/if}</span>
+            <span><Icon size={13} /> {mark.text}{#if answer} · <button class="link" title={t("mark.openTitle")} onclick={() => app.reader.open(answer)}>{t("mark.open")}</button>{/if}</span>
           {/each}
         </div>
       {/if}

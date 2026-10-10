@@ -39,7 +39,7 @@
       </div>
       <div class="actions">
         <button class="btn" onclick={() => retry(item.id)}>{t("outbox.sendNow")}</button>
-        <button class="btn ghost" onclick={() => app.reopenOutbox(item.id)}>{t("outbox.edit")}</button>
+        <button class="btn ghost" onclick={() => app.compose.reopenOutbox(item.id)}>{t("outbox.edit")}</button>
       </div>
     </div>
   {/each}

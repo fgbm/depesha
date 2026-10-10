@@ -99,7 +99,7 @@
   /** A `mailto:` link becomes a new letter; any other link opens after a confirmation. */
   async function link(href: string) {
     if (href.toLowerCase().startsWith("mailto:")) {
-      app.openMailto(href);
+      app.compose.openMailto(href);
       return;
     }
     await app.ui.openLink(href);
