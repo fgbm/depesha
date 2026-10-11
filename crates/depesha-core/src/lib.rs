@@ -35,6 +35,6 @@ pub mod utf7;
 pub mod waiting;
 pub(crate) mod watchdog;
 
-pub use best_effort::{best_effort, unheard};
+pub use best_effort::{best_effort, removed, unheard};
 pub use error::{Error, ErrorKind, EwsMeaning, ImapFault, Result, SmtpMeaning, seconds};
 pub use say::{Class, Say, Xoauth2Detail};

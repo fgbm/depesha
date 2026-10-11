@@ -432,6 +432,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use depesha_core::removed;
 
     #[test]
     fn a_newer_open_makes_an_older_one_stale() {
@@ -481,7 +482,7 @@ mod tests {
         let saved = config::load(&path);
         assert_eq!(saved.settings.undo_send_secs, settings.undo_send_secs);
         assert_eq!(saved.settings.dnd_until, settings.dnd_until);
-        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
+        removed("remove the test folder", std::fs::remove_dir_all(&dir));
     }
 
     /// A write that fails (the folder cannot be made) is not a change: the mailbox in memory stays
@@ -509,7 +510,7 @@ mod tests {
             "",
             "a write that failed stayed in memory"
         );
-        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
+        removed("remove the test folder", std::fs::remove_dir_all(&dir));
     }
 
     /// Removing a mailbox clears it as the default under the same lock a patch uses, so the
@@ -544,6 +545,6 @@ mod tests {
             "the clear rolled back a key it did not name"
         );
         assert_eq!(settings.dnd_until, 42, "a patch written before the clear was lost");
-        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
+        removed("remove the test folder", std::fs::remove_dir_all(&dir));
     }
 }

@@ -3,7 +3,7 @@
 //! no network except the hosts the manifest names. It reaches Depesha only through
 //! messages, and the host checks every request against the declared permissions.
 
-use depesha_core::best_effort;
+use depesha_core::removed;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -494,7 +494,10 @@ fn install_into(root: &Path, from: &Path, grant: Grant) -> CmdResult<Manifest> {
         Ok(())
     };
     if let Err(e) = copy() {
-        best_effort("remove a temporary folder", std::fs::remove_dir_all(&staging));
+        removed(
+            "remove the folder of the half-copied extension",
+            std::fs::remove_dir_all(&staging),
+        );
         return Err(e);
     }
     Ok(manifest)
@@ -528,7 +531,10 @@ pub fn remove(app: &tauri::AppHandle, id: &str) -> CmdResult<()> {
     if dir.exists() {
         std::fs::remove_dir_all(dir)?;
     }
-    best_effort("remove a temporary file", std::fs::remove_file(storage_path(app, id)?));
+    removed(
+        "remove the extension's data",
+        std::fs::remove_file(storage_path(app, id)?),
+    );
     Ok(())
 }
 
@@ -639,12 +645,21 @@ pub fn serve(app: &tauri::AppHandle, path: &str, disabled: &[String]) -> tauri::
          <script nonce=\"{nonce}\">{}</script></head><body></body></html>",
         include_str!("ext/bridge.js")
     );
+    page(html, csp)
+}
+
+/// The sandbox page with its policy as a header. A value the builder refuses (the policy is built
+/// from the manifest's hosts) is a page not served, and the log says why: the extension would
+/// otherwise just not start.
+fn page(html: String, csp: String) -> tauri::http::Response<Vec<u8>> {
     tauri::http::Response::builder()
         .header("Content-Type", "text/html; charset=utf-8")
         .header("Content-Security-Policy", csp)
         .body(html.into_bytes())
-        // A header value the builder refuses (the policy is built from the page's own parts) is a page not served.
-        .unwrap_or_else(|_| not_found())
+        .unwrap_or_else(|e| {
+            tracing::warn!("the page of an extension was not served: {e}");
+            not_found()
+        })
 }
 
 fn nonce() -> String {
@@ -666,6 +681,17 @@ fn nonce() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_policy_the_header_refuses_is_a_page_not_served() {
+        let served = page("<html></html>".into(), "default-src 'none'".into());
+        assert_eq!(served.status(), 200);
+        assert_eq!(served.headers()["Content-Security-Policy"], "default-src 'none'");
+        // A line break in a host of the manifest cannot become a header value.
+        let refused = page("<html></html>".into(), "connect-src https://a\nb".into());
+        assert_eq!(refused.status(), 404);
+        assert!(refused.body().is_empty());
+    }
 
     #[test]
     fn extension_data_stays_in_its_folder() {
@@ -727,7 +753,7 @@ mod tests {
 
     impl Drop for Temp {
         fn drop(&mut self) {
-            best_effort("remove a temporary folder", std::fs::remove_dir_all(&self.0));
+            removed("remove the test folder", std::fs::remove_dir_all(&self.0));
         }
     }
 

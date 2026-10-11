@@ -1160,10 +1160,9 @@ pub async fn label_rename(
             {
                 tracing::warn!(account = %account_id, "renaming a category failed: {e}");
                 if state.store.rename_label(&account_id, &t, &f).is_ok() {
-                    best_effort(
-                        "rename the keyword in the cache",
-                        state.store.rename_keyword(&account_id, &t, &f),
-                    );
+                    if let Err(e) = state.store.rename_keyword(&account_id, &t, &f) {
+                        tracing::warn!(account = %account_id, "the keyword of the renamed category stayed under its old name in the cache: {e}");
+                    }
                     state.emit("labels-changed", serde_json::json!({ "account_id": account_id }));
                 }
             }
@@ -2557,6 +2556,7 @@ const DANGEROUS: &[&str] = &[
 
 /// Windows: a file from mail carries the "came from the internet" mark (Mark of the
 /// Web), so Office opens it in Protected View and SmartScreen checks programs.
+#[cfg_attr(not(windows), allow(unused_variables, reason = "only Windows marks files"))]
 async fn mark_from_internet(path: &std::path::Path) {
     #[cfg(windows)]
     {
@@ -2566,8 +2566,6 @@ async fn mark_from_internet(path: &std::path::Path) {
             tokio::fs::write(stream, b"[ZoneTransfer]\r\nZoneId=3\r\n").await,
         );
     }
-    #[cfg(not(windows))]
-    let _ = path;
 }
 
 /// Opens an attachment with the system application. Executables are only saved, never opened.
@@ -2920,10 +2918,7 @@ pub async fn send(
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     if let Some(d) = discard_draft {
-        best_effort(
-            "drop the draft of the sent letter",
-            discard(&state, &account.id, d, discard_message_id.as_deref()).await,
-        );
+        discard_or_tell(&state, &account.id, d, discard_message_id.as_deref(), true).await;
     }
     Ok(Queued { id, at: at.max(now) })
 }
@@ -3013,6 +3008,34 @@ async fn discard(state: &AppState, account_id: &str, id: i64, message_id: Option
         })
         .await?;
     Ok(())
+}
+
+/// What the user is told when the draft that a send or a save was to take off the server stayed:
+/// the letter or the new draft is fine, and a second copy stands in «Drafts».
+fn discard_failed_text(queued: bool, why: &str) -> String {
+    if queued {
+        tr!(
+            "The letter is on its way, but its draft stayed in Drafts: {why}",
+            "Письмо уходит, но его черновик остался в «Черновиках»: {why}"
+        )
+    } else {
+        tr!(
+            "The new draft is saved, but the old copy stayed in Drafts: {why}",
+            "Новый черновик сохранён, но прежняя копия осталась в «Черновиках»: {why}"
+        )
+    }
+}
+
+/// `discard` after a send (`queued`) or a save that replaces a draft: the work is done either
+/// way, but a draft left behind is a duplicate the user must know of.
+async fn discard_or_tell(state: &AppState, account_id: &str, id: i64, message_id: Option<&str>, queued: bool) {
+    if let Err(e) = discard(state, account_id, id, message_id).await {
+        tracing::warn!(account = %account_id, "the draft stayed in Drafts: {}", e.message);
+        state.emit(
+            "app-error",
+            serde_json::json!({ "message": discard_failed_text(queued, &e.message) }),
+        );
+    }
 }
 
 /// Deletes a saved draft for good: the user threw the composition away.
@@ -3182,10 +3205,7 @@ pub async fn draft_save(
         }
     }
     if let Some(old) = replace {
-        best_effort(
-            "drop the draft this one replaces",
-            discard(&state, &account.id, old, replace_message_id.as_deref()).await,
-        );
+        discard_or_tell(&state, &account.id, old, replace_message_id.as_deref(), false).await;
     }
     Ok(saved)
 }
@@ -3794,6 +3814,36 @@ pub async fn print_sheet(window: tauri::WebviewWindow, html: String) -> CmdResul
 
 #[cfg(test)]
 mod tests {
+    use depesha_core::removed;
+    #[test]
+    fn a_draft_left_on_the_server_is_told_in_both_languages() {
+        use crate::lang::{Lang, pin};
+        for (lang, queued, head) in [
+            (
+                Lang::En,
+                true,
+                "The letter is on its way, but its draft stayed in Drafts",
+            ),
+            (
+                Lang::En,
+                false,
+                "The new draft is saved, but the old copy stayed in Drafts",
+            ),
+            (Lang::Ru, true, "Письмо уходит, но его черновик остался в «Черновиках»"),
+            (
+                Lang::Ru,
+                false,
+                "Новый черновик сохранён, но прежняя копия осталась в «Черновиках»",
+            ),
+        ] {
+            pin(lang);
+            assert_eq!(
+                super::discard_failed_text(queued, "no rights"),
+                format!("{head}: no rights")
+            );
+        }
+    }
+
     fn answer_draft(act: Act, folder: &str) -> Draft {
         Draft {
             from: Some(Addr {
@@ -4110,7 +4160,7 @@ mod tests {
         let saved = crate::state::patch_account_locked(&config, &path, "a", |a| apply_own(a, patch)).unwrap();
         assert_eq!(saved.label, "Work");
         assert_eq!(crate::config::load(&path).accounts[0].label, "Work");
-        best_effort("remove a temporary folder", std::fs::remove_dir_all(&dir));
+        removed("remove the test folder", std::fs::remove_dir_all(&dir));
     }
 
     /// The look is changed under the config lock like the other patches: a read of the mailbox and
