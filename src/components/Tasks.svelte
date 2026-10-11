@@ -9,6 +9,7 @@
   import { t } from "../lib/i18n.svelte";
   import { accountLabel } from "../lib/format";
   import { when } from "../lib/later";
+  import { needsLogin, relogin } from "../lib/relogin";
   import type { AccountSync, Task } from "../lib/types";
   import StuckCopy from "./StuckCopy.svelte";
   import { stuckTasks } from "../lib/stuckCopies";
@@ -129,7 +130,9 @@
                 <span class="label">{task.label}</span>
                 {#if task.account_id && app.mailboxes.accounts.length > 1}<span class="muted small">{accountName(task.account_id)}</span>{/if}
                 <span class="spacer"></span>
-                {#if task.account_id && (task.kind === "sync" || task.kind === "prefetch")}
+                {#if needsLogin(task)}
+                  <button class="btn ghost small-btn" onclick={() => void relogin(task)}>{t("wizard.signInAgain")}</button>
+                {:else if task.account_id && (task.kind === "sync" || task.kind === "prefetch")}
                   <button class="btn ghost small-btn" onclick={() => retry(task)}>{t("retry")}</button>
                 {:else if task.kind === "empty"}
                   <button class="btn ghost small-btn" onclick={() => void app.clearing.retryTask(task)}>{t("retry")}</button>
