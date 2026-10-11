@@ -1114,7 +1114,7 @@ export async function run() {
     const text = await textOf(".modal.tasks");
     if (!text.includes("Синхронизирован")) throw new Error(text);
     await screenshot("tasks");
-    await d.button("Закрыть");
+    await d.click(await d.find(".modal.tasks .shut"));
     await d.until("tasks closed", async () => (await d.findAll(".modal.tasks")).length === 0);
   });
 

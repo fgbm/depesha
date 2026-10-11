@@ -94,7 +94,7 @@ export async function run() {
     await d.until("task gone", async () => !(await textOf(".modal.tasks")).includes("Копия не сохранена"), 10000);
     if ((await d.findAll("button.stuck-badge")).length) throw new Error("значок остался после «Повторить»");
     if (helper("count", "INBOX", subj) !== "1") throw new Error("письмо ушло не один раз");
-    await d.button("Закрыть");
+    await d.click(await d.find(".modal.tasks .shut"));
     await d.until("tasks closed", async () => (await d.findAll(".modal.tasks")).length === 0);
   });
 
