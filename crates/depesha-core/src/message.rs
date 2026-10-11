@@ -533,7 +533,7 @@ pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
             .first()
             .is_some_and(|v| v.eq_ignore_ascii_case("Internal"));
     Authenticity {
-        dmarc: check == Some(crate::avatar::SenderCheck::Passed),
+        dmarc: check.as_ref().is_some_and(crate::avatar::SenderCheck::passed),
         check,
         internal,
     }
