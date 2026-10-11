@@ -93,9 +93,11 @@ jobs:
               '.workflow_runs[] | select(.name == "CI" and .event == "push" and .head_branch != "main" and .id != $self) | .id')
           for id in $runs; do
             jobs=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100")
-            bad=$(jq '[.jobs[] | select(.conclusion != "success")] | length' <<<"$jobs")
-            win=$(jq '[.jobs[] | select(.name | test("Windows"))] | length' <<<"$jobs")
-            mac=$(jq '[.jobs[] | select(.name | test("macOS"))] | length' <<<"$jobs")
+            # The branch run carries a skipped `reuse` of its own: skipped is fine, only a real
+            # failure is not. And the platform jobs must have actually run (success, not skipped).
+            bad=$(jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")] | length' <<<"$jobs")
+            win=$(jq '[.jobs[] | select((.name | test("Windows")) and .conclusion == "success")] | length' <<<"$jobs")
+            mac=$(jq '[.jobs[] | select((.name | test("macOS")) and .conclusion == "success")] | length' <<<"$jobs")
             if [[ $bad -eq 0 && $win -gt 0 && $mac -gt 0 ]]; then
               url=$(gh api "repos/$REPO/actions/runs/$id" --jq .html_url)
               echo "skip=true" >> "$GITHUB_OUTPUT"
