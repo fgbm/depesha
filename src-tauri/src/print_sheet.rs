@@ -101,6 +101,10 @@ pub async fn print(_window: &tauri::WebviewWindow, _html: String) -> CmdResult<(
 }
 
 #[cfg(target_os = "macos")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "load, wait until quiet, print: the three steps share the sheet store, the guard and the ticket, which live inside so that only this function can reach them"
+)]
 pub async fn print(window: &tauri::WebviewWindow, html: String) -> CmdResult<()> {
     use crate::print_mac::{Output, Sheet};
     use crate::tr;

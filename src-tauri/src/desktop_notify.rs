@@ -9,6 +9,7 @@
 //! subject, several by a summary (#4/#63 decisions, frames 10A and 11В). A notification
 //! still on screen is replaced, not joined by another one.
 
+#[cfg(target_os = "linux")]
 use depesha_core::best_effort;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
