@@ -83,10 +83,10 @@
     <button class="btn ghost icon" onclick={() => (moreOpen = !moreOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={16} /></button>
     <Popover bind:open={moreOpen} align="left">
       <button class="mi" onclick={() => { moreOpen = false; app.selection.flag("flagged", !msg.row.flags.flagged); }}>
-        <Flag size={15} /> {msg.row.flags.flagged ? t("act.unflag") : t("act.setFlag")}<span class="hint">s</span>
+        <Flag size={15} /> {msg.row.flags.flagged ? t("act.unflag") : t("act.setFlag")}<span class="hint"><Keys of="core.flag" /></span>
       </button>
       <button class="mi" onclick={() => { moreOpen = false; app.selection.flag("seen", !msg.row.flags.seen); }}>
-        {#if msg.row.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}<span class="hint">u</span>
+        {#if msg.row.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}<span class="hint"><Keys of="core.unread" /></span>
       </button>
       <button class="mi" disabled={!canLabel} title={!canLabel ? t("label.noRightHint") : undefined} onclick={() => { moreOpen = false; labels.openPick([msg.row.id]); }}>
         <Tag size={15} /> {t("act.labels")}<span class="hint"><Keys of="core.labels" /></span>
@@ -99,12 +99,12 @@
       {/if}
       <button class="mi" onclick={() => { moreOpen = false; printOpened(); }}><Printer size={15} /> {t("act.print")}<span class="hint"><Keys of="core.print" /></span></button>
       <hr />
-      <button class="mi" onclick={() => { moreOpen = false; app.actions.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint">!</span></button>
+      <button class="mi" onclick={() => { moreOpen = false; app.actions.spam(); }}><ShieldAlert size={15} /> {t("act.spam")}<span class="hint"><Keys of="core.spam" /></span></button>
       {#each messageCommands as c (c.ext.id + c.id)}
         <button class="mi ext-cmd" onclick={() => { moreOpen = false; extensions.command(c.ext, c.id, message); }}><Puzzle size={15} /> {c.title}</button>
       {/each}
       {#each pluginActions as a (a.id)}
-        <button class="mi" onclick={() => { moreOpen = false; a.run(msg); }}>{#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.hint}<span class="hint">{a.hint}</span>{/if}</button>
+        <button class="mi" onclick={() => { moreOpen = false; a.run(msg); }}>{#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.command}<span class="hint"><Keys of={a.command} /></span>{:else if a.hint}<span class="hint">{a.hint}</span>{/if}</button>
       {/each}
     </Popover>
     <Popover bind:open={moveOpen} align="left">
