@@ -237,6 +237,11 @@
     border-bottom: 1px solid var(--line);
   }
 
+  /* The card sits in the sidebar and takes its text colour: the cross keeps the muted one it had. */
+  .fh :global(.shut) {
+    color: var(--muted);
+  }
+
   .ic {
     flex: none;
     color: var(--muted);

@@ -202,6 +202,11 @@ describe("Esc over other windows", () => {
     labels.card = null;
   });
 
+  it("the cross of the card has no .icon class: inside the sidebar that class shrinks it to nothing", () => {
+    const root = show(FolderProps, { at: { x: 10, y: 10 }, account, folder, onclose: () => {} });
+    expect(cross(root).classList.contains("icon")).toBe(false);
+  });
+
   it("Esc takes back the explainer of the labels check first, the card next", () => {
     const onclose = vi.fn();
     const root = show(FolderProps, { at: { x: 10, y: 10 }, account, folder, onclose });

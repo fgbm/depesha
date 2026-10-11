@@ -6,7 +6,7 @@
   let { onclick, corner = false, disabled = false }: { onclick: () => void; corner?: boolean; disabled?: boolean } = $props();
 </script>
 
-<button class="btn ghost icon shut" class:corner {onclick} {disabled} title={t("viewer.close")} aria-label={t("close")}><X size={17} /></button>
+<button class="btn ghost shut" class:corner {onclick} {disabled} title={t("viewer.close")} aria-label={t("close")}><X size={17} /></button>
 
 <style>
   .corner {
