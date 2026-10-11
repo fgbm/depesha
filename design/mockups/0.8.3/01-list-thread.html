@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Список и цепочка писем — по разбору Яндекс Почты (0.8.3)</title>
+<style>
+/* ============================================================================
+   Макет к 0.8.3. По разбору образца design/references/yandex-mail.md (ветка
+   q/ref-yandex) и ответам оператора 2026-10-11 (см. раздел «Ответы оператора»
+   в том же файле). Код приложения не тронут. Файл самодостаточный: без сети.
+   Токены темы «Бумага» и «Ночь» — из src/app.css. Строка списка — как в
+   MessageList.svelte (ROW=64, высота строки 62 px, аватар 36 px слева на две
+   строки, курсор — полоса слева, выбранные — галочка и фон, #108). Шапка
+   письма — как ReaderHeader.svelte, панель — как ReaderToolbar.svelte, линия
+   кнопок — как ReplyActions.svelte, карточки цепочки — как Conversation.svelte.
+   Данные вымышленные (@example.com/.org).
+   ============================================================================ */
+.theme {
+  --paper: #faf7f1; --paper-2: #f3eee4; --ink: #1d232b; --muted: #6b7480; --line: #e4ddcf;
+  --hover: #f0e9dc; --selected: #e6dbc6; --accent: #b3261e; --accent-ink: #fff8f0; --link: #1f5fa8;
+  --ok: #2e7d4f; --warn: #b26a00; --radius: 8px;
+  --font: system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace;
+  color: var(--ink); font-family: var(--font);
+}
+body.night .theme {
+  --paper: #171a1f; --paper-2: #1d2128; --ink: #e4e0d8; --muted: #8f97a2; --line: #2c323b;
+  --hover: #222831; --selected: #2e3742; --link: #7fb0ec; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: #cfc9be; }
+body { margin: 0; padding: 32px 0 96px; background: #cfc9be; color: #1d232b; font-family: system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif; font-size: 14px; }
+.doc { width: 1440px; margin: 0 auto; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+h2.screen { font-size: 21px; margin: 44px 0 4px; padding-top: 18px; border-top: 2px solid #b5ae9f; }
+h3.v { font-size: 16px; margin: 22px 0 4px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+h3.v .n { background: #fff; border: 1px solid #b5ae9f; border-radius: 5px; padding: 0 8px; font-family: ui-monospace, Consolas, monospace; font-size: 14px; }
+.slot > h3.v { min-height: 64px; align-content: flex-start; margin-top: 0; }
+h3.v em { flex-basis: 100%; font-style: normal; font-weight: 400; color: #5a626c; font-size: 13px; }
+h3.v.rec .n { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+h3.v.rec::after { content: "рекомендую"; font-size: 11px; color: #2e7d4f; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lead, .ctx { max-width: 1080px; line-height: 1.55; color: #3c444e; margin: 4px 0 10px; }
+.ctx { background: #ece8e1; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+.ctx.warn { background: #f6e3e1; border: 1px solid #d9a39c; }
+.ctx.revisit { background: #e9e6f3; border: 1px solid #b7add6; }
+.pc { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.5; color: #3c444e; max-width: 1080px; }
+.plus { color: #2e7d4f; font-weight: 700; } .minus { color: #b3261e; font-weight: 700; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #ece8e1; border-radius: 3px; padding: 0 3px; }
+kbd { font-family: var(--mono); font-size: 11px; border: 1px solid #b5ae9f; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #faf7f1; color: #3c444e; white-space: nowrap; }
+.cap { font-size: 12.5px; color: #3c444e; margin: 6px 0 0; max-width: 1080px; line-height: 1.5; }
+.ctl { position: sticky; top: 0; z-index: 60; display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; background: #1f2a37; color: #d5dde6; border-radius: 8px; padding: 8px 14px; margin: 14px 0; font-size: 12.5px; }
+.ctl .grp { display: flex; gap: 4px; align-items: center; }
+.ctl .grp > span { color: #8c99a8; margin-right: 2px; }
+.ctl button { font: inherit; font-size: 12px; color: #d5dde6; background: #263444; border: 1px solid #3a4a5e; border-radius: 5px; padding: 1px 9px; cursor: pointer; }
+.ctl button.on { background: #e6dbc6; color: #1d232b; border-color: #e6dbc6; }
+.cols { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.slot { flex: none; width: 460px; }
+.slot.wide { width: 940px; }
+table.q { border-collapse: collapse; font-size: 13px; line-height: 1.45; max-width: 1280px; background: #f4f1ea; }
+table.q th, table.q td { border: 1px solid #c7c0b1; padding: 6px 10px; text-align: left; vertical-align: top; }
+table.q th { background: #e6e1d6; }
+table.q td.n { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+table.q td.ref { white-space: nowrap; color: #5a626c; font-size: 12px; }
+
+/* ---------- окно со списком (MessageList.svelte) ---------- */
+.stage { outline: none; }
+.stage:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, #1f5fa8 55%, transparent); border-radius: 10px; }
+.pane { background: var(--paper); border-radius: 10px; box-shadow: 0 8px 30px rgb(0 0 0 / 24%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; position: relative; font-size: 14px; }
+.pane header { padding: 10px 12px 8px; border-bottom: 1px solid var(--line); }
+.pane .srch { border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); color: var(--muted); padding: 4px 10px; font-size: 13px; }
+.pane h4 { margin: 8px 0 0; font-size: 16px; font-weight: 650; }
+.vp { padding: 4px 0 6px; position: relative; }
+.r { position: relative; margin: 0 6px; padding: 9px 10px 0 62px; border-radius: 7px; height: 62px; overflow: hidden; cursor: default; }
+.r + .r { margin-top: 2px; }
+.r::after { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--acct, transparent); }
+.r.sel { background: var(--selected); }
+.r.fo { box-shadow: inset 2px 0 0 var(--accent); }
+.r.un::before { content: ""; display: none; }
+.l1, .l2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.l2 { margin-top: 3px; color: var(--muted); }
+.un .l2 { color: var(--ink); }
+.fr { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.un .fr, .un .sj { font-weight: 650; }
+.dt { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.sj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+.sz { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; padding-left: 6px; }
+.av { position: absolute; left: 16px; top: 13px; width: 36px; height: 36px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; letter-spacing: .02em; }
+.lbl { flex: none; padding: 0 6px; border-radius: 7px; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); font-size: 11px; white-space: nowrap; }
+.clip { color: var(--muted); font-size: 12px; }
+
+/* счётчик цепочки: кнопка, не просто текст */
+.cnt { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 5px 0 7px; line-height: 15px; display: inline-flex; align-items: center; gap: 2px; background: none; font-family: inherit; cursor: pointer; }
+.cnt:hover { border-color: var(--accent); color: var(--ink); }
+.cnt svg { width: 9px; height: 9px; transition: transform .12s; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.r.open .cnt svg { transform: rotate(180deg); }
+
+/* письма цепочки, раскрытые прямо в списке: отступ, лёгкий фон группы, своя рамка-группа */
+.grp-body { margin: 2px 6px 0; overflow: hidden; max-height: 0; transition: max-height .15s ease; border-radius: 7px; }
+.r.open + .grp-body { max-height: 400px; }
+.sub { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 62px; background: color-mix(in srgb, var(--muted) 8%, var(--paper)); font-size: 13px; }
+.sub + .sub { border-top: 1px solid color-mix(in srgb, var(--muted) 16%, var(--paper)); }
+.sub.fo { box-shadow: inset 2px 0 0 var(--accent); }
+.sub .fr { flex: 1; }
+.sub .sd { margin-left: auto; text-align: right; font-size: 11.5px; color: var(--muted); line-height: 1.35; white-space: nowrap; }
+.sub .fol { display: block; }
+
+.foot { display: flex; gap: 14px; padding: 6px 12px 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
+
+/* ---------- читалка: панель, шапка, линия кнопок, тело ---------- */
+.rd { background: var(--paper-2); border-radius: 10px; box-shadow: 0 8px 30px rgb(0 0 0 / 24%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; font-size: 14px; display: flex; flex-direction: column; }
+.rd .tb { display: flex; align-items: center; gap: 4px; padding: 10px 14px 8px; }
+.rd .tb .btn { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; color: var(--ink); font: inherit; font-size: 13px; padding: 5px 9px; border-radius: 6px; }
+.rd .tb .btn:hover { background: var(--hover); }
+.rd .tb .sp { flex: 1; }
+.rd .hd { padding: 4px 22px 10px; }
+.rd .hd h1 { margin: 0 0 12px; font-size: 20px; font-weight: 650; line-height: 1.3; }
+.rd .from { display: flex; gap: 12px; align-items: flex-start; }
+.rd .from .av { position: static; width: 36px; height: 36px; flex: none; }
+.rd .who { flex: 1; min-width: 0; line-height: 1.45; }
+.rd .nm { font-weight: 650; }
+.rd .em { color: var(--muted); font-size: 12.5px; }
+.rd .ver { display: inline-flex; align-items: center; gap: 2px; color: var(--ok); vertical-align: -2px; }
+.rd .ver svg { width: 13px; height: 13px; }
+.rd .dateb { color: var(--muted); font-size: 12.5px; text-align: right; white-space: nowrap; }
+.rd .acts { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 2px 22px 12px; }
+.rd .acts::before, .rd .acts::after { content: ""; flex: 1; min-width: 12px; height: 1px; background: var(--line); }
+.rd .acts .act { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; border-radius: 6px; background: none; color: var(--ink); font-weight: 550; white-space: nowrap; font-size: 13px; }
+.rd .bd { flex: 1; margin: 0 22px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); min-height: 150px; padding: 18px 22px; overflow: hidden; }
+.rd .bd.flat { border: none; background: none; margin: 0 22px 16px; padding: 0 0 0; border-top: 1px solid var(--line); border-radius: 0; padding-top: 16px; }
+.rd .bd p { margin: 0 0 .7em; color: var(--ink); }
+.rd .bd p:last-child { margin: 0; }
+
+/* вариант В: одна строка-панель над списком и письмом */
+.unibar { display: flex; align-items: center; gap: 4px; background: var(--paper); border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; padding: 7px 14px; }
+.unibar .btn { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; color: var(--ink); font: inherit; font-size: 13px; padding: 5px 9px; border-radius: 6px; }
+.unibar .btn:hover { background: var(--hover); }
+.unibar .sp { flex: 1; }
+.winrow { display: flex; gap: 0; border-radius: 0 0 10px 10px; overflow: hidden; }
+.winrow .pane, .winrow .rd { border-radius: 0; box-shadow: none; }
+.winrow .pane { width: 420px; flex: none; border-right: 1px solid var(--line); }
+.winrow .rd { flex: 1; }
+.wrap-stack { background: var(--paper); border-radius: 10px; box-shadow: 0 8px 30px rgb(0 0 0 / 24%), 0 0 0 1px rgb(0 0 0 / 6%); overflow: hidden; }
+
+/* полоса-разделитель варианта Б: своя лента над шапкой, видимо отдельная от письма */
+.strip { background: var(--paper); border-bottom: 1px solid var(--line); }
+.strip .tb { padding: 10px 14px 9px; }
+
+/* иконки (общие минималистичные заглушки) */
+.i { display: inline-flex; width: 14px; height: 14px; }
+.i svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- цепочка в читалке: «Ещё N писем», свёрнутые строки, раскрытые письма ---------- */
+.more { margin: 4px 22px 10px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--muted); font-size: 13px; cursor: pointer; }
+.more svg { width: 11px; height: 11px; margin-left: auto; transition: transform .12s; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.more.open svg { transform: rotate(180deg); }
+.crow { margin: 0 22px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-top: none; background: var(--paper); font-size: 13px; cursor: pointer; }
+.crow:first-of-type { border-top: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.crow:last-of-type { border-radius: 0 0 8px 8px; }
+.crow:only-of-type { border-radius: 8px; }
+.crow:hover { background: var(--hover); }
+.crow .av { position: static; width: 24px; height: 24px; font-size: 10px; flex: none; }
+.crow .nm { font-weight: 600; flex: none; }
+.crow .pv { color: var(--muted); }
+.crow .sd { margin-left: auto; text-align: right; font-size: 11.5px; color: var(--muted); white-space: nowrap; line-height: 1.3; }
+.cletter { margin: 10px 22px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); overflow: hidden; }
+.cletter .chd { display: flex; gap: 10px; align-items: flex-start; padding: 12px 16px 8px; }
+.cletter .av { position: static; width: 32px; height: 32px; font-size: 12px; flex: none; }
+.cletter .who { flex: 1; min-width: 0; line-height: 1.4; }
+.cletter .nm { font-weight: 650; }
+.cletter .em { color: var(--muted); font-size: 12px; }
+.cletter .dateb { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.cletter .fol { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.cletter .cacts { display: flex; align-items: center; gap: 2px; margin: 0 16px 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.cletter .cacts .act { display: inline-flex; align-items: center; gap: 5px; border: none; background: none; color: var(--ink); font: inherit; font-size: 12.5px; padding: 4px 9px; border-radius: 6px; }
+.cletter .cbody { margin: 0 16px 14px; padding: 12px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; font-size: 13.5px; }
+.cletter .cbody p { margin: 0 0 .6em; } .cletter .cbody p:last-child { margin: 0; }
+.cletter.collapsed .cbody, .cletter.collapsed .cacts { display: none; }
+
+/* значок «проверенный отправитель» (по разбору №5) */
+.vmark { display: inline-flex; align-items: center; gap: 2px; color: var(--ok); vertical-align: -2px; }
+.vmark svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.rec-btn { display: flex; gap: 6px; align-items: center; margin: 10px 0; font-size: 12.5px; color: #3c444e; }
+.rec-btn button { font: inherit; font-size: 12px; border: 1px solid #b5ae9f; background: #fff; border-radius: 5px; padding: 2px 9px; cursor: pointer; }
+.rec-btn button.on { background: #2e7d4f; color: #fff; border-color: #2e7d4f; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="ic-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></symbol>
+    <symbol id="ic-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+    <symbol id="ic-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+    <symbol id="ic-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
+    <symbol id="ic-reply" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v3"/></symbol>
+    <symbol id="ic-fwd" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v3"/></symbol>
+    <symbol id="ic-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="ic-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+    <symbol id="ic-chev-s" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  </defs>
+</svg>
+<div class="doc">
+<h1>Депеша 0.8.3 — список и цепочка писем</h1>
+<p class="lead">По разбору образца Яндекс Почты (<code>design/references/yandex-mail.md</code>, ветка <code>q/ref-yandex</code>) и ответам оператора 2026-10-11. Четыре вопроса ниже пронумерованы заново (1–4), у каждого — ссылка «по разбору №N» на исходный пункт. Решённое без вопроса («перенимаем без вопросов») нарисовано один раз, как будет, без вариантов.</p>
+<div class="ctx"><b>Решено разбором, без вариантов здесь:</b> превью текста после темы в списке (№2) — экран 2; счётчик цепочки как кликабельная кнопка, раскрывающая цепочку в списке (№6) — экран 3; название папки у письма не из текущей (№8) — экраны 3 и 4; значок «проверенный отправитель» в шапке (№5) — экраны 1 и 4; чтение цепочки в духе Яндекса, «Ещё N писем» + свёрнутые строки + раскрытые со своей шапкой и линией кнопок (№7) — экран 4; один белый фон и одна линия в светлой теме, карточка остаётся в тёмной (№12) — экран 5.</div>
+<div class="ctx revisit"><b>Пересматривает принятое.</b> Экран 4 меняет модель чтения цепочки: сейчас (<code>Reader.svelte:108-119</code>, «as in Gmail») открыто ровно одно письмо, остальные — некликабельные на разворот карточки (<code>Conversation.svelte</code>); декларация №7 заменяет это на цепочку, где можно одновременно держать развёрнутыми несколько писем, у каждого — своя шапка (аватар, замок, дата, папка) и своя линия кнопок. Это не только вид: у одного открытого письма сегодня один <code>useQuickReply</code>, один <code>useAttachmentViewer</code>, и решение 0.8.0 «<code>Ctrl+P</code> печатает одно открытое письмо» (<code>design/mockups/0.8.0/decisions.md:235</code>) перестаёт однозначно применяться при нескольких раскрытых. Экран 3 (раскрытие цепочки по счётчику в списке) требует переменной высоты строки списка — список сегодня виртуализирован под фиксированный шаг <code>ROW=64</code> (<code>MessageList.svelte:55,62-64</code>). Экран 1 не меняет «карточку беседы» и «бумагу» (<code>--paper</code>/<code>--paper-2</code>, decisions 0.6.0+) впрямую — вариант В лишь выносит панель действий из колонки читалки в общую полосу над списком и письмом. Экран 5 — расход с «бумажной» метафорой в светлой теме (см. по разбору №12).</div>
+
+<div class="ctl" id="ctl">
+  <div class="grp"><span>Тема</span><button data-theme="paper" class="on">Бумага</button><button data-theme="night">Ночь</button></div>
+</div>
+
+<h2 class="screen">Экран 1. Панель действий против шапки письма (вопрос 1, по разбору №1)</h2>
+<p class="lead">Оператор: «наша панель сливается с заголовком письма, у Яндекса такого ощущения нет». Ниже — то же письмо (короткая тема) и то же письмо с длинной темой, в трёх раскладках. Везде одна и та же шапка: аватар, имя, адрес со значком «проверенный отправитель» (по разбору №5), дата; линия кнопок «Ответить / Переслать» без изменений (уже «как в Яндекс Почте», см. разбор).</p>
+<div class="cols">
+  <div class="slot wide">
+    <h3 class="v" data-q="1.1" data-variant="А" data-q-title="Панель действий против шапки письма" data-variants="А,Б,В" data-recommended="Б"><span class="n">1.А</span> Как сейчас <em>для сравнения — панель и фон читалки совпадают с шапкой</em></h3>
+    <div class="theme"><div class="rd">
+      <div class="tb"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn"><span class="i"><svg><use href="#ic-clock"/></svg></span>Отложить</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div>
+      <div class="hd"><h1>Смета на монтаж</h1><div class="from"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров</div><div class="em">petr@example.com <span class="vmark" title="Проверенный отправитель"><svg><use href="#ic-lock"/></svg></span></div></div><div class="dateb">10 окт, 09:14</div></div></div>
+      <div class="acts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button></div>
+      <div class="bd"><p>Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.</p></div>
+    </div></div>
+    <ul class="pc"><li><span class="minus">−</span> панель, шапка и тело — все три на фоне читалки (<code>--paper-2</code>) или совсем рядом с ним: граница «где кончаются действия и начинается письмо» не читается</li><li><span class="minus">−</span> панель выглядит «приклеенной» к теме письма, а не отдельным функциональным слоем — ровно то, на что жалуется оператор</li></ul>
+  </div>
+  <div class="slot wide">
+    <h3 class="v rec" data-q="1.1" data-variant="Б"><span class="n">1.Б</span> Полоса панели отдельным фоном <em>своя лента над шапкой, граница снизу</em></h3>
+    <div class="theme"><div class="rd">
+      <div class="strip"><div class="tb"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn"><span class="i"><svg><use href="#ic-clock"/></svg></span>Отложить</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div></div>
+      <div class="hd" style="padding-top:14px"><h1>Смета на монтаж</h1><div class="from"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров</div><div class="em">petr@example.com <span class="vmark" title="Проверенный отправитель"><svg><use href="#ic-lock"/></svg></span></div></div><div class="dateb">10 окт, 09:14</div></div></div>
+      <div class="acts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button></div>
+      <div class="bd"><p>Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.</p></div>
+    </div></div>
+    <ul class="pc"><li><span class="plus">+</span> панель красится в цвет списка (<code>--paper</code>), не в цвет читалки (<code>--paper-2</code>): граница читается как у документа «обложка / страница», с линией снизу</li><li><span class="plus">+</span> дешёвая правка — только фон и граница <code>ReaderToolbar.svelte</code>, компонент и состав кнопок не меняются</li><li><span class="minus">−</span> это всё ещё панель над одним письмом: вопрос чекбоксов и общей панели над списком (разбор, вопрос 1) не решает</li></ul>
+  </div>
+</div>
+<div class="cols" style="margin-top:14px">
+  <div class="slot wide">
+    <h3 class="v" data-q="1.1" data-variant="В"><span class="n">1.В</span> Одна строка над списком и письмом <em>как у Яндекса; читалка начинается с темы</em></h3>
+    <div class="theme"><div class="wrap-stack">
+      <div class="unibar"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn"><span class="i"><svg><use href="#ic-clock"/></svg></span>Отложить</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div>
+      <div class="winrow">
+        <div class="pane" style="box-shadow:none"><div class="vp" style="padding-top:6px">
+          <div class="r sel" style="height:50px;padding-top:7px"><span class="av" style="background:#3a6ea8;width:30px;height:30px;top:9px;font-size:11px">ПС</span><div class="l1"><span class="fr">Пётр Сидоров</span><span class="dt">09:14</span></div><div class="l2"><span class="sj">Смета на монтаж</span></div></div>
+          <div class="r" style="height:50px;padding-top:7px"><span class="av" style="background:#5a7a3a;width:30px;height:30px;top:9px;font-size:11px">МС</span><div class="l1"><span class="fr">Мария Соколова</span><span class="dt">вчера</span></div><div class="l2"><span class="sj">Отчёт за сентябрь</span></div></div>
+        </div></div>
+        <div class="rd" style="box-shadow:none;background:var(--paper-2)">
+          <div class="hd" style="padding-top:16px"><h1>Смета на монтаж</h1><div class="from"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров</div><div class="em">petr@example.com <span class="vmark" title="Проверенный отправитель"><svg><use href="#ic-lock"/></svg></span></div></div><div class="dateb">10 окт, 09:14</div></div></div>
+          <div class="acts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button></div>
+          <div class="bd"><p>Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.</p></div>
+        </div>
+      </div>
+    </div></div>
+    <ul class="pc"><li><span class="plus">+</span> визуально ближе всего к образцу: ровно одна панель на весь верх окна, читалка — чистый лист с темой первой строкой</li><li><span class="plus">+</span> естественное место для будущей общей панели выбора (чекбоксы, вопрос 1 разбора), если он когда-нибудь будет пересмотрен</li><li><span class="minus">−</span> самая дорогая правка: панель сейчас принадлежит <code>Reader.svelte</code> (действует на одно открытое письмо); общая панель должна лежать в <code>App.svelte</code> и понимать оба контекста — «открыто письмо» и «есть выбранные строки» (<code>ReaderStates.svelte</code> «bulk»), это слияние двух разных панелей в одну</li><li><span class="minus">−</span> в узком окне (раскладка «список или письмо», <code>layout.single</code>) общая панель должна сама решать, какие кнопки уместны без видимого списка — сейчас это знает только читалка</li></ul>
+  </div>
+</div>
+<p class="cap">С длинной темой (проверка на разрыв строки — переключите обе раскладки у себя в голове на «Смета на монтаж фасада склада №4, пересчёт после обмера и согласования с подрядчиком»):</p>
+<div class="cols">
+  <div class="slot wide">
+    <div class="theme"><div class="rd">
+      <div class="strip"><div class="tb"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn"><span class="i"><svg><use href="#ic-clock"/></svg></span>Отложить</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div></div>
+      <div class="hd" style="padding-top:14px"><h1>Смета на монтаж фасада склада №4, пересчёт после обмера и согласования с подрядчиком</h1><div class="from"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров</div><div class="em">petr@example.com <span class="vmark"><svg><use href="#ic-lock"/></svg></span></div></div><div class="dateb">10 окт, 09:14</div></div></div>
+      <div class="acts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button></div>
+      <div class="bd"><p>Текст письма.</p></div>
+    </div></div>
+    <p class="cap">1.Б с длинной темой: лента панели — отдельный блок сверху, перенос темы её не задевает.</p>
+  </div>
+</div>
+<p class="cap">Рекомендация: <b>1.Б</b>. Решает именно жалобу — панель и письмо перестают визуально срастаться — ценой в несколько строк CSS, без переноса компонента и без того, чтобы заново решать вопрос общей панели/чекбоксов (он не поднимался заново в ответах). 1.В красивее и ближе к образцу, но стоит архитектурной переработки ради вопроса, который сам оператор в ответах назвал отдельно от этой жалобы («вопрос не про чекбоксы»).</p>
+
+<h2 class="screen">Экран 2. Строка списка: превью текста (вопрос решён, №2) и плотность (вопрос 2, по разбору №9)</h2>
+<p class="lead">Превью — решено, рисуем один раз. Плотность — ответ «да, но в меньшей степени»: ниже два варианта, нынешняя высота и на ~15% плотнее, оба уже с превью.</p>
+<div class="cols">
+  <div class="slot">
+    <h3 class="v" data-q="2.1" data-variant="А" data-q-title="Насколько уплотнить строку списка" data-variants="А,Б" data-recommended="Б"><span class="n">2.А</span> Текущая высота <em>62 px, с превью</em></h3>
+    <div class="theme"><div class="pane"><header><div class="srch">Поиск по почте</div><h4>Входящие</h4></header><div class="vp">
+      <div class="r un sel" style="height:62px"><span class="av" style="background:#3a6ea8">ПС</span><div class="l1"><span class="fr">Пётр Сидоров</span><span class="cnt">3<svg><use href="#ic-chev-s"/></svg></span><span class="dt">09:14</span></div><div class="l2"><span class="sj">Смета на монтаж</span><span class="pv">Подрядчик прислал смету, посмотрите пожалуйста…</span></div></div>
+      <div class="r" style="height:62px"><span class="av" style="background:#5a7a3a">МС</span><div class="l1"><span class="fr">Мария Соколова</span><span class="dt">вчера</span></div><div class="l2"><span class="sj">Отчёт за сентябрь</span><span class="pv">Отчёт готов, замечания во вложении</span></div></div>
+      <div class="r un" style="height:62px"><span class="av" style="background:#8a6a2a">Б</span><div class="l1"><span class="fr">Бухгалтерия</span><span class="dt">27 авг</span></div><div class="l2"><span class="sj">Счёт на оплату</span><span class="pv">Просим оплатить счёт до 15 октября</span></div></div>
+    </div></div></div>
+    <ul class="pc"><li><span class="plus">+</span> всё, что есть сейчас (аватар 36 px, две строки, метки, размер), помещается без тесноты</li><li><span class="minus">−</span> на экране меньше строк, чем у Яндекса — та самая разница в плотности из разбора</li></ul>
+  </div>
+  <div class="slot">
+    <h3 class="v rec" data-q="2.1" data-variant="Б"><span class="n">2.Б</span> Плотнее на ~15% <em>53 px, аватар 28 px</em></h3>
+    <div class="theme"><div class="pane"><header><div class="srch">Поиск по почте</div><h4>Входящие</h4></header><div class="vp">
+      <div class="r un sel" style="height:53px;padding-top:6px;padding-left:52px"><span class="av" style="background:#3a6ea8;width:28px;height:28px;top:8px;left:12px;font-size:11px">ПС</span><div class="l1"><span class="fr">Пётр Сидоров</span><span class="cnt">3<svg><use href="#ic-chev-s"/></svg></span><span class="dt">09:14</span></div><div class="l2" style="margin-top:1px"><span class="sj">Смета на монтаж</span><span class="pv">Подрядчик прислал смету, посмотрите пожалуйста…</span></div></div>
+      <div class="r" style="height:53px;padding-top:6px;padding-left:52px"><span class="av" style="background:#5a7a3a;width:28px;height:28px;top:8px;left:12px;font-size:11px">МС</span><div class="l1"><span class="fr">Мария Соколова</span><span class="dt">вчера</span></div><div class="l2" style="margin-top:1px"><span class="sj">Отчёт за сентябрь</span><span class="pv">Отчёт готов, замечания во вложении</span></div></div>
+      <div class="r un" style="height:53px;padding-top:6px;padding-left:52px"><span class="av" style="background:#8a6a2a;width:28px;height:28px;top:8px;left:12px;font-size:11px">Б</span><div class="l1"><span class="fr">Бухгалтерия</span><span class="dt">27 авг</span></div><div class="l2" style="margin-top:1px"><span class="sj">Счёт на оплату</span><span class="pv">Просим оплатить счёт до 15 октября</span></div></div>
+      <div class="r" style="height:53px;padding-top:6px;padding-left:52px"><span class="av" style="background:#6a4a8a;width:28px;height:28px;top:8px;left:12px;font-size:11px">ОЗ</span><div class="l1"><span class="fr">Отдел закупок</span><span class="dt">25 авг</span></div><div class="l2" style="margin-top:1px"><span class="sj">Пакет документов по поставке</span><span class="pv">Комплект документов по поставке во вложении…</span></div></div>
+    </div></div></div>
+    <ul class="pc"><li><span class="plus">+</span> на том же экране на одну строку больше без потери читаемости: аватар уменьшен, а не убран — логотипы и фото остаются различимы</li><li><span class="plus">+</span> не трогает структуру строки (всё те же <code>.line1</code>/<code>.line2</code>), только числа <code>ROW</code>, отступов и размера аватара</li><li><span class="minus">−</span> всё ещё заметно просторнее Яндекса — «в меньшей степени», не вплотную к образцу, как и просил оператор</li></ul>
+  </div>
+</div>
+<p class="cap">Превью — первые ~40–60 символов текста письма (<code>text</code>/<code>html</code>, уже скачанного для <code>MessageRow</code>; для писем без локального текста, только в кэше заголовков, превью временно пусто, как в Б-варианте строка без второй фразы). Любая плотность требует пересчитать шаг виртуализации (<code>ROW</code>, <code>OVERSCAN</code>, <code>MessageList.svelte:55-64</code>) и e2e, которые ищут строки по <code>top</code> в px (<code>rowBySubject</code>, <code>e2e/shot-kit.mjs</code>).</p>
+
+<h2 class="screen">Экран 3. Цепочка в списке: счётчик-кнопка и раскрытие на месте (вопрос 3, по разбору №6 и №8)</h2>
+<p class="lead">Решено без вопроса: счётчик — кнопка, раскрывающая цепочку прямо в списке; письма цепочки — с отступом, на лёгком фоне группы, дата и папка справа, если письмо не в текущей папке. Открытый вопрос — только клавиша для раскрытия/сворачивания. Щёлкните «3 ⌄» в живом списке ниже или наведите фокус на строку и попробуйте предложенную клавишу.</p>
+<div class="cols">
+  <div class="slot wide">
+    <div class="theme"><div class="pane"><header><div class="srch">Поиск по почте</div><h4>Входящие</h4></header><div class="vp stage" id="live3" tabindex="0" aria-label="Живой список с цепочкой">
+      <div class="r un sel fo" data-i="0" style="height:62px"><span class="av" style="background:#3a6ea8">ПС</span><div class="l1"><span class="fr">Пётр Сидоров, Подрядчик</span><button class="cnt" id="cnt3">3<svg><use href="#ic-chev-s"/></svg></button><span class="dt">09:14</span></div><div class="l2"><span class="sj">Re: Смета на монтаж</span><span class="pv">Смету пересчитали, сумма выросла на 40 000 ₽…</span></div></div>
+      <div class="grp-body" id="grp3">
+        <div class="sub" data-i="0a"><span class="fr">Пётр Сидоров — Смета на монтаж склада</span><span class="sd">28 авг</span></div>
+        <div class="sub" data-i="0b"><span class="fr">Вы — Re: Смета на монтаж</span><span class="sd">28 авг<span class="fol">Отправленные</span></span></div>
+        <div class="sub" data-i="0c"><span class="fr">Подрядчик — Re: Смета на монтаж</span><span class="sd">вчера<span class="fol">Архив</span></span></div>
+      </div>
+      <div class="r" data-i="1" style="height:62px"><span class="av" style="background:#5a7a3a">МС</span><div class="l1"><span class="fr">Мария Соколова</span><span class="dt">вчера</span></div><div class="l2"><span class="sj">Отчёт за сентябрь</span><span class="pv">Отчёт готов, замечания во вложении</span></div></div>
+      <div class="r un" data-i="2" style="height:62px"><span class="av" style="background:#8a6a2a">Б</span><div class="l1"><span class="fr">Бухгалтерия</span><span class="dt">27 авг</span></div><div class="l2"><span class="sj">Счёт на оплату</span><span class="pv">Просим оплатить счёт до 15 октября</span></div></div>
+    </div></div></div>
+    <ul class="pc"><li><span class="plus">+</span> письма цепочки, лежащие не в открытой папке («Отправленные», «Архив»), подписаны справа — данные для этого уже есть (<code>shownConversation</code>, <code>src/lib/reader.svelte.ts:190-199</code>), раньше просто не показывались</li><li><span class="plus">+</span> клик по строке (не по счётчику) по-прежнему открывает письмо целиком в читалке, как сейчас; раскрытие в списке — только просмотр состава цепочки</li></ul>
+  </div>
+  <div class="slot">
+    <h3 class="v rec" data-q="3.1" data-variant="А" data-q-title="Клавиша для раскрытия цепочки в списке" data-variants="А,Б" data-recommended="А"><span class="n">3.А</span> <kbd>→</kbd>/<kbd>←</kbd> на строке со счётчиком</h3>
+    <p class="cap">Фокус (курсор) стоит на строке цепочки — <kbd>→</kbd> раскрывает, <kbd>←</kbd> сворачивает; на строке без цепочки эти клавиши ничего не делают. Тот же язык, что уже есть для раскрывающихся настроек (<code>settingsRows.ts</code>: <kbd>→</kbd> открывает/включает, <kbd>←</kbd> закрывает/выключает). Счётчик остаётся частью строки, не отдельной точкой фокуса — строка списка по-прежнему один <code>role="option"</code>, как сегодня (и как в #108 — кружок аватара тоже не получает фокус).</p>
+    <div class="rec-btn"><button class="k3" data-key="A" aria-pressed="true">Включить в демо слева</button></div>
+  </div>
+  <div class="slot">
+    <h3 class="v" data-q="3.1" data-variant="Б"><span class="n">3.Б</span> <kbd>Enter</kbd> на самом счётчике</h3>
+    <p class="cap">Счётчик становится отдельной, отдельно фокусируемой кнопкой внутри строки — второй <kbd>Tab</kbd>-остановкой там, где сегодня одна. Ближе к вебу (где счётчик и правда отдельная ссылка), но вводит второй фокус-стоп в строку списка — исключение из «строка — один <code>role="option"</code>», которого сегодня нет нигде в списке.</p>
+    <div class="rec-btn"><button class="k3" data-key="B">Включить в демо слева</button></div>
+  </div>
+</div>
+<p class="cap">Курсор на письме внутри раскрытой цепочки (клавиши <kbd>↓</kbd>/<kbd>↑</kbd> заходят в раскрытые строки, как в обычный список): та же полоса слева, что у строки списка (<code>box-shadow: inset 2px 0 0 var(--accent)</code>), поверх фона группы — видна и отличима. Стоимость: сегодня список виртуализирован под фиксированную высоту строки (<code>ROW=64</code>); раскрытая цепочка меняет число и высоту видимых строк, это не точечная правка CSS, а пересмотр вычисления видимого окна в <code>MessageList.svelte:62-64</code> (см. также по разбору №6 — «ощутимая переработка виртуализации списка»).</p>
+
+<h2 class="screen">Экран 4. Чтение цепочки (вопрос 4, по разбору №7 и №5, №8)</h2>
+<p class="lead">Принято без вопроса: «Ещё N писем ⌄» сверху, свёрнутые строки (отправитель, превью, дата, папка), раскрытые письма — каждое со своей шапкой (аватар, адрес, замок «проверенный отправитель», дата, папка, если не текущая) и своей линией кнопок «Ответить / Переслать / Удалить / … Ещё». Открытый вопрос — какое письмо раскрыто по умолчанию при входе в цепочку.</p>
+<div class="cols">
+  <div class="slot wide">
+    <div class="theme"><div class="rd" style="box-shadow:0 8px 30px rgb(0 0 0/24%),0 0 0 1px rgb(0 0 0/6%);border-radius:10px">
+      <div class="strip"><div class="tb"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn"><span class="i"><svg><use href="#ic-clock"/></svg></span>Отложить</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div></div>
+      <div class="more" id="more4" tabindex="0" role="button" aria-expanded="false">Ещё 1 письмо<svg><use href="#ic-chev"/></svg></div>
+      <div class="crow" id="crow4a" data-letter="a"><span class="av" style="background:#3a6ea8">ПС</span><span class="nm">Пётр Сидоров</span><span class="pv">Согласен, тогда жду финальную смету до пятницы…</span><span class="sd">28 авг</span></div>
+      <div class="cletter" id="cletter4b" data-letter="b"><div class="chd"><span class="av" style="background:#6a4a8a">ПД</span><div class="who"><div class="nm">Подрядчик <span class="em">estimate@example.com</span> <span class="vmark" title="Проверенный отправитель"><svg><use href="#ic-lock"/></svg></span></div><div class="fol">Я ›</div></div><div class="dateb">10 окт, 09:14</div></div>
+        <div class="cacts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button><button class="act"><span class="i"><svg><use href="#ic-trash"/></svg></span>Удалить</button><button class="act"><span class="i"><svg><use href="#ic-more"/></svg></span>Ещё</button></div>
+        <div class="cbody"><p>Смету пересчитали, сумма выросла на 40 000 ₽. Приложил новую таблицу к ответу.</p></div>
+      </div>
+    </div></div>
+    <ul class="pc"><li><span class="plus">+</span> «Ещё N писем» сворачивает дальнюю историю одной строкой (как «Ещё 57 писем» у Яндекса), не требуя листать всю переписку</li><li><span class="plus">+</span> у каждого раскрытого письма — свои кнопки: можно ответить на любое письмо цепочки, а не только на последнее</li><li><span class="minus">−</span> у двух одновременно раскрытых писем — два «Ответить», два тела: быстрый ответ (<code>QuickReply</code>) и просмотр вложений (<code>useAttachmentViewer</code>) сегодня общие на пару с «открытым письмом» (<code>app.reader.opened</code>), для нескольких раскрытых их придётся развести по письмам цепочки — см. предупреждение в начале макета</li></ul>
+  </div>
+  <div class="slot">
+    <h3 class="v" data-q="4.1" data-variant="А" data-q-title="Какое письмо цепочки раскрыто по умолчанию" data-variants="А,Б" data-recommended="Б"><span class="n">4.А</span> Последнее непрочитанное</h3>
+    <p class="cap">При входе в цепочку раскрывается первое непрочитанное письмо снизу-вверх (если непрочитанных нет — последнее). Совпадает с тем, зачем вообще открыли письмо — его ещё не читали.</p>
+    <div class="rec-btn"><button class="k4" data-def="A">Показать в демо</button></div>
+  </div>
+  <div class="slot">
+    <h3 class="v rec" data-q="4.1" data-variant="Б"><span class="n">4.Б</span> Последнее по дате <em>как сейчас открывается письмо из списка</em></h3>
+    <p class="cap">Раскрыто самое новое письмо цепочки — то же самое, что открывает клик по строке списка сегодня (список уже показывает дату/тему последнего письма цепочки, <code>m.thread_date</code>). Предсказуемее: «открыл цепочку» и «открыл письмо» ведут к одному и тому же письму что сейчас, что после раскрытия соседей.</p>
+    <div class="rec-btn"><button class="k4" data-def="B" aria-pressed="true">Показать в демо</button></div>
+  </div>
+</div>
+<p class="cap">Рекомендация: <b>4.Б</b> — список уже обещает «открою — увижу вот это письмо» (дата, тема, превью — всё от последнего письма цепочки); 4.А один раз открыло бы не то письмо, которое список только что показал, и удивило бы.</p>
+
+<h2 class="screen">Экран 5. Один белый фон и одна линия (по разбору №12, светлая тема; в тёмной — карточка остаётся)</h2>
+<p class="lead">Не вопрос выбора — демонстрация решённого: в светлой теме у тела письма нет отдельной карточки (рамки и своего оттенка `--paper`), панель и шапка — на фоне читалки `--paper-2`, которая от списка отделена только одной линией-разделителем колонок. В тёмной теме карточка тела остаётся: HTML-письмо получателя по-прежнему рисуется на белом (`MailFrame.svelte:71`, без ветки на тему — «получатель увидит письмо без наших цветов»), и без рамки это был бы белый прямоугольник без всякой окантовки на тёмном фоне.</p>
+<div class="cols">
+  <div class="slot wide">
+    <h3 class="v">Светлая тема — без карточки тела</h3>
+    <div class="theme"><div class="winrow" style="border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgb(0 0 0/24%),0 0 0 1px rgb(0 0 0/6%)">
+      <div class="pane" style="box-shadow:none"><header><div class="srch">Поиск по почте</div><h4>Входящие</h4></header><div class="vp">
+        <div class="r sel" style="height:62px"><span class="av" style="background:#3a6ea8">ПС</span><div class="l1"><span class="fr">Пётр Сидоров</span><span class="dt">09:14</span></div><div class="l2"><span class="sj">Смета на монтаж</span><span class="pv">Подрядчик прислал смету, посмотрите…</span></div></div>
+      </div></div>
+      <div class="rd" style="box-shadow:none">
+        <div class="tb"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div>
+        <div class="hd"><h1>Смета на монтаж</h1><div class="from"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров</div><div class="em">petr@example.com <span class="vmark"><svg><use href="#ic-lock"/></svg></span></div></div><div class="dateb">10 окт, 09:14</div></div></div>
+        <div class="acts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button></div>
+        <div class="bd flat"><p>Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.</p></div>
+      </div>
+    </div></div>
+    <p class="cap">От списка до текста — одна линия (разделитель колонок) и один оттенок (письмо почти всегда и само белое). Правка: убрать рамку и фон у <code>.body</code> (<code>ReaderBody.svelte:156-165</code>) и у <code>.thread</code> (<code>Reader.svelte:252-259</code>), оставить <code>.reader</code> на <code>--paper-2</code>.</p>
+  </div>
+  <div class="slot wide">
+    <h3 class="v">Тёмная тема — карточка тела остаётся</h3>
+    <div class="theme" style="--paper:#171a1f;--paper-2:#1d2128;--ink:#e4e0d8;--muted:#8f97a2;--line:#2c323b;--hover:#222831;--selected:#2e3742;--link:#7fb0ec">
+      <div class="winrow" style="border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgb(0 0 0/40%),0 0 0 1px rgb(0 0 0/30%)">
+        <div class="pane" style="box-shadow:none"><header><div class="srch">Поиск по почте</div><h4>Входящие</h4></header><div class="vp">
+          <div class="r sel" style="height:62px"><span class="av" style="background:#3a6ea8">ПС</span><div class="l1"><span class="fr">Пётр Сидоров</span><span class="dt">09:14</span></div><div class="l2"><span class="sj">Смета на монтаж</span><span class="pv">Подрядчик прислал смету, посмотрите…</span></div></div>
+        </div></div>
+        <div class="rd" style="box-shadow:none">
+          <div class="tb"><button class="btn"><span class="i"><svg><use href="#ic-archive"/></svg></span>Готово</button><button class="btn" aria-label="Удалить"><span class="i"><svg><use href="#ic-trash"/></svg></span></button><span class="sp"></span><button class="btn" aria-label="Ещё"><span class="i"><svg><use href="#ic-more"/></svg></span></button></div>
+          <div class="hd"><h1>Смета на монтаж</h1><div class="from"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров</div><div class="em">petr@example.com <span class="vmark"><svg><use href="#ic-lock"/></svg></span></div></div><div class="dateb">10 окт, 09:14</div></div></div>
+          <div class="acts"><button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button></div>
+          <div class="bd" style="background:#fff;color:#1d232b;border-color:#2c323b"><p style="color:#1d232b">Подрядчик прислал смету на монтаж склада. Посмотрите, пожалуйста, и скажите, что убрать.</p></div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">Тело письма — тот же белый <code>&lt;iframe&gt;</code>, что и в светлой теме (HTML-письмо не тонируется), но с рамкой-карточкой: без неё белый прямоугольник резал бы глаз на тёмном фоне читалки сильнее, чем сейчас.</p>
+  </div>
+</div>
+
+<h2 class="screen">Вопросы</h2>
+<table class="q">
+<tr><th>№</th><th>По разбору</th><th>Вопрос</th><th>Варианты</th><th>Рекомендация</th></tr>
+<tr data-q="1.1" data-q-title="Панель действий против шапки письма" data-variants="А,Б,В" data-recommended="Б"><td class="n">1.1</td><td class="ref">№1</td><td>Как отделить панель действий читалки от шапки письма, чтобы они не сливались</td><td><b>А</b> как сейчас (для сравнения); <b>Б</b> панель — своя лента над шапкой, отдельным фоном и границей; <b>В</b> одна панель над списком и письмом, читалка начинается с темы</td><td><b>Б</b>: решает жалобу ценой нескольких строк CSS, не поднимает заново вопрос общей панели/чекбоксов</td></tr>
+<tr data-q="2.1" data-q-title="Насколько уплотнить строку списка" data-variants="А,Б" data-recommended="Б"><td class="n">2.1</td><td class="ref">№9</td><td>Насколько плотнее сделать строку списка (с превью, которое уже решено)</td><td><b>А</b> как сейчас, 62 px; <b>Б</b> плотнее на ~15%, 53 px, аватар 28 px</td><td><b>Б</b>: «да, но в меньшей степени», как ответил оператор</td></tr>
+<tr data-q="3.1" data-q-title="Клавиша для раскрытия цепочки в списке" data-variants="А,Б" data-recommended="А"><td class="n">3.1</td><td class="ref">№6</td><td>Какой клавишей раскрывать/сворачивать цепочку прямо в списке (решено, что раскрывать нужно; клавиша — открытый вопрос)</td><td><b>А</b> <kbd>→</kbd>/<kbd>←</kbd> на строке со счётчиком; <b>Б</b> <kbd>Enter</kbd> на самом счётчике (отдельный фокус-стоп)</td><td><b>А</b>: тот же язык, что у раскрывающихся настроек; строка остаётся одним <code>role="option"</code>, без новой точки фокуса</td></tr>
+<tr data-q="4.1" data-q-title="Какое письмо цепочки раскрыто по умолчанию" data-variants="А,Б" data-recommended="Б"><td class="n">4.1</td><td class="ref">№7</td><td>Какое письмо цепочки раскрыто по умолчанию при входе в неё</td><td><b>А</b> последнее непрочитанное; <b>Б</b> последнее по дате (как сегодня открывает клик по строке)</td><td><b>Б</b>: совпадает с тем, что список уже обещал — дату и тему последнего письма</td></tr>
+</table>
+</div>
+
+<script>
+(() => {
+  document.getElementById("ctl").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-theme]"); if (!b) return;
+    document.body.classList.toggle("night", b.dataset.theme === "night");
+    b.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  });
+
+  /* ---------- экран 3: цепочка в списке, живой фрагмент ---------- */
+  const live3 = document.getElementById("live3");
+  const row3 = live3.querySelector('.r[data-i="0"]');
+  const cnt3 = document.getElementById("cnt3");
+  const grp3 = document.getElementById("grp3");
+  let key3 = "A"; // А: →/← на строке; Б: Enter на счётчике (демо-переключатель справа)
+  document.querySelectorAll(".k3").forEach((btn) => btn.addEventListener("click", () => {
+    key3 = btn.dataset.key;
+    document.querySelectorAll(".k3").forEach((b) => b.classList.toggle("on", b === btn));
+    document.querySelectorAll(".k3").forEach((b) => b.setAttribute("aria-pressed", b === btn ? "true" : "false"));
+  }));
+  function toggleThread3() {
+    const open = row3.classList.toggle("open");
+    cnt3.parentElement.parentElement.parentElement.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  cnt3.addEventListener("click", (e) => { e.stopPropagation(); toggleThread3(); });
+  const rows3 = () => [...live3.querySelectorAll(".r, .sub")];
+  function focusRow3(el) {
+    rows3().forEach((r) => r.classList.remove("fo"));
+    el.classList.add("fo");
+    el.scrollIntoView({ block: "nearest" });
+  }
+  live3.addEventListener("keydown", (e) => {
+    const list = rows3().filter((r) => r.offsetParent !== null || r.classList.contains("sub") === false);
+    const visible = rows3().filter((r) => r.closest(".grp-body") ? row3.classList.contains("open") : true);
+    const cur = visible.findIndex((r) => r.classList.contains("fo"));
+    if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); focusRow3(visible[Math.min(visible.length - 1, Math.max(0, cur) + 1)]); }
+    else if (e.key === "ArrowUp" || e.key === "k") { e.preventDefault(); focusRow3(visible[Math.max(0, cur - 1)]); }
+    else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && key3 === "A" && visible[cur] === row3) { e.preventDefault(); toggleThread3(); }
+    else if (e.key === "Enter" && key3 === "B" && visible[cur] === row3) { e.preventDefault(); toggleThread3(); }
+  });
+  live3.addEventListener("click", (e) => { const r = e.target.closest(".r, .sub"); if (r) focusRow3(r); });
+
+  /* ---------- экран 4: «Ещё N писем», свёрнутая/раскрытая строка, умолчание ---------- */
+  const more4 = document.getElementById("more4");
+  const crow4a = document.getElementById("crow4a");
+  more4.addEventListener("click", () => {
+    const open = more4.classList.toggle("open");
+    more4.setAttribute("aria-expanded", open ? "true" : "false");
+    more4.firstChild.textContent = open ? "Свернуть" : "Ещё 1 письмо";
+    crow4a.style.display = open ? "flex" : "none";
+  });
+  crow4a.style.display = "none";
+  crow4a.addEventListener("click", () => {
+    const expanded = crow4a.classList.toggle("exp");
+    if (expanded) {
+      crow4a.innerHTML = '<div class="chd" style="padding:0;flex:1"><span class="av" style="background:#3a6ea8">ПС</span><div class="who"><div class="nm">Пётр Сидоров <span class="em">petr@example.com</span></div></div><div class="dateb">28 авг</div></div>';
+      crow4a.style.flexDirection = "column"; crow4a.style.alignItems = "stretch"; crow4a.style.cursor = "default";
+      const acts = document.createElement("div"); acts.className = "cacts"; acts.style.margin = "8px 0 0"; acts.innerHTML = '<button class="act"><span class="i"><svg><use href="#ic-reply"/></svg></span>Ответить</button><button class="act"><span class="i"><svg><use href="#ic-fwd"/></svg></span>Переслать</button>';
+      const body = document.createElement("div"); body.className = "cbody"; body.style.margin = "8px 0 0"; body.innerHTML = "<p>Согласен, тогда жду финальную смету до пятницы. Со своей стороны всё согласовал.</p>";
+      crow4a.append(acts, body);
+    }
+  });
+  document.querySelectorAll(".k4").forEach((btn) => btn.addEventListener("click", () => {
+    document.querySelectorAll(".k4").forEach((b) => { b.classList.toggle("on", b === btn); b.setAttribute("aria-pressed", b === btn ? "true" : "false"); });
+  }));
+})();
+</script>
+<!-- mockup-kit:start -->
+<style>
+/* mockup-kit: панель «Ответы». Вставляется скриптом scripts/mockup-kit.mjs, не править в макетах. */
+html.mk-open body { margin-right: 372px; }
+@media (max-width: 1099px) { html.mk-open body { margin-right: 0; } }
+html.mk-noting, html.mk-noting * { cursor: crosshair !important; }
+html.mk-noting .mk-panel, html.mk-noting .mk-panel *, html.mk-noting .mk-tab { cursor: default !important; }
+.mk-panel, .mk-pop, .mk-tab, .mk-bar, .mk-pin, .mk-toast {
+  --mk-bg: #fbf9f4; --mk-ink: #1d232b; --mk-mut: #667080; --mk-line: #d4ccba; --mk-btn: #fff;
+  --mk-acc: #2e7d4f; --mk-acc-ink: #fff; --mk-hi: #e3f1e8; --mk-warn: #b3261e; --mk-field: #fff;
+  font: 13px/1.35 system-ui, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+}
+body.night .mk-panel, body.night .mk-pop, body.night .mk-tab {
+  --mk-bg: #171a1f; --mk-ink: #e4e0d8; --mk-mut: #8f97a2; --mk-line: #323943; --mk-btn: #222831;
+  --mk-acc: #4aa070; --mk-acc-ink: #0e1713; --mk-hi: #1f3a2b; --mk-warn: #ef8a80; --mk-field: #1d2128;
+  color-scheme: dark;
+}
+.mk-panel *, .mk-pop * { box-sizing: border-box; }
+.mk-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 372px; z-index: 2147483000;
+  display: flex; flex-direction: column; background: var(--mk-bg); color: var(--mk-ink);
+  border-left: 1px solid var(--mk-line); box-shadow: -4px 0 18px rgba(0, 0, 0, .14);
+}
+.mk-panel[hidden] { display: none; }
+.mk-panel button, .mk-pop button, .mk-tab {
+  font: inherit; color: var(--mk-ink); background: var(--mk-btn); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.mk-panel button:hover, .mk-pop button:hover, .mk-tab:hover { border-color: var(--mk-acc); }
+.mk-panel button:focus-visible, .mk-pop button:focus-visible, .mk-tab:focus-visible,
+.mk-item:focus-visible, .mk-pin:focus-visible { outline: 2px solid var(--mk-acc); outline-offset: 1px; }
+.mk-panel button[aria-pressed="true"], .mk-pop button.mk-main {
+  background: var(--mk-acc); color: var(--mk-acc-ink); border-color: var(--mk-acc);
+}
+.mk-panel input, .mk-panel textarea, .mk-pop textarea {
+  font: inherit; color: var(--mk-ink); background: var(--mk-field); border: 1px solid var(--mk-line);
+  border-radius: 6px; padding: 4px 7px; width: 100%; resize: vertical;
+}
+.mk-panel input:focus, .mk-panel textarea:focus, .mk-pop textarea:focus { outline: 2px solid var(--mk-acc); outline-offset: -1px; }
+.mk-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--mk-line); display: flex; gap: 8px; align-items: baseline; }
+.mk-head b { font-size: 15px; }
+.mk-head .mk-file { color: var(--mk-mut); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-hint { padding: 5px 12px; color: var(--mk-mut); font-size: 11.5px; border-bottom: 1px solid var(--mk-line); }
+.mk-hint kbd { font: inherit; font-family: ui-monospace, Consolas, monospace; border: 1px solid var(--mk-line); border-radius: 4px; padding: 0 4px; background: var(--mk-btn); }
+.mk-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mk-item { padding: 8px 12px; border-bottom: 1px solid var(--mk-line); outline: none; }
+.mk-item:focus { background: var(--mk-hi); box-shadow: inset 3px 0 0 var(--mk-acc); }
+.mk-item.mk-closed { opacity: .5; }
+.mk-item .mk-line { display: flex; gap: 6px; align-items: baseline; }
+.mk-num { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--mk-ink); text-decoration: none; border-bottom: 1px dashed var(--mk-mut); cursor: pointer; }
+.mk-ttl { flex: 1; min-width: 0; }
+.mk-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--mk-mut); white-space: nowrap; }
+.mk-item.mk-done .mk-stat { color: var(--mk-acc); font-weight: 700; }
+.mk-vs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.mk-vs button { min-width: 34px; }
+.mk-item textarea { display: block; margin-top: 4px; height: 28px; min-height: 28px; }
+.mk-item input { margin-top: 4px; }
+.mk-sec { padding: 8px 12px 4px; font-weight: 700; color: var(--mk-mut); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.mk-note { display: flex; gap: 6px; padding: 4px 12px; align-items: baseline; }
+.mk-note a { cursor: pointer; color: var(--mk-warn); font-weight: 700; }
+.mk-note span { flex: 1; min-width: 0; }
+.mk-note small { color: var(--mk-mut); }
+.mk-foot { border-top: 1px solid var(--mk-line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--mk-bg); }
+.mk-count { font-weight: 700; }
+.mk-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk-sum { height: 84px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.mk-tab { position: fixed; right: 0; top: 40%; z-index: 2147483000; border-radius: 6px 0 0 6px; padding: 8px 6px; writing-mode: vertical-rl; box-shadow: -2px 0 8px rgba(0, 0, 0, .15); }
+.mk-tab[hidden] { display: none; }
+
+/* рядом с вариантами и вопросами на самом макете (страница светлая в любой теме) */
+.mk-bar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 10px 0 0; flex: 0 0 auto; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.mk-bar button { font: inherit; font-size: 12px; font-weight: 600; color: #1d232b; background: #fff; border: 1px solid #2e7d4f; border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: #2e7d4f; color: #fff; }
+.mk-bar input { font: inherit; font-size: 12px; width: 170px; color: #1d232b; background: #fff; border: 1px solid #b5ae9f; border-radius: 6px; padding: 2px 6px; }
+.mk-bar .mk-stat { color: #2e7d4f; font-weight: 700; }
+.mk-sel { outline: 2px solid #2e7d4f; outline-offset: 3px; border-radius: 6px; }
+.mk-flash { animation: mk-flash 1.4s ease-out; }
+@keyframes mk-flash { 0%, 40% { background: rgba(46, 125, 79, .28); } 100% { background: transparent; } }
+.mk-target { outline: 2px dashed #b3261e !important; outline-offset: 2px; }
+
+.mk-pin {
+  position: absolute; z-index: 2147482000; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: #b3261e; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 700; line-height: 16px;
+  text-align: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.mk-pop {
+  position: fixed; z-index: 2147483100; width: 300px; padding: 8px; background: var(--mk-bg); color: var(--mk-ink);
+  border: 1px solid var(--mk-line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.mk-pop small { color: var(--mk-mut); }
+.mk-pop textarea { height: 84px; }
+.mk-pop .mk-row { justify-content: flex-end; }
+.mk-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483200; background: #1d232b; color: #fff; padding: 6px 14px; border-radius: 6px; }
+</style>
+<script>
+/* mockup-kit: ответы и заметки в макете. Вставляется скриптом scripts/mockup-kit.mjs; описание — design/mockups/README.md. */
+(function () {
+  "use strict";
+  var doc = document;
+  var FILE = decodeURIComponent(location.pathname.split("/").pop() || "mockup");
+  var KEY = "mockup-kit:" + FILE;
+  var TOGGLE_CODE = "Backquote"; // клавиша ` (на русской раскладке — ё); в макетах 0.8.0 не занята
+  var RU_BY_CODE = { KeyF: "А", Comma: "Б", KeyD: "В", KeyU: "Г" }; // буквы А/Б/В/Г при латинской раскладке
+
+  function $(s, r) { return (r || doc).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || doc).querySelectorAll(s)); }
+  function h(tag, attrs, text) {
+    var e = doc.createElement(tag);
+    e.setAttribute("data-mk", "");
+    for (var k in attrs || {}) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function oneLine(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+  function typing(t) { return !!t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable); }
+  function inLive(t) { return !!(t && t.closest && !t.closest("[data-mk]") && t.closest(".stage, [tabindex]")); }
+
+  // ---------- состояние ----------
+  var PANEL_W = 372, NARROW = 1100; // уже NARROW панель лежит поверх страницы и по умолчанию свёрнута
+  var S = { a: {}, n: [], open: innerWidth >= NARROW };
+  var mem = null;
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = mem; }
+    if (!raw) return;
+    try {
+      var d = JSON.parse(raw);
+      if (d && typeof d.a === "object" && Array.isArray(d.n)) { S.a = d.a; S.n = d.n; if (typeof d.open === "boolean") S.open = d.open; }
+    } catch (e) { /* битые данные игнорируем */ }
+  }
+  function save() {
+    var raw = JSON.stringify({ kit: 1, mockup: FILE, open: S.open, a: S.a, n: S.n });
+    try { localStorage.setItem(KEY, raw); } catch (e) { mem = raw; }
+  }
+  function ans(id) { return S.a[id] || (S.a[id] = { v: [], own: "", c: "" }); }
+  function answered(id) { var a = S.a[id]; return !!a && (a.v.length > 0 || oneLine(a.own) !== ""); }
+
+  // ---------- разбор разметки ----------
+  var Q = [], QM = {};
+  function collect() {
+    $$("[data-q]").forEach(function (el) {
+      var id = el.getAttribute("data-q");
+      var q = QM[id];
+      if (!q) { q = QM[id] = { id: id, title: "", rec: "", vars: [], els: [], vels: [], rows: [], closed: false, btns: [], inputs: [], stats: [] }; Q.push(q); }
+      if (el.hasAttribute("data-q-title") && !q.title) q.title = el.getAttribute("data-q-title");
+      if (el.hasAttribute("data-recommended") && !q.rec) q.rec = el.getAttribute("data-recommended");
+      if (el.hasAttribute("data-q-closed")) q.closed = true;
+      (el.getAttribute("data-variants") || "").split(",").forEach(function (v) { v = v.trim(); if (v && q.vars.indexOf(v) < 0) q.vars.push(v); });
+      var v = el.getAttribute("data-variant");
+      if (v) { if (q.vars.indexOf(v) < 0) q.vars.push(v); q.vels.push({ v: v, el: el }); }
+      else if (el.tagName === "TR") q.rows.push(el);
+      else q.els.push(el);
+    });
+    Q.sort(function (a, b) { return a.id.localeCompare(b.id, "ru", { numeric: true }); });
+  }
+  function recList(q) {
+    return q.rec.split(/[+,\s]+/).filter(function (v) { return q.vars.indexOf(v) >= 0; });
+  }
+  function target(q, v) {
+    if (v) for (var i = 0; i < q.vels.length; i++) if (q.vels[i].v === v) return q.vels[i].el;
+    return q.els[0] || (q.vels[0] && q.vels[0].el) || q.rows[0] || null;
+  }
+
+  // ---------- действия над ответами ----------
+  function pick(q, v, multi) {
+    var a = ans(q.id), i = a.v.indexOf(v);
+    if (multi) { if (i >= 0) a.v.splice(i, 1); else a.v.push(v); }
+    else a.v = i >= 0 && a.v.length === 1 ? [] : [v];
+    a.v.sort(function (x, y) { return q.vars.indexOf(x) - q.vars.indexOf(y); });
+    changed();
+  }
+  function clearAnswer(q) { S.a[q.id] = { v: [], own: "", c: (S.a[q.id] || {}).c || "" }; ownOpen[q.id] = false; changed(); }
+  var ownOpen = {};
+
+  function statText(q) {
+    var a = S.a[q.id], p = [];
+    if (a && a.v.length) p.push(a.v.join("+"));
+    if (a && oneLine(a.own)) p.push("свой");
+    return p.length ? p.join(" + ") : "—";
+  }
+
+  function summary() {
+    var out = ["Макет: " + FILE], miss = [];
+    Q.forEach(function (q) {
+      if (q.closed) return;
+      var a = S.a[q.id], c = a ? oneLine(a.c) : "", parts = [];
+      if (!answered(q.id)) {
+        miss.push(q.id);
+        if (c) out.push(q.id + " (без выбора) — " + c);
+        return;
+      }
+      if (a.v.length) parts.push(a.v.join("+"));
+      if (oneLine(a.own)) parts.push("свой: " + oneLine(a.own));
+      out.push(q.id + " " + parts.join(", ") + (c ? " — " + c : ""));
+    });
+    if (miss.length) out.push("Без ответа: " + miss.join(", "));
+    var notes = S.n.filter(function (n) { return oneLine(n.text); });
+    if (notes.length) {
+      out.push("Заметки:");
+      notes.forEach(function (n) { out.push("- [" + noteCtx(n) + "] " + oneLine(n.text)); });
+    }
+    return out.join("\n");
+  }
+  function noteCtx(n) {
+    var tail = [n.ref, n.quote ? "«" + n.quote + "»" : ""].filter(Boolean).join(" ");
+    return [n.screen, tail].filter(Boolean).join(", ");
+  }
+
+  // ---------- интерфейс на самом макете ----------
+  function mkBar(q, v) {
+    var bar = h("span", { class: "mk-bar" });
+    if (v) {
+      var b = h("button", { type: "button", "aria-pressed": "false", title: "Выбрать вариант; Shift+щелчок — несколько вариантов" }, "Выбрать " + q.id + " " + v);
+      b.addEventListener("click", function (e) { pick(q, v, e.shiftKey || e.ctrlKey); });
+      q.btns.push({ el: b, v: v });
+      bar.appendChild(b);
+    } else {
+      var st = h("span", { class: "mk-stat" });
+      q.stats.push(st);
+      bar.appendChild(st);
+    }
+    var inp = h("input", { type: "text", placeholder: "Комментарий к " + q.id + "…", "aria-label": "Комментарий к вопросу " + q.id });
+    inp.addEventListener("input", function () { ans(q.id).c = inp.value; changed(inp); });
+    q.inputs.push(inp);
+    bar.appendChild(inp);
+    return bar;
+  }
+  function injectBars() {
+    Q.forEach(function (q) {
+      q.vels.forEach(function (x) {
+        var bar = mkBar(q, x.v);
+        x.el.insertBefore(bar, x.el.firstChild);
+      });
+      q.els.forEach(function (el) {
+        var bar = mkBar(q, null);
+        el.insertBefore(bar, el.firstChild);
+      });
+    });
+  }
+
+  // ---------- панель ----------
+  var panel, tab, listEl, notesEl, countEl, sumEl, rec, lastItem = null;
+  function chip(label, extra) { return h("button", Object.assign({ type: "button", "aria-pressed": "false" }, extra || {}), label); }
+  function buildItem(q) {
+    var it = h("div", { class: "mk-item", tabindex: "-1", "data-id": q.id });
+    var line = h("div", { class: "mk-line" });
+    var num = h("a", { class: "mk-num", title: "Перейти к вопросу" }, q.id);
+    num.addEventListener("click", function () { go(target(q)); });
+    var ttl = h("span", { class: "mk-ttl" }, (q.closed ? "снят · " : "") + (q.title || ""));
+    var st = h("span", { class: "mk-stat" });
+    q.itemStat = st;
+    line.appendChild(num); line.appendChild(ttl); line.appendChild(st);
+    it.appendChild(line);
+    var vs = h("div", { class: "mk-vs" });
+    q.pbtns = [];
+    q.vars.forEach(function (v) {
+      var isRec = recList(q).indexOf(v) >= 0;
+      var b = chip(v + (isRec ? " ★" : ""), { title: (isRec ? "Рекомендую. " : "") + "Shift+щелчок — несколько вариантов; Alt+щелчок — перейти к варианту" });
+      b.addEventListener("click", function (e) {
+        if (e.altKey) { go(target(q, v)); return; }
+        pick(q, v, e.shiftKey || e.ctrlKey);
+      });
+      q.pbtns.push({ el: b, v: v });
+      vs.appendChild(b);
+    });
+    q.ownBtn = chip("свой", { title: "Ответить своим вариантом текстом" });
+    q.ownBtn.addEventListener("click", function () {
+      ownOpen[q.id] = !ownOpen[q.id] && !oneLine(ans(q.id).own);
+      if (!ownOpen[q.id]) ans(q.id).own = "";
+      changed();
+      if (ownOpen[q.id]) q.ownIn.focus();
+    });
+    vs.appendChild(q.ownBtn);
+    it.appendChild(vs);
+    q.ownIn = h("input", { type: "text", placeholder: "Свой вариант…", "aria-label": "Свой вариант " + q.id });
+    q.ownIn.addEventListener("input", function () { ans(q.id).own = q.ownIn.value; changed(q.ownIn); });
+    it.appendChild(q.ownIn);
+    q.ta = h("textarea", { rows: "1", placeholder: "Комментарий (Enter — сюда, Esc — назад)", "aria-label": "Комментарий " + q.id });
+    q.ta.addEventListener("input", function () { ans(q.id).c = q.ta.value; changed(q.ta); });
+    it.appendChild(q.ta);
+    q.item = it;
+    it.addEventListener("focus", function () { lastItem = it; });
+    return it;
+  }
+  function buildPanel() {
+    panel = h("aside", { class: "mk-panel", "aria-label": "Ответы" });
+    var head = h("div", { class: "mk-head" });
+    head.appendChild(h("b", {}, "Ответы"));
+    head.appendChild(h("span", { class: "mk-file" }, FILE));
+    var pinBtn = h("button", { type: "button", title: "Поставить заметку: следующий щелчок по макету (клавиша N)" }, "📌 Заметка");
+    pinBtn.addEventListener("click", function () { setNoting(!noting); });
+    noteBtn = pinBtn;
+    head.appendChild(pinBtn);
+    var close = h("button", { type: "button", title: "Свернуть (клавиша `)" }, "Свернуть");
+    close.addEventListener("click", function () { setOpen(false); });
+    head.appendChild(close);
+    panel.appendChild(head);
+    var hint = h("div", { class: "mk-hint" });
+    hint.innerHTML = "<kbd>`</kbd> панель · <kbd>↑</kbd><kbd>↓</kbd> вопросы · <kbd>А</kbd><kbd>Б</kbd><kbd>В</kbd> или <kbd>1</kbd><kbd>2</kbd> вариант (с Shift — несколько) · <kbd>Enter</kbd> комментарий · <kbd>Del</kbd> очистить · <kbd>N</kbd> или «📌 Заметка», затем щелчок по макету (или <kbd>Alt</kbd>+щелчок) — заметка";
+    panel.appendChild(hint);
+    var sc = h("div", { class: "mk-scroll" });
+    listEl = h("div", { class: "mk-list" });
+    Q.forEach(function (q) { listEl.appendChild(buildItem(q)); });
+    sc.appendChild(listEl);
+    sc.appendChild(h("div", { class: "mk-sec" }, "Заметки"));
+    notesEl = h("div", { class: "mk-notes" });
+    sc.appendChild(notesEl);
+    panel.appendChild(sc);
+    var foot = h("div", { class: "mk-foot" });
+    countEl = h("div", { class: "mk-count" });
+    foot.appendChild(countEl);
+    rec = h("button", { type: "button" }, "Взять рекомендации для неотвеченных");
+    rec.addEventListener("click", takeRecs);
+    foot.appendChild(rec);
+    sumEl = h("textarea", { class: "mk-sum", readonly: "", "aria-label": "Сводка" });
+    foot.appendChild(sumEl);
+    var row = h("div", { class: "mk-row" });
+    var copy = h("button", { type: "button", "aria-pressed": "false" }, "Скопировать");
+    copy.addEventListener("click", function () { copyText(sumEl.value, copy); });
+    var exp = h("button", { type: "button" }, "Экспорт JSON");
+    exp.addEventListener("click", exportJson);
+    var imp = h("button", { type: "button" }, "Импорт JSON");
+    var file = h("input", { type: "file", accept: "application/json,.json", hidden: "" });
+    imp.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () { importJson(file); });
+    var rst = h("button", { type: "button" }, "Сбросить");
+    rst.addEventListener("click", resetAll);
+    [copy, exp, imp, rst, file].forEach(function (b) { row.appendChild(b); });
+    foot.appendChild(row);
+    panel.appendChild(foot);
+    doc.body.appendChild(panel);
+
+    tab = h("button", { type: "button", class: "mk-tab", title: "Открыть панель (клавиша `)" });
+    tab.addEventListener("click", function () { setOpen(true); });
+    doc.body.appendChild(tab);
+    panel.addEventListener("keydown", panelKeys);
+  }
+  function setOpen(v, focus) {
+    S.open = v;
+    panel.hidden = !v;
+    tab.hidden = v;
+    doc.documentElement.classList.toggle("mk-open", v);
+    shiftFixed();
+    save();
+    layout();
+    if (v && focus !== false) {
+      var it = lastItem || (Q[0] && Q[0].item);
+      if (it) it.focus({ preventScroll: false });
+    } else if (!v && panel.contains(doc.activeElement)) doc.activeElement.blur();
+  }
+  // Элементы макета с position:fixed и right в px (верхние панели переключателей) сдвигаются вместе со страницей.
+  // Макеты шире свободного места (.doc: 1180 и 1400 px): содержимое масштабируется (zoom у детей body), чтобы правый край не уходил под панель.
+  var shifted = [], zoomed = [];
+  function shiftFixed() {
+    var on = S.open && innerWidth >= NARROW, z = 1;
+    shifted.forEach(function (s) { s.el.style.right = s.orig; });
+    shifted = [];
+    zoomed.forEach(function (el) { el.style.zoom = ""; });
+    zoomed = [];
+    if (!on) return;
+    var free = innerWidth - PANEL_W, need = doc.documentElement.scrollWidth;
+    if (need > free) {
+      z = Math.max(0.5, free / need);
+      Array.prototype.slice.call(doc.body.children).forEach(function (el) {
+        if (el.hasAttribute("data-mk") || /^(SCRIPT|STYLE)$/.test(el.tagName)) return;
+        el.style.zoom = String(z); zoomed.push(el);
+      });
+      layout();
+    }
+    $$("body *").forEach(function (el) {
+      if (el.closest("[data-mk]")) return;
+      var cs = getComputedStyle(el);
+      if (cs.position !== "fixed") return;
+      var r = parseFloat(cs.right);
+      if (isNaN(r) || r > 100) return; // только прижатые к правому краю
+      shifted.push({ el: el, orig: el.style.right });
+      el.style.right = (r + PANEL_W / z) + "px";
+    });
+  }
+  function go(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("mk-flash"); void el.offsetWidth; el.classList.add("mk-flash");
+    setTimeout(function () { el.classList.remove("mk-flash"); }, 1500);
+  }
+  function takeRecs() {
+    var n = 0;
+    Q.forEach(function (q) {
+      if (q.closed || answered(q.id)) return;
+      var r = recList(q);
+      if (r.length) { ans(q.id).v = r; n++; }
+    });
+    changed();
+    toast(n ? "Рекомендации взяты: " + n : "Нечего брать: все отвечены или рекомендаций нет");
+  }
+
+  // ---------- клавиши ----------
+  function variantFor(q, e) {
+    var k = e.key, i;
+    for (i = 0; i < q.vars.length; i++) if (q.vars[i].toLowerCase() === k.toLowerCase()) return q.vars[i];
+    if (/^[A-Za-z]$/.test(k) && RU_BY_CODE[e.code] && q.vars.indexOf(RU_BY_CODE[e.code]) >= 0) return RU_BY_CODE[e.code];
+    if (/^[1-9]$/.test(k) && q.vars[+k - 1]) return q.vars[+k - 1];
+    return null;
+  }
+  function panelKeys(e) {
+    var t = e.target;
+    if (typing(t)) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); var it0 = t.closest(".mk-item"); if (it0) it0.focus(); }
+      return;
+    }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "KeyN" || e.key === "n" || e.key === "т")) {
+      e.preventDefault(); setNoting(!noting); return;
+    }
+    if (e.key === "Escape" && noting) { e.preventDefault(); setNoting(false); return; }
+    var it = t.closest && t.closest(".mk-item");
+    if (!it) return;
+    var q = QM[it.getAttribute("data-id")], idx = Q.indexOf(q);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      var n = Q[Math.max(0, Math.min(Q.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)))];
+      n.item.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); q.ta.focus();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault(); clearAnswer(q);
+    } else if (e.key === "Escape") {
+      e.preventDefault(); setOpen(false);
+    } else if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      var v = variantFor(q, e);
+      if (v) { e.preventDefault(); pick(q, v, e.shiftKey); }
+    }
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (!panel || e.code !== TOGGLE_CODE || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (typing(e.target) || inLive(e.target)) return;
+    e.preventDefault();
+    setOpen(!S.open);
+  });
+
+  // ---------- заметки Alt+щелчок ----------
+  var layer, pop = null;
+  function pathOf(el) {
+    var parts = [];
+    while (el && el !== doc.body) {
+      var sibs = Array.prototype.filter.call(el.parentNode.children, function (c) { return !c.hasAttribute("data-mk"); });
+      parts.unshift(sibs.indexOf(el));
+      el = el.parentNode;
+    }
+    return parts.join("/");
+  }
+  function resolve(path) {
+    var el = doc.body, ix = path === "" ? [] : path.split("/");
+    for (var i = 0; i < ix.length; i++) {
+      var sibs = Array.prototype.filter.call(el.children, function (c) { return !c.hasAttribute("data-mk"); });
+      el = sibs[+ix[i]];
+      if (!el) return null;
+    }
+    return el;
+  }
+  function before(a, b) { return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }
+  function lastBefore(list, el) {
+    var r = null;
+    for (var i = 0; i < list.length; i++) { if (list[i] === el || before(list[i], el)) r = list[i]; else break; }
+    return r;
+  }
+  function describe(el) {
+    var h2s = $$("h2").filter(function (x) { return !x.closest("[data-mk]") && !x.closest(".qs"); });
+    var h2 = lastBefore(h2s, el), screen = "";
+    if (h2) {
+      var tx = oneLine(h2.textContent), m = /^Экран\s+(\d+)/i.exec(tx);
+      screen = m ? "экран " + m[1] : tx.slice(0, 40);
+    }
+    var ref = "", own = el.closest("[data-variant],[data-q]:not(tr)");
+    if (!own) {
+      var all = $$("[data-q]:not(tr)").filter(function (x) { return !x.closest("[data-mk]"); });
+      own = lastBefore(all, el);
+      if (own && h2 && !before(h2, own) && own !== h2) own = null; // вопрос из предыдущего экрана не подходит
+    }
+    if (own) ref = own.getAttribute("data-q") + (own.getAttribute("data-variant") ? " " + own.getAttribute("data-variant") : "");
+    var clone = el.cloneNode(true);
+    $$("[data-mk]", clone).forEach(function (x) { x.remove(); });
+    var quote = oneLine(clone.textContent);
+    if (quote.length > 40) quote = quote.slice(0, 40).trim() + "…";
+    return { screen: screen, ref: ref, quote: quote };
+  }
+  function closePop(keep) {
+    if (!pop) return;
+    var t = pop.targetEl;
+    if (t) t.classList.remove("mk-target");
+    pop.remove(); pop = null;
+    if (!keep) layout();
+  }
+  function openPop(note, isNew, el) {
+    closePop(true);
+    pop = h("div", { class: "mk-pop", role: "dialog", "aria-label": "Заметка" });
+    pop.targetEl = el;
+    if (el) el.classList.add("mk-target");
+    pop.appendChild(h("small", {}, noteCtx(note) || "заметка"));
+    var ta = h("textarea", { "aria-label": "Текст заметки", placeholder: "Что здесь не так или что поправить" });
+    ta.value = note.text || "";
+    pop.appendChild(ta);
+    var row = h("div", { class: "mk-row" });
+    var del = h("button", { type: "button" }, "Удалить");
+    var cancel = h("button", { type: "button" }, "Закрыть");
+    var ok = h("button", { type: "button", class: "mk-main" }, "Сохранить");
+    function commit() {
+      var text = ta.value.trim();
+      var i = S.n.indexOf(note);
+      if (text) { note.text = text; if (i < 0) S.n.push(note); }
+      else if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    }
+    ok.addEventListener("click", commit);
+    cancel.addEventListener("click", function () { closePop(); });
+    del.addEventListener("click", function () {
+      var i = S.n.indexOf(note); if (i >= 0) S.n.splice(i, 1);
+      closePop(true); notesChanged();
+    });
+    ta.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); closePop(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); }
+    });
+    [del, cancel, ok].forEach(function (b) { row.appendChild(b); });
+    pop.appendChild(row);
+    doc.body.appendChild(pop);
+    var r = el ? el.getBoundingClientRect() : { left: 100, bottom: 100, top: 100 };
+    var x = Math.max(8, Math.min(r.left, innerWidth - (S.open ? 372 : 0) - 320));
+    var y = r.bottom + 8 > innerHeight - 190 ? Math.max(8, r.top - 190) : r.bottom + 8;
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    ta.focus();
+  }
+  var noting = false, noteBtn = null;
+  function setNoting(v) {
+    noting = v;
+    doc.documentElement.classList.toggle("mk-noting", v);
+    if (noteBtn) noteBtn.setAttribute("aria-pressed", v ? "true" : "false");
+    if (v) toast("Щелкните по макету, чтобы поставить заметку · Esc — отмена");
+  }
+  doc.addEventListener("keydown", function (e) {
+    if (noting && e.key === "Escape" && !(pop && pop.contains(e.target))) { e.preventDefault(); e.stopPropagation(); setNoting(false); }
+  }, true);
+  doc.addEventListener("click", function (e) {
+    if ((!e.altKey && !noting) || !e.target.closest || e.target.closest("[data-mk]")) return;
+    setNoting(false);
+    e.preventDefault(); e.stopPropagation();
+    var el = e.target, d = describe(el);
+    openPop({ path: pathOf(el), tag: el.tagName, screen: d.screen, ref: d.ref, quote: d.quote, text: "" }, true, el);
+  }, true);
+
+  function notesChanged() { save(); renderNotes(); layout(); refresh(); }
+  function renderNotes() {
+    notesEl.textContent = "";
+    var pins = $$(".mk-pin");
+    pins.forEach(function (p) { p.remove(); });
+    if (!S.n.length) { notesEl.appendChild(h("div", { class: "mk-note" }, "Нет. Кнопка «📌 Заметка» или N, затем щелчок по макету (или Alt+щелчок).")); }
+    S.n.forEach(function (n, i) {
+      var row = h("div", { class: "mk-note" });
+      var num = h("a", { title: "Показать на макете" }, String(i + 1));
+      num.addEventListener("click", function () { var t = resolve(n.path); if (t) go(t); else openPop(n, false, null); });
+      var sp = h("span", {}, oneLine(n.text));
+      var sm = h("small", {}, " " + noteCtx(n));
+      sp.appendChild(sm);
+      var edit = h("button", { type: "button", title: "Изменить" }, "✎");
+      edit.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      row.appendChild(num); row.appendChild(sp); row.appendChild(edit);
+      notesEl.appendChild(row);
+      var pin = h("button", { type: "button", class: "mk-pin", title: oneLine(n.text), "aria-label": "Заметка " + (i + 1) }, String(i + 1));
+      pin.addEventListener("click", function () { openPop(n, false, resolve(n.path)); });
+      pin.noteRef = n;
+      layer.appendChild(pin);
+    });
+    layout();
+  }
+  function layout() {
+    if (!layer) return;
+    $$(".mk-pin", layer).forEach(function (pin) {
+      var el = resolve(pin.noteRef.path);
+      if (!el) { pin.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      if (!r.width && !r.height) { pin.style.display = "none"; return; }
+      pin.style.display = "";
+      pin.style.left = Math.max(2, r.left + scrollX - 8) + "px";
+      pin.style.top = (r.top + scrollY - 8) + "px";
+    });
+  }
+
+  // ---------- обновление ----------
+  function changed(skip) { save(); refresh(skip); }
+  function setVal(inp, val, skip) { if (inp !== skip && inp !== doc.activeElement && inp.value !== val) inp.value = val; }
+  function refresh(skip) {
+    var done = 0, total = 0;
+    Q.forEach(function (q) {
+      var a = S.a[q.id] || { v: [], own: "", c: "" };
+      q.btns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.pbtns.forEach(function (b) { b.el.setAttribute("aria-pressed", a.v.indexOf(b.v) >= 0 ? "true" : "false"); });
+      q.vels.forEach(function (x) { x.el.classList.toggle("mk-sel", a.v.indexOf(x.v) >= 0); });
+      var st = statText(q);
+      q.stats.forEach(function (s) { s.textContent = st === "—" ? "" : "ответ: " + st; });
+      q.itemStat.textContent = st;
+      var ok = answered(q.id);
+      q.item.classList.toggle("mk-done", ok);
+      q.item.classList.toggle("mk-closed", q.closed);
+      q.ownBtn.setAttribute("aria-pressed", oneLine(a.own) ? "true" : "false");
+      q.ownIn.style.display = ownOpen[q.id] || oneLine(a.own) ? "" : "none";
+      setVal(q.ownIn, a.own, skip);
+      setVal(q.ta, a.c, skip);
+      q.inputs.forEach(function (i) { setVal(i, a.c, skip); });
+      if (!q.closed) { total++; if (ok) done++; }
+    });
+    countEl.textContent = "отвечено " + done + " из " + total;
+    tab.textContent = "Ответы · " + done + "/" + total;
+    sumEl.value = summary();
+  }
+
+  // ---------- копирование, экспорт, импорт, сброс ----------
+  var toastEl = null;
+  function toast(msg) {
+    if (toastEl) toastEl.remove();
+    toastEl = h("div", { class: "mk-toast", role: "status" }, msg);
+    doc.body.appendChild(toastEl);
+    var t = toastEl;
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2200);
+  }
+  function copyText(text, btn) {
+    function fallback() {
+      sumEl.focus(); sumEl.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      toast(ok ? "Сводка скопирована" : "Не удалось скопировать — выделено, нажмите Ctrl+C");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Сводка скопирована"); }, fallback);
+    } else fallback();
+  }
+  function exportJson() {
+    var blob = new Blob([JSON.stringify({ kit: 1, mockup: FILE, a: S.a, n: S.n }, null, 2)], { type: "application/json" });
+    var a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = FILE.replace(/\.html?$/, "") + "-answers.json";
+    a.setAttribute("data-mk", "");
+    doc.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  function importJson(input) {
+    var f = input.files && input.files[0];
+    input.value = "";
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(String(r.result));
+        if (!d || typeof d.a !== "object" || !Array.isArray(d.n)) throw new Error("формат");
+        if ((Object.keys(S.a).length || S.n.length) && !confirm("Заменить текущие ответы и заметки импортированными?")) return;
+        S.a = d.a; S.n = d.n;
+        save(); renderNotes(); refresh(); toast("Импортировано");
+      } catch (e) { toast("Не удалось прочитать файл ответов"); }
+    };
+    r.readAsText(f);
+  }
+  function resetAll() {
+    if (!confirm("Сбросить все ответы и заметки в этом макете?")) return;
+    S.a = {}; S.n = []; ownOpen = {};
+    save(); renderNotes(); refresh();
+  }
+
+  // ---------- запуск ----------
+  function init() {
+    load();
+    collect();
+    if (!Q.length) return;
+    layer = h("div", { class: "mk-layer" });
+    layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:visible";
+    doc.body.appendChild(layer);
+    injectBars();
+    buildPanel();
+    renderNotes();
+    refresh();
+    setOpen(S.open, false);
+    addEventListener("resize", function () { layout(); shiftFixed(); });
+    addEventListener("load", layout);
+    doc.addEventListener("click", function () { setTimeout(function () { layout(); shiftFixed(); }, 200); });
+  }
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<!-- mockup-kit:end -->
+</body>
+</html>
