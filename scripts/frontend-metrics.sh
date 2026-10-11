@@ -57,7 +57,7 @@ esac
 #   style   = NR(</style>)  - NR(<style>)
 #   markup  = всего - script - style
 component_metrics() {
-  find src -name '*.svelte' | LC_ALL=C sort | while IFS= read -r f; do
+  find src -name '*.svelte' -not -path 'src/demo/*' | LC_ALL=C sort | while IFS= read -r f; do
     total=$(wc -l < "$f")
     script=$(awk '/<script/{s=NR} /<\/script>/{print NR-s; exit}' "$f")
     # MailFrame держит мини-CSS внутри srcdoc-строки; внешний <style> — последний.
@@ -74,7 +74,7 @@ component_metrics() {
 # Длина функций: от строки объявления до закрывающей скобки тела. Приближение
 # (brace counting), достаточно устойчивое для регрессионного baseline.
 function_metrics() {
-  find src plugins -name '*.ts' -o -name '*.svelte.ts' -o -name '*.svelte' | LC_ALL=C sort -u |
+  find src plugins \( -name '*.ts' -o -name '*.svelte.ts' -o -name '*.svelte' \) -not -path 'src/demo/*' | LC_ALL=C sort -u |
   while IFS= read -r f; do
     awk -v file="$f" '
       function name_of(line,   s, n) {

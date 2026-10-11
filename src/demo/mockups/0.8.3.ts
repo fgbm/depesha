@@ -16,4 +16,7 @@
 
 import type { Question } from "../variants.svelte";
 
+/** The version of the mockup: the panel shows it and the stored answers are kept under it. */
+export const VERSION = "0.8.3";
+
 export const QUESTIONS: Question[] = [];

@@ -6,12 +6,13 @@
 //
 // The commands of the main screens are implemented for real; the rest have an explicit,
 // sensible empty answer in `STUBS`. A command in neither list is a mistake the guard
-// (`scripts/demo-commands.mjs`) catches; at runtime it is warned about once and answered
-// with `undefined`, never a crash.
+// (`src/demo/backend.test.ts`, against `generate_handler![…]`) catches; at runtime it is
+// warned about once and answered with `undefined`, never a crash.
 
 import type {
   AccountView,
   AccountSync,
+  Addr,
   Counters,
   Emptied,
   FlagChange,
@@ -103,27 +104,64 @@ function inScope(l: DemoLetter, q: ListQuery): boolean {
   return true;
 }
 
-/** The rows of a conversation, my answers in Sent included. */
-function threadLetters(l: DemoLetter): DemoLetter[] {
-  return letters.filter((x) => x.row.thread === l.row.thread && x.row.account_id === l.row.account_id);
+/** In the trash or the spam: not part of a conversation the list or the reader shows. */
+function trashed(l: DemoLetter): boolean {
+  const role = roleOf(l.row.account_id, l.row.folder);
+  return role === "trash" || role === "junk";
 }
 
-function voiceOf(l: DemoLetter): MessageRow["thread_voices"][number] {
-  return { from: l.row.from ?? { name: null, email: "" }, dmarc: l.row.dmarc, id: l.row.id };
+/** The letters of a conversation, every folder but the trash and the spam, oldest first. */
+function threadLetters(l: DemoLetter): DemoLetter[] {
+  return letters
+    .filter((x) => x.row.thread === l.row.thread && x.row.account_id === l.row.account_id && !trashed(x))
+    .sort((a, b) => a.row.date - b.row.date || a.row.id - b.row.id);
+}
+
+/** What a row says of its conversation: `describe_thread` of the real backend (`store.rs`). */
+function describeConversation(all: DemoLetter[]) {
+  const seen = new Set<string>();
+  let count = 0;
+  let draft = false;
+  const senders: Addr[] = [];
+  const voices: MessageRow["thread_voices"] = [];
+  for (const l of all) {
+    if (l.row.flags.draft) {
+      draft = true;
+      continue;
+    }
+    // A letter to oneself sits in Inbox and Sent with one Message-ID: one letter.
+    const key = l.row.message_id ?? `#${l.row.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    count += 1;
+    const from = l.row.from;
+    if (!from) continue;
+    const same = (s: Addr) => s.email.toLowerCase() === from.email.toLowerCase();
+    if (!senders.some(same)) senders.push(from);
+    // Oldest first: a writer who wrote again moves to the end.
+    remove(voices, voices.find((v) => same(v.from)));
+    voices.push({ from, dmarc: l.row.dmarc, id: l.row.id });
+  }
+  return { count: Math.max(1, count), senders, voices, draft };
 }
 
 /** One row per conversation: the newest letter in scope, the rest counted in `thread_*`. */
-function grouped(l: DemoLetter): MessageRow {
-  const all = threadLetters(l).sort((a, b) => a.row.date - b.row.date);
+function grouped(l: DemoLetter, scope: DemoLetter[]): MessageRow {
   const row = rowFor(l);
-  const senders = all.map((x) => x.row.from).filter((a): a is NonNullable<typeof a> => !!a);
-  row.thread_count = all.length;
-  row.thread_date = Math.max(...all.map((x) => x.row.date));
-  row.thread_size = all.reduce((n, x) => n + x.row.size, 0);
-  row.thread_senders = senders;
-  row.thread_voices = all.map(voiceOf);
-  row.thread_draft = all.some((x) => x.row.flags.draft);
+  const conversation = describeConversation(threadLetters(l));
+  row.thread_count = conversation.count;
+  row.thread_senders = conversation.senders;
+  row.thread_voices = conversation.voices;
+  row.thread_draft = conversation.draft;
+  row.thread_date = Math.max(...scope.map((x) => x.row.date));
+  row.thread_size = scope.reduce((n, x) => n + x.row.size, 0);
   return row;
+}
+
+/** Takes an item out of a list; absent means nothing (a `splice(-1, 1)` would drop the last). */
+function remove<T>(list: T[], item: T | undefined): void {
+  const i = item === undefined ? -1 : list.indexOf(item);
+  if (i >= 0) list.splice(i, 1);
 }
 
 function compare(a: MessageRow, b: MessageRow, sort: SortKey[]): number {
@@ -155,7 +193,7 @@ function listMessages(a: Args): MessageRow[] {
   const scope = letters.filter((l) => inScope(l, q));
   const keep = new Set(q.keep_ids ?? []);
   const rows = q.threads
-    ? [...new Map(scope.map((l) => [l.row.thread, l])).values()].map(grouped)
+    ? [...new Map(scope.map((l) => [l.row.thread, l])).values()].map((l) => grouped(l, scope.filter((x) => x.row.thread === l.row.thread)))
     : scope.map(rowFor);
   const withKept = q.keep_ids?.length ? [...rows, ...letters.filter((l) => keep.has(l.row.id) && !scope.includes(l)).map(rowFor)] : rows;
   const ordered = sorted(withKept, q.sort ?? []);
@@ -224,8 +262,18 @@ function openMessage(a: Args): OpenedMessage {
 
 // ---- actions that change the state -----------------------------------------
 
-/** Moves the letters to a folder, one `Moved` per source folder. */
-function moveTo(idsToMove: number[], to: string): Moved[] {
+/** The letters an action reads among the rows it moves; none: the action reads nothing. */
+function actedIds(a: Args): number[] {
+  return Array.isArray(a.own) ? (a.own as number[]).map(Number) : ids(a);
+}
+
+/**
+ * Moves the letters to a folder, one `Moved` per source folder. Only the letters of `acted`
+ * are marked read (the rest of a conversation moves along unread), as the real backend's
+ * `split_acted` does: a plain move and a snooze read nothing.
+ */
+function moveTo(idsToMove: number[], to: string, acted: number[] = []): Moved[] {
+  const read = new Set(acted);
   const byFolder = new Map<string, DemoLetter[]>();
   for (const id of idsToMove) {
     const l = byId(id);
@@ -236,14 +284,31 @@ function moveTo(idsToMove: number[], to: string): Moved[] {
   }
   const moved: Moved[] = [];
   for (const [from, list] of byFolder) {
-    const unseen = list.filter((l) => !l.row.flags.seen).map((l) => l.row.message_id ?? "");
+    const unseen = list.filter((l) => read.has(l.row.id) && !l.row.flags.seen).map((l) => l.row.message_id ?? "");
     for (const l of list) {
       l.row.folder = to;
-      l.row.flags.seen = true;
       l.row.snoozed_until = null;
+      if (read.has(l.row.id)) l.row.flags.seen = true;
     }
     moved.push({ account_id: list[0].row.account_id, from, to, message_ids: list.map((l) => l.row.message_id ?? ""), waits: [], unseen, snoozed: [] });
     mailChanged(list[0].row.account_id, from);
+  }
+  return moved;
+}
+
+/** To the trash; from the trash for good, which cannot be undone (as the real backend). */
+function doDelete(a: Args): Moved[] {
+  const gone: DemoLetter[] = [];
+  const rest: number[] = [];
+  for (const id of ids(a)) {
+    const l = byId(id);
+    if (l && roleOf(l.row.account_id, l.row.folder) === "trash") gone.push(l);
+    else rest.push(id);
+  }
+  const moved = moveTo(rest, "Trash", actedIds(a));
+  for (const l of gone) {
+    remove(letters, l);
+    mailChanged(l.row.account_id, l.row.folder);
   }
   return moved;
 }
@@ -296,7 +361,13 @@ function doSnooze(a: Args): Moved[] {
 }
 
 function doUnsnooze(a: Args): Moved[] {
-  return moveTo(ids(a), "INBOX");
+  const moved = moveTo(ids(a), "INBOX");
+  // Back before its time, as unread as when the time comes (the real backend).
+  for (const id of ids(a)) {
+    const l = byId(id);
+    if (l) l.row.flags.seen = false;
+  }
+  return moved;
 }
 
 function counters(): Counters {
@@ -397,7 +468,7 @@ function mergePeople(a: Args): Merged {
     uses: emails.reduce((n, e) => n + e.uses, 0),
     heard: true,
   };
-  for (const p of found) people.splice(people.indexOf(p), 1);
+  for (const p of found) remove(people, p);
   people.push(merged);
   void emit("people-changed", {});
   return { person: merged, undo: { kind: "merge" } as Snapshot };
@@ -406,7 +477,7 @@ function mergePeople(a: Args): Merged {
 function personForget(a: Args): Forgotten {
   const email = str(a, "email");
   const i = people.findIndex((p) => p.emails.some((e) => e.email === email));
-  if (i >= 0) people.splice(i, 1);
+  if (i >= 0) remove(people, people[i]);
   void emit("people-changed", {});
   return { removed: true, unmarked: false, undo: { kind: "forget", email } as Snapshot };
 }
@@ -490,8 +561,8 @@ const HANDLERS: Record<string, Handler> = {
   labels: () => labels,
   label_counts: labelCounts,
   label_save: saveLabel,
-  label_remove: (a) => void labels.splice(labels.findIndex((x) => x.name === str(a, "name")), 1),
-  label_strip: (a) => void labels.splice(labels.findIndex((x) => x.name === str(a, "name")), 1),
+  label_remove: (a) => remove(labels, labels.find((x) => x.name === str(a, "name"))),
+  label_strip: (a) => remove(labels, labels.find((x) => x.name === str(a, "name"))),
   label_rename: (a) => {
     const l = labels.find((x) => x.name === str(a, "from"));
     if (l) l.name = str(a, "to");
@@ -500,9 +571,9 @@ const HANDLERS: Record<string, Handler> = {
   folder_props: folderProps,
   label_check: () => "saves",
   move_messages: (a) => moveTo(ids(a), str(a, "to")),
-  delete_messages: (a) => moveTo(ids(a), "Trash"),
-  archive: (a) => moveTo(ids(a), "Archive"),
-  mark_spam: (a) => moveTo(ids(a), "Junk"),
+  delete_messages: doDelete,
+  archive: (a) => moveTo(ids(a), "Archive", actedIds(a)),
+  mark_spam: (a) => moveTo(ids(a), "Junk", actedIds(a)),
   snooze: doSnooze,
   unsnooze: doUnsnooze,
   undo: (a) => undoMove(a),
@@ -541,9 +612,12 @@ const HANDLERS: Record<string, Handler> = {
   folder_create: () => undefined,
   offline_pause: () => undefined,
   tasks_list: () => tasks,
-  task_dismiss: (a) => void tasks.splice(tasks.findIndex((x) => x.key === str(a, "key")), 1),
+  task_dismiss: (a) => remove(tasks, tasks.find((x) => x.key === str(a, "key"))),
   task_stop: () => undefined,
-  folder_total: (a): FolderCount => ({ total: letters.filter((l) => l.row.folder === str(a, "folder")).length, bound: 0 }),
+  folder_total: (a): FolderCount => ({
+    total: letters.filter((l) => l.row.account_id === str(a, "accountId") && l.row.folder === str(a, "folder")).length,
+    bound: 0,
+  }),
   folder_empty: (a): Emptied => {
     const folder = str(a, "folder");
     for (const l of letters.filter((x) => x.row.folder === folder)) l.row.flags.deleted = true;
@@ -590,9 +664,12 @@ const HANDLERS: Record<string, Handler> = {
   attachment_open: () => undefined,
   attachment_bytes: attachmentBytes,
   message_window: (a) => {
-    location.assign(`?message=${num(a, "id")}`);
+    if (typeof location === "undefined") return;
+    const url = new URL(location.href);
+    url.searchParams.set("message", String(num(a, "id")));
+    location.assign(url.toString());
   },
-  letter_view: (a) => openMessage({ id: (a.bytes as unknown as { id?: number })?.id ?? firstLetterId() }),
+  letter_view: () => openMessage({ id: firstLetterId() }).view,
   document_html: (a) => toHtml(str(a, "text")),
   markdown_html: (a) => toHtml(str(a, "text")),
   open_link: (a) => void globalThis.open?.(str(a, "url"), "_blank", "noopener"),

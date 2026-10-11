@@ -51,7 +51,7 @@ case "${1:-}" in
 esac
 
 # Строки исходников: только компоненты ядра (как в issue #48). Плагины не входят.
-files() { find src -name '*.svelte' | LC_ALL=C sort; }
+files() { find src -name '*.svelte' -not -path 'src/demo/*' | LC_ALL=C sort; }
 
 # --- наборы -----------------------------------------------------------------
 

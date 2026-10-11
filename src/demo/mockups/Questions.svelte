@@ -10,9 +10,7 @@
 
   import { onMount } from "svelte";
   import { NOW, variant, variants, type Question } from "../variants.svelte";
-  import { QUESTIONS } from "./0.8.3";
-
-  const VERSION = "0.8.3";
+  import { QUESTIONS, VERSION } from "./0.8.3";
 
   let note = $state("");
   let copied = $state(false);
