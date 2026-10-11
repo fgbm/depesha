@@ -104,7 +104,7 @@
         <button class="mi ext-cmd" onclick={() => { moreOpen = false; extensions.command(c.ext, c.id, message); }}><Puzzle size={15} /> {c.title}</button>
       {/each}
       {#each pluginActions as a (a.id)}
-        <button class="mi" onclick={() => { moreOpen = false; a.run(msg); }}>{#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.command}<span class="hint"><Keys of={a.command} /></span>{:else if a.hint}<span class="hint">{a.hint}</span>{/if}</button>
+        <button class="mi" onclick={() => { moreOpen = false; a.run(msg); }}>{#if a.icon}<a.icon size={15} />{/if} {a.title()}{#if a.hint}<span class="hint">{a.hint}</span>{/if}</button>
       {/each}
     </Popover>
     <Popover bind:open={moveOpen} align="left">
