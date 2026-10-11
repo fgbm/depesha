@@ -24,4 +24,4 @@ function	src/lib/signatures.test.ts::msg	16	типы теперь из Rust (#14
 function	src/lib/testing.ts::row	31	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
 function	src/lib/testing.ts::opened	34	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
 component	src/components/Compose.svelte	1133	импорт и вставка уведомления о потерянном файле; само уведомление вынесено в LostFilesNotice.svelte (#115)
-component	src/components/Tasks.svelte	344	ветка {#if needsLogin(task)} выбирает «Войти заново» вместо «Повторить»; сам перевход в lib/relogin.ts (#166)
+component	src/components/Tasks.svelte	344	ветка {#if needsLogin(task)} выбирает «Войти заново» вместо «Повторить»; сам перевход в lib/relogin.svelte.ts (#166)

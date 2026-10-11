@@ -29,9 +29,9 @@ const account = (over: Partial<AccountView>): AccountView =>
     ...over,
   }) as AccountView;
 
-const failed = (error: CmdError): Task => ({
-  key: "sync:a",
-  kind: "sync",
+const failed = (error: CmdError, kind: Task["kind"] = "sync"): Task => ({
+  key: `${kind}:a`,
+  kind,
   account_id: "a",
   label: "Синхронизация jane@example.com",
   done: 0,
@@ -88,15 +88,75 @@ describe("a failed sync in the tasks window", () => {
     expect(api.syncNow).not.toHaveBeenCalled();
   });
 
-  it("a failed sign-in keeps the task and shows the error", async () => {
+  it("a refused sign-in keeps the task and shows the error", async () => {
+    const fail = vi.spyOn(app.ui, "fail").mockImplementation(() => {});
     app.mailboxes.accounts = [account({ auth: { kind: "oauth", provider: "google" } })];
     api.oauthSignIn.mockRejectedValue({ kind: "auth", message: "access denied" });
     const buttons = open(failed({ kind: "auth", message: "Token has been expired or revoked." }));
     buttons[0].click();
-    await vi.waitFor(() => expect(api.oauthSignIn).toHaveBeenCalled());
-    await tick();
+    await vi.waitFor(() => expect(fail).toHaveBeenCalled());
+    expect(fail.mock.calls[0][0]).toMatchObject({ message: "access denied" });
     expect(api.taskDismiss).not.toHaveBeenCalled();
     expect(api.accountSave).not.toHaveBeenCalled();
+  });
+
+  it("a check the server rejects keeps the task and shows the error", async () => {
+    const fail = vi.spyOn(app.ui, "fail").mockImplementation(() => {});
+    app.mailboxes.accounts = [account({ auth: { kind: "oauth", provider: "google" } })];
+    api.oauthSignIn.mockResolvedValue({ id: "g1", provider: "google", email: "jane@example.com", name: null, imap: account({}).imap, smtp: account({}).smtp });
+    api.accountCheck.mockRejectedValue({ kind: "auth", message: "IMAP: login rejected" });
+    const buttons = open(failed({ kind: "auth", message: "Token has been expired or revoked." }));
+    buttons[0].click();
+    await vi.waitFor(() => expect(fail).toHaveBeenCalled());
+    expect(fail.mock.calls[0][0]).toMatchObject({ message: "IMAP: login rejected" });
+    expect(api.accountSave).not.toHaveBeenCalled();
+    expect(api.taskDismiss).not.toHaveBeenCalled();
+  });
+
+  it("what was changed in the mailbox during the browser wait is saved, not the old copy", async () => {
+    app.mailboxes.accounts = [account({ auth: { kind: "oauth", provider: "google" } })];
+    api.oauthSignIn.mockImplementation(async () => {
+      app.mailboxes.accounts = [account({ auth: { kind: "oauth", provider: "google" }, signatures: [{ id: "s1", name: "Новая", text: "С уважением" }] as never })];
+      return { id: "g1", provider: "google", email: "jane@example.com", name: null, imap: account({}).imap, smtp: account({}).smtp };
+    });
+    open(failed({ kind: "auth", message: "Token has been expired or revoked." }))[0].click();
+    await vi.waitFor(() => expect(api.accountSave).toHaveBeenCalled());
+    expect(api.accountSave.mock.calls[0][0].signatures).toMatchObject([{ id: "s1", name: "Новая" }]);
+  });
+
+});
+
+describe("a failed task in the tasks window, more", () => {
+  it("a double click signs in once, and the button waits meanwhile", async () => {
+    app.mailboxes.accounts = [account({ auth: { kind: "oauth", provider: "google" } })];
+    let finish: (e: unknown) => void = () => {};
+    api.oauthSignIn.mockImplementation(() => new Promise((_, reject) => (finish = reject)));
+    const buttons = open(failed({ kind: "auth", message: "Token has been expired or revoked." }));
+    vi.spyOn(app.ui, "fail").mockImplementation(() => {});
+    buttons[0].click();
+    flushSync();
+    expect(buttons[0].disabled).toBe(true);
+    buttons[0].click();
+    await tick();
+    expect(api.oauthSignIn).toHaveBeenCalledTimes(1);
+    finish({ kind: "auth", message: "cancelled" });
+    await vi.waitFor(() => expect(buttons[0].disabled).toBe(false));
+  });
+
+  it("a held letter goes out again after the sign-in, then the task goes", async () => {
+    app.mailboxes.accounts = [account({ auth: { kind: "oauth", provider: "google" } })];
+    api.oauthSignIn.mockResolvedValue({ id: "g1", provider: "google", email: "jane@example.com", name: null, imap: account({}).imap, smtp: account({}).smtp });
+    api.outbox.mockResolvedValue([
+      { id: 7, account_id: "a", failed: true } as never,
+      { id: 8, account_id: "a", failed: false } as never,
+      { id: 9, account_id: "b", failed: true } as never,
+    ]);
+    api.outboxRetry.mockResolvedValue(undefined);
+    const buttons = open(failed({ kind: "auth", message: "Token has been expired or revoked." }, "send"));
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual(["Войти заново"]);
+    buttons[0].click();
+    await vi.waitFor(() => expect(api.taskDismiss).toHaveBeenCalledWith("send:a"));
+    expect(api.outboxRetry.mock.calls).toEqual([[7]]);
   });
 
   it("a refused password opens the mailbox's page", () => {
