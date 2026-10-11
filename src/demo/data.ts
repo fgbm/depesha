@@ -188,6 +188,56 @@ export const LETTERS: DemoLetter[] = [
     html: `<p>Спасибо! Тогда жду итоговый вариант и схему склада. Если успеете до обеда — отлично.</p><p>Пётр</p>`,
   }),
 
+  // 1б. A longer conversation of five: the acceptance of the equipment.
+  letter({
+    thread: "priemka",
+    subject: "Приёмка оборудования на складе",
+    from: maria,
+    date: NOW - 4 * DAY,
+    size: 8_400,
+    text: "Анна, оборудование привезли на склад. Нужен ваш человек на приёмку в четверг.\n\nМария",
+    html: `<p>Анна, оборудование привезли на склад. Нужен ваш человек на приёмку в четверг.</p><p>Мария</p>`,
+  }),
+  letter({
+    thread: "priemka",
+    folder: "Sent",
+    subject: "Re: Приёмка оборудования на складе",
+    from: anna,
+    to: [maria],
+    date: NOW - 3 * DAY - 5 * HOUR,
+    size: 5_200,
+    text: "Мария, в четверг приедет Сергей, он всё сверит по спецификации.\n\nАнна",
+  }),
+  letter({
+    thread: "priemka",
+    subject: "Re: Приёмка оборудования на складе",
+    from: sergey,
+    date: NOW - 2 * DAY - 2 * HOUR,
+    size: 7_100,
+    text: "Анна, был на приёмке. Две позиции не совпали со спецификацией, список ниже.\n\nСергей",
+    html: `<p>Анна, был на приёмке. Две позиции не совпали со спецификацией:</p><ul><li>кронштейны — 8 вместо 12;</li><li>кабель — короче на 15 метров.</li></ul><p>Сергей</p>`,
+  }),
+  letter({
+    thread: "priemka",
+    subject: "Re: Приёмка оборудования на складе",
+    from: maria,
+    date: NOW - 1 * DAY - 3 * HOUR,
+    size: 6_000,
+    flags: unread,
+    text: "Сергей, поставщик согласен довезти недостающее в пятницу. Подтвердите, что примете.\n\nМария",
+    html: `<p>Сергей, поставщик согласен довезти недостающее в пятницу. Подтвердите, что примете.</p><p>Мария</p>`,
+  }),
+  letter({
+    thread: "priemka",
+    folder: "Sent",
+    subject: "Re: Приёмка оборудования на складе",
+    from: anna,
+    to: [maria, sergey],
+    date: NOW - 20 * HOUR,
+    size: 5_600,
+    text: "Мария, Сергей, пятница подходит. Сергей, будьте на складе к десяти.\n\nАнна",
+  }),
+
   // 2. The important letter, with the sender's mark.
   letter({
     thread: "schet",
