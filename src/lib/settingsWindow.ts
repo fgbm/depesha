@@ -25,7 +25,7 @@ export function widePage(page: string): boolean {
 
 /**
  * Pages that draw themselves and save as they go (the keys, the people, the mailboxes, the
- * plugins): the line «Changes apply at once» is for the pages made of rows.
+ * plugins): the pages made of rows are the ones that save a field as it is left.
  */
 export function isRowPage(page: string): boolean {
   return !["keys", "accounts", "plugins"].includes(page) && !page.startsWith("account:");

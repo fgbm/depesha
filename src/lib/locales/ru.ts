@@ -661,7 +661,6 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "settings.reverted": "↶ Отменено",
   "settings.errRange": "Нужно число от {min} до {max}",
   "settings.errClock": "Время вида 9:00 или 18:30",
-  "settings.applied": "Изменения применяются сразу",
   "settings.setAtMailbox": "Настроить у ящика",
   "settings.hintsFormatNote": "Пояснение про три части письма в меню формата",
   "settings.hintsDecisions": "Решения по подсказкам",

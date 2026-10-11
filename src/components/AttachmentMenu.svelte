@@ -132,7 +132,7 @@
   }
 
   .current {
-    box-shadow: inset 2px 0 0 var(--accent);
+    background: var(--selected);
   }
 
   .act {

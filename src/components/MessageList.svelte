@@ -547,6 +547,11 @@
     background: var(--selected);
   }
 
+  /* The row that has the keyboard but is not the cursor (a click on a notification leads to it) is marked by the same ground. */
+  .row:focus-visible:not(.cursor) {
+    background: var(--selected);
+  }
+
   /* The picture (36 px, two lines tall) and the tick that takes its place. */
   .row.avatars {
     padding-left: 60px;

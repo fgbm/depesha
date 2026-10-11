@@ -7,13 +7,12 @@ vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appM
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
 vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {} }));
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { flushSync, mount, tick, unmount } from "svelte";
 import MessageList from "./MessageList.svelte";
 import { app } from "../lib/store.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, settings } from "../lib/testing";
+import { pseudoSelectors, rulesFor, useStyles } from "../lib/cssTesting";
 import type { AccountView, MessageRow } from "../lib/types";
 
 // jsdom has no layout: `bind:clientHeight` listens through a ResizeObserver.
@@ -192,10 +191,42 @@ describe("the cursor has the ground, not a bar (#165, #108)", () => {
     app.reader.openingRow = null;
   });
 
-  it("paints the cursor row with the ground and has no bar of the accent in the list", () => {
-    const src = readFileSync(resolve(__dirname, "MessageList.svelte"), "utf8");
-    expect(src).toMatch(/\.row\.cursor\s*\{\s*background: var\(--selected\)/);
-    expect(src).not.toMatch(/\.row[^{]*(cursor|focus-visible)[^{]*::before/);
+  describe("as the browser draws it", () => {
+    let unstyle = () => {};
+    beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+    afterEach(() => unstyle());
+    const ground = (el: Element) => getComputedStyle(el).background;
+
+    it("gives the ground to the cursor and to a chosen row, and none to a row at rest", () => {
+      const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
+      app.reader.opened = null;
+      app.reader.openingRow = row(1, "a@cur.example");
+      app.selection.selected = new Set([2, 3]);
+      flushSync();
+      const rows = [...t.querySelectorAll(".row")];
+      expect(rows.map(ground)).toEqual(["var(--selected)", "var(--selected)", "var(--selected)"]);
+      app.reader.openingRow = null;
+      app.selection.selected = new Set([2, 3, 1]);
+      flushSync();
+      app.selection.selected = new Set();
+      flushSync();
+      expect([...t.querySelectorAll(".row")].map(ground)).not.toContain("var(--selected)");
+    });
+
+    it("has no bar: no element for it and no rule that draws one before a row", () => {
+      const t = draw([row(1, "a@cur.example")]);
+      app.selection.selected = new Set([1]);
+      flushSync();
+      expect(t.querySelector(".row .bar, .row .cursor-bar")).toBeNull();
+      expect(pseudoSelectors().filter((x) => x.includes(".row") && x.includes("::before"))).toEqual([]);
+    });
+
+    it("marks a row that has the keyboard without being the cursor by the same ground, no frame", () => {
+      const [rule] = rulesFor(".row:focus-visible:not(.cursor)");
+      expect(rule.style.getPropertyValue("background")).toBe("var(--selected)");
+      expect(rule.style.getPropertyValue("box-shadow")).toBe("");
+      expect(rule.style.getPropertyValue("outline")).toBe("");
+    });
   });
 });
 

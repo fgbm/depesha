@@ -669,7 +669,6 @@ export const en = {
   "settings.reverted": "↶ Undone",
   "settings.errRange": "A number from {min} to {max}",
   "settings.errClock": "A time like 9:00 or 18:30",
-  "settings.applied": "Changes apply at once",
   "settings.setAtMailbox": "Set at the mailbox",
   "settings.hintsFormatNote": "The note about the three parts of a letter in the format menu",
   "settings.hintsDecisions": "Decisions about the hints",

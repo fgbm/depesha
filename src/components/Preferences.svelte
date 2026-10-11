@@ -135,11 +135,17 @@
   const TEXT_FIELD = "input:not([type=checkbox], [type=radio], [type=button], [type=color]), textarea, [contenteditable]";
 
   /** The cross and the click on the dimmed ground go the way Esc goes: a mailbox's page has its say first. */
-  const leave = () => mayLeave().then((ok) => ok && close());
+  const leave = async () => {
+    await settle();
+    if (await mayLeave()) close();
+  };
+
+  /** Esc leaves a menu or a question on top alone; so does a press on the ground. */
+  const covered = () => !!app.ui.confirmation || !!document.querySelector(".pop");
 
   function onKey(e: KeyboardEvent) {
     // Esc clears the search first, closes the window second; a menu or a question on top goes before both.
-    if (e.key === "Escape" && !app.ui.confirmation && !document.querySelector(".pop")) {
+    if (e.key === "Escape" && !covered()) {
       e.preventDefault();
       if (query) query = "";
       else void leave();
@@ -229,7 +235,7 @@
 
 <svelte:window onkeydown={onWindowKey} />
 
-<div class="modal-backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && void leave()}>
+<div class="modal-backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && !covered() && void leave()}>
   <div class="modal prefs" role="dialog" aria-label={t("settings.title")} tabindex="-1" onkeydown={onKey}>
     <nav class="pages" aria-label={t("settings.title")}>
       <h3>{t("settings.title")}</h3>
@@ -298,9 +304,6 @@
             <AccountsPanel {current} {pageAccount} onOpen={backToList} />
           {/if}
         </div>
-        {#if isRowPage(current)}
-          <footer>{t("settings.applied")}</footer>
-        {/if}
       {/if}
     </div>
   </div>
@@ -548,14 +551,6 @@
 
   .lbl {
     font-size: 13.5px;
-  }
-
-  /* No buttons: a change is saved at once (#102, 1.7), the line says so. */
-  footer {
-    padding: 10px 24px 14px;
-    border-top: 1px solid var(--line);
-    font-size: 12px;
-    color: var(--muted);
   }
 
   /* A narrow window: the pages become a row of tabs above the page. */

@@ -143,7 +143,6 @@ nav.side {
 
   .side .item.active {
     background: var(--side-2);
-    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .side .item.disabled {
@@ -597,7 +596,6 @@ nav.side {
   .side .tile.active {
     background: var(--side-2);
     opacity: 1;
-    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .side .update-tile {

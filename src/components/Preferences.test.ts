@@ -7,14 +7,13 @@ vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appM
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
 vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {} }));
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { flushSync, mount, tick, unmount } from "svelte";
 import Preferences from "./Preferences.svelte";
 import { app } from "../lib/store.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { bus } from "../lib/bus";
 import { api, settings } from "../lib/testing";
+import { useStyles } from "../lib/cssTesting";
 import type { Account, AccountView } from "../lib/types";
 
 // jsdom has no CSS.escape; the window uses it to find a row by its id.
@@ -193,14 +192,21 @@ describe("the people moved to the main window (#104)", () => {
 
 });
 
-describe("the way out (#165)", () => {
-  const shut = () => target.querySelector<HTMLElement>(".shut")!;
-  const backdrop = () => target.querySelector<HTMLElement>(".modal-backdrop")!;
-  const press = (el: Element) => {
-    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
-    flushSync();
-  };
+const shut = () => target.querySelector<HTMLElement>(".shut")!;
+const backdrop = () => target.querySelector<HTMLElement>(".modal-backdrop")!;
+const press = (el: Element) => {
+  el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+  flushSync();
+};
+/** A value typed into a field of the page and not yet left. */
+const typeValue = () => {
+  const field = row("large_mb").querySelector("input")!;
+  field.focus();
+  field.value = "300";
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+};
 
+describe("the way out (#165)", () => {
   it("has a cross with a name and the key in the hint, and it closes the window", async () => {
     open("reading");
     expect(shut().getAttribute("aria-label")).toBe("Закрыть");
@@ -219,22 +225,104 @@ describe("the way out (#165)", () => {
     await vi.waitFor(() => expect(app.ui.settingsOpen).toBe(false));
   });
 
-  it("both ways wait for the page's own say, like Esc", async () => {
-    open("reading");
-    let answer!: (ok: boolean) => void;
-    app.ui.settingsLeave = () => new Promise<boolean>((r) => (answer = r));
+});
+
+describe("the way out keeps what is typed (#165)", () => {
+  it("saves a value that is being typed before the cross closes the window", async () => {
+    open("storage");
+    typeValue();
     shut().click();
+    await vi.waitFor(() => expect(app.ui.settingsOpen).toBe(false));
+    expect(api.settingsPatch).toHaveBeenCalledWith({ large_mb: 300 });
+  });
+
+  it("saves a value that is being typed before a press on the ground closes the window", async () => {
+    open("storage");
+    typeValue();
+    press(backdrop());
+    await vi.waitFor(() => expect(app.ui.settingsOpen).toBe(false));
+    expect(api.settingsPatch).toHaveBeenCalledWith({ large_mb: 300 });
+  });
+
+});
+
+describe("the way out yields to what is on top (#165)", () => {
+  it("leaves a menu on top alone: a press on the ground does not close the window", async () => {
+    open("reading");
+    const menu = document.createElement("div");
+    menu.className = "pop";
+    document.body.append(menu);
     press(backdrop());
     await tick();
     expect(app.ui.settingsOpen).toBe(true);
-    answer(false);
-    await tick();
-    expect(app.ui.settingsOpen).toBe(true);
-    app.ui.settingsLeave = null;
+    menu.remove();
+    press(backdrop());
+    await vi.waitFor(() => expect(app.ui.settingsOpen).toBe(false));
   });
 
-  it("has no bar on the open page of the menu", () => {
-    const src = readFileSync(resolve(__dirname, "Preferences.svelte"), "utf8");
-    expect(src).not.toMatch(/\.tab\[aria-selected="true"\]\s*\{[^}]*box-shadow/);
+  it("leaves a question on top alone: a press on the ground does not close the window", async () => {
+    open("reading");
+    app.ui.confirmation = { text: "?" } as never;
+    press(backdrop());
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+    app.ui.confirmation = null;
+  });
+});
+
+describe("the way out waits for the page's own say, like Esc (#165)", () => {
+  const hold = () => {
+    let answer: ((ok: boolean) => void) | null = null;
+    app.ui.settingsLeave = () => new Promise<boolean>((r) => (answer = r));
+    return async (ok: boolean) => {
+      await vi.waitFor(() => expect(answer).not.toBeNull());
+      answer!(ok);
+    };
+  };
+  afterEach(() => (app.ui.settingsLeave = null));
+
+  it("the cross", async () => {
+    open("reading");
+    const answer = hold();
+    shut().click();
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+    await answer(false);
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+  });
+
+  it("the press on the ground", async () => {
+    open("reading");
+    const answer = hold();
+    press(backdrop());
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+    await answer(false);
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+  });
+});
+
+describe("the window as it is drawn (#165)", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./Preferences.svelte")));
+  afterEach(() => unstyle());
+
+  it("marks the open page of the menu by the ground, with no bar", () => {
+    open("reading");
+    const tab = target.querySelector<HTMLElement>(".tab[aria-selected='true']")!;
+    expect(getComputedStyle(tab).background).toBe("var(--selected)");
+    expect(getComputedStyle(tab).boxShadow).toBe("");
+  });
+
+  it("has no footer under any page, so the window gives its height to the page", () => {
+    for (const page of ["reading", "storage", "keys"]) {
+      open(page);
+      expect(target.querySelector(".prefs footer")).toBeNull();
+      unmount(view!);
+      view = null;
+      target.remove();
+    }
   });
 });
