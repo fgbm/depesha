@@ -361,9 +361,9 @@ pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Recei
         }
         // The topmost header of ours decides alone: one without a DMARC result is a «no», not
         // a reason to read on, or a forged `dmarc=pass` under it would be believed (#108).
-        return r.dmarc.is_some_and(|(passed, header_from)| {
-            passed && header_from.is_some_and(|d| aligned(&d, from_domain))
-        });
+        return r
+            .dmarc
+            .is_some_and(|(passed, header_from)| passed && header_from.is_some_and(|d| aligned(&d, from_domain)));
     }
     false
 }
@@ -509,20 +509,41 @@ mod tests {
         let yandex = "Authentication-Results: mail-nwsmtp-mxfront-production-main-7.vla.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-7.vla.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mailfrom=noreply@github.com; dkim=pass header.i=@github.com; dmarc=pass header.from=github.com\r\n";
         let mailru = "Authentication-Results: mxs.mail.ru; spf=pass (mx274.m.smailru.net: domain of github.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=noreply@github.com; dkim=pass header.d=github.com header.s=pf2023; dmarc=pass header.from=github.com\r\n";
         let exo = "Authentication-Results: spf=pass (sender IP is 192.0.2.1) smtp.mailfrom=github.com; dkim=pass (signature was verified) header.d=github.com;dmarc=pass action=none header.from=github.com;compauth=pass reason=100\r\n";
-        let verified = |r: &Receiver, auth: &str, from: &str| crate::message::authenticity(&letter(auth, from), r).verified();
+        let verified =
+            |r: &Receiver, auth: &str, from: &str| crate::message::authenticity(&letter(auth, from), r).verified();
         let cases = [
             ("gmail", imap("me@gmail.com", "imap.gmail.com"), gmail),
             ("gmail workspace", imap("me@firm.example", "imap.gmail.com"), gmail),
             ("yandex", imap("me@yandex.ru", "imap.yandex.ru"), yandex),
             ("mail.ru", imap("me@mail.ru", "imap.mail.ru"), mailru),
-            ("exchange online", ews("me@firm.example", "https://outlook.office365.com/EWS/Exchange.asmx"), exo),
+            (
+                "exchange online",
+                ews("me@firm.example", "https://outlook.office365.com/EWS/Exchange.asmx"),
+                exo,
+            ),
         ];
         for (name, receiver, auth) in cases {
             assert!(verified(&receiver, auth, "notifications@github.com"), "{name}");
-            assert!(verified(&receiver, auth, "notifications@mail.github.com"), "{name}: aligned subdomain");
-            assert!(!verified(&receiver, auth, "notifications@github.example"), "{name}: other domain");
-            assert!(!verified(&receiver, auth, "notifications@evilgithub.com"), "{name}: look-alike");
-            assert!(!verified(&receiver, &auth.replace("dmarc=pass", "dmarc=fail"), "notifications@github.com"), "{name}: fail");
+            assert!(
+                verified(&receiver, auth, "notifications@mail.github.com"),
+                "{name}: aligned subdomain"
+            );
+            assert!(
+                !verified(&receiver, auth, "notifications@github.example"),
+                "{name}: other domain"
+            );
+            assert!(
+                !verified(&receiver, auth, "notifications@evilgithub.com"),
+                "{name}: look-alike"
+            );
+            assert!(
+                !verified(
+                    &receiver,
+                    &auth.replace("dmarc=pass", "dmarc=fail"),
+                    "notifications@github.com"
+                ),
+                "{name}: fail"
+            );
         }
     }
 
