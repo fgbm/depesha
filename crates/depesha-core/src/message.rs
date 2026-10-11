@@ -1178,7 +1178,7 @@ From: GitHub <{from}>\r\nTo: me@gmail.example\r\nSubject: Hi\r\n\r\nText\r\n"
             &GMAIL_OWN_PASS.replace("mx.google.com", "mx.evil.example")
         )));
         // A forged pass below the server's own failure is not believed.
-        let forged = GMAIL_OWN_PASS.replace("dmarc=pass", "dmarc=fail") + &GMAIL_OWN_PASS;
+        let forged = GMAIL_OWN_PASS.replace("dmarc=pass", "dmarc=fail") + GMAIL_OWN_PASS;
         assert!(!ok(gmail_letter("notifications@github.com", &forged)));
     }
 
