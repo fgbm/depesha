@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 use crate::domain::{Addr, Importance};
 use crate::domain::{Draft, FlagChange, Flags, Folder, FolderRole};
+use crate::lock::lock;
 use crate::message::{Summary, Unsubscribe};
 use crate::query::SearchQuery;
 
@@ -589,6 +590,10 @@ pub enum Withdrawn {
     /// It is not in the outbox (it left, or was taken back already).
     Gone,
 }
+
+/// What the cache keeps as the failure of a queued letter whose draft cannot be read; the interface
+/// words it itself (`outbox::Words::damaged`).
+pub const DAMAGED_LETTER: &str = "the letter is damaged and cannot be read";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -1295,7 +1300,7 @@ impl Store {
     }
 
     fn pending(&self) -> MutexGuard<'_, HashMap<(String, String, u32), PendingFlags>> {
-        self.pending.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.pending)
     }
 
     /// The connection the heavy reads use: a second one when the cache is a file (WAL
@@ -1303,8 +1308,8 @@ impl Store {
     /// that must not race one stay on `conn()`.
     fn read(&self) -> MutexGuard<'_, Connection> {
         match &self.read {
-            Some(read) => read.lock().unwrap_or_else(|e| e.into_inner()),
-            None => self.conn.lock().unwrap_or_else(|e| e.into_inner()),
+            Some(read) => lock(read),
+            None => lock(&self.conn),
         }
     }
 
@@ -1317,7 +1322,7 @@ impl Store {
     fn conn(&self) -> ConnGuard<'_> {
         ConnGuard {
             // A panic while holding the lock leaves SQLite consistent: every write is a transaction.
-            conn: self.conn.lock().unwrap_or_else(|e| e.into_inner()),
+            conn: lock(&self.conn),
             since: Instant::now(),
             longest: &self.longest_lock,
         }
@@ -2551,7 +2556,7 @@ impl Store {
             })?
             .collect::<rusqlite::Result<_>>()?;
         for (id, raw) in unread {
-            let why = "the letter is damaged and cannot be read";
+            let why = DAMAGED_LETTER;
             // Only the first pass changes the row, so only it writes to the log.
             let first = conn.execute(
                 "UPDATE outbox SET failed = 1, last_error = ?2 WHERE id = ?1 AND failed = 0",

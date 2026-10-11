@@ -6,7 +6,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 expect() { # expect <0|1> <what> ; the file under test is $tmp/src/a.rs
-  rc=0; scripts/lock-guard.sh "$tmp/src" >/dev/null 2>&1 || rc=$?
+  rc=0; scripts/lock-guard.sh "$tmp/src" "${ALLOWED:-state.rs}" >/dev/null 2>&1 || rc=$?
   if [[ $rc != "$1" ]]; then echo "FAIL: $2 (код $rc, ждали $1)"; fails=1; fi
 }
 mkdir -p "$tmp/src"
@@ -22,8 +22,22 @@ printf 'fn f() { m.lock().unwrap_or_else(|e| e.into_inner()); }\n' > "$tmp/src/a
 expect 1 "into_inner() руками"
 printf 'fn f() { m.lock().unwrap_or_else(|e| e.into_inner()); }\n' > "$tmp/src/waiting.rs"
 printf 'fn clock() {}\n' > "$tmp/src/a.rs"
-expect 0 "waiting.rs в исключениях, clock не lock"
+expect 1 "waiting.rs больше не в исключениях"
 rm "$tmp/src/waiting.rs"
+printf 'fn clock() {}\n' > "$tmp/src/a.rs"
+expect 0 "clock — не lock"
+printf 'fn f() { reader.into_inner(); }\n' > "$tmp/src/a.rs"
+expect 0 "into_inner() потока — не замок"
 printf 'fn lock<T>() {}\n' > "$tmp/src/state.rs"
-expect 0 "state.rs — дом lock"
+expect 0 "state.rs — дом lock приложения"
+ALLOWED=lock.rs
+expect 1 "в ядре state.rs не дом lock"
+rm "$tmp/src/state.rs"
+printf 'fn lock<T>() {}\n' > "$tmp/src/lock.rs"
+expect 0 "lock.rs — дом lock ядра"
+printf 'fn f() { m.lock().unwrap_or_else(|e| e.into_inner()); }\n' > "$tmp/src/tls.rs"
+expect 1 "into_inner() руками в ядре"
+rm "$tmp/src/tls.rs"
+# The real tree passes with the real rule.
+scripts/lock-guard.sh >/dev/null 2>&1 || { echo "FAIL: настоящее дерево"; fails=1; }
 exit $fails

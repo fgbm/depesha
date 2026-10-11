@@ -8,6 +8,7 @@ use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVe
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio_rustls::rustls::{self, CertificateError, ClientConfig, DigitallySignedStruct, SignatureScheme};
 
+use crate::lock::lock;
 use crate::{Error, Result};
 
 /// The reasons a certificate is rejected that the program words itself.
@@ -97,7 +98,7 @@ impl ServerCertVerifier for Verifier {
             .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
             .inspect_err(|err| {
                 let problem = describe(&self.host, end_entity, fingerprint, err);
-                *self.problem.lock().unwrap_or_else(|e| e.into_inner()) = Some(problem);
+                *lock(&self.problem) = Some(problem);
             })
     }
 
@@ -186,7 +187,7 @@ where
         .with_no_client_auth();
     match TlsConnector::from(Arc::new(config)).connect(name, tcp).await {
         Ok(stream) => Ok(stream),
-        Err(err) => match problem.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        Err(err) => match lock(&problem).take() {
             Some(p) => Err(Error::Certificate(Box::new(p))),
             None => Err(err.into()),
         },

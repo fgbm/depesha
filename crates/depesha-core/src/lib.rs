@@ -15,6 +15,7 @@ pub(crate) mod http;
 pub mod idle_pace;
 pub mod imap;
 pub mod label_strip;
+mod lock;
 pub mod mail;
 pub mod message;
 pub(crate) mod net;

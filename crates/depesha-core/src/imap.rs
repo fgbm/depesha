@@ -19,6 +19,7 @@ use crate::account::{Credentials, Security, ServerConfig};
 use crate::acl::{LabelCheck, Namespace, PermanentFlags, Rights};
 use crate::avatar::Receiver;
 use crate::domain::{FlagChange, Flags, Folder, FolderRole, is_non_mail};
+use crate::lock::lock;
 pub use crate::query::Criterion;
 use crate::say::{Say, Xoauth2Detail};
 use crate::watchdog::Watchdog;
@@ -134,7 +135,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
                 detail: detail.clone(),
             };
             client.authenticate("XOAUTH2", auth).await.map_err(|(err, _)| {
-                let detail = detail.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let detail = lock(&detail).take();
                 match (login_error(err), detail) {
                     (Error::Auth(m), Some(d)) => Error::Said(Say::AuthDetail { message: m, detail: d }),
                     (e, _) => e,
@@ -258,7 +259,7 @@ impl async_imap::Authenticator for XOAuth2 {
         match self.initial.take() {
             Some(initial) => initial,
             None => {
-                *self.detail.lock().unwrap_or_else(|e| e.into_inner()) = xoauth2_error(challenge);
+                *lock(&self.detail) = xoauth2_error(challenge);
                 String::new()
             }
         }

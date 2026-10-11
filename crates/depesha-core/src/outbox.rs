@@ -69,7 +69,7 @@ impl Words for English {
         "the account was removed".to_owned()
     }
     fn damaged(&self) -> String {
-        "the letter is damaged and cannot be read".to_owned()
+        crate::store::DAMAGED_LETTER.to_owned()
     }
     fn waiting_folder(&self) -> String {
         "Waiting for reply".to_owned()

@@ -6,9 +6,10 @@
 //! are the app's. The clock is the caller's: the rules take `now` (unix seconds).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use crate::Result;
+use crate::lock::lock;
 use crate::port::MailQueue;
 use crate::store::Store;
 
@@ -24,10 +25,6 @@ pub fn resume_due(online: bool, stalled_at: Option<i64>, now: i64) -> bool {
 }
 
 type Key = (String, String);
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// The strips under way, and the labels whose last try came to nothing, by mailbox and label.
 #[derive(Default)]

@@ -235,7 +235,7 @@ pub fn deliver_copies(state: &Arc<AppState>) {
     let Ok(due) = state.store.sent_copies_due(now) else {
         return;
     };
-    for copy in with_known_mailbox(due, |id| state.account(id).is_ok()) {
+    for copy in outbox::with_known_mailbox(due, |id| state.account(id).is_ok()) {
         if !state.copy_claim(copy.id) {
             continue;
         }
@@ -249,16 +249,9 @@ pub fn deliver_copies(state: &Arc<AppState>) {
     }
 }
 
-/// The copies whose mailbox is configured. The others stay in the cache: a broken accounts
-/// file reads as no mailboxes at all, and a copy is not dropped for that. Removing a mailbox
-/// clears its copies (`forget_account`).
-fn with_known_mailbox(due: Vec<SentCopy>, known: impl Fn(&str) -> bool) -> Vec<SentCopy> {
-    due.into_iter().filter(|c| known(&c.account_id)).collect()
-}
-
 pub(crate) async fn deliver_copy(state: &Arc<AppState>, copy: &SentCopy) -> Result<(), CmdError> {
     let Ok(account) = state.account(&copy.account_id) else {
-        // See `with_known_mailbox`: the copy waits.
+        // See `outbox::with_known_mailbox`: the copy waits.
         return Ok(());
     };
     let mut queue = Queue::background(state, &copy.account_id).ok();
@@ -319,11 +312,7 @@ const FILED_KIND: depesha_core::ErrorKind = depesha_core::ErrorKind::CopyFiled;
 /// The title and the error kind of the task of a held copy. One the server has but whose wait
 /// for a reply could not start is a task of its own, and its error is ours, not the server's.
 fn stuck_label(copy: &StuckCopy) -> (String, depesha_core::ErrorKind) {
-    let subject = if copy.subject.is_empty() {
-        crate::lang::pick("(no subject)", "(без темы)").to_owned()
-    } else {
-        copy.subject.clone()
-    };
+    let subject = outbox::subject_or_placeholder(&copy.subject, crate::lang::pick("(no subject)", "(без темы)"));
     if copy.filed {
         (
             tr!(

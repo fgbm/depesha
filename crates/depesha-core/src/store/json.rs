@@ -217,7 +217,7 @@ mod tests {
         // The cache keeps the English; only the listing words it.
         assert_eq!(
             store.outbox().unwrap()[0].last_error.as_deref(),
-            Some("the letter is damaged and cannot be read")
+            Some(crate::store::DAMAGED_LETTER)
         );
     }
 

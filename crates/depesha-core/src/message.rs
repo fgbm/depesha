@@ -292,16 +292,19 @@ pub fn sealed_draft_mark(raw: &[u8]) -> Option<String> {
 pub const DRAFT_DOMAIN: &str = "depesha.local";
 
 /// The longest `X-Depesha-Acts-On` value, signature included: a header line any server takes.
+#[cfg(any(test, feature = "test-support"))]
 const ACTS_ON_MAX: usize = 900;
 
 /// Room for `.{signature}` after the encoded mark: a dot and the base64url of an HMAC-SHA256
 /// tag, which is 43 characters without padding.
+#[cfg(any(test, feature = "test-support"))]
 const ACTS_ON_SIG: usize = 1 + 43;
 
 /// A draft's mark as its header value, before the signature: base64url of the JSON, so a
 /// folder name in another script and a long mark cannot break or overrun the line. None when
 /// the signed line would be too long for a server: the draft is then saved without a mark
 /// rather than unreachable.
+#[cfg(any(test, feature = "test-support"))]
 pub fn encode_acts_on(acts_on: &ActsOn) -> Option<String> {
     let json = serde_json::to_vec(acts_on).ok()?;
     let value = format!("1.{}", B64URL.encode(json));
@@ -310,6 +313,7 @@ pub fn encode_acts_on(acts_on: &ActsOn) -> Option<String> {
 
 /// The header value as it is written: the encoded mark and the signature of those bytes.
 /// None when the signature is missing or the line would be too long.
+#[cfg(any(test, feature = "test-support"))]
 pub fn signed_acts_on(value: &str, sig: &str) -> Option<String> {
     if value.is_empty() || sig.is_empty() {
         return None;

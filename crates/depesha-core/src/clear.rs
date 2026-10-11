@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::domain::{CachedDraft, FolderRole};
+use crate::lock::lock;
 use crate::port::{Count, MailServer};
 use crate::store::Store;
 use crate::{Error, Result};
@@ -296,10 +297,6 @@ struct HeldBound<B> {
     account_id: String,
     folder: String,
     bound: B,
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Clearing {

@@ -7,11 +7,12 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use crate::Result;
 use crate::account::Account;
 use crate::domain::{Act, Draft, FlagChange, FolderRole};
+use crate::lock::lock;
 use crate::port::{MailQueue, Move};
 use crate::store::{Followup, FollowupPlan, OutboxItem, ParkJob, Parking, Store, WaitFolder, moves, waiting_folder};
 
@@ -27,10 +28,6 @@ pub fn gives_up(since: i64, now: i64) -> bool {
 
 fn bare(id: &str) -> &str {
     id.trim_matches(['<', '>'])
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Folders a server refused to make, by mailbox: not tried again, and the user is not told
