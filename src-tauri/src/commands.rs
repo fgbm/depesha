@@ -712,11 +712,7 @@ pub async fn message_open(
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
     let trusted_sender = listed && auth.verified();
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
-    let in_drafts = state
-        .store
-        .folder_by_role(&row.account_id, FolderRole::Drafts)?
-        .as_deref()
-        == Some(row.folder.as_str());
+    let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
     let mark = draft_mark(&raw, in_drafts);
     view.acts_on = mark.acts_on;
     view.send_at = mark.send_at.or(view.send_at);
@@ -4352,6 +4348,28 @@ mod tests {
         assert!(super::is_own_draft(&store, "a", &second, Some("two@depesha.local")).unwrap());
         // A copy of the old format has no Message-ID: the plain check stays.
         assert!(super::is_own_draft(&store, "a", &second, None).unwrap());
+    }
+
+    /// `message_open` asks the shared `in_drafts_folder`, not a copy of the check: the unit test
+    /// of that function then guards the path (#157).
+    #[test]
+    fn message_open_asks_the_shared_check_for_drafts() {
+        let source = include_str!("commands.rs");
+        let open = source
+            .split("pub async fn message_open(")
+            .nth(1)
+            .unwrap()
+            .split("\n}\n")
+            .next()
+            .unwrap();
+        assert!(
+            open.contains("in_drafts_folder(&state.store"),
+            "message_open must call in_drafts_folder"
+        );
+        assert!(
+            !open.contains("FolderRole::Drafts"),
+            "message_open must not repeat the check"
+        );
     }
 
     /// The sealed mark is read of a letter in Drafts only, and opening a letter of any other
