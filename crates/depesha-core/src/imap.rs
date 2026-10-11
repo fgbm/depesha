@@ -824,9 +824,11 @@ async fn labels_round(conn: &mut Conn, folder: &str, uid: u32, keyword: &str) ->
     })
 }
 
-/// Removes messages for good, tolerating their absence (the check's test letter).
+/// Removes messages for good, tolerating their absence (the check's test letter). A folder that
+/// cannot be selected ends it there: `STORE` and `EXPUNGE` would reach whatever folder is
+/// selected, and take its letters under these UIDs.
 async fn remove_uids(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> {
-    best_effort("select the folder of the removal", conn.session.select(folder).await);
+    conn.session.select(folder).await?;
     let set = uid_set(uids);
     let _: Vec<_> = conn
         .session
@@ -1671,6 +1673,56 @@ mod tests {
         ));
         assert!(require_inbox(&[folder("Sent")]).is_err());
         assert!(require_inbox(&[folder("Sent"), folder("inbox")]).is_ok());
+    }
+
+    /// A server that answers `NO` to every SELECT and writes down what it was asked.
+    async fn refusing_server() -> (u16, Arc<Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (r, mut w) = sock.into_split();
+            let mut lines = BufReader::new(r).lines();
+            w.write_all(b"* OK [CAPABILITY IMAP4rev1 UIDPLUS] ready\r\n")
+                .await
+                .unwrap();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let mut parts = line.split_whitespace();
+                let (tag, cmd) = (
+                    parts.next().unwrap_or("*"),
+                    parts.next().unwrap_or("").to_ascii_uppercase(),
+                );
+                seen.lock().unwrap().push(cmd.clone());
+                let reply = match cmd.as_str() {
+                    "CAPABILITY" => format!("* CAPABILITY IMAP4rev1 UIDPLUS\r\n{tag} OK done\r\n"),
+                    "SELECT" => format!("{tag} NO no such folder\r\n"),
+                    _ => format!("{tag} OK done\r\n"),
+                };
+                w.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        (port, asked)
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_cannot_be_selected_ends_the_removal_before_any_store() {
+        let (port, asked) = refusing_server().await;
+        let mut conn = connect(
+            &ServerConfig::new("127.0.0.1", port, Security::Plain),
+            &Credentials::new("u", "p"),
+        )
+        .await
+        .unwrap();
+        assert!(remove_uids(&mut conn, "Gone", &[5]).await.is_err());
+        let asked = asked.lock().unwrap().clone();
+        assert!(asked.contains(&"SELECT".to_owned()));
+        assert!(
+            !asked.iter().any(|c| c == "UID" || c == "STORE" || c == "EXPUNGE"),
+            "{asked:?}"
+        );
     }
 
     /// A connection that records what `expunge_keeping` asks and fails the clearing of one batch.
