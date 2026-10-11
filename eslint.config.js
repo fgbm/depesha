@@ -14,6 +14,7 @@ export default tseslint.config(
     // деревья не проверяем; у E2E-сценария свой стиль и своя приёмка.
     ignores: [
       "dist/**",
+      "dist-demo/**",
       "node_modules/**",
       "target/**",
       "src-tauri/**",

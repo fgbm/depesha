@@ -138,6 +138,8 @@ if [[ "${1:-}" == "--changed" ]]; then
     npx vitest run --changed "$base" --passWithNoTests
     step "главный чанк фронтенда"
     scripts/frontend-bundle.sh
+    step "демо-режим не протёк в прод-сборку"
+    node scripts/demo-guard.mjs --bundle
   fi
   if [[ -n $lintconf ]]; then
     step "eslint (весь проект: изменился конфиг)"
@@ -196,6 +198,8 @@ step "vitest"
 npx vitest run
 step "главный чанк фронтенда"
 scripts/frontend-bundle.sh
+step "демо-режим не протёк в прод-сборку"
+node scripts/demo-guard.mjs --bundle
 step "cargo test (unit + scripted Exchange SMTP)"
 cargo test -p depesha-core
 cargo test -p depesha --lib

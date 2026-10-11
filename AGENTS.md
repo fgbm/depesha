@@ -24,6 +24,17 @@ What this means when you work:
 
 When a plugin is added, removed, or changes what it does or whether it ships switched on, update the wiki page that lists them — https://github.com/fgbm/depesha/wiki/Плагины (the wiki is a git repo of its own: `git clone https://github.com/fgbm/depesha.wiki.git`). It is written for the people who use Depesha, not for developers; the contract itself stays in `plugins/README.md`.
 
+## Живые макеты
+
+Макет — это сам фронтенд Депеши в браузере, без Rust и Tauri, с подставным бэкендом на JS и демо-данными. HTML-макеты копировали стили вручную и тащили отменённые решения; здесь показывается то же приложение, что и в проде, только с другими данными.
+
+- Запуск: `npm run demo` (dev-сервер, порт 1421) и `npm run demo:build` (сборка в `dist-demo/` плюс архив `dist-demo.zip`). Сборка открывается двойным кликом с `file://` и с любого статического сервера; `dist-demo/` и архив в git не кладут.
+- Как устроено: `vite.config.ts` в режиме `demo` подменяет `@tauri-apps/api/*` и плагины алиасами на `src/demo/tauri/*`; `src/demo/backend.ts` отвечает на команды `invoke` из данных `src/demo/data.ts` и шлёт те же события, что настоящий бэкенд. Прод-код от этого не зависит: единственная правка — вызов `startDemo()` из `@demo/start` в `src/main.ts`, а `scripts/demo-guard.mjs` (идёт в `check.sh`) роняет проверку, если что-то из `src/demo/` попало в обычную сборку или импортируется извне.
+- Вопросы: панель «Вопросы» поверх приложения (клавиша `` ` ``), вопросы — в одном файле выпуска `src/demo/mockups/<версия>.ts`. Ответы живут в URL (`?v=1.1:V,2.1:B`) и в localStorage.
+- Правило ответа: по умолчанию — «как сейчас»; рекомендованный вариант помечен ★, но **не выбран сам**; всё нерешённое остаётся вопросом, а не догадкой в коде.
+- Как вариант попадает в компонент: `variant("1.1")` из `src/demo/variants.svelte.ts` зовут **только на ветке макета** (`mock/<версия>`). В `main` такого вызова нет: когда оператор решает вопрос, выбранный вариант переносят в компонент начисто, а вызов `variant()` удаляют. Поэтому `if (demo)` по компонентам не появляется, и в обычной сборке ни `variant()`, ни панели нет.
+- Команды демо-бэкенда сверяются с `generate_handler!` тестом `src/demo/backend.test.ts`: каждая либо реализована, либо в явном списке заглушек.
+
 ## Work through subagents — you are the orchestrator
 
 This section is for the main session only. **If you were invoked as a subagent (`explore`, `coder`, `general`), ignore it: do the work you were given yourself and don't delegate further.** A subagent that re-delegates loses the context it was handed and spends tokens on nothing.
