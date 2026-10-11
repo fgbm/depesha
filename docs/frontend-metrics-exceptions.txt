@@ -24,6 +24,8 @@ function	src/lib/signatures.test.ts::msg	16	типы теперь из Rust (#14
 function	src/lib/testing.ts::row	31	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
 function	src/lib/testing.ts::opened	34	типы теперь из Rust (#143): фикстура называет каждое поле, которое бэкенд присылает всегда
 component	src/components/Compose.svelte	1133	импорт и вставка уведомления о потерянном файле; само уведомление вынесено в LostFilesNotice.svelte (#115)
-component	src/components/Tasks.svelte	344	ветка {#if needsLogin(task)} выбирает «Войти заново» вместо «Повторить»; сам перевход в lib/relogin.svelte.ts (#166)
+component	src/components/Tasks.svelte	352	ветка {#if needsLogin(task)} выбирает «Войти заново» вместо «Повторить»; сам перевход в lib/relogin.svelte.ts (#166); крестик справа вверху, Esc и закрытие по затемнённому фону вместо кнопки в подвале (#170)
 component	src/components/Preferences.svelte	589	крестик закрытия окна и закрытие по затемнённому фону через общий leave() (#165)
 component	src/components/prefs/PluginsPanel.svelte	48	подсветка группы плагина, на которую привёл результат поиска (#168)
+component	src/components/Wizard.svelte	245	Esc закрывает окно, как крестик: тот же условный canClose для крестика и клавиши (#170)
+component	src/components/prefs/FolderProps.svelte	425	Esc закрывает карточку (сначала пояснение проверки), у карточки был только крестик (#170)

@@ -25,7 +25,19 @@
     else app.ui.wizard = null;
   });
   const existing = form.existing;
+
+  /** The cross shows once there is a mailbox to go back to (or an existing one is edited); Esc goes the same way. */
+  const canClose = $derived(app.mailboxes.accounts.length > 0 || !!existing);
+
+  function onKey(e: KeyboardEvent) {
+    if (embedded || e.key !== "Escape" || e.defaultPrevented || !canClose || form.busy) return;
+    if (app.ui.confirmation || document.querySelector(".pop")) return;
+    e.preventDefault();
+    app.ui.wizard = null;
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 {#snippet body()}
     <div class="content">
@@ -106,7 +118,7 @@
   <div class="modal wizard" role="dialog" aria-label={t("wizard.label")}>
     <header>
       <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
-      {#if app.mailboxes.accounts.length > 0 || existing}
+      {#if canClose}
         <button class="btn ghost" onclick={() => (app.ui.wizard = null)} disabled={form.busy}>×</button>
       {/if}
     </header>

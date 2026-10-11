@@ -99,7 +99,17 @@
     const top = Math.min(py, Math.max(8, window.innerHeight - h - 8));
     return `left:${left}px;top:${top}px`;
   }
+
+  /** Esc takes back the explainer first, the card next. */
+  function onKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    if (confirmCheck) confirmCheck = false;
+    else onclose();
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 {#if confirmCheck}
   <!-- The explainer before the check writes anything (#42, frame 9, left). -->

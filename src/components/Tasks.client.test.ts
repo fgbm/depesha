@@ -55,6 +55,8 @@ function open(task: Task) {
 
 beforeEach(() => {
   resetFakes();
+  // The fakes stub a bare window; the cards listen on the real one.
+  vi.unstubAllGlobals();
   i18n.lang = "ru";
   api.syncOverview.mockResolvedValue([]);
   api.taskDismiss.mockResolvedValue(undefined);

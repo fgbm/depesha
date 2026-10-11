@@ -75,10 +75,15 @@
     if (task.account_id && (task.kind === "sync" || task.kind === "prefetch")) syncNow(task.account_id);
   }
 
+  const close = () => (app.ui.tasksOpen = false);
+
+  /** Esc leaves a menu or a question on top alone; so does a press on the ground. */
+  const covered = () => !!app.ui.confirmation || !!document.querySelector(".pop");
+
   function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && !e.defaultPrevented && !covered()) {
       e.preventDefault();
-      app.ui.tasksOpen = false;
+      close();
     }
   }
 
@@ -88,9 +93,14 @@
   }
 </script>
 
-<div class="modal-backdrop" role="presentation">
-  <div class="modal tasks" role="dialog" aria-label={t("tasks.title")} tabindex="-1" onkeydown={onKey}>
-    <header><h3>{t("tasks.title")}</h3></header>
+<svelte:window onkeydown={onKey} />
+
+<div class="modal-backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && !covered() && close()}>
+  <div class="modal tasks" role="dialog" aria-label={t("tasks.title")} tabindex="-1">
+    <header>
+      <h3>{t("tasks.title")}</h3>
+      <button class="btn ghost icon shut" onclick={close} title={t("viewer.close")} aria-label={t("close")}><X size={17} /></button>
+    </header>
     <div class="content">
       <section>
         <h4>{t("tasks.running")}</h4>
@@ -184,10 +194,6 @@
         {/each}
       </section>
     </div>
-    <footer>
-      <span class="spacer"></span>
-      <button class="btn primary" onclick={() => (app.ui.tasksOpen = false)}>{t("close")}</button>
-    </footer>
   </div>
 </div>
 
@@ -195,10 +201,19 @@
   .tasks {
     width: min(620px, calc(100vw - 40px));
     max-height: calc(100vh - 60px);
+    position: relative;
   }
 
   header {
     padding: 14px 20px 4px;
+  }
+
+  /* The cross at the top right corner of the window. */
+  .shut {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 1;
   }
 
   h3 {
@@ -333,11 +348,5 @@
   .dot.error,
   .dot.paused {
     background: var(--accent);
-  }
-
-  footer {
-    display: flex;
-    padding: 10px 20px 14px;
-    border-top: 1px solid var(--line);
   }
 </style>
