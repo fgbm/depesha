@@ -215,3 +215,7 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 - Имена картинок к релизу — латиницей (`01-background.png`). Кириллицу GitHub вырезает из имён, остаются точки (`01-.-.-.png`), и ссылки в описании приходится переписывать.
 - В конфиге Tauri `category` — `Productivity` (`Office` не из списка, `invalid category`), `productName` — латиницей (`Depesha`): кириллица даёт пакет `Package: депеша`, который dpkg не установит. Русское имя — через свой `desktopTemplate`.
 - У tauri-action параметр называется `uploadUpdaterJson`, не `includeUpdaterJson`. Ссылки в `latest.json` из черновика ведут на API-адреса ассетов и работают только с `Accept: application/octet-stream` (плагин updater ставит его сам). Проверяй скачиванием с этим заголовком.
+
+### Документация
+
+- Каждый абзац и каждый пункт списка — одна строка, какой бы длинной она ни была; перенос допустим только между блоками (внутри блока кода, таблицы и строк цитаты со своим `>` — можно). Проверяет `scripts/md-onelines.mjs` (идёт в `check.sh`, `--changed` и CI, а также в pre-commit), режим `--fix` склеивает перенос одним пробелом.

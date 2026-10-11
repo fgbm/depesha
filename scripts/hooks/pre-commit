@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Хук pre-commit: не пускает персональные данные в коммит.
+# Хук pre-commit: не пускает персональные данные и переносы строк внутри абзацев
+# (одна строка на абзац и пункт списка, scripts/md-onelines.mjs) в коммит.
 #
 # Шаблоны лежат ВНЕ репозитория (иначе сами попали бы в историю): одна строка —
 # одно регулярное выражение ERE, совпадение без учёта регистра, строки с «#» —
@@ -11,6 +12,20 @@
 # переименованных и скопированных файлов. Совпадение печатается как «файл:строка»
 # (сам шаблон — никогда), код выхода 1.
 set -eu
+
+# Один абзац и один пункт списка — одна строка (scripts/md-onelines.mjs). Проверяется
+# содержимое из индекса (`git show :файл`), а не рабочая копия: в коммит идёт именно оно.
+# Черновики в docs/internal/ пропускаются, как и в check.sh.
+hook_dir=$(cd "$(dirname "$0")" && pwd)
+md_found=0
+while IFS= read -r md_file; do
+  [ -n "$md_file" ] || continue
+  case "$md_file" in docs/internal/*) continue ;; esac
+  if ! git show ":$md_file" 2>/dev/null | node "$hook_dir/../md-onelines.mjs" --stdin --name "$md_file"; then
+    md_found=1
+  fi
+done < <(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- '*.md')
+[ "$md_found" -eq 0 ] || exit 1
 
 patterns_file="${DEPESHA_PRIVATE_PATTERNS:-$HOME/.config/depesha/private-patterns}"
 [ -f "$patterns_file" ] || exit 0

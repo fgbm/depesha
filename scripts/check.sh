@@ -92,6 +92,8 @@ if [[ "${1:-}" == "--changed" ]]; then
   ipcguard=$(pick '^scripts/ipc-callers')
   # Files that exist (not deleted); an array, so that names with spaces survive.
   mapfile -t lintable < <(pick '\.(ts|js|mjs|svelte)$' | while IFS= read -r f; do [[ -f $f ]] && printf '%s\n' "$f"; done)
+  # Markdown of the branch, drafts in docs/internal/ aside.
+  mapfile -t mdfiles < <(pick '\.md$' | grep -vE '^(docs/internal/|node_modules/)' | while IFS= read -r f; do [[ -f $f ]] && printf '%s\n' "$f"; done)
 
   if [[ -n $rust$front$e2e$ipcguard ]]; then
     step "у каждой IPC-команды есть вызов"
@@ -154,6 +156,14 @@ if [[ "${1:-}" == "--changed" ]]; then
     npx vitest run e2e
     echo "e2e не запускается в --changed: он идёт в CI на ветке (scripts/check.sh --ci)."
   fi
+  if ((${#mdfiles[@]})); then
+    step "одна строка на абзац (Markdown)"
+    node scripts/md-onelines.mjs "${mdfiles[@]}"
+  fi
+  if grep -qE '^scripts/md-onelines' <<<"$changed"; then
+    step "тест проверки Markdown"
+    npx vitest run scripts/md-onelines.test.mjs
+  fi
   if grep -qE '^(scripts/(stand-lock|check)|e2e/stand-lock)' <<<"$changed"; then
     step "тест замка стенда"
     scripts/stand-lock.test.sh
@@ -183,6 +193,8 @@ step "svelte-check"
 npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
 step "eslint"
 npm run lint
+step "одна строка на абзац (Markdown)"
+node scripts/md-onelines.mjs
 step "хук персональных данных"
 scripts/hooks/pre-commit.test.sh
 step "метрики фронтенда"

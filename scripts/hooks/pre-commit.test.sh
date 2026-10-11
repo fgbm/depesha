@@ -146,4 +146,24 @@ git rm -q --cached .gitattributes j.txt
 rm .gitattributes j.txt
 git config --unset diff.ext.command
 
+# 12. Перенос строки внутри абзаца в .md — коммит блокируется, строка названа.
+printf 'Абзац\nпродолжение\n' > wrapped.md
+git add wrapped.md
+if DEPESHA_PRIVATE_PATTERNS="$patterns" "$hook" >out 2>&1; then
+  fail "хук не заблокировал перенос строки в .md"
+fi
+grep -q 'wrapped.md:2' out || fail "хук не назвал строку переноса в .md"
+git rm -q --cached wrapped.md
+rm wrapped.md
+
+# 13. Одна строка на абзац в .md — коммит проходит. Слово шаблона в файлах не
+# встречается, чтобы проверить именно Markdown, а не персональные данные.
+printf '# комментарий\nуникальное-слово\n' > "$patterns"
+printf 'Абзац одной строкой.\n' > oneline.md
+git add oneline.md
+DEPESHA_PRIVATE_PATTERNS="$patterns" "$hook" >out 2>&1 \
+  || fail "хук заблокировал .md с одной строкой на абзац"
+git rm -q --cached oneline.md
+rm oneline.md
+
 echo "pre-commit hook: ok"

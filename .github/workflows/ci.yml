@@ -157,6 +157,8 @@ jobs:
         run: cargo machete
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
       - run: npm run lint
+      - name: One line per paragraph in Markdown
+        run: node scripts/md-onelines.mjs
       - run: scripts/frontend-metrics.sh
       - run: scripts/frontend-invariants.sh
       - name: Plugin API against its snapshot
