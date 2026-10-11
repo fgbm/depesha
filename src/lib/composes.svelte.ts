@@ -23,6 +23,8 @@ export interface ComposeState {
   draft_message_id?: string | null;
   /** The content is kept nowhere yet (typed in a quick reply, taken back from the outbox): save it. */
   unsaved?: boolean;
+  /** Files taken off the letter because their window closed, and not attached again (#115). */
+  lostFiles?: string[];
 }
 
 /** A composition window: docked in the corner, minimized to a bar, or full screen. */

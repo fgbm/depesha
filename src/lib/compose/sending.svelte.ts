@@ -10,7 +10,7 @@ import { hints } from "../hints.svelte";
 import { sendWarnings } from "../sendChecks";
 import { composeAction } from "../composeKeys";
 import { isDirty } from "../compose";
-import { dropLostFiles, isNotChosen } from "./lostFiles";
+import { dropLostFiles, isNotChosen, sendWithoutQuestion } from "./lostFiles";
 import { registry } from "../../plugin-host/registry.svelte";
 import type { ComposeWindow } from "../composes.svelte";
 import type { ComposeContext, FollowupPlan } from "../../plugin-api";
@@ -127,6 +127,9 @@ export class ComposeSending {
       this.host.setError(t("compose.noRecipients"));
       return;
     }
+    // The letter must not go out without a file the user attached unnoticed (#115).
+    const without = sendWithoutQuestion(win);
+    if (without && !(await app.ui.confirm({ text: without, okLabel: t("compose.send"), cancelLabel: t("compose.goBack") }))) return;
     if (!force) {
       const email = app.mailboxes.account(win.account_id)?.email ?? "";
       const draft = $state.snapshot(win.draft);
@@ -158,9 +161,8 @@ export class ComposeSending {
       await this.host.autosave.forgetLocal("sent");
       app.compose.close(win.id);
     } catch (e) {
-      // A file of a closed window is told by name and taken off the letter (#115).
-      const lost = isNotChosen(e) ? await dropLostFiles(win.draft) : null;
-      this.host.setError(lost ?? (e as { message: string }).message);
+      // A file of a closed window is taken off the letter and told by a notice that stays (#115).
+      if (!(isNotChosen(e) && (await dropLostFiles(win)))) this.host.setError((e as { message: string }).message);
     } finally {
       this.busy = false;
     }

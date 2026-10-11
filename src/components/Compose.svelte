@@ -44,6 +44,7 @@
   import { ComposeAutosave } from "../lib/compose/autosave.svelte";
   import { ComposeSending } from "../lib/compose/sending.svelte";
   import { ComposeAttachments } from "../lib/compose/attachments.svelte";
+  import LostFilesNotice from "./LostFilesNotice.svelte";
   import { FULL_STRIP_ROWS, MIN_BODY_PX, mailboxName, visibleChips } from "../lib/compose/layout";
   import type { WindowPart } from "../lib/compose/sending.svelte";
 
@@ -514,6 +515,7 @@
     </div>
 
     {#if error}<div class="error danger-text selectable">{error}</div>{/if}
+    <LostFilesNotice {c} />
 
     {#if sending.warnings}
       <div class="warnings" role="alert">

@@ -124,9 +124,10 @@ export class ComposeAutosave {
         await this.forgetLocal();
         return true;
       } catch (e) {
-        // A file of a closed window is told by name and taken off the letter (#115).
-        const lost = isNotChosen(e) ? await dropLostFiles(win.draft) : null;
-        this.host.setError(lost ?? t("compose.draftNotSaved", { error: (e as { message: string }).message }));
+        // A file of a closed window is taken off the letter and told by a notice that stays (#115).
+        if (!(isNotChosen(e) && (await dropLostFiles(win)))) {
+          this.host.setError(t("compose.draftNotSaved", { error: (e as { message: string }).message }));
+        }
         return false;
       } finally {
         this.saving = null;
