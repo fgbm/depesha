@@ -274,8 +274,8 @@ impl Receiver {
 struct Results {
     /// The server that wrote it; `None` in Exchange Online's format.
     authserv_id: Option<String>,
-    /// `(passed, header.from)` of the `dmarc=` result, if there is one.
-    dmarc: Option<(bool, Option<String>)>,
+    /// `(result word, header.from)` of the `dmarc=` result, if there is one.
+    dmarc: Option<(String, Option<String>)>,
 }
 
 fn results(value: &str) -> Results {
@@ -301,7 +301,7 @@ fn results(value: &str) -> Results {
         let header_from = words
             .find_map(|w| w.strip_prefix("header.from="))
             .map(|d| d.trim_matches('"').to_owned());
-        Some((result == "pass", header_from))
+        Some((result.to_owned(), header_from))
     });
     Results { authserv_id, dmarc }
 }
@@ -343,6 +343,52 @@ fn without_comments(value: &str) -> String {
     out
 }
 
+/// Why a sender is or is not believed: the answer of [`check_sender`]. It holds domains and
+/// result words only, never an address, a subject or a token, so it may go to the log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SenderCheck {
+    /// The server of the mailbox wrote no `Authentication-Results`; `seen` are the
+    /// `authserv-id`s the letter did carry (`-` for a header without one).
+    NoOwnHeader {
+        seen: Vec<String>,
+        receiver: Vec<String>,
+    },
+    /// The topmost header of ours has no `dmarc=` result.
+    NoDmarc,
+    /// The result word was not `pass`.
+    DmarcNot(String),
+    /// `dmarc=pass`, but about another organization than the From domain.
+    NotAligned {
+        header_from_domain: Option<String>,
+        from_domain: String,
+    },
+    Passed,
+}
+
+impl std::fmt::Display for SenderCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoOwnHeader { seen, receiver } => write!(
+                f,
+                "no Authentication-Results of the mailbox's server (seen authserv-id: [{}], receiver domains: [{}])",
+                seen.join(", "),
+                receiver.join(", ")
+            ),
+            Self::NoDmarc => f.write_str("the server's header has no dmarc result"),
+            Self::DmarcNot(word) => write!(f, "dmarc={word}"),
+            Self::NotAligned {
+                header_from_domain,
+                from_domain,
+            } => write!(
+                f,
+                "dmarc=pass for {}, not aligned with From domain {from_domain}",
+                header_from_domain.as_deref().unwrap_or("(no header.from)")
+            ),
+            Self::Passed => f.write_str("dmarc=pass, aligned"),
+        }
+    }
+}
+
 /// The receiving server checked DMARC and it passed for the From domain.
 /// `auth_results`: every `Authentication-Results`, topmost first. Only a header
 /// written by the account's own server counts (others are skipped, wherever they
@@ -350,6 +396,12 @@ fn without_comments(value: &str) -> String {
 /// sender's organization in `header.from` (same registrable domain: `mail.github.com` aligns
 /// with `github.com`): without it, it may be about another domain.
 pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> bool {
+    check_sender(auth_results, from_domain, receiver) == SenderCheck::Passed
+}
+
+/// [`dmarc_passed`] with the reason of the answer.
+pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> SenderCheck {
+    let mut seen = Vec::new();
     for (i, header) in auth_results.iter().enumerate() {
         let r = results(header);
         let ours = match &r.authserv_id {
@@ -357,15 +409,27 @@ pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Recei
             None => receiver.exchange_online && i == 0,
         };
         if !ours {
+            seen.push(r.authserv_id.unwrap_or_else(|| "-".to_owned()));
             continue;
         }
         // The topmost header of ours decides alone: one without a DMARC result is a «no», not
         // a reason to read on, or a forged `dmarc=pass` under it would be believed (#108).
-        return r
-            .dmarc
-            .is_some_and(|(passed, header_from)| passed && header_from.is_some_and(|d| aligned(&d, from_domain)));
+        return match r.dmarc {
+            None => SenderCheck::NoDmarc,
+            Some((word, _)) if word != "pass" => SenderCheck::DmarcNot(word),
+            Some((_, header_from)) if header_from.as_deref().is_some_and(|d| aligned(d, from_domain)) => {
+                SenderCheck::Passed
+            }
+            Some((_, header_from)) => SenderCheck::NotAligned {
+                header_from_domain: header_from,
+                from_domain: from_domain.to_ascii_lowercase(),
+            },
+        };
     }
-    false
+    SenderCheck::NoOwnHeader {
+        seen,
+        receiver: receiver.domains.clone(),
+    }
 }
 
 /// `header.from` and the From domain are the same organization (DMARC's relaxed alignment):
@@ -545,6 +609,79 @@ mod tests {
                 "{name}: fail"
             );
         }
+    }
+
+    #[test]
+    fn the_check_says_why() {
+        let gmail = imap("me@gmail.com", "imap.gmail.com");
+        let one = |s: &str| vec![s.to_owned()];
+        let check = |h: &[String], from: &str| check_sender(h, from, &gmail);
+        assert_eq!(
+            check(&one("mx.google.com; dmarc=pass header.from=bank.ru"), "bank.ru"),
+            SenderCheck::Passed
+        );
+        assert_eq!(
+            check(&one("mx.google.com; dmarc=fail header.from=bank.ru"), "bank.ru"),
+            SenderCheck::DmarcNot("fail".into())
+        );
+        assert_eq!(
+            check(&one("mx.google.com; dmarc=none header.from=bank.ru"), "bank.ru"),
+            SenderCheck::DmarcNot("none".into())
+        );
+        assert_eq!(check(&one("mx.google.com; spf=pass"), "bank.ru"), SenderCheck::NoDmarc);
+        assert_eq!(
+            check(&one("mx.google.com; dmarc=pass header.from=other.ru"), "Bank.ru"),
+            SenderCheck::NotAligned {
+                header_from_domain: Some("other.ru".into()),
+                from_domain: "bank.ru".into()
+            }
+        );
+        assert_eq!(
+            check(&one("mx.google.com; dmarc=pass"), "bank.ru"),
+            SenderCheck::NotAligned {
+                header_from_domain: None,
+                from_domain: "bank.ru".into()
+            }
+        );
+        let foreign = vec![
+            "mx.evil.example; dmarc=pass header.from=bank.ru".to_owned(),
+            "dmarc=pass header.from=bank.ru".to_owned(),
+        ];
+        let SenderCheck::NoOwnHeader { seen, receiver } = check(&foreign, "bank.ru") else {
+            panic!("not ours");
+        };
+        assert_eq!(seen, ["mx.evil.example", "-"]);
+        assert!(receiver.contains(&"gmail.com".to_owned()) && receiver.contains(&"google.com".to_owned()));
+        assert!(matches!(check(&[], "bank.ru"), SenderCheck::NoOwnHeader { .. }));
+        // The line for the log: domains and words, nothing of the letter.
+        let line = check(&foreign, "bank.ru").to_string();
+        assert!(line.contains("mx.evil.example") && line.contains("gmail.com"), "{line}");
+    }
+
+    #[test]
+    fn a_google_oauth_mailbox_owns_the_servers_of_google() {
+        let oauth = |email: &str| {
+            let (imap, smtp) = crate::account::OAuthProvider::Google.servers();
+            Receiver::of(&Account {
+                imap,
+                smtp,
+                auth: crate::account::AuthMethod::OAuth {
+                    provider: crate::account::OAuthProvider::Google,
+                },
+                ..account(email, "")
+            })
+        };
+        // A Workspace box on the firm's own domain is read from `imap.gmail.com`.
+        for email in ["me@gmail.com", "me@firm.example"] {
+            let r = oauth(email);
+            for d in ["gmail.com", "googlemail.com", "google.com"] {
+                assert!(r.domains.contains(&d.to_owned()), "{email}: {d} in {:?}", r.domains);
+            }
+            assert!(r.owns("mx.google.com"), "{email}");
+            assert!(!r.owns("mx.evil.example"), "{email}");
+            assert!(!r.exchange && !r.exchange_online);
+        }
+        assert!(oauth("me@firm.example").domains.contains(&"firm.example".to_owned()));
     }
 
     #[test]

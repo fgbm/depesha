@@ -711,6 +711,11 @@ pub async fn message_open(
     // the receiving server vouches for.
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
     let trusted_sender = listed && auth.verified();
+    // Domains and result words only: why a trusted sender is or is not believed (#167).
+    match &auth.check {
+        Some(check) => tracing::debug!(listed, internal = auth.internal, "sender check: {check}"),
+        None => tracing::debug!(listed, "sender check: the letter has no readable From"),
+    }
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
     let mark = draft_mark(&raw, in_drafts);

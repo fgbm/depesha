@@ -494,15 +494,25 @@ fn views_of(msg: &Message<'_>, markdown: Option<u32>) -> Vec<BodyView> {
 /// What the receiving server vouches for about a letter's sender. Only the server of
 /// the mailbox the letter came to is believed: the same headers in a letter that
 /// came some other way, or attached to one, prove nothing.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Authenticity {
     /// DMARC passed for the From domain: a brand logo may stand next to it.
     pub dmarc: bool,
+    /// Why `dmarc` is what it is; `None` for a letter whose headers or From did not parse.
+    pub check: Option<crate::avatar::SenderCheck>,
     /// Exchange says the sender signed in to the organization (a colleague).
     pub internal: bool,
 }
 
 impl Authenticity {
+    fn none() -> Self {
+        Self {
+            dmarc: false,
+            check: None,
+            internal: false,
+        }
+    }
+
     /// The From address is the sender's own.
     pub fn verified(&self) -> bool {
         self.dmarc || self.internal
@@ -511,18 +521,22 @@ impl Authenticity {
 
 pub fn authenticity(raw: &[u8], receiver: &Receiver) -> Authenticity {
     let Some(msg) = MessageParser::default().parse_headers(raw) else {
-        return Authenticity::default();
+        return Authenticity::none();
     };
     let from = summary_of(&msg).from;
-    let dmarc = from
+    let check = from
         .as_ref()
         .and_then(|a| a.email.rsplit_once('@'))
-        .is_some_and(|(_, d)| crate::avatar::dmarc_passed(&headers_all(&msg, "Authentication-Results"), d, receiver));
+        .map(|(_, d)| crate::avatar::check_sender(&headers_all(&msg, "Authentication-Results"), d, receiver));
     let internal = receiver.exchange
         && headers_all(&msg, "X-MS-Exchange-Organization-AuthAs")
             .first()
             .is_some_and(|v| v.eq_ignore_ascii_case("Internal"));
-    Authenticity { dmarc, internal }
+    Authenticity {
+        dmarc: check == Some(crate::avatar::SenderCheck::Passed),
+        check,
+        internal,
+    }
 }
 
 /// mail-parser converts text/plain to HTML when there is no HTML part;
