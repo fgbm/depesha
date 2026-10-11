@@ -325,14 +325,15 @@ export interface PluginContext {
     /** Warnings before sending; returning any stops sending until the user confirms. */
     sendCheck(check: (draft: ComposeDraft, accountEmail: string) => string[]): void;
     /**
-     * A group in Settings, marked as the plugin's. `page` is the page it stands on, next to the
-     * matter it is about: `reading`, `writing`, `later`, `storage`, `look`, `notify` or `start`.
-     * Without one (or with a page that is not there) it stands on the plugins' page.
+     * A group in Settings, marked as the plugin's. It stands on the plugins' page, whatever the
+     * plugin is about. `page` is accepted and ignored: it was a page of its own for the group in
+     * 0.8.0–0.8.1, and a plugin that still passes it works.
      */
     settingsSection(s: {
       title: () => string;
       component: Component<{ ctx: PluginContext }>;
       props: { ctx: PluginContext };
+      /** @deprecated Ignored: every group stands on the plugins' page. */
       page?: string;
     }): void;
     /** Rendered on top of the window, e.g. a command palette. */

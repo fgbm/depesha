@@ -14,6 +14,8 @@ import { i18n } from "../lib/i18n.svelte";
 import { bus } from "../lib/bus";
 import { api, settings } from "../lib/testing";
 import { useStyles } from "../lib/cssTesting";
+import { registry } from "../plugin-host/registry.svelte";
+import type { PluginContext } from "../plugin-api";
 import type { Account, AccountView } from "../lib/types";
 
 // jsdom has no CSS.escape; the window uses it to find a row by its id.
@@ -324,5 +326,55 @@ describe("the window as it is drawn (#165)", () => {
       view = null;
       target.remove();
     }
+  });
+});
+
+describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
+  // A component is a function of the anchor and the props: this one draws its text before the anchor.
+  const group = (text: string) => ((anchor: Comment) => void anchor.before(document.createTextNode(text))) as never;
+  const ctx = {} as PluginContext;
+  const put = (owner: string, title: string, page?: string, text = title + " body") =>
+    registry.add("settingsSections", owner, { title: () => title, component: group(text), props: { ctx }, ...(page ? { page } : {}) } as never);
+
+  beforeEach(() => {
+    put("followups", "Напоминания", "later");
+    put("templates", "Шаблоны ответов", "writing");
+    put("thirdparty", "Сторонний");
+  });
+
+  afterEach(() => {
+    for (const o of ["followups", "templates", "thirdparty"]) registry.removeOwner(o);
+  });
+
+  it("shows them on the plugins' page, those that name a page too", () => {
+    open("plugins");
+    const text = target.querySelector(".content")!.textContent;
+    expect(text).toContain("Напоминания body");
+    expect(text).toContain("Шаблоны ответов body");
+    expect(text).toContain("Сторонний body");
+  });
+
+  it("does not show them on «Snooze and waiting» or «Writing»", () => {
+    for (const page of ["later", "writing"]) {
+      open(page);
+      const text = target.querySelector(".content")!.textContent;
+      expect(text).not.toContain("Напоминания body");
+      expect(text).not.toContain("Шаблоны ответов body");
+      unmount(view!);
+      view = null;
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("finds a plugin's group in the search and opens the plugins' page", async () => {
+    open("reading");
+    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
+    field.value = "напоминания";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Напоминания"))!;
+    hit.click();
+    await vi.waitFor(() => expect(heading()).toBe("Все плагины"));
+    expect(target.querySelector(".content")!.textContent).toContain("Напоминания body");
   });
 });

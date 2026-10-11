@@ -19,7 +19,7 @@ const auto = new SettingsAutosave({ settings: () => ({}), patch: async () => {},
 function page(id: string, over: object = {}) {
   app.settingsCtl.settings = { ...settings(), ...over };
   const spec = PAGES.find((p) => p.id === id)!;
-  return render(SettingsPage, { props: { page: spec, auto, sections: [], go: () => {} } }).body;
+  return render(SettingsPage, { props: { page: spec, auto, go: () => {} } }).body;
 }
 
 beforeEach(() => {

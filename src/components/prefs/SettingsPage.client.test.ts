@@ -34,7 +34,7 @@ function setup(id: string, over: object = {}, accounts: AccountView[] = []) {
   document.body.append(target);
   const spec = PAGES.find((p) => p.id === id)!;
   const went: string[] = [];
-  const view = mount(SettingsPage, { target, props: { page: spec, auto, sections: [], go: (p: string) => void went.push(p) } });
+  const view = mount(SettingsPage, { target, props: { page: spec, auto, go: (p: string) => void went.push(p) } });
   flushSync();
   const row = (rowId: string) => target.querySelector<HTMLElement>(`.rw[data-row="${rowId}"]`)!;
   return { target, patches, auto, row, went, destroy: () => unmount(view) };

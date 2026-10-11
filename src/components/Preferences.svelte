@@ -7,7 +7,7 @@
   import { registry } from "../plugin-host/registry.svelte";
   import { t, tn } from "../lib/i18n.svelte";
   import { accountLabel } from "../lib/format";
-  import { MENU, PAGES, menuPages, pageIcon, pageSpec, pageTitle, resolvePage } from "../lib/settingsCatalog";
+  import { MENU, menuPages, pageIcon, pageSpec, pageTitle, resolvePage } from "../lib/settingsCatalog";
   import { SettingsAutosave } from "../lib/settingsAutosave.svelte";
   import { buildSettingsIndex } from "../lib/settingsFields";
   import { searchSettings } from "../lib/settingsSearch";
@@ -44,10 +44,6 @@
   const spec = $derived(pageSpec(current));
   const title = $derived(pageAccount ? accountLabel(pageAccount) : current === "account:new" ? t("cmd.addAccount") : pageTitle(current));
 
-  /** The plugins' groups that stand on a page; those that name no page, or none that is there, stand on the plugins' page. */
-  const sectionsOn = (id: string) =>
-    sections.filter((s) => (id === "plugins" ? !PAGES.some((p) => p.id === s.item.page) : s.item.page === id));
-
   // ---- The search over the settings (#68): it looks in the declared catalog, not the drawn window. ----
   let query = $state("");
   let searchInput = $state<HTMLInputElement | null>(null);
@@ -58,10 +54,7 @@
   const index = $derived([
     ...buildSettingsIndex(),
     ...app.mailboxes.accounts.map((a) => ({ page: `account:${a.id}`, group: pageTitle("accounts"), section: "", label: accountLabel(a), anchor: null })),
-    ...sections.map((s) => {
-      const home = PAGES.some((p) => p.id === s.item.page) ? (s.item.page as string) : "plugins";
-      return { page: home, group: pageTitle(home), section: t("settings.pluginTag"), label: s.item.title(), anchor: null };
-    }),
+    ...sections.map((s) => ({ page: "plugins", group: pageTitle("plugins"), section: t("settings.pluginTag"), label: s.item.title(), anchor: null })),
   ]);
   const hits = $derived(query.trim() ? searchSettings(index, query) : []);
 
@@ -294,12 +287,12 @@
         <div class="content" class:flush={current.startsWith("account:")} class:wide={widePage(current)} bind:this={contentEl} role="tabpanel" aria-label={title}>
           {#if spec}
             {#key spec.id}
-              <SettingsPage page={spec} {auto} sections={sectionsOn(spec.id)} {flash} {go} />
+              <SettingsPage page={spec} {auto} {flash} {go} />
             {/key}
           {:else if current === "keys"}
             <KeysPanel draft={app.settingsCtl.settings} />
           {:else if current === "plugins"}
-            <PluginsPanel sections={sectionsOn("plugins")} />
+            <PluginsPanel sections={sections} />
           {:else}
             <AccountsPanel {current} {pageAccount} onOpen={backToList} />
           {/if}

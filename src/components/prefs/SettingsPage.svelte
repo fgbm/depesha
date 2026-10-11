@@ -1,6 +1,6 @@
 <script lang="ts">
-  // A page of the settings made of rows (#102): the groups of the catalog with their rows, the
-  // plugins' groups that stand on the page, and the keyboard of the page. A row is one stop:
+  // A page of the settings made of rows (#102): the groups of the catalog with their rows and
+  // the keyboard of the page. A row is one stop:
   // ↑/↓ walk the rows, ← / → change the value, Enter opens or enters it. Every change is
   // saved at once through the editor; the page keeps no draft and asks nothing on leaving.
   import { onMount, tick } from "svelte";
@@ -14,7 +14,6 @@
   import { RowEditor } from "../../lib/settingsEdit";
   import { exceptions, layerText } from "../../lib/settingsLayers";
   import { dependentRuns, moveCursor, rowKeyAction, type RowAction } from "../../lib/settingsRows";
-  import type { Owned, SettingsSection } from "../../plugin-host/registry.svelte";
   import Popover from "../Popover.svelte";
   import HintsList from "./HintsList.svelte";
   import RowControl from "./RowControl.svelte";
@@ -23,13 +22,11 @@
   let {
     page,
     auto,
-    sections,
     flash = null,
     go,
   }: {
     page: PageSpec;
     auto: SettingsAutosave;
-    sections: Owned<SettingsSection>[];
     /** The row a search hit just opened the page at: lit a moment (the window sets it and takes it away). */
     flash?: string | null;
     /** Opens another page of the window: a mailbox's page at a section, or a person. */
@@ -293,13 +290,6 @@
       </div>
     </section>
   {/each}
-
-  {#each sections as sec (sec)}
-    <section class="grp" data-g="plugin">
-      <h4>{sec.item.title()}<span class="tagp">{t("settings.pluginTag")}</span></h4>
-      <div class="gb"><sec.item.component {...sec.item.props} /></div>
-    </section>
-  {/each}
 </div>
 
 <style>
@@ -317,18 +307,6 @@
     border-bottom: 1px solid var(--line);
     font-size: 15px;
     font-weight: 600;
-  }
-
-  .tagp {
-    margin-left: 8px;
-    padding: 0 5px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    background: var(--paper);
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--muted);
-    vertical-align: 1px;
   }
 
   /* The strip at the left is one line for the whole run of dependent rows. */

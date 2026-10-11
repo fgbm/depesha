@@ -2,6 +2,10 @@
 
 Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surface is `docs/plugin-api.snapshot.d.ts`; CI fails when the API differs from it. After a deliberate change run `npm run plugin-api:update` and add a line here.
 
+## Unreleased
+
+- `ctx.ui.settingsSection`: the optional `page` (added in 0.8.0, #102, `6b7e440`) is now deprecated and ignored. Every group of a plugin, built-in or not, stands on the «Plugins» page, as before 0.8.0. The type is unchanged, so a plugin that passes `page` still compiles and works; the snapshot is the same.
+
 ## 0.8.1
 
 - `Command` has an optional `synonyms` (#153): a function returning words the command palette also matches on, space-separated, so a command is found by a name the interface no longer uses (the old word «Люди» finds «Контакты»).
