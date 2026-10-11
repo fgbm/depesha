@@ -436,7 +436,7 @@ export async function run() {
       return t.includes("только чтение");
     }, 15000);
     await screenshot("shared-folder-props");
-    await d.click(await d.find(".fcard .x"));
+    await d.click(await d.find(".fcard .shut"));
     await d.until("card closed", async () => (await d.findAll(".fcard")).length === 0);
 
     // Opening the mailbox page hands the sidebar the namespaces (#42): the folder leaves the
