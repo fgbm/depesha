@@ -52,6 +52,10 @@ struct Mailbox {
     connections: usize,
     /// FindItem requests answered, to check a lookup batches them.
     find_items: usize,
+    /// Exchange and OWA give a saved draft a Message-ID of their own: CreateItem rewrites it.
+    rewrite_message_ids: bool,
+    /// What CreateItem stored when it rewrote: the MIME as the server keeps it.
+    stored: Vec<String>,
 }
 
 fn busy_fault(back_off: Option<u64>) -> String {
@@ -349,6 +353,17 @@ fn handle(mb: &mut Mailbox, body: &str) -> String {
         }
         "CreateItem" => {
             mb.created.push(body.to_owned());
+            if mb.rewrite_message_ids
+                && let Some(b64) = body.split("<t:MimeContent CharacterSet=\"UTF-8\">").nth(1)
+                && let Some(b64) = b64.split("</t:MimeContent>").next()
+            {
+                let raw = String::from_utf8(BASE64.decode(b64).unwrap()).unwrap();
+                let at = raw.find("Message-ID: <").unwrap();
+                let end = at + raw[at..].find("\r\n").unwrap();
+                let n = mb.stored.len() + 1;
+                let stored = format!("{}Message-ID: <AAMkAGRk{n}@corp.example>{}", &raw[..at], &raw[end..]);
+                mb.stored.push(stored);
+            }
             wrap("CreateItem", &ok("CreateItem", "<m:Items/>"))
         }
         // Its answer is no ResponseMessages list: one GetUserPhotoResponse.
@@ -517,6 +532,8 @@ async fn ews_mailbox_round_trip() {
         busy: Vec::new(),
         connections: 0,
         find_items: 0,
+        rewrite_message_ids: false,
+        stored: Vec::new(),
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -738,6 +755,8 @@ async fn a_busy_exchange_names_its_pause_and_keeps_the_connection() {
         busy: Vec::new(),
         connections: 0,
         find_items: 0,
+        rewrite_message_ids: false,
+        stored: Vec::new(),
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -792,6 +811,8 @@ async fn clearing_exchange_folders() {
         busy: Vec::new(),
         connections: 0,
         find_items: 0,
+        rewrite_message_ids: false,
+        stored: Vec::new(),
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1058,6 +1079,8 @@ async fn an_exchange_draft_carries_the_kind_of_its_action_inside_the_mark() {
         busy: Vec::new(),
         connections: 0,
         find_items: 0,
+        rewrite_message_ids: false,
+        stored: Vec::new(),
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1114,6 +1137,8 @@ async fn a_folder_made_under_a_parent_names_the_parent_by_its_id() {
         busy: Vec::new(),
         connections: 0,
         find_items: 0,
+        rewrite_message_ids: false,
+        stored: Vec::new(),
     }));
     let port = fake_exchange(mailbox.clone()).await;
     let config = EwsConfig {
@@ -1154,4 +1179,53 @@ async fn a_folder_made_under_a_parent_names_the_parent_by_its_id() {
         parent(&made[2]),
         ("DistinguishedFolderId".into(), Some("msgfolderroot".into()))
     );
+}
+
+/// #157: a server may give a saved draft a Message-ID of its own. What Depesha wrote into the
+/// draft, the sealed `X-Depesha-Draft` mark, goes through unchanged, so the mark must not depend
+/// on the Message-ID (the app opens it without one, see `a_draft_whose_message_id_the_server_changed_keeps_its_mark`).
+#[tokio::test]
+async fn an_exchange_draft_keeps_its_mark_when_the_server_gives_it_another_message_id() {
+    use depesha_core::message::{self, DRAFT_HEADER};
+    let mailbox: Shared = Arc::new(Mutex::new(Mailbox {
+        items: Vec::new(),
+        next_id: 100,
+        created: Vec::new(),
+        folders_made: Vec::new(),
+        windows_only: false,
+        busy: Vec::new(),
+        connections: 0,
+        find_items: 0,
+        rewrite_message_ids: true,
+        stored: Vec::new(),
+    }));
+    let port = fake_exchange(mailbox.clone()).await;
+    let config = EwsConfig {
+        url: format!("http://127.0.0.1:{port}/EWS/Exchange.asmx"),
+        trusted_cert: None,
+    };
+    let mut s = ews::connect(&config, &Credentials::new("CORP\\me", "secret"), "me@corp.ru")
+        .await
+        .unwrap();
+    let store = Store::open_in_memory().unwrap();
+    ews::sync_folder_list(&mut s, &store, ACCOUNT).await.unwrap();
+    let mark = "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let raw = format!(
+        "{DRAFT_HEADER}: {mark}\r\nMessage-ID: <d1@depesha.local>\r\nFrom: me@corp.ru\r\nTo: boss@corp.ru\r\nSubject: Re: x\r\n\r\nтекст\r\n"
+    );
+    ews::append_unless_exists(
+        &mut s,
+        &store,
+        ACCOUNT,
+        "Черновики",
+        raw.as_bytes(),
+        "(\\Draft \\Seen)",
+        None,
+    )
+    .await
+    .unwrap();
+    let stored = mailbox.lock().unwrap().stored.pop().unwrap();
+    let id = message::parse_summary(stored.as_bytes()).message_id.unwrap();
+    assert!(id.contains("AAMkAGRk"), "the server changed the Message-ID: {id}");
+    assert_eq!(message::sealed_draft_mark(stored.as_bytes()).as_deref(), Some(mark));
 }

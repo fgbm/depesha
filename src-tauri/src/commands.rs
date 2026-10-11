@@ -712,7 +712,12 @@ pub async fn message_open(
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
     let trusted_sender = listed && auth.verified();
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
-    let mark = draft_mark(&raw);
+    let in_drafts = state
+        .store
+        .folder_by_role(&row.account_id, FolderRole::Drafts)?
+        .as_deref()
+        == Some(row.folder.as_str());
+    let mark = draft_mark(&raw, in_drafts);
     view.acts_on = mark.acts_on;
     view.send_at = mark.send_at.or(view.send_at);
     if view.acts_on.is_none() {
@@ -2465,7 +2470,8 @@ pub fn letter_view(request: tauri::ipc::Request<'_>) -> CmdResult<MessageView> {
         ));
     };
     let mut view = message::parse_view(bytes, false)?;
-    view.acts_on = draft_mark(bytes).acts_on;
+    // An attached letter is no draft of ours in Drafts: its sealed mark names nothing.
+    view.acts_on = draft_mark(bytes, false).acts_on;
     Ok(view)
 }
 
@@ -2935,6 +2941,11 @@ pub async fn send(
     Ok(Queued { id, at: at.max(now) })
 }
 
+/// Whether `folder` is the mailbox's Drafts (by its role, not its name).
+fn in_drafts_folder(store: &depesha_core::store::Store, account_id: &str, folder: &str) -> CmdResult<bool> {
+    Ok(store.folder_by_role(account_id, FolderRole::Drafts)?.as_deref() == Some(folder))
+}
+
 /// Whether the cached letter is a draft Depesha wrote in this mailbox: a number kept from an
 /// earlier run may name any letter by now, because `messages.id` is handed out again. With
 /// `expected` (the Message-ID of the version the caller saved) only that exact version
@@ -2945,7 +2956,7 @@ fn is_own_draft(
     r: &MessageRow,
     expected: Option<&str>,
 ) -> CmdResult<bool> {
-    let in_drafts = store.folder_by_role(account_id, FolderRole::Drafts)?.as_deref() == Some(r.folder.as_str());
+    let in_drafts = in_drafts_folder(store, account_id, &r.folder)?;
     let own_id = r.message_id.as_deref().is_some_and(|mid| {
         let bare = mid.trim().trim_start_matches('<').trim_end_matches('>');
         bare.rsplit_once('@')
@@ -2956,7 +2967,7 @@ fn is_own_draft(
     Ok(r.account_id == account_id && in_drafts && own_id && exact)
 }
 
-/// The letter an answer draft is written to when its signed mark no longer checks (the
+/// The letter an answer draft is written to when its mark no longer opens (the
 /// install secret is gone after a reinstall, #78): a draft of this mailbox that Depesha wrote
 /// is bound again by its `In-Reply-To`, if that letter is in the cache. A forward is not:
 /// it carries the same header, and `act` (the kind in the draft's own `Acts-On` mark) tells it from an
@@ -3089,7 +3100,7 @@ fn with_service_headers(
     mut raw: Vec<u8>,
     draft: &Draft,
     send_at: Option<i64>,
-    seal: impl Fn(&[u8], &str) -> Option<String>,
+    seal: impl Fn(&[u8]) -> Option<String>,
 ) -> Vec<u8> {
     // The draft's Message-ID says Depesha wrote it. Another client's draft keeps its own.
     if let Some(mid) = message::parse_summary(&raw).message_id
@@ -3106,13 +3117,11 @@ fn with_service_headers(
         },
         message::DraftMark { acts_on: None, send_at },
     ];
-    // Bound to the Message-ID the draft goes with from here on: sealed after the last change.
-    let sealed = message::draft_binding(&raw).and_then(|bound| {
-        marks.iter().filter(|m| !m.is_empty()).find_map(|mark| {
-            mark.encode()
-                .and_then(|plain| seal(&plain, &bound))
-                .filter(|v| v.len() <= message::DRAFT_HEADER_MAX)
-        })
+    // Not bound to the Message-ID: a server may give the saved draft one of its own.
+    let sealed = marks.iter().filter(|m| !m.is_empty()).find_map(|mark| {
+        mark.encode()
+            .and_then(|plain| seal(&plain))
+            .filter(|v| v.len() <= message::DRAFT_HEADER_MAX)
     });
     if let Some(sealed) = sealed {
         // A header line on top is as good as any other place for it.
@@ -3132,11 +3141,18 @@ fn with_service_headers(
 
 /// What a saved draft says about itself: the sealed mark of this version, or the signed
 /// `Acts-On` of 0.8.0 (its time and format are read by `parse_view`). Nothing for a mark this
-/// installation did not seal, which names no letter.
-fn draft_mark(raw: &[u8]) -> message::DraftMark {
-    message::sealed_draft_mark(raw)
-        .zip(message::draft_binding(raw))
-        .and_then(|(value, bound)| crate::install_secret::open(&value, &bound))
+/// installation did not seal, which names no letter. The sealed mark is read only of a letter
+/// in Drafts (`in_drafts`): the seal is not bound to the letter, so a mark put into a letter of
+/// another folder must not name anything.
+fn draft_mark(raw: &[u8], in_drafts: bool) -> message::DraftMark {
+    let sealed = in_drafts.then(|| message::sealed_draft_mark(raw)).flatten();
+    sealed
+        .and_then(|value| {
+            crate::install_secret::open(&value).or_else(|| {
+                // Sealed with the Message-ID of its letter, before the release: opens with it.
+                message::draft_binding(raw).and_then(|bound| crate::install_secret::open_bound(&value, &bound))
+            })
+        })
         .and_then(|plain| message::DraftMark::decode(&plain))
         .unwrap_or_else(|| message::DraftMark {
             acts_on: message::trusted_acts_on(raw, crate::install_secret::verify),
@@ -3891,7 +3907,7 @@ mod tests {
         let long = answer_draft(Act::Forward, &"п".repeat(900));
         let raw = saved_with(&long, Some(1_790_123_456));
         // The letter it answers does not fit a line; the time of sending still does.
-        let mark = draft_mark(raw.as_bytes());
+        let mark = draft_mark(raw.as_bytes(), true);
         assert_eq!(mark.acts_on, None);
         assert_eq!(mark.send_at, Some(1_790_123_456));
         assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
@@ -3969,26 +3985,62 @@ mod tests {
         crate::install_secret::init_with([1u8; 32]);
         let draft = answer_draft(Act::Reply, "INBOX");
         let raw = smtp::build(&draft).unwrap().formatted();
-        let raw = with_service_headers(raw, &draft, Some(1_790_123_456), |plain, bound| {
-            crate::install_secret::seal_with(&[200u8; 32], plain, bound)
+        let raw = with_service_headers(raw, &draft, Some(1_790_123_456), |plain| {
+            crate::install_secret::seal_with(&[200u8; 32], plain)
         });
         assert!(message::sealed_draft_mark(&raw).is_some());
-        assert_eq!(draft_mark(&raw), message::DraftMark::default());
+        assert_eq!(draft_mark(&raw, true), message::DraftMark::default());
         assert_eq!(message::parse_view(&raw, false).unwrap().send_at, None);
     }
 
-    /// The mark is for the letter it was sealed in: its line put into another letter opens to nothing.
+    /// The seal is not bound to the Message-ID: a server that gives the saved draft one of its
+    /// own (Exchange, OWA) leaves what it answers and its time in place (#157).
     #[test]
-    fn a_mark_moved_into_another_letter_names_nothing() {
+    fn a_draft_whose_message_id_the_server_changed_keeps_its_mark() {
         let draft = answer_draft(Act::Reply, "INBOX");
         let mine = saved_with(&draft, Some(1_790_123_456));
-        assert_ne!(draft_mark(mine.as_bytes()), message::DraftMark::default());
+        let own = message::parse_summary(mine.as_bytes()).message_id.unwrap();
+        let rewritten = mine.replacen(&own, "AAMkAGRkZjQ5@corp.example", 1);
+        assert_ne!(rewritten, mine);
+        let mark = draft_mark(rewritten.as_bytes(), true);
+        assert_eq!(mark.acts_on, draft.acts_on);
+        assert_eq!(mark.send_at, Some(1_790_123_456));
+    }
+
+    /// The mark is read of a letter in Drafts only: its line put into a letter of another
+    /// folder (the Inbox, an attached .eml) names nothing.
+    #[test]
+    fn a_mark_put_into_a_letter_outside_drafts_names_nothing() {
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let mine = saved_with(&draft, Some(1_790_123_456));
+        assert_ne!(draft_mark(mine.as_bytes(), true), message::DraftMark::default());
         let sealed = message::sealed_draft_mark(mine.as_bytes()).unwrap();
         let other = format!(
-            "{}: {sealed}\r\nMessage-ID: <other@depesha.local>\r\nFrom: me@x.ru\r\nTo: a@x.ru\r\nSubject: S\r\n\r\nt\r\n",
+            "{}: {sealed}\r\nMessage-ID: <other@elsewhere.example>\r\nFrom: me@x.ru\r\nTo: a@x.ru\r\nSubject: S\r\n\r\nt\r\n",
             message::DRAFT_HEADER
         );
-        assert_eq!(draft_mark(other.as_bytes()), message::DraftMark::default());
+        assert_eq!(draft_mark(other.as_bytes(), false), message::DraftMark::default());
+        // The same line in a letter of Drafts is read: the seal is not what stops it.
+        assert_ne!(draft_mark(other.as_bytes(), true), message::DraftMark::default());
+    }
+
+    /// A draft saved while main bound the seal to the Message-ID still opens.
+    #[test]
+    fn a_draft_sealed_with_its_message_id_still_opens() {
+        crate::install_secret::init_with([1u8; 32]);
+        let draft = answer_draft(Act::Reply, "INBOX");
+        let raw = smtp::build(&draft).unwrap().formatted();
+        let plain = message::DraftMark {
+            acts_on: draft.acts_on.clone(),
+            send_at: Some(1_790_000_000),
+        }
+        .encode()
+        .unwrap();
+        let bound = message::draft_binding(&raw).unwrap();
+        let sealed = crate::install_secret::seal_bound_for_test(&plain, &bound).unwrap();
+        let mut full = format!("{}: {sealed}\r\n", message::DRAFT_HEADER).into_bytes();
+        full.extend_from_slice(&raw);
+        assert_eq!(draft_mark(&full, true).acts_on, draft.acts_on);
     }
 
     /// What the draft answers and when it goes come back when it is opened again.
@@ -3996,7 +4048,7 @@ mod tests {
     fn a_reopened_draft_remembers_what_it_answers_and_its_kind() {
         let draft = answer_draft(Act::Forward, "INBOX");
         let raw = saved_with(&draft, Some(1_790_123_456));
-        let mark = draft_mark(raw.as_bytes());
+        let mark = draft_mark(raw.as_bytes(), true);
         assert_eq!(mark.acts_on, draft.acts_on);
         assert_eq!(mark.send_at, Some(1_790_123_456));
         assert_eq!(message::draft_act(raw.as_bytes()), Some(Act::Forward));
@@ -4006,7 +4058,7 @@ mod tests {
             "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             1,
         );
-        assert_eq!(draft_mark(foreign.as_bytes()), message::DraftMark::default());
+        assert_eq!(draft_mark(foreign.as_bytes(), true), message::DraftMark::default());
         assert_eq!(message::draft_act(foreign.as_bytes()), Some(Act::Forward));
     }
 
@@ -4023,7 +4075,7 @@ mod tests {
             message::ACTS_ON_HEADER,
             message::SEND_AT_HEADER
         );
-        assert_eq!(draft_mark(raw.as_bytes()).acts_on, Some(acts_on));
+        assert_eq!(draft_mark(raw.as_bytes(), true).acts_on, Some(acts_on));
         assert_eq!(
             message::parse_view(raw.as_bytes(), false).unwrap().send_at,
             Some(1_790_000_000)
@@ -4300,6 +4352,36 @@ mod tests {
         assert!(super::is_own_draft(&store, "a", &second, Some("two@depesha.local")).unwrap());
         // A copy of the old format has no Message-ID: the plain check stays.
         assert!(super::is_own_draft(&store, "a", &second, None).unwrap());
+    }
+
+    /// The sealed mark is read of a letter in Drafts only, and opening a letter of any other
+    /// folder must still work (#157).
+    #[test]
+    fn drafts_are_told_by_their_role() {
+        use depesha_core::store::Store;
+        let store = Store::open_in_memory().unwrap();
+        let plain = |name: &str, role| Folder {
+            name: name.into(),
+            display_name: name.into(),
+            delimiter: Some("/".into()),
+            role,
+            selectable: true,
+            hidden: false,
+        };
+        store
+            .replace_folders(
+                "a",
+                &[
+                    plain("INBOX", Some(FolderRole::Inbox)),
+                    plain("Черновики", Some(FolderRole::Drafts)),
+                    plain("Notes", None),
+                ],
+            )
+            .unwrap();
+        assert!(super::in_drafts_folder(&store, "a", "Черновики").unwrap());
+        assert!(!super::in_drafts_folder(&store, "a", "INBOX").unwrap());
+        assert!(!super::in_drafts_folder(&store, "a", "Notes").unwrap());
+        assert!(!super::in_drafts_folder(&store, "other", "Черновики").unwrap());
     }
 
     #[test]

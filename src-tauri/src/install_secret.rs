@@ -6,8 +6,9 @@
 //! synchronously to sign a toast's `launch` and to check one that arrives. It is not a
 //! password: it only tells a link of ours from a stranger's.
 //!
-//! `sign`/`verify` are the whole contract: the draft marker `X-Depesha-Acts-On` signs its
-//! bytes the same way, so a letter claim cannot be forged either.
+//! `sign`/`verify` sign the links and the draft marker `X-Depesha-Acts-On` of 0.8.0, so a letter
+//! claim cannot be forged; `seal`/`open` seal the service mark `X-Depesha-Draft` of a saved draft
+//! (#157), so what it holds is opaque to whoever the draft reaches.
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -41,6 +42,12 @@ pub fn init(path: &Path) {
     SECRET.set(secret).ok();
 }
 
+/// A mark sealed the way main did between #157 and the release, for the test that it still opens.
+#[cfg(test)]
+pub(crate) fn seal_bound_for_test(plain: &[u8], bound: &str) -> Option<String> {
+    seal_under(SECRET.get()?, plain, aad(Some(bound)))
+}
+
 /// The secret the tests sign and verify with, without touching the disk.
 #[cfg(test)]
 pub(crate) fn init_with(secret: [u8; 32]) {
@@ -58,18 +65,22 @@ pub fn sign(bytes: &[u8]) -> String {
 /// Seals `plain` for a draft header (#157): AES-256-GCM under a key derived from the secret,
 /// `1.` and the URL-safe base64 of nonce and ciphertext. The value shows nothing of `plain`
 /// to whoever the draft reaches, and opens only here. None when no secret is set.
-pub fn seal(plain: &[u8], bound: &str) -> Option<String> {
-    seal_with(SECRET.get()?, plain, bound)
+pub fn seal(plain: &[u8]) -> Option<String> {
+    seal_with(SECRET.get()?, plain)
 }
 
-pub(crate) fn seal_with(secret: &[u8; 32], plain: &[u8], bound: &str) -> Option<String> {
+pub(crate) fn seal_with(secret: &[u8; 32], plain: &[u8]) -> Option<String> {
+    seal_under(secret, plain, aad(None))
+}
+
+fn seal_under(secret: &[u8; 32], plain: &[u8], aad: Vec<u8>) -> Option<String> {
     let key = draft_key(secret)?;
     let mut nonce = [0u8; aead::NONCE_LEN];
     SystemRandom::new().fill(&mut nonce).ok()?;
     let mut sealed = plain.to_vec();
     key.seal_in_place_append_tag(
         aead::Nonce::assume_unique_for_key(nonce),
-        aead::Aad::from(aad(bound)),
+        aead::Aad::from(aad),
         &mut sealed,
     )
     .ok()?;
@@ -80,11 +91,17 @@ pub(crate) fn seal_with(secret: &[u8; 32], plain: &[u8], bound: &str) -> Option<
 
 /// What `seal` sealed, or None for anything else: another installation's, a changed one, a
 /// value that is not ours.
-pub fn open(value: &str, bound: &str) -> Option<Vec<u8>> {
-    open_with(SECRET.get()?, value, bound)
+pub fn open(value: &str) -> Option<Vec<u8>> {
+    open_with(SECRET.get()?, value, None)
 }
 
-fn open_with(secret: &[u8; 32], value: &str, bound: &str) -> Option<Vec<u8>> {
+/// A mark sealed while the Message-ID of its letter was part of the seal (main between #157 and
+/// the release): opens with that Message-ID, as it did.
+pub fn open_bound(value: &str, bound: &str) -> Option<Vec<u8>> {
+    open_with(SECRET.get()?, value, Some(bound))
+}
+
+fn open_with(secret: &[u8; 32], value: &str, bound: Option<&str>) -> Option<Vec<u8>> {
     let key = draft_key(secret)?;
     let bytes = URL_SAFE_NO_PAD.decode(value.trim().strip_prefix("1.")?).ok()?;
     if bytes.len() < aead::NONCE_LEN + aead::AES_256_GCM.tag_len() {
@@ -104,11 +121,16 @@ fn open_with(secret: &[u8; 32], value: &str, bound: &str) -> Option<Vec<u8>> {
 
 const SEAL_AAD: &[u8] = b"X-Depesha-Draft 1";
 
-/// What the sealed value is bound to besides the key: the Message-ID of the letter it is in.
-fn aad(bound: &str) -> Vec<u8> {
+/// What the sealed value is bound to besides the key: nothing now. The Message-ID of the letter
+/// was in it once, but a server (Exchange, OWA) may give a saved draft a Message-ID of its own,
+/// and the draft would lose what it answers and its time. A mark put into a letter of another
+/// folder is stopped where it is read: only drafts in Drafts are asked for it.
+fn aad(bound: Option<&str>) -> Vec<u8> {
     let mut aad = SEAL_AAD.to_vec();
-    aad.push(0);
-    aad.extend_from_slice(bound.as_bytes());
+    if let Some(bound) = bound {
+        aad.push(0);
+        aad.extend_from_slice(bound.as_bytes());
+    }
     aad
 }
 
@@ -286,16 +308,25 @@ mod tests {
         assert_ne!(draft_key_bytes(&SECRET), draft_key_bytes(&[8u8; 32]));
     }
 
-    /// A sealed value is for the letter it was sealed in: moved into another letter, or opened
-    /// by another installation, it opens to nothing.
+    /// A sealed value opens for its secret only. It is not bound to the letter: a server that
+    /// gives a saved draft a Message-ID of its own leaves the mark readable.
     #[test]
-    fn a_sealed_value_opens_only_for_its_letter_and_its_secret() {
-        let value = seal_with(&SECRET, b"mark", "d1@depesha.local").unwrap();
+    fn a_sealed_value_opens_for_its_secret_whatever_the_letter() {
+        let value = seal_with(&SECRET, b"mark").unwrap();
+        assert_eq!(open_with(&SECRET, &value, None).as_deref(), Some(&b"mark"[..]));
+        assert_eq!(open_with(&[8u8; 32], &value, None), None);
+    }
+
+    /// A mark sealed while the Message-ID was part of the seal (main between #157 and the
+    /// release) still opens with that Message-ID, and only with it.
+    #[test]
+    fn a_mark_bound_to_a_message_id_still_opens_with_it() {
+        let value = seal_under(&SECRET, b"mark", aad(Some("d1@depesha.local"))).unwrap();
+        assert_eq!(open_with(&SECRET, &value, None), None);
         assert_eq!(
-            open_with(&SECRET, &value, "d1@depesha.local").as_deref(),
+            open_with(&SECRET, &value, Some("d1@depesha.local")).as_deref(),
             Some(&b"mark"[..])
         );
-        assert_eq!(open_with(&SECRET, &value, "d2@depesha.local"), None);
-        assert_eq!(open_with(&[8u8; 32], &value, "d1@depesha.local"), None);
+        assert_eq!(open_with(&SECRET, &value, Some("d2@depesha.local")), None);
     }
 }
