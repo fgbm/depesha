@@ -217,6 +217,9 @@ const FAMILIES: [&[&str]; 3] = [
 pub struct Receiver {
     /// Organizational domains of the mailbox's server and address.
     pub domains: Vec<String>,
+    /// The part of `domains` that comes from the server (and its provider's family): the only
+    /// part that may be written to the log, the address domain being the operator's own.
+    pub servers: Vec<String>,
     /// Exchange Online: writes its verdict without a server name, on top of the
     /// header, and renames the ones that came with the letter.
     pub exchange_online: bool,
@@ -237,7 +240,8 @@ impl Receiver {
             .map(|(_, d)| d.to_owned())
             .unwrap_or_default();
         let mut domains = Vec::new();
-        for host in [server.as_str(), address.as_str()] {
+        let mut servers = Vec::new();
+        for (from_server, host) in [(true, server.as_str()), (false, address.as_str())] {
             let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
             // An IP address names no organization.
             if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') {
@@ -248,6 +252,9 @@ impl Receiver {
             };
             let family = FAMILIES.iter().find(|f| f.contains(&org.as_str()));
             for d in family.map_or_else(|| vec![org.clone()], |f| f.iter().map(|d| (*d).to_owned()).collect()) {
+                if from_server && !servers.contains(&d) {
+                    servers.push(d.clone());
+                }
                 if !domains.contains(&d) {
                     domains.push(d);
                 }
@@ -258,6 +265,7 @@ impl Receiver {
                 .contains(&own_domain(&server.to_ascii_lowercase()).unwrap_or_default().as_str());
         Self {
             domains,
+            servers,
             exchange_online,
             exchange: account.is_ews(),
         }
@@ -344,7 +352,9 @@ fn without_comments(value: &str) -> String {
 }
 
 /// Why a sender is or is not believed: the answer of [`check_sender`]. It holds domains and
-/// result words only, never an address, a subject or a token, so it may go to the log.
+/// result words only, never an address, a subject or a token, so it may go to the log. What the
+/// letter itself wrote (`seen`) is cut to a few short `[a-z0-9.-]` names first; the mailbox's own
+/// address domain is not in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SenderCheck {
     /// The server of the mailbox wrote no `Authentication-Results`; `seen` are the
@@ -393,10 +403,24 @@ impl std::fmt::Display for SenderCheck {
 /// `auth_results`: every `Authentication-Results`, topmost first. Only a header
 /// written by the account's own server counts (others are skipped, wherever they
 /// stand); the topmost of them decides, with or without a DMARC result. The verdict must name the
-/// sender's organization in `header.from` (same registrable domain: `mail.github.com` aligns
-/// with `github.com`): without it, it may be about another domain.
+/// sender's domain in `header.from`, exactly: without it, it may be about another domain.
 pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> bool {
     check_sender(auth_results, from_domain, receiver) == SenderCheck::Passed
+}
+
+/// How many foreign `authserv-id`s a [`SenderCheck`] keeps, and how long each may be.
+const MAX_SEEN: usize = 8;
+const MAX_SEEN_LEN: usize = 64;
+
+/// An `authserv-id` as the log may hold it: lowercase `[a-z0-9.-]` and short, or `?`.
+fn loggable(id: Option<&str>) -> String {
+    match id {
+        None => "-".to_owned(),
+        Some(id) if id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') => {
+            id.chars().take(MAX_SEEN_LEN).collect::<String>().to_ascii_lowercase()
+        }
+        Some(_) => "?".to_owned(),
+    }
 }
 
 /// [`dmarc_passed`] with the reason of the answer.
@@ -409,7 +433,9 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
             None => receiver.exchange_online && i == 0,
         };
         if !ours {
-            seen.push(r.authserv_id.unwrap_or_else(|| "-".to_owned()));
+            if seen.len() < MAX_SEEN {
+                seen.push(loggable(r.authserv_id.as_deref()));
+            }
             continue;
         }
         // The topmost header of ours decides alone: one without a DMARC result is a «no», not
@@ -417,7 +443,7 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
         return match r.dmarc {
             None => SenderCheck::NoDmarc,
             Some((word, _)) if word != "pass" => SenderCheck::DmarcNot(word),
-            Some((_, header_from)) if header_from.as_deref().is_some_and(|d| aligned(d, from_domain)) => {
+            Some((_, header_from)) if header_from.as_deref().is_some_and(|d| same_domain(d, from_domain)) => {
                 SenderCheck::Passed
             }
             Some((_, header_from)) => SenderCheck::NotAligned {
@@ -428,23 +454,17 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
     }
     SenderCheck::NoOwnHeader {
         seen,
-        receiver: receiver.domains.clone(),
+        receiver: receiver.servers.clone(),
     }
 }
 
-/// `header.from` and the From domain are the same organization (DMARC's relaxed alignment):
-/// the same name, or the same registrable domain of the public suffix list, private suffixes
-/// included (`a.github.io` is not `b.github.io`).
-fn aligned(header_from: &str, from_domain: &str) -> bool {
-    let (a, b) = (
-        header_from.trim_end_matches('.').to_ascii_lowercase(),
-        from_domain.trim_end_matches('.').to_ascii_lowercase(),
-    );
-    if a == b {
-        return true;
-    }
-    match (psl::domain(a.as_bytes()), psl::domain(b.as_bytes())) {
-        (Some(x), Some(y)) => x.as_bytes() == y.as_bytes(),
+/// `header.from` is the From domain as it stands: the server already did the aligning
+/// (RFC 7489) and wrote the domain it judged, so a subdomain or a look-alike is another
+/// domain here. Case, a trailing dot and IDN spelling are not differences.
+fn same_domain(header_from: &str, from_domain: &str) -> bool {
+    let ascii = |d: &str| idna::domain_to_ascii(d.trim().trim_end_matches('.')).ok();
+    match (ascii(header_from), ascii(from_domain)) {
+        (Some(a), Some(b)) => !a.is_empty() && a == b,
         _ => false,
     }
 }
@@ -589,8 +609,8 @@ mod tests {
         for (name, receiver, auth) in cases {
             assert!(verified(&receiver, auth, "notifications@github.com"), "{name}");
             assert!(
-                verified(&receiver, auth, "notifications@mail.github.com"),
-                "{name}: aligned subdomain"
+                !verified(&receiver, auth, "notifications@mail.github.com"),
+                "{name}: header.from is the From domain as it stands"
             );
             assert!(
                 !verified(&receiver, auth, "notifications@github.example"),
@@ -656,6 +676,52 @@ mod tests {
         // The line for the log: domains and words, nothing of the letter.
         let line = check(&foreign, "bank.ru").to_string();
         assert!(line.contains("mx.evil.example") && line.contains("gmail.com"), "{line}");
+    }
+
+    #[test]
+    fn header_from_is_the_from_domain_exactly() {
+        let gmail = imap("me@gmail.com", "imap.gmail.com");
+        let one = |from: &str| vec![format!("mx.google.com; dmarc=pass header.from={from}")];
+        assert_eq!(
+            check_sender(&one("github.com"), "mail.github.com", &gmail),
+            SenderCheck::NotAligned {
+                header_from_domain: Some("github.com".into()),
+                from_domain: "mail.github.com".into()
+            }
+        );
+        assert!(!dmarc_passed(&one("mail.github.com"), "github.com", &gmail));
+        // Case and a trailing dot are no difference.
+        assert!(dmarc_passed(&one("GitHub.com."), "github.COM", &gmail));
+        // Nor is the spelling of an IDN.
+        assert!(dmarc_passed(&one("xn--e1afmkfd.xn--p1ai"), "пример.рф", &gmail));
+        assert!(dmarc_passed(&one("пример.рф"), "xn--e1afmkfd.xn--p1ai", &gmail));
+        assert!(!dmarc_passed(&one("xn--e1afmkfd.xn--p1ai"), "пример2.рф", &gmail));
+    }
+
+    #[test]
+    fn the_log_line_stays_short_and_plain() {
+        let gmail = imap("me@firm.example", "imap.gmail.com");
+        let many: Vec<String> = (0..1000)
+            .map(|i| format!("mx{i}.{}.example; dmarc=pass header.from=bank.ru", "a".repeat(200)))
+            .collect();
+        let SenderCheck::NoOwnHeader { seen, receiver } = check_sender(&many, "bank.ru", &gmail) else {
+            panic!("not ours");
+        };
+        assert_eq!(seen.len(), MAX_SEEN);
+        assert!(seen.iter().all(|s| s.len() <= MAX_SEEN_LEN));
+        assert!(!receiver.contains(&"firm.example".to_owned()), "{receiver:?}");
+        assert!(receiver.contains(&"gmail.com".to_owned()));
+        let line = check_sender(&many, "bank.ru", &gmail).to_string();
+        assert!(line.len() < 1500, "{}", line.len());
+        // What the letter wrote under a name of ours that is no name is not copied.
+        let odd = vec!["mx.evil.example\u{1b}[2J \"x\" ; dmarc=pass".to_owned()];
+        let SenderCheck::NoOwnHeader { seen, .. } = check_sender(&odd, "bank.ru", &gmail) else {
+            panic!("not ours");
+        };
+        assert!(seen.iter().all(|s| {
+            s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '?')
+        }));
     }
 
     #[test]

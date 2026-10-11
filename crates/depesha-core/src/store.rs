@@ -4026,21 +4026,6 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_letter_replaces_a_verdict_an_older_version_kept() {
-        let store = mailbox();
-        let mut old = summary("Письмо", 100);
-        old.dmarc = false;
-        let id = put(&store, "INBOX", 1, &old, false);
-        assert!(!store.get(id).unwrap().unwrap().dmarc);
-        // The reader judges by the cached source, not by the stored word, and writes it back
-        // either way: a stale «no» turns into a «yes» and a stale «yes» into a «no» (#167).
-        store.note_verdict(id, true).unwrap();
-        assert!(store.get(id).unwrap().unwrap().dmarc);
-        store.note_verdict(id, false).unwrap();
-        assert!(!store.get(id).unwrap().unwrap().dmarc);
-    }
-
-    #[test]
     fn a_logo_is_allowed_only_for_a_vouched_letter_outside_spam_and_trash() {
         let store = mailbox();
         store

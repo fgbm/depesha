@@ -688,6 +688,15 @@ pub(crate) fn gone() -> CmdError {
     )
 }
 
+/// What kind of mailbox, for the log: no address, no host.
+fn box_kind(account: &Account) -> String {
+    match (account.is_ews(), account.auth.oauth_provider()) {
+        (true, _) => "ews".to_owned(),
+        (false, Some(p)) => format!("oauth {}", p.as_str()),
+        (false, None) => "imap".to_owned(),
+    }
+}
+
 #[tauri::command]
 pub async fn message_open(
     state: St<'_>,
@@ -711,10 +720,17 @@ pub async fn message_open(
     // the receiving server vouches for.
     let auth = message::authenticity(&raw, &Receiver::of(&state.account(&row.account_id)?));
     let trusted_sender = listed && auth.verified();
-    // Domains and result words only: why a trusted sender is or is not believed (#167).
+    // Why a sender is or is not believed (#167): ids, domains and result words, no address.
+    let kind = box_kind(&state.account(&row.account_id)?);
+    let from_domain = sender.rsplit_once('@').map_or("-", |(_, d)| d).to_ascii_lowercase();
     match &auth.check {
-        Some(check) => tracing::debug!(listed, internal = auth.internal, "sender check: {check}"),
-        None => tracing::debug!(listed, "sender check: the letter has no readable From"),
+        Some(check) => tracing::debug!(
+            id = row.id, kind, folder = %row.folder, %from_domain, listed, internal = auth.internal,
+            "sender check: {check}"
+        ),
+        None => tracing::debug!(
+            id = row.id, kind, folder = %row.folder, listed, "sender check: the letter has no readable From"
+        ),
     }
     let mut view = message::parse_view(&raw, allow_remote || trusted_sender)?;
     let in_drafts = in_drafts_folder(&state.store, &row.account_id, &row.folder)?;
