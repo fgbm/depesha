@@ -15,7 +15,10 @@ export async function run() {
     await d.click(await d.find(".prefs .tab[data-page='writing']"));
     await d.until("writing page", async () => (await textOf(".prefs .pane h2")) === "Написание");
     await screenshot("settings-writing");
-    // The templates are a group of the plugin on the page they belong to, marked «плагин» (#102, 2.4).
+    // The templates are a group of the plugin on the plugins' page, marked «плагин» (#168).
+    if ((await d.findAll(".prefs .tpl")).length) throw new Error("шаблоны ответов остались на странице «Написание»");
+    await d.click(await d.find(".prefs .tab[data-page='plugins']"));
+    await d.until("plugins page", async () => (await d.findAll(".prefs .plugins")).length === 1);
     await d.button("Добавить шаблон");
     await setInput(".prefs .tpl input", "Получил");
     await setInput(".prefs .tpl textarea", "Спасибо, получил.");
