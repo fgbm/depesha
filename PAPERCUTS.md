@@ -46,3 +46,9 @@ Playwright MCP (`browser_take_screenshot`, `filename`) пишет только �
 ## 2026-10-10 14:30 — claude-opus-5-5
 
 Новые worktree в `depesha-wt/q-*` для `check.sh --changed`/`--ci` → нет `node_modules`, svelte-check не находит `@tsconfig/svelte`; агенты кто `npm ci` (минуты), кто симлинк на основное дерево. Нужен один способ в `AGENTS.md` или шаг в `check.sh` («нет node_modules — `npm ci`»). Плюс `git push -u` забывают: upstream остаётся `origin/main`, первый `--ci` падает на push.
+
+## 2026-10-11 14:20 — deepseek-v4.1-flash
+
+Выпуск 0.8.2: кадры `docs/screenshots/` и набор `release-shots` показывают версию в заголовке окна, поэтому снимать их надо ПОСЛЕ коммита `chore: версия X.Y.Z` и пересборки бинарника (`npx tauri build --debug --no-bundle --features e2e`) — иначе на картинках прошлая версия. У 0.8.1 так и сделано: пересъёмка `3fc1ed5` после бампа `7854c32`. Сборку в новом worktree ускоряет копия прогретого `target/` из основного дерева (`cp -a --reflink=auto`, ~40 с на инкрементальную сборку).
+
+Там же: `scripts/release-shots.sh` сеет демо-данные тем же `SHOTS_SET`, что выбирает набор кадров, а `imap_helper.py demo-seed` понимал только «0.8.0» → новый набор «0.8.2» получил бы данные 0.7 (чужие папки, адрес carol). Расширил `demo_seed` на «0.8.2»; для будущих наборов, которым нужны те же письма, делать так же.
