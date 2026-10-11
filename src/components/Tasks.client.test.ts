@@ -179,3 +179,33 @@ describe("a failed task in the tasks window, more", () => {
     expect(api.oauthSignIn).not.toHaveBeenCalled();
   });
 });
+
+describe("the offline progress bar of a mailbox", () => {
+  // Fully downloaded reads as done, not as an error (#169): a full red bar under «Офлайн: скачано N из N писем» looked like one.
+  async function openWithOverview(overview: { offline_done: number; offline_total: number; paused: boolean }) {
+    app.mailboxes.accounts = [account({})];
+    api.syncOverview.mockResolvedValue([{ account_id: "a", last_sync: 1, ...overview }]);
+    const target = document.createElement("div");
+    document.body.append(target);
+    view = mount(Tasks, { target, props: {} });
+    await vi.waitFor(() => expect(target.querySelector(".acc .offline")).not.toBeNull());
+    return target;
+  }
+
+  it("shows no bar once everything is downloaded", async () => {
+    const target = await openWithOverview({ offline_done: 1300, offline_total: 1300, paused: false });
+    expect(target.querySelector(".acc .offline")?.textContent).toContain("Офлайн: скачано 1300 из 1300 писем");
+    expect(target.querySelector(".acc .bar")).toBeNull();
+  });
+
+  it("shows no bar when there is nothing to download", async () => {
+    const target = await openWithOverview({ offline_done: 0, offline_total: 0, paused: false });
+    expect(target.querySelector(".acc .bar")).toBeNull();
+  });
+
+  it("keeps the bar while the download is still running", async () => {
+    const target = await openWithOverview({ offline_done: 300, offline_total: 1300, paused: false });
+    expect(target.querySelector(".acc .offline")?.textContent).toContain("Офлайн: скачано 300 из 1300 писем");
+    expect(target.querySelector(".acc .bar")).not.toBeNull();
+  });
+});

@@ -178,7 +178,7 @@
                   </button>
                 {/if}
               </div>
-              {#if o.offline_total > 0}<div class="bar" class:paused={o.paused}><span style:width="{percent({ done: o.offline_done, total: o.offline_total })}%"></span></div>{/if}
+              {#if o.offline_done < o.offline_total}<div class="bar" class:paused={o.paused}><span style:width="{percent({ done: o.offline_done, total: o.offline_total })}%"></span></div>{/if}
             {/if}
           </div>
         {/each}
