@@ -284,6 +284,15 @@ struct Results {
     authserv_id: Option<String>,
     /// `(result word, header.from)` of the `dmarc=` result, if there is one.
     dmarc: Option<(String, Option<String>)>,
+    /// `(result word, signing domain)` of every `dkim=` result.
+    dkim: Vec<(String, Option<String>)>,
+    /// `(result word, envelope domain)` of every `spf=` result.
+    spf: Vec<(String, Option<String>)>,
+}
+
+/// The domain of `user@domain`, `@domain` or a bare `domain`.
+fn mail_domain(value: &str) -> String {
+    value.rsplit('@').next().unwrap_or_default().to_owned()
 }
 
 fn results(value: &str) -> Results {
@@ -296,7 +305,9 @@ fn results(value: &str) -> Results {
     } else {
         (first.split_whitespace().next().map(str::to_owned), None)
     };
-    let dmarc = first_result.into_iter().chain(parts).find_map(|resinfo| {
+    let mut dmarc = None;
+    let (mut dkim, mut spf) = (Vec::new(), Vec::new());
+    for resinfo in first_result.into_iter().chain(parts) {
         // `dmarc = pass` is allowed too: glue the `=` back to its word.
         let resinfo = resinfo
             .split_whitespace()
@@ -305,13 +316,36 @@ fn results(value: &str) -> Results {
             .replace(" =", "=")
             .replace("= ", "=");
         let mut words = resinfo.split_whitespace();
-        let result = words.next()?.strip_prefix("dmarc=")?;
-        let header_from = words
-            .find_map(|w| w.strip_prefix("header.from="))
-            .map(|d| d.trim_matches('"').to_owned());
-        Some((result.to_owned(), header_from))
-    });
-    Results { authserv_id, dmarc }
+        let Some(first) = words.next() else { continue };
+        let property = |name: &str| {
+            words
+                .clone()
+                .find_map(|w| w.strip_prefix(name))
+                .map(|d| d.trim_matches('"').to_owned())
+        };
+        if let Some(result) = first.strip_prefix("dmarc=") {
+            if dmarc.is_none() {
+                dmarc = Some((result.to_owned(), property("header.from=")));
+            }
+        } else if let Some(result) = first.strip_prefix("dkim=") {
+            // The signing domain: `header.d`, or the domain of `header.i` (`@d` or `u@d`).
+            let domain = property("header.d=")
+                .or_else(|| property("header.i="))
+                .map(|d| mail_domain(&d));
+            dkim.push((result.to_owned(), domain));
+        } else if let Some(result) = first.strip_prefix("spf=") {
+            let domain = property("smtp.mailfrom=")
+                .or_else(|| property("smtp.mail="))
+                .map(|d| mail_domain(&d));
+            spf.push((result.to_owned(), domain));
+        }
+    }
+    Results {
+        authserv_id,
+        dmarc,
+        dkim,
+        spf,
+    }
 }
 
 /// The header's text with `(comments)` dropped: a comment says nothing, whatever it says.
@@ -363,8 +397,16 @@ pub enum SenderCheck {
         seen: Vec<String>,
         receiver: Vec<String>,
     },
-    /// The topmost header of ours has no `dmarc=` result.
+    /// The topmost header of ours has no `dmarc=` result and no passed `dkim`/`spf` at all.
     NoDmarc,
+    /// No `dmarc=` result (Yandex, Mail.ru), and no passed `dkim`/`spf` is aligned with the
+    /// From domain.
+    NotAlignedWithoutDmarc,
+    /// No `dmarc=` result, but a passed `dkim` or `spf` is aligned with the From domain: the
+    /// DMARC pass of RFC 7489, worked out from the server's own results.
+    AlignedWithoutDmarc {
+        via: &'static str,
+    },
     /// The result word was not `pass`.
     DmarcNot(String),
     /// `dmarc=pass`, but about another organization than the From domain.
@@ -385,6 +427,10 @@ impl std::fmt::Display for SenderCheck {
                 receiver.join(", ")
             ),
             Self::NoDmarc => f.write_str("the server's header has no dmarc result"),
+            Self::NotAlignedWithoutDmarc => {
+                f.write_str("no dmarc result, and no passed dkim/spf is aligned with the From domain")
+            }
+            Self::AlignedWithoutDmarc { via } => write!(f, "no dmarc result, {via}=pass aligned with the From domain"),
             Self::DmarcNot(word) => write!(f, "dmarc={word}"),
             Self::NotAligned {
                 header_from_domain,
@@ -405,7 +451,10 @@ impl std::fmt::Display for SenderCheck {
 /// stand); the topmost of them decides, with or without a DMARC result. The verdict must name the
 /// sender's domain in `header.from`, exactly: without it, it may be about another domain.
 pub fn dmarc_passed(auth_results: &[String], from_domain: &str, receiver: &Receiver) -> bool {
-    check_sender(auth_results, from_domain, receiver) == SenderCheck::Passed
+    matches!(
+        check_sender(auth_results, from_domain, receiver),
+        SenderCheck::Passed | SenderCheck::AlignedWithoutDmarc { .. }
+    )
 }
 
 /// How many foreign `authserv-id`s a [`SenderCheck`] keeps, and how long each may be.
@@ -441,7 +490,7 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
         // The topmost header of ours decides alone: one without a DMARC result is a «no», not
         // a reason to read on, or a forged `dmarc=pass` under it would be believed (#108).
         return match r.dmarc {
-            None => SenderCheck::NoDmarc,
+            None => without_dmarc(&r, from_domain),
             Some((word, _)) if word != "pass" => SenderCheck::DmarcNot(word),
             Some((_, header_from)) if header_from.as_deref().is_some_and(|d| same_domain(d, from_domain)) => {
                 SenderCheck::Passed
@@ -455,6 +504,42 @@ pub fn check_sender(auth_results: &[String], from_domain: &str, receiver: &Recei
     SenderCheck::NoOwnHeader {
         seen,
         receiver: receiver.servers.clone(),
+    }
+}
+
+/// DMARC passes when a passed DKIM signature or SPF check is about a domain of the same
+/// organization as the From domain (relaxed alignment, RFC 7489); the policy does not matter
+/// for a pass. For servers that write no `dmarc=` result.
+fn without_dmarc(r: &Results, from_domain: &str) -> SenderCheck {
+    let aligned = |list: &[(String, Option<String>)]| {
+        list.iter()
+            .any(|(word, d)| word == "pass" && d.as_deref().is_some_and(|d| same_organization(d, from_domain)))
+    };
+    if aligned(&r.dkim) {
+        SenderCheck::AlignedWithoutDmarc { via: "dkim" }
+    } else if aligned(&r.spf) {
+        SenderCheck::AlignedWithoutDmarc { via: "spf" }
+    } else if r.dkim.iter().chain(&r.spf).any(|(word, _)| word == "pass") {
+        SenderCheck::NotAlignedWithoutDmarc
+    } else {
+        SenderCheck::NoDmarc
+    }
+}
+
+/// Both names stand under the same registrable domain of the public suffix list; a name under
+/// a private suffix (`a.github.io`) has none and is never the same as another.
+fn same_organization(a: &str, b: &str) -> bool {
+    let ascii = |d: &str| {
+        idna::domain_to_ascii(d.trim().trim_end_matches('.'))
+            .ok()
+            .map(|d| d.to_ascii_lowercase())
+    };
+    match (
+        ascii(a).and_then(|d| registrable(&d)),
+        ascii(b).and_then(|d| registrable(&d)),
+    ) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -632,6 +717,86 @@ mod tests {
     }
 
     #[test]
+    fn without_a_dmarc_result_an_aligned_dkim_or_spf_is_the_pass() {
+        let yandex = imap("user@yandex.ru", "imap.yandex.ru");
+        let yx = |tail: &str| {
+            format!(
+                "mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net; spf=pass (mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net: domain of github.com designates 192.0.2.1 as permitted sender, rule=[ip4:192.0.2.0/24]) smtp.mail=notifications@github.com; dkim=pass header.i=@github.com{tail}"
+            )
+        };
+        let check = |h: String, from: &str| check_sender(&[h], from, &yandex);
+        // The real form of Yandex's own header.
+        assert_eq!(
+            check(yx(""), "github.com"),
+            SenderCheck::AlignedWithoutDmarc { via: "dkim" }
+        );
+        assert!(dmarc_passed(&[yx("")], "github.com", &yandex));
+        // Both about a foreign domain.
+        let evil = "mail-nwsmtp-mxfront-production-main-94.klg.yp-c.yandex.net; spf=pass smtp.mail=x@evil.example; dkim=pass header.i=@evil.example";
+        assert_eq!(check(evil.into(), "github.com"), SenderCheck::NotAlignedWithoutDmarc);
+        // Relaxed: a subdomain of the signer is the same organization, either way round.
+        let sub = "mx.yandex.net; dkim=pass header.i=@mail.github.com";
+        assert!(dmarc_passed(&[sub.into()], "github.com", &yandex));
+        assert!(dmarc_passed(&[sub.into()], "news.github.com", &yandex));
+        // SPF alone, and `header.d` before `header.i`.
+        assert_eq!(
+            check(
+                "mx.yandex.net; spf=pass smtp.mailfrom=a@github.com; dkim=fail header.d=github.com".into(),
+                "github.com"
+            ),
+            SenderCheck::AlignedWithoutDmarc { via: "spf" }
+        );
+        assert!(dmarc_passed(
+            &["mx.yandex.net; dkim=pass header.d=github.com header.i=@evil.example".into()],
+            "github.com",
+            &yandex
+        ));
+        // Look-alike and a private suffix.
+        assert!(!dmarc_passed(
+            &["mx.yandex.net; dkim=pass header.i=@github.com".into()],
+            "evilgithub.com",
+            &yandex
+        ));
+        assert!(!dmarc_passed(
+            &["mx.yandex.net; dkim=pass header.i=@a.github.io".into()],
+            "b.github.io",
+            &yandex
+        ));
+        assert!(!dmarc_passed(
+            &["mx.yandex.net; dkim=pass header.i=@a.github.io".into()],
+            "a.github.io",
+            &yandex
+        ));
+        // Failed or soft-failed checks are no pass.
+        assert_eq!(
+            check(
+                "mx.yandex.net; dkim=fail header.i=@github.com; spf=softfail smtp.mail=a@github.com".into(),
+                "github.com"
+            ),
+            SenderCheck::NoDmarc
+        );
+        // A dmarc result, when there is one, decides alone.
+        for word in ["fail", "none", "temperror"] {
+            let h = format!("{}; dmarc={word} header.from=github.com", yx(""));
+            assert_eq!(check(h, "github.com"), SenderCheck::DmarcNot(word.into()));
+        }
+        // A pass written by the sender under another name, below ours, which says nothing.
+        let ours = "mx.yandex.net; spf=none; dkim=none".to_owned();
+        let foreign = "evil.example; dkim=pass header.i=@github.com".to_owned();
+        assert!(!dmarc_passed(&[ours, foreign.clone()], "github.com", &yandex));
+        assert!(!dmarc_passed(&[foreign], "github.com", &yandex));
+    }
+
+    #[test]
+    fn a_mail_ru_header_without_dmarc_is_judged_by_dkim_and_spf() {
+        // Mail.ru's form is not documented; its header is read like the others.
+        let mailru = imap("user@mail.ru", "imap.mail.ru");
+        let h = "mxs.mail.ru; spf=pass (mx1.m.smailru.net: domain of github.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=notifications@github.com; dkim=pass header.d=github.com header.s=pf2026";
+        assert!(dmarc_passed(&[h.into()], "github.com", &mailru));
+        assert!(!dmarc_passed(&[h.into()], "github.example", &mailru));
+    }
+
+    #[test]
     fn the_check_says_why() {
         let gmail = imap("me@gmail.com", "imap.gmail.com");
         let one = |s: &str| vec![s.to_owned()];
@@ -648,7 +813,7 @@ mod tests {
             check(&one("mx.google.com; dmarc=none header.from=bank.ru"), "bank.ru"),
             SenderCheck::DmarcNot("none".into())
         );
-        assert_eq!(check(&one("mx.google.com; spf=pass"), "bank.ru"), SenderCheck::NoDmarc);
+        assert_eq!(check(&one("mx.google.com; spf=none"), "bank.ru"), SenderCheck::NoDmarc);
         assert_eq!(
             check(&one("mx.google.com; dmarc=pass header.from=other.ru"), "Bank.ru"),
             SenderCheck::NotAligned {
@@ -802,7 +967,7 @@ mod tests {
             &r
         ));
         assert!(!dmarc_passed(
-            &one("mx.example.net; spf=pass (dmarc=pass header.from=example.com) smtp.mailfrom=example.com"),
+            &one("mx.example.net; spf=pass (dmarc=pass header.from=example.com) smtp.mailfrom=evil.example"),
             "example.com",
             &r
         ));
