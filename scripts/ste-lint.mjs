@@ -4,7 +4,8 @@
 //   node scripts/ste-lint.mjs <файл> …        явные файлы (AGENTS.md по маркерам, остальное целиком)
 //
 // Предупреждение — предложение длиннее 25 слов. Ошибка — запрещённый синоним из `docs/glossary.md`
-// (строка «Синонимы (запрещены):» под заголовком термина). Код и блоки кода не проверяются.
+// (строка «Синонимы (запрещены):» под заголовком термина) или пустое слово из раздела «Не писать».
+// Код и блоки кода не проверяются; пустое слово в кавычках «…» тоже не проверяется.
 // Код возврата — 1, если есть ошибки; предупреждения не роняют проверку.
 
 import { readFileSync, readdirSync } from "node:fs";
@@ -41,6 +42,25 @@ export function parseGlossary(text) {
 /** Плоский список запрещённых синонимов с их терминами. */
 export function forbidden(terms) {
   return terms.flatMap((t) => t.synonyms.map((synonym) => ({ term: t.term, synonym })));
+}
+
+/** Пустые слова из раздела «Не писать»: кавычки «…» в пунктах списка. */
+export function bannedWords(text) {
+  const out = [];
+  let inSection = false;
+  for (const line of text.split("\n")) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      inSection = heading[1].trim() === "Не писать";
+      continue;
+    }
+    if (!inSection || !/^\s*[-*+]\s/.test(line)) continue;
+    for (const m of line.matchAll(/«([^»]+)»/g)) {
+      const s = m[1].trim();
+      if (s) out.push(s);
+    }
+  }
+  return out;
 }
 
 /** Номера строк (0-based) между `<!-- ste -->` и `<!-- /ste -->`; сами маркеры не входят. */
@@ -95,14 +115,26 @@ export function synonymRegex(synonym) {
   return new RegExp(`(?<![\\p{L}])${escaped}(?![\\p{L}])`, "giu");
 }
 
-/** Проверка набора строк. `lineNumbers` — их номера в файле (1-based). */
-export function lintLines(lines, lineNumbers, syns, file) {
+/** Строка без текста в кавычках «…»: пустое слово в кавычках не проверяется. */
+export function stripQuotes(line) {
+  return line.replace(/«[^»]*»/g, " ");
+}
+
+/** Проверка набора строк. `rules` — `{ synonyms, banned }`, `lineNumbers` — номера строк (1-based). */
+export function lintLines(lines, lineNumbers, rules, file) {
+  const { synonyms = [], banned = [] } = rules;
   const findings = [];
   lines.forEach((line, i) => {
     const number = lineNumbers[i];
-    for (const { term, synonym } of syns) {
+    for (const { term, synonym } of synonyms) {
       if (synonymRegex(synonym).test(line)) {
         findings.push({ file, line: number, kind: "error", message: `запрещённый синоним «${synonym}» (термин: ${term})` });
+      }
+    }
+    const unquoted = stripQuotes(line);
+    for (const word of banned) {
+      if (synonymRegex(word).test(unquoted)) {
+        findings.push({ file, line: number, kind: "error", message: `пустое слово «${word}» (раздел «Не писать»)` });
       }
     }
     for (const sentence of sentences(line)) {
@@ -116,13 +148,13 @@ export function lintLines(lines, lineNumbers, syns, file) {
 }
 
 /** Проверка файла: `AGENTS.md` — только разделы `<!-- ste -->`, остальное целиком. */
-export function lintFile(text, syns, file) {
+export function lintFile(text, rules, file) {
   const { lines, fenced } = stripCode(text);
   const onlySte = file === AGENTS || file.endsWith(`/${AGENTS}`);
   const selected = onlySte ? steRegionLines(text) : lines.map((_, i) => i);
   const numbers = selected.map((i) => i + 1);
   const content = selected.map((i) => (fenced[i] ? "" : lines[i]));
-  return lintLines(content, numbers, syns, file);
+  return lintLines(content, numbers, rules, file);
 }
 
 /** Файлы по умолчанию: `AGENTS.md` и всё в `docs/agents/`. */
@@ -139,7 +171,7 @@ export function defaultTargets(root = ROOT) {
 
 export function run(targets, root = ROOT) {
   const glossary = readFileSync(join(root, GLOSSARY), "utf8");
-  const syns = forbidden(parseGlossary(glossary));
+  const rules = { synonyms: forbidden(parseGlossary(glossary)), banned: bannedWords(glossary) };
   const findings = [];
   for (const path of targets) {
     let text;
@@ -148,7 +180,7 @@ export function run(targets, root = ROOT) {
     } catch {
       continue;
     }
-    findings.push(...lintFile(text, syns, path.startsWith(root) ? path.slice(root.length + 1) : path));
+    findings.push(...lintFile(text, rules, path.startsWith(root) ? path.slice(root.length + 1) : path));
   }
   return findings;
 }

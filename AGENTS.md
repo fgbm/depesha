@@ -32,12 +32,12 @@ When a plugin is added, removed, or changes what it does or whether it ships swi
 - Запускай живой макет через `npm run demo` (dev-сервер, порт 1421) и `npm run demo:build` (сборка в `dist-demo/` плюс архив `dist-demo.zip`).
 - Открывай сборку двойным кликом с `file://` и с любого статического сервера.
 - Не клади `dist-demo/` и архив в git.
-- Помни: с `file://` не работает только просмотр PDF. Почему: воркер pdf.js модульный (`type: module`), а браузер не грузит модульный воркер с `file://`.
+- С `file://` не работает только просмотр PDF. Почему: воркер pdf.js модульный (`type: module`), а браузер не грузит модульный воркер с `file://`.
 - Смотри PDF в демо только с сервера.
-- Знай устройство: `vite.config.ts` в режиме `demo` подменяет `@tauri-apps/api/*` и плагины алиасами на `src/demo/tauri/*`.
-- Знай: `src/demo/backend.ts` отвечает на команды `invoke` из данных `src/demo/data.ts` и шлёт те же события, что настоящий бэкенд.
+- `vite.config.ts` в режиме `demo` подменяет `@tauri-apps/api/*` и плагины алиасами на `src/demo/tauri/*`.
+- `src/demo/backend.ts` отвечает на команды `invoke` из данных `src/demo/data.ts` и шлёт те же события, что настоящий бэкенд.
 - Держи прод-код независимым: единственная правка — вызов `startDemo()` из `@demo/start` в `src/main.ts`.
-- Помни: `scripts/demo-guard.mjs` (идёт в `check.sh` и CI) роняет проверку, если что-то из `src/demo/` импортируется извне (относительным путём, корневым `/src/demo…` или через `import.meta.glob`) или попало в обычную сборку.
+- `scripts/demo-guard.mjs` (идёт в `check.sh` и CI) роняет проверку, если что-то из `src/demo/` импортируется извне (относительным путём, корневым `/src/demo…` или через `import.meta.glob`) или попало в обычную сборку.
 - Ищи вопросы в одном файле выпуска `src/demo/mockups/<версия>.ts`.
 - Открывай панель «Вопросы» клавишей `` ` `` поверх приложения.
 - Храни ответы в URL (`?v=1.1:V,2.1:B`) и в localStorage.
@@ -45,7 +45,7 @@ When a plugin is added, removed, or changes what it does or whether it ships swi
 - Помечай рекомендованный вариант ★, но не выбирай его сам.
 - Оставляй нерешённое вопросом, а не догадкой в коде.
 - Зови `variant("1.1")` из `src/demo/variants.svelte.ts` только на ветке макета (`mock/<версия>`).
-- Не оставляй в `main` вызова `variant()`. Почему: когда оператор решает вопрос, выбранный вариант переносят в компонент начисто, а вызов удаляют.
+- Не оставляй в `main` вызова `variant()`. Почему: вызов относится к живому макету, а выбранный вариант переносят в компонент начисто.
 - Не заводи `if (demo)` по компонентам.
 - Держи обычную сборку без `variant()` и без панели.
 - Сверяй команды демо-бэкенда с `generate_handler!` тестом `src/demo/backend.test.ts`: каждая либо реализована, либо в явном списке заглушек.
@@ -97,6 +97,8 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 
 <!-- ste -->
 - Не используй `git stash`. Почему: `stash pop` двоит блоки и уносит твои правки при `checkout HEAD` после конфликта, а `stash drop` теряет незакоммиченное.
+- Не делай `git add -A`. Почему: он забирает чужие незакоммиченные файлы.
+- Не делай `git add -A ':!node_modules' ':!target'`. Почему: он падает с «The following paths are ignored» и не добавляет ничего.
 - Не запускай `pkill -f`. Почему: шаблон совпадает с командной строкой оболочки и убивает чужие процессы.
 - Не удаляй по маске через `rm -rf`. Почему: маска захватывает больше задуманного, в том числе чужое.
 - Не трогай Xvfb на `:99`. Почему: дисплей общий для соседних сессий и стенда.
@@ -110,8 +112,6 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 
 <!-- ste -->
 - Создавай worktree абсолютным путём. Почему: `git -C <repo> worktree add <относительный>` считает путь от `-C` и кладёт worktree внутрь checkout.
-- Не делай `git add -A`. Почему: он забирает чужие незакоммиченные файлы.
-- Не делай `git add -A ':!node_modules' ':!target'`. Почему: он падает с «The following paths are ignored» и не добавляет ничего.
 - Перечисляй свои пути и смотри `git diff --cached --stat` перед коммитом.
 - Смотри общие файлы (`CHANGELOG`, `PAPERCUTS`, baseline) через `git diff <file>`. Почему: `git add` забирает чужой незакоммиченный кусок.
 - Бери свою часть через `git add -p` или индекс из `HEAD:<file>` плюс свою правку.
@@ -162,19 +162,20 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 - После правки фронтенда (`src/`, `plugins/`, `public/`, конфиги, `docs/frontend-*`, `scripts/frontend-*`, `scripts/check.sh`) гоняй svelte-check, метрики, инварианты, `vitest --changed` и бандл.
 - После правки конфигов eslint, `package*.json`, `tsconfig*`, `vite.config*` гоняй полный `npm run lint`, а не список файлов.
 - После правки `e2e/` гоняй eslint, `node --check` и `vitest run e2e` (тест раннера шагов).
-- Помни: сам e2e в `--changed` не запускается, скрипт пишет это строкой.
+- Сам e2e в `--changed` не запускается, скрипт пишет это строкой.
 - Гоняй для правок только docs и design хук персональных данных.
-- Жди строку «нечего проверять» и код 0, если изменений нет.
-- Не жди от CI вызова `check.sh`: у него свои задачи (`check`, `integration`, `e2e` в трёх частях, `build`, платформенные).
+- Без изменений скрипт пишет «нечего проверять» и выходит с кодом 0.
+- CI не вызывает `check.sh`: у него свои задачи (`check`, `integration`, `e2e` в трёх частях, `build`, платформенные).
 - Гоняй `scripts/check.sh --ci` перед слиянием в `main`.
-- Жди от `--ci` зелёный CI на ветке. Почему: скрипт гоняет статические проверки и юнит-тесты по всему проекту, пушит ветку без force и ждёт её запуск.
+- `--ci` гоняет статические проверки и юнит-тесты по всему проекту, пушит ветку без force и ждёт её CI.
+- Жди от `--ci` зелёный CI на ветке. Почему: красный CI — блокер слияния.
 - Пуши ветку один раз с `-u`, если upstream нет. Почему: без upstream `--ci` пишет, что пушить некуда.
 - Не гоняй полный локальный `scripts/check.sh` ради слияния. Почему: очередь к общему стенду не нужна.
 - Повтори `scripts/check.sh --ci` после rebase на `main`, перед ff. Почему: CI должен быть зелёным на том же коммите, который уходит в `main`.
 - Сверь `headSha` запуска CI с `HEAD`. Почему: зелёный прогон другого коммита ничего не подтверждает.
 - Слей ветку в `main` через rebase и fast-forward.
 - Пуши `main` без force.
-- Ставь `npm ci` в новом worktree первым делом. Почему: копия `node_modules` тоже годится, см. выше.
+- Ставь `npm ci` в новом worktree первым делом. Почему: без `node_modules` проверки падают.
 <!-- /ste -->
 - CI запускается на push любой ветки; новый push в ветку отменяет её прошлый запуск (`main` и `release/**` доигрываются). Тяжёлые платформенные задачи (`e2e-windows`, сборки Windows и macOS, печать на macOS, если она есть) на ветке идут, только если она трогает `crates/`, `src-tauri/` (с его `tauri.conf.json` и иконками), корневые `Cargo.toml` и `Cargo.lock`, `package.json`, `package-lock.json`, `vite.config.*`, `src/lib/drops.ts`, `e2e/drops.mjs`, `e2e/drop-steps.mjs`, `e2e/native-drop.ps1`, `e2e/windows-display.ps1` или `ci.yml`; на `release/**` и `workflow_dispatch` — всегда. На push в `main` ранний джоб `reuse` ищет через API зелёный прогон того же коммита на ветке (`head_sha=$SHA&status=success`): если он есть и в нём прошли платформенные задачи, остальные задачи `main` пропускаются, а прогон зелёный со строкой в summary «тот же коммит проверен в run N»; иначе `main` гоняет всё. Так что после ff в `main` прогон обычно пропускается — это успех, а не ошибка. Новая платформенная задача цепляется к `changes` (`needs: changes`) и к `reuse` (`needs: [changes, reuse]`, `if: ${{ always() && … && needs.reuse.outputs.skip != 'true' }}` — `always()` нужен, иначе пропущенный на ветке `reuse` пропустит и её). e2e Linux в CI разделён на три части (`DEPESHA_E2E_SHARD=1/3…3/3`, разделы в `e2e/shard.mjs`), у каждой свой стенд и профиль; новый раздел сценария заведи файлом `e2e/sections/<имя>.mjs`, отметь его `section("…")` и впиши в `SECTIONS` (`e2e/shard.mjs`).
 - Полный локальный `scripts/check.sh` остаётся для тех, кому он нужен. Часть со стендом (GreenMail, интеграция, e2e) берёт замок `${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock` и, если стенд занят, пишет «стенд занят, жду…» и ждёт. Замок один для всех (`scripts/stand-lock.sh`): `e2e/run.mjs`, `perf.mjs`, `scripts/shots.sh`, `scripts/release-shots.sh`, `scripts/test-update.py` берут его сами, под `check.sh` он уже держится (`DEPESHA_STAND_LOCKED=1`). Своё, что трогает стенд вручную, запускай как `scripts/stand-lock.sh <команда>`, не через внешний `flock`. `--fast`, `--changed` и `--ci` замок не берут. Стенд один, второй прогон рядом ломает оба, поэтому замок не обходи. После `docker compose up` скрипт ждёт не порта, а настоящего входа по IMAP и TLS (`scripts/wait-stand.py`): Dovecot открывает порт раньше, чем отвечает по TLS.
