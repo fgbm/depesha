@@ -54,7 +54,7 @@
   const index = $derived([
     ...buildSettingsIndex(),
     ...app.mailboxes.accounts.map((a) => ({ page: `account:${a.id}`, group: pageTitle("accounts"), section: "", label: accountLabel(a), anchor: null })),
-    ...sections.map((s) => ({ page: "plugins", group: pageTitle("plugins"), section: t("settings.pluginTag"), label: s.item.title(), anchor: null })),
+    ...sections.map((s) => ({ page: "plugins", group: pageTitle("plugins"), section: t("settings.pluginTag"), label: s.item.title(), anchor: `plugin:${s.owner}` })),
   ]);
   const hits = $derived(query.trim() ? searchSettings(index, query) : []);
 
@@ -71,11 +71,15 @@
   /** The row with this id on the open page; none for the first one. */
   const rowEl = (id: string | null) => contentEl?.querySelector<HTMLElement>(id ? `.rw[data-row="${CSS.escape(id)}"]` : ".rw[data-row]") ?? null;
 
+  /** Where an anchor that is no row stands: a field of a page of its own, or a plugin's group. */
+  const fieldSelector = (id: string) =>
+    id.startsWith("plugin:") ? `section[data-plugin="${CSS.escape(id.slice(7))}"]` : `[data-settings="${CSS.escape(id)}"]`;
+
   /** Scrolled to, lit a moment and given the focus: found, so the value can be changed from the keyboard (#102, 4.4 А). */
   async function reveal(id: string) {
     await tick();
     // A page of its own (the people's) marks its fields with `data-settings` and has no rows.
-    const el = rowEl(id) ?? contentEl?.querySelector<HTMLElement>(`[data-settings="${CSS.escape(id)}"]`) ?? null;
+    const el = rowEl(id) ?? contentEl?.querySelector<HTMLElement>(fieldSelector(id)) ?? null;
     if (!el) return;
     el.scrollIntoView({ block: "center" });
     (el.matches(".rw") ? el : el.querySelector<HTMLElement>("input, button"))?.focus();
@@ -272,7 +276,7 @@
             {#each hits as h, i (h.page + ":" + (h.anchor ?? "") + ":" + i)}
               <li>
                 <button class="hit" onclick={() => openHit(h)}>
-                  <span class="grp">{h.group}{#if h.section}<span class="muted"> · {h.section}</span>{/if}</span>
+                  <span class="grp">{h.group}{#if h.section}<span class="muted">&nbsp;·&nbsp;{h.section}</span>{/if}</span>
                   <span class="lbl">{h.label}</span>
                 </button>
               </li>
@@ -292,7 +296,7 @@
           {:else if current === "keys"}
             <KeysPanel draft={app.settingsCtl.settings} />
           {:else if current === "plugins"}
-            <PluginsPanel sections={sections} />
+            <PluginsPanel {sections} {flash} />
           {:else}
             <AccountsPanel {current} {pageAccount} onOpen={backToList} />
           {/if}

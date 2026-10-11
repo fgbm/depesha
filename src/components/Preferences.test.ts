@@ -329,14 +329,16 @@ describe("the window as it is drawn (#165)", () => {
   });
 });
 
-describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
-  // A component is a function of the anchor and the props: this one draws its text before the anchor.
-  const group = (text: string) => ((anchor: Comment) => void anchor.before(document.createTextNode(text))) as never;
-  const ctx = {} as PluginContext;
-  const put = (owner: string, title: string, page?: string, text = title + " body") =>
-    registry.add("settingsSections", owner, { title: () => title, component: group(text), props: { ctx }, ...(page ? { page } : {}) } as never);
+// A component is a function of the anchor and the props: this one draws its text before the anchor.
+const group = (text: string) => ((anchor: Comment) => void anchor.before(document.createTextNode(text))) as never;
+const put = (owner: string, title: string, page?: string, text = title + " body") =>
+  registry.add("settingsSections", owner, { title: () => title, component: group(text), props: { ctx: {} as PluginContext }, ...(page ? { page } : {}) } as never);
 
+/** The groups of the three plugins, two of them naming a page of the old kind; taken away after each test. */
+function pluginGroups() {
   beforeEach(() => {
+    // jsdom has no scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
     put("followups", "Напоминания", "later");
     put("templates", "Шаблоны ответов", "writing");
     put("thirdparty", "Сторонний");
@@ -345,6 +347,10 @@ describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
   afterEach(() => {
     for (const o of ["followups", "templates", "thirdparty"]) registry.removeOwner(o);
   });
+}
+
+describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
+  pluginGroups();
 
   it("shows them on the plugins' page, those that name a page too", () => {
     open("plugins");
@@ -366,6 +372,20 @@ describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
     }
   });
 
+  it("drops a group when its plugin is switched off", () => {
+    open("plugins");
+    expect(target.querySelector("section[data-plugin='templates']")).not.toBeNull();
+    registry.removeOwner("templates");
+    flushSync();
+    expect(target.querySelector("section[data-plugin='templates']")).toBeNull();
+    expect(target.querySelector(".content")!.textContent).not.toContain("Шаблоны ответов body");
+    expect(target.querySelector("section[data-plugin='followups']")).not.toBeNull();
+  });
+});
+
+describe("the search over the plugins' groups (0.8.2)", () => {
+  pluginGroups();
+
   it("finds a plugin's group in the search and opens the plugins' page", async () => {
     open("reading");
     const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
@@ -376,5 +396,29 @@ describe("the plugins' groups stand on the plugins' page (0.8.2)", () => {
     hit.click();
     await vi.waitFor(() => expect(heading()).toBe("Все плагины"));
     expect(target.querySelector(".content")!.textContent).toContain("Напоминания body");
+  });
+
+  it("scrolls to the group the hit names and lights it", async () => {
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    open("reading");
+    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
+    field.value = "напоминания";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Напоминания"))!.click();
+    const grp = () => target.querySelector<HTMLElement>("section[data-plugin='followups']")!;
+    await vi.waitFor(() => expect(scroll.mock.contexts).toContain(grp()));
+    await vi.waitFor(() => expect(grp().classList.contains("flash")).toBe(true));
+    expect(target.querySelector("section[data-plugin='templates']")!.classList.contains("flash")).toBe(false);
+  });
+
+  it("sets the group and the plugin tag apart in a hit by a spaced dot", () => {
+    open("reading");
+    const field = target.querySelector<HTMLInputElement>("input[type=search]")!;
+    field.value = "напоминания";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    const hit = [...target.querySelectorAll<HTMLElement>(".hit")].find((h) => h.textContent?.includes("Напоминания"))!;
+    expect(hit.querySelector(".grp")!.textContent!.replace(/\s/g, " ")).toBe("Все плагины · плагин");
   });
 });

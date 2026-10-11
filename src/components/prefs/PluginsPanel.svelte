@@ -3,14 +3,14 @@
   import type { Owned, SettingsSection } from "../../plugin-host/registry.svelte";
   import Plugins from "../Plugins.svelte";
 
-  // The plugins' page: the manager (`Plugins.svelte`), then the groups of the plugins that name
-  // no page of their own to stand on (#102, 2.4). A group is drawn by the plugin's component.
-  let { sections }: { sections: Owned<SettingsSection>[] } = $props();
+  // The plugins' page: the manager (`Plugins.svelte`), then the groups of all the plugins, built-in
+  // or not (#168). A group is drawn by the plugin's component; a search hit lights it by its owner.
+  let { sections, flash = null }: { sections: Owned<SettingsSection>[]; flash?: string | null } = $props();
 </script>
 
 <Plugins />
 {#each sections as sec (sec)}
-  <section>
+  <section data-plugin={sec.owner} class:flash={flash === `plugin:${sec.owner}`}>
     <h4>{sec.item.title()}<span class="tagp">{t("settings.pluginTag")}</span></h4>
     <sec.item.component {...sec.item.props} />
   </section>
@@ -19,6 +19,11 @@
 <style>
   section {
     margin-top: 22px;
+  }
+
+  section.flash {
+    box-shadow: 0 0 0 2px var(--accent);
+    border-radius: 6px;
   }
 
   h4 {
