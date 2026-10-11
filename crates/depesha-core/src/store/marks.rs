@@ -434,7 +434,7 @@ mod tests {
         );
         assert!(r.marks.is_empty());
         // Refused by the server: no answer went.
-        store.outbox_retry_later(item, 2_000, "refused", true).unwrap();
+        store.outbox_retry_later(item, 2_000, 1_000, "refused", true).unwrap();
         assert_eq!(row(&store, id).outgoing, None);
     }
 

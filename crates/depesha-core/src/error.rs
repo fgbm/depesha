@@ -362,6 +362,30 @@ impl Error {
         }
     }
 
+    /// No address answered in time (not a refusal, not a protocol error once the connection
+    /// opened): the plain network leg of the attempt, the one a blocked port or a dead route
+    /// hits. Told apart from other timeouts so the interface can name the reason plainly once
+    /// it repeats, rather than always reading "the server did not answer in time".
+    pub fn is_connect_timeout(&self) -> bool {
+        matches!(self, Self::Timeout(what) if *what == "connecting")
+    }
+
+    /// The step of the attempt this error reached, named for the log: never the letter or its
+    /// addresses, only where it stopped.
+    pub fn stage(&self) -> &'static str {
+        match self {
+            Self::Timeout("connecting") => "connect",
+            Self::Timeout("server greeting") => "greeting",
+            Self::Timeout(_) => "answer",
+            Self::Io(_) | Self::Closed | Self::Bye(_) => "connect",
+            Self::Tls(_) | Self::Certificate(_) | Self::NoTls => "tls",
+            Self::SmtpHello { .. } => "ehlo",
+            Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) => "auth",
+            Self::Smtp { .. } => "send",
+            _ => "other",
+        }
+    }
+
     /// Worth trying again later rather than giving up on: the errors a return of waiting
     /// letters meets that say "not now" — the mailbox is paused until its settings are
     /// fixed, the login was refused, Exchange is busy, the folder is busy or locked
@@ -786,6 +810,42 @@ mod tests {
         );
         assert_eq!(Error::Timeout("answer").kind(), ErrorKind::Network);
         assert_eq!(Error::Closed.kind(), ErrorKind::Network);
+    }
+
+    #[test]
+    fn a_connect_timeout_is_told_apart_from_other_timeouts() {
+        assert!(Error::Timeout("connecting").is_connect_timeout());
+        assert!(!Error::Timeout("server greeting").is_connect_timeout());
+        assert!(!Error::Closed.is_connect_timeout());
+    }
+
+    #[test]
+    fn the_stage_names_where_the_attempt_stopped() {
+        assert_eq!(Error::Timeout("connecting").stage(), "connect");
+        assert_eq!(Error::Timeout("server greeting").stage(), "greeting");
+        assert_eq!(Error::Timeout("SMTP answer").stage(), "answer");
+        assert_eq!(Error::Closed.stage(), "connect");
+        assert_eq!(Error::NoTls.stage(), "tls");
+        assert_eq!(Error::Auth("no".into()).stage(), "auth");
+        assert_eq!(
+            Error::SmtpHello {
+                name: "x".into(),
+                code: 550,
+                message: "no".into()
+            }
+            .stage(),
+            "ehlo"
+        );
+        assert_eq!(
+            Error::Smtp {
+                code: 550,
+                enhanced: None,
+                message: "no".into()
+            }
+            .stage(),
+            "send"
+        );
+        assert_eq!(Error::NotFound.stage(), "other");
     }
 
     #[test]

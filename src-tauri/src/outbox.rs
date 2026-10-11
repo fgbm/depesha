@@ -175,9 +175,14 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             }
             Attempt::Failed { error, transient } => {
                 blocked = true;
+                // Used to leave no trace at all: one line per attempt, the mailbox by id
+                // (never its address), the server, the stage reached and the kind of error —
+                // never the letter's text or its recipients.
+                log_send_trouble(&item, account.as_ref(), &error, transient);
                 // A retry later is the outbox's business; a refusal waits for the user.
                 if transient {
                     state.task_done(&key);
+                    note_connect_trouble(state, account.as_ref(), &item, &error);
                 } else {
                     let err = CmdError::from(error);
                     state.task_failed(&key, err.clone());
@@ -188,6 +193,56 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
         state.emit("outbox-changed", json!({}));
     }
     Ok(())
+}
+
+/// One line per failed attempt: the mailbox by id (never its address), the server and port it
+/// tried, the TLS mode, the step it reached and the kind of error — never the letter's text,
+/// its recipients or the account's password. Used to grep for a mailbox's trouble in the log.
+fn log_send_trouble(item: &OutboxItem, account: Option<&Account>, error: &depesha_core::Error, transient: bool) {
+    let (host, port, tls) = account
+        .map(|a| (a.smtp.host.as_str(), a.smtp.port, a.smtp.security))
+        .unwrap_or(("", 0, depesha_core::account::Security::Tls));
+    tracing::warn!(
+        account = %item.account_id,
+        host,
+        port,
+        tls = ?tls,
+        attempt = item.attempts + 1,
+        stage = error.stage(),
+        transient,
+        error = %error,
+        "outbox: send attempt failed"
+    );
+}
+
+/// After the sending server stops answering in time several attempts running, the plain
+/// "the server did not answer in time" is replaced by one naming the address and the likely
+/// cause: a network that blocks the port, not Depesha (reported after a user could not tell
+/// one from the other on a Wi-Fi that drops the outgoing port in silence). `attempts` is the
+/// count of failures counting this one, so the streak only counts attempts the mailbox made
+/// without the user changing anything in between (`outbox_requeue` does not reset it).
+const CONNECT_FAILURE_STREAK: u32 = 3;
+
+/// `None` unless this failure is worth replacing the plain wording for — pure, so it is tested
+/// without a mailbox or a store.
+fn connect_trouble_text(error: &depesha_core::Error, attempts: u32, host: &str, port: u16) -> Option<String> {
+    if !error.is_connect_timeout() || attempts < CONNECT_FAILURE_STREAK {
+        return None;
+    }
+    Some(tr!(
+        "can't connect to {host}:{port} — the server is unreachable from this network",
+        "не удаётся подключиться к {host}:{port} — сервер недоступен из этой сети"
+    ))
+}
+
+fn note_connect_trouble(state: &AppState, account: Option<&Account>, item: &OutboxItem, error: &depesha_core::Error) {
+    let Some(account) = account else { return };
+    let Some(text) = connect_trouble_text(error, item.attempts + 1, &account.smtp.host, account.smtp.port) else {
+        return;
+    };
+    if let Err(e) = state.store.outbox_set_last_error(item.id, &text) {
+        tracing::warn!("outbox: {e}");
+    }
 }
 
 /// The port of the sender over SMTP, or Exchange Web Services when the mailbox is one: the
@@ -400,6 +455,23 @@ mod tests {
         assert_eq!(super::refusal_delay(1), 30 * 60);
         assert_eq!(super::refusal_delay(3), 6 * 3_600);
         unsafe { std::env::remove_var("DEPESHA_E2E_COPY_BACKOFF") };
+    }
+
+    /// The plain wording stays until the connect timeout has repeated a few times running; a
+    /// one-off, or a different kind of failure, is left as the server worded it.
+    #[test]
+    fn a_repeated_connect_timeout_gets_the_plainer_wording() {
+        let timeout = depesha_core::Error::Timeout("connecting");
+        assert!(connect_trouble_text(&timeout, 1, "smtp.yandex.ru", 465).is_none());
+        assert!(connect_trouble_text(&timeout, 2, "smtp.yandex.ru", 465).is_none());
+        let text = connect_trouble_text(&timeout, 3, "smtp.yandex.ru", 465).unwrap();
+        assert!(text.contains("smtp.yandex.ru:465"), "{text}");
+        assert!(
+            text.contains("unreachable from this network") || text.contains("недоступен из этой сети"),
+            "{text}"
+        );
+        // A refusal is not a connect timeout: it keeps its own wording, however often it repeats.
+        assert!(connect_trouble_text(&depesha_core::Error::Closed, 10, "h", 1).is_none());
     }
 
     fn held(filed: bool) -> StuckCopy {

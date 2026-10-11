@@ -758,11 +758,40 @@ fn hostname() -> Option<String> {
         .or_else(|| std::env::var("HOSTNAME").ok())
 }
 
+/// Resolves and connects within one budget (`CONNECT_TIMEOUT`, as before): a dead address
+/// among several (IPv6 with no route, a port a firewall drops) used to eat the whole budget
+/// by itself, with nothing in the log to say so. The addresses the resolver gave are logged
+/// on failure — IPs only, never anything about the letter — so a network that blocks the
+/// server can be told apart from one that is simply down.
+async fn connect(server: &ServerConfig) -> Result<TcpStream> {
+    let attempt = async {
+        let addrs: Vec<SocketAddr> = tokio::net::lookup_host((server.host.as_str(), server.port))
+            .await?
+            .collect();
+        let tcp = TcpStream::connect(addrs.as_slice()).await;
+        Ok::<_, std::io::Error>((addrs, tcp))
+    };
+    match timeout(CONNECT_TIMEOUT, attempt).await {
+        Err(_) => {
+            tracing::warn!(host = %server.host, port = server.port, stage = "connect", "smtp: the server did not answer in time");
+            Err(Error::Timeout("connecting"))
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(host = %server.host, port = server.port, stage = "resolve", error = %e, "smtp: could not resolve the server");
+            Err(e.into())
+        }
+        Ok(Ok((_, Ok(tcp)))) => Ok(tcp),
+        Ok(Ok((addrs, Err(e)))) => {
+            let tried: Vec<String> = addrs.iter().map(|a| a.ip().to_string()).collect();
+            tracing::warn!(host = %server.host, port = server.port, stage = "connect", addrs = ?tried, error = %e, "smtp: could not connect");
+            Err(e.into())
+        }
+    }
+}
+
 /// Connects, upgrades to TLS as configured and logs in when credentials are given.
 async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Conn, SmtpCaps)> {
-    let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((server.host.as_str(), server.port)))
-        .await
-        .map_err(|_| Error::Timeout("connecting"))??;
+    let tcp = connect(server).await?;
     crate::net::keepalive(&tcp);
     let pinned = server.trusted_cert.as_deref();
     let name = ehlo_name(hostname().as_deref(), tcp.local_addr().ok());

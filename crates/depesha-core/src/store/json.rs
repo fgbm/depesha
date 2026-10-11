@@ -239,7 +239,7 @@ mod tests {
         let id = store
             .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
             .unwrap();
-        store.outbox_retry_later(id, 200, "no such user", true).unwrap();
+        store.outbox_retry_later(id, 200, 150, "no such user", true).unwrap();
         assert!(store.outbox().unwrap()[0].failed);
         assert!(!store.outbox_discard(id).unwrap());
         assert_eq!(rows(&store, "outbox"), 1, "the row stays");

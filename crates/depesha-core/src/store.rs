@@ -84,6 +84,7 @@ const MIGRATIONS: &[Step] = &[
     v25_importance,
     v26_backfills,
     waiting::v27_stop_undo,
+    v28_outbox_resend_requested,
 ];
 
 /// Tables as step 1 creates them; later columns are added by their steps. Caches of the
@@ -498,6 +499,15 @@ fn v26_backfills(conn: &Connection) -> Result<()> {
             done   INTEGER NOT NULL DEFAULT 0
         );",
     )?;
+    Ok(())
+}
+
+/// 28: a «send now» that lands while the letter is already on the wire is not lost: it marks
+/// the row instead of resetting `sending_started` under the attempt's feet, and the attempt's
+/// own failure, once it settles, retries at once rather than waiting out its backoff
+/// (`Store::outbox_requeue`, `Store::outbox_retry_later`).
+fn v28_outbox_resend_requested(conn: &Connection) -> Result<()> {
+    add_column(conn, "outbox", "resend_requested", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
@@ -2620,19 +2630,55 @@ impl Store {
         Ok(draft)
     }
 
-    pub fn outbox_retry_later(&self, id: i64, next_attempt: i64, error: &str, permanent: bool) -> Result<()> {
+    /// Settles a failed attempt: `next_attempt` is the backoff the caller computed, `now` the
+    /// plain clock at the moment it settled. When a «send now» landed while this very letter
+    /// was on the wire (`outbox_requeue` could not reset `sending_started` and left
+    /// `resend_requested` instead), the backoff is not honoured: the letter is due at `now`,
+    /// so the request is not lost under the attempt's own schedule.
+    pub fn outbox_retry_later(&self, id: i64, next_attempt: i64, now: i64, error: &str, permanent: bool) -> Result<()> {
         self.conn().execute(
-            "UPDATE outbox SET attempts = attempts + 1, next_attempt = ?2, last_error = ?3, failed = ?4, sending_started = 0 WHERE id = ?1",
-            params![id, next_attempt, error, permanent],
+            "UPDATE outbox SET
+                attempts = attempts + 1,
+                next_attempt = CASE WHEN resend_requested = 1 THEN ?5 ELSE ?2 END,
+                last_error = ?3,
+                failed = ?4,
+                sending_started = 0,
+                resend_requested = 0
+             WHERE id = ?1",
+            params![id, next_attempt, error, permanent, now],
         )?;
         Ok(())
     }
 
-    pub fn outbox_requeue(&self, id: i64, now: i64) -> Result<()> {
-        self.conn().execute(
-            "UPDATE outbox SET failed = 0, next_attempt = ?2, sending_started = 0 WHERE id = ?1",
+    /// «Send now»: due at once, unless the letter is already on the wire. A send marks
+    /// `sending_started` before it leaves and only its own settling clears it
+    /// (`outbox_sending`, `outbox_retry_later`); resetting it here too, underneath that
+    /// attempt, would let it and a next round both claim the letter. So when one is under
+    /// way this does not touch the row's schedule: it only asks that, once the attempt
+    /// settles, it retries at once rather than waiting out its backoff (`resend_requested`,
+    /// read by `outbox_retry_later`). `true`: requeued at once; `false`: remembered for when
+    /// the attempt in flight settles, or there was no such row.
+    pub fn outbox_requeue(&self, id: i64, now: i64) -> Result<bool> {
+        let conn = self.conn();
+        let requeued = conn.execute(
+            "UPDATE outbox SET failed = 0, next_attempt = ?2, sending_started = 0, resend_requested = 0
+             WHERE id = ?1 AND sending_started = 0",
             params![id, now],
-        )?;
+        )? == 1;
+        if !requeued {
+            conn.execute(
+                "UPDATE outbox SET resend_requested = 1 WHERE id = ?1 AND sending_started > 0",
+                params![id],
+            )?;
+        }
+        Ok(requeued)
+    }
+
+    /// Replaces the words of a letter's last failure after the fact (the user's language, a
+    /// clearer reason once a kind of failure repeats): the row itself is untouched otherwise.
+    pub fn outbox_set_last_error(&self, id: i64, text: &str) -> Result<()> {
+        self.conn()
+            .execute("UPDATE outbox SET last_error = ?2 WHERE id = ?1", params![id, text])?;
         Ok(())
     }
 
@@ -3839,12 +3885,29 @@ mod tests {
         assert!(store.outbox_sending(id, 150).unwrap().is_some());
         assert_eq!(store.outbox().unwrap()[0].sending_started, 150);
         // A retry later ends the send and clears the mark.
-        store.outbox_retry_later(id, 200, "network", false).unwrap();
+        store.outbox_retry_later(id, 200, 180, "network", false).unwrap();
         assert_eq!(store.outbox().unwrap()[0].sending_started, 0);
-        // Sending now clears it too.
+        // «Send now» clears it too, once nothing is in flight.
         store.outbox_sending(id, 300).unwrap();
-        store.outbox_requeue(id, 400).unwrap();
+        store.outbox_retry_later(id, 320, 310, "network", false).unwrap();
+        assert!(store.outbox_requeue(id, 400).unwrap());
         assert_eq!(store.outbox().unwrap()[0].sending_started, 0);
+        // «Send now» landing while the letter is on the wire does not clear the mark from
+        // under the attempt (that would let it and the attempt both claim the letter): it is
+        // remembered instead, and honoured once the attempt settles.
+        store.outbox_sending(id, 500).unwrap();
+        assert!(!store.outbox_requeue(id, 600).unwrap());
+        assert_eq!(
+            store.outbox().unwrap()[0].sending_started,
+            500,
+            "not cleared out from under the attempt"
+        );
+        store.outbox_retry_later(id, 900, 650, "network", false).unwrap();
+        assert_eq!(
+            store.outbox().unwrap()[0].next_attempt,
+            650,
+            "the request is not lost under the attempt's own backoff"
+        );
     }
 
     #[test]
