@@ -3296,7 +3296,11 @@ pub fn outbox(state: St<'_>) -> CmdResult<Vec<OutboxItem>> {
 
 #[tauri::command(async)]
 pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
-    state.store.outbox_requeue(id, chrono::Utc::now().timestamp())?;
+    if !state.store.outbox_requeue(id, chrono::Utc::now().timestamp())? {
+        // Already on the wire: the request is remembered so the outbox round honours it once
+        // that attempt settles, instead of waiting out its own backoff (#173).
+        crate::state::lock(&state.resend_requested).insert(id);
+    }
     state.outbox_notify.notify_one();
     state.emit("outbox-changed", serde_json::json!({}));
     Ok(())

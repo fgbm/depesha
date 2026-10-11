@@ -26,6 +26,9 @@ enum Script {
     SmallSize,
     /// Accepts everything; records the DATA it got.
     Accept,
+    /// Accepts the DATA command, then drops the connection without a final reply: a connection
+    /// that breaks partway through sending, not at connect.
+    DropDuringData,
 }
 
 async fn fake_exchange(script: Script) -> (u16, tokio::task::JoinHandle<Vec<String>>) {
@@ -45,6 +48,9 @@ async fn fake_exchange(script: Script) -> (u16, tokio::task::JoinHandle<Vec<Stri
             seen.push(line.clone());
             if in_data {
                 if line == "." {
+                    if matches!(script, Script::DropDuringData) {
+                        break;
+                    }
                     in_data = false;
                     w.write_all(b"250 2.6.0 <id@mail.example.com> Queued mail for delivery\r\n")
                         .await
@@ -174,6 +180,20 @@ async fn size_limit_is_checked_before_sending() {
         .await
         .unwrap_err();
     assert_eq!(err.kind(), depesha_core::ErrorKind::TooLarge, "{err}");
+}
+
+/// The stage the log keeps is where the attempt actually was, not a guess from the kind of
+/// error: a connection that drops mid-DATA is a failure of "send", never "connect" — they would
+/// read the same error (a broken pipe) if the stage were derived from it after the fact.
+#[tokio::test]
+async fn a_broken_connection_during_data_is_told_from_one_at_connect() {
+    let (port, _) = fake_exchange(Script::DropDuringData).await;
+    let stage = smtp::Stage::new();
+    let err = smtp::send_with_stage(&plain(port), &creds(), &smtp::build(&draft()).unwrap(), &stage)
+        .await
+        .unwrap_err();
+    assert!(err.is_transient(), "{err}");
+    assert_eq!(stage.get(), "send");
 }
 
 #[tokio::test]

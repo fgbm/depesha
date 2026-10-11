@@ -52,12 +52,25 @@ pub async fn check(account: &Account, creds: &Credentials) -> Result<(), (&'stat
 
 /// Sends a message: SMTP, or EWS with the copy in Sent Items made by the server.
 pub async fn send(account: &Account, creds: &Credentials, msg: &lettre::Message) -> Result<Vec<u8>> {
+    send_with_stage(account, creds, msg, &smtp::Stage::new()).await
+}
+
+/// Like `send`, but also tells the caller which step the attempt reached when it failed
+/// (`smtp::send_with_stage`); EWS has no such detail yet, so its `stage` always reads "send"
+/// once past the connect.
+pub async fn send_with_stage(
+    account: &Account,
+    creds: &Credentials,
+    msg: &lettre::Message,
+    stage: &smtp::Stage,
+) -> Result<Vec<u8>> {
     match &account.ews {
         Some(cfg) => {
             let mut s = ews::connect(cfg, creds, &account.email).await?;
+            stage.set("send");
             ews::send(&mut s, msg).await
         }
-        None => smtp::send(&account.smtp, creds, msg).await,
+        None => smtp::send_with_stage(&account.smtp, creds, msg, stage).await,
     }
 }
 

@@ -115,6 +115,9 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
                 0,
                 0,
             );
+            // The letter is marked and about to leave: the Outbox shows "Sending…" from this
+            // moment, not only once the attempt settles, which could be twenty seconds later.
+            state.emit("outbox-changed", json!({}));
         };
         let mut aborted = || state.task_done(&key);
         let progress = outbox::Progress {
@@ -122,11 +125,22 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             aborted: &mut aborted,
             words: &crate::localize::Phrases,
         };
-        let attempt = outbox::attempt(&state.store, &item, account.as_ref(), blocked, now, progress, |a| {
-            MailSender {
-                state: state.clone(),
-                account: a.clone(),
-            }
+        // Built once, outside the closure `attempt` calls: its `stage` is read below, after
+        // `attempt` is done with it, to say where a failure happened (`smtp::open`/`send`),
+        // not guessed from the kind of error (a dropped connection reads the same at the
+        // greeting as at DATA).
+        let stage = smtp::Stage::new();
+        let mut mail_sender = account.clone().map(|a| MailSender {
+            state: state.clone(),
+            account: a,
+            stage: &stage,
+        });
+        let attempt = outbox::attempt(&state.store, &item, account.as_ref(), blocked, now, progress, |_| {
+            #[allow(
+                clippy::expect_used,
+                reason = "`attempt` calls this only once a mailbox was found, which is when `mail_sender` was made"
+            )]
+            mail_sender.as_mut().expect("a mailbox was found")
         })
         .await?;
         match attempt {
@@ -175,14 +189,24 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
             }
             Attempt::Failed { error, transient } => {
                 blocked = true;
-                // Used to leave no trace at all: one line per attempt, the mailbox by id
-                // (never its address), the server, the stage reached and the kind of error —
-                // never the letter's text or its recipients.
-                log_send_trouble(&item, account.as_ref(), &error, transient);
+                // Used to leave no trace at all: one line per attempt, the mailbox by a short
+                // hash (never its address), the server, the step `smtp::open`/`send` actually
+                // reached and the kind of error — never the letter's text or its recipients.
+                log_send_trouble(&item, account.as_ref(), &error, transient, stage.get());
+                note_connect_trouble(state, account.as_ref(), &item, &error);
                 // A retry later is the outbox's business; a refusal waits for the user.
                 if transient {
                     state.task_done(&key);
-                    note_connect_trouble(state, account.as_ref(), &item, &error);
+                    // A «send now» that landed while this very attempt was on the wire could
+                    // not requeue it (`outbox_requeue` returned `false`): the attempt has just
+                    // settled with its own backoff, and the request is honoured now instead of
+                    // being lost under it.
+                    if crate::state::lock(&state.resend_requested).remove(&item.id) {
+                        match state.store.outbox_requeue(item.id, now) {
+                            Ok(_) => state.outbox_notify.notify_one(),
+                            Err(e) => tracing::warn!("outbox: {e}"),
+                        }
+                    }
                 } else {
                     let err = CmdError::from(error);
                     state.task_failed(&key, err.clone());
@@ -195,22 +219,84 @@ async fn send_account(state: &Arc<AppState>, items: Vec<OutboxItem>) -> Result<(
     Ok(())
 }
 
-/// One line per failed attempt: the mailbox by id (never its address), the server and port it
-/// tried, the TLS mode, the step it reached and the kind of error — never the letter's text,
-/// its recipients or the account's password. Used to grep for a mailbox's trouble in the log.
-fn log_send_trouble(item: &OutboxItem, account: Option<&Account>, error: &depesha_core::Error, transient: bool) {
-    let (host, port, tls) = account
-        .map(|a| (a.smtp.host.as_str(), a.smtp.port, a.smtp.security))
-        .unwrap_or(("", 0, depesha_core::account::Security::Tls));
-    tracing::warn!(
-        account = %item.account_id,
+/// What the log keeps of a failed attempt: never the mailbox's address, the server's own
+/// wording of an SMTP reply (it may quote an address, e.g. "<x@y> rejected"), the letter or its
+/// recipients — only what tells one failing mailbox from another and what kind of trouble it
+/// was. A pure function (`send_trouble_fields`) so it is tested without a store or a mailbox.
+struct SendTroubleFields {
+    /// A short, stable stand-in for the account id, which is `email-timestamp` (`account_save`):
+    /// never the id itself.
+    mailbox: String,
+    host: String,
+    port: u16,
+    tls: &'static str,
+    error: String,
+}
+
+fn send_trouble_fields(account_id: &str, account: Option<&Account>, error: &depesha_core::Error) -> SendTroubleFields {
+    let (host, port, tls) = match account {
+        Some(a) => (a.smtp.host.clone(), a.smtp.port, tls_name(a.smtp.security)),
+        None => (String::new(), 0, "-"),
+    };
+    SendTroubleFields {
+        mailbox: mailbox_hash(account_id),
         host,
         port,
-        tls = ?tls,
+        tls,
+        error: error_summary(error),
+    }
+}
+
+fn tls_name(security: depesha_core::account::Security) -> &'static str {
+    use depesha_core::account::Security;
+    match security {
+        Security::Tls => "tls",
+        Security::StartTls => "starttls",
+        Security::Plain => "plain",
+    }
+}
+
+/// A short, non-reversible stand-in for an account id, so the same mailbox's lines can be told
+/// apart in the log without naming it: the id itself is `email-timestamp` (`account_save`).
+fn mailbox_hash(account_id: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    account_id.hash(&mut hasher);
+    format!("{:08x}", hasher.finish() as u32)
+}
+
+/// The error, worded for the log: an SMTP reply keeps only its code and enhanced code, never
+/// the server's own text, which may quote the letter's own addresses back (`550 <x@y> rejected`).
+fn error_summary(error: &depesha_core::Error) -> String {
+    match error {
+        depesha_core::Error::Smtp { code, enhanced, .. } => match enhanced {
+            Some(enhanced) => format!("smtp {code} {enhanced}"),
+            None => format!("smtp {code}"),
+        },
+        other => other.to_string(),
+    }
+}
+
+/// One line per failed attempt: the mailbox by a short hash (never its address), the server and
+/// port it tried, the TLS mode, the step `smtp::open`/`send` actually reached (not guessed from
+/// the kind of error) and the kind of error — never the letter's text or its recipients.
+fn log_send_trouble(
+    item: &OutboxItem,
+    account: Option<&Account>,
+    error: &depesha_core::Error,
+    transient: bool,
+    stage: &'static str,
+) {
+    let f = send_trouble_fields(&item.account_id, account, error);
+    tracing::warn!(
+        mailbox = f.mailbox,
+        host = f.host,
+        port = f.port,
+        tls = f.tls,
         attempt = item.attempts + 1,
-        stage = error.stage(),
+        stage,
         transient,
-        error = %error,
+        error = f.error,
         "outbox: send attempt failed"
     );
 }
@@ -218,26 +304,43 @@ fn log_send_trouble(item: &OutboxItem, account: Option<&Account>, error: &depesh
 /// After the sending server stops answering in time several attempts running, the plain
 /// "the server did not answer in time" is replaced by one naming the address and the likely
 /// cause: a network that blocks the port, not Depesha (reported after a user could not tell
-/// one from the other on a Wi-Fi that drops the outgoing port in silence). `attempts` is the
-/// count of failures counting this one, so the streak only counts attempts the mailbox made
-/// without the user changing anything in between (`outbox_requeue` does not reset it).
+/// one from the other on a Wi-Fi that drops the outgoing port in silence). Counted in memory,
+/// not by `attempts` (which counts every kind of failure): any other kind of trouble, DNS
+/// included, breaks the streak, so a one-off blip among connect timeouts does not count double.
 const CONNECT_FAILURE_STREAK: u32 = 3;
 
-/// `None` unless this failure is worth replacing the plain wording for — pure, so it is tested
-/// without a mailbox or a store.
-fn connect_trouble_text(error: &depesha_core::Error, attempts: u32, host: &str, port: u16) -> Option<String> {
-    if !error.is_connect_timeout() || attempts < CONNECT_FAILURE_STREAK {
+/// The streak after this error: one more if it is a connect timeout, zero for anything else
+/// (including none at all, and a DNS failure, which is its own stage, `resolve`, not `connect`).
+/// Pure, so the streak's rules are tested without a mailbox or a store.
+fn update_connect_streak(streak: u32, error: &depesha_core::Error) -> u32 {
+    if error.is_connect_timeout() { streak + 1 } else { 0 }
+}
+
+/// `None` unless the streak given is long enough to replace the plain wording — pure, so it is
+/// tested without a mailbox or a store.
+fn connect_trouble_text(streak: u32, host: &str, port: u16) -> Option<String> {
+    if streak < CONNECT_FAILURE_STREAK {
         return None;
     }
     Some(tr!(
-        "can't connect to {host}:{port} — the server is unreachable from this network",
-        "не удаётся подключиться к {host}:{port} — сервер недоступен из этой сети"
+        "can't connect to {host}:{port} — the network may be blocking this port, or the server may be unreachable",
+        "не удаётся подключиться к {host}:{port} — возможно, сеть блокирует этот порт, или сервер недоступен"
     ))
 }
 
 fn note_connect_trouble(state: &AppState, account: Option<&Account>, item: &OutboxItem, error: &depesha_core::Error) {
+    let streak = {
+        let mut streaks = crate::state::lock(&state.connect_timeout_streak);
+        let streak = update_connect_streak(streaks.get(&item.id).copied().unwrap_or(0), error);
+        if streak == 0 {
+            streaks.remove(&item.id);
+        } else {
+            streaks.insert(item.id, streak);
+        }
+        streak
+    };
     let Some(account) = account else { return };
-    let Some(text) = connect_trouble_text(error, item.attempts + 1, &account.smtp.host, account.smtp.port) else {
+    let Some(text) = connect_trouble_text(streak, &account.smtp.host, account.smtp.port) else {
         return;
     };
     if let Err(e) = state.store.outbox_set_last_error(item.id, &text) {
@@ -247,19 +350,24 @@ fn note_connect_trouble(state: &AppState, account: Option<&Account>, item: &Outb
 
 /// The port of the sender over SMTP, or Exchange Web Services when the mailbox is one: the
 /// message is built here, and the credentials (kept in the keyring, or refreshed for OAuth)
-/// are the app's.
-struct MailSender {
+/// are the app's. `stage` is set as the attempt goes, so the caller can log where a failure
+/// happened once this is done with it.
+struct MailSender<'a> {
     state: Arc<AppState>,
     account: Account,
+    stage: &'a smtp::Stage,
 }
 
-impl depesha_core::port::Sender for MailSender {
+impl depesha_core::port::Sender for MailSender<'_> {
     async fn send(&mut self, draft: &depesha_core::domain::Draft) -> depesha_core::Result<Vec<u8>> {
         let msg = smtp::build(draft)?;
         let account = &self.account;
         let msg = &msg;
+        let stage = self.stage;
         self.state
-            .with_credentials(account, |creds| async move { mail::send(account, &creds, msg).await })
+            .with_credentials(account, |creds| async move {
+                mail::send_with_stage(account, &creds, msg, stage).await
+            })
             .await
     }
 }
@@ -457,21 +565,106 @@ mod tests {
         unsafe { std::env::remove_var("DEPESHA_E2E_COPY_BACKOFF") };
     }
 
-    /// The plain wording stays until the connect timeout has repeated a few times running; a
-    /// one-off, or a different kind of failure, is left as the server worded it.
+    /// Only connect timeouts truly in a row get the plainer wording: a different kind of
+    /// trouble in between (even one that repeats) breaks the streak, so two unrelated failures
+    /// followed by a single timeout read as "one", not "three".
     #[test]
-    fn a_repeated_connect_timeout_gets_the_plainer_wording() {
+    fn only_connect_timeouts_truly_in_a_row_get_the_plainer_wording() {
         let timeout = depesha_core::Error::Timeout("connecting");
-        assert!(connect_trouble_text(&timeout, 1, "smtp.yandex.ru", 465).is_none());
-        assert!(connect_trouble_text(&timeout, 2, "smtp.yandex.ru", 465).is_none());
-        let text = connect_trouble_text(&timeout, 3, "smtp.yandex.ru", 465).unwrap();
+        let mut streak = 0;
+        for e in [
+            depesha_core::Error::Closed,
+            depesha_core::Error::Closed,
+            timeout.clone(),
+        ] {
+            streak = update_connect_streak(streak, &e);
+        }
+        assert!(
+            connect_trouble_text(streak, "smtp.yandex.ru", 465).is_none(),
+            "two unrelated failures do not count toward the streak"
+        );
+        let mut streak = 0;
+        for _ in 0..3 {
+            streak = update_connect_streak(streak, &timeout);
+        }
+        let text = connect_trouble_text(streak, "smtp.yandex.ru", 465).unwrap();
         assert!(text.contains("smtp.yandex.ru:465"), "{text}");
         assert!(
-            text.contains("unreachable from this network") || text.contains("недоступен из этой сети"),
+            text.contains("may be blocking this port") || text.contains("блокирует этот порт"),
             "{text}"
         );
         // A refusal is not a connect timeout: it keeps its own wording, however often it repeats.
-        assert!(connect_trouble_text(&depesha_core::Error::Closed, 10, "h", 1).is_none());
+        let mut streak = 0;
+        for _ in 0..10 {
+            streak = update_connect_streak(streak, &depesha_core::Error::Closed);
+        }
+        assert!(connect_trouble_text(streak, "h", 1).is_none());
+    }
+
+    /// Account ids are `email-timestamp` (`account_save`): nothing the log keeps of a failed
+    /// attempt may carry the `@` that gives the mailbox away, and an SMTP reply's own text
+    /// (which may quote a recipient back) is dropped, kept to its code.
+    #[test]
+    fn the_fields_of_a_send_trouble_have_no_address() {
+        let account: Account = serde_json::from_str(
+            r#"{"id":"a@b.ru-1","display_name":"J","email":"a@b.ru","username":"a@b.ru",
+                "imap":{"host":"imap.example.com","port":993,"security":"tls"},
+                "smtp":{"host":"smtp.example.com","port":465,"security":"tls"},
+                "save_sent_copy":true}"#,
+        )
+        .unwrap();
+        let error = depesha_core::Error::Smtp {
+            code: 550,
+            enhanced: None,
+            message: "<x@y.ru> rejected".into(),
+        };
+        let f = send_trouble_fields("a@b.ru-1", Some(&account), &error);
+        let joined = format!("{} {} {} {} {}", f.mailbox, f.host, f.port, f.tls, f.error);
+        assert!(!joined.contains('@'), "{joined}");
+        assert_eq!(f.error, "smtp 550", "no server text, which may quote an address");
+        assert_eq!((f.host.as_str(), f.port, f.tls), ("smtp.example.com", 465, "tls"));
+        // Enhanced codes are kept: they are ours to read, not the server's free text.
+        let enhanced = depesha_core::Error::Smtp {
+            code: 421,
+            enhanced: Some("4.4.2".into()),
+            message: "<a@b> too many".into(),
+        };
+        assert_eq!(send_trouble_fields("x", None, &enhanced).error, "smtp 421 4.4.2");
+    }
+
+    /// The flow `outbox_retry` and `send_account` follow together without a database column:
+    /// a «send now» that cannot requeue (the letter is on the wire) is remembered in memory,
+    /// and once the attempt in flight settles with a transient failure, the memory of it is
+    /// spent on an immediate requeue — the backoff `outbox_retry_later` just applied is
+    /// overridden, not left to strand the user's request.
+    #[test]
+    fn a_pending_resend_is_honoured_once_the_attempt_in_flight_settles() {
+        let store = depesha_core::store::Store::open_in_memory().unwrap();
+        let id = store
+            .outbox_add("a", &Default::default(), 1, 100, 0, &Default::default())
+            .unwrap();
+        // The round claims the letter: it is on the wire.
+        assert!(store.outbox_sending(id, 100).unwrap().is_some());
+        // "Send now" lands while it is in flight: `outbox_retry` could not requeue it directly.
+        let mut resend_requested: std::collections::HashSet<i64> = Default::default();
+        assert!(!store.outbox_requeue(id, 110).unwrap());
+        resend_requested.insert(id);
+        // The attempt settles with a transient failure and applies its own backoff.
+        store.outbox_retry_later(id, 130, "timeout", false).unwrap();
+        assert_eq!(
+            store.outbox().unwrap()[0].next_attempt,
+            130,
+            "the backoff, before it is honoured"
+        );
+        // `send_account` sees `Attempt::Failed { transient: true, .. }` and honours the request.
+        if resend_requested.remove(&id) {
+            assert!(store.outbox_requeue(id, 150).unwrap());
+        }
+        assert_eq!(
+            store.outbox().unwrap()[0].next_attempt,
+            150,
+            "the manual retry is not lost to the attempt's own backoff"
+        );
     }
 
     fn held(filed: bool) -> StuckCopy {

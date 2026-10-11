@@ -97,7 +97,7 @@ pub fn hold_missed(store: &Store, now: i64, awake_since: i64, words: &dyn Words)
         .collect();
     let why = words.not_on_time();
     for id in &late {
-        store.outbox_retry_later(*id, now, now, &why, true)?;
+        store.outbox_retry_later(*id, now, &why, true)?;
     }
     Ok(late)
 }
@@ -114,7 +114,7 @@ pub fn hold_interrupted(store: &Store, now: i64, words: &dyn Words) -> Result<bo
         .collect();
     let why = words.possibly_sent();
     for id in &interrupted {
-        store.outbox_retry_later(*id, now, now, &why, true)?;
+        store.outbox_retry_later(*id, now, &why, true)?;
     }
     Ok(!interrupted.is_empty())
 }
@@ -221,11 +221,11 @@ pub async fn attempt<S: Sender>(
     // A send that started but whose row was not removed (the removal failed after a good send)
     // may have left: do not send it again, the user checks «Sent».
     if item.sending_started > 0 {
-        store.outbox_retry_later(item.id, now, now, &words.possibly_sent(), true)?;
+        store.outbox_retry_later(item.id, now, &words.possibly_sent(), true)?;
         return Ok(Attempt::Held(Hold::PossiblySent));
     }
     let Some(account) = account else {
-        store.outbox_retry_later(item.id, now, now, &words.account_removed(), true)?;
+        store.outbox_retry_later(item.id, now, &words.account_removed(), true)?;
         return Ok(Attempt::Held(Hold::NoAccount));
     };
     // Taken before the letter leaves, with the draft as the cache has it: a quit between here
@@ -241,7 +241,7 @@ pub async fn attempt<S: Sender>(
             Err(error) => {
                 let transient = error.is_transient();
                 let delay = retry_delay(item.attempts, &error);
-                store.outbox_retry_later(item.id, now + delay, now, &words.failure(&error), !transient)?;
+                store.outbox_retry_later(item.id, now + delay, &words.failure(&error), !transient)?;
                 Ok(Attempt::Failed { error, transient })
             }
         }
@@ -649,6 +649,40 @@ mod tests {
         assert!(copy.pending.is_none());
     }
 
+    /// `progress.starting` — which the app wires to the "outbox-changed" event the Outbox
+    /// window hears — runs before the letter is actually handed to the sender: the user sees
+    /// "Sending…" from the moment it is certain to leave, not only once the attempt (up to 20 s
+    /// of connecting) has already settled.
+    #[tokio::test]
+    async fn the_caller_is_told_the_letter_is_leaving_before_it_is_sent() {
+        let store = store();
+        let item = queued(&store, 5, 0);
+        let acct = account(true, false);
+        let told = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let probe_told = told.clone();
+        let mut sender = FakeSender {
+            probe: Some(Box::new(move |_| {
+                assert!(
+                    probe_told.load(std::sync::atomic::Ordering::SeqCst),
+                    "starting() must run before send()"
+                );
+            })),
+            ..Default::default()
+        };
+        let mut starting = || told.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut aborted = || panic!("a good send does not abort");
+        let progress = Progress {
+            starting: &mut starting,
+            aborted: &mut aborted,
+            words: &English,
+        };
+        let got = attempt(&store, &item, Some(&acct), false, 100, progress, |_| &mut sender)
+            .await
+            .unwrap();
+        assert!(matches!(got, Attempt::Delivered(_)));
+        assert!(told.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
     #[tokio::test]
     async fn a_wait_for_a_reply_is_held_for_the_copy_that_lands_first() {
         let store = store();
@@ -744,12 +778,13 @@ mod tests {
         }
     }
 
-    /// «Send now» for a letter already on the wire cannot requeue it at once (`sending_started`
-    /// is still set): without the fix the click had no visible effect, because the attempt's own
-    /// failure, settling after it, overwrote the row with its own backoff. The click's request
-    /// is remembered (`resend_requested`) and honoured instead.
+    /// «Send now» for a letter already on the wire cannot requeue it at once: `sending_started`
+    /// is still set, and resetting it here too, underneath the attempt in flight, would let it
+    /// and a next round both claim the letter (`outbox_withdraw` guards the same way). The
+    /// click's request is the app's to remember and honour once that attempt settles
+    /// (`AppState::resend_requested`, `src-tauri/outbox.rs`), not the store's.
     #[tokio::test]
-    async fn a_send_now_during_the_attempt_in_flight_is_not_lost_to_its_own_backoff() {
+    async fn a_send_now_during_the_attempt_in_flight_does_not_requeue_it() {
         let store = Arc::new(store());
         let acct = account(true, false);
         let item = queued(&store, 5, 0);
@@ -766,12 +801,9 @@ mod tests {
         let got = go(&store, &mut sender, &item, Some(&acct), false, 100).await;
         assert!(matches!(got, Attempt::Failed { transient: true, .. }));
         let row = store.outbox().unwrap().remove(0);
-        // Without the fix this would be 130 (the attempt's own 30 s backoff from its own
-        // `now`), and the click would have had no visible effect at all.
-        assert_eq!(
-            row.next_attempt, 100,
-            "the manual retry is not swallowed by the attempt's own backoff"
-        );
+        // The attempt's own backoff (30 s from its own `now`) stands: the store does not judge
+        // which schedule wins, the app does.
+        assert_eq!(row.next_attempt, 130);
         assert!(!row.failed);
     }
 
@@ -884,7 +916,7 @@ mod tests {
         assert_eq!(next_wake(&all, 400), 0);
         assert_eq!(next_wake(&[], 0), 15);
         // A refused letter waits for the user: it does not wake the queue.
-        store.outbox_retry_later(a.id, 100, 90, "no", true).unwrap();
+        store.outbox_retry_later(a.id, 100, "no", true).unwrap();
         assert_eq!(next_wake(&store.outbox().unwrap(), 98), 15);
     }
 
@@ -1315,7 +1347,7 @@ mod tests {
         let item = queued(&store, 5, 0);
         assert!(store.outbox_sending(item.id, 100).unwrap().is_some());
         assert!(store.outbox_sending(item.id, 101).unwrap().is_none(), "already claimed");
-        store.outbox_retry_later(item.id, 0, 0, "no", true).unwrap();
+        store.outbox_retry_later(item.id, 0, "no", true).unwrap();
         assert!(
             store.outbox_sending(item.id, 102).unwrap().is_none(),
             "a refused letter waits for the user"

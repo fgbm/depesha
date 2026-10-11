@@ -29,7 +29,9 @@
           <div class="small" class:danger-text={item.failed}>{item.last_error}</div>
         {/if}
         <div class="muted small">
-          {#if item.failed}
+          {#if item.sending_started > 0}
+            {t("outbox.sending")}
+          {:else if item.failed}
             {t("outbox.failed")}
           {:else if item.attempts === 0 && item.next_attempt - item.created > 60}
             {t("outbox.scheduled", { when: when(item.next_attempt) })}
@@ -41,7 +43,7 @@
         </div>
       </div>
       <div class="actions">
-        <button class="btn" onclick={() => retry(item.id)}>{t("outbox.sendNow")}</button>
+        <button class="btn" disabled={item.sending_started > 0} onclick={() => retry(item.id)}>{t("outbox.sendNow")}</button>
         <button class="btn ghost" onclick={() => app.compose.reopenOutbox(item.id)}>{t("outbox.edit")}</button>
       </div>
     </div>

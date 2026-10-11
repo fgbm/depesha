@@ -98,3 +98,19 @@ describe("the outbox row of a damaged letter", () => {
     ).not.toContain("Удалить");
   });
 });
+
+describe("a letter already on the wire", () => {
+  it("says «Отправляется…» and its «Отправить сейчас» is disabled, whatever its attempt count", () => {
+    show([item(9, { attempts: 1, sending_started: 500, next_attempt: 10 })]);
+    expect(target.textContent).toContain("Отправляется…");
+    expect(target.textContent).not.toContain("Попытка");
+    const sendNow = [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Отправить сейчас");
+    expect(sendNow?.disabled).toBe(true);
+  });
+
+  it("is sendable again once nothing is on the wire", () => {
+    show([item(9, { attempts: 1, sending_started: 0, next_attempt: 10 })]);
+    const sendNow = [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Отправить сейчас");
+    expect(sendNow?.disabled).toBe(false);
+  });
+});

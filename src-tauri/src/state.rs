@@ -84,6 +84,14 @@ pub struct AppState {
     pub bounds: depesha_core::clear::Bounds<depesha_core::mail::Bound>,
     /// Labels whose strip is running, and the strips that ended in a retry without progress (#136).
     pub label_strip: Arc<depesha_core::label_strip::Stripping>,
+    /// «Send now» landed while the letter was already on the wire: its id, until the attempt in
+    /// flight settles and `send_account` honours the request instead of its own backoff (#173).
+    /// In memory, not the database: lost on a restart, same as the send it was about.
+    pub resend_requested: Mutex<HashSet<i64>>,
+    /// Consecutive connect timeouts of a letter still in the queue, by its id: any other kind
+    /// of failure, or none at all, resets it. Used to tell the user a network is blocking the
+    /// port only once it has actually repeated, not on the first try (#173).
+    pub connect_timeout_streak: Mutex<HashMap<i64, u32>>,
 }
 
 /// The newest `message_open` sequence per window (its label), for cancelling a body load

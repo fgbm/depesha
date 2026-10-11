@@ -758,6 +758,36 @@ fn hostname() -> Option<String> {
         .or_else(|| std::env::var("HOSTNAME").ok())
 }
 
+/// Where an attempt stands, named for a log the caller writes once it settles — set as each
+/// step starts, so a failure is placed where it actually happened (`open`, `send_with_stage`),
+/// never guessed from the kind of error afterwards (a dropped connection reads the same at the
+/// greeting as at DATA). A `Mutex`, not a `Cell`: a plain `Cell` is not `Sync`, and Tauri
+/// commands need their future `Send` across the `.await` this is held over.
+#[derive(Debug)]
+pub struct Stage(std::sync::Mutex<&'static str>);
+
+impl Stage {
+    pub fn new() -> Self {
+        Self(std::sync::Mutex::new("connect"))
+    }
+
+    pub(crate) fn set(&self, value: &'static str) {
+        *crate::lock::lock(&self.0) = value;
+    }
+
+    /// The step the attempt last entered, once it is done with this: `"connect"` until the
+    /// first step actually starts.
+    pub fn get(&self) -> &'static str {
+        *crate::lock::lock(&self.0)
+    }
+}
+
+impl Default for Stage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Resolves and connects within one budget (`CONNECT_TIMEOUT`, as before): a dead address
 /// among several (IPv6 with no route, a port a firewall drops) used to eat the whole budget
 /// by itself, with nothing in the log to say so. The addresses the resolver gave are logged
@@ -789,44 +819,84 @@ async fn connect(server: &ServerConfig) -> Result<TcpStream> {
     }
 }
 
-/// Connects, upgrades to TLS as configured and logs in when credentials are given.
-async fn open(server: &ServerConfig, creds: Option<&Credentials>) -> Result<(Conn, SmtpCaps)> {
+/// A failure of the attempt, logged where it actually happened: never guessed from the kind
+/// of error afterwards, which cannot tell a dropped connection at the greeting from one at
+/// DATA. Host and port only — the mailbox and the letter are the caller's to log, not core's.
+fn log_stage(server: &ServerConfig, stage: &'static str, error: &Error) {
+    tracing::warn!(host = %server.host, port = server.port, stage, error = %error, "smtp: attempt failed");
+}
+
+/// Connects, upgrades to TLS as configured and logs in when credentials are given. `stage` is
+/// set as each step starts, for a caller that logs a failure to say where it happened.
+async fn open(server: &ServerConfig, creds: Option<&Credentials>, stage: &Stage) -> Result<(Conn, SmtpCaps)> {
+    stage.set("connect");
     let tcp = connect(server).await?;
     crate::net::keepalive(&tcp);
     let pinned = server.trusted_cert.as_deref();
     let name = ehlo_name(hostname().as_deref(), tcp.local_addr().ok());
+    stage.set("tls");
     let stream: Box<dyn Io> = match server.security {
-        Security::Tls => Box::new(tls::wrap(&server.host, pinned, tcp).await?),
+        Security::Tls => Box::new(
+            tls::wrap(&server.host, pinned, tcp)
+                .await
+                .inspect_err(|e| log_stage(server, "tls", e))?,
+        ),
         Security::StartTls | Security::Plain => Box::new(tcp),
     };
     let mut conn = Conn {
         stream: BufStream::new(stream),
         name,
     };
-    let greeting = timeout(CONNECT_TIMEOUT, conn.reply())
-        .await
-        .map_err(|_| Error::Timeout("server greeting"))??;
+    stage.set("greeting");
+    let greeting = match timeout(CONNECT_TIMEOUT, conn.reply()).await {
+        Err(_) => {
+            let e = Error::Timeout("server greeting");
+            log_stage(server, "greeting", &e);
+            return Err(e);
+        }
+        Ok(Err(e)) => {
+            log_stage(server, "greeting", &e);
+            return Err(e);
+        }
+        Ok(Ok(reply)) => reply,
+    };
     if greeting.code != 220 {
-        return Err(greeting.into_error());
+        let e = greeting.into_error();
+        log_stage(server, "greeting", &e);
+        return Err(e);
     }
-    let mut caps = conn.ehlo().await?;
+    stage.set("ehlo");
+    let mut caps = conn.ehlo().await.inspect_err(|e| log_stage(server, "ehlo", e))?;
 
     if server.security == Security::StartTls {
+        stage.set("tls");
         if !caps.starttls {
-            return Err(Error::NoTls);
+            let e = Error::NoTls;
+            log_stage(server, "tls", &e);
+            return Err(e);
         }
-        conn.expect("STARTTLS", &[220]).await?;
+        conn.expect("STARTTLS", &[220])
+            .await
+            .inspect_err(|e| log_stage(server, "tls", e))?;
         let plain = conn.stream.into_inner();
-        let secured: Box<dyn Io> = Box::new(tls::wrap(&server.host, pinned, plain).await?);
+        let secured: Box<dyn Io> = Box::new(
+            tls::wrap(&server.host, pinned, plain)
+                .await
+                .inspect_err(|e| log_stage(server, "tls", e))?,
+        );
         conn = Conn {
             stream: BufStream::new(secured),
             name: conn.name,
         };
-        caps = conn.ehlo().await?;
+        stage.set("ehlo");
+        caps = conn.ehlo().await.inspect_err(|e| log_stage(server, "ehlo", e))?;
     }
 
     if let Some(creds) = creds {
-        login(&mut conn, &caps, creds).await?;
+        stage.set("auth");
+        login(&mut conn, &caps, creds)
+            .await
+            .inspect_err(|e| log_stage(server, "auth", e))?;
     }
     Ok((conn, caps))
 }
@@ -896,25 +966,38 @@ async fn login(conn: &mut Conn, caps: &SmtpCaps, creds: &Credentials) -> Result<
 
 /// Checks that an SMTP server answers with the configured security, without logging in.
 pub async fn probe(server: &ServerConfig) -> Result<SmtpCaps> {
-    let (mut conn, caps) = open(server, None).await?;
+    let (mut conn, caps) = open(server, None, &Stage::new()).await?;
     best_effort("say QUIT", conn.command("QUIT").await);
     Ok(caps)
 }
 
 /// Checks connection, TLS and login without sending anything.
 pub async fn check(server: &ServerConfig, creds: &Credentials) -> Result<SmtpCaps> {
-    let (mut conn, caps) = open(server, Some(creds)).await?;
+    let (mut conn, caps) = open(server, Some(creds), &Stage::new()).await?;
     best_effort("say QUIT", conn.command("QUIT").await);
     Ok(caps)
 }
 
 /// Sends the message and returns its RFC 822 bytes for the Sent folder.
 pub async fn send(server: &ServerConfig, creds: &Credentials, message: &Message) -> Result<Vec<u8>> {
+    send_with_stage(server, creds, message, &Stage::new()).await
+}
+
+/// Like `send`, but also tells the caller which step the attempt reached when it failed:
+/// `stage` is set as each one starts, so the caller (the outbox, naming the mailbox) can log
+/// where the trouble was without guessing from the kind of error — a dropped connection reads
+/// the same at the greeting as at DATA.
+pub async fn send_with_stage(
+    server: &ServerConfig,
+    creds: &Credentials,
+    message: &Message,
+    stage: &Stage,
+) -> Result<Vec<u8>> {
     let envelope = message.envelope();
     let from = envelope.from().map(|a| a.to_string()).unwrap_or_default();
     let raw = message.formatted();
 
-    let (mut conn, caps) = open(server, Some(creds)).await?;
+    let (mut conn, caps) = open(server, Some(creds), stage).await?;
     if let Some(limit) = caps.size
         && raw.len() as u64 > limit
     {
@@ -925,19 +1008,40 @@ pub async fn send(server: &ServerConfig, creds: &Credentials, message: &Message)
     } else {
         String::new()
     };
-    conn.expect(&format!("MAIL FROM:<{from}>{size}"), &[250]).await?;
+    stage.set("send");
+    conn.expect(&format!("MAIL FROM:<{from}>{size}"), &[250])
+        .await
+        .inspect_err(|e| log_stage(server, "send", e))?;
     for rcpt in envelope.to() {
-        conn.expect(&format!("RCPT TO:<{rcpt}>"), &[250, 251]).await?;
+        conn.expect(&format!("RCPT TO:<{rcpt}>"), &[250, 251])
+            .await
+            .inspect_err(|e| log_stage(server, "send", e))?;
     }
-    conn.expect("DATA", &[354]).await?;
-    conn.stream.write_all(&dot_stuff(&raw)).await?;
-    conn.stream.flush().await?;
-    let reply = conn.reply().await?;
+    conn.expect("DATA", &[354])
+        .await
+        .inspect_err(|e| log_stage(server, "send", e))?;
+    let reply = match data(&mut conn, &raw).await {
+        Ok(reply) => reply,
+        Err(e) => {
+            log_stage(server, "send", &e);
+            return Err(e);
+        }
+    };
     if reply.code != 250 {
-        return Err(reply.into_error());
+        let e = reply.into_error();
+        log_stage(server, "send", &e);
+        return Err(e);
     }
     best_effort("say QUIT", conn.command("QUIT").await);
     Ok(raw)
+}
+
+/// Writes the message body and reads the reply that settles it: one step, so a dropped
+/// connection partway through is one failure of «send», not of «write» or «read» apart.
+async fn data(conn: &mut Conn, raw: &[u8]) -> Result<Reply> {
+    conn.stream.write_all(&dot_stuff(raw)).await?;
+    conn.stream.flush().await?;
+    conn.reply().await
 }
 
 /// Escapes leading dots and appends the end-of-data marker (RFC 5321, 4.5.2).

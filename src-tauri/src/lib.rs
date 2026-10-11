@@ -219,6 +219,8 @@ pub fn run() {
                 refused: Default::default(),
                 bounds: Default::default(),
                 label_strip: Default::default(),
+                resend_requested: Default::default(),
+                connect_timeout_streak: Default::default(),
             });
             app.manage(state.clone());
             state.apply_language();

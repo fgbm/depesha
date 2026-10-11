@@ -370,22 +370,6 @@ impl Error {
         matches!(self, Self::Timeout(what) if *what == "connecting")
     }
 
-    /// The step of the attempt this error reached, named for the log: never the letter or its
-    /// addresses, only where it stopped.
-    pub fn stage(&self) -> &'static str {
-        match self {
-            Self::Timeout("connecting") => "connect",
-            Self::Timeout("server greeting") => "greeting",
-            Self::Timeout(_) => "answer",
-            Self::Io(_) | Self::Closed | Self::Bye(_) => "connect",
-            Self::Tls(_) | Self::Certificate(_) | Self::NoTls => "tls",
-            Self::SmtpHello { .. } => "ehlo",
-            Self::Auth(_) | Self::AuthMechanism(_) | Self::HttpAuth(_) => "auth",
-            Self::Smtp { .. } => "send",
-            _ => "other",
-        }
-    }
-
     /// Worth trying again later rather than giving up on: the errors a return of waiting
     /// letters meets that say "not now" — the mailbox is paused until its settings are
     /// fixed, the login was refused, Exchange is busy, the folder is busy or locked
@@ -817,35 +801,6 @@ mod tests {
         assert!(Error::Timeout("connecting").is_connect_timeout());
         assert!(!Error::Timeout("server greeting").is_connect_timeout());
         assert!(!Error::Closed.is_connect_timeout());
-    }
-
-    #[test]
-    fn the_stage_names_where_the_attempt_stopped() {
-        assert_eq!(Error::Timeout("connecting").stage(), "connect");
-        assert_eq!(Error::Timeout("server greeting").stage(), "greeting");
-        assert_eq!(Error::Timeout("SMTP answer").stage(), "answer");
-        assert_eq!(Error::Closed.stage(), "connect");
-        assert_eq!(Error::NoTls.stage(), "tls");
-        assert_eq!(Error::Auth("no".into()).stage(), "auth");
-        assert_eq!(
-            Error::SmtpHello {
-                name: "x".into(),
-                code: 550,
-                message: "no".into()
-            }
-            .stage(),
-            "ehlo"
-        );
-        assert_eq!(
-            Error::Smtp {
-                code: 550,
-                enhanced: None,
-                message: "no".into()
-            }
-            .stage(),
-            "send"
-        );
-        assert_eq!(Error::NotFound.stage(), "other");
     }
 
     #[test]
