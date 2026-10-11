@@ -19,6 +19,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # line-tables-only: debug builds keep file/line in a backtrace but drop the rest of the
+  # debug info, so the target directory and the rust-cache entry are much smaller (#185).
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
   # Анонимные загрузки с Docker Hub ограничены; образы стенда берём через зеркало Google
   IMAGE_PREFIX: mirror.gcr.io/
 
@@ -39,7 +42,10 @@ jobs:
         env:
           ALWAYS: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
         run: |
-          paths='^(crates/|src-tauri/|Cargo\.(toml|lock)$|package(-lock)?\.json$|src/lib/drops\.ts|e2e/(drops\.mjs|drop-steps\.mjs|native-drop\.ps1|windows-display\.ps1)|\.github/workflows/ci\.yml)'
+          # What a platform build and the drop code need: the core and the shell of the app
+          # (src-tauri/ covers tauri.conf.json and the icons), the dependencies, the frontend
+          # build config, the drop code, its scripts and this file.
+          paths='^(crates/|src-tauri/|Cargo\.(toml|lock)$|package(-lock)?\.json$|vite\.config\.|src/lib/drops\.ts|e2e/(drops\.mjs|drop-steps\.mjs|native-drop\.ps1|windows-display\.ps1)|\.github/workflows/ci\.yml)'
           platform=false
           if [ "$ALWAYS" = true ]; then
             platform=true
@@ -55,8 +61,62 @@ jobs:
           fi
           echo "platform jobs: $platform"
 
+  # A push to main of a commit that is already green on a branch — the fast-forward case — does
+  # not check it again: the branch run for the same head_sha already did. Only a fully green run
+  # whose platform jobs (Windows, macOS) actually ran counts; if the branch skipped them (it did
+  # not touch a platform path), main runs the full CI. Tags and a manual run always run in full
+  # (this job is skipped there, and its empty output leaves every other job running).
+  reuse:
+    name: Already verified
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      skip: ${{ steps.find.outputs.skip }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          SELF: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          runs=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&status=success&per_page=100" \
+            | jq -r --argjson self "$SELF" \
+              '.workflow_runs[] | select(.name == "CI" and .event == "push" and .head_branch != "main" and .id != $self) | .id')
+          for id in $runs; do
+            jobs=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100")
+            bad=$(jq '[.jobs[] | select(.conclusion != "success")] | length' <<<"$jobs")
+            win=$(jq '[.jobs[] | select(.name | test("Windows"))] | length' <<<"$jobs")
+            mac=$(jq '[.jobs[] | select(.name | test("macOS"))] | length' <<<"$jobs")
+            if [[ $bad -eq 0 && $win -gt 0 && $mac -gt 0 ]]; then
+              url=$(gh api "repos/$REPO/actions/runs/$id" --jq .html_url)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "commit ${SHA:0:9} is already green in run $id ($url), platform jobs included: skipping the rest"
+              {
+                echo "### CI skipped: the same commit is already green"
+                echo ""
+                echo "Commit \`${SHA:0:9}\` was checked on a branch in run [$id]($url),"
+                echo "with the platform jobs (Windows, macOS) — so this run on \`main\` is the same commit and needs nothing."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+          echo "no green run for ${SHA:0:9} covered the platform jobs: running the full CI"
+          {
+            echo "### CI: full run"
+            echo ""
+            echo "No green run for \`${SHA:0:9}\` covered the platform jobs, so \`main\` runs everything."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   check:
-    if: ${{ !inputs.windows_only }}
+    needs: reuse
+    # always(): on a branch `reuse` is skipped, and a skipped need would otherwise skip this job too.
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
     name: Lint and unit tests (Linux)
     runs-on: ubuntu-24.04
     steps:
@@ -69,6 +129,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -107,13 +171,18 @@ jobs:
       - run: cargo test -p depesha --lib
 
   integration:
-    if: ${{ !inputs.windows_only }}
+    needs: reuse
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
     name: Integration (GreenMail, Dovecot)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: docker compose -f compose.test.yaml up -d
       - name: Wait for servers
         run: python3 scripts/wait-stand.py
@@ -122,7 +191,8 @@ jobs:
   # The scenario in three parts, each on a machine of its own with its own stand and profile
   # (sections: e2e/shard.mjs, what a part runs: DEPESHA_E2E_SHARD).
   e2e:
-    if: ${{ !inputs.windows_only }}
+    needs: reuse
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
     name: End-to-end GUI (Linux, Xvfb, part ${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -138,6 +208,10 @@ jobs:
             webkit2gtk-driver xvfb gnome-keyring libsecret-tools dbus-x11
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -174,8 +248,8 @@ jobs:
   e2e-windows:
     name: Drop on Windows (${{ matrix.name }})
     # A Windows build and three runs take their time: see `changes` for the branches it is run on.
-    needs: changes
-    if: needs.changes.outputs.platform == 'true'
+    needs: [changes, reuse]
+    if: ${{ always() && needs.changes.outputs.platform == 'true' && needs.reuse.outputs.skip != 'true' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -193,6 +267,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -258,14 +336,18 @@ jobs:
   # app prints with, and the header's text is looked for in the file. A platform job: see `changes`.
   mac-print:
     name: Print a sheet (macOS)
-    needs: changes
-    if: ${{ needs.changes.outputs.platform == 'true' && !inputs.windows_only }}
+    needs: [changes, reuse]
+    if: ${{ always() && needs.changes.outputs.platform == 'true' && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -283,9 +365,9 @@ jobs:
           lldb --batch -o run -o "bt all" -o quit -- "$bin" || true
 
   build:
-    if: ${{ !inputs.windows_only }}
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
     name: Build ${{ matrix.os }}
-    needs: changes
+    needs: [changes, reuse]
     strategy:
       fail-fast: false
       matrix:
@@ -305,6 +387,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Branches read the cache but do not write it: one writer (main) keeps the entry
+          # stable instead of every branch overwriting and growing it (#185).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
