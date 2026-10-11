@@ -231,11 +231,12 @@ def demo_seed(version=""):
     are emptied first, so re-shooting gives the same pictures; inbox dates are fixed
     so the list shows the same times every time.
 
-    `version` "0.8.0" adds what the 0.8 shots need (e2e/release-shots.mjs, SHOTS_SET): letters
-    that passed DMARC (their senders get a logo), an important one, a letter with many
-    attachments and a full «Корзина». Without it the set is the one of 0.7.
+    `version` "0.8.0" (and "0.8.2", which reuses the same mail) adds what the 0.8 shots need
+    (e2e/release-shots.mjs, SHOTS_SET): letters that passed DMARC (their senders get a logo),
+    an important one, a letter with many attachments and a full «Корзина». Without it the set
+    is the one of 0.7.
     """
-    v8 = version == "0.8.0"
+    v8 = version in ("0.8.0", "0.8.2")
     c = conn()
     # Start clean: these also drop the 620 letters of the acceptance seed.
     # The 0.8 set has no folder tree: what a picture shows is the standard folders only.

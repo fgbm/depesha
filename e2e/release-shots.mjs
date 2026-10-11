@@ -1,12 +1,14 @@
 // Screenshots for a release's description (docs/releases/<version>.md): the real app (debug
 // build) on a virtual display, driven over WebDriver, over the tidy demo mail seeded by
-// imap_helper.py demo-seed. SHOTS_SET=0.8.0 shoots the set of 0.8 (the scenes are in
-// scenes-080.mjs, shared with shots.mjs, over the demo mail seeded with the same SHOTS_SET);
-// without it, the set of 0.7 below. For another release adapt the shots and the seeded ids.
+// imap_helper.py demo-seed. SHOTS_SET=0.8.0 shoots the set of 0.8 and SHOTS_SET=0.8.2 the set
+// of 0.8.2 (the scenes are in scenes-080.mjs, shared with shots.mjs, over the demo mail seeded
+// with the same SHOTS_SET); without it, the set of 0.7 below. For another release adapt the
+// shots and the seeded ids.
 //
 //   scripts/release-shots.sh                 the whole thing (servers, demo mail, build, shoot)
 //   DEPESHA_APP=… scripts/release-shots.sh   an already built binary, no build
 //   SHOTS_SET=0.8.0 scripts/release-shots.sh the set of 0.8.0
+//   SHOTS_SET=0.8.2 scripts/release-shots.sh the set of 0.8.2
 //
 // Writes ${SHOTS_OUT}/NN-*.png (default /tmp/depesha-release-shots). Demo data is tidy
 // (example.com), the labels and reply marks are seeded before the shooting session so the
@@ -14,10 +16,12 @@
 
 import { createKit } from "./shot-kit.mjs";
 import { ensureStandLock } from "./stand-lock.mjs";
-import { clearConfirm, composeWithFiles, importanceReader, listAvatars, peopleBook, readerAttachments, seed080, settingsSearch } from "./scenes-080.mjs";
+import { clearConfirm, composeWithFiles, importanceReader, listAvatars, peopleBook, readerAttachments, seed080, settingsPage, settingsSearch } from "./scenes-080.mjs";
 
 ensureStandLock();
-const v8 = (process.env.SHOTS_SET ?? "0.7.0") === "0.8.0";
+const set = process.env.SHOTS_SET ?? "0.7.0";
+const v8 = set === "0.8.0" || set === "0.8.2";
+const v82 = set === "0.8.2";
 const kit = createKit({ out: process.env.SHOTS_OUT ?? "/tmp/depesha-release-shots", tag: "depesha-rel-", v8 });
 const { d, sleep, db, shot, textOf, setInput, press, invoke, openFolder, openBySubject, menuItem, closeSettings, discardCompose } = kit;
 
@@ -38,7 +42,12 @@ try {
   });
   const account = (await invoke("accounts"))[0].id;
 
-  if (v8) {
+  if (v82) {
+    // The view of 0.8.2: the current letter is marked by its background, the plugin settings
+    // are back on the «Plugins» page.
+    await listAvatars(kit, "01-list-cursor");
+    await settingsPage(kit, "02-plugins", "plugins");
+  } else if (v8) {
     await listAvatars(kit, "03-list-avatars");
     await importanceReader(kit, "04-importance-reader");
     await readerAttachments(kit, "07-reader-attachments");
