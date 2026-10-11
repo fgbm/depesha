@@ -172,6 +172,7 @@ export const en = {
   "compose.saving": "Saving…",
   "compose.discardConfirm": "Delete this message without saving?",
   "compose.draftNotSaved": "Draft not saved: {error}",
+  "compose.fileLost": "File “{name}” must be attached again",
   "compose.draftSaved": "Draft saved",
   "compose.localDraft": { one: "An unsaved draft was kept", other: "{n} unsaved drafts were kept" },
   "compose.localDraftRestore": "Restore",

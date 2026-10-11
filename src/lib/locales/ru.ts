@@ -165,6 +165,7 @@ export const ru: Record<keyof typeof en, string | Plural> = {
   "compose.saving": "Сохраняю…",
   "compose.discardConfirm": "Удалить это письмо без сохранения?",
   "compose.draftNotSaved": "Черновик не сохранён: {error}",
+  "compose.fileLost": "Файл «{name}» нужно прикрепить заново",
   "compose.draftSaved": "Черновик сохранён",
   "compose.localDraft": { one: "Есть несохранённый черновик", few: "Есть несохранённых черновика: {n}", many: "Есть несохранённых черновиков: {n}", other: "Есть несохранённых черновиков: {n}" },
   "compose.localDraftRestore": "Восстановить",

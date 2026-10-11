@@ -10,6 +10,7 @@ import { hints } from "../hints.svelte";
 import { sendWarnings } from "../sendChecks";
 import { composeAction } from "../composeKeys";
 import { isDirty } from "../compose";
+import { dropLostFiles, isNotChosen } from "./lostFiles";
 import { registry } from "../../plugin-host/registry.svelte";
 import type { ComposeWindow } from "../composes.svelte";
 import type { ComposeContext, FollowupPlan } from "../../plugin-api";
@@ -157,7 +158,9 @@ export class ComposeSending {
       await this.host.autosave.forgetLocal("sent");
       app.compose.close(win.id);
     } catch (e) {
-      this.host.setError((e as { message: string }).message);
+      // A file of a closed window is told by name and taken off the letter (#115).
+      const lost = isNotChosen(e) ? await dropLostFiles(win.draft) : null;
+      this.host.setError(lost ?? (e as { message: string }).message);
     } finally {
       this.busy = false;
     }

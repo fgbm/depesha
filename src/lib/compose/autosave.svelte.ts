@@ -7,6 +7,7 @@ import { onDestroy, untrack } from "svelte";
 import { api } from "../api";
 import { app } from "../store.svelte";
 import { isDirty } from "../compose";
+import { dropLostFiles, isNotChosen } from "./lostFiles";
 import { t } from "../i18n.svelte";
 import type { ComposeWindow } from "../composes.svelte";
 import type { ComposeDraft } from "../types";
@@ -123,7 +124,9 @@ export class ComposeAutosave {
         await this.forgetLocal();
         return true;
       } catch (e) {
-        this.host.setError(t("compose.draftNotSaved", { error: (e as { message: string }).message }));
+        // A file of a closed window is told by name and taken off the letter (#115).
+        const lost = isNotChosen(e) ? await dropLostFiles(win.draft) : null;
+        this.host.setError(lost ?? t("compose.draftNotSaved", { error: (e as { message: string }).message }));
         return false;
       } finally {
         this.saving = null;
