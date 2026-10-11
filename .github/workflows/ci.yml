@@ -83,7 +83,7 @@ jobs:
         run: scripts/gen-types.sh --check
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-machete
+          tool: cargo-machete@0.9.2
       - name: No unused dependencies
         run: cargo machete
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
@@ -300,6 +300,8 @@ jobs:
           # tray is ksni, so the library is bundled into the AppImage but unused).
           sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v7
         with:
@@ -307,6 +309,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cargo test -p depesha-core --lib
+      # The code behind `cfg(windows)` and `cfg(target_os = "macos")` is not compiled by the Linux job's clippy.
+      - if: runner.os != 'Linux'
+        run: cargo clippy -p depesha --lib -- -D warnings
       # Attachment path spellings (#79): string tests plus one on a real file, which only Windows can run.
       - if: runner.os == 'Windows'
         run: cargo test -p depesha --lib -- "paths::"

@@ -30,7 +30,7 @@ machete() {
     step "cargo machete"
     cargo machete
   else
-    echo "cargo-machete не установлен: проверка лишних зависимостей идёт в CI (cargo install cargo-machete --locked)"
+    echo "cargo-machete не установлен: проверка лишних зависимостей идёт в CI (cargo install cargo-machete --version 0.9.2 --locked)"
   fi
 }
 
