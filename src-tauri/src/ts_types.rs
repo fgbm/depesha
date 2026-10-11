@@ -20,6 +20,10 @@ fn decl<T: TS + 'static + ?Sized>(cfg: &Config, out: &mut Decls) {
 }
 
 /// Every type the interface gets, by name. A type used inside one of these must be here too.
+#[allow(
+    clippy::too_many_lines,
+    reason = "a list of declarations, one line each: the list is the function"
+)]
 fn all(cfg: &Config) -> Decls {
     let mut out = Decls::default();
     decl::<crate::tasks::TaskKind>(cfg, &mut out);
@@ -184,13 +188,13 @@ mod tests {
     fn a_changed_field_fails_the_check() {
         #[derive(TS)]
         #[ts(rename = "Probe")]
-        #[allow(dead_code)]
+        #[allow(dead_code, reason = "a probe: the struct exists for the type generated from it")]
         struct Before {
             subject: String,
         }
         #[derive(TS)]
         #[ts(rename = "Probe")]
-        #[allow(dead_code)]
+        #[allow(dead_code, reason = "a probe: the struct exists for the type generated from it")]
         struct After {
             subject: String,
             sent: Option<i64>,
@@ -214,13 +218,13 @@ mod tests {
     fn two_types_with_one_name_fail() {
         #[derive(TS)]
         #[ts(rename = "Probe")]
-        #[allow(dead_code)]
+        #[allow(dead_code, reason = "a probe: the struct exists for the type generated from it")]
         struct First {
             a: u8,
         }
         #[derive(TS)]
         #[ts(rename = "Probe")]
-        #[allow(dead_code)]
+        #[allow(dead_code, reason = "a probe: the struct exists for the type generated from it")]
         struct Second {
             b: u8,
         }

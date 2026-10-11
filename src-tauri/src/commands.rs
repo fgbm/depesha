@@ -2704,20 +2704,32 @@ pub enum AttachmentSource {
         path: String,
         /// The name and size the window shows: Rust takes the letter from the source, not from them.
         #[serde(default)]
-        #[allow(dead_code)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
         name: String,
         #[serde(default)]
-        #[allow(dead_code)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
         size: u64,
     },
     Message {
         id: i64,
         index: u32,
         #[serde(default)]
-        #[allow(dead_code)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
         name: String,
         #[serde(default)]
-        #[allow(dead_code)]
+        #[allow(
+            dead_code,
+            reason = "the window sends it for what it shows; Rust takes the letter from the source"
+        )]
         size: u64,
     },
 }
