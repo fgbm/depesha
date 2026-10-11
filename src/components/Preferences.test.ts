@@ -7,6 +7,8 @@ vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appM
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
 vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {} }));
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { flushSync, mount, tick, unmount } from "svelte";
 import Preferences from "./Preferences.svelte";
 import { app } from "../lib/store.svelte";
@@ -187,5 +189,52 @@ describe("the people moved to the main window (#104)", () => {
     hit.click();
     await vi.waitFor(() => expect(book).toHaveBeenCalled());
     book.mockRestore();
+  });
+
+});
+
+describe("the way out (#165)", () => {
+  const shut = () => target.querySelector<HTMLElement>(".shut")!;
+  const backdrop = () => target.querySelector<HTMLElement>(".modal-backdrop")!;
+  const press = (el: Element) => {
+    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    flushSync();
+  };
+
+  it("has a cross with a name and the key in the hint, and it closes the window", async () => {
+    open("reading");
+    expect(shut().getAttribute("aria-label")).toBe("Закрыть");
+    expect(shut().title).toContain("Esc");
+    shut().click();
+    await vi.waitFor(() => expect(app.ui.settingsOpen).toBe(false));
+  });
+
+  it("closes on a press on the dimmed ground, not inside the window", async () => {
+    open("reading");
+    press(target.querySelector(".prefs h2")!);
+    press(target.querySelector(".prefs")!);
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+    press(backdrop());
+    await vi.waitFor(() => expect(app.ui.settingsOpen).toBe(false));
+  });
+
+  it("both ways wait for the page's own say, like Esc", async () => {
+    open("reading");
+    let answer!: (ok: boolean) => void;
+    app.ui.settingsLeave = () => new Promise<boolean>((r) => (answer = r));
+    shut().click();
+    press(backdrop());
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+    answer(false);
+    await tick();
+    expect(app.ui.settingsOpen).toBe(true);
+    app.ui.settingsLeave = null;
+  });
+
+  it("has no bar on the open page of the menu", () => {
+    const src = readFileSync(resolve(__dirname, "Preferences.svelte"), "utf8");
+    expect(src).not.toMatch(/\.tab\[aria-selected="true"\]\s*\{[^}]*box-shadow/);
   });
 });

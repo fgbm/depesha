@@ -1,5 +1,6 @@
 <script lang="ts">
   import Search from "@lucide/svelte/icons/search";
+  import X from "@lucide/svelte/icons/x";
   import { tick } from "svelte";
   import { app } from "../lib/store.svelte";
   import { bus } from "../lib/bus";
@@ -133,12 +134,15 @@
   /** The fields that have an undo of their own. */
   const TEXT_FIELD = "input:not([type=checkbox], [type=radio], [type=button], [type=color]), textarea, [contenteditable]";
 
+  /** The cross and the click on the dimmed ground go the way Esc goes: a mailbox's page has its say first. */
+  const leave = () => mayLeave().then((ok) => ok && close());
+
   function onKey(e: KeyboardEvent) {
     // Esc clears the search first, closes the window second; a menu or a question on top goes before both.
     if (e.key === "Escape" && !app.ui.confirmation && !document.querySelector(".pop")) {
       e.preventDefault();
       if (query) query = "";
-      else mayLeave().then((ok) => ok && close());
+      else void leave();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && (e.key === "PageDown" || e.key === "PageUp")) {
@@ -225,7 +229,7 @@
 
 <svelte:window onkeydown={onWindowKey} />
 
-<div class="modal-backdrop" role="presentation">
+<div class="modal-backdrop" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && void leave()}>
   <div class="modal prefs" role="dialog" aria-label={t("settings.title")} tabindex="-1" onkeydown={onKey}>
     <nav class="pages" aria-label={t("settings.title")}>
       <h3>{t("settings.title")}</h3>
@@ -254,6 +258,8 @@
         {/each}
       </div>
     </nav>
+
+    <button class="btn ghost icon shut" onclick={() => void leave()} title={t("viewer.close")} aria-label={t("close")}><X size={17} /></button>
 
     <div class="pane">
       {#if query.trim()}
@@ -311,6 +317,15 @@
     flex-direction: row;
     padding: 0;
     overflow: hidden;
+    position: relative;
+  }
+
+  /* The cross at the top right corner of the window. */
+  .shut {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 1;
   }
 
   .pages {
@@ -410,11 +425,10 @@
     background: var(--hover);
   }
 
-  /* The open page: a quiet fill and the accent bar the sidebar uses. */
+  /* The open page: a quiet fill, no bar (#165). */
   .tab[aria-selected="true"] {
     background: var(--selected);
     font-weight: 600;
-    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .tab[aria-selected="true"] :global(svg) {
@@ -449,7 +463,7 @@
     align-items: baseline;
     gap: 10px;
     min-width: 0;
-    padding: 18px 24px 6px;
+    padding: 18px 56px 6px 24px;
   }
 
   /* A mailbox's address beside its name. */

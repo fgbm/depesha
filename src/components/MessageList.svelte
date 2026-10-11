@@ -540,23 +540,11 @@
     background: var(--hover);
   }
 
-  /* Chosen rows have the ground and a tick; the row that is open or has the keyboard (the
-     cursor) has only the bar, so a choice is never taken for the current letter (#108). The
-     bar stands right of the mailbox stripe, not on it. */
-  .row.selected {
+  /* Chosen rows and the row that is open or has the keyboard (the cursor) have the same ground;
+     what tells a choice from the cursor is the tick in place of the picture (#108, #165). */
+  .row.selected,
+  .row.cursor {
     background: var(--selected);
-  }
-
-  .row.cursor::before,
-  .row:focus-visible::before {
-    content: "";
-    position: absolute;
-    left: 4px;
-    top: 8px;
-    bottom: 8px;
-    width: 2px;
-    border-radius: 1px;
-    background: var(--accent);
   }
 
   /* The picture (36 px, two lines tall) and the tick that takes its place. */

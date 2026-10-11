@@ -7,6 +7,8 @@ vi.mock("@tauri-apps/api/app", () => import("../lib/testing").then((m) => m.appM
 vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await import("../lib/testing")).api }));
 vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme: () => {} }));
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { flushSync, mount, tick, unmount } from "svelte";
 import MessageList from "./MessageList.svelte";
 import { app } from "../lib/store.svelte";
@@ -163,6 +165,37 @@ describe("the cursor bar moves with the key (#108, 2.5 Б)", () => {
     expect(cursors(t)).toEqual([false, true, false]);
     app.reader.opened = null;
     app.reader.openingRow = null;
+  });
+});
+
+describe("the cursor has the ground, not a bar (#165, #108)", () => {
+  it("tells the three states by the classes and the tick: cursor, chosen, cursor on a chosen one", () => {
+    const t = draw([row(1, "a@cur.example"), row(2, "b@cur.example"), row(3, "c@cur.example")]);
+    app.reader.opened = null;
+    app.reader.openingRow = null;
+    app.selection.selected = new Set([1]);
+    flushSync();
+    let rows = [...t.querySelectorAll(".row")];
+    // The cursor: the ground class, no tick.
+    expect(rows[0].classList.contains("cursor")).toBe(true);
+    expect(rows[0].querySelector(".pick")).toBeNull();
+    app.selection.selected = new Set([2, 3]);
+    app.reader.openingRow = row(2, "b@cur.example");
+    flushSync();
+    rows = [...t.querySelectorAll(".row")];
+    // Cursor on a chosen row: the ground and the tick; the other chosen row: the tick without the cursor.
+    expect(rows[1].classList.contains("cursor") && rows[1].classList.contains("selected")).toBe(true);
+    expect(rows[1].querySelector(".pick")).not.toBeNull();
+    expect(rows[2].classList.contains("cursor")).toBe(false);
+    expect(rows[2].classList.contains("selected")).toBe(true);
+    expect(rows[2].querySelector(".pick")).not.toBeNull();
+    app.reader.openingRow = null;
+  });
+
+  it("paints the cursor row with the ground and has no bar of the accent in the list", () => {
+    const src = readFileSync(resolve(__dirname, "MessageList.svelte"), "utf8");
+    expect(src).toMatch(/\.row\.cursor\s*\{\s*background: var\(--selected\)/);
+    expect(src).not.toMatch(/\.row[^{]*(cursor|focus-visible)[^{]*::before/);
   });
 });
 
