@@ -11,6 +11,8 @@
   import { when } from "../lib/later";
   import { needsLogin, relogging, relogin } from "../lib/relogin.svelte";
   import type { AccountSync, Task } from "../lib/types";
+  import CloseButton from "./CloseButton.svelte";
+  import { focusBack } from "../lib/focusBack";
   import StuckCopy from "./StuckCopy.svelte";
   import { stuckTasks } from "../lib/stuckCopies";
 
@@ -23,8 +25,11 @@
     overview = await api.syncOverview().catch(() => []);
   }
 
+  // The focus goes back to what opened the window.
+  const back = focusBack();
   onMount(() => {
     loadOverview();
+    return back;
   });
 
   // Every change of the tasks may move the counters.
@@ -81,7 +86,7 @@
   const covered = () => !!app.ui.confirmation || !!document.querySelector(".pop");
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape" && !e.defaultPrevented && !covered()) {
+    if (e.key === "Escape" && !e.defaultPrevented && !e.isComposing && !covered()) {
       e.preventDefault();
       close();
     }
@@ -99,7 +104,7 @@
   <div class="modal tasks" role="dialog" aria-label={t("tasks.title")} tabindex="-1">
     <header>
       <h3>{t("tasks.title")}</h3>
-      <button class="btn ghost icon shut" onclick={close} title={t("viewer.close")} aria-label={t("close")}><X size={17} /></button>
+      <CloseButton corner onclick={close} />
     </header>
     <div class="content">
       <section>
@@ -206,14 +211,6 @@
 
   header {
     padding: 14px 20px 4px;
-  }
-
-  /* The cross at the top right corner of the window. */
-  .shut {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    z-index: 1;
   }
 
   h3 {

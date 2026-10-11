@@ -25,12 +25,13 @@
   // Карточка читает сервер только по «Проверить снова»; иначе показывает кэш.
   import Users from "@lucide/svelte/icons/users";
   import User from "@lucide/svelte/icons/user";
-  import X from "@lucide/svelte/icons/x";
+  import CloseButton from "../CloseButton.svelte";
+  import { focusBack } from "../../lib/focusBack";
   import { t, type Key } from "../../lib/i18n.svelte";
   import { when } from "../../lib/later";
   import { actionsOf, canCheckLabels, readOnly } from "../../lib/labels";
   import type { AccountView, FolderAction, FolderInfo, LabelCheck } from "../../lib/types";
-  import { untrack } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { labels } from "../../lib/labels.svelte";
 
   let {
@@ -100,9 +101,13 @@
     return `left:${left}px;top:${top}px`;
   }
 
+  // The focus goes back to what opened the card.
+  const back = focusBack();
+  onMount(() => back);
+
   /** Esc takes back the explainer first, the card next. */
   function onKey(e: KeyboardEvent) {
-    if (e.key !== "Escape" || e.defaultPrevented) return;
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
     e.preventDefault();
     if (confirmCheck) confirmCheck = false;
     else onclose();
@@ -135,7 +140,7 @@
   <div class="fh">
     <span class="ic">{#if owner.kind === "mine"}<User size={16} />{:else}<Users size={16} />{/if}</span>
     <div class="t"><b>{folder.display_name}</b><span class="p">{folder.name}</span></div>
-    <button class="x" onclick={onclose} aria-label={t("close")}><X size={15} /></button>
+    <CloseButton onclick={onclose} />
   </div>
 
   <div class="fsec">
@@ -258,14 +263,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .x {
-    flex: none;
-    border: none;
-    background: none;
-    color: var(--muted);
-    padding: 2px;
   }
 
   .fsec {

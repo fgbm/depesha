@@ -1,6 +1,6 @@
 <script lang="ts">
   import Search from "@lucide/svelte/icons/search";
-  import X from "@lucide/svelte/icons/x";
+  import CloseButton from "./CloseButton.svelte";
   import { tick } from "svelte";
   import { app } from "../lib/store.svelte";
   import { bus } from "../lib/bus";
@@ -138,11 +138,11 @@
   };
 
   /** Esc leaves a menu or a question on top alone; so does a press on the ground. */
-  const covered = () => !!app.ui.confirmation || !!document.querySelector(".pop");
+  const covered = () => !!app.ui.confirmation || app.ui.tasksOpen || !!document.querySelector(".pop");
 
   function onKey(e: KeyboardEvent) {
     // Esc clears the search first, closes the window second; a menu or a question on top goes before both.
-    if (e.key === "Escape" && !covered()) {
+    if (e.key === "Escape" && !covered() && !e.isComposing) {
       e.preventDefault();
       if (query) query = "";
       else void leave();
@@ -262,7 +262,7 @@
       </div>
     </nav>
 
-    <button class="btn ghost icon shut" onclick={() => void leave()} title={t("viewer.close")} aria-label={t("close")}><X size={17} /></button>
+    <CloseButton corner onclick={() => void leave()} />
 
     <div class="pane">
       {#if query.trim()}
@@ -318,14 +318,6 @@
     padding: 0;
     overflow: hidden;
     position: relative;
-  }
-
-  /* The cross at the top right corner of the window. */
-  .shut {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    z-index: 1;
   }
 
   .pages {

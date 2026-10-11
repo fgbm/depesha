@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { app } from "../lib/store.svelte";
+  import { focusBack } from "../lib/focusBack";
+  import CloseButton from "./CloseButton.svelte";
   import { t } from "../lib/i18n.svelte";
   import { AccountForm } from "../lib/accountForm.svelte";
   import ConnectionFields from "./account/ConnectionFields.svelte";
@@ -29,11 +32,22 @@
   /** The cross shows once there is a mailbox to go back to (or an existing one is edited); Esc goes the same way. */
   const canClose = $derived(app.mailboxes.accounts.length > 0 || !!existing);
 
+  /** What was typed is not thrown away unasked, like in the settings. */
+  async function leave() {
+    if (await form.mayLeave()) app.ui.wizard = null;
+  }
+
+  // The focus goes back to what opened the window.
+  const back = focusBack();
+  onMount(() => back);
+
   function onKey(e: KeyboardEvent) {
-    if (embedded || e.key !== "Escape" || e.defaultPrevented || !canClose || form.busy) return;
+    if (embedded || e.key !== "Escape" || e.defaultPrevented || e.isComposing || !canClose || form.busy) return;
     if (app.ui.confirmation || document.querySelector(".pop")) return;
     e.preventDefault();
-    app.ui.wizard = null;
+    // The second step of a new mailbox (the servers by hand) goes back to the first one.
+    if (!existing && form.step === "settings") form.step = "start";
+    else void leave();
   }
 </script>
 
@@ -119,7 +133,7 @@
     <header>
       <h3>{existing ? t("wizard.editTitle", { email: existing.email }) : t("cmd.addAccount")}</h3>
       {#if canClose}
-        <button class="btn ghost" onclick={() => (app.ui.wizard = null)} disabled={form.busy}>×</button>
+        <CloseButton onclick={() => void leave()} disabled={form.busy} />
       {/if}
     </header>
 

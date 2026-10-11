@@ -32,6 +32,7 @@
   import FolderPropsCard from "./components/prefs/FolderProps.svelte";
   import { registry } from "./plugin-host/registry.svelte";
   import { labels } from "./lib/labels.svelte";
+  import { windowOpen } from "./lib/overlay";
 
   let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -175,7 +176,7 @@
       }
       return;
     }
-    if (app.ui.settingsOpen || app.ui.tasksOpen) return;
+    if (windowOpen()) return;
     if (typing) {
       if (e.key === "Escape") t!.blur();
       return;
