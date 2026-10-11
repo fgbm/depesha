@@ -1139,6 +1139,50 @@ JVBERi0xLjQK\r\n\
         assert!(!parse_view(mail(own_pass).as_bytes(), false).unwrap().authenticated);
     }
 
+    /// The shape of what Gmail stores for a letter of a sender with its own DKIM (#167): the
+    /// ARC set first, then Gmail's own verdict, then the sender's headers.
+    fn gmail_letter(from: &str, own: &str) -> String {
+        format!(
+            "Delivered-To: me@gmail.example\r\n\
+Received: by 2002:a05:6a00:1234:b0:1:2:3 with SMTP id a1csp123456xyz;\r\n        Mon, 5 Oct 2026 10:00:00 -0700 (PDT)\r\n\
+ARC-Seal: i=1; a=rsa-sha256; t=1790000000; cv=none; d=google.com; s=arc-20240605; b=AAAA\r\n\
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605; h=to:from; bh=BBBB; b=CCCC\r\n\
+ARC-Authentication-Results: i=1; mx.google.com;\r\n       dkim=pass header.i=@github.com header.s=pf2023 header.b=DDDD;\r\n       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com\r\n\
+Return-Path: <noreply@github.com>\r\n\
+Received: from out-1.smtp.github.com (out-1.smtp.github.com. [192.0.2.1])\r\n        by mx.google.com with ESMTPS id x1si1234567pgb.1.2026.10.05.10.00.00\r\n        for <me@gmail.example>\r\n        (version=TLS1_3 cipher=TLS_AES_128_GCM_SHA256 bits=128/128);\r\n        Mon, 05 Oct 2026 10:00:00 -0700 (PDT)\r\n\
+{own}\
+From: GitHub <{from}>\r\nTo: me@gmail.example\r\nSubject: Hi\r\n\r\nText\r\n"
+        )
+    }
+
+    const GMAIL_OWN_PASS: &str = "Authentication-Results: mx.google.com;\r\n       dkim=pass header.i=@github.com header.s=pf2023 header.b=DDDD;\r\n       spf=pass (google.com: domain of noreply@github.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=noreply@github.com;\r\n       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com\r\n";
+
+    #[test]
+    fn gmail_vouches_for_a_letter_of_github() {
+        let gmail = Receiver {
+            domains: vec!["gmail.com".into(), "googlemail.com".into(), "google.com".into()],
+            ..Default::default()
+        };
+        let ok = |raw: String| authenticity(raw.as_bytes(), &gmail).verified();
+        assert!(ok(gmail_letter("notifications@github.com", GMAIL_OWN_PASS)));
+        // A subdomain sender aligns with the organizational domain of `header.from`.
+        assert!(ok(gmail_letter("notifications@mail.github.com", GMAIL_OWN_PASS)));
+        // A failed verdict, another domain, a name nobody gave to the box: no.
+        assert!(!ok(gmail_letter(
+            "notifications@github.com",
+            &GMAIL_OWN_PASS.replace("dmarc=pass", "dmarc=fail")
+        )));
+        assert!(!ok(gmail_letter("notifications@github.example", GMAIL_OWN_PASS)));
+        assert!(!ok(gmail_letter(
+            "notifications@github.com",
+            &GMAIL_OWN_PASS.replace("mx.google.com", "mx.evil.example")
+        )));
+        // A forged pass below the server's own failure is not believed.
+        let forged = GMAIL_OWN_PASS.replace("mx.google.com", "mx.google.com").replace("dmarc=pass", "dmarc=fail")
+            + &GMAIL_OWN_PASS;
+        assert!(!ok(gmail_letter("notifications@github.com", &forged)));
+    }
+
     #[test]
     fn importance_is_read_from_the_headers_that_say_it() {
         let of =
