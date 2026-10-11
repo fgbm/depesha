@@ -158,6 +158,12 @@ if [[ "${1:-}" == "--changed" ]]; then
     step "тест замка стенда"
     scripts/stand-lock.test.sh
   fi
+  ste=$(pick '^(AGENTS\.md$|docs/glossary\.md$|docs/agents/)')
+  if [[ -n $ste ]]; then
+    step "правила письма (STE)"
+    node scripts/ste-lint.mjs
+    npx vitest run scripts/ste-lint.test.mjs
+  fi
   step "хук персональных данных"
   scripts/hooks/pre-commit.test.sh
   exit 0
