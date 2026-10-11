@@ -2574,13 +2574,27 @@ impl Store {
         Ok(items)
     }
 
-    /// The user throws away a letter of the outbox that waits for them (`failed`), a damaged
-    /// one among them: deleted without reading the draft. Whether a row went.
+    /// The user throws away a damaged letter of the outbox: a `failed` row whose draft does not
+    /// parse. A letter that can be read is never deleted here. Whether a row went.
     pub fn outbox_discard(&self, id: i64) -> Result<bool> {
-        Ok(self.conn().execute(
-            "DELETE FROM outbox WHERE id = ?1 AND failed = 1 AND sending_started = 0",
-            [id],
-        )? == 1)
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let draft: Option<String> = tx
+            .query_row(
+                "SELECT draft FROM outbox WHERE id = ?1 AND failed = 1 AND sending_started = 0",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        // Only a draft that really does not parse goes: a healthy letter that failed for good is
+        // the user's to edit or send again, and one call of this must not lose it.
+        let Some(draft) = draft else { return Ok(false) };
+        if serde_json::from_str::<Draft>(&draft).is_ok() {
+            return Ok(false);
+        }
+        let gone = tx.execute("DELETE FROM outbox WHERE id = ?1", [id])? == 1;
+        tx.commit()?;
+        Ok(gone)
     }
 
     /// Takes the letter `id` to send: marks that its send has started (`started`) and gives

@@ -231,6 +231,20 @@ mod tests {
         assert!(again.is_empty(), "{again}");
     }
 
+    /// A healthy letter that failed for good is the user's to edit or resend: discard does not
+    /// take it, and the row stays (#146).
+    #[test]
+    fn a_failed_letter_that_can_be_read_is_not_discarded() {
+        let store = mailbox();
+        let id = store
+            .outbox_add("a", &Draft::default(), 100, 100, 0, &FollowupPlan::default())
+            .unwrap();
+        store.outbox_retry_later(id, 200, "no such user", true).unwrap();
+        assert!(store.outbox().unwrap()[0].failed);
+        assert!(!store.outbox_discard(id).unwrap());
+        assert_eq!(rows(&store, "outbox"), 1, "the row stays");
+    }
+
     #[test]
     fn a_failed_letter_is_discarded_unread_and_a_waiting_one_is_not() {
         let store = mailbox();

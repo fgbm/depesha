@@ -3285,8 +3285,8 @@ pub fn outbox_retry(state: St<'_>, id: i64) -> CmdResult<()> {
     Ok(())
 }
 
-/// Throws away a letter of the outbox that waits for the user, a damaged one among them: it
-/// is deleted without being read, and only when the user asks.
+/// Throws away a damaged letter of the outbox (a `failed` row whose draft does not parse), and
+/// only when the user asks. A letter that can be read is not deleted by this.
 #[tauri::command(async)]
 pub fn outbox_discard(state: St<'_>, id: i64) -> CmdResult<()> {
     state.store.outbox_discard(id)?;
