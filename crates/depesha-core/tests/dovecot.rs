@@ -221,6 +221,14 @@ Content-Transfer-Encoding: quoted-printable\r\n\r\n=D1=F7=B8=F2 =EE=EF=EB=E0=F2=
     }
     // The server agrees: none of them is seen.
     assert_eq!(imap::uid_search(&mut conn, "UNSEEN").await.unwrap().len(), 3);
+    // The prefix was read on this very connection: it is not left out of step, and the
+    // pass after it still answers.
+    assert!(!conn.broken);
+    let again = sync::sync_folder(&mut conn, &store, "d", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(again.added, 0);
+    assert!(!conn.broken);
     conn.session.logout().await.unwrap();
 }
 

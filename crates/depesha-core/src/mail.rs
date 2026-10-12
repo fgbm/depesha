@@ -22,6 +22,22 @@ pub enum Conn {
     Ews(ews::Session),
 }
 
+impl Conn {
+    /// Whether the last work left the connection out of step, so the worker takes a fresh
+    /// one (#177). Only IMAP says yes: an answer the parser refused keeps the rest of the
+    /// answer in the buffer, and the next command would read the tail of the old one.
+    pub fn is_broken(&self) -> bool {
+        matches!(self, Conn::Imap(c) if c.broken)
+    }
+
+    /// Marks the connection out of step (#177); the worker drops it after this work.
+    pub fn note_broken(&mut self) {
+        if let Conn::Imap(c) = self {
+            c.broken = true;
+        }
+    }
+}
+
 pub async fn connect(account: &Account, creds: &Credentials) -> Result<Conn> {
     let receiver = Receiver::of(account);
     Ok(match &account.ews {
@@ -156,8 +172,10 @@ pub async fn read_snippets(
             let pairs = store.ews_item_ids_by_uid(account_id, folder, uids)?;
             let ids: Vec<String> = pairs.iter().map(|(_, id)| id.clone()).collect();
             let uid_of: std::collections::HashMap<String, u32> = pairs.into_iter().map(|(uid, id)| (id, uid)).collect();
-            let found = ews::previews(s, &ids).await?;
-            Ok(found
+            // An item Exchange answers with no `Preview` is stored as an empty text: the
+            // letter leaves the backfill's selection instead of being asked for again.
+            Ok(ews::previews(s, &ids)
+                .await?
                 .into_iter()
                 .filter_map(|(id, text)| uid_of.get(&id).map(|uid| (*uid, text)))
                 .collect())

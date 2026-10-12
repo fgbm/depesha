@@ -701,3 +701,56 @@ async fn server_search_finds_a_quoted_local_part() {
         .expect("search");
     assert!(none.is_empty());
 }
+
+/// Criterion (#177): GreenMail answers a partial body fetch without the space RFC 3501
+/// requires before the literal (`BODY[1.1]<0>{n}`). The patched parser reads it, so a
+/// nested multipart letter gets its preview, the letter stays unread, and the connection
+/// is not left out of step: the pass after it reads the folder again and finds nothing new.
+#[tokio::test]
+async fn the_preview_of_a_nested_multipart_letter_is_read() {
+    if !enabled() {
+        eprintln!("skipped: set DEPESHA_IT=1 and start compose.test.yaml");
+        return;
+    }
+    let alice = Credentials::new("alice", "secret");
+    let mut conn = imap::connect(&imap_server(), &alice).await.expect("alice login");
+    // A folder of this test's own: the fixed GreenMail users are shared by parallel tests.
+    let folder = format!("Preview{}", std::process::id());
+    depesha_core::best_effort("create the folder", conn.session.create(&folder).await);
+    // multipart/mixed around multipart/alternative: the text stands in part 1.1, the part
+    // whose answer GreenMail writes without the space.
+    let raw = "From: alice@local.test\r\nTo: bob@local.test\r\nSubject: Превью\r\n\
+Message-ID: <preview@local.test>\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"B\"\r\n\r\n\
+--B\r\nContent-Type: multipart/alternative; boundary=\"b\"\r\n\r\n\
+--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nПривет, Боб!\r\n\
+--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Привет, Боб!</p>\r\n--b--\r\n--B--\r\n"
+        .as_bytes();
+    imap::append(&mut conn, &folder, raw, "").await.unwrap();
+
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "g").await.unwrap();
+    let report = sync::sync_folder(&mut conn, &store, "g", &folder, SyncOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(report.added, 1, "{report:?}");
+    let rows = store
+        .list(&ListQuery {
+            account_id: Some("g".into()),
+            folder: Some(folder.clone()),
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows[0].snippet, "Привет, Боб!", "the prefix of part 1.1 was read");
+    assert!(!rows[0].flags.seen, "PEEK leaves the letter unread");
+    assert!(!conn.broken, "the answer was read: the connection is not out of step");
+
+    // The pass after it: the connection still answers, and nothing is new.
+    let again = sync::sync_folder(&mut conn, &store, "g", &folder, SyncOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(again.added, 0, "the next batch passes on the same connection");
+    assert!(!conn.broken);
+    conn.session.logout().await.unwrap();
+}

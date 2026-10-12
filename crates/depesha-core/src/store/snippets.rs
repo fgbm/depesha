@@ -153,6 +153,31 @@ mod tests {
         assert_eq!(orphans, 0, "no orphan text is left");
     }
 
+    /// Criterion (#177): a letter that carries no text at all (files only, calendar,
+    /// S/MIME) is stored with an empty preview, so it leaves the selection at once. A round
+    /// of 50 starting at the newest therefore reaches the one letter with text in the
+    /// second round instead of being stuck on the letters that can never answer.
+    #[test]
+    fn a_round_of_letters_without_text_leaves_the_one_with_text_for_the_next() {
+        let store = Store::open_in_memory().unwrap();
+        inbox(&store);
+        // The one with text, cached first (the oldest); then 50 of only files, newest.
+        let with_text = letter(&store, 1);
+        for uid in 2..=51 {
+            letter(&store, uid);
+        }
+        let round = store.snippets_missing("a", "INBOX", 50).unwrap();
+        assert_eq!(round.len(), 50, "a round holds its limit");
+        assert!(!round.iter().any(|(id, _)| *id == with_text), "the newest first");
+        // All 50 carry no text: the empty preview is stored, and they leave the selection.
+        let empty: Vec<(i64, String)> = round.iter().map(|(id, _)| (*id, String::new())).collect();
+        store.save_snippets(&empty).unwrap();
+        let round = store.snippets_missing("a", "INBOX", 50).unwrap();
+        assert_eq!(round, vec![(with_text, 1)], "the letter with text is all that is left");
+        store.save_snippet(with_text, "Тело письма").unwrap();
+        assert_eq!(store.snippets_missing_count("a", "INBOX").unwrap(), 0);
+    }
+
     /// The backfill sees only the letters without a text, newest first, and counts them.
     #[test]
     fn missing_lists_letters_without_a_text() {

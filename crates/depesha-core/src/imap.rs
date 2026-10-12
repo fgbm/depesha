@@ -125,6 +125,10 @@ pub struct Conn {
     /// Set once an IDLE of this connection has started: it has worked, so a later break is
     /// the server's way (a limit on age or idleness), not a connection that fails at once.
     pub worked: Arc<AtomicBool>,
+    /// An answer the parser refused left this connection out of step (#177): `async-imap`
+    /// keeps the rest of the answer in the buffer, so the next command would read the tail
+    /// of the old one. The worker drops such a connection instead of using it again.
+    pub broken: bool,
 }
 
 pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn> {
@@ -167,6 +171,7 @@ pub async fn connect(server: &ServerConfig, creds: &Credentials) -> Result<Conn>
         receiver: Receiver::default(),
         idle_folder: None,
         worked: Arc::new(AtomicBool::new(false)),
+        broken: false,
     })
 }
 
@@ -845,11 +850,18 @@ async fn remove_uids(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> 
     Ok(())
 }
 
-/// The beginning of the text part is decoded from at most this many bytes (#177): enough
-/// for the row's ~200 characters, so a long letter is not decoded whole.
+/// Bytes of a `text/plain` part read for the list's preview (#177): enough for the row's
+/// ~200 characters.
 pub const SNIPPET_BYTES: usize = 4096;
+/// Bytes of a `text/html` part: its styles stand in `<head>`, before the text, so more of
+/// it is read to get past them (finding 6).
+pub const SNIPPET_HTML_BYTES: usize = 16384;
+/// A part this big is never fetched whole (#177): the preview always reads a bounded
+/// prefix, whatever `BODYSTRUCTURE` says of the part's size. A backstop against a server
+/// that ignores the prefix and sends the whole part, or a future reader of this code.
+pub const MAX_WHOLE_PART: u32 = 256 * 1024;
 
-/// UIDs per `BODY.PEEK[<part>]` command, as the header fetch does.
+/// UIDs per `BODY.PEEK[<part>]<0.n>` command, as the header fetch does.
 const SNIPPET_BATCH: usize = 200;
 
 /// The part of a letter whose text the list shows (#177).
@@ -880,58 +892,110 @@ impl TextPart {
 }
 
 /// What the preview of one letter needs: where its text is and how to read it.
-#[derive(Debug, Clone)]
-pub struct SnippetPlan {
-    pub uid: u32,
-    pub part: TextPart,
-    pub encoding: crate::snippet::Encoding,
-    pub charset: Option<String>,
-    /// The part is HTML: its tags are stripped before the text is read.
-    pub html: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnippetPlan {
+    /// The letter carries text: read a bounded prefix of this part.
+    Text {
+        uid: u32,
+        part: TextPart,
+        encoding: crate::snippet::Encoding,
+        charset: Option<String>,
+        /// The part is HTML: its tags are stripped before the text is read.
+        html: bool,
+        /// The part's size as `BODYSTRUCTURE` declares it; 0 when it does not say.
+        octets: u32,
+    },
+    /// The letter carries no text at all (files only, calendar, S/MIME): there is nothing
+    /// to read, and the empty preview says so, so the backfill leaves it alone.
+    None { uid: u32 },
+}
+
+impl SnippetPlan {
+    pub fn uid(&self) -> u32 {
+        match self {
+            SnippetPlan::Text { uid, .. } | SnippetPlan::None { uid } => *uid,
+        }
+    }
+
+    /// How many bytes of the part are asked for.
+    fn prefix(&self) -> usize {
+        match self {
+            SnippetPlan::Text { html: true, .. } => SNIPPET_HTML_BYTES,
+            _ => SNIPPET_BYTES,
+        }
+    }
+
+    /// What to store for this letter: `Some(text)` — empty when the letter carries no text
+    /// — or `None` when nothing is stored. A part cut at the prefix that gave no text may
+    /// have its text further on, so nothing is written and the letter stays in the
+    /// backfill's selection; a part read whole that gave no text has none.
+    pub fn stored(&self, read: Option<&str>) -> Option<String> {
+        match self {
+            SnippetPlan::None { .. } => Some(String::new()),
+            SnippetPlan::Text { octets, .. } => match read {
+                Some(text) if !text.is_empty() => Some(text.to_owned()),
+                // The whole part was read, and it is small enough that it could have been:
+                // an empty text is the letter's own. A part above `MAX_WHOLE_PART` is never
+                // read whole, so its empty answer says nothing and is not stored.
+                Some(text) if u64::from(*octets) <= self.prefix() as u64 && *octets <= MAX_WHOLE_PART => {
+                    Some(text.to_owned())
+                }
+                _ => None,
+            },
+        }
+    }
+}
+
+/// One text part of a letter, as its `BODYSTRUCTURE` names it.
+struct FoundPart {
+    /// The part's number, empty for the whole body of a letter that is not multipart.
+    path: Vec<u32>,
+    html: bool,
+    encoding: crate::snippet::Encoding,
+    charset: Option<String>,
+    octets: u32,
 }
 
 /// The plan for a letter, from its `BODYSTRUCTURE`: `text/plain` when there is one,
-/// `text/html` otherwise. None when the letter carries no text (a letter of only files).
-pub fn snippet_plan(uid: u32, bs: &BodyStructure<'_>) -> Option<SnippetPlan> {
-    let mut found: Vec<(Vec<u32>, bool, crate::snippet::Encoding, Option<String>)> = Vec::new();
+/// `text/html` otherwise; `SnippetPlan::None` when the letter carries no text.
+pub fn snippet_plan(uid: u32, bs: &BodyStructure<'_>) -> SnippetPlan {
+    let mut found: Vec<FoundPart> = Vec::new();
     let mut path = Vec::new();
     collect_text_parts(bs, &mut path, &mut found);
     // `text/plain` before `text/html`, wherever in the letter they stand.
-    let chosen = found.iter().find(|(_, html, _, _)| !html).or_else(|| found.first())?;
-    let (path, html, encoding, charset) = chosen;
-    let part = if path.is_empty() {
+    let Some(part) = found.iter().find(|p| !p.html).or(found.first()) else {
+        return SnippetPlan::None { uid };
+    };
+    let section = if part.path.is_empty() {
         TextPart::Text
     } else {
-        TextPart::Part(path.clone())
+        TextPart::Part(part.path.clone())
     };
-    Some(SnippetPlan {
+    SnippetPlan::Text {
         uid,
-        part,
-        encoding: *encoding,
-        charset: charset.clone(),
-        html: *html,
-    })
+        part: section,
+        encoding: part.encoding,
+        charset: part.charset.clone(),
+        html: part.html,
+        octets: part.octets,
+    }
 }
 
-/// Walks a `BODYSTRUCTURE`, gathering the text parts with their number, encoding and
-/// charset. A part the sender marked as an attachment is not the letter's text.
-fn collect_text_parts(
-    bs: &BodyStructure<'_>,
-    path: &mut Vec<u32>,
-    out: &mut Vec<(Vec<u32>, bool, crate::snippet::Encoding, Option<String>)>,
-) {
+/// Walks a `BODYSTRUCTURE`, gathering the text parts with their number, encoding, charset
+/// and size. A part the sender marked as an attachment is not the letter's text.
+fn collect_text_parts(bs: &BodyStructure<'_>, path: &mut Vec<u32>, out: &mut Vec<FoundPart>) {
     match bs {
         BodyStructure::Text { common, other, .. } => {
             if is_attachment(common) {
                 return;
             }
-            let html = common.ty.subtype.eq_ignore_ascii_case("html");
-            out.push((
-                path.clone(),
-                html,
-                encoding_of(&other.transfer_encoding),
-                charset_of(common),
-            ));
+            out.push(FoundPart {
+                path: path.clone(),
+                html: common.ty.subtype.eq_ignore_ascii_case("html"),
+                encoding: encoding_of(&other.transfer_encoding),
+                charset: charset_of(common),
+                octets: other.octets,
+            });
         }
         BodyStructure::Multipart { bodies, .. } => {
             for (i, child) in bodies.iter().enumerate() {
@@ -969,25 +1033,55 @@ fn encoding_of(encoding: &ContentEncoding<'_>) -> crate::snippet::Encoding {
     }
 }
 
-/// Reads the beginning of the text of each planned part, `BODY.PEEK[<part>]`: `PEEK`
-/// leaves the letters unread. Parts needing the same section go in one FETCH.
-///
-/// The whole part is asked for, not a prefix (`<0.n>`): a prefix is a partial fetch, and
-/// the answer to one is written by some servers (GreenMail) without the space RFC 3501
-/// requires before the literal, which the parser refuses — and a refused answer leaves the
-/// connection out of step, so the sync after it breaks too. The part is cut here instead.
-pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Result<Vec<(u32, String)>> {
-    let mut out = Vec::with_capacity(plans.len());
-    let mut groups: Vec<(TextPart, Vec<&SnippetPlan>)> = Vec::new();
-    for plan in plans {
-        match groups.iter_mut().find(|(part, _)| *part == plan.part) {
-            Some((_, list)) => list.push(plan),
-            None => groups.push((plan.part.clone(), vec![plan])),
+/// The plans of the given letters (#177): a `UID FETCH (UID BODYSTRUCTURE)` of its own,
+/// after the headers are cached. A letter whose structure is not in the answer is left
+/// without a plan, not guessed at: the folder sync goes on either way.
+pub async fn fetch_snippet_plans(conn: &mut Conn, uids: &[u32]) -> Result<Vec<SnippetPlan>> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut plans = Vec::with_capacity(uids.len());
+    for chunk in uids.chunks(SNIPPET_BATCH) {
+        let fetches: Vec<_> = conn
+            .session
+            .uid_fetch(uid_set(chunk), "(UID BODYSTRUCTURE)")
+            .await?
+            .try_collect()
+            .await?;
+        for f in &fetches {
+            if let (Some(uid), Some(bs)) = (f.uid, f.bodystructure()) {
+                plans.push(snippet_plan(uid, bs));
+            }
         }
     }
-    for (part, list) in groups {
-        let uids: Vec<u32> = list.iter().map(|p| p.uid).collect();
-        let query = format!("(UID BODY.PEEK[{}])", part.render());
+    Ok(plans)
+}
+
+/// The FETCH command that reads the beginning of a part (#177): a bounded prefix, so a
+/// letter of hundreds of kilobytes sends no more than that.
+fn snippet_query(part: &TextPart, prefix: usize) -> String {
+    format!("(UID BODY.PEEK[{}]<0.{prefix}>)", part.render())
+}
+
+/// Reads the beginning of the text of each planned part, `BODY.PEEK[<part>]<0.n>`: `PEEK`
+/// leaves the letters unread, and the server sends no more than the prefix. Parts needing
+/// the same section and the same prefix go in one FETCH.
+pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Result<Vec<(u32, String)>> {
+    let mut out = Vec::with_capacity(plans.len());
+    let mut groups: Vec<(TextPart, usize, Vec<&SnippetPlan>)> = Vec::new();
+    for plan in plans {
+        let SnippetPlan::Text { part, .. } = plan else {
+            continue;
+        };
+        let prefix = plan.prefix();
+        match groups.iter_mut().find(|(p, n, _)| *p == *part && *n == prefix) {
+            Some((_, _, list)) => list.push(plan),
+            None => groups.push((part.clone(), prefix, vec![plan])),
+        }
+    }
+    for (part, prefix, list) in groups {
+        let uids: Vec<u32> = list.iter().map(|p| p.uid()).collect();
+        let query = snippet_query(&part, prefix);
         for chunk in uids.chunks(SNIPPET_BATCH) {
             let fetches: Vec<_> = conn
                 .session
@@ -999,13 +1093,20 @@ pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Resu
                 let (Some(uid), Some(data)) = (f.uid, f.section(&part.path())) else {
                     continue;
                 };
-                let Some(plan) = list.iter().find(|p| p.uid == uid) else {
+                let Some(SnippetPlan::Text {
+                    encoding,
+                    charset,
+                    html,
+                    ..
+                }) = list.iter().find(|p| p.uid() == uid)
+                else {
                     continue;
                 };
-                let head = &data[..data.len().min(SNIPPET_BYTES)];
+                // A server that ignores the prefix must not have its whole part decoded.
+                let head = &data[..data.len().min(prefix)];
                 out.push((
                     uid,
-                    crate::snippet::from_part(head, plan.encoding, plan.charset.as_deref(), plan.html),
+                    crate::snippet::from_part(head, *encoding, charset.as_deref(), *html),
                 ));
             }
         }
@@ -1014,30 +1115,23 @@ pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Resu
 }
 
 /// Reads the beginning of the text of the given letters of a folder (#177): their
-/// `BODYSTRUCTURE` first, then a prefix of the part that holds the text. `PEEK`, so none
-/// of them becomes read. Letters gone from the server are simply missing from the answer.
+/// `BODYSTRUCTURE` first, then a bounded prefix of the part that holds the text. `PEEK`,
+/// so none of them becomes read. Letters gone from the server are simply missing from the
+/// answer; a letter with no text is answered with an empty string.
 pub async fn fetch_snippets(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<Vec<(u32, String)>> {
     if uids.is_empty() {
         return Ok(Vec::new());
     }
     conn.session.examine(folder).await?;
-    let mut plans = Vec::with_capacity(uids.len());
-    for chunk in uids.chunks(SNIPPET_BATCH) {
-        let fetches: Vec<_> = conn
-            .session
-            .uid_fetch(uid_set(chunk), "(UID BODYSTRUCTURE)")
-            .await?
-            .try_collect()
-            .await?;
-        for f in &fetches {
-            if let (Some(uid), Some(bs)) = (f.uid, f.bodystructure())
-                && let Some(plan) = snippet_plan(uid, bs)
-            {
-                plans.push(plan);
-            }
-        }
-    }
-    fetch_snippet_parts(conn, &plans).await
+    let plans = fetch_snippet_plans(conn, uids).await?;
+    let read: std::collections::HashMap<u32, String> = fetch_snippet_parts(conn, &plans).await?.into_iter().collect();
+    Ok(plans
+        .iter()
+        .filter_map(|p| {
+            p.stored(read.get(&p.uid()).map(String::as_str))
+                .map(|text| (p.uid(), text))
+        })
+        .collect())
 }
 
 /// Full RFC 822 source, without setting \Seen.
@@ -1779,6 +1873,7 @@ pub async fn wait_for_changes(
             receiver,
             idle_folder,
             worked,
+            broken: false,
         },
         outcome,
     ))
@@ -1865,6 +1960,9 @@ mod tests {
 
     // The preview's part selection (#177): from a `BODYSTRUCTURE`, where the text is.
 
+    /// The size a test `BODYSTRUCTURE` declares for its text part.
+    const TEXT_OCTETS: u32 = 120;
+
     fn text_part(
         subtype: &'static str,
         charset: Option<&'static str>,
@@ -1890,7 +1988,7 @@ mod tests {
                 md5: None,
                 description: None,
                 transfer_encoding: encoding,
-                octets: 0,
+                octets: TEXT_OCTETS,
             },
             lines: 0,
             extension: None,
@@ -1937,15 +2035,109 @@ mod tests {
         }
     }
 
+    /// The part, the flags and the size of a plan a test expects to carry text.
+    fn text_of(plan: SnippetPlan) -> (TextPart, bool, crate::snippet::Encoding, Option<String>, u32) {
+        match plan {
+            SnippetPlan::Text {
+                part,
+                html,
+                encoding,
+                charset,
+                octets,
+                ..
+            } => (part, html, encoding, charset, octets),
+            SnippetPlan::None { .. } => panic!("the letter carries no text"),
+        }
+    }
+
+    /// Criterion: the request for a part is a bounded prefix, 4096 bytes of plain text and
+    /// 16384 of HTML (its styles stand before the text).
+    #[test]
+    fn the_preview_reads_a_bounded_prefix() {
+        assert_eq!(
+            snippet_query(&TextPart::Part(vec![1, 1]), SNIPPET_BYTES),
+            "(UID BODY.PEEK[1.1]<0.4096>)"
+        );
+        assert_eq!(
+            snippet_query(&TextPart::Text, SNIPPET_BYTES),
+            "(UID BODY.PEEK[TEXT]<0.4096>)"
+        );
+        assert_eq!(
+            snippet_query(&TextPart::Part(vec![2]), SNIPPET_HTML_BYTES),
+            "(UID BODY.PEEK[2]<0.16384>)"
+        );
+    }
+
+    /// Criterion: the prefix of a plan follows the part it read: HTML more, plain less.
+    #[test]
+    fn the_prefix_follows_the_part() {
+        let plain = snippet_plan(1, &text_part("plain", Some("utf-8"), ContentEncoding::SevenBit, false));
+        let html = snippet_plan(1, &text_part("html", Some("utf-8"), ContentEncoding::SevenBit, false));
+        assert_eq!(plain.prefix(), SNIPPET_BYTES);
+        assert_eq!(html.prefix(), SNIPPET_HTML_BYTES);
+    }
+
+    /// Criterion: a letter that carries no text is planned as such, and stores the empty
+    /// preview, so the backfill leaves it alone.
+    #[test]
+    fn a_letter_without_text_stores_an_empty_preview() {
+        let bs = multipart("mixed", vec![file_part("pdf"), file_part("zip")]);
+        let plan = snippet_plan(1, &bs);
+        assert!(matches!(plan, SnippetPlan::None { .. }));
+        assert_eq!(plan.stored(None).as_deref(), Some(""));
+    }
+
+    /// Criterion: a part cut at the prefix that gave no text stores nothing — its text may
+    /// stand further on — while a part read whole with no text stores the empty preview.
+    #[test]
+    fn a_cut_part_that_gave_nothing_is_not_stored() {
+        let cut = SnippetPlan::Text {
+            uid: 1,
+            part: TextPart::Part(vec![1]),
+            encoding: crate::snippet::Encoding::Identity,
+            charset: None,
+            html: true,
+            octets: SNIPPET_HTML_BYTES as u32 + 1,
+        };
+        assert_eq!(cut.stored(Some("")), None, "cut and empty: try again later");
+        assert_eq!(cut.stored(None), None);
+        let whole = SnippetPlan::Text {
+            uid: 1,
+            part: TextPart::Part(vec![1]),
+            encoding: crate::snippet::Encoding::Identity,
+            charset: None,
+            html: true,
+            octets: 10,
+        };
+        assert_eq!(
+            whole.stored(Some("")).as_deref(),
+            Some(""),
+            "read whole: it has no text"
+        );
+        assert_eq!(cut.stored(Some("Привет")).as_deref(), Some("Привет"));
+        // A part above the cap is never read whole, so an empty answer from it means
+        // nothing and is not stored.
+        let above = SnippetPlan::Text {
+            uid: 1,
+            part: TextPart::Part(vec![1]),
+            encoding: crate::snippet::Encoding::Identity,
+            charset: None,
+            html: false,
+            octets: MAX_WHOLE_PART + 1,
+        };
+        assert_eq!(above.stored(Some("")), None);
+    }
+
     /// A letter that is not multipart takes its whole body (`BODY[TEXT]`).
     #[test]
     fn a_single_part_letter_reads_its_whole_text() {
         let bs = text_part("plain", Some("utf-8"), ContentEncoding::QuotedPrintable, false);
-        let plan = snippet_plan(7, &bs).expect("a plan");
-        assert_eq!(plan.part, TextPart::Text);
-        assert!(!plan.html);
-        assert_eq!(plan.encoding, crate::snippet::Encoding::QuotedPrintable);
-        assert_eq!(plan.charset.as_deref(), Some("utf-8"));
+        let (part, html, encoding, charset, octets) = text_of(snippet_plan(7, &bs));
+        assert_eq!(part, TextPart::Text);
+        assert!(!html);
+        assert_eq!(encoding, crate::snippet::Encoding::QuotedPrintable);
+        assert_eq!(charset.as_deref(), Some("utf-8"));
+        assert_eq!(octets, TEXT_OCTETS, "the size comes from BODYSTRUCTURE");
     }
 
     /// `text/plain` is chosen over `text/html` wherever they stand.
@@ -1958,9 +2150,9 @@ mod tests {
                 text_part("html", Some("utf-8"), ContentEncoding::SevenBit, false),
             ],
         );
-        let plan = snippet_plan(1, &bs).expect("a plan");
-        assert_eq!(plan.part, TextPart::Part(vec![1]));
-        assert!(!plan.html);
+        let (part, html, ..) = text_of(snippet_plan(1, &bs));
+        assert_eq!(part, TextPart::Part(vec![1]));
+        assert!(!html);
     }
 
     /// Without a `text/plain`, the `text/html` part is taken and marked HTML.
@@ -1973,11 +2165,11 @@ mod tests {
                 file_part("pdf"),
             ],
         );
-        let plan = snippet_plan(1, &bs).expect("a plan");
-        assert_eq!(plan.part, TextPart::Part(vec![1]));
-        assert!(plan.html);
-        assert_eq!(plan.encoding, crate::snippet::Encoding::Base64);
-        assert_eq!(plan.charset.as_deref(), Some("windows-1251"));
+        let (part, html, encoding, charset, _) = text_of(snippet_plan(1, &bs));
+        assert_eq!(part, TextPart::Part(vec![1]));
+        assert!(html);
+        assert_eq!(encoding, crate::snippet::Encoding::Base64);
+        assert_eq!(charset.as_deref(), Some("windows-1251"));
     }
 
     /// A text part marked as an attachment is not the letter's text.
@@ -1990,15 +2182,8 @@ mod tests {
                 text_part("plain", Some("utf-8"), ContentEncoding::SevenBit, false),
             ],
         );
-        let plan = snippet_plan(1, &bs).expect("a plan");
-        assert_eq!(plan.part, TextPart::Part(vec![2]));
-    }
-
-    /// A letter of only files has no text to preview.
-    #[test]
-    fn a_letter_without_text_has_no_plan() {
-        let bs = multipart("mixed", vec![file_part("pdf"), file_part("zip")]);
-        assert!(snippet_plan(1, &bs).is_none());
+        let (part, ..) = text_of(snippet_plan(1, &bs));
+        assert_eq!(part, TextPart::Part(vec![2]));
     }
 
     #[test]
@@ -2328,5 +2513,127 @@ mod tests {
             hidden: false,
         };
         assert_eq!(f.leaf(), "Work");
+    }
+
+    /// A server that answers a whole folder sync of one letter. `break_at` names the
+    /// answer to write malformed: "BODYSTRUCTURE", "BODY.PEEK[" (the preview's prefix), or
+    /// "" for an answer the parser reads.
+    async fn sync_server(break_at: &'static str) -> u16 {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (sock, _) = listener.accept().await.unwrap();
+            let (r, mut w) = sock.into_split();
+            let mut lines = BufReader::new(r).lines();
+            w.write_all(b"* OK [CAPABILITY IMAP4rev1] ready\r\n").await.unwrap();
+            let headers = "Subject: Тест\r\nFrom: a@b.example\r\nMessage-ID: <1@x>\r\n\r\n";
+            while let Ok(Some(line)) = lines.next_line().await {
+                let mut parts = line.split_whitespace();
+                let tag = parts.next().unwrap_or("*").to_owned();
+                let up = line.to_ascii_uppercase();
+                let reply = if up.contains("BODY.PEEK[") && up.contains("<0.") {
+                    // The answer to a partial fetch: the literal without the space RFC 3501
+                    // asks for (GreenMail), and `break_at` makes it unreadable.
+                    if break_at == "BODY.PEEK[" {
+                        format!("* 1 FETCH (UID 1 BODY[1]<0>!)\r\n{tag} OK done\r\n")
+                    } else {
+                        format!("* 1 FETCH (UID 1 BODY[1]<0>{{11}}\r\nHello world)\r\n{tag} OK done\r\n")
+                    }
+                } else if up.contains("BODYSTRUCTURE") {
+                    if break_at == "BODYSTRUCTURE" {
+                        format!("* 1 FETCH (UID 1 BODYSTRUCTURE!)\r\n{tag} OK done\r\n")
+                    } else {
+                        format!(
+                            "* 1 FETCH (UID 1 BODYSTRUCTURE ((\"text\" \"plain\" (\"charset\" \"utf-8\") NIL NIL \"7bit\" 11 1) \"alternative\"))\r\n{tag} OK done\r\n"
+                        )
+                    }
+                } else if up.contains("BODY.PEEK[HEADER]") {
+                    format!(
+                        "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 100 INTERNALDATE \"01-Jan-2026 00:00:00 +0000\" BODY[HEADER] {{{}}}\r\n{headers})\r\n{tag} OK done\r\n",
+                        headers.len()
+                    )
+                } else if up.contains("SEARCH") {
+                    format!("* SEARCH 1\r\n{tag} OK done\r\n")
+                } else if up.contains("LIST") {
+                    format!("* LIST () \"/\" \"INBOX\"\r\n{tag} OK done\r\n")
+                } else if up.contains("CAPABILITY") {
+                    format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n")
+                } else if up.contains("SELECT") || up.contains("EXAMINE") {
+                    format!(
+                        "* FLAGS ()\r\n* 1 EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT 2] ok\r\n{tag} OK [READ-WRITE] done\r\n"
+                    )
+                } else {
+                    format!("{tag} OK done\r\n")
+                };
+                w.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        port
+    }
+
+    /// Criterion (#177): the prefix of a part is read and becomes the letter's preview, and
+    /// the connection stays good.
+    #[tokio::test]
+    async fn the_preview_is_read_from_a_partial_answer() {
+        let port = sync_server("").await;
+        let store = crate::store::Store::open_in_memory().unwrap();
+        let mut conn = connect(
+            &ServerConfig::new("127.0.0.1", port, Security::Plain),
+            &Credentials::new("u", "p"),
+        )
+        .await
+        .unwrap();
+        crate::sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+        let report = crate::sync::sync_folder(&mut conn, &store, "d", "INBOX", crate::sync::SyncOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(report.added, 1, "{report:?}");
+        let rows = store
+            .list(&crate::store::ListQuery {
+                account_id: Some("d".into()),
+                folder: Some("INBOX".into()),
+                limit: 10,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(rows[0].snippet, "Hello world");
+        assert!(!conn.broken, "the answer was read: the connection is not out of step");
+    }
+
+    /// Criterion (#177): an answer the parser refuses costs the preview, never the sync —
+    /// the headers are cached either way — and it leaves the connection out of step, so the
+    /// worker drops it instead of reading the tail of the old answer.
+    #[tokio::test]
+    async fn a_preview_that_cannot_be_read_does_not_cost_the_sync() {
+        for break_at in ["BODYSTRUCTURE", "BODY.PEEK["] {
+            let port = sync_server(break_at).await;
+            let store = crate::store::Store::open_in_memory().unwrap();
+            let mut conn = connect(
+                &ServerConfig::new("127.0.0.1", port, Security::Plain),
+                &Credentials::new("u", "p"),
+            )
+            .await
+            .unwrap();
+            crate::sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+            let report = crate::sync::sync_folder(&mut conn, &store, "d", "INBOX", crate::sync::SyncOptions::default())
+                .await
+                .unwrap();
+            assert_eq!(report.added, 1, "{break_at}: the headers are cached anyway");
+            let rows = store
+                .list(&crate::store::ListQuery {
+                    account_id: Some("d".into()),
+                    folder: Some("INBOX".into()),
+                    limit: 10,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(rows[0].snippet, "", "{break_at}: no preview, and the sync stands");
+            assert!(conn.broken, "{break_at}: the connection is out of step");
+            assert!(
+                crate::mail::Conn::Imap(conn).is_broken(),
+                "{break_at}: and says so through the mail layer"
+            );
+        }
     }
 }

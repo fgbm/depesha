@@ -1216,13 +1216,20 @@ impl Ops {
                 }
             };
             note_move(&mut self.unfinished_moves, &op, outcome.is_ok());
+            // An answer the parser refused leaves the connection out of step (#177): the
+            // work stands, and the next one takes a fresh connection instead of reading the
+            // tail of the old answer.
+            let broken = c.is_broken();
             match outcome {
                 Ok(out) => {
                     self.busy_streak = 0;
+                    if broken {
+                        self.conn = None;
+                    }
                     return Ok(out);
                 }
                 Err(e) => {
-                    let dropped = e.is_transient() && !e.is_busy();
+                    let dropped = (e.is_transient() && !e.is_busy()) || broken;
                     if dropped {
                         self.conn = None;
                     }
@@ -1801,6 +1808,12 @@ async fn perform(
 /// have no text yet, a small batch at a time, so the sync and sending run between rounds.
 /// `Count` is how many were read; 0 when every letter the list shows has one.
 async fn read_snippets(state: &AppState, conn: &mut Conn, account_id: &str) -> Result<Output> {
+    // The backfill reads the server in the background, as the offline download does: a
+    // mailbox whose offline reading is switched off or paused is not asked for previews
+    // either. New letters get theirs in the sync itself.
+    if state.settings().offline_since().is_none() || state.prefetch_paused(account_id) {
+        return Ok(Output::Count(0));
+    }
     let store = &state.store;
     let mut left = SNIPPET_BATCH as usize;
     let mut read = 0usize;
@@ -1814,12 +1827,15 @@ async fn read_snippets(state: &AppState, conn: &mut Conn, account_id: &str) -> R
             continue;
         }
         let uids: Vec<u32> = missing.iter().map(|(_, uid)| *uid).collect();
-        // A preview is a nicety: a server that answers a part in a way the parser cannot
-        // read (see `sync::fetch_headers`) loses the preview, not the round.
+        // A preview is a nicety: a failed read costs the preview, not the round. The kind
+        // alone reaches the log — a letter's own text may stand in the answer.
         let texts = match mail::read_snippets(conn, store, account_id, &info.folder.name, &uids).await {
             Ok(texts) => texts,
             Err(e) => {
-                tracing::warn!(folder = %info.folder.name, "previews not read: {e}");
+                if e.is_transient() {
+                    conn.note_broken();
+                }
+                tracing::warn!(folder = %info.folder.name, kind = e.kind().as_str(), "previews not read");
                 break;
             }
         };

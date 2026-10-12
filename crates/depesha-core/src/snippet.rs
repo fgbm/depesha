@@ -59,7 +59,8 @@ fn decode_charset(bytes: &[u8], charset: Option<&str>) -> String {
 }
 
 /// One line for the row: whitespace folded to single spaces, the quoted lines and the
-/// signature dropped, cut to `LENGTH` with an ellipsis.
+/// signature dropped, the control characters and direction marks a sender may hide text
+/// with taken out, cut to `LENGTH` with an ellipsis.
 pub fn normalize(text: &str) -> String {
     let mut out = String::new();
     for line in text.lines() {
@@ -81,7 +82,13 @@ pub fn normalize(text: &str) -> String {
         out.push_str(line);
     }
     let folded = out.split_whitespace().collect::<Vec<_>>().join(" ");
-    cut(&folded)
+    cut(&folded.chars().filter(|c| !is_hidden(*c)).collect::<String>())
+}
+
+/// A character a row must not carry: the control ones and the direction marks that would
+/// reorder the text around them (U+202A–U+202E, U+2066–U+2069).
+fn is_hidden(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
 /// The text cut to `LENGTH` characters, an ellipsis standing for the rest.
@@ -119,6 +126,13 @@ mod tests {
                       +7 900 000-00-00";
         assert_eq!(normalize(letter), "Согласен, встречаемся в среду.");
         assert_eq!(normalize("Письмо\n--\nподпись"), "Письмо");
+    }
+
+    /// Criterion: the control characters and the direction marks do not reach the row.
+    #[test]
+    fn drops_control_characters_and_direction_marks() {
+        assert_eq!(normalize("Привет\u{0}\u{7}, мир\u{202e}!"), "Привет, мир!");
+        assert_eq!(normalize("a\u{2066}b\u{2069}c"), "abc");
     }
 
     /// Criterion: a long text is cut with an ellipsis, by characters, not bytes.

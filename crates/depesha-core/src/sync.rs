@@ -361,7 +361,7 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .session
             .uid_fetch(
                 imap::uid_set(chunk),
-                "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER] BODYSTRUCTURE)",
+                "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])",
             )
             .await?
             .try_collect()
@@ -379,22 +379,6 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
                 ))
             })
             .collect();
-        // The list's preview (#177): the part of each letter's text, read in the FETCH
-        // below. `PEEK` leaves the letters unread, and the part is cut by the server.
-        let plans: Vec<imap::SnippetPlan> = headers
-            .iter()
-            .filter_map(|(uid, _, f, _)| imap::snippet_plan(*uid, f.bodystructure()?))
-            .collect();
-        // A preview is a nicety: a server whose answer to a part the parser cannot read
-        // (GreenMail leaves out the space before the literal of a partial fetch) loses
-        // the preview, not the sync.
-        let snippets: HashMap<u32, String> = match imap::fetch_snippet_parts(conn, &plans).await {
-            Ok(found) => found.into_iter().collect(),
-            Err(e) => {
-                tracing::warn!(folder, "preview of new letters not read: {e}");
-                HashMap::new()
-            }
-        };
         let msgs: Vec<NewMessage<'_>> = headers
             .iter()
             .map(|(uid, flags, f, summary)| NewMessage {
@@ -409,17 +393,58 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
         // One commit for the batch: either all of it is cached or none, and the
         // folder's state, written after, never claims what is missing.
         let ids = off_runtime_thread(|| store.insert_messages(account_id, folder, &msgs))?;
-        // The preview beside the headers; a break between the two leaves a letter the
-        // background backfill reads again (#177).
-        let texts: Vec<(i64, String)> = ids
-            .iter()
-            .zip(&msgs)
-            .filter_map(|(id, m)| snippets.get(&m.uid).map(|text| (*id, text.clone())))
-            .collect();
-        off_runtime_thread(|| store.save_snippets(&texts))?;
         added += msgs.len();
+        // The list's preview (#177) of the letters just cached, in fetches of its own:
+        // what it cannot read costs the preview, never the headers.
+        let pairs: Vec<(i64, u32)> = ids.iter().copied().zip(msgs.iter().map(|m| m.uid)).collect();
+        read_previews(conn, store, folder, &pairs).await?;
     }
     Ok(added)
+}
+
+/// Reads the beginning of the text of the letters just cached (#177). A preview is a
+/// nicety: an answer that cannot be read is logged by its kind alone — never the answer
+/// itself, a letter's own text may stand in it — and the sync goes on. A failure that left
+/// the connection out of step marks it broken, so the worker takes a fresh one instead of
+/// reading the tail of the old answer.
+async fn read_previews(conn: &mut Conn, store: &Store, folder: &str, pairs: &[(i64, u32)]) -> Result<()> {
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    let uids: Vec<u32> = pairs.iter().map(|(_, uid)| *uid).collect();
+    let plans = match imap::fetch_snippet_plans(conn, &uids).await {
+        Ok(plans) => plans,
+        Err(e) => return note_preview_failure(conn, folder, &e),
+    };
+    let read: HashMap<u32, String> = match imap::fetch_snippet_parts(conn, &plans).await {
+        Ok(found) => found.into_iter().collect(),
+        Err(e) => return note_preview_failure(conn, folder, &e),
+    };
+    let id_of: HashMap<u32, i64> = pairs.iter().map(|(id, uid)| (*uid, *id)).collect();
+    let texts: Vec<(i64, String)> = plans
+        .iter()
+        .filter_map(|p| {
+            let text = p.stored(read.get(&p.uid()).map(String::as_str))?;
+            id_of.get(&p.uid()).map(|id| (*id, text))
+        })
+        .collect();
+    off_runtime_thread(|| store.save_snippets(&texts))
+}
+
+/// A preview fetch that failed: the folder and the kind of the error, and nothing of the
+/// letters. A failure that may have left the connection out of step marks it broken.
+fn note_preview_failure(conn: &mut Conn, folder: &str, e: &Error) -> Result<()> {
+    if e.is_transient() {
+        conn.broken = true;
+    }
+    warn_preview_failed(folder, e);
+    Ok(())
+}
+
+/// The line a failed preview read leaves. The kind of the error and the folder alone: the
+/// answer it came from may carry a letter's own text, which does not belong in a log.
+fn warn_preview_failed(folder: &str, e: &Error) {
+    tracing::warn!(folder, kind = e.kind().as_str(), "preview of new letters not read");
 }
 
 /// Searches the folder on the server (operators included, see `query`) and brings
@@ -487,6 +512,54 @@ mod tests {
     use crate::imap::Probing;
     use crate::store::NewMessage;
     use std::collections::HashMap;
+
+    /// What the log got while `run` ran.
+    fn logged(run: impl FnOnce()) -> String {
+        use std::sync::{Arc, Mutex};
+        #[derive(Clone, Default)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Sink {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
+            type Writer = Sink;
+            fn make_writer(&'a self) -> Sink {
+                self.clone()
+            }
+        }
+        let sink = Sink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, run);
+        String::from_utf8(sink.0.lock().unwrap().clone()).unwrap()
+    }
+
+    /// Criterion (#177): a preview read that failed is logged by its kind and its folder
+    /// alone. The answer the error came from may carry a letter's own text.
+    #[test]
+    fn a_failed_preview_keeps_the_letter_out_of_the_log() {
+        // What `async-imap` says when the parser refuses an answer: the answer itself, with
+        // the letter's text in it, stands in the message.
+        let answer = "Error(Error { input: [66, 79, 68, 89], code: TakeWhile1 }) during parsing of \
+                      \"* 1 FETCH (UID 1 BODY[1]<0>{12}\\r\\nСекретное письмо)\"";
+        let e = Error::Io(std::io::Error::other(answer));
+        let line = logged(|| warn_preview_failed("INBOX", &e));
+        assert!(line.contains("WARN") && line.contains("INBOX"), "{line}");
+        assert!(line.contains("kind"), "{line}");
+        assert!(
+            !line.contains("Секретное"),
+            "the letter's text is not in the log: {line}"
+        );
+        assert!(!line.contains("BODY[1]"), "the answer is not in the log: {line}");
+    }
 
     fn folder(name: &str) -> Folder {
         Folder {

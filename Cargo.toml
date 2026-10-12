@@ -1,6 +1,14 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "src-tauri"]
+# The patched copy of imap-proto is a dependency, not part of the project: it keeps its own
+# manifest, its own edition and its own lints (see vendor/imap-proto/PATCH.md).
+exclude = ["vendor/imap-proto"]
+
+[patch.crates-io]
+# A copy of imap-proto 0.17.0 with one line changed: the space before a partial body's
+# literal is optional (GreenMail leaves it out, and a refused answer breaks the connection).
+imap-proto = { path = "vendor/imap-proto" }
 
 [workspace.package]
 version = "0.8.2"

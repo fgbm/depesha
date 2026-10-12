@@ -767,15 +767,10 @@ fn synth_headers(it: Node<'_, '_>) -> String {
     h
 }
 
-/// The preview texts of the given item ids (#177), Exchange's own `Preview`: the
-/// background backfill reads old items this way, without downloading a body.
+/// The preview texts of the given item ids (#177), Exchange's own `Preview`: the empty
+/// string for an item that has none, so the letter leaves the backfill's selection.
 pub(crate) async fn previews(s: &mut Session, ids: &[String]) -> Result<Vec<(String, String)>> {
-    Ok(fetch(s, ids)
-        .await?
-        .into_iter()
-        .filter(|f| !f.preview.is_empty())
-        .map(|f| (f.id, f.preview))
-        .collect())
+    Ok(fetch(s, ids).await?.into_iter().map(|f| (f.id, f.preview)).collect())
 }
 
 /// Caches items under the given UIDs.
@@ -808,9 +803,10 @@ async fn add_items(
     insert_batches(store, account_id, folder, &items)?;
     // The list's preview (#177): Exchange's own `Preview` needs no body download. The
     // ids come back by UID; a letter already cached keeps its text unless it is empty.
+    // The list's preview (#177): Exchange's own `Preview`, empty for an item that has
+    // none — the empty text says so, and the backfill leaves the letter alone.
     let previews: Vec<(u32, String)> = items
         .iter()
-        .filter(|(_, _, _, preview)| !preview.is_empty())
         .map(|(msg, _, _, preview)| (msg.uid, crate::snippet::normalize(preview)))
         .collect();
     if !previews.is_empty() {
