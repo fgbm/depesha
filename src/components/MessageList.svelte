@@ -348,7 +348,7 @@
           <div class="line2">
             <span class="subject">{m.subject || t("noSubject")}</span>
             <!-- The beginning of the letter's text (#177): grey, one line, cut to the row. -->
-            {#if m.snippet}<span class="preview" title={m.snippet}>{m.snippet}</span>{/if}
+            {#if m.snippet}<span class="preview">{m.snippet}</span>{/if}
             <!-- Labels after the subject (#42, frame 10А): at most two, then "+n". -->
             {#each chipsOf(m).slice(0, 2) as chip (chip.name)}
               <span class="lbl" class:local={chip.local} style:--c={chip.color} title={chip.local ? t("label.localHint", { name: chip.name }) : chip.name}>{chip.name}</span>

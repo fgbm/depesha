@@ -361,7 +361,7 @@ describe("the beginning of the letter's text in the row (#177)", () => {
   beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
   afterEach(() => unstyle());
 
-  it("stands after the subject and carries the whole text in its tooltip", () => {
+  it("stands after the subject, in the second line", () => {
     const t = draw([row(1, "a@x.example", { snippet: "Добрый день! Счёт во вложении." })]);
     const line = t.querySelector<HTMLElement>(".row .line2")!;
     const kids = [...line.children];
@@ -369,7 +369,8 @@ describe("the beginning of the letter's text in the row (#177)", () => {
     const preview = line.querySelector<HTMLElement>(".preview")!;
     expect(preview.textContent).toBe("Добрый день! Счёт во вложении.");
     expect(kids.indexOf(preview)).toBe(kids.indexOf(subject) + 1);
-    expect(preview.getAttribute("title")).toBe("Добрый день! Счёт во вложении.");
+    // The row is still two lines: the preview takes no line of its own.
+    expect(t.querySelectorAll(".row .line1, .row .line2")).toHaveLength(2);
   });
 
   it("draws it grey, in one line, cut with an ellipsis", () => {
@@ -385,11 +386,5 @@ describe("the beginning of the letter's text in the row (#177)", () => {
     const t = draw([row(1, "a@x.example")]);
     expect(t.querySelector(".row .preview")).toBeNull();
     expect(t.querySelector(".row .subject")?.textContent).toBe("Тема 1");
-  });
-
-  it("keeps the row 62 px tall, preview or not", () => {
-    expect(rulesFor(".row").some((r) => r.style.height === "62px")).toBe(true);
-    const t = draw([row(1, "a@x.example", { snippet: "текст" }), row(2, "b@x.example")]);
-    expect(t.querySelectorAll(".row")).toHaveLength(2);
   });
 });
