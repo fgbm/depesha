@@ -1,2 +1,2 @@
-main	1013526	306934
-markdown-editor	342635	109672
+main	1010600	306228
+markdown-editor	342635	109670
