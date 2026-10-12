@@ -1717,6 +1717,16 @@ impl Store {
         }
     }
 
+    /// How many letters the list would hold: a count of its own, without reading the rows.
+    pub fn count(&self, q: &ListQuery) -> Result<u32> {
+        let (cond, args) = list_filter(q);
+        let from = "messages m JOIN folders f ON f.account_id = m.account_id AND f.name = m.folder";
+        let sql = format!("SELECT COUNT(*) FROM {from} WHERE {cond}");
+        let conn = self.read();
+        let n: i64 = conn.query_row(&sql, params_from_iter(args), |r| r.get(0))?;
+        Ok(u32::try_from(n).unwrap_or(0))
+    }
+
     /// The list as letters, one row each.
     fn list_messages(
         conn: &Connection,
@@ -6444,6 +6454,71 @@ mod tests {
             plan.iter().any(|l| l.contains("COVERING INDEX messages_by_size")),
             "{plan:#?}"
         );
+    }
+
+    #[test]
+    fn a_count_is_the_number_of_letters_the_list_would_show() {
+        let store = Store::open_in_memory().unwrap();
+        for account in ["a", "b"] {
+            store
+                .replace_folders(account, &[folder("INBOX", Some(FolderRole::Inbox))])
+                .unwrap();
+        }
+        let newsletter = Summary {
+            subject: "Рассылка".into(),
+            bulk: true,
+            ..Default::default()
+        };
+        let letter = Summary {
+            subject: "Письмо".into(),
+            ..Default::default()
+        };
+        let put = |account: &str, uid: u32, summary: &Summary, seen: bool| {
+            let msg = NewMessage {
+                uid,
+                summary,
+                fallback_date: 0,
+                size: 1,
+                flags: Flags {
+                    seen,
+                    ..Default::default()
+                },
+                keywords: Vec::new(),
+            };
+            store.insert_message(account, "INBOX", &msg).unwrap();
+        };
+        // Unread newsletters are counted; read ones and letters from people are not.
+        put("a", 1, &newsletter, false);
+        put("a", 2, &newsletter, false);
+        put("a", 3, &newsletter, true);
+        put("a", 4, &letter, false);
+        put("b", 1, &newsletter, false);
+        put("b", 2, &letter, true);
+
+        let in_folder = ListQuery {
+            account_id: Some("a".into()),
+            folder: Some("INBOX".into()),
+            bulk: Some(true),
+            unread_only: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            store.count(&in_folder).unwrap() as usize,
+            store.list(&in_folder).unwrap().len()
+        );
+        assert_eq!(store.count(&in_folder).unwrap(), 2);
+
+        let inboxes = ListQuery {
+            role: Some(FolderRole::Inbox),
+            bulk: Some(true),
+            unread_only: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            store.count(&inboxes).unwrap() as usize,
+            store.list(&inboxes).unwrap().len()
+        );
+        assert_eq!(store.count(&inboxes).unwrap(), 3);
     }
 
     #[test]

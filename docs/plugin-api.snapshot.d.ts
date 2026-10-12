@@ -175,6 +175,7 @@ export interface ListFilter {
     current: (list: ListScope) => string;
     select: (list: ListScope, id: string) => void;
     query: (list: ListScope) => Partial<ListQuery>;
+    count?: (list: ListScope, id: string) => Partial<ListQuery> | undefined;
 }
 
 export type ListQuery = {

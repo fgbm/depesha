@@ -496,6 +496,13 @@ pub fn messages(state: St<'_>, query: ListQuery) -> CmdResult<Vec<MessageRow>> {
     Ok(state.store.list(&query)?)
 }
 
+/// How many letters a query would show, without reading them: the number beside a plugin's
+/// filter option (e.g. unread newsletters in the open list).
+#[tauri::command(async)]
+pub fn count_messages(state: St<'_>, query: ListQuery) -> CmdResult<u32> {
+    Ok(state.store.count(&query)?)
+}
+
 /// The mailbox a search looks in: the one `account:` names, else the one asked for, or
 /// every mailbox. `None` when `account:` names no mailbox: nothing is found.
 fn search_scope(state: &AppState, text: &str, account_id: Option<String>) -> Option<Option<String>> {

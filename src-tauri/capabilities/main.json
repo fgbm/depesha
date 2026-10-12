@@ -26,6 +26,7 @@
     "allow-exchange-detect",
     "allow-folders",
     "allow-messages",
+    "allow-count-messages",
     "allow-search",
     "allow-search-totals",
     "allow-server-search",

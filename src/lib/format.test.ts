@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { initials } from "./format";
+import { badgeCount, initials } from "./format";
+
+describe("a count beside a name", () => {
+  it("keeps small numbers, and cuts big ones short", () => {
+    expect(badgeCount(0)).toBe("0");
+    expect(badgeCount(7)).toBe("7");
+    expect(badgeCount(99)).toBe("99");
+    expect(badgeCount(100)).toBe("99+");
+    expect(badgeCount(4321)).toBe("99+");
+  });
+});
 
 describe("the initials of an avatar", () => {
   it("takes two letters of the name", () => {

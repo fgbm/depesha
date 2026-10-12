@@ -90,6 +90,8 @@ export const api = {
   accountRemove: (id: string) => call<void>("account_remove", { id }),
   folders: (accountId?: string) => call<FolderInfo[]>("folders", { accountId: accountId ?? null }),
   messages: (query: ListQuery) => call<MessageRow[]>("messages", { query }),
+  /** How many letters a query would show, without reading them. */
+  countMessages: (query: ListQuery) => call<number>("count_messages", { query }),
   search: (text: string, sort: SortKey[] = [], accountId?: string) =>
     call<MessageRow[]>("search", { text, accountId: accountId ?? null, sort }),
   searchTotals: (text: string, accountId?: string) =>

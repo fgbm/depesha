@@ -206,6 +206,15 @@ export async function run() {
   });
 
   await step("13.1, 13.2", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {
+    // The counter by the option: unread newsletters of the open list — one in this inbox.
+    await d.click(await d.find(".list .view .trigger"));
+    await d.until("view menu", async () => !!(await d.exec("return !!document.querySelector('.pop')")));
+    await d.until("счётчик рассылок", async () => {
+      const n = await d.exec(
+        `const b = [...document.querySelectorAll(".pop button.mi")].find((x) => x.textContent.trim().startsWith("Рассылки")); return b ? (b.querySelector('.n')?.textContent ?? '') : null;`,
+      );
+      return n && /^[1-9]/.test(n) ? n : null;
+    });
     await viewOption("Рассылки");
     await rowBySubject("Скидки недели");
     if ((await textOf(".list .viewport")).includes("Счёт за октябрь")) throw new Error("письмо от человека среди рассылок");

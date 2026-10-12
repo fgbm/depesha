@@ -57,6 +57,16 @@ describe("ответы демо-бэкенда", () => {
     expect((opened.view.text ?? "").length).toBeGreaterThan(0);
   });
 
+  it("счётчик рассылок отвечает числом по списку", async () => {
+    const n = (await backend.invoke("count_messages", {
+      query: { account_id: "w", folder: "INBOX", bulk: true, unread_only: true },
+    })) as number;
+    expect(n).toBeGreaterThan(0);
+    // Every newsletter of the list, read or not, is what the option itself shows.
+    const all = (await backend.invoke("count_messages", { query: { account_id: "w", folder: "INBOX", bulk: true } })) as number;
+    expect(all).toBeGreaterThanOrEqual(n);
+  });
+
   it("действие шлёт mail-changed", async () => {
     const seen: string[] = [];
     const off = await listen("mail-changed", () => seen.push("changed"));

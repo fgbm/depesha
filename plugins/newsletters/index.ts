@@ -80,6 +80,8 @@ export default {
         const split = current(list);
         return split === "all" ? {} : { bulk: split === "bulk" };
       },
+      // Unread newsletters of the open list: the number beside the option, as in the sidebar.
+      count: (_list, id) => (id === "bulk" ? { bulk: true, unread_only: true } : undefined),
     });
     ctx.ui.readerHeader({ component: UnsubscribeChip, props: { ctx, ask: (id: number) => ask(ctx, id) } });
     ctx.ui.messageAction({

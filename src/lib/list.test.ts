@@ -9,6 +9,8 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 import { AppStore } from "./store.svelte";
 import { RELOAD_CAP, type View } from "./list.svelte";
 import { api, deferred, emit, flush, opened, resetFakes, row, rows, settings } from "./testing";
+import { registry } from "../plugin-host/registry.svelte";
+import type { ListFilter } from "../plugin-api";
 import type { FolderInfo, ListQuery, MessageRow } from "./types";
 
 const inbox: View = { kind: "folder", account_id: "a", folder: "INBOX" };
@@ -147,6 +149,67 @@ describe("list reloads", () => {
     while (s.list.messages.length < 1400) await s.selection.loadMore();
     await s.selection.reload();
     expect(lastQuery().limit).toBe(1400);
+  });
+});
+
+describe("the count beside a plugin's filter option", () => {
+  const filter: ListFilter = {
+    title: () => "Показывать",
+    options: () => [
+      { id: "all", title: "Все" },
+      { id: "bulk", title: "Рассылки" },
+    ],
+    current: () => "all",
+    select: () => {},
+    query: () => ({}),
+    count: (_list, id) => (id === "bulk" ? { bulk: true, unread_only: true } : undefined),
+  };
+
+  afterEach(() => registry.removeOwner("test-filter"));
+
+  it("comes from the backend for the open list, and follows a reload", async () => {
+    registry.add("listFilters", "test-filter", filter);
+    api.countMessages.mockResolvedValue(3);
+    const s = new AppStore();
+    await s.selection.setView(inbox);
+    await flush();
+    expect(api.countMessages).toHaveBeenCalledWith(expect.objectContaining({ account_id: "a", folder: "INBOX", bulk: true, unread_only: true }));
+    expect(s.list.filterCounts).toEqual({ bulk: 3 });
+
+    // A letter read: the backend counts one fewer, and the reload shows it.
+    api.countMessages.mockResolvedValue(2);
+    await s.selection.reload();
+    await flush();
+    expect(s.list.filterCounts).toEqual({ bulk: 2 });
+  });
+
+  it("counts the flagged view with its flag, not the whole inbox", async () => {
+    registry.add("listFilters", "test-filter", filter);
+    api.countMessages.mockResolvedValue(3);
+    const s = new AppStore();
+    await s.selection.setView({ kind: "unified", role: "inbox", flagged: true });
+    await flush();
+    expect(api.countMessages).toHaveBeenCalledWith(expect.objectContaining({ role: "inbox", flagged_only: true, bulk: true }));
+  });
+
+  it("does not hold the list back while the number is asked for", async () => {
+    registry.add("listFilters", "test-filter", filter);
+    api.messages.mockResolvedValue([row(1)]);
+    // The count never answers: the list must be shown anyway.
+    api.countMessages.mockReturnValue(new Promise(() => {}));
+    const s = new AppStore();
+    await s.selection.setView(inbox);
+    expect(s.list.messages.map((m) => m.id)).toEqual([1]);
+  });
+
+  it("lets the plugin narrow the list but not move the count to another folder", async () => {
+    registry.add("listFilters", "test-filter", { ...filter, count: () => ({ folder: "Other", bulk: true }) });
+    api.countMessages.mockResolvedValue(1);
+    const s = new AppStore();
+    await s.selection.setView(inbox);
+    await flush();
+    expect(api.countMessages).toHaveBeenCalledWith(expect.objectContaining({ account_id: "a", folder: "INBOX", bulk: true }));
+    expect(api.countMessages.mock.calls.every((c) => (c[0] as ListQuery).folder === "INBOX")).toBe(true);
   });
 });
 

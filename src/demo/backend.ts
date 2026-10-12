@@ -216,6 +216,11 @@ function listSearch(a: Args): MessageRow[] {
   return sorted(found.map(rowFor), (a.sort as SortKey[]) ?? []);
 }
 
+function countMessages(a: Args): number {
+  const q = (a.query ?? {}) as ListQuery;
+  return letters.filter((l) => inScope(l, q)).length;
+}
+
 function searchTotals(a: Args): SearchTotals {
   const text = str(a, "text");
   const account = (a.accountId as string | null) ?? null;
@@ -547,6 +552,7 @@ const HANDLERS: Record<string, Handler> = {
   accounts: () => accounts,
   folders: (a) => folders.filter((f) => !a.accountId || f.account_id === a.accountId),
   messages: listMessages,
+  count_messages: countMessages,
   search: listSearch,
   search_totals: searchTotals,
   server_search: () => [],

@@ -148,6 +148,11 @@ export function messagesCount(n: number): string {
   return tn("count.messages", n);
 }
 
+/** A count on an icon or beside a name: small, so big numbers are cut short ("99+"). */
+export function badgeCount(n: number): string {
+  return n > 99 ? "99+" : String(n);
+}
+
 /** A stable, readable colour per address, so senders are told apart at a glance. */
 export function avatarColor(email: string): string {
   let h = 0;

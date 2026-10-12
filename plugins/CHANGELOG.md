@@ -2,6 +2,10 @@
 
 Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surface is `docs/plugin-api.snapshot.d.ts`; CI fails when the API differs from it. After a deliberate change run `npm run plugin-api:update` and add a line here.
 
+## 0.8.3
+
+- `ListFilter` has an optional `count` (#182): extra conditions for a count over the list's own scope, so a filter option can show how many letters it would show (e.g. unread newsletters in the open list). The core shows the number beside the option; a plugin that gives none is unaffected.
+
 ## 0.8.2
 
 - `ctx.ui.settingsSection`: the optional `page` (added in 0.8.0, #102, `6b7e440`) is now deprecated and ignored. Every group of a plugin, built-in or not, stands on the «Plugins» page, as before 0.8.0. The type is unchanged, so a plugin that passes `page` still compiles and works; the snapshot is the same.

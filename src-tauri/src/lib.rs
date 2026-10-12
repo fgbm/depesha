@@ -309,6 +309,7 @@ pub fn run() {
             commands::exchange_detect,
             commands::folders,
             commands::messages,
+            commands::count_messages,
             commands::search,
             commands::search_totals,
             commands::server_search,

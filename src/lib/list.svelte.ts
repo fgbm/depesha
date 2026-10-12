@@ -54,6 +54,8 @@ export class ListController {
   serverRows = $state<MessageRow[] | null>(null);
   /** How many letters the search finds in the cache and their size, beyond the rows shown. */
   totals = $state<SearchTotals | null>(null);
+  /** Numbers beside the plugin's filter options (e.g. unread newsletters): what each would show. */
+  filterCounts = $state<Record<string, number>>({});
   /** The server said the folder has nothing older: scrolling to the end does not ask again. */
   private noOlder = false;
   /** Messages read or (un)flagged in this view: "Unread" and "Flagged" keep them while they are in it. */
@@ -146,6 +148,20 @@ export class ListController {
     return v.kind === "search" || v.kind === "plugin";
   }
 
+  /** The list's own scope: its folder or role and the flags of the view, without any plugin filter. */
+  private scopeQuery(v: View): ListQuery | null {
+    const threads = this.host.settingsCtl.settings.threads;
+    if (v.kind === "folder") {
+      const drafts = this.host.mailboxes.folder(v.account_id, v.folder)?.role === "drafts";
+      return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts };
+    }
+    if (v.kind === "unified") {
+      const keep_ids = v.unread || v.flagged ? [...this.keep] : [];
+      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, keep_ids, threads };
+    }
+    return null;
+  }
+
   private query(offset: number): ListQuery | null {
     const v = this.view;
     // The plugins' filter (People / Newsletters) narrows the list.
@@ -154,22 +170,40 @@ export class ListController {
     const sort = this.sort();
     // Pins matter only where the order looks at what they keep.
     const pins = sort.some((k) => k.by === "unread" || k.by === "flagged") ? [...this.pins.values()] : [];
-    const shape = { ...filter, sort, pins };
-    const threads = this.host.settingsCtl.settings.threads;
-    if (v.kind === "folder") {
-      const drafts = this.host.mailboxes.folder(v.account_id, v.folder)?.role === "drafts";
-      return { account_id: v.account_id, folder: v.folder, threads: threads && !drafts, ...shape, limit: PAGE, offset };
-    }
-    if (v.kind === "unified") {
-      const keep_ids = v.unread || v.flagged ? [...this.keep] : [];
-      return { role: v.role, unread_only: !!v.unread, flagged_only: !!v.flagged, keep_ids, threads, ...shape, limit: PAGE, offset };
-    }
     if (v.kind === "plugin") {
       const pv = registry.view(v.id);
       // Grouped like folders unless the view says otherwise.
-      return pv ? { threads, sort, pins, ...pv.query(), limit: PAGE, offset } : null;
+      return pv ? { threads: this.host.settingsCtl.settings.threads, sort, pins, ...pv.query(), limit: PAGE, offset } : null;
     }
-    return null;
+    const scope = this.scopeQuery(v);
+    return scope ? { ...scope, ...filter, sort, pins, limit: PAGE, offset } : null;
+  }
+
+  /** Numbers beside the plugin's filter options: how many letters each would show. */
+  private async loadFilterCounts(v: View, stale: () => boolean) {
+    const lf = this.listFilter();
+    const count = lf?.filter.count;
+    const base = this.scopeQuery(v);
+    if (!count || !lf || !base) {
+      if (Object.keys(this.filterCounts).length) this.filterCounts = {};
+      return;
+    }
+    const counts: Record<string, number> = {};
+    for (const o of lf.filter.options()) {
+      const extra = count(lf.list, o.id);
+      if (!extra) continue;
+      // The plugin narrows the list; it does not move the count to another folder or role.
+      const filter: Partial<ListQuery> = {};
+      if (extra.bulk !== undefined) filter.bulk = extra.bulk;
+      if (extra.unread_only !== undefined) filter.unread_only = extra.unread_only;
+      if (extra.flagged_only !== undefined) filter.flagged_only = extra.flagged_only;
+      try {
+        counts[o.id] = (await api.countMessages({ ...base, ...filter })) ?? 0;
+      } catch {
+        // The number is a nicety beside the option; the list itself is what matters.
+      }
+    }
+    if (!stale()) this.filterCounts = counts;
   }
 
   scheduleReload() {
@@ -224,6 +258,7 @@ export class ListController {
           return;
         }
         q.limit = topOnly ? Math.min(want, RELOAD_CAP) : want;
+        void this.loadFilterCounts(v, stale); // beside the list, not before it
         const rows = await api.messages(q);
         if (stale()) return;
         const before = this.messages;
@@ -326,6 +361,7 @@ export class ListController {
     this.pins = new Map();
     this.serverRows = null;
     this.totals = null;
+    this.filterCounts = {};
     this.messages = [];
     this.exhausted = false;
   }

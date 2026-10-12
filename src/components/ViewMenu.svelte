@@ -9,6 +9,7 @@
   import { app } from "../lib/store.svelte";
   import { t } from "../lib/i18n.svelte";
   import { PRESETS, RELEVANCE, SORT_FIELDS, naturalDesc, presetOf } from "../lib/sort";
+  import { badgeCount } from "../lib/format";
   import type { SortField, SortKey } from "../lib/types";
 
   let open = $state(false);
@@ -73,8 +74,9 @@
     {#if lf && options.length}
       <div class="mt">{lf.filter.title()}</div>
       {#each options as o (o.id)}
+        {@const n = app.list.filterCounts[o.id]}
         <button class="mi" role="menuitemradio" aria-checked={shown === o.id} onclick={() => lf.filter.select(lf.list, o.id)}>
-          <span class="tick">{#if shown === o.id}<Check size={14} />{/if}</span>{o.title}
+          <span class="tick">{#if shown === o.id}<Check size={14} />{/if}</span>{o.title}{#if n}<span class="n">{badgeCount(n)}</span>{/if}
         </button>
       {/each}
       <hr />
@@ -154,6 +156,13 @@
   .tick {
     display: inline-flex;
     width: 14px;
+  }
+
+  /* A count beside a filter option, e.g. unread newsletters; as in Segments. */
+  .n {
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 4px;
   }
 
   .keys {

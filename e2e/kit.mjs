@@ -127,8 +127,9 @@ export async function openFolder(name) {
 /** Picks an item of the list's "View" menu (filter or order) and closes the menu. */
 export async function viewOption(label) {
   if (!(await d.exec("return !!document.querySelector('.pop')"))) await d.click(await d.find(".list .view .trigger"));
+  // A filter option may carry a counter after its name (e.g. "Рассылки1"): the digits are the number, not the label.
   const item = await d.until(`view item ${label}`, () =>
-    d.xpath(`//div[contains(@class,'pop')]//button[contains(@class,'mi') and normalize-space(.)=${JSON.stringify(label)}]`),
+    d.xpath(`//div[contains(@class,'pop')]//button[contains(@class,'mi') and normalize-space(translate(., '0123456789', ''))=${JSON.stringify(label)}]`),
   );
   await d.click(item);
   await press("Escape");

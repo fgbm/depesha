@@ -14,7 +14,7 @@ import Folder from "@lucide/svelte/icons/folder";
 import AlarmClock from "@lucide/svelte/icons/alarm-clock";
 import { app, type View } from "../../lib/store.svelte";
 import { api } from "../../lib/api";
-import { initials, roleLabel } from "../../lib/format";
+import { badgeCount, initials, roleLabel } from "../../lib/format";
 import { favourites, neighbour, type Favourite } from "../../lib/favourites.svelte";
 import type { AccountView, FolderInfo, FolderRole } from "../../lib/types";
 
@@ -156,7 +156,7 @@ class SidebarUi {
 
   /** A count on an icon: small, so big numbers are cut short. */
   badge(n: number): string {
-    return n > 99 ? "99+" : String(n);
+    return badgeCount(n);
   }
 
   totalUnread(): number {

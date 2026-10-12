@@ -182,6 +182,11 @@ export interface ListFilter {
   select: (list: ListScope, id: string) => void;
   /** Extra conditions for the list's query under its current option. */
   query: (list: ListScope) => Partial<ListQuery>;
+  /**
+   * What an option counts, e.g. unread newsletters: extra conditions for a count over the
+   * list's own scope. The number shows beside the option; none when it returns nothing.
+   */
+  count?: (list: ListScope, id: string) => Partial<ListQuery> | undefined;
 }
 
 /** The compose window as plugins see it. */

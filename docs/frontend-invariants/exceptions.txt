@@ -19,3 +19,4 @@ app-nested	actions.archive	был app.archive на AppStore (значение п
 app-nested	actions.moveTo	был app.moveTo на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
 app-nested	actions.remove	был app.remove на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
 app-nested	actions.spam	был app.spam на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
+app-nested	list.filterCounts	счётчик у пункта фильтра плагина (#182): число рядом с «Рассылки» берётся из list.filterCounts в ViewMenu

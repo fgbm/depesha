@@ -13,6 +13,7 @@ const COMMANDS: &[&str] = &[
     "exchange_detect",
     "folders",
     "messages",
+    "count_messages",
     "search",
     "search_totals",
     "server_search",
