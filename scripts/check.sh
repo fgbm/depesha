@@ -7,11 +7,13 @@
 #   scripts/check.sh --changed  only what the branch touched (against the merge-base with
 #                               origin/main, plus uncommitted files); for work on a branch.
 #                               e2e is never run here.
-#   scripts/check.sh --ci     the checks of --fast over the whole project, then a push of the current
+#   scripts/check.sh --ci     the checks of --changed over the branch, then a push of the current
 #                             branch and a wait for its CI run (`gh run watch`); the exit code is the
-#                             run's. The e2e (in parts), integration and platform jobs run there, not
-#                             on this machine, so the stand below is not needed. The merge into main
-#                             wants this green on the branch (again after a rebase on main).
+#                             run's. The e2e (in parts), integration and platform jobs, and the whole
+#                             project's static checks and unit tests (CI's "Lint and unit tests" job),
+#                             run there, not on this machine, so the stand below is not needed and the
+#                             local run stays cheap. The merge into main wants this green on the
+#                             branch (again after a rebase on main).
 #
 # The full run (no flag) takes a lock on the shared stand ($DEPESHA_STAND_LOCK, default
 # ${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock) before GreenMail and waits if another run holds it;
@@ -73,7 +75,28 @@ ci_preflight() {
 
 [[ "${1:-}" == "--ci" ]] && ci_preflight
 
-if [[ "${1:-}" == "--changed" ]]; then
+# Push the branch and wait for its CI run; the exit code is the run's. --ci runs the --changed
+# checks first, so the branch is pushed only once they are green.
+ci_push_watch() {
+  step "CI на ветке"
+  git push
+  sha=$(git rev-parse HEAD)
+  run=""
+  for i in $(seq 30); do
+    run=$(gh run list --workflow ci.yml --branch "$branch" --commit "$sha" --event push --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+    [[ -n $run ]] && break
+    sleep 2
+  done
+  if [[ -z $run ]]; then
+    echo "--ci: запуск CI для ${sha:0:9} на ветке $branch не появился за минуту." >&2
+    exit 1
+  fi
+  echo "запуск: $(gh run view "$run" --json url --jq .url)"
+  gh run watch "$run" --exit-status --interval 20
+  exit $?
+}
+
+if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
   base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main)
   # No rename detection: a file moved from src/ to e2e/ counts as both a deletion and an addition,
   # so both groups see it. quotePath off keeps Cyrillic names as they are.
@@ -81,6 +104,7 @@ if [[ "${1:-}" == "--changed" ]]; then
   printf 'База: %s, изменено файлов: %s\n' "${base:0:9}" "$(grep -c . <<<"$changed" || true)"
   if [[ -z $changed ]]; then
     echo "Нечего проверять: изменений относительно базы нет."
+    [[ "${1:-}" == "--ci" ]] && ci_push_watch
     exit 0
   fi
   pick() { grep -E "$1" <<<"$changed" || true; }
@@ -176,6 +200,7 @@ if [[ "${1:-}" == "--changed" ]]; then
   fi
   step "хук персональных данных"
   scripts/hooks/pre-commit.test.sh
+  [[ "${1:-}" == "--ci" ]] && ci_push_watch
   exit 0
 fi
 
@@ -224,25 +249,6 @@ cargo test -p depesha --lib
 
 if [[ "${1:-}" == "--fast" ]]; then
   exit 0
-fi
-
-if [[ "${1:-}" == "--ci" ]]; then
-  step "CI на ветке"
-  git push
-  sha=$(git rev-parse HEAD)
-  run=""
-  for i in $(seq 30); do
-    run=$(gh run list --workflow ci.yml --branch "$branch" --commit "$sha" --event push --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
-    [[ -n $run ]] && break
-    sleep 2
-  done
-  if [[ -z $run ]]; then
-    echo "--ci: запуск CI для ${sha:0:9} на ветке $branch не появился за минуту." >&2
-    exit 1
-  fi
-  echo "запуск: $(gh run view "$run" --json url --jq .url)"
-  gh run watch "$run" --exit-status --interval 20
-  exit $?
 fi
 
 # The build needs no stand, so it goes before the lock and does not hold the others up.
