@@ -129,7 +129,7 @@ export async function run() {
     expectNot("лист текста", p.main, "<h1", "<table");
 
     // 3. «More», the palette.
-    await d.click(await d.find(".unibar [aria-label='Ещё']"));
+    await d.click(await d.find(".unibar button[title='Ещё']"));
     await d.click(await d.until("print item", () => d.xpath("//div[contains(@class,'pop')]//button[contains(@class,'mi')][contains(., 'Печать')]")));
     p = await sheet(4, "more-menu");
     expectIn("лист из меню «Ещё»", p.html, `<h1>${subj}</h1>`);

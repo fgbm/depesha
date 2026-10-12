@@ -131,7 +131,7 @@ export async function run() {
 
   await step("6.1", "удаление переносит в корзину", async () => {
     await openBySubject(`Re: ${subject}`);
-    await d.click(await d.find(".reader button[title^='Удалить']"));
+    await d.click(await d.find(".unibar button[title^='Удалить']"));
     await d.until("in Trash", async () => helper("count", "Trash", `Re: ${subject}`) === "1", 15000);
     if (helper("count", "INBOX", `Re: ${subject}`) !== "0") throw new Error("осталось во входящих");
   });

@@ -446,7 +446,7 @@ export async function run() {
     await d.until("no snooze button", async () => !(await textOf(".unibar")).includes("Отложить"));
     await press("h");
     await new Promise((r) => setTimeout(r, 300));
-    if ((await d.findAll(".reader .pop")).length) throw new Error("клавиша h работает при выключенном плагине");
+    if ((await d.findAll(".unibar .pop")).length) throw new Error("клавиша h работает при выключенном плагине");
     await openModules();
     await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
     await closeModules();
@@ -460,8 +460,8 @@ export async function run() {
     await openBySubject("Счёт за октябрь");
     await d.until("external banner", async () => (await textOf(".reader .ext-banner")).includes("извне"), 10000);
     await screenshot("extension-banner");
-    await d.click(await d.find(".reader button[aria-label='Ещё']"));
-    await d.click(await d.until("ext command", () => d.find(".reader .mi.ext-cmd")));
+    await d.click(await d.find(".unibar button[title='Ещё']"));
+    await d.click(await d.until("ext command", () => d.find(".unibar .mi.ext-cmd")));
     await d.until("reading time toast", async () => (await textOf(".toasts")).includes("слов"), 10000);
   });
 
