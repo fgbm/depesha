@@ -81,7 +81,21 @@ function roleOf(accountId: string, folder: string): FolderInfo["role"] {
 }
 
 function rowFor(l: DemoLetter): MessageRow {
-  return structuredClone(l.row);
+  const row = structuredClone(l.row);
+  // The list's preview (#177): the demo has no server, so it takes the beginning of the
+  // letter's own text, folded to one line as the sync does.
+  row.snippet = previewOf(l.text);
+  return row;
+}
+
+/** The beginning of a letter's text, one line, as the list shows it (#177). */
+function previewOf(text: string): string {
+  const line = text
+    .split("\n")
+    .map((s) => s.trim())
+    .find((s) => s && !s.startsWith(">")) ?? "";
+  const folded = line.replace(/\s+/g, " ");
+  return folded.length > 200 ? `${folded.slice(0, 200)}…` : folded;
 }
 
 /** Tells the windows a letter's folder changed, as the backend does. */
