@@ -1814,7 +1814,15 @@ async fn read_snippets(state: &AppState, conn: &mut Conn, account_id: &str) -> R
             continue;
         }
         let uids: Vec<u32> = missing.iter().map(|(_, uid)| *uid).collect();
-        let texts = mail::read_snippets(conn, store, account_id, &info.folder.name, &uids).await?;
+        // A preview is a nicety: a server that answers a part in a way the parser cannot
+        // read (see `sync::fetch_headers`) loses the preview, not the round.
+        let texts = match mail::read_snippets(conn, store, account_id, &info.folder.name, &uids).await {
+            Ok(texts) => texts,
+            Err(e) => {
+                tracing::warn!(folder = %info.folder.name, "previews not read: {e}");
+                break;
+            }
+        };
         let id_of: std::collections::HashMap<u32, i64> = missing.into_iter().map(|(id, uid)| (uid, id)).collect();
         let items: Vec<(i64, String)> = texts
             .into_iter()

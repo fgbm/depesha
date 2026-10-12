@@ -385,7 +385,16 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .iter()
             .filter_map(|(uid, _, f, _)| imap::snippet_plan(*uid, f.bodystructure()?))
             .collect();
-        let snippets: HashMap<u32, String> = imap::fetch_snippet_parts(conn, &plans).await?.into_iter().collect();
+        // A preview is a nicety: a server whose answer to a part the parser cannot read
+        // (GreenMail leaves out the space before the literal of a partial fetch) loses
+        // the preview, not the sync.
+        let snippets: HashMap<u32, String> = match imap::fetch_snippet_parts(conn, &plans).await {
+            Ok(found) => found.into_iter().collect(),
+            Err(e) => {
+                tracing::warn!(folder, "preview of new letters not read: {e}");
+                HashMap::new()
+            }
+        };
         let msgs: Vec<NewMessage<'_>> = headers
             .iter()
             .map(|(uid, flags, f, summary)| NewMessage {

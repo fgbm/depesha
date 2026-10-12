@@ -845,9 +845,9 @@ async fn remove_uids(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> 
     Ok(())
 }
 
-/// How many bytes of a letter's text part the list's preview is read from (#177). Enough
-/// for a couple of sentences; the server sends no more, and the whole letter is not fetched.
-pub const SNIPPET_BYTES: usize = 2048;
+/// The beginning of the text part is decoded from at most this many bytes (#177): enough
+/// for the row's ~200 characters, so a long letter is not decoded whole.
+pub const SNIPPET_BYTES: usize = 4096;
 
 /// UIDs per `BODY.PEEK[<part>]` command, as the header fetch does.
 const SNIPPET_BATCH: usize = 200;
@@ -969,8 +969,13 @@ fn encoding_of(encoding: &ContentEncoding<'_>) -> crate::snippet::Encoding {
     }
 }
 
-/// Reads the beginning of the text of each planned part, `BODY.PEEK[<part>]<0.2048>`:
-/// `PEEK` leaves the letters unread. Parts needing the same section go in one FETCH.
+/// Reads the beginning of the text of each planned part, `BODY.PEEK[<part>]`: `PEEK`
+/// leaves the letters unread. Parts needing the same section go in one FETCH.
+///
+/// The whole part is asked for, not a prefix (`<0.n>`): a prefix is a partial fetch, and
+/// the answer to one is written by some servers (GreenMail) without the space RFC 3501
+/// requires before the literal, which the parser refuses — and a refused answer leaves the
+/// connection out of step, so the sync after it breaks too. The part is cut here instead.
 pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Result<Vec<(u32, String)>> {
     let mut out = Vec::with_capacity(plans.len());
     let mut groups: Vec<(TextPart, Vec<&SnippetPlan>)> = Vec::new();
@@ -982,7 +987,7 @@ pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Resu
     }
     for (part, list) in groups {
         let uids: Vec<u32> = list.iter().map(|p| p.uid).collect();
-        let query = format!("(UID BODY.PEEK[{}]<0.{}>)", part.render(), SNIPPET_BYTES);
+        let query = format!("(UID BODY.PEEK[{}])", part.render());
         for chunk in uids.chunks(SNIPPET_BATCH) {
             let fetches: Vec<_> = conn
                 .session
@@ -997,9 +1002,10 @@ pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Resu
                 let Some(plan) = list.iter().find(|p| p.uid == uid) else {
                     continue;
                 };
+                let head = &data[..data.len().min(SNIPPET_BYTES)];
                 out.push((
                     uid,
-                    crate::snippet::from_part(data, plan.encoding, plan.charset.as_deref(), plan.html),
+                    crate::snippet::from_part(head, plan.encoding, plan.charset.as_deref(), plan.html),
                 ));
             }
         }
