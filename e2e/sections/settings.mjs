@@ -403,7 +403,7 @@ export async function run() {
     await setLanguage("настройк", "en");
     await d.until("English sidebar", async () => (await sidebarText()).includes("Inbox"), 10000);
     if (!(await textOf(".list h2")).includes("Inbox")) throw new Error(`заголовок: ${await textOf(".list h2")}`);
-    if (!(await textOf(".list .search input") || (await d.exec("return document.querySelector('.list .search input').placeholder"))).includes("Search")) {
+    if (!(await textOf(".unibar .search input") || (await d.exec("return document.querySelector('.unibar .search input').placeholder"))).includes("Search")) {
       throw new Error("поле поиска не переведено");
     }
     await screenshot("english");
@@ -443,14 +443,14 @@ export async function run() {
     await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
     await closeModules();
     await openBySubject("Счёт за октябрь");
-    await d.until("no snooze button", async () => !(await textOf(".reader .toolbar")).includes("Отложить"));
+    await d.until("no snooze button", async () => !(await textOf(".unibar")).includes("Отложить"));
     await press("h");
     await new Promise((r) => setTimeout(r, 300));
     if ((await d.findAll(".reader .pop")).length) throw new Error("клавиша h работает при выключенном плагине");
     await openModules();
     await d.click(await d.find(".prefs .plugins input[data-plugin=snooze]"));
     await closeModules();
-    await d.until("snooze back", async () => (await textOf(".reader .toolbar")).includes("Отложить"));
+    await d.until("snooze back", async () => (await textOf(".unibar")).includes("Отложить"));
   });
 
   await step("10.2", "расширения: плашка над письмом и команда для письма", async () => {

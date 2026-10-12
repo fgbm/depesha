@@ -65,6 +65,10 @@
 
   const title = $derived(viewTitle(app.list.view));
 
+  /** The search lives in the action panel (question 1.2 «Б»): the list keeps no box of its own
+   *  in the wide and medium window; a narrow window has no panel and keeps this one (1.5 А). */
+  const searchInBar = $derived(!layout.single);
+
   const count = $derived(tn("count.messages", app.list.messages.length, { n: `${app.list.messages.length}${app.list.exhausted ? "" : "+"}` }));
 
   const showAccount = $derived(app.mailboxes.accounts.length > 1 && app.list.view.kind !== "folder");
@@ -239,7 +243,7 @@
   <!-- Work on the server after a click (move, flag, search) shows here, so a click never looks ignored. -->
   {#if app.ui.busy > 0}<div class="busy" role="progressbar" aria-label={t("loading")}><span></span></div>{/if}
   <header data-tauri-drag-region class:scrolled={scrollTop > 0} class:edge>
-    <SearchBox bind:input={searchInput} />
+    {#if !searchInBar}<SearchBox bind:input={searchInput} />{/if}
     {#if pluginView?.tabs}<Segments tabs={pluginView.tabs} />{/if}
     <div class="title">
       <h2 title={count}>{title}</h2>

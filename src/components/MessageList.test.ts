@@ -10,6 +10,7 @@ vi.mock("../lib/theme", async (orig) => ({ ...(await orig<object>()), applyTheme
 import { flushSync, mount, tick, unmount } from "svelte";
 import MessageList from "./MessageList.svelte";
 import { app } from "../lib/store.svelte";
+import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, settings } from "../lib/testing";
 import { pseudoSelectors, rulesFor, useStyles } from "../lib/cssTesting";
@@ -53,6 +54,7 @@ beforeEach(() => {
 afterEach(() => {
   if (view) unmount(view);
   view = null;
+  layout.width = 1280;
   document.body.innerHTML = "";
 });
 
@@ -337,5 +339,19 @@ describe("the unread state without the dot (#108)", () => {
     const [unread, read] = [...t.querySelectorAll<HTMLElement>(".row")];
     expect(unread.textContent).toMatch(/^Не прочитано, /);
     expect(read.textContent).not.toContain("Не прочитано");
+  });
+});
+
+describe("where the search box lives (#176, question 1.2 «Б»)", () => {
+  it("is not the list's own in the wide window: the panel above carries it", () => {
+    layout.width = 1440;
+    const t = draw([row(1, "a@x.example")]);
+    expect(t.querySelector(".search")).toBeNull();
+  });
+
+  it("is the list's own in a narrow window, where there is no panel (1.5 А)", () => {
+    layout.width = 640;
+    const t = draw([row(1, "a@x.example")]);
+    expect(t.querySelector(".search")).not.toBeNull();
   });
 });

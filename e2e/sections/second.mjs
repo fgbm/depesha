@@ -557,7 +557,7 @@ export async function run() {
 
     // The letter still carries the label: the keyword did not change with the name.
     if (letter) {
-      const box = await d.find(".list .search input");
+      const box = await d.find(".unibar .search input");
       await d.clear(box);
       await d.type(box, `метка:${renamed}\uE007`);
       await rowBySubject(subj, 20000);

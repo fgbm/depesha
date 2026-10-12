@@ -33,6 +33,8 @@
   import { registry } from "./plugin-host/registry.svelte";
   import { labels } from "./lib/labels.svelte";
   import { windowOpen } from "./lib/overlay";
+  import SearchBox from "./components/SearchBox.svelte";
+  import UnifiedBar from "./components/UnifiedBar.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
 
@@ -65,6 +67,12 @@
   /** A letter (or its error, or one being opened) to show; several selected rows are not one. */
   const hasLetter = $derived(app.selection.selected.size <= 1 && !!(app.reader.opened || app.reader.opening || app.reader.openError));
   const column = $derived(layout.single ? layout.column(hasLetter) : null);
+
+  // The unified action panel (decision 1.1 В, settled by the operator in step 2) is always
+  // there in the wide and medium window: over the list and the letter, with the search at its
+  // left (question 1.2 «Б»). A narrow window has no panel — its toolbar stays as it was
+  // (question 1.5 «А»).
+  const showBar = $derived(!wideView && !layout.single);
 
   // Another list starts on the list in a narrow window.
   $effect(() => {
@@ -220,9 +228,15 @@
 
 <svelte:window onkeydown={onKey} onresize={() => layout.resize(window.innerWidth)} />
 
+<!-- The panel's own search box; the list keeps its own box only in a narrow window (1.5 А). -->
+{#snippet barSearch()}
+  <SearchBox bind:input={searchInput} />
+{/snippet}
+
 <div
   class="layout"
   class:single={layout.single}
+  class:withbar={showBar}
   style:grid-template-columns={wideView
     ? `${layout.sideWidth}px 1fr`
     : layout.single
@@ -230,6 +244,9 @@
       : `${layout.sideWidth}px 1px ${layout.listWidth}px 1px 1fr`}
 >
   <Sidebar onCompose={() => app.compose.newMessage()} />
+  {#if showBar}
+    <UnifiedBar search={barSearch} />
+  {/if}
   {#if app.list.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
   {:else if app.list.view.kind === "people"}
@@ -295,6 +312,22 @@
   .layout {
     display: grid;
     height: 100vh;
+  }
+
+  /* The action panel takes a row of its own above the columns; without it the grid is the one
+     the app has today (one row). */
+  .layout.withbar {
+    grid-template-rows: auto 1fr;
+  }
+
+  /* The sidebar runs the whole height; the action panel (row 1) sits to the right of it. */
+  .layout.withbar > :global(nav.side) {
+    grid-row: 1 / -1;
+  }
+
+  .layout.withbar .gutter,
+  .layout.withbar .pane {
+    grid-row: 2;
   }
 
   /* A hairline to look at, a wider strip to grab. */

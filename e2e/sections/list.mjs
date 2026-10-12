@@ -50,7 +50,7 @@ export async function run() {
     await screenshot("importance-reader");
     // An ordinary letter beside it has neither.
     if ((await d.exec(`return [...document.querySelectorAll('.list .row')].filter(r => r.querySelector('.imp')).length`)) !== 1) throw new Error("«!» не только у важного письма");
-    const box = await d.find(".list .search input");
+    const box = await d.find(".unibar .search input");
     await d.clear(box);
     await d.type(box, "это:важное");
     await d.until("search view", async () => (await textOf(".list h2")).trim() === "Поиск");
@@ -1062,7 +1062,7 @@ export async function run() {
     await closeSettings();
 
     // A ready query from the suggestions of the empty search box.
-    const box = await d.find(".list .search input");
+    const box = await d.find(".unibar .search input");
     await d.click(box);
     const ready = await d.until("ready query", () =>
       d.xpath("//div[contains(@class,'suggest')]//button[contains(., 'Крупные (больше 1 МБ)')]").catch(() => null),
@@ -1070,7 +1070,7 @@ export async function run() {
     await screenshot("search-suggestions");
     await d.click(ready);
     await rowBySubject(subj, 10000);
-    const query = await d.exec("return document.querySelector('.list .search input').value");
+    const query = await d.exec("return document.querySelector('.unibar .search input').value");
     if (query.trim() !== "больше:1М") throw new Error(`в поле: «${query}»`);
     // "больше:" puts the largest first by itself; totals of the cache above the results.
     if (!(await textOf(".list .view .trigger")).includes("Крупные сначала")) throw new Error(`сортировка: ${await textOf(".list .view .trigger")}`);
@@ -1087,7 +1087,7 @@ export async function run() {
     await d.clear(box);
     await d.type(box, "больше:1М в:Работа\uE007");
     await d.until("the folder alone", async () => {
-      const value = await d.exec("return document.querySelector('.list .search input').value");
+      const value = await d.exec("return document.querySelector('.unibar .search input').value");
       return value.trim() === "больше:1М в:Работа" && !(await textOf(".list .viewport")).includes(subj);
     }, 10000);
 

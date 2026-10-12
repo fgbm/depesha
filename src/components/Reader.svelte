@@ -9,6 +9,7 @@
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t, tn } from "../lib/i18n.svelte";
+  import { size } from "../lib/format";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { extensions, fromRow } from "../lib/extensions.svelte";
   import { registry } from "../plugin-host/registry.svelte";
@@ -68,6 +69,12 @@
   const bulk = $derived(app.selection.selected.size > 1);
   /** The letter with its toolbar is on screen, not a placeholder or an error. */
   const showsLetter = $derived(!bulk && !app.reader.openError && !showOpening && !(app.reader.opening && !msg) && !!msg);
+  /** The unified action panel carries the letter's toolbar (decision 1.1 В): in the main
+   *  window's wide and medium layout always; a narrow window keeps its own (1.5 А), and a
+   *  letter in a window of its own has no panel at all — its own toolbar stays. */
+  const toolbarInBar = $derived(app.windowOf === null && !layout.single && app.selection.selected.size <= 1 && !!msg);
+  /** Several chosen rows: the panel holds the actions, the reader only says how many (1.4 Б). */
+  const bareBulk = $derived(app.windowOf === null && bulk && !layout.single);
   /** Which state the pane shows when there is no letter: none of them is the letter. */
   const stateToShow = $derived.by((): "bulk" | "error" | "opening" | "placeholder" | null => {
     if (bulk) return "bulk";
@@ -151,10 +158,12 @@
   {#if layout.single && app.windowOf === null && !showsLetter}
     <div class="toolbar compact" data-tauri-drag-region>{@render nav()}</div>
   {/if}
-  {#if stateToShow}
+  {#if bareBulk}
+    <div class="bare-bulk muted">{tn("bulk.selected", app.selection.selected.size, { n: app.selection.selected.size, size: size(app.selection.selectedSize()) })}</div>
+  {:else if stateToShow}
     <ReaderStates which={stateToShow} waited={waited} />
   {:else if msg}
-    <ReaderToolbar {msg} {account} {isDraft} {message} {nav} />
+    {#if !toolbarInBar}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} />{/if}
 
     <div class="scroll" class:viewing bind:this={viewer.scrollBox}>
       {#if before.length && !viewing}
@@ -237,6 +246,16 @@
     min-width: 0;
     min-height: 0;
     background: var(--paper-2);
+  }
+
+  /* Several chosen rows (question 1.4 «Б»): the panel has the actions, the reader only says how many. */
+  .bare-bulk {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
   }
 
   .scroll {

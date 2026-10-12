@@ -32,3 +32,5 @@ component	src/components/prefs/FolderProps.svelte	427	Esc закрывает к�
 component	src/App.svelte	340	строка импорта windowOpen: открытая карточка папки тоже забирает Esc у главного окна (#170)
 component	src/components/ViewMenu.svelte	266	счётчик у пункта фильтра плагина (#182): span .n рядом с названием пункта и импорт badgeCount для больших чисел
 function	src/lib/list.svelte.ts::stale	60	чтение счётчиков фильтра плагина в reload (#182); метрика считает телом функции stale тело reload, в которое добавилась строка
+component	src/App.svelte	373	строка импорта windowOpen: открытая карточка папки тоже забирает Esc у главного окна (#170); единая панель действий — вторая строка сетки над колонками, сама панель и её поле поиска в UnifiedBar.svelte (#176)
+component	src/components/Reader.svelte	354	единая панель над списком и письмом несёт тулбар письма; читалка держит свой только в узком окне и в окне отдельного письма, а при нескольких выбранных показывает голое «Выбрано N» (#176)

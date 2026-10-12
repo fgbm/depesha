@@ -11,6 +11,7 @@ vi.mock("../lib/api", async (orig) => ({ ...(await orig<object>()), api: (await 
 import { flushSync, mount, unmount } from "svelte";
 import Reader from "./Reader.svelte";
 import { app } from "../lib/store.svelte";
+import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, resetFakes, settings } from "../lib/testing";
 import type { MessageRow, OpenedMessage } from "../lib/types";
@@ -43,6 +44,9 @@ afterEach(async () => {
   view = null;
   app.reader.opened = null;
   app.reader.conversation = [];
+  layout.width = 1280;
+  app.windowOf = null;
+  app.selection.selected = new Set();
   document.body.innerHTML = "";
 });
 
@@ -63,5 +67,34 @@ describe("the folded conversation", () => {
     app.reader.opened = opened(7);
     flushSync();
     expect(more()).toBe(0);
+  });
+});
+
+describe("the letter's toolbar in the unified panel (0.8.3, #176)", () => {
+  const toolbar = () => document.querySelector(".reader .toolbar");
+
+  it("is not the reader's own in the wide window: the panel above carries it (1.1 В)", () => {
+    expect(toolbar()).toBeNull();
+  });
+
+  it("stays the reader's own in a narrow window (1.5 А)", () => {
+    layout.width = 640;
+    flushSync();
+    expect(toolbar()).not.toBeNull();
+  });
+
+  it("stays the reader's own in a letter opened in a window of its own", () => {
+    app.windowOf = 5;
+    flushSync();
+    expect(toolbar()).not.toBeNull();
+  });
+
+  it("shows a bare «Выбрано N» for several chosen rows, with no actions of the reader (1.4 Б)", () => {
+    app.selection.selected = new Set([1, 2, 3]);
+    flushSync();
+    const bare = document.querySelector(".reader .bare-bulk");
+    expect(bare).not.toBeNull();
+    expect(bare!.textContent).toMatch(/Выбрано 3/);
+    expect(document.querySelector(".reader .actions")).toBeNull();
   });
 });
