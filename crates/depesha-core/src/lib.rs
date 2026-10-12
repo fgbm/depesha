@@ -27,6 +27,7 @@ pub mod query;
 pub mod quota;
 pub mod say;
 pub mod smtp;
+pub mod snippet;
 pub mod snooze;
 pub mod store;
 pub mod sync;

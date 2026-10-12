@@ -33,6 +33,7 @@ mod sent_copies;
 pub use sent_copies::{NewSentCopy, SentCopy, StuckCopy};
 mod server;
 pub use server::{EnableAnswer, FolderSizes, QuotaSeen, ServerCaps, ServerInfo};
+mod snippets;
 mod waiting;
 
 use json::{json_col, json_col_or_default, json_opt};
@@ -710,6 +711,10 @@ pub struct MessageRow {
     /// the list is not grouped.
     #[serde(default)]
     pub thread_voices: Vec<Voice>,
+    /// The beginning of the letter's text, shown grey after the subject (#177); empty
+    /// when none was read yet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub snippet: String,
 }
 
 /// A writer of a conversation and whether the receiving server vouched for them (#108).
@@ -1288,6 +1293,10 @@ impl Store {
         conn.execute_batch(PRAGMAS)?;
         register_fold(&conn)?;
         migrate(&mut conn, MIGRATIONS)?;
+        // The list's preview text (#177) lives in a table of its own, made here and not
+        // counted as a migration: `user_version` does not move, so a cache with it opens
+        // in 0.8.2, which never reads it.
+        snippets::schema(&conn)?;
         // The first pass over a folder after start is full: a mod-sequence the server or
         // this client got wrong is not carried from one run to the next.
         conn.execute("UPDATE folders SET highest_modseq = 0 WHERE highest_modseq != 0", [])?;
@@ -2007,6 +2016,41 @@ impl Store {
             .optional()?)
     }
 
+    /// The letter's text for the list (#177), or none when it was never read.
+    pub fn snippet(&self, id: i64) -> Result<Option<String>> {
+        snippets::of(&self.read(), id)
+    }
+
+    /// Stores one letter's text for the list (#177).
+    pub fn save_snippet(&self, id: i64, text: &str) -> Result<()> {
+        snippets::save(&self.conn(), id, text)
+    }
+
+    /// Stores the texts a sync read, all of them or none.
+    pub fn save_snippets(&self, items: &[(i64, String)]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for (id, text) in items {
+            snippets::save(&tx, *id, text)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Letters of a folder with no text read yet, newest first: what the background
+    /// backfill asks the server for. `limit` bounds one round.
+    pub fn snippets_missing(&self, account_id: &str, folder: &str, limit: u32) -> Result<Vec<(i64, u32)>> {
+        snippets::missing(&self.read(), account_id, folder, limit)
+    }
+
+    /// How many letters of a folder have no text read yet.
+    pub fn snippets_missing_count(&self, account_id: &str, folder: &str) -> Result<u64> {
+        snippets::missing_count(&self.read(), account_id, folder)
+    }
+
     /// Messages to keep for offline reading: newer than `since`, outside Trash and
     /// Spam, without attachments unless `attachments`. Read from the index of the
     /// account's mail by date alone; Trash and Spam are looked up once, not per message.
@@ -2071,6 +2115,8 @@ impl Store {
             params![id, raw],
         )?;
         tx.execute("UPDATE search SET body = ?2 WHERE rowid = ?1", params![id, text])?;
+        // The list's preview (#177): a letter whose body is here needs no fetch for it.
+        snippets::save(&tx, id, &crate::snippet::normalize(text))?;
         // The headers came with the letter: a letter cached before the importance was kept, or
         // left unknown by the backfill because the body came after it, says it now (#72). Normal
         // fills only an unknown one.
@@ -2397,11 +2443,11 @@ impl Store {
         &self,
         account_id: &str,
         folder: &str,
-        items: &[(NewMessage<'_>, &str, i64)],
+        items: &[(NewMessage<'_>, &str, i64, &str)],
     ) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        for (msg, item_id, received) in items {
+        for (msg, item_id, received, _preview) in items {
             insert_message(&tx, account_id, folder, msg)?;
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO ews_items (account_id, folder, uid, item_id, received) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -2410,6 +2456,23 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// The cache ids of the messages with these UIDs in a folder, `(uid, id)`; for the
+    /// previews an EWS sync just read (#177).
+    pub fn ids_of_uids(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<Vec<(u32, i64)>> {
+        if uids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT m.uid, m.id FROM json_each(?3) j
+             CROSS JOIN messages m ON m.account_id = ?1 AND m.folder = ?2 AND m.uid = j.value",
+        )?;
+        let rows = stmt.query_map(params![account_id, folder, json_list(uids)], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn ews_items_remove(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<()> {
@@ -2423,6 +2486,23 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Item ids with their UIDs for a folder, `(uid, item id)`: what the background
+    /// preview backfill asks Exchange about (#177).
+    pub fn ews_item_ids_by_uid(&self, account_id: &str, folder: &str, uids: &[u32]) -> Result<Vec<(u32, String)>> {
+        if uids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT e.uid, e.item_id FROM json_each(?3) j
+             CROSS JOIN ews_items e ON e.account_id = ?1 AND e.folder = ?2 AND e.uid = j.value",
+        )?;
+        let rows = stmt.query_map(params![account_id, folder, json_list(uids)], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Item ids for UIDs, in the same order; unknown UIDs are skipped.
@@ -3298,8 +3378,9 @@ const COLUMNS: &str = "m.id, m.account_id, m.folder, m.uid, m.message_id, m.in_r
         ORDER BY o.id DESC LIMIT 1),
     EXISTS (SELECT 1 FROM followups fu WHERE fu.account_id = m.account_id AND fu.anchor = m.message_id
         AND fu.park = 'returned' AND fu.noticed = 0),
-    m.dmarc, COALESCE(m.importance, 0)";
-const COLUMN_COUNT: usize = 31;
+    m.dmarc, COALESCE(m.importance, 0),
+    (SELECT sn.text FROM snippets sn WHERE sn.message_id = m.id)";
+const COLUMN_COUNT: usize = 32;
 
 fn snooze_row(r: &Row<'_>) -> rusqlite::Result<Snooze> {
     Ok(Snooze {
@@ -3378,6 +3459,7 @@ fn message_row(r: &Row<'_>) -> rusqlite::Result<MessageRow> {
         dmarc: r.get(29)?,
         importance: Importance::from_db(r.get(30)?),
         thread_voices: Vec::new(),
+        snippet: r.get::<_, Option<String>>(31)?.unwrap_or_default(),
     })
 }
 
@@ -5106,13 +5188,16 @@ mod tests {
     }
 
     /// Columns of every table, indexes and triggers: what makes the cache's shape.
+    /// The cache's shape as the numbered migrations leave it: every table, column, index and
+    /// trigger. The preview table (#177) is made at open, outside the migrations, so it is
+    /// not part of the shape a step is judged by.
     fn shape(conn: &Connection) -> Vec<String> {
         let mut out: Vec<String> = conn
             .prepare(
                 "SELECT t.name || '.' || c.name || ' ' || c.type || ' ' || c.\"notnull\" || ' '
                         || COALESCE(c.dflt_value, 'NULL') || ' ' || c.pk
                  FROM sqlite_schema t JOIN pragma_table_info(t.name) c
-                 WHERE t.type = 'table' ORDER BY t.name, c.name",
+                 WHERE t.type = 'table' AND t.name != 'snippets' ORDER BY t.name, c.name",
             )
             .unwrap()
             .query_map([], |r| r.get(0))
@@ -6236,8 +6321,10 @@ mod tests {
                 (m, id, 0)
             })
             .collect();
-        let items: Vec<(NewMessage<'_>, &str, i64)> =
-            items.iter().map(|(m, id, r)| (m.clone(), id.as_str(), *r)).collect();
+        let items: Vec<(NewMessage<'_>, &str, i64, &str)> = items
+            .iter()
+            .map(|(m, id, r)| (m.clone(), id.as_str(), *r, ""))
+            .collect();
         let ((), ran) = statements(&store, || store.ews_insert_items("a", "Sent", &items).unwrap());
         assert_eq!(commits(&ran), 1);
         assert_eq!(

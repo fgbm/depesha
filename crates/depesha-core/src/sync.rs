@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -361,7 +361,7 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .session
             .uid_fetch(
                 imap::uid_set(chunk),
-                "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])",
+                "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER] BODYSTRUCTURE)",
             )
             .await?
             .try_collect()
@@ -379,6 +379,13 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
                 ))
             })
             .collect();
+        // The list's preview (#177): the part of each letter's text, read in the FETCH
+        // below. `PEEK` leaves the letters unread, and the part is cut by the server.
+        let plans: Vec<imap::SnippetPlan> = headers
+            .iter()
+            .filter_map(|(uid, _, f, _)| imap::snippet_plan(*uid, f.bodystructure()?))
+            .collect();
+        let snippets: HashMap<u32, String> = imap::fetch_snippet_parts(conn, &plans).await?.into_iter().collect();
         let msgs: Vec<NewMessage<'_>> = headers
             .iter()
             .map(|(uid, flags, f, summary)| NewMessage {
@@ -392,7 +399,15 @@ async fn fetch_headers(conn: &mut Conn, store: &Store, account_id: &str, folder:
             .collect();
         // One commit for the batch: either all of it is cached or none, and the
         // folder's state, written after, never claims what is missing.
-        off_runtime_thread(|| store.insert_messages(account_id, folder, &msgs))?;
+        let ids = off_runtime_thread(|| store.insert_messages(account_id, folder, &msgs))?;
+        // The preview beside the headers; a break between the two leaves a letter the
+        // background backfill reads again (#177).
+        let texts: Vec<(i64, String)> = ids
+            .iter()
+            .zip(&msgs)
+            .filter_map(|(id, m)| snippets.get(&m.uid).map(|text| (*id, text.clone())))
+            .collect();
+        off_runtime_thread(|| store.save_snippets(&texts))?;
         added += msgs.len();
     }
     Ok(added)

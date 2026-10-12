@@ -179,6 +179,51 @@ async fn starttls_sync_move_and_fallbacks() {
     conn.session.logout().await.unwrap();
 }
 
+/// Criterion (#177): the sync reads the beginning of the text of new letters, in their
+/// own charset and with HTML stripped, without marking any of them read (`PEEK`).
+#[tokio::test]
+async fn a_sync_reads_the_preview_without_marking_read() {
+    if !enabled() {
+        return;
+    }
+    let mut conn = connect("preview").await;
+    let html = "From: t@example.org\r\nTo: me@example.org\r\nSubject: HTML\r\nMessage-ID: <h@example.org>\r\n\
+MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+<html><body><p>Привет, <b>мир</b>!</p><script>x()</script></body></html>\r\n"
+        .as_bytes();
+    let cp1251 = b"From: t@example.org\r\nTo: me@example.org\r\nSubject: CP\r\nMessage-ID: <c@example.org>\r\n\
+MIME-Version: 1.0\r\nContent-Type: text/plain; charset=windows-1251\r\n\
+Content-Transfer-Encoding: quoted-printable\r\n\r\n=D1=F7=B8=F2 =EE=EF=EB=E0=F2=E5\r\n";
+    imap::append(&mut conn, "INBOX", &mail("Текст", 1), "").await.unwrap();
+    imap::append(&mut conn, "INBOX", html, "").await.unwrap();
+    imap::append(&mut conn, "INBOX", cp1251, "").await.unwrap();
+
+    let store = Store::open_in_memory().unwrap();
+    sync::sync_folder_list(&mut conn, &store, "d").await.unwrap();
+    sync::sync_folder(&mut conn, &store, "d", "INBOX", SyncOptions::default())
+        .await
+        .unwrap();
+    let rows = store
+        .list(&ListQuery {
+            account_id: Some("d".into()),
+            folder: Some("INBOX".into()),
+            limit: 10,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+    let by = |subject: &str| rows.iter().find(|r| r.subject == subject).unwrap();
+    assert_eq!(by("Текст").snippet, "Тело 1");
+    assert_eq!(by("HTML").snippet, "Привет, мир!");
+    assert_eq!(by("CP").snippet, "Счёт оплате");
+    for r in &rows {
+        assert!(!r.flags.seen, "PEEK leaves «{}» unread", r.subject);
+    }
+    // The server agrees: none of them is seen.
+    assert_eq!(imap::uid_search(&mut conn, "UNSEEN").await.unwrap().len(), 3);
+    conn.session.logout().await.unwrap();
+}
+
 /// A move cut short without MOVE (COPY went through, \Deleted did not) must not copy the
 /// letter again on the retry: the letter already at the target is only marked deleted.
 #[tokio::test]

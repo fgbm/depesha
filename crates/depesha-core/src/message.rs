@@ -572,7 +572,7 @@ pub fn index_text(raw: &[u8]) -> String {
 /// unwrapped. A newsletter's `<title>` would otherwise stand above it as a line of text.
 const HIDDEN_TAGS: [&str; 4] = ["script", "style", "title", "template"];
 
-fn strip_tags(html: &str) -> String {
+pub(crate) fn strip_tags(html: &str) -> String {
     ammonia::Builder::empty()
         .clean_content_tags(HIDDEN_TAGS.into())
         .clean(html)

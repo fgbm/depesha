@@ -613,6 +613,8 @@ struct Fetched {
     summary: Summary,
     /// The Exchange categories of the item, as the labels of the letter (#42).
     categories: Vec<String>,
+    /// The item's preview text (#177): one line Exchange keeps, no body download.
+    preview: String,
 }
 
 async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
@@ -634,6 +636,7 @@ async fn fetch(s: &mut Session, ids: &[String]) -> Result<Vec<Fetched>> {
             "message:References",
             "item:Categories",
             "item:Importance",
+            "item:Preview",
         ];
         let body = format!(
             "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{}{}{}{}{}</t:AdditionalProperties></m:ItemShape><m:ItemIds>{}</m:ItemIds></m:GetItem>",
@@ -695,6 +698,7 @@ fn fetched(it: Node<'_, '_>, receiver: &Receiver) -> Option<Fetched> {
         flags: flags_of(&props),
         categories: categories_of(it),
         summary,
+        preview: text(it, "Preview").unwrap_or_default().to_owned(),
     })
 }
 
@@ -763,6 +767,17 @@ fn synth_headers(it: Node<'_, '_>) -> String {
     h
 }
 
+/// The preview texts of the given item ids (#177), Exchange's own `Preview`: the
+/// background backfill reads old items this way, without downloading a body.
+pub(crate) async fn previews(s: &mut Session, ids: &[String]) -> Result<Vec<(String, String)>> {
+    Ok(fetch(s, ids)
+        .await?
+        .into_iter()
+        .filter(|f| !f.preview.is_empty())
+        .map(|f| (f.id, f.preview))
+        .collect())
+}
+
 /// Caches items under the given UIDs.
 async fn add_items(
     s: &mut Session,
@@ -786,16 +801,37 @@ async fn add_items(
                 // Exchange categories are the letter's labels; their names are the keywords.
                 keywords: f.categories.clone(),
             };
-            Some((msg, f.id.as_str(), f.received))
+            Some((msg, f.id.as_str(), f.received, f.preview.as_str()))
         })
         .collect();
     // A commit per batch, not per item; batches keep the cache free for the window between.
     insert_batches(store, account_id, folder, &items)?;
+    // The list's preview (#177): Exchange's own `Preview` needs no body download. The
+    // ids come back by UID; a letter already cached keeps its text unless it is empty.
+    let previews: Vec<(u32, String)> = items
+        .iter()
+        .filter(|(_, _, _, preview)| !preview.is_empty())
+        .map(|(msg, _, _, preview)| (msg.uid, crate::snippet::normalize(preview)))
+        .collect();
+    if !previews.is_empty() {
+        let uids: Vec<u32> = previews.iter().map(|(uid, _)| *uid).collect();
+        let by_uid: HashMap<u32, i64> = store.ids_of_uids(account_id, folder, &uids)?.into_iter().collect();
+        let texts: Vec<(i64, String)> = previews
+            .iter()
+            .filter_map(|(uid, text)| by_uid.get(uid).map(|id| (*id, text.clone())))
+            .collect();
+        off_runtime_thread(|| store.save_snippets(&texts))?;
+    }
     Ok(items.len())
 }
 
 /// Writes items in batches of `WRITE_BATCH`, each one off the runtime's worker thread.
-fn insert_batches(store: &Store, account_id: &str, folder: &str, items: &[(NewMessage<'_>, &str, i64)]) -> Result<()> {
+fn insert_batches(
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    items: &[(NewMessage<'_>, &str, i64, &str)],
+) -> Result<()> {
     for batch in items.chunks(WRITE_BATCH) {
         off_runtime_thread(|| store.ews_insert_items(account_id, folder, batch))?;
     }
@@ -1852,7 +1888,7 @@ mod tests {
                         flags: Flags::default(),
                         keywords: Vec::new(),
                     };
-                    (msg, "id", 1)
+                    (msg, "id", 1, "")
                 })
                 .collect();
             insert_batches(&store, "a", "INBOX", &items).unwrap();
@@ -1968,5 +2004,19 @@ mod tests {
         }
         // Taking it back removes the verb.
         assert!(at(FlagChange::Forwarded(false)).contains("<t:DeleteItemField>"));
+    }
+
+    /// Criterion (#177): the item's own `Preview` is read, so the list shows a text
+    /// without downloading the body.
+    #[test]
+    fn reads_the_preview_of_an_item() {
+        let answer = r#"<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><m:GetItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><m:ResponseMessages><m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="i1"/><t:Subject>Счёт</t:Subject><t:Preview>Добрый день! Счёт во вложении.</t:Preview></t:Message></m:Items></m:GetItemResponseMessage></m:ResponseMessages></m:GetItemResponse></s:Body></s:Envelope>"#;
+        let doc = parse(answer).unwrap();
+        let resp = single(&doc).unwrap();
+        let list = child(resp, "Items").unwrap();
+        let it = children(list, "Message").next().unwrap();
+        let f = fetched(it, &crate::avatar::Receiver::default()).unwrap();
+        assert_eq!(f.preview, "Добрый день! Счёт во вложении.");
+        assert_eq!(f.summary.subject, "Счёт");
     }
 }

@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use async_imap::Client;
 use async_imap::extensions::idle::IdleResponse;
-use async_imap::imap_proto::{AttributeValue, Response};
+use async_imap::imap_proto::{
+    AttributeValue, BodyContentCommon, BodyStructure, ContentEncoding, MessageSection, Response, SectionPath,
+};
 use async_imap::types::{Flag, Mailbox, NameAttribute, UnsolicitedResponse};
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -843,6 +845,195 @@ async fn remove_uids(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<()> 
     Ok(())
 }
 
+/// How many bytes of a letter's text part the list's preview is read from (#177). Enough
+/// for a couple of sentences; the server sends no more, and the whole letter is not fetched.
+pub const SNIPPET_BYTES: usize = 2048;
+
+/// UIDs per `BODY.PEEK[<part>]` command, as the header fetch does.
+const SNIPPET_BATCH: usize = 200;
+
+/// The part of a letter whose text the list shows (#177).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextPart {
+    /// The whole body of a letter that is not multipart (`BODY[TEXT]`).
+    Text,
+    /// A numbered part of a multipart letter (`BODY[1.2]`).
+    Part(Vec<u32>),
+}
+
+impl TextPart {
+    /// The section as it stands in an IMAP command.
+    fn render(&self) -> String {
+        match self {
+            TextPart::Text => "TEXT".into(),
+            TextPart::Part(path) => path.iter().map(u32::to_string).collect::<Vec<_>>().join("."),
+        }
+    }
+
+    /// The same section as the answer parses it, for reading it back out.
+    fn path(&self) -> SectionPath {
+        match self {
+            TextPart::Text => SectionPath::Full(MessageSection::Text),
+            TextPart::Part(path) => SectionPath::Part(path.clone(), None),
+        }
+    }
+}
+
+/// What the preview of one letter needs: where its text is and how to read it.
+#[derive(Debug, Clone)]
+pub struct SnippetPlan {
+    pub uid: u32,
+    pub part: TextPart,
+    pub encoding: crate::snippet::Encoding,
+    pub charset: Option<String>,
+    /// The part is HTML: its tags are stripped before the text is read.
+    pub html: bool,
+}
+
+/// The plan for a letter, from its `BODYSTRUCTURE`: `text/plain` when there is one,
+/// `text/html` otherwise. None when the letter carries no text (a letter of only files).
+pub fn snippet_plan(uid: u32, bs: &BodyStructure<'_>) -> Option<SnippetPlan> {
+    let mut found: Vec<(Vec<u32>, bool, crate::snippet::Encoding, Option<String>)> = Vec::new();
+    let mut path = Vec::new();
+    collect_text_parts(bs, &mut path, &mut found);
+    // `text/plain` before `text/html`, wherever in the letter they stand.
+    let chosen = found.iter().find(|(_, html, _, _)| !html).or_else(|| found.first())?;
+    let (path, html, encoding, charset) = chosen;
+    let part = if path.is_empty() {
+        TextPart::Text
+    } else {
+        TextPart::Part(path.clone())
+    };
+    Some(SnippetPlan {
+        uid,
+        part,
+        encoding: *encoding,
+        charset: charset.clone(),
+        html: *html,
+    })
+}
+
+/// Walks a `BODYSTRUCTURE`, gathering the text parts with their number, encoding and
+/// charset. A part the sender marked as an attachment is not the letter's text.
+fn collect_text_parts(
+    bs: &BodyStructure<'_>,
+    path: &mut Vec<u32>,
+    out: &mut Vec<(Vec<u32>, bool, crate::snippet::Encoding, Option<String>)>,
+) {
+    match bs {
+        BodyStructure::Text { common, other, .. } => {
+            if is_attachment(common) {
+                return;
+            }
+            let html = common.ty.subtype.eq_ignore_ascii_case("html");
+            out.push((
+                path.clone(),
+                html,
+                encoding_of(&other.transfer_encoding),
+                charset_of(common),
+            ));
+        }
+        BodyStructure::Multipart { bodies, .. } => {
+            for (i, child) in bodies.iter().enumerate() {
+                path.push(i as u32 + 1);
+                collect_text_parts(child, path, out);
+                path.pop();
+            }
+        }
+        // A letter of only files, or a forwarded letter as an attachment: no text of its own.
+        BodyStructure::Basic { .. } | BodyStructure::Message { .. } => {}
+    }
+}
+
+fn is_attachment(common: &BodyContentCommon<'_>) -> bool {
+    common
+        .disposition
+        .as_ref()
+        .is_some_and(|d| d.ty.eq_ignore_ascii_case("attachment"))
+}
+
+fn charset_of(common: &BodyContentCommon<'_>) -> Option<String> {
+    common.ty.params.as_ref().and_then(|params| {
+        params
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("charset"))
+            .map(|(_, v)| v.trim_matches('"').to_owned())
+    })
+}
+
+fn encoding_of(encoding: &ContentEncoding<'_>) -> crate::snippet::Encoding {
+    match encoding {
+        ContentEncoding::Base64 => crate::snippet::Encoding::Base64,
+        ContentEncoding::QuotedPrintable => crate::snippet::Encoding::QuotedPrintable,
+        _ => crate::snippet::Encoding::Identity,
+    }
+}
+
+/// Reads the beginning of the text of each planned part, `BODY.PEEK[<part>]<0.2048>`:
+/// `PEEK` leaves the letters unread. Parts needing the same section go in one FETCH.
+pub async fn fetch_snippet_parts(conn: &mut Conn, plans: &[SnippetPlan]) -> Result<Vec<(u32, String)>> {
+    let mut out = Vec::with_capacity(plans.len());
+    let mut groups: Vec<(TextPart, Vec<&SnippetPlan>)> = Vec::new();
+    for plan in plans {
+        match groups.iter_mut().find(|(part, _)| *part == plan.part) {
+            Some((_, list)) => list.push(plan),
+            None => groups.push((plan.part.clone(), vec![plan])),
+        }
+    }
+    for (part, list) in groups {
+        let uids: Vec<u32> = list.iter().map(|p| p.uid).collect();
+        let query = format!("(UID BODY.PEEK[{}]<0.{}>)", part.render(), SNIPPET_BYTES);
+        for chunk in uids.chunks(SNIPPET_BATCH) {
+            let fetches: Vec<_> = conn
+                .session
+                .uid_fetch(uid_set(chunk), &query)
+                .await?
+                .try_collect()
+                .await?;
+            for f in &fetches {
+                let (Some(uid), Some(data)) = (f.uid, f.section(&part.path())) else {
+                    continue;
+                };
+                let Some(plan) = list.iter().find(|p| p.uid == uid) else {
+                    continue;
+                };
+                out.push((
+                    uid,
+                    crate::snippet::from_part(data, plan.encoding, plan.charset.as_deref(), plan.html),
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Reads the beginning of the text of the given letters of a folder (#177): their
+/// `BODYSTRUCTURE` first, then a prefix of the part that holds the text. `PEEK`, so none
+/// of them becomes read. Letters gone from the server are simply missing from the answer.
+pub async fn fetch_snippets(conn: &mut Conn, folder: &str, uids: &[u32]) -> Result<Vec<(u32, String)>> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    conn.session.examine(folder).await?;
+    let mut plans = Vec::with_capacity(uids.len());
+    for chunk in uids.chunks(SNIPPET_BATCH) {
+        let fetches: Vec<_> = conn
+            .session
+            .uid_fetch(uid_set(chunk), "(UID BODYSTRUCTURE)")
+            .await?
+            .try_collect()
+            .await?;
+        for f in &fetches {
+            if let (Some(uid), Some(bs)) = (f.uid, f.bodystructure())
+                && let Some(plan) = snippet_plan(uid, bs)
+            {
+                plans.push(plan);
+            }
+        }
+    }
+    fetch_snippet_parts(conn, &plans).await
+}
+
 /// Full RFC 822 source, without setting \Seen.
 pub async fn fetch_raw(conn: &mut Conn, folder: &str, uid: u32) -> Result<Vec<u8>> {
     conn.session.examine(folder).await?;
@@ -1645,6 +1836,7 @@ pub fn uid_set(uids: &[u32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_imap::imap_proto::ContentType;
 
     fn folder(name: &str) -> Folder {
         Folder {
@@ -1663,6 +1855,144 @@ mod tests {
         assert_eq!(quoted(r#""a b"@x.org"#), r#""\"a b\"@x.org""#);
         assert_eq!(quoted("olga@example.org"), r#""olga@example.org""#);
         assert_eq!(quoted(r"a\b"), r#""a\\b""#);
+    }
+
+    // The preview's part selection (#177): from a `BODYSTRUCTURE`, where the text is.
+
+    fn text_part(
+        subtype: &'static str,
+        charset: Option<&'static str>,
+        encoding: ContentEncoding<'static>,
+        attachment: bool,
+    ) -> BodyStructure<'static> {
+        BodyStructure::Text {
+            common: BodyContentCommon {
+                ty: ContentType {
+                    ty: "TEXT".into(),
+                    subtype: subtype.into(),
+                    params: charset.map(|c| vec![("charset".into(), c.into())]),
+                },
+                disposition: attachment.then(|| async_imap::imap_proto::ContentDisposition {
+                    ty: "attachment".into(),
+                    params: None,
+                }),
+                language: None,
+                location: None,
+            },
+            other: async_imap::imap_proto::BodyContentSinglePart {
+                id: None,
+                md5: None,
+                description: None,
+                transfer_encoding: encoding,
+                octets: 0,
+            },
+            lines: 0,
+            extension: None,
+        }
+    }
+
+    fn file_part(subtype: &'static str) -> BodyStructure<'static> {
+        BodyStructure::Basic {
+            common: BodyContentCommon {
+                ty: ContentType {
+                    ty: "APPLICATION".into(),
+                    subtype: subtype.into(),
+                    params: None,
+                },
+                disposition: None,
+                language: None,
+                location: None,
+            },
+            other: async_imap::imap_proto::BodyContentSinglePart {
+                id: None,
+                md5: None,
+                description: None,
+                transfer_encoding: ContentEncoding::SevenBit,
+                octets: 0,
+            },
+            extension: None,
+        }
+    }
+
+    fn multipart(subtype: &'static str, bodies: Vec<BodyStructure<'static>>) -> BodyStructure<'static> {
+        BodyStructure::Multipart {
+            common: BodyContentCommon {
+                ty: ContentType {
+                    ty: "MULTIPART".into(),
+                    subtype: subtype.into(),
+                    params: None,
+                },
+                disposition: None,
+                language: None,
+                location: None,
+            },
+            bodies,
+            extension: None,
+        }
+    }
+
+    /// A letter that is not multipart takes its whole body (`BODY[TEXT]`).
+    #[test]
+    fn a_single_part_letter_reads_its_whole_text() {
+        let bs = text_part("plain", Some("utf-8"), ContentEncoding::QuotedPrintable, false);
+        let plan = snippet_plan(7, &bs).expect("a plan");
+        assert_eq!(plan.part, TextPart::Text);
+        assert!(!plan.html);
+        assert_eq!(plan.encoding, crate::snippet::Encoding::QuotedPrintable);
+        assert_eq!(plan.charset.as_deref(), Some("utf-8"));
+    }
+
+    /// `text/plain` is chosen over `text/html` wherever they stand.
+    #[test]
+    fn plain_is_chosen_over_html() {
+        let bs = multipart(
+            "alternative",
+            vec![
+                text_part("plain", Some("utf-8"), ContentEncoding::SevenBit, false),
+                text_part("html", Some("utf-8"), ContentEncoding::SevenBit, false),
+            ],
+        );
+        let plan = snippet_plan(1, &bs).expect("a plan");
+        assert_eq!(plan.part, TextPart::Part(vec![1]));
+        assert!(!plan.html);
+    }
+
+    /// Without a `text/plain`, the `text/html` part is taken and marked HTML.
+    #[test]
+    fn html_is_taken_when_there_is_no_plain() {
+        let bs = multipart(
+            "mixed",
+            vec![
+                text_part("html", Some("windows-1251"), ContentEncoding::Base64, false),
+                file_part("pdf"),
+            ],
+        );
+        let plan = snippet_plan(1, &bs).expect("a plan");
+        assert_eq!(plan.part, TextPart::Part(vec![1]));
+        assert!(plan.html);
+        assert_eq!(plan.encoding, crate::snippet::Encoding::Base64);
+        assert_eq!(plan.charset.as_deref(), Some("windows-1251"));
+    }
+
+    /// A text part marked as an attachment is not the letter's text.
+    #[test]
+    fn an_attached_text_part_is_not_the_letter() {
+        let bs = multipart(
+            "mixed",
+            vec![
+                text_part("plain", None, ContentEncoding::SevenBit, true),
+                text_part("plain", Some("utf-8"), ContentEncoding::SevenBit, false),
+            ],
+        );
+        let plan = snippet_plan(1, &bs).expect("a plan");
+        assert_eq!(plan.part, TextPart::Part(vec![2]));
+    }
+
+    /// A letter of only files has no text to preview.
+    #[test]
+    fn a_letter_without_text_has_no_plan() {
+        let bs = multipart("mixed", vec![file_part("pdf"), file_part("zip")]);
+        assert!(snippet_plan(1, &bs).is_none());
     }
 
     #[test]

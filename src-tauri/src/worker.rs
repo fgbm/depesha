@@ -35,6 +35,9 @@ const PREFETCH_BATCH: u32 = 25;
 /// of megabytes, and the whole mailbox waits for them. A short batch lets a body somebody
 /// opens (or their next action) run between them.
 const PREFETCH_BYTES: u64 = 20 * 1024 * 1024;
+/// Letters whose preview text one round reads (#177): a small batch keeps the mailbox's
+/// queue free for the sync and for sending, between rounds.
+const SNIPPET_BATCH: u32 = 50;
 /// How often INBOX is checked on a server without IDLE; the "Server" section says so.
 pub const POLL_WITHOUT_IDLE: Duration = Duration::from_secs(120);
 /// Pause after "server busy" (Exchange throttling) when the server names none; it
@@ -139,6 +142,10 @@ pub enum Work {
     UserPhoto(String),
     /// Downloads one batch of messages for offline reading; queues the next batch itself.
     Prefetch,
+    /// Reads the beginning of the text of the letters whose list row has none yet (#177),
+    /// a batch at a time; queues the next batch itself. New mail gets its text in the
+    /// sync itself, so this only catches up with what was cached before.
+    Snippets,
     /// Moves messages found by Message-ID: UIDs change on every move, so undo and
     /// returning snoozed mail cannot rely on them. `unseen` marks them unread there.
     MoveByMessageId {
@@ -215,6 +222,8 @@ fn sync_key(work: &Work) -> Option<String> {
     match work {
         Work::SyncAll => Some(String::new()),
         Work::SyncFolder(f) => Some(f.clone()),
+        // One round of reading previews at a time: a burst of passes does not pile them up.
+        Work::Snippets => Some("snippets".into()),
         _ => None,
     }
 }
@@ -1415,6 +1424,8 @@ impl Ops {
         // Fresh headers: download their text for offline reading.
         self.notify_new = true;
         offer(&self.background, &self.queued, Work::Prefetch);
+        // The previews of what the cache holds without one (#177).
+        offer(&self.background, &self.queued, Work::Snippets);
         // The quota after the folders, as work of its own: a server stuck on it cannot
         // hold up or fail the sync.
         offer(&self.background, &self.queued, Work::Quota);
@@ -1451,6 +1462,12 @@ impl Ops {
                     && *n > 0
                 {
                     offer(&self.background, &self.queued, Work::Prefetch);
+                }
+                // The next round of previews, as long as the last one found letters to read (#177).
+                if let (Work::Snippets, Output::Count(n)) = (work, out)
+                    && *n > 0
+                {
+                    offer(&self.background, &self.queued, Work::Snippets);
                 }
                 self.online();
             }
@@ -1562,6 +1579,7 @@ async fn perform(
             ))
         }
         Work::Prefetch => prefetch(state, conn, id, prefetch_failed).await,
+        Work::Snippets => read_snippets(state, conn, id).await,
         Work::Quota => {
             refresh_quota(state, id, conn).await?;
             Ok(Output::None)
@@ -1777,6 +1795,39 @@ async fn perform(
             Ok(Output::Count(n))
         }
     }
+}
+
+/// One batch of reading the list previews (#177): the newest letters of every folder that
+/// have no text yet, a small batch at a time, so the sync and sending run between rounds.
+/// `Count` is how many were read; 0 when every letter the list shows has one.
+async fn read_snippets(state: &AppState, conn: &mut Conn, account_id: &str) -> Result<Output> {
+    let store = &state.store;
+    let mut left = SNIPPET_BATCH as usize;
+    let mut read = 0usize;
+    for info in store.folders(Some(account_id))? {
+        // Trash and spam are shown only in their own folders, and their rows are not read first.
+        if !info.folder.selectable || matches!(info.folder.role, Some(FolderRole::Trash) | Some(FolderRole::Junk)) {
+            continue;
+        }
+        let missing = store.snippets_missing(account_id, &info.folder.name, left as u32)?;
+        if missing.is_empty() {
+            continue;
+        }
+        let uids: Vec<u32> = missing.iter().map(|(_, uid)| *uid).collect();
+        let texts = mail::read_snippets(conn, store, account_id, &info.folder.name, &uids).await?;
+        let id_of: std::collections::HashMap<u32, i64> = missing.into_iter().map(|(id, uid)| (uid, id)).collect();
+        let items: Vec<(i64, String)> = texts
+            .into_iter()
+            .filter_map(|(uid, text)| id_of.get(&uid).map(|id| (*id, text)))
+            .collect();
+        read += items.len();
+        store.save_snippets(&items)?;
+        left = left.saturating_sub(uids.len());
+        if left == 0 {
+            break;
+        }
+    }
+    Ok(Output::Count(read))
 }
 
 /// One batch of the offline download. `Count` is what the next batch may still

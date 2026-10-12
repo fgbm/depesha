@@ -137,6 +137,34 @@ pub async fn prefetch_bodies(conn: &mut Conn, store: &Store, folder: &str, messa
     Ok(saved)
 }
 
+/// Reads the beginning of the text of the given letters (#177), for the list's preview:
+/// the text part from IMAP, Exchange's own `Preview`. Nothing is marked read. Letters
+/// gone from the server are simply missing from the answer.
+pub async fn read_snippets(
+    conn: &mut Conn,
+    store: &Store,
+    account_id: &str,
+    folder: &str,
+    uids: &[u32],
+) -> Result<Vec<(u32, String)>> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    match conn {
+        Conn::Imap(c) => imap::fetch_snippets(c, folder, uids).await,
+        Conn::Ews(s) => {
+            let pairs = store.ews_item_ids_by_uid(account_id, folder, uids)?;
+            let ids: Vec<String> = pairs.iter().map(|(_, id)| id.clone()).collect();
+            let uid_of: std::collections::HashMap<String, u32> = pairs.into_iter().map(|(uid, id)| (id, uid)).collect();
+            let found = ews::previews(s, &ids).await?;
+            Ok(found
+                .into_iter()
+                .filter_map(|(id, text)| uid_of.get(&id).map(|uid| (*uid, text)))
+                .collect())
+        }
+    }
+}
+
 /// Exchange UIDs are the cache's own: they name other items once the folder is
 /// cached anew, which gives it a new UIDVALIDITY.
 fn ews_check(store: &Store, account_id: &str, folder: &str, validity: u32) -> Result<()> {
