@@ -5,6 +5,7 @@ Changes of `@depesha/plugin-api`, the contract plugins live by. The exact surfac
 ## 0.8.3
 
 - `ListFilter` has an optional `count` (#182): extra conditions for a count over the list's own scope, so a filter option can show how many letters it would show (e.g. unread newsletters in the open list). The core shows the number beside the option; a plugin that gives none is unaffected.
+- `MessageRow` has an optional `snippet` (#177): the beginning of the letter's text, read by the sync for the list's preview and empty when none was read yet. A plugin that only reads rows is unaffected.
 
 ## 0.8.2
 

@@ -635,7 +635,12 @@ importance: Importance,
  * (#108: the avatar of a conversation is its last writer who is not me); empty when
  * the list is not grouped.
  */
-thread_voices: Array<Voice>, };
+thread_voices: Array<Voice>, 
+/**
+ * The beginning of the letter's text, shown grey after the subject (#177); empty
+ * when none was read yet.
+ */
+snippet?: string, };
 
 export type MessageView = { summary: Summary, text: string | null, 
 /**

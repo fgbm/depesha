@@ -245,6 +245,7 @@ export type MessageRow = {
     dmarc: boolean;
     importance: Importance;
     thread_voices: Array<Voice>;
+    snippet?: string;
 };
 
 export type Moved = {
