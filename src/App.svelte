@@ -37,6 +37,8 @@
   import UnifiedBar from "./components/UnifiedBar.svelte";
 
   let searchInput = $state<HTMLInputElement | null>(null);
+  /** The list's own search box, shown in a narrow window (the panel's stands in `searchInput`). */
+  let listSearchInput = $state<HTMLInputElement | null>(null);
 
   // The width decides the layout from the first paint.
   layout.resize(window.innerWidth);
@@ -223,7 +225,10 @@
     api.composeUnsaved(app.compose.windows.length > 0 || app.ui.settingsTyping).catch(() => {});
   });
 
-  $effect(() => bus.on("mail.search", () => searchInput?.focus()));
+  // The main window has two search boxes: the panel's (wide and medium) and the list's own
+  // (narrow). «/» puts the focus into the one that is on screen — a resized window must not
+  // leave it in the one that just left.
+  $effect(() => bus.on("mail.search", () => (searchInput?.isConnected ? searchInput : listSearchInput)?.focus()));
 </script>
 
 <svelte:window onkeydown={onKey} onresize={() => layout.resize(window.innerWidth)} />
@@ -254,7 +259,7 @@
     <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("side", e)}></div>
     <!-- Both stay in place in a narrow window, one of them hidden: the list keeps its scroll and selection. -->
     <div class="pane" class:away={column === "message"} inert={column === "message"} bind:this={listPane}>
-      <MessageList bind:searchInput edge={layout.single} />
+      <MessageList bind:searchInput={listSearchInput} edge={layout.single} />
     </div>
     {#if !layout.single}
       <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>

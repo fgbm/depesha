@@ -32,7 +32,7 @@
 </script>
 
 <div class="unibar" data-tauri-drag-region>
-  <div class="actions" data-tauri-drag-region aria-label={t("label.actions")}>
+  <div class="actions" data-tauri-drag-region role="group" aria-label={t("label.actions")}>
     {#if multi}
       <BulkActions />
     {:else if single && msg}

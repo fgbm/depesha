@@ -154,13 +154,13 @@
 {/snippet}
 
 <section class="reader">
-  {#if layout.single && app.windowOf === null && !showsLetter}
+  {#if layout.single && app.windowOf === null && stateToShow}
     <div class="toolbar compact" data-tauri-drag-region>{@render nav()}</div>
   {/if}
   {#if stateToShow}
     <ReaderStates which={stateToShow} waited={waited} />
   {:else if msg}
-    {#if !toolbarInBar && showsLetter}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} />{/if}
+    {#if !toolbarInBar}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} inactive={!showsLetter} />{/if}
 
     <div class="scroll" class:viewing bind:this={viewer.scrollBox}>
       {#if before.length && !viewing}

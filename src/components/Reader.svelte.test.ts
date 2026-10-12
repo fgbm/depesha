@@ -97,4 +97,21 @@ describe("the letter's toolbar in the unified panel (0.8.3, #176)", () => {
     expect(bare!.textContent).toMatch(/Выбрано 3/);
     expect(document.querySelector(".reader .actions")).toBeNull();
   });
+
+  it("keeps the toolbar while another letter is being opened, its buttons standing aside", () => {
+    layout.width = 640;
+    flushSync();
+    // The letter is leaving the pane: the new one is on its way (waited is still 0, so the
+    // skeleton has not come yet). The toolbar must not vanish before it does.
+    app.reader.opening = true;
+    app.reader.openingRow = row(2);
+    flushSync();
+    expect(toolbar()).not.toBeNull();
+    expect(document.querySelectorAll(".reader .toolbar").length).toBe(1);
+    expect(document.querySelector(".reader .toolbar .row")!.classList.contains("inactive")).toBe(true);
+    app.reader.opening = false;
+    app.reader.openingRow = null;
+    flushSync();
+    expect(document.querySelector(".reader .toolbar .row")!.classList.contains("inactive")).toBe(false);
+  });
 });

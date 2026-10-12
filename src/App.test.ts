@@ -15,7 +15,6 @@ vi.mock("./lib/api", async (orig) => ({ ...(await orig<object>()), api: (await i
 // The list, the reader and the shell's furniture are not what is tried here: a component that
 // draws nothing stands for each, and the shell's own markup stays.
 vi.mock("./components/Sidebar.svelte", () => ({ default: () => {} }));
-vi.mock("./components/MessageList.svelte", () => ({ default: () => {} }));
 vi.mock("./components/Reader.svelte", () => ({ default: () => {} }));
 vi.mock("./components/Dock.svelte", () => ({ default: () => {} }));
 vi.mock("./components/WindowControls.svelte", () => ({ default: () => {} }));
@@ -88,5 +87,32 @@ describe("the keyboard order of the main window (0.8.3, #176)", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", code: "Slash", bubbles: true, cancelable: true }));
     await flush();
     expect(document.activeElement).toBe(document.querySelector(".unibar-search input"));
+  });
+
+  it("puts it into the search box that is on screen after the window changes width", async () => {
+    app.ui.wizard = null;
+    const press = async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", code: "Slash", bubbles: true, cancelable: true }));
+      await flush();
+    };
+    // Wide: the panel's own box.
+    await press();
+    expect(document.activeElement).toBe(document.querySelector(".unibar-search input"));
+    // Narrow: the panel gives way to the list's own box.
+    layout.width = 640;
+    flushSync();
+    await flush();
+    const listBox = document.querySelector(".list .search input");
+    expect(document.querySelector(".unibar-search")).toBeNull();
+    await press();
+    expect(document.activeElement).toBe(listBox);
+    // Wide again: the panel's box, not the one that just left.
+    layout.width = 1280;
+    flushSync();
+    await flush();
+    const panelBox = document.querySelector(".unibar-search input");
+    expect(document.querySelector(".list .search")).toBeNull();
+    await press();
+    expect(document.activeElement).toBe(panelBox);
   });
 });

@@ -116,7 +116,7 @@ describe("the panel as a control", () => {
     const t = mountBar();
     const actions = t.querySelector(".actions")!;
     expect(actions.getAttribute("aria-label")).toBe("Действия");
-    expect(actions.getAttribute("role")).toBeNull();
+    expect(actions.getAttribute("role")).toBe("group");
   });
 
   it("is part of the window's drag region, like the reader's own toolbar", () => {

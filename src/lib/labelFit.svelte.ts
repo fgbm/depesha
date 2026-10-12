@@ -3,12 +3,18 @@
 // and the icons stay — a `title`/`aria-label` says what each does. The width is measured, so the
 // labels come back as soon as there is room again.
 //
-// The row's buttons carry their labels as a `.lbl` (the core's) or a `.lbl2` (a plugin's).
+// The row's buttons carry their labels as a `.lbl` (the core's) or a `.lbl2` (a plugin's). The
+// needed width is the sum of the buttons and the gaps between them; the spacer `.sp` is left out
+// of it, since it only takes the room that is left, and so is a menu (`.pop`), which is not part
+// of the line. A label taken out of the flow is added back by its own width.
 
 import { tick, untrack } from "svelte";
 
-/** The gap between an icon and its label inside a button (`.btn`). */
+/** The gap between the row's buttons (`.row`), and between an icon and its label (`.btn`). */
+const GAP = 4;
 const IN_BUTTON = 6;
+/** A few pixels of slack before the labels come back: no flicker at the boundary. */
+const HYST = 4;
 
 export function labelFit(deps: () => unknown) {
   const out = $state<{ el?: HTMLElement; icons: boolean }>({ el: undefined, icons: false });
@@ -20,11 +26,20 @@ export function labelFit(deps: () => unknown) {
     // No layout to measure (jsdom, a hidden pane): the labels stay.
     if (!avail) return;
     const icons = untrack(() => out.icons);
-    // The row's own scroll width is what the buttons and «Ещё» take; with the labels out of the
-    // flow their width is added back here.
-    let width = el.scrollWidth;
-    if (icons) for (const label of el.querySelectorAll<HTMLElement>(".lbl, .lbl2")) width += IN_BUTTON + label.offsetWidth;
-    out.icons = width > avail;
+    let needed = 0;
+    let n = 0;
+    for (const child of el.children) {
+      const kid = child as HTMLElement;
+      // The spacer takes what is left, a menu is not part of the line: neither is measured.
+      if (kid.classList.contains("sp") || kid.classList.contains("pop")) continue;
+      let w = kid.offsetWidth;
+      if (icons) for (const part of kid.querySelectorAll<HTMLElement>(".lbl, .lbl2, kbd")) w += IN_BUTTON + part.offsetWidth;
+      needed += (n ? GAP : 0) + w;
+      n++;
+    }
+    // The labels go the moment the row needs more than it has; they come back with a few pixels
+    // of slack, so a window sitting exactly on the boundary does not flicker.
+    out.icons = icons ? needed > avail - HYST : needed > avail;
   }
 
   $effect(() => {

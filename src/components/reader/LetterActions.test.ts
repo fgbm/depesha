@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // The letter's own buttons and their menu (0.8.3, #176): one copy for the action panel above
 // the list and for the toolbar of a narrow window or a letter opened in a window of its own.
-// The row never wraps: on a narrower panel the labels go and the icons stay (decision 1.9 В),
-// nothing leaves for «Ещё» by width.
+// The panel's row never wraps: on a narrower panel the labels go and the icons stay (decision
+// 1.9 В), nothing leaves for «Ещё» by width, and the labels come back as the row grows again.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => import("../../lib/testing").then((m) => m.eventModule));
@@ -47,12 +47,23 @@ function mountActions(): HTMLElement {
   return target;
 }
 
-/** Gives the row a width and its content a width (with and without the labels), then fits it again. */
-function resize(t: HTMLElement, avail: number, withLabels: number, iconOnly: number) {
-  const row = t.querySelector(".row")!;
-  Object.defineProperty(row, "clientWidth", { value: avail, configurable: true });
-  Object.defineProperty(row, "scrollWidth", { value: row.classList.contains("icons") ? iconOnly : withLabels, configurable: true });
-  for (const l of t.querySelectorAll(".lbl")) Object.defineProperty(l, "offsetWidth", { value: 30, configurable: true });
+const WIDE = 100; // a button with its label
+const ICON = 40; // the same button with the label out of the flow
+const LABEL = 54; // 40 + 6 + 54 = 100
+
+/**
+ * A realistic row: the browser gives `scrollWidth >= clientWidth`, and every button is as wide
+ * as the DOM says — with its label in the flow, or icon-only with the label taken out of it.
+ */
+function resize(t: HTMLElement, avail: number) {
+  const rowEl = t.querySelector(".row")!;
+  const icons = rowEl.classList.contains("icons");
+  const kids = [...rowEl.children].filter((c) => !c.classList.contains("sp"));
+  const content = kids.length * WIDE + (kids.length - 1) * 4;
+  Object.defineProperty(rowEl, "clientWidth", { value: avail, configurable: true });
+  Object.defineProperty(rowEl, "scrollWidth", { value: Math.max(avail, content), configurable: true });
+  for (const kid of kids) Object.defineProperty(kid, "offsetWidth", { value: icons ? ICON : WIDE, configurable: true });
+  for (const label of rowEl.querySelectorAll(".lbl, .lbl2")) Object.defineProperty(label, "offsetWidth", { value: LABEL, configurable: true });
   FakeRO.last!.fire();
   flushSync();
 }
@@ -78,27 +89,40 @@ describe("the letter's buttons in one row (decision 1.9 В)", () => {
   it("keeps the labels while the row has room for them", async () => {
     const t = mountActions();
     await tick();
-    resize(t, 400, 340, 160);
+    resize(t, 400);
     expect(icons(t)).toBe(false);
   });
 
   it("hides the labels and keeps the icons when the row has no room", async () => {
     const t = mountActions();
     await tick();
-    resize(t, 120, 340, 160);
+    resize(t, 200);
     expect(icons(t)).toBe(true);
     // The label stays in the row (out of the flow) so its width can be measured, and the icons stay.
     expect(t.querySelector(".lbl")).not.toBeNull();
     expect(t.querySelector('[data-key="delete"]')).not.toBeNull();
   });
 
-  it("brings the labels back when there is room again", async () => {
+  it("brings the labels back when the row grows again — the spacer does not count as room", async () => {
     const t = mountActions();
     await tick();
-    resize(t, 120, 340, 160);
+    resize(t, 200);
     expect(icons(t)).toBe(true);
-    resize(t, 400, 340, 160);
+    resize(t, 400);
     expect(icons(t)).toBe(false);
+  });
+
+  it("does not flicker on the boundary", async () => {
+    const t = mountActions();
+    await tick();
+    resize(t, 308); // exactly what the row needs with its labels
+    expect(icons(t)).toBe(false);
+    resize(t, 308);
+    expect(icons(t)).toBe(false);
+    resize(t, 300);
+    expect(icons(t)).toBe(true);
+    resize(t, 300);
+    expect(icons(t)).toBe(true);
   });
 });
 
@@ -116,5 +140,20 @@ describe("the letter's menu", () => {
     const t = mountActions();
     expect(t.querySelector(".row")!.hasAttribute("data-tauri-drag-region")).toBe(true);
     expect(t.querySelector(".row [data-tauri-drag-region]")).not.toBeNull();
+  });
+});
+
+describe("the toolbar's own look (the reader of a narrow window)", () => {
+  it("keeps «Готово» with its .lbl2 and «Удалить» and «Ещё» as icons alone", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    view = mount(LetterActions, { target, props: { msg: opened(row(1)), account: undefined, isDraft: false, message: null, compact: true } });
+    flushSync();
+    await tick();
+    expect(target.querySelector(".lbl2")).not.toBeNull();
+    expect(target.querySelector("button[aria-label='Удалить'] .lbl")).toBeNull();
+    expect(target.querySelector("button[aria-label='Ещё'] .lbl")).toBeNull();
+    // No row fitting and no spacer: the toolbar keeps its own separator.
+    expect(target.querySelector(".sp")).toBeNull();
   });
 });

@@ -14,6 +14,8 @@ import ReaderToolbar from "./ReaderToolbar.svelte";
 import { app } from "../../lib/store.svelte";
 import { i18n } from "../../lib/i18n.svelte";
 import { shortcuts } from "../../lib/shortcuts.svelte";
+import { layout } from "../../lib/layout.svelte";
+import { useStyles } from "../../lib/cssTesting";
 import { settings } from "../../lib/testing";
 import type { OpenedMessage } from "../../lib/types";
 import type { KeySettings } from "../../lib/types";
@@ -80,4 +82,38 @@ describe("no key letters written into the menus of actions", () => {
       expect(src).not.toMatch(/<kbd[ >]/);
     });
   }
+});
+
+// #176: the reader's own toolbar keeps the look of main — «Готово» with its `.lbl2`, «Удалить»
+// and «Ещё» as icons alone, `.compact` hiding the label, and no row fitting of its own.
+describe("the toolbar's own look", () => {
+  function draw(): HTMLElement {
+    app.settingsCtl.settings = settings();
+    const target = document.createElement("div");
+    document.body.append(target);
+    const nav = createRawSnippet(() => ({ render: () => "<span></span>" }));
+    view = mount(ReaderToolbar, { target, props: { msg: opened, account: undefined, isDraft: false, message: null, nav } });
+    flushSync();
+    return target;
+  }
+
+  it("keeps «Готово» with its .lbl2, «Удалить» and «Ещё» as icons alone, and no spacer", () => {
+    layout.width = 1280;
+    const t = draw();
+    expect(t.querySelector(".lbl2")).not.toBeNull();
+    expect(t.querySelector("button[aria-label='Удалить'] .lbl")).toBeNull();
+    expect(t.querySelector("button[aria-label='Ещё'] .lbl")).toBeNull();
+    expect(t.querySelector(".row .sp")).toBeNull();
+    // The strip after the buttons drags the window.
+    expect(t.querySelector(".sep")).not.toBeNull();
+  });
+
+  it("hides the label of «Готово» with the .compact class of a narrow window", () => {
+    layout.width = 640;
+    const unstyle = useStyles(import.meta.url, "./ReaderToolbar.svelte");
+    const t = draw();
+    expect(t.querySelector(".toolbar")!.classList.contains("compact")).toBe(true);
+    expect(getComputedStyle(t.querySelector(".lbl2")!).display).toBe("none");
+    unstyle();
+  });
 });
