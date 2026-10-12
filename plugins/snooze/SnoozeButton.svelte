@@ -14,7 +14,7 @@
 </script>
 
 {#if bulk}
-  <button class="btn" data-snooze-button onclick={toggle}><AlarmClock size={15} /> {ctx.t(S.action)}</button>
+  <button class="btn ghost" data-snooze-button onclick={toggle}><AlarmClock size={15} /><span class="lbl2">{ctx.t(S.action)}</span></button>
 {:else}
   <button class="btn ghost" data-snooze-button onclick={toggle} title={ctx.keyTitle(ctx.t(S.hint), "snooze.open")}>
     <AlarmClock size={16} /><span class="lbl2">{ctx.t(S.action)}</span>

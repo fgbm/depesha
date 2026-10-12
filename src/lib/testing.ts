@@ -115,7 +115,7 @@ export function resetFakes() {
     api[a].mockImplementation(async (ids: number[]) => [{ account_id: "a", from: "INBOX", to: "Archive", message_ids: ids.map(String), unseen: [], snoozed: [], waits: [] }]);
   }
   // The extension host listens to its frames on the window; there is no DOM here.
-  vi.stubGlobal("window", { addEventListener: () => {} });
+  vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {} });
 }
 
 /** What the backend always sends of a row and a fixture does not care about. */

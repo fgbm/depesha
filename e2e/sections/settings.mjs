@@ -403,7 +403,7 @@ export async function run() {
     await setLanguage("настройк", "en");
     await d.until("English sidebar", async () => (await sidebarText()).includes("Inbox"), 10000);
     if (!(await textOf(".list h2")).includes("Inbox")) throw new Error(`заголовок: ${await textOf(".list h2")}`);
-    if (!(await textOf(".unibar .search input") || (await d.exec("return document.querySelector('.unibar .search input').placeholder"))).includes("Search")) {
+    if (!(await textOf(".unibar-search .search input") || (await d.exec("return document.querySelector('.unibar-search .search input').placeholder"))).includes("Search")) {
       throw new Error("поле поиска не переведено");
     }
     await screenshot("english");

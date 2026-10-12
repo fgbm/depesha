@@ -364,7 +364,7 @@ export async function run() {
     await screenshot("person-card");
     // A real Enter on the focused button: what the keyboard does, not a synthetic event.
     await d.pressKey("\uE007");
-    await d.until("search by sender", async () => (await d.exec("return document.querySelector('.unibar .search input')?.value ?? ''")).includes("from:petr@example.org"));
+    await d.until("search by sender", async () => (await d.exec("return document.querySelector('.unibar-search .search input')?.value ?? ''")).includes("from:petr@example.org"));
     await rowBySubject(subj, 10000);
   });
   await step("9.3", "адресная книга (#104): открыть с клавиатуры, найти контакт, изменить настройку, объединить и вернуть; ссылка «Своё у …» из настроек; карточка письма клавишей, имя в карточке", async () => {

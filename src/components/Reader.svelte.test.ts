@@ -92,7 +92,7 @@ describe("the letter's toolbar in the unified panel (0.8.3, #176)", () => {
   it("shows a bare «Выбрано N» for several chosen rows, with no actions of the reader (1.4 Б)", () => {
     app.selection.selected = new Set([1, 2, 3]);
     flushSync();
-    const bare = document.querySelector(".reader .bare-bulk");
+    const bare = document.querySelector(".reader .bare");
     expect(bare).not.toBeNull();
     expect(bare!.textContent).toMatch(/Выбрано 3/);
     expect(document.querySelector(".reader .actions")).toBeNull();

@@ -114,7 +114,7 @@ export async function run() {
   }, { retry: true });
 
   await step("6.5", "поиск на сервере находит письмо вне локального кэша", async () => {
-    const box = await d.find(".unibar .search input");
+    const box = await d.find(".unibar-search .search input");
     await d.clear(box);
     await d.type(box, "Quarterly");
     await d.until("search view", async () => (await textOf(".list h2")).trim() === "Поиск");

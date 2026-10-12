@@ -137,7 +137,7 @@ export async function run() {
   });
 
   await step("6.4.2", "поиск по тексту открытых писем, по-русски", async () => {
-    const box = await d.find(".unibar .search input");
+    const box = await d.find(".unibar-search .search input");
     await d.clear(box);
     await d.click(box);
     await d.type(box, "пятниц");

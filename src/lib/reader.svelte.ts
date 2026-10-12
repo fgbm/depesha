@@ -44,6 +44,16 @@ export class Reader {
     return [...(this.opened ? [this.opened.row.id] : []), ...this.conversation.map((m) => m.id)];
   }
 
+  /**
+   * The letter with its actions is on screen: it is open, nothing failed, and no other letter
+   * is being opened in its place. The reader's own toolbar and the action panel above it both
+   * ask this, so the buttons of the letter leaving the pane never linger on the letter arriving.
+   */
+  get showsLetter(): boolean {
+    const opened = this.opened;
+    return !!opened && !this.openError && !(this.opening && this.openingRow?.id !== opened.row.id);
+  }
+
   /** Nothing is open any more. An open still in flight is dropped: it must not bring the letter back. */
   close() {
     this.cancelSeen();

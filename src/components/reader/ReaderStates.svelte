@@ -1,18 +1,15 @@
 <script lang="ts">
-  // The reader's states that are not the letter itself: a bulk of rows, a failure, the
-  // letter still on its way, and the resting placeholder. The pane (Reader.svelte) keeps
-  // one place for them; the letter, its title and its toolbar make the other component.
-  import Archive from "@lucide/svelte/icons/archive";
-  import Flag from "@lucide/svelte/icons/flag";
-  import Trash from "@lucide/svelte/icons/trash-2";
-  import Folder from "@lucide/svelte/icons/folder";
-  import Popover from "../Popover.svelte";
+  // The reader's states that are not the letter itself: several chosen rows (the panel above
+  // holds the actions, the reader only says how many), the same set for the reader of a narrow
+  // window, a failure, the letter still on its way, and the resting placeholder. The pane
+  // (Reader.svelte) keeps one place for them; the letter, its title and its toolbar make the
+  // other component.
   import { app } from "../../lib/store.svelte";
   import { addrName, longDate, size } from "../../lib/format";
   import { t, tn } from "../../lib/i18n.svelte";
   import { shortcuts } from "../../lib/shortcuts.svelte";
   import Keys from "../Keys.svelte";
-  import { registry } from "../../plugin-host/registry.svelte";
+  import BulkActions from "./BulkActions.svelte";
   import { arrivals } from "../../lib/arrivals.svelte";
 
   let {
@@ -20,51 +17,20 @@
     waited,
   }: {
     /** Which state is shown: none of them is the letter. */
-    which: "bulk" | "error" | "opening" | "placeholder";
+    which: "bare" | "bulk" | "error" | "opening" | "placeholder";
     /** How far the opening has gone: 0 at once, then a blink, then seconds. */
     waited: 0 | 1 | 2 | 3;
   } = $props();
 
-  let bulkMoveOpen = $state(false);
   const selectedSize = $derived(app.selection.selectedSize());
-  const canSelectAll = $derived(app.list.view.kind === "search" && app.list.messages.length > app.selection.selected.size);
-  const bulkAccount = $derived.by(() => {
-    const ids = [...app.selection.selected];
-    const accs = new Set(app.list.messages.filter((m) => ids.includes(m.id)).map((m) => m.account_id));
-    return accs.size === 1 ? [...accs][0] : null;
-  });
-  const bulkFolders = $derived(bulkAccount ? app.mailboxes.folders.filter((f) => f.account_id === bulkAccount && f.selectable && !f.hidden) : []);
 </script>
 
-{#if which === "bulk"}
+{#if which === "bare"}
+  <div class="bare muted">{tn("bulk.selected", app.selection.selected.size, { n: app.selection.selected.size, size: size(selectedSize) })}</div>
+{:else if which === "bulk"}
   <div class="center">
     <h3>{tn("bulk.selected", app.selection.selected.size, { n: app.selection.selected.size, size: size(selectedSize) })}</h3>
-    <div class="actions">
-      <button class="btn" onclick={() => app.actions.archive()}><Archive size={15} /> {t("act.done")}</button>
-      {#each registry.lists.bulkToolbar as b (b)}<b.item.component {...b.item.props ?? {}} />{/each}
-      <button class="btn" onclick={() => app.selection.flag("seen", true)}>{t("act.read")}</button>
-      <button class="btn" onclick={() => app.selection.flag("seen", false)}>{t("act.unread")}</button>
-      <button class="btn" onclick={() => app.selection.flag("flagged", true)}><Flag size={15} /> {t("act.flag")}</button>
-      <button class="btn" onclick={() => app.actions.remove()}><Trash size={15} /> {t("act.delete")}</button>
-      {#if bulkFolders.length}
-        <span class="anchor">
-          <button class="btn" onclick={() => (bulkMoveOpen = !bulkMoveOpen)}><Folder size={15} /> {t("act.toFolder")}</button>
-          <Popover bind:open={bulkMoveOpen} align="left">
-            <div class="mt">{t("act.moveTitle")}</div>
-            <div class="folder-list">
-              {#each bulkFolders as f (f.name)}
-                <button class="mi" onclick={() => { bulkMoveOpen = false; app.actions.moveTo(f.name); }}><Folder size={15} /> {f.display_name}</button>
-              {/each}
-            </div>
-          </Popover>
-        </span>
-      {/if}
-    </div>
-    {#if canSelectAll}
-      <button class="btn ghost select-all" onclick={() => app.selection.selectAll()}>
-        {tn("bulk.selectAll", app.list.messages.length, { n: app.list.messages.length })} {#if shortcuts.key("core.select-all")}<kbd>{shortcuts.hint("core.select-all")}</kbd>{/if}
-      </button>
-    {/if}
+    <div class="bulk-row"><BulkActions /></div>
   </div>
 {:else if which === "error"}
   <div class="center">
@@ -207,37 +173,25 @@
     text-align: center;
   }
 
+  /* Several chosen rows in the main window (question 1.4 «Б»): the panel above holds the
+     actions, the reader only says how many. */
+  .bare {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .bulk-row {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+  }
+
   .hint .small {
     max-width: 380px;
     line-height: 1.9;
-  }
-
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-  }
-
-  .anchor {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .folder-list {
-    max-height: 320px;
-    overflow-y: auto;
-  }
-
-  .select-all {
-    margin-top: 12px;
-  }
-
-  .select-all kbd {
-    font-size: 11px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 0 4px;
-    color: var(--muted);
   }
 </style>

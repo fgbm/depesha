@@ -228,11 +228,6 @@
 
 <svelte:window onkeydown={onKey} onresize={() => layout.resize(window.innerWidth)} />
 
-<!-- The panel's own search box; the list keeps its own box only in a narrow window (1.5 А). -->
-{#snippet barSearch()}
-  <SearchBox bind:input={searchInput} />
-{/snippet}
-
 <div
   class="layout"
   class:single={layout.single}
@@ -245,7 +240,11 @@
 >
   <Sidebar onCompose={() => app.compose.newMessage()} />
   {#if showBar}
-    <UnifiedBar search={barSearch} />
+    <!-- The search stands over the list column, before the list, so the keyboard goes search →
+         list → the panel's buttons; the buttons themselves are rendered after the list. -->
+    <div class="unibar-search" data-tauri-drag-region>
+      <SearchBox bind:input={searchInput} />
+    </div>
   {/if}
   {#if app.list.view.kind === "outbox"}
     <section class="wide"><Outbox /></section>
@@ -259,6 +258,9 @@
     </div>
     {#if !layout.single}
       <div class="gutter" role="separator" aria-orientation="vertical" onpointerdown={(e) => drag("list", e)}></div>
+    {/if}
+    {#if showBar}
+      <UnifiedBar />
     {/if}
     <div class="pane" class:away={column === "list"} inert={column === "list"} bind:this={readerPane}>
       <Reader onReply={(all) => app.compose.replyTo(all)} onForward={() => app.compose.forwardOpened()} />
@@ -328,6 +330,24 @@
   .layout.withbar .gutter,
   .layout.withbar .pane {
     grid-row: 2;
+  }
+
+  /* The search of the action panel: over the list column, 12 px from each edge as the list's own
+     header (the title on the left, «По дате» on the right), one hairline right of the sidebar. */
+  .unibar-search {
+    grid-row: 1;
+    grid-column: 2 / 4;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    background: var(--paper-2);
+    border-bottom: 1px solid var(--line);
+    padding: 6px 12px 6px 13px;
+  }
+
+  .unibar-search :global(.search) {
+    flex: 1;
+    min-width: 0;
   }
 
   /* A hairline to look at, a wider strip to grab. */

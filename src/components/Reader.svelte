@@ -9,7 +9,6 @@
   import { app } from "../lib/store.svelte";
   import { api } from "../lib/api";
   import { t, tn } from "../lib/i18n.svelte";
-  import { size } from "../lib/format";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { extensions, fromRow } from "../lib/extensions.svelte";
   import { registry } from "../plugin-host/registry.svelte";
@@ -67,17 +66,17 @@
   const isDraft = $derived(msg ? app.mailboxes.folder(msg.row.account_id, msg.row.folder)?.role === "drafts" : false);
   const showRemoteBanner = $derived(!!msg && msg.view.has_remote_content && !app.reader.allowRemote && !msg.trusted_sender);
   const bulk = $derived(app.selection.selected.size > 1);
-  /** The letter with its toolbar is on screen, not a placeholder or an error. */
-  const showsLetter = $derived(!bulk && !app.reader.openError && !showOpening && !(app.reader.opening && !msg) && !!msg);
+  /** The letter with its toolbar is on screen: the panel above asks app.reader for the same,
+   *  and a narrow window keeps its own compact toolbar when it is not. */
+  const showsLetter = $derived(!bulk && app.reader.showsLetter && !showOpening);
   /** The unified action panel carries the letter's toolbar (decision 1.1 В): in the main
-   *  window's wide and medium layout always; a narrow window keeps its own (1.5 А), and a
-   *  letter in a window of its own has no panel at all — its own toolbar stays. */
+   *  window's wide and medium layout; a narrow window keeps its own (1.5 А), and a letter in a
+   *  window of its own has no panel at all — its own toolbar stays. */
   const toolbarInBar = $derived(app.windowOf === null && !layout.single && app.selection.selected.size <= 1 && !!msg);
-  /** Several chosen rows: the panel holds the actions, the reader only says how many (1.4 Б). */
-  const bareBulk = $derived(app.windowOf === null && bulk && !layout.single);
-  /** Which state the pane shows when there is no letter: none of them is the letter. */
-  const stateToShow = $derived.by((): "bulk" | "error" | "opening" | "placeholder" | null => {
-    if (bulk) return "bulk";
+  /** Which state the pane shows when there is no letter: none of them is the letter. Several
+   *  chosen rows in the main window are the bare count — the panel above holds the actions (1.4 Б). */
+  const stateToShow = $derived.by((): "bare" | "bulk" | "error" | "opening" | "placeholder" | null => {
+    if (bulk) return app.windowOf === null && !layout.single ? "bare" : "bulk";
     if (app.reader.openError) return "error";
     if (showOpening || (app.reader.opening && !msg)) return "opening";
     if (!msg) return "placeholder";
@@ -158,12 +157,10 @@
   {#if layout.single && app.windowOf === null && !showsLetter}
     <div class="toolbar compact" data-tauri-drag-region>{@render nav()}</div>
   {/if}
-  {#if bareBulk}
-    <div class="bare-bulk muted">{tn("bulk.selected", app.selection.selected.size, { n: app.selection.selected.size, size: size(app.selection.selectedSize()) })}</div>
-  {:else if stateToShow}
+  {#if stateToShow}
     <ReaderStates which={stateToShow} waited={waited} />
   {:else if msg}
-    {#if !toolbarInBar}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} />{/if}
+    {#if !toolbarInBar && showsLetter}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} />{/if}
 
     <div class="scroll" class:viewing bind:this={viewer.scrollBox}>
       {#if before.length && !viewing}
@@ -246,16 +243,6 @@
     min-width: 0;
     min-height: 0;
     background: var(--paper-2);
-  }
-
-  /* Several chosen rows (question 1.4 «Б»): the panel has the actions, the reader only says how many. */
-  .bare-bulk {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    text-align: center;
   }
 
   .scroll {
