@@ -30,7 +30,7 @@
   import { cursorId } from "../lib/cursor";
   import { labelChips, readOnly } from "../lib/labels";
   import { labels as labelsCtl } from "../lib/labels.svelte";
-  import { ROW } from "../lib/list.svelte";
+  import { ROW, rowsInSight } from "../lib/list.svelte";
   import type { Addr, MessageRow } from "../lib/types";
 
   let {
@@ -67,7 +67,7 @@
   const spacerHeight = $derived(placed.reduce((sum, r) => sum + r.height, 0));
   /** A little beyond the viewport, so a row is ready before it scrolls in. */
   const OVER = OVERSCAN * ROW;
-  const visible = $derived(placed.filter((r) => r.top + r.height > scrollTop - OVER && r.top < scrollTop + height + OVER));
+  const visible = $derived(rowsInSight(placed, scrollTop - OVER, scrollTop + height + OVER));
 
   /** The folder of a letter of a thread, when it is not the folder the list shows (разбор №8). */
   function folderLabel(m: MessageRow): string | null {
@@ -242,7 +242,7 @@
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     // → unfolds the thread of the row, ← folds it (0.8.3, 3.1 А); a row without a counter is deaf to them.
     if (!sub && (e.key === "ArrowRight" || e.key === "ArrowLeft") && m.thread_count > 1) {
-      const open = app.list.threadOpen(m.thread);
+      const open = app.list.threadOpen(m);
       if ((e.key === "ArrowRight" && !open) || (e.key === "ArrowLeft" && open)) {
         e.preventDefault();
         void app.list.toggleThread(m);
@@ -336,6 +336,7 @@
             class="row sub"
             class:avatars
             class:unread={!m.flags.seen}
+            class:selected={chosen(m.id)}
             class:cursor={cursor === m.id}
             style:top="{r.top}px"
             style:height="{r.height}px"
@@ -343,10 +344,14 @@
             aria-selected={app.selection.selected.has(m.id)}
             tabindex="-1"
             onclick={(e) => click(e, m)}
+            ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
             oncontextmenu={(e) => context(e, m)}
             onkeydown={(e) => rowKey(e, m, true)}
           >
             {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
+            <!-- A letter chosen together with others carries the same mark as a row: a tick
+                 in the strip at the left, and the ground (#179, 2.5 Б). -->
+            {#if chosen(m.id)}<span class="pick" aria-hidden="true"><Check size={10} strokeWidth={3} /></span>{/if}
             <span class="subfrom">{who(m)}</span>
             <span class="subtext">{m.snippet || m.subject || t("noSubject")}</span>
             {#if folderLabel(m)}<span class="subfolder">{folderLabel(m)}</span>{/if}
@@ -354,6 +359,9 @@
           </div>
         {:else}
           {@const tags = tagsOf(m)}
+          <!-- The row is what →/← unfold and what a screen reader reads, so the state sits on it;
+               `option` does not take aria-expanded, but the row is the element it belongs to (#179). -->
+          <!-- svelte-ignore a11y_role_supports_aria_props -->
           <div
             class="row"
             class:unread={!m.flags.seen}
@@ -367,6 +375,7 @@
             style:--acct={showAccount ? app.mailboxes.accountColor(m.account_id) : "transparent"}
             role="option"
             aria-selected={app.selection.selected.has(m.id)}
+            aria-expanded={m.thread_count > 1 ? app.list.threadOpen(m) : undefined}
             tabindex="-1"
             onclick={(e) => click(e, m)}
             ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
@@ -397,14 +406,13 @@
                   type="button"
                   tabindex="-1"
                   title={t("list.inThread")}
-                  aria-label={t("list.inThread")}
-                  aria-expanded={app.list.threadOpen(m.thread)}
+                  aria-label={`${t("list.inThread")}: ${m.thread_count}`}
                   onmousedown={(e) => e.preventDefault()}
                   onclick={(e) => {
                     e.stopPropagation();
                     void app.list.toggleThread(m);
                   }}
-                >{m.thread_count}<span class="chev" aria-hidden="true">{#if app.list.threadOpen(m.thread)}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}</span></button>
+                >{m.thread_count}<span class="chev" aria-hidden="true">{#if app.list.threadOpen(m)}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}</span></button>
               {/if}
               {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
               <!-- Asked to be read first (#72): the first of the marks before the date, in amber. -->

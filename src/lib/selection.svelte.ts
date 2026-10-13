@@ -67,13 +67,15 @@ export class SelectionController {
 
   /** Bytes of the selected rows: a conversation counts with its letters in the list. */
   selectedSize(): number {
-    return this.host.list.messages.reduce((sum, m) => (this.selected.has(m.id) ? sum + (m.thread_size ?? m.size) : sum), 0);
+    return this.host.list.placed().reduce((sum, r) => (this.selected.has(r.m.id) ? sum + (r.m.thread_size ?? r.m.size) : sum), 0);
   }
 
   /** Selects every row of the list: "Select all found" in a search, Ctrl+A. */
   selectAll() {
-    if (this.host.windowOf !== null || !this.host.list.messages.length) return;
-    this.selected = new Set(this.host.list.messages.map((m) => m.id));
+    // The rows the list shows now, the letters of an unfolded thread among them (#179).
+    const ids = this.host.list.placed().map((r) => r.m.id);
+    if (this.host.windowOf !== null || !ids.length) return;
+    this.selected = new Set(ids);
   }
 
   scheduleReload() { this.host.list.scheduleReload(); }
@@ -148,11 +150,13 @@ export class SelectionController {
       if (s.size !== 1) return;
       id = [...s][0];
     } else if (mode === "range" && this.anchor !== null) {
-      const a = this.host.list.messages.findIndex((m) => m.id === this.anchor);
-      const b = this.host.list.messages.findIndex((m) => m.id === id);
+      // The rows the list shows now, the letters of an unfolded thread among them (#179).
+      const rows = this.host.list.placed().map((r) => r.m.id);
+      const a = rows.indexOf(this.anchor);
+      const b = rows.indexOf(id);
       if (a >= 0 && b >= 0) {
         const [from, to] = a < b ? [a, b] : [b, a];
-        this.selected = new Set(this.host.list.messages.slice(from, to + 1).map((m) => m.id));
+        this.selected = new Set(rows.slice(from, to + 1));
         return;
       }
     } else {
@@ -221,7 +225,11 @@ export class SelectionController {
     // A change of the read flag by hand stays the last word; tagging a letter is not a
     // change of read state, so it does not cancel the read mark the window is about to make.
     if (change === "seen") this.host.reader.flagEpoch++;
-    for (const id of ids) this.host.list.mark(id, this.host.list.messages.find((m) => m.id === id) ?? this.host.list.threadRow(id));
+    for (const id of ids) {
+      // A letter of an unfolded thread is a row on screen, but no row of its conversation was
+      // acted on: keeping it would hold that conversation in "Unread"/"Flagged" (#179).
+      if (!this.host.list.threadRow(id)) this.host.list.mark(id, this.host.list.messages.find((m) => m.id === id));
+    }
     // The rows the list shows now, the letters of an unfolded thread among them (#179).
     for (const r of this.host.list.placed()) if (ids.includes(r.m.id)) r.m.flags[change] = value;
     if (this.host.reader.opened && ids.includes(this.host.reader.opened.row.id)) this.host.reader.opened.row.flags[change] = value;

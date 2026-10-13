@@ -143,7 +143,9 @@ export class ActionRunner {
   private async withConversation(ids: number[], rows: (MessageRow | undefined)[]): Promise<number[]> {
     // A message window shows one letter, not a row of the list: the action is for it alone.
     if (!this.host.settingsCtl.settings.threads || this.host.windowOf !== null) return ids;
-    const grouped = rows.filter((r): r is MessageRow => !!r && r.thread_count > 1);
+    // A letter of an unfolded thread is a row of the list on screen, but it stands for itself:
+    // only a row that carries a conversation is expanded, never a letter of one (#179).
+    const grouped = rows.filter((r): r is MessageRow => !!r && r.thread_count > 1 && !this.host.list.threadRow(r.id));
     // Every conversation at once, not one after another.
     const threads = await Promise.all(grouped.map((r) => api.thread(r.id)));
     const out = new Set(ids);

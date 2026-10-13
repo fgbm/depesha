@@ -7,7 +7,7 @@ vi.mock("./api", async (orig) => ({ ...(await orig<object>()), api: (await impor
 vi.mock("./theme", () => ({ applyTheme: () => {} }));
 
 import { AppStore } from "./store.svelte";
-import { RELOAD_CAP, type View } from "./list.svelte";
+import { RELOAD_CAP, rowsInSight, type View } from "./list.svelte";
 import { api, deferred, emit, flush, opened, resetFakes, row, rows, settings } from "./testing";
 import { registry } from "../plugin-host/registry.svelte";
 import type { ListFilter } from "../plugin-api";
@@ -257,6 +257,37 @@ describe("marks kept by the view", () => {
     const q = lastQuery();
     expect(q.keep_ids!.filter((id) => gone.includes(id))).toEqual([]);
     expect(q.pins!.filter((p) => gone.includes(p.id))).toEqual([]);
+  });
+
+  it("do not keep a letter of an unfolded thread: no row of its conversation was acted on (#179)", async () => {
+    serve([row(1, { thread: "t9", thread_count: 3 }), row(2)]);
+    api.thread.mockResolvedValue([row(1, { thread: "t9" }), row(11, { thread: "t9" }), row(12, { thread: "t9" })]);
+    const s = new AppStore();
+    s.settingsCtl.settings = { ...settings(), threads: true };
+    await s.selection.setView({ kind: "unified", role: "inbox", unread: true });
+    await s.list.toggleThread(s.list.messages[0]);
+    await flush();
+    await s.selection.flag("seen", true, [11]);
+    await s.selection.reload();
+    expect(lastQuery().keep_ids ?? []).not.toContain(11);
+  });
+});
+
+describe("the rows of the list in sight (#179)", () => {
+  it("are found by their places, letters of threads among them", () => {
+    const placed = [
+      { m: row(1), sub: false, top: 0, height: 64 },
+      { m: row(2), sub: false, top: 64, height: 64 },
+      { m: row(3), sub: true, top: 128, height: 58 },
+      { m: row(4), sub: true, top: 186, height: 58 },
+      { m: row(5), sub: false, top: 244, height: 64 },
+    ];
+    const ids = (from: number, to: number) => rowsInSight(placed, from, to).map((r) => r.m.id);
+    expect(ids(0, 128)).toEqual([1, 2]);
+    expect(ids(64, 186)).toEqual([2, 3]);
+    expect(ids(300, 400)).toEqual([5]);
+    expect(ids(-100, 400)).toEqual([1, 2, 3, 4, 5]);
+    expect(ids(1000, 2000)).toEqual([]);
   });
 });
 

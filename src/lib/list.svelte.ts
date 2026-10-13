@@ -30,6 +30,37 @@ export interface PlacedRow {
   height: number;
 }
 
+/** The key of a thread: its mailbox and its name (#179) — the same name lives in each mailbox. */
+export function threadKey(m: MessageRow): string {
+  return `${m.account_id}\u0000${m.thread}`;
+}
+
+/** What a thread's row says that a reload compares: a letter arrived, or the newest one changed (#179). */
+function threadSig(m: MessageRow): string {
+  return `${m.thread_count}\u0000${m.thread_date}`;
+}
+
+/**
+ * The rows of `placed` in sight (#179): `from` and `to` bound the window, and the rows are in
+ * order, so the window is found by two binary searches rather than by walking every row.
+ */
+export function rowsInSight(rows: PlacedRow[], from: number, to: number): PlacedRow[] {
+  // The first row whose bottom is past `from` (bottoms grow with the rows), then the first
+  // whose top is at `to` or past it.
+  const first = (past: (r: PlacedRow) => boolean) => {
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (past(rows[mid])) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
+  };
+  const start = first((r) => r.top + r.height > from);
+  return rows.slice(start, first((r) => r.top >= to));
+}
+
 export type View =
   | { kind: "unified"; role: FolderRole; unread?: boolean; flagged?: boolean }
   | { kind: "folder"; account_id: string; folder: string }
@@ -67,6 +98,10 @@ export class ListController {
   threadLetters = $state<Map<string, MessageRow[]>>(new Map());
   /** A thread whose letters are on their way: a second click does not ask twice. */
   private askingThreads = new Set<string>();
+  /** What each unfolded thread's row said when its letters were read (#179): a reload compares. */
+  private threadSigs = new Map<string, string>();
+  /** Numbers views: an answer of `thread` that arrives after the view changed is dropped (#179). */
+  private viewEpoch = 0;
   /** All cached messages of the view are loaded; for folders, older ones may still be on the server. */
   exhausted = $state(false);
   loadingMore = $state(false);
@@ -150,8 +185,8 @@ export class ListController {
   }
 
   /** Whether the thread of a row is unfolded in the list (#179). */
-  threadOpen(key: string): boolean {
-    return this.expandedThreads.has(key);
+  threadOpen(m: MessageRow): boolean {
+    return this.expandedThreads.has(threadKey(m));
   }
 
   /** The letters of an unfolded thread with this id, if they are loaded. */
@@ -167,6 +202,7 @@ export class ListController {
   clearThreads() {
     this.expandedThreads = new Set();
     this.threadLetters = new Map();
+    this.threadSigs = new Map();
     this.askingThreads.clear();
   }
 
@@ -175,7 +211,7 @@ export class ListController {
    * the letters are asked of the backend once and kept, so folding and unfolding is instant.
    */
   async toggleThread(m: MessageRow) {
-    const key = m.thread;
+    const key = threadKey(m);
     if (this.expandedThreads.has(key)) {
       const next = new Set(this.expandedThreads);
       next.delete(key);
@@ -183,17 +219,38 @@ export class ListController {
       return;
     }
     this.expandedThreads = new Set(this.expandedThreads).add(key);
-    if (this.threadLetters.has(key) || this.askingThreads.has(key)) return;
+    if (!this.threadLetters.has(key)) await this.loadThread(m, this.viewEpoch);
+  }
+
+  /**
+   * Reads the letters of a thread and keeps them (#179). The row's own letter is not among them:
+   * it is the row itself, and two rows with one id would light up together and act as one. An
+   * answer that arrives after the view changed is dropped, not written into the new view.
+   */
+  private async loadThread(m: MessageRow, epoch: number) {
+    const key = threadKey(m);
+    if (this.askingThreads.has(key)) return;
     this.askingThreads.add(key);
     try {
       const rows = await api.thread(m.id);
+      if (epoch !== this.viewEpoch) return;
       // The same letters the reader shows: the copy in the row's own folder wins (#179, разбор №8).
-      this.threadLetters = new Map(this.threadLetters).set(key, shownConversation(rows, m.id, m.folder));
+      const letters = shownConversation(rows, m.id, m.folder).filter((l) => l.id !== m.id);
+      this.threadLetters = new Map(this.threadLetters).set(key, letters);
+      this.threadSigs = new Map(this.threadSigs).set(key, threadSig(m));
     } catch (e) {
-      this.host.ui.fail(e, t("reader.conversationFailed"));
+      if (epoch === this.viewEpoch) this.host.ui.fail(e, t("reader.conversationFailed"));
     } finally {
       this.askingThreads.delete(key);
     }
+  }
+
+  /** A reload: the letters of an unfolded thread are read again when its row changed (#179). */
+  private async refreshThreads() {
+    if (!this.expandedThreads.size) return;
+    const epoch = this.viewEpoch;
+    const changed = this.messages.filter((m) => this.expandedThreads.has(threadKey(m)) && this.threadSigs.get(threadKey(m)) !== threadSig(m));
+    await Promise.all(changed.map((m) => this.loadThread(m, epoch)));
   }
 
   /**
@@ -206,8 +263,9 @@ export class ListController {
     for (const m of this.messages) {
       rows.push({ m, sub: false, top, height: ROW });
       top += ROW;
-      if (m.thread_count > 1 && this.expandedThreads.has(m.thread)) {
-        for (const l of this.threadLetters.get(m.thread) ?? []) {
+      const key = threadKey(m);
+      if (m.thread_count > 1 && this.expandedThreads.has(key)) {
+        for (const l of this.threadLetters.get(key) ?? []) {
           rows.push({ m: l, sub: true, top, height: SUB });
           top += SUB;
         }
@@ -362,7 +420,7 @@ export class ListController {
       const ids = new Set(this.messages.map((m) => m.id));
       const held = new Set([...ids, ...this.leaving, ...this.host.selection.showing()]);
       this.forget([...this.keep, ...this.pins.keys()].filter((id) => !held.has(id)));
-      await this.host.selection.listed(ids, v.kind === "search");
+      await Promise.all([this.refreshThreads(), this.host.selection.listed(ids, v.kind === "search")]);
     } catch (e) {
       this.host.ui.fail(e);
     }
@@ -452,7 +510,9 @@ export class ListController {
     this.filterCounts = {};
     this.messages = [];
     this.exhausted = false;
-    // Unfolded threads belong to the list left behind (#179).
+    // Unfolded threads belong to the list left behind (#179); letters still on their way
+    // carry the old epoch and are dropped rather than shown in the new list.
+    this.viewEpoch++;
     this.clearThreads();
   }
 
