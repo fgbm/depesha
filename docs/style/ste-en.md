@@ -8,6 +8,8 @@ STE does not apply to code comments and doc comments. They use plain short techn
 
 ## 1. Words
 
+<!-- vale off -->
+
 1. Use words from the STE dictionary with their approved meaning only.
 2. Use technical nouns and technical verbs from the [glossary](#5-glossary) and from the field.
 3. Use one word for one concept. Do not use synonyms. For example, always "message", never "letter" or "e-mail" for the same thing.
@@ -15,6 +17,8 @@ STE does not apply to code comments and doc comments. They use plain short techn
 5. Do not use contractions ("don't", "it's").
 6. Do not use "please", "simply", "just", "easily", "obviously".
 7. Use "must" for a requirement. Do not use "should" for a requirement.
+
+<!-- vale on -->
 
 ## 2. Sentences
 

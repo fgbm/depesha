@@ -10,50 +10,50 @@
 
 ## Why
 
-Webmail you have to host (PHP, a database, a web server) is a lot of moving parts for reading mail. Desktop clients either drag decades of baggage or quietly assume Gmail. Depesha is a single native app that speaks plain IMAP and SMTP and behaves well with corporate Exchange: Russian folder names, non-mail folders, rate limits, internal certificates and all.
+Webmail you have to host (PHP, a database, a web server) is a lot of moving parts for reading mail. Desktop clients either drag decades of baggage or quietly assume Gmail. Depesha is a single native app that speaks plain IMAP and SMTP and behaves well with corporate Exchange. That includes Russian folder names, non-mail folders, rate limits and internal certificates.
 
 ## Features
 
-Built around what people actually do with mail (see [docs/ux.md](docs/ux.md) for the research and the reasoning):
+Built around what people do with mail (see [docs/ux.md](docs/ux.md) for the research and the reasoning):
 
 - **Triage the inbox like a to-do list.** `e` marks a message done and moves it to the archive, `h` snoozes it, `#` deletes, `!` reports spam, and the next message opens by itself. Every move can be taken back with `z` or the toast's "Undo".
 - **Come back to it later.** Snooze until tonight, tomorrow morning, Monday or any time. Snoozed mail waits in a real server folder (visible in webmail too) and returns unread when due.
-- **Don't lose track of answers.** Ask for a reminder when sending; "Waiting for reply" lists sent mail nobody answered, and the reminder clears itself when the answer arrives.
-- **Send without regrets.** Ten seconds to take a message back, scheduled sending, and a check before sending: a mentioned but missing attachment, colleagues and outsiders on one letter, a huge recipient list, no subject.
-- **Conversations, not piles.** A thread is one row; open it and see every letter of it, your answers from Sent included.
+- **Do not lose track of answers.** Ask for a reminder when sending; "Waiting for reply" lists sent mail nobody answered, and the reminder clears itself when the answer arrives.
+- **Send without regrets.** Ten seconds to take a message back, scheduled sending, and a check before sending. It catches a mentioned but missing attachment, colleagues and outsiders on one message, a huge recipient list, no subject.
+- **Conversations, not piles.** A conversation is one row; open it and see every message of it, your answers from Sent included.
 - **People first.** Newsletters and robots are recognised by their headers (`List-Id`, `List-Unsubscribe`, `Precedence`, `Auto-Submitted`) and shown apart. Unsubscribe in one click (RFC 8058), by mail, or via the sender's page. Notifications come only for mail from people; Do Not Disturb silences everything.
-- **Your order.** A "View" menu above the list: newest first, important on top (unread, people, flagged), by sender, by subject or largest first, or keys of your own one after another. Each list may keep its own order and its own People / Newsletters choice. A letter you just read stays where it was until you leave the list.
-- **Find anything.** Full-text search that understands Russian, operators (`from:` `to:` `subject:` `has:attachment` `is:unread` `before:` `after:` `in:`, and for large mail `larger:25M` `older:1y` `year:2024` `in:Folder/*` `account:`, with Russian synonyms), ready queries for large mail in the search suggestions and Ctrl+K with the count and total size of what they find, server-side search for mail older than the cache, "all mail from this sender" in one click.
-- **Keyboard and command palette.** `Ctrl+K` runs any action or opens any folder by a few letters of its name.
-- **Any server.** Multiple accounts and a unified inbox; settings discovery (known providers, autoconfig, MX, SRV); IMAP IDLE with reconnects; Exchange quirks handled: Russian folder names, hidden calendars and contacts, the 5-messages-per-minute limit.
+- **Your order.** A "View" menu above the list: newest first, important on top (unread, people, flagged), by sender, by subject or largest first. You can also set keys of your own one after another. Each list may keep its own order and its own People / Newsletters choice. A message you read stays where it was until you leave the list.
+- **Find anything.** Full-text search that understands Russian, with operators (`from:` `to:` `subject:` `has:attachment` `is:unread` `before:` `after:` `in:`). For large mail there are `larger:25M` `older:1y` `year:2024` `in:Folder/*` `account:`, with Russian synonyms. Ready queries for large mail sit in the search suggestions and in Ctrl+K, with the count and total size of what they find. There is also server-side search for mail older than the cache and "all mail from this sender" in one click.
+- **Keyboard and command palette.** `Ctrl+K` runs any action or opens any folder by a few characters of its name.
+- **Any server.** Multiple accounts and a unified inbox. Settings discovery (known providers, autoconfig, MX, SRV); IMAP IDLE with reconnects. Exchange quirks are handled: Russian folder names, hidden calendars and contacts, the 5-messages-per-minute limit.
 - **Sign in with Google, Yandex or Microsoft.** OAuth 2.0 in the system browser (PKCE, loopback redirect); IMAP and SMTP log in with XOAUTH2, the refresh token stays in the OS keyring. Builds take their OAuth clients from `DEPESHA_GOOGLE_CLIENT_ID`/`_SECRET`, `DEPESHA_YANDEX_CLIENT_ID`/`_SECRET` and `DEPESHA_MICROSOFT_CLIENT_ID`.
-- **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services: Autodiscover or the OWA address, Basic or NTLM login (with channel binding for Extended Protection), folders, sync, flags, moves, search, sending with the copy kept by the server, new mail through streaming notifications.
+- **Exchange with only OWA.** When IMAP and SMTP are closed, Depesha works through Exchange Web Services. It uses Autodiscover or the OWA address, and Basic or NTLM login (with channel binding for Extended Protection). It also handles folders, sync, flags, moves, search, sending with the copy kept by the server, and new mail through streaming notifications.
 - **English and Russian.** The interface, error messages, dates and quote headers follow the system language; Settings switch it on the fly.
-- **Everyday tools.** Reply, reply all, forward with attachments, letters in plain text, formatted HTML with pictures inline, or Markdown; several signatures per account (styled ones with a logo included), templates, address completion, bulk actions, offline reading, light and dark theme.
-- **Narrow windows.** On a laptop the sidebar folds into a strip of icons with account circles and the list and letter take turns — the same window stays usable at half screen. An account's favourite folders sit at the top and stay within reach even when the account is folded.
-- **What your mailbox is made of.** The "Server" section shows what your IMAP server can do and what Depesha uses of it (IDLE, MOVE, CONDSTORE, QRESYNC, QUOTA and more), with technical details to paste into a support ticket. "Storage" shows how much room the mailbox takes on the server and on this computer, with a warning near the limit.
-- **Markdown in and out.** A letter that arrives in Markdown can be read as Markdown, HTML or plain text, and your own letters can be written in Markdown too.
-- **Contacts.** An address book in the main window, next to the folders. A contact may have several addresses; Depesha finds duplicates and offers to merge them, and a merge can be undone. "All mail" for a contact shows their letters from every address.
-- **Avatars and logos.** The list shows a round picture of the sender at the left of each row: a company logo, otherwise a photo, otherwise initials. Logos are requested from the network as soon as a letter is shown in the list; switch them off in Settings ("Reading and list" → "Message list" → "Download company logos"). A forged letter does not get another company's logo.
-- **Important mail.** Mail the sender marked as important gets a "!" in the list and can be found with `is:important`. You can mark your own letters as important too.
-- **Clear.** Trash, Spam and Drafts have a "Clear" button: the dialog names the number of letters, then a five-second countdown still lets you cancel. Drafts are not erased but moved to Trash.
-- **Print.** An open letter can be printed or saved as PDF through the system print dialog, macOS included.
-- **Settings by task.** The settings window is split into "Mail" and "App", changes are saved at once and the last one can be undone. Settings work in layers: general, then mailbox, then contact.
+- **Everyday tools.** Reply, reply all, forward with attachments, messages in plain text, formatted HTML with pictures inline, or Markdown. Several signatures per account (styled ones with a logo included), templates, address completion, bulk actions, offline reading, light and dark theme.
+- **Narrow windows.** On a laptop the sidebar folds into a strip of icons with account circles, and the list and message take turns. The same window stays usable at half screen. An account’s favourite folders sit at the top and stay within reach even when the account is folded.
+- **What your account is made of.** The "Server" section shows what your IMAP server can do and what Depesha uses of it (IDLE, MOVE, CONDSTORE, QRESYNC, QUOTA and more). It also gives technical details to paste into a support ticket. "Storage" shows how much room the account takes on the server and on this computer, with a warning near the limit.
+- **Markdown in and out.** A message that arrives in Markdown can be read as Markdown, HTML or plain text, and your own messages can be written in Markdown too.
+- **Contacts.** An address book in the main window, next to the folders. A contact may have several addresses; Depesha finds duplicates and offers to merge them, and a merge can be undone. "All mail" for a contact shows their messages from every address.
+- **Avatars and logos.** The list shows a round picture of the sender at the left of each row: a company logo, otherwise a photo, otherwise initials. Logos are requested from the network as soon as a message is shown in the list. Switch them off in Settings ("Reading and list" → "Message list" → "Download company logos"). A forged message does not get another company’s logo.
+- **Important mail.** Mail the sender marked as important gets a "!" in the list and can be found with `is:important`. You can mark your own messages as important too.
+- **Clear.** Trash, Spam and Drafts have a "Clear" button: the dialog names the number of messages, then a five-second countdown still lets you cancel. Drafts are not erased but moved to Trash.
+- **Print.** An open message can be printed or saved as PDF through the system print dialog, macOS included.
+- **Settings by task.** The settings window is split into "Mail" and "App", changes are saved at once and the last one can be undone. Settings work in layers: general, then account, then contact.
 - **The compose window.** Service strips no longer eat the room: the text field is never lower than 160 pixels, even with many attachments. Many attachments take two rows and the rest hide behind "+N more ›".
 
-<p align="center"><img src="docs/screenshots/people.png" width="420" alt="The Contacts book: a contact's card with two addresses"> <img src="docs/screenshots/reader-attachments.png" width="420" alt="An open letter: attachments in two rows and the «+N more ›» list"></p>
+<p align="center"><img src="docs/screenshots/people.png" width="420" alt="The Contacts book: a contact's card with two addresses"> <img src="docs/screenshots/reader-attachments.png" width="420" alt="An open message: attachments in two rows and the «+N more ›» list"></p>
 <p align="center"><img src="docs/screenshots/settings.png" width="420" alt="Settings: the Reading and list page"> <img src="docs/screenshots/clear.png" width="420" alt="The «Clear» confirmation in Trash"></p>
-<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="The compose editor with the formatting bar"> <img src="docs/screenshots/signatures.png" width="420" alt="Signatures in the mailbox settings"></p>
+<p align="center"><img src="docs/screenshots/compose.png" width="420" alt="The compose editor with the formatting bar"> <img src="docs/screenshots/signatures.png" width="420" alt="Signatures in the account settings"></p>
 <p align="center"><img src="docs/screenshots/followups.png" width="420" alt="Waiting for reply"> <img src="docs/screenshots/snooze.png" width="420" alt="Snooze menu"></p>
 <p align="center"><img src="docs/screenshots/preflight.png" width="420" alt="Check before sending"> <img src="docs/screenshots/dark.png" width="420" alt="Dark theme, a conversation"></p>
-<p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="A narrow window: the sidebar as a strip, the list"> <img src="docs/screenshots/narrow-message.png" width="300" alt="A narrow window: the letter"></p>
+<p align="center"><img src="docs/screenshots/narrow-list.png" width="300" alt="A narrow window: the sidebar as a strip, the list"> <img src="docs/screenshots/narrow-message.png" width="300" alt="A narrow window: the message"></p>
 <p align="center"><img src="docs/screenshots/certificate.png" width="420" alt="Trusting a certificate by fingerprint"></p>
 
 ## Plugins
 
-Like Obsidian, Depesha keeps the core small: accounts, sync, the list, the reader, compose, search and the outbox. Everything else on the list above — snooze, waiting for reply, people and newsletters, send later, templates, the check before sending, the command palette — is a built-in plugin you can switch off on the **Plugins** page of the settings (`Ctrl+,`); its buttons, keys, sidebar entries and checks go with it.
+Like Obsidian, Depesha keeps the core small: accounts, sync, the list, the reader, compose, search and the outbox. Everything else on the list above is a built-in plugin you can switch off on the **Plugins** page of the settings (`Ctrl+,`). That covers snooze, waiting for reply, people and newsletters, send later, templates, the check before sending, the command palette. Its buttons, keys, sidebar entries and checks go with it.
 
-Community plugins are plain JavaScript with a manifest of permissions (`messages.read`, `messages.modify`, `storage`, `network:<host>`). Each runs in a Web Worker inside a sandboxed frame with no way to the app, starts only when one of its hooks is needed, and is stopped if it does not answer in time, so a broken plugin cannot freeze the window. Examples and the full contract are in [plugins/README.md](plugins/README.md).
+Community plugins are plain JavaScript with a manifest of permissions (`messages.read`, `messages.modify`, `storage`, `network:<host>`). Each runs in a Web Worker inside a sandboxed frame with no way to the app, and starts only when a hook is needed. It is stopped if it does not answer in time, so a broken plugin cannot freeze the window. Examples and the full contract are in [plugins/README.md](plugins/README.md).
 
 ## Security
 
@@ -73,13 +73,13 @@ On Linux you need a Secret Service provider (GNOME Keyring, KWallet or KeePassXC
 
 ## Updates
 
-Like OpenCode's `autoupdate`, Depesha checks for a new version at start and every six hours, with three modes in Settings: install automatically (default), only notify, or never check.
+Like OpenCode’s `autoupdate`, Depesha checks for a new version at start and every six hours. Settings has three modes: install automatically (default), only notify, or never check.
 
 - **AppImage and macOS** install in the background; the new version runs after a restart, offered by a button in the sidebar.
 - **Windows** downloads in the background and installs when you restart or quit (the installer closes the app).
 - **deb and rpm** only notify: installing needs the administrator password, so it happens on your click.
 
-Every update is signed in the release pipeline, and the app checks the signature against the public key it was built with: an unsigned or modified file is refused and the installed copy stays untouched (`scripts/test-update.py` checks both cases). Versions before 0.3.0 have no updater: install 0.3.0 once by hand.
+Every update is signed in the release pipeline, and the app checks the signature against the public key it was built with. An unsigned or modified file is refused and the installed copy stays untouched (`scripts/test-update.py` checks both cases). Versions before 0.3.0 have no updater: install 0.3.0 once by hand.
 
 ## Tested against
 
@@ -89,9 +89,9 @@ Every update is signed in the release pipeline, and the app checks the signature
 | GreenMail | integration tests and a 45-step end-to-end GUI run, every feature above included |
 | Exchange 2019 (behaviour) | a scripted SMTP server with Exchange replies; Russian Exchange folder layout |
 | Exchange 2019 EWS (behaviour) | a scripted EWS server with Exchange 2019 answers (`tests/ews.rs`) |
-| 50 000-message mailbox | first sync 0.4 s, re-sync 0.2–0.4 s, full header load 18 s, a page of conversations 80 ms, search 4–17 ms |
+| 50 000-message account | first sync 0.4 s, re-sync 0.2–0.4 s, full header load 18 s, a page of conversations 80 ms, search 4–17 ms |
 
-Validation against a live Exchange 2019 mailbox is still pending. If you run one, an issue with your results is very welcome.
+Validation against a live Exchange 2019 account is still pending. If you run one, an issue with your results is very welcome.
 
 ## Build from source
 
@@ -109,7 +109,7 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-
 
 ## Architecture
 
-- `crates/depesha-core` — the engine, no GUI. IMAP (`async-imap`); its own SMTP client (EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE, Exchange status codes); SQLite cache with FTS5; MIME parsing (`mail-parser`); TLS (`rustls`, platform verifier, fingerprint pinning); settings discovery.
+- `crates/depesha-core` — the engine, no GUI. IMAP (`async-imap`); its own SMTP client (EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE, Exchange status codes). SQLite cache with FTS5; MIME parsing (`mail-parser`). TLS (`rustls`, platform verifier, fingerprint pinning); settings discovery.
 - `src-tauri` — the app. Each account runs two IMAP connections (operations and IDLE), and an outbox task sends mail.
 - `src` — the Svelte 5 interface; `src/plugin-api` is the contract plugins see, `src/plugin-host` runs them.
 - `plugins` — built-in plugins, one folder each, and examples of community plugins in `plugins/community`.
