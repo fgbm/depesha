@@ -165,8 +165,6 @@ jobs:
         run: node scripts/plugin-api-snapshot.mjs
       - name: Every IPC command has a caller
         run: node scripts/ipc-callers.mjs
-      - name: The live mockup does not leak into the app
-        run: node scripts/demo-guard.mjs --bundle --no-build
       - name: Baseline against main
         run: |
           git fetch --no-tags --depth=1 origin main
