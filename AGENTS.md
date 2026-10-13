@@ -24,33 +24,6 @@ What this means when you work:
 
 When a plugin is added, removed, or changes what it does or whether it ships switched on, update the wiki page that lists them. The page is at https://github.com/fgbm/depesha/wiki/Плагины (the wiki is a git repo of its own: `git clone https://github.com/fgbm/depesha.wiki.git`). It is written for the people who use Depesha, not for developers; the contract itself stays in `plugins/README.md`.
 
-## Живые макеты
-
-<!-- ste -->
-Живой макет — это фронтенд Депеши в браузере, без Rust и Tauri, с подставным бэкендом на JS и демо-данными. HTML-макеты копировали стили вручную и тащили отменённые решения; живой макет показывает то же приложение, что и в проде, только с другими данными.
-
-- Запускай живой макет через `npm run demo` (dev-сервер, порт 1421) и `npm run demo:build` (сборка в `dist-demo/` плюс архив `dist-demo.zip`).
-- Открывай сборку двойным кликом с `file://` и с любого статического сервера.
-- Не клади `dist-demo/` и архив в git.
-- С `file://` не работает только просмотр PDF. Почему: воркер pdf.js модульный (`type: module`), а браузер не грузит модульный воркер с `file://`.
-- Смотри PDF в демо только с сервера.
-- `vite.config.ts` в режиме `demo` подменяет `@tauri-apps/api/*` и плагины алиасами на `src/demo/tauri/*`.
-- `src/demo/backend.ts` отвечает на команды `invoke` из данных `src/demo/data.ts` и шлёт те же события, что настоящий бэкенд.
-- Держи прод-код независимым: единственная правка — вызов `startDemo()` из `@demo/start` в `src/main.ts`.
-- `scripts/demo-guard.mjs` (идёт в `check.sh` и CI) роняет проверку, если что-то из `src/demo/` импортируется извне (относительным путём, корневым `/src/demo…` или через `import.meta.glob`) или попало в обычную сборку.
-- Ищи вопросы в одном файле выпуска `src/demo/mockups/<версия>.ts`.
-- Открывай панель «Вопросы» клавишей `` ` `` поверх приложения.
-- Храни ответы в URL (`?v=1.1:V,2.1:B`) и в localStorage.
-- Ставь по умолчанию «как сейчас».
-- Помечай рекомендованный вариант ★, но не выбирай его сам.
-- Оставляй нерешённое вопросом, а не догадкой в коде.
-- Зови `variant("1.1")` из `src/demo/variants.svelte.ts` только на ветке макета (`mock/<версия>`).
-- Не оставляй в `main` вызова `variant()`. Почему: вызов относится к живому макету, а выбранный вариант переносят в компонент начисто.
-- Не заводи `if (demo)` по компонентам.
-- Держи обычную сборку без `variant()` и без панели.
-- Сверяй команды демо-бэкенда с `generate_handler!` тестом `src/demo/backend.test.ts`: каждая либо реализована, либо в явном списке заглушек.
-<!-- /ste -->
-
 ## Work through subagents — you are the orchestrator
 
 This section is for the main session only. **If you were invoked as a subagent (`explore`, `coder`, `general`), ignore it: do the work you were given yourself and don't delegate further.** A subagent that re-delegates loses the context it was handed and spends tokens on nothing.

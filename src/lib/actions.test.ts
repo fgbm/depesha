@@ -9,7 +9,7 @@ vi.mock("./theme", () => ({ applyTheme: () => {} }));
 import { AppStore } from "./store.svelte";
 import { t } from "./i18n.svelte";
 import { labels } from "./labels.svelte";
-import { api, deferred, flush, resetFakes, row } from "./testing";
+import { api, deferred, flush, opened, resetFakes, row, win } from "./testing";
 import type { Moved, MessageRow } from "./types";
 
 const ids = (s: AppStore) => s.list.messages.map((m) => m.id);
@@ -20,6 +20,20 @@ async function inbox() {
   api.messages.mockResolvedValue(list);
   const s = new AppStore();
   await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+  return s;
+}
+
+/** A conversation of three letters (5, 6, 7), the newest (7) open in the pane. */
+const dated = (id: number) => row(id, { date: 1000 + id });
+async function threaded(grouped = true) {
+  const chain = [5, 6, 7].map(dated);
+  api.messages.mockResolvedValue(grouped ? [row(7, { date: 1007, thread_count: 3 }), dated(9)] : chain.map((m) => ({ ...m, thread_count: 3 })));
+  const s = new AppStore();
+  await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+  api.thread.mockImplementation(async () => chain);
+  api.open.mockImplementation(async (id: number) => opened(dated(id)));
+  await s.reader.open(7);
+  await flush();
   return s;
 }
 
@@ -75,6 +89,45 @@ describe("an action", () => {
     await expect(s.actions.perform("Done", [4], run, "Plugin")).resolves.toBeUndefined();
     expect(ids(s)).toContain(4);
     expect(s.ui.busy).toBe(0);
+  });
+});
+
+describe("an action on a letter of the thread (0.8.4, #180)", () => {
+  it("acts on that letter alone, without unfolding its conversation", async () => {
+    // The list is not grouped: every letter of the thread is a row of it.
+    const s = await threaded(false);
+    const drop = vi.spyOn(s.list, "remove");
+    await s.actions.remove([5], true);
+    expect(api.remove.mock.calls[0][0]).toEqual([5]);
+    // The conversation was not asked about: the whole thread is not deleted with the letter.
+    expect(api.thread).toHaveBeenCalledTimes(1);
+    // The row goes all the same; the reader is not touched.
+    expect(drop).toHaveBeenCalledWith([5]);
+    expect(s.reader.opened?.row.id).toBe(7);
+  });
+
+  it("leaves the letter the pane shows open, and takes the letter out of the conversation", async () => {
+    // The list is grouped: 5 is not a row of it, only 7 is.
+    const s = await threaded();
+    const shown = s.reader.opened;
+    await s.actions.remove([5], true);
+    expect(s.reader.opened).toBe(shown);
+    expect(s.reader.conversation.map((m) => m.id)).not.toContain(5);
+    expect(ids(s)).toEqual([7, 9]);
+  });
+
+  it("does not close the window of a letter opened in one of its own", async () => {
+    const s = new AppStore();
+    s.windowOf = 7;
+    const chain = [5, 6, 7].map(dated);
+    api.thread.mockImplementation(async () => chain);
+    api.open.mockImplementation(async (id: number) => opened(dated(id)));
+    await s.reader.open(7);
+    await flush();
+
+    await s.actions.remove([5], true);
+    expect(win.close).not.toHaveBeenCalled();
+    expect(s.reader.opened?.row.id).toBe(7);
   });
 });
 

@@ -9,8 +9,7 @@
     "skipLibCheck": true,
     "types": ["vite/client"],
     "paths": {
-      "@depesha/plugin-api": ["./src/plugin-api/index.ts"],
-      "@demo/start": ["./src/lib/demo-off.ts"]
+      "@depesha/plugin-api": ["./src/plugin-api/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "plugins/**/*.ts", "plugins/**/*.svelte", "vite.config.ts"]

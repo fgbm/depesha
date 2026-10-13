@@ -88,7 +88,6 @@
 </script>
 
 <div class="head selectable">
-  <h1>{msg.view.summary.subject || t("noSubject")}</h1>
   <div class="from">
     <span class="avatar" class:pic={picture} style:background={picture ? null : avatarColor(from?.email ?? "")}>
       {#if picture}<img src={picture} alt="" />{:else}{initials(from)}{/if}
@@ -138,13 +137,6 @@
   /* Under the folded letters of the conversation it keeps a gap from their cards. */
   :global(.thread) + .head {
     padding-top: 12px;
-  }
-
-  h1 {
-    margin: 0 0 12px;
-    font-size: 20px;
-    font-weight: 650;
-    line-height: 1.3;
   }
 
   .from {

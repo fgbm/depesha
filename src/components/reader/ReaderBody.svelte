@@ -69,8 +69,8 @@
   const switchable = $derived(switchViews(msg.view, pref));
   const shown = $derived<BodyView>(picked?.id === msg.row.id ? picked.view : preferredView(msg.view, pref));
 
-  // Printing takes the form that is on screen (#70).
-  $effect(() => rememberForm(msg.row.id, shown));
+  // Printing takes the form on screen (#70) of the open letter alone, not of a letter unfolded in the conversation around it (0.8.4, #180).
+  $effect(() => { if (app.reader.opened?.row.id === msg.row.id) rememberForm(msg.row.id, shown); });
 
   /** The hint of the sender shown now, if any: the form was switched often enough (#69). */
   const hint = $derived(

@@ -1,8 +1,6 @@
 target/
 node_modules
 dist/
-dist-demo/
-dist-demo.zip
 e2e/screens/
 e2e/logs/
 e2e/perf-result.json

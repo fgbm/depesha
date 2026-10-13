@@ -111,9 +111,9 @@
     app.reader.open(msg.row.id, true);
   }
 
-  // The conversation reads top to bottom around the opened letter, as in Gmail:
-  // earlier letters fold into cards above it, later ones below, the middle of
-  // each long side into its own "N more".
+  // The conversation reads top to bottom around the open letter (0.8.4, #180): the letter the
+  // list opened is the one unfolded, earlier letters are folded rows above it, later ones below.
+  // Each side keeps the letters nearest it and folds its far end — the earliest above, the latest below — into «Ещё N писем».
   const at = $derived(msg ? app.reader.conversation.findIndex((m) => m.id === msg.row.id) : -1);
   const before = $derived(at > 0 ? app.reader.conversation.slice(0, at) : []);
   const after = $derived(at >= 0 ? app.reader.conversation.slice(at + 1) : []);
@@ -163,9 +163,12 @@
     {#if !toolbarInBar}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} inactive={!showsLetter} />{/if}
 
     <div class="scroll" class:viewing bind:this={viewer.scrollBox}>
+      <!-- The subject of the conversation stands once, above all its letters (4.5): a letter of
+           the thread carries no heading of its own. -->
+      <h1 class="subject selectable">{msg.view.summary.subject || t("noSubject")}</h1>
       {#if before.length && !viewing}
         <div class="thread" aria-label={t("conv.label")}>
-          <Conversation messages={before} folded={folded} onShowAll={() => (showAll = true)} />
+          <Conversation messages={before} folded={folded} onShowAll={() => (showAll = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
         </div>
       {/if}
 
@@ -223,7 +226,7 @@
 
       {#if after.length && !viewing}
         <div class="thread after" aria-label={t("conv.label")}>
-          <Conversation messages={after} folded={foldedAfter} onShowAll={() => (showAllAfter = true)} />
+          <Conversation messages={after} folded={foldedAfter} foldAt="bottom" onShowAll={() => (showAllAfter = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
         </div>
       {/if}
     </div>
@@ -251,6 +254,15 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+  }
+
+  /* The subject of the conversation, once, above its letters (4.5). */
+  .subject {
+    margin: 0;
+    padding: 4px 22px 12px;
+    font-size: 20px;
+    font-weight: 650;
+    line-height: 1.3;
   }
 
   /* Folded letters of the conversation: one line each, the opened letter between them.

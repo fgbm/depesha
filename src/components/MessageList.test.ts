@@ -12,7 +12,8 @@ import MessageList from "./MessageList.svelte";
 import { app } from "../lib/store.svelte";
 import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
-import { api, settings } from "../lib/testing";
+import { api, deferred, settings } from "../lib/testing";
+import { registry } from "../plugin-host/registry.svelte";
 import { pseudoSelectors, rulesFor, useStyles } from "../lib/cssTesting";
 import type { AccountView, MessageRow } from "../lib/types";
 
@@ -45,16 +46,39 @@ function draw(rows: MessageRow[], over: object = {}) {
   return target;
 }
 
+// The thread of #179: the backend's `thread` returns the summary's own letter among the others.
+const letters = [
+  row(1, "ann@x.example", { thread: "t9", date: 900, subject: "Re: Счёт" }),
+  row(11, "peter@x.example", { thread: "t9", folder: "Sent", date: 950, subject: "Re: Счёт" }),
+  row(12, "ann@x.example", { thread: "t9", date: 1000, subject: "Re: Счёт" }),
+];
+const summary = (over: Partial<MessageRow> = {}) => row(1, "ann@x.example", { thread: "t9", thread_count: 3, thread_date: 1000, subject: "Re: Счёт", ...over });
+const subs = (t: HTMLElement) => [...t.querySelectorAll<HTMLElement>(".row.sub")];
+/** Sends → to the first row of the list, as the keyboard does. */
+function unfoldByArrow(t: HTMLElement) {
+  t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  flushSync();
+}
+/** Unfolds the thread of the first row by → and lets its letters arrive. */
+async function unfold(t: HTMLElement) {
+  api.thread.mockResolvedValue(letters);
+  unfoldByArrow(t);
+  await tick();
+  flushSync();
+}
+
 beforeEach(() => {
   i18n.lang = "ru";
   api.avatar.mockReset();
   api.avatar.mockResolvedValue(null);
   app.selection.selected = new Set();
+  app.list.clearThreads();
 });
 afterEach(() => {
   if (view) unmount(view);
   view = null;
   layout.width = 1280;
+  app.list.view = { kind: "unified", role: "inbox" };
   document.body.innerHTML = "";
 });
 
@@ -386,5 +410,311 @@ describe("the beginning of the letter's text in the row (#177)", () => {
     const t = draw([row(1, "a@x.example")]);
     expect(t.querySelector(".row .preview")).toBeNull();
     expect(t.querySelector(".row .subject")?.textContent).toBe("Тема 1");
+  });
+});
+
+describe("the thread unfolded in the list (#179, decisions 0.8.3, screen 3)", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+  afterEach(() => unstyle());
+
+  it("unfolds the thread by → and folds it back by ←", async () => {
+    const t = draw([summary()]);
+    expect(subs(t)).toHaveLength(0);
+    await unfold(t);
+    expect(api.thread).toHaveBeenCalledWith(1);
+    // The thread has three letters; the row's own letter is not repeated among them (#179).
+    expect(subs(t)).toHaveLength(2);
+    expect(subs(t)[0].textContent).toContain("peter@x.example");
+    expect(subs(t)[1].textContent).toContain("ann@x.example");
+    t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    flushSync();
+    expect(subs(t)).toHaveLength(0);
+  });
+
+  it("does not unfold a row without a thread: the arrows are deaf to it", () => {
+    const t = draw([row(1, "a@x.example")]);
+    t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    flushSync();
+    expect(api.thread).not.toHaveBeenCalled();
+    expect(subs(t)).toHaveLength(0);
+  });
+
+  it("shows the plugin badges of a letter of a thread, as an ordinary row does (#179)", async () => {
+    registry.add("rowTags", "probe", (m) => (m.id === 11 ? { text: "Ждёт ответа", note: { text: "Напоминание" } } : null));
+    const list = layout.list;
+    // Wide enough for the quiet note of the first line, which a narrow list hides.
+    layout.list = 500;
+    try {
+      const t = draw([summary()]);
+      await unfold(t);
+      // The letter the plugin tags carries both the quiet note and the badge of a row.
+      expect(subs(t)[0].querySelector(".tag")?.textContent).toContain("Ждёт ответа");
+      expect(subs(t)[0].querySelector(".note")?.textContent).toContain("Напоминание");
+      // A letter the plugin does not tag carries neither.
+      expect(subs(t)[1].querySelector(".tag")).toBeNull();
+      expect(subs(t)[1].querySelector(".note")).toBeNull();
+    } finally {
+      layout.list = list;
+      registry.removeOwner("probe");
+    }
+  });
+
+  it("unfolds and folds by a click on the counter, which is not a stop of the keyboard", async () => {
+    const t = draw([summary()]);
+    const count = t.querySelector<HTMLButtonElement>(".count")!;
+    expect(count).not.toBeNull();
+    expect(count.getAttribute("tabindex")).toBe("-1");
+    expect(t.querySelectorAll("[role='option']")).toHaveLength(1);
+    count.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    flushSync();
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(2);
+    expect(t.querySelectorAll("[role='option']")).toHaveLength(3);
+    t.querySelector<HTMLButtonElement>(".count")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    flushSync();
+    expect(subs(t)).toHaveLength(0);
+  });
+});
+
+describe("a long thread and the ground of its letters (#179)", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+  afterEach(() => unstyle());
+
+  it("unfolds a long thread whole, without folding the far history (3.2 А)", async () => {
+    const many = [row(1, "ann@x.example", { thread: "t9", date: 800 }), ...Array.from({ length: 8 }, (_, i) => row(20 + i, `p${i}@x.example`, { thread: "t9", date: 801 + i }))];
+    api.thread.mockResolvedValue(many);
+    const t = draw([summary({ thread_count: 9 })]);
+    unfoldByArrow(t);
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(8);
+  });
+
+  it("gives the letters of a thread no ground of their own (3.1 А): only the indent", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    const [rule] = rulesFor(".row.sub");
+    expect(rule.style.getPropertyValue("background")).toBe("");
+    expect(rule.style.getPropertyValue("padding")).not.toBe("");
+    expect(subs(t).every((r) => !r.classList.contains("selected"))).toBe(true);
+  });
+});
+
+describe("the cursor and the actions of a thread letter in the list (#179)", () => {
+  it("moves the cursor over the letters of an unfolded thread", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1]);
+    flushSync();
+    app.selection.move(1);
+    flushSync();
+    expect([...app.selection.selected]).toEqual([11]);
+    app.selection.move(1);
+    flushSync();
+    expect([...app.selection.selected]).toEqual([12]);
+    expect(subs(t)[1].classList.contains("cursor")).toBe(true);
+  });
+
+  it("acts on a letter of a thread: the action takes the letter itself", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([11]);
+    flushSync();
+    await app.selection.toggleFlagged();
+    expect(api.setFlag).toHaveBeenCalledWith([11], { flag: "flagged", value: true });
+    expect(app.list.threadRow(11)?.flags.flagged).toBe(true);
+    flushSync();
+    expect(subs(t)[0].classList.contains("cursor")).toBe(true);
+  });
+
+  it("leaves the arrows of a letter of a thread to the row with the counter", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    subs(t)[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    flushSync();
+    expect(subs(t)).toHaveLength(2);
+  });
+
+  it("shows the folder of a letter of a thread that is not the folder shown", async () => {
+    app.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
+    const t = draw([summary()]);
+    api.thread.mockResolvedValue([
+      row(1, "ann@x.example", { thread: "t9", folder: "INBOX", date: 900 }),
+      row(11, "ann@x.example", { thread: "t9", folder: "INBOX", date: 920 }),
+      row(12, "peter@x.example", { thread: "t9", folder: "Archive", date: 950 }),
+    ]);
+    unfoldByArrow(t);
+    await tick();
+    flushSync();
+    const [inFolder, inArchive] = subs(t);
+    expect(inFolder.querySelector(".subfolder")).toBeNull();
+    expect(inArchive.querySelector(".subfolder")?.textContent).toBe("Archive");
+  });
+});
+
+describe("a row of a thread and its letters are told apart (#179)", () => {
+  it("↓↓↓ leads the cursor out of the thread to the next row", async () => {
+    const t = draw([summary(), row(2, "b@x.example", { thread: "t10", thread_count: 2 })]);
+    await unfold(t);
+    app.selection.selected = new Set([1]);
+    flushSync();
+    for (let i = 0; i < 3; i++) {
+      app.selection.move(1);
+      flushSync();
+    }
+    expect([...app.selection.selected]).toEqual([2]);
+  });
+
+  it("puts the cursor on one row only: the row of the thread and its letter are not both lit", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1]);
+    flushSync();
+    expect(t.querySelectorAll(".row.cursor")).toHaveLength(1);
+    expect(t.querySelector<HTMLElement>(".row.cursor")!.classList.contains("sub")).toBe(false);
+  });
+
+  it("e on a letter of a thread archives that letter alone, not the whole thread", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    api.archive.mockResolvedValue([]);
+    api.messages.mockResolvedValue([summary()]);
+    app.selection.selected = new Set([11]);
+    flushSync();
+    await app.actions.archive();
+    expect(api.archive.mock.calls[0][0]).toEqual([11]);
+  });
+
+  it("# on a letter of a thread deletes that letter alone", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    api.remove.mockResolvedValue([]);
+    api.messages.mockResolvedValue([summary()]);
+    app.selection.selected = new Set([12]);
+    flushSync();
+    await app.actions.remove();
+    expect(api.remove.mock.calls[0][0]).toEqual([12]);
+  });
+});
+
+describe("a reload and an unfolded thread (#179)", () => {
+  it("reads the thread again when its row changed: a new letter becomes a row", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    expect(subs(t)).toHaveLength(2);
+    // The list is read again with a longer thread: its letters are read again too.
+    api.messages.mockResolvedValue([summary({ thread_count: 4, thread_date: 1100 })]);
+    api.thread.mockResolvedValue([...letters, row(13, "peter@x.example", { thread: "t9", date: 1100 })]);
+    await app.list.reload();
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(3);
+    expect(subs(t)[2].textContent).toContain("peter@x.example");
+  });
+
+  it("lets a letter gone from the thread go", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    api.messages.mockResolvedValue([summary({ thread_count: 2, thread_date: 1000 })]);
+    api.thread.mockResolvedValue([letters[0], letters[2]]);
+    await app.list.reload();
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(1);
+  });
+});
+
+describe("an answer of api.thread that arrives too late (#179)", () => {
+  it("is dropped when the view changed while the letters were on their way", async () => {
+    const t = draw([summary()]);
+    const pending = deferred<MessageRow[]>();
+    api.thread.mockReturnValue(pending.promise);
+    unfoldByArrow(t);
+    await tick();
+    // The view changes while the letters are still coming.
+    app.list.reset({ kind: "folder", account_id: "a", folder: "Archive" });
+    flushSync();
+    pending.resolve(letters);
+    await tick();
+    flushSync();
+    expect(app.list.threadLetters.size).toBe(0);
+    expect(subs(t)).toHaveLength(0);
+  });
+});
+
+describe("the key of an unfolded thread (#179)", () => {
+  it("keeps the threads of two mailboxes apart in the unified inbox", async () => {
+    const other = { ...account, id: "b", label: "Б", email: "me@b" } as unknown as AccountView;
+    const t = draw([
+      row(1, "ann@a.example", { thread: "t9", thread_count: 2, account_id: "a" }),
+      row(2, "ann@b.example", { thread: "t9", thread_count: 2, account_id: "b" }),
+    ]);
+    app.mailboxes.accounts = [account, other];
+    flushSync();
+    const a = (id: number, date: number) => row(id, "ann@a.example", { thread: "t9", account_id: "a", date });
+    const b = (id: number, date: number) => row(id, "ann@b.example", { thread: "t9", account_id: "b", date });
+    api.thread.mockImplementation(async (id: number) => (id === 1 ? [a(1, 900), a(11, 950)] : [b(2, 900), b(21, 950)]));
+    t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    flushSync();
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(1);
+    expect(subs(t)[0].textContent).toContain("ann@a.example");
+  });
+});
+
+describe("the choice over the letters of a thread (#179)", () => {
+  it("Shift takes a range from the row to a letter of its thread", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1]);
+    app.selection.anchor = 1;
+    flushSync();
+    subs(t)[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    flushSync();
+    expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11, 12]);
+  });
+
+  it("Ctrl adds one letter of a thread, marked like an ordinary chosen row", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1]);
+    flushSync();
+    subs(t)[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    flushSync();
+    expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11]);
+    expect(subs(t)[0]!.classList.contains("selected")).toBe(true);
+    expect(subs(t)[0]!.querySelector(".pick")).not.toBeNull();
+  });
+
+  it("Select all and the chosen size count the letters of an unfolded thread too", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selectAll();
+    flushSync();
+    expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11, 12]);
+    // Every row says 10 bytes; the letters of the thread count as well.
+    expect(app.selection.selectedSize()).toBe(30);
+  });
+});
+
+describe("a letter of a thread in a window of its own, and its accessibility (#179)", () => {
+  it("opens the letter in a window of its own on a double click", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    subs(t)[0]!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    flushSync();
+    expect(api.messageWindow).toHaveBeenCalledWith(11, expect.any(String));
+  });
+
+  it("marks the row-option as expanded and names the number in the counter", async () => {
+    const t = draw([summary()]);
+    expect(t.querySelector<HTMLElement>(".row")!.getAttribute("aria-expanded")).toBe("false");
+    expect(t.querySelector(".count")!.getAttribute("aria-label")).toContain("3");
+    await unfold(t);
+    expect(t.querySelector<HTMLElement>(".row")!.getAttribute("aria-expanded")).toBe("true");
   });
 });

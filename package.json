@@ -1,13 +1,11 @@
 {
   "name": "depesha",
   "private": true,
-  "version": "0.8.3",
+  "version": "0.8.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "demo": "vite --mode demo",
-    "demo:build": "vite build --mode demo && node scripts/demo-zip.mjs",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "lint": "eslint .",
     "test": "vitest run",

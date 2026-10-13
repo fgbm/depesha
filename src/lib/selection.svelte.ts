@@ -17,7 +17,7 @@ import type { MessageRow, SortKey } from "./types";
 export interface SelectionHost {
   readonly mailboxes: Pick<MailboxController, "folder">;
   readonly settingsCtl: Pick<SettingsController, "patchSettings" | "settings">;
-  readonly list: Pick<ListController, "collapse" | "inboxLike" | "listFilter" | "listKey" | "loadMore" | "mark" | "messages" | "ownSort" | "reload" | "remove" | "reset" | "scheduleReload" | "searchServer" | "sort" | "unpin">;
+  readonly list: Pick<ListController, "collapse" | "inboxLike" | "listFilter" | "listKey" | "loadMore" | "mark" | "messages" | "ownSort" | "placed" | "reload" | "remove" | "reset" | "scheduleReload" | "searchServer" | "sort" | "threadRow" | "unpin">;
   readonly reader: Pick<Reader, "close" | "conversation" | "flagEpoch" | "open" | "openError" | "opened" | "openingRow" | "showing">;
   readonly ui: Pick<UiController, "fail" | "track">;
   /** The letter of a separate message window; null in the main window. */
@@ -67,13 +67,15 @@ export class SelectionController {
 
   /** Bytes of the selected rows: a conversation counts with its letters in the list. */
   selectedSize(): number {
-    return this.host.list.messages.reduce((sum, m) => (this.selected.has(m.id) ? sum + (m.thread_size ?? m.size) : sum), 0);
+    return this.host.list.placed().reduce((sum, r) => (this.selected.has(r.m.id) ? sum + (r.m.thread_size ?? r.m.size) : sum), 0);
   }
 
   /** Selects every row of the list: "Select all found" in a search, Ctrl+A. */
   selectAll() {
-    if (this.host.windowOf !== null || !this.host.list.messages.length) return;
-    this.selected = new Set(this.host.list.messages.map((m) => m.id));
+    // The rows the list shows now, the letters of an unfolded thread among them (#179).
+    const ids = this.host.list.placed().map((r) => r.m.id);
+    if (this.host.windowOf !== null || !ids.length) return;
+    this.selected = new Set(ids);
   }
 
   scheduleReload() { this.host.list.scheduleReload(); }
@@ -148,11 +150,13 @@ export class SelectionController {
       if (s.size !== 1) return;
       id = [...s][0];
     } else if (mode === "range" && this.anchor !== null) {
-      const a = this.host.list.messages.findIndex((m) => m.id === this.anchor);
-      const b = this.host.list.messages.findIndex((m) => m.id === id);
+      // The rows the list shows now, the letters of an unfolded thread among them (#179).
+      const rows = this.host.list.placed().map((r) => r.m.id);
+      const a = rows.indexOf(this.anchor);
+      const b = rows.indexOf(id);
       if (a >= 0 && b >= 0) {
         const [from, to] = a < b ? [a, b] : [b, a];
-        this.selected = new Set(this.host.list.messages.slice(from, to + 1).map((m) => m.id));
+        this.selected = new Set(rows.slice(from, to + 1));
         return;
       }
     } else {
@@ -174,7 +178,8 @@ export class SelectionController {
   }
 
   move(step: 1 | -1) {
-    const rows = this.host.list.messages;
+    // The rows the list shows now: the letters of an unfolded thread are rows of it too (#179).
+    const rows = this.host.list.placed().map((r) => r.m);
     if (rows.length === 0) return;
     // The selection follows the keys at once; `opened` is the previous letter until the
     // open returns, so it must not be what the next move counts from (#71).
@@ -195,12 +200,15 @@ export class SelectionController {
   takeOut(ids: number[]) {
     // A message window keeps showing its letter until the action is through.
     if (this.host.windowOf !== null) return;
-    const index = this.host.list.remove(ids);
+    // The place of the first row taken out, in the order the list shows: a letter of an
+    // unfolded thread is a row of it too, and the cursor goes on to the next one (#179).
+    const at = this.host.list.placed().findIndex((r) => ids.includes(r.m.id));
+    this.host.list.remove(ids);
     // The letter we took out must not come back from an open still in flight, nor be
     // marked read because that open finished. The next row is current at once.
     this.host.reader.close();
-    const rows = this.host.list.messages;
-    const next = index >= 0 ? rows[Math.min(index, rows.length - 1)] : undefined;
+    const rows = this.host.list.placed().map((r) => r.m);
+    const next = at >= 0 ? rows[Math.min(at, rows.length - 1)] : undefined;
     if (next) {
       // A held e/#/!/h keeps moving; the letter opens once the keys stop, as j/k do (#71).
       void this.select(next.id, "single", true);
@@ -214,12 +222,22 @@ export class SelectionController {
 
   async flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) {
     if (!ids.length) return;
+    const opened = this.host.reader.opened;
     // A change of the read flag by hand stays the last word; tagging a letter is not a
     // change of read state, so it does not cancel the read mark the window is about to make.
-    if (change === "seen") this.host.reader.flagEpoch++;
-    for (const id of ids) this.host.list.mark(id, this.host.list.messages.find((m) => m.id === id));
-    for (const m of this.host.list.messages) if (ids.includes(m.id)) m.flags[change] = value;
-    if (this.host.reader.opened && ids.includes(this.host.reader.opened.row.id)) this.host.reader.opened.row.flags[change] = value;
+    // Only the open letter's own read state is that last word: a change on another letter
+    // does not cancel the mark the open one waits for (#71, 0.8.4, #180).
+    if (change === "seen" && opened && ids.includes(opened.row.id)) this.host.reader.flagEpoch++;
+    for (const id of ids) {
+      // A letter of an unfolded thread is a row on screen, but no row of its conversation was
+      // acted on: keeping it would hold that conversation in "Unread"/"Flagged" (#179).
+      if (!this.host.list.threadRow(id)) this.host.list.mark(id, this.host.list.messages.find((m) => m.id === id));
+    }
+    // The rows the list shows now, the letters of an unfolded thread among them (#179).
+    for (const r of this.host.list.placed()) if (ids.includes(r.m.id)) r.m.flags[change] = value;
+    // A letter unfolded in the conversation (0.8.4, #180): its row there follows its flags too.
+    for (const m of this.host.reader.conversation) if (ids.includes(m.id)) m.flags[change] = value;
+    if (opened && ids.includes(opened.row.id)) opened.row.flags[change] = value;
     try {
       await this.host.ui.track(api.setFlag(ids, { flag: change, value }));
     } catch (e) {
@@ -237,7 +255,7 @@ export class SelectionController {
     const seen = (id: number) => {
       // The open letter's own state: opening it marked it read at once (its `opened` row).
       if (this.host.reader.opened?.row.id === id) return this.host.reader.opened.row.flags.seen;
-      const m = this.host.list.messages.find((r) => r.id === id) ?? this.host.reader.conversation.find((r) => r.id === id);
+      const m = this.host.list.messages.find((r) => r.id === id) ?? this.host.list.threadRow(id) ?? this.host.reader.conversation.find((r) => r.id === id);
       return m?.flags.seen ?? true;
     };
     return this.flag("seen", !ids.every(seen), ids);
@@ -248,7 +266,7 @@ export class SelectionController {
     if (!ids.length) return;
     const flagged = (id: number) => {
       if (this.host.reader.opened?.row.id === id) return this.host.reader.opened.row.flags.flagged;
-      const m = this.host.list.messages.find((r) => r.id === id) ?? this.host.reader.conversation.find((r) => r.id === id);
+      const m = this.host.list.messages.find((r) => r.id === id) ?? this.host.list.threadRow(id) ?? this.host.reader.conversation.find((r) => r.id === id);
       return m?.flags.flagged ?? false;
     };
     return this.flag("flagged", !ids.every(flagged), ids);
