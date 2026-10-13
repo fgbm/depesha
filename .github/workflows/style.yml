@@ -1,0 +1,79 @@
+name: Style
+
+# Vale, ste-lint and the comment rules run on every push and every pull request, text-only
+# changes included: they are the gates of a merge, next to the fast scripts/check.sh --changed.
+on:
+  push:
+    paths:
+      - "**/*.md"
+      - ".vale.ini"
+      - "styles/**"
+      - "docs/**"
+      - "scripts/check-comments*"
+      - "scripts/ste-lint*"
+      - "scripts/testdata/**"
+      - "crates/**"
+      - "src-tauri/**"
+      - "src/**"
+      - "plugins/**"
+      - "e2e/**"
+      - "scripts/**"
+      - ".github/workflows/style.yml"
+  pull_request:
+    paths:
+      - "**/*.md"
+      - ".vale.ini"
+      - "styles/**"
+      - "docs/**"
+      - "scripts/check-comments*"
+      - "scripts/ste-lint*"
+      - "scripts/testdata/**"
+      - "crates/**"
+      - "src-tauri/**"
+      - "src/**"
+      - "plugins/**"
+      - "e2e/**"
+      - "scripts/**"
+      - ".github/workflows/style.yml"
+
+concurrency:
+  group: style-${{ github.ref }}
+  # A new push to a branch takes over from the run of the older one; main and releases run to the end.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
+
+env:
+  # Версия Vale — одна на CI и на локальный запуск.
+  VALE_VERSION: 3.24.0
+  # Markdown в охвате styles/DepeshaEN и styles/DepeshaRU (mirror .vale.ini) — одним списком.
+  STYLE_PATHS: README.md README.en.md AGENTS.md CONTRIBUTING.md SECURITY.md plugins/README.md docs e2e/README.md design/mockups/README.md design/references
+
+jobs:
+  # Text style: Vale (styles/DepeshaEN, styles/DepeshaRU) and ste-lint over the same Markdown.
+  # Light: no Rust, no npm — checkout, Vale and node only. Paths come from STYLE_PATHS (top-level env).
+  vale:
+    name: Style (Vale and ste-lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Vale
+        run: |
+          curl -sfL "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" | tar xz -C "$RUNNER_TEMP" vale
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Vale
+        run: vale --minAlertLevel=error $STYLE_PATHS
+      - name: ste-lint
+        run: node scripts/ste-lint.mjs
+
+  # Comment rules (AGENTS.md, section Code rules): the fixture self-test must fire every rule,
+  # and the tree must have none.
+  comments:
+    name: Style (comments)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+      - name: Comment rules self-test
+        run: scripts/check-comments.test.sh
+      - name: Check comments
+        run: scripts/check-comments.sh
