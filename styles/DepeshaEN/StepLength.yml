@@ -1,0 +1,8 @@
+# STE rule: a sentence in a procedure has 20 words or fewer (docs/style/ste-en.md, section 2).
+extends: occurrence
+# Vale counts the full list item, not each sentence. For this reason the level is "warning".
+message: "This list item has more than 20 words. If it is a procedure step, make each sentence 20 words or fewer."
+level: warning
+scope: list
+max: 20
+token: '\b[\w\-/.]+\b'

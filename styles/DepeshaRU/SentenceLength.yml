@@ -1,0 +1,7 @@
+# Правило: предложение в описании — не длиннее 25 слов (docs/style/ru-technical.md, раздел 3).
+extends: occurrence
+message: "Сократите предложение. В предложении должно быть не больше 25 слов."
+level: error
+scope: sentence
+max: 25
+token: '[\p{L}\p{N}][\p{L}\p{N}\-]*'

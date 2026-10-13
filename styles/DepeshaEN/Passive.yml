@@ -1,0 +1,8 @@
+# STE rule: use the active voice (docs/style/ste-en.md, section 2).
+extends: existence
+message: "'%s' looks like the passive voice. Use the active voice."
+level: warning
+ignorecase: true
+raw:
+  - '\b(?:am|is|are|was|were|be|been|being)\s+'
+  - '(?:\w+ed|built|done|given|known|made|sent|shown|taken|written|kept|found|run|set|put|sold|told|held|seen|lost|got|gotten)\b'

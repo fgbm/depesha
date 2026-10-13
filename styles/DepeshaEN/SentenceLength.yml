@@ -1,0 +1,7 @@
+# STE rule: a descriptive sentence has 25 words or fewer (docs/style/ste-en.md, section 2).
+extends: occurrence
+message: "Make this sentence shorter. A sentence must have 25 words or fewer."
+level: error
+scope: sentence
+max: 25
+token: '\b[\w\-/.]+\b'

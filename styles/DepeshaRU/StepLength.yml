@@ -1,0 +1,7 @@
+# Правило: предложение в процедуре — не длиннее 20 слов (docs/style/ru-technical.md, раздел 3).
+extends: occurrence
+message: "Сократите пункт. В шаге процедуры должно быть не больше 20 слов в предложении."
+level: warning
+scope: list
+max: 20
+token: '[\p{L}\p{N}][\p{L}\p{N}\-]*'

@@ -1,0 +1,8 @@
+# Правило: без слов-паразитов (docs/style/ru-technical.md, раздел 2).
+extends: existence
+message: "Уберите «%s»."
+level: error
+ignorecase: true
+nonword: true
+tokens:
+  - '(?:^|[^\p{L}])(?:просто|легко|очевидно|пожалуйста)(?:[^\p{L}]|$)'

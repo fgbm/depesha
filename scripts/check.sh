@@ -36,6 +36,30 @@ machete() {
   fi
 }
 
+# Русские документы из охвата styles/DepeshaRU: те же файлы, что у ste-lint по умолчанию (mirror .vale.ini).
+ru_docs() {
+  printf '%s\n' README.md AGENTS.md e2e/README.md design/mockups/README.md docs/style/ru-technical.md
+  for d in docs docs/agents design/references; do
+    [[ -d $d ]] && find "$d" -maxdepth 1 -type f -name '*.md'
+  done
+}
+
+# Markdown в охвате Vale (styles/DepeshaEN и styles/DepeshaRU; mirror .vale.ini).
+style_docs() {
+  ru_docs
+  printf '%s\n' README.en.md plugins/README.md SECURITY.md CONTRIBUTING.md docs/style/ste-en.md
+}
+
+# Vale по переданным файлам, только где он установлен; иначе одна строка-напоминание, проверка не падает.
+vale_check() {
+  if command -v vale >/dev/null 2>&1; then
+    step "стиль текста (Vale)"
+    vale --minAlertLevel=error "$@"
+  else
+    echo "vale не установлен: проверку стиля гоняет CI (job vale) и, при установленном vale, scripts/check.sh"
+  fi
+}
+
 # One compile cache for every worktree, only where sccache is installed. It does not cache
 # incremental crates, hence CARGO_INCREMENTAL=0. It also hashes every CARGO_* variable of the
 # environment, CARGO_TARGET_DIR included: a per-worktree value would make every key unique,
@@ -183,6 +207,8 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
   if ((${#mdfiles[@]})); then
     step "одна строка на абзац (Markdown)"
     node scripts/md-onelines.mjs "${mdfiles[@]}"
+    # Vale по изменённым файлам: .vale.ini сам пропускает то, что вне охвата.
+    vale_check "${mdfiles[@]}"
   fi
   if grep -qE '^scripts/md-onelines' <<<"$changed"; then
     step "тест проверки Markdown"
@@ -192,11 +218,13 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     step "тест замка стенда"
     scripts/stand-lock.test.sh
   fi
-  ste=$(pick '^(AGENTS\.md$|docs/glossary\.md$|docs/agents/)')
-  if [[ -n $ste ]]; then
+  # Ste-lint — только изменённые русские документы из охвата: на английском он ложно ругается русским словарём.
+  mapfile -t ruChanged < <(comm -12 <(printf '%s\n' "${mdfiles[@]:-}" | grep . | sort -u) <(ru_docs | sort -u))
+  if ((${#ruChanged[@]})) || grep -qE '^scripts/ste-lint' <<<"$changed"; then
     step "правила письма (STE)"
-    node scripts/ste-lint.mjs
-    npx vitest run scripts/ste-lint.test.mjs
+    if ((${#ruChanged[@]})); then node scripts/ste-lint.mjs "${ruChanged[@]}"; else node scripts/ste-lint.mjs; fi
+    step "тест проверки STE"
+    node --test scripts/ste-lint.test.mjs
   fi
   step "хук персональных данных"
   scripts/hooks/pre-commit.test.sh
@@ -220,6 +248,12 @@ step "eslint"
 npm run lint
 step "одна строка на абзац (Markdown)"
 node scripts/md-onelines.mjs
+mapfile -t styledocs < <(style_docs | sort -u)
+vale_check "${styledocs[@]}"
+step "правила письма (STE)"
+node scripts/ste-lint.mjs
+step "тест проверки STE"
+node --test scripts/ste-lint.test.mjs
 step "хук персональных данных"
 scripts/hooks/pre-commit.test.sh
 step "метрики фронтенда"

@@ -1,0 +1,13 @@
+# STE rule: no filler words (docs/style/ste-en.md, section 1).
+extends: existence
+message: "Remove '%s'."
+level: error
+ignorecase: true
+tokens:
+  - please
+  - simply
+  - just
+  - easily
+  - obviously
+  - basically
+  - actually

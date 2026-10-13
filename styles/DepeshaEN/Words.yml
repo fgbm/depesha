@@ -1,0 +1,34 @@
+# STE rule: one word for one concept, no phrasal verbs (docs/style/ste-en.md, section 1).
+# The pairs come from the "Do not use" column of the glossary in that file.
+extends: substitution
+message: "Use '%s' instead of '%s'."
+level: error
+ignorecase: true
+swap:
+  utilize: use
+  set up: configure
+  letter: message
+  letters: message
+  e-mail: message
+  thread: conversation
+  threads: conversation
+  mailbox: "account or folder"
+  mailboxes: "account or folder"
+  tag: label
+  tags: label
+  viewer: reader
+  preview pane: reader
+  listing: message list
+  action bar: toolbar
+  outgoing queue: Outbox
+  job: background task
+  jobs: background task
+  extension: plugin
+  extensions: plugin
+  add-on: plugin
+  addon: plugin
+  text cursor: caret
+  highlighted message: "list cursor or selection"
+  purge: erase
+  wipe: erase
+  preferences: settings

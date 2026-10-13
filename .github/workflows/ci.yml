@@ -24,6 +24,10 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   # Анонимные загрузки с Docker Hub ограничены; образы стенда берём через зеркало Google
   IMAGE_PREFIX: mirror.gcr.io/
+  # Версия Vale — одна на CI и на локальный запуск; см. job vale.
+  VALE_VERSION: 3.24.0
+  # Markdown в охвате styles/DepeshaEN и styles/DepeshaRU (mirror .vale.ini) — одним списком.
+  STYLE_PATHS: README.md README.en.md AGENTS.md CONTRIBUTING.md SECURITY.md plugins/README.md docs e2e/README.md design/mockups/README.md design/references
 
 jobs:
   # What the heavy platform jobs (Windows, macOS) are run for. main, release/** and a manual run: always.
@@ -176,6 +180,27 @@ jobs:
       - run: npx vitest run
       - run: cargo test -p depesha-core
       - run: cargo test -p depesha --lib
+
+  # Text style: Vale (styles/DepeshaEN, styles/DepeshaRU) and ste-lint over the same Markdown.
+  # Light: no Rust, no npm — checkout, Vale and node only. Paths come from STYLE_PATHS (top-level env).
+  vale:
+    needs: reuse
+    # always(): on a branch `reuse` is skipped, and a skipped need would otherwise skip this job too.
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    name: Style (Vale and ste-lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Vale
+        run: |
+          curl -sfL "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" | tar xz -C "$RUNNER_TEMP" vale
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Vale
+        run: vale --minAlertLevel=error $STYLE_PATHS
+      - name: ste-lint
+        run: node scripts/ste-lint.mjs
+      - name: ste-lint test
+        run: node --test scripts/ste-lint.test.mjs
 
   integration:
     needs: reuse

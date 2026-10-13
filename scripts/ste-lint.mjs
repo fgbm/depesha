@@ -1,11 +1,12 @@
 // STE-проверка текстов для агентов: правила письма из пилота 2026-10-12.
 //
-//   node scripts/ste-lint.mjs                 AGENTS.md (только разделы `<!-- ste -->`) и docs/agents/*.md
+//   node scripts/ste-lint.mjs                 русские документы из охвата styles/DepeshaRU (mirror .vale.ini)
 //   node scripts/ste-lint.mjs <файл> …        явные файлы (AGENTS.md по маркерам, остальное целиком)
 //
 // Предупреждение — предложение длиннее 25 слов. Ошибка — запрещённый синоним из `docs/glossary.md`
 // (строка «Синонимы (запрещены):» под заголовком термина) или пустое слово из раздела «Не писать».
 // Код и блоки кода не проверяются; пустое слово в кавычках «…» тоже не проверяется.
+// Участки между `<!-- vale off -->` и `<!-- vale on -->` пропускаются.
 // Код возврата — 1, если есть ошибки; предупреждения не роняют проверку.
 
 import { readFileSync, readdirSync } from "node:fs";
@@ -81,6 +82,24 @@ export function steRegionLines(text) {
   return inside;
 }
 
+/** Номера строк (0-based) между `<!-- vale off -->` и `<!-- vale on -->`; сами маркеры не входят. */
+export function valeOffLines(text) {
+  const inside = new Set();
+  let off = false;
+  text.split("\n").forEach((line, i) => {
+    if (line.includes("<!-- vale off -->")) {
+      off = true;
+      return;
+    }
+    if (line.includes("<!-- vale on -->")) {
+      off = false;
+      return;
+    }
+    if (off) inside.add(i);
+  });
+  return inside;
+}
+
 /** Строки без встроенного кода (`…`) и признак «строка внутри блока кода» (` ``` `). */
 export function stripCode(text) {
   const lines = [];
@@ -147,24 +166,34 @@ export function lintLines(lines, lineNumbers, rules, file) {
   return findings;
 }
 
-/** Проверка файла: `AGENTS.md` — только разделы `<!-- ste -->`, остальное целиком. */
+/** Проверка файла: `AGENTS.md` — только разделы `<!-- ste -->`, остальное целиком; `<!-- vale off -->` пропускается. */
 export function lintFile(text, rules, file) {
   const { lines, fenced } = stripCode(text);
   const onlySte = file === AGENTS || file.endsWith(`/${AGENTS}`);
-  const selected = onlySte ? steRegionLines(text) : lines.map((_, i) => i);
+  const off = valeOffLines(text);
+  const selected = (onlySte ? steRegionLines(text) : lines.map((_, i) => i)).filter((i) => !off.has(i));
   const numbers = selected.map((i) => i + 1);
   const content = selected.map((i) => (fenced[i] ? "" : lines[i]));
   return lintLines(content, numbers, rules, file);
 }
 
-/** Файлы по умолчанию: `AGENTS.md` и всё в `docs/agents/`. */
+/** Файлы по умолчанию: русские документы из охвата styles/DepeshaRU (mirror .vale.ini). */
 export function defaultTargets(root = ROOT) {
-  const targets = [join(root, AGENTS)];
-  const dir = join(root, "docs", "agents");
-  try {
-    for (const name of readdirSync(dir)) if (name.endsWith(".md")) targets.push(join(dir, name));
-  } catch {
-    // Каталога нет: проверять нечего.
+  const targets = [
+    join(root, AGENTS),
+    join(root, "README.md"),
+    join(root, "e2e", "README.md"),
+    join(root, "design", "mockups", "README.md"),
+    join(root, "docs", "style", "ru-technical.md"),
+  ];
+  for (const dir of [join(root, "docs"), join(root, "docs", "agents"), join(root, "design", "references")]) {
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith(".md")) targets.push(join(dir, entry.name));
+      }
+    } catch {
+      // Каталога нет: проверять нечего.
+    }
   }
   return targets;
 }
