@@ -13,6 +13,7 @@ import { app } from "../lib/store.svelte";
 import { layout } from "../lib/layout.svelte";
 import { i18n } from "../lib/i18n.svelte";
 import { api, deferred, settings } from "../lib/testing";
+import { registry } from "../plugin-host/registry.svelte";
 import { pseudoSelectors, rulesFor, useStyles } from "../lib/cssTesting";
 import type { AccountView, MessageRow } from "../lib/types";
 
@@ -437,6 +438,26 @@ describe("the thread unfolded in the list (#179, decisions 0.8.3, screen 3)", ()
     flushSync();
     expect(api.thread).not.toHaveBeenCalled();
     expect(subs(t)).toHaveLength(0);
+  });
+
+  it("shows the plugin badges of a letter of a thread, as an ordinary row does (#179)", async () => {
+    registry.add("rowTags", "probe", (m) => (m.id === 11 ? { text: "Ждёт ответа", note: { text: "Напоминание" } } : null));
+    const list = layout.list;
+    // Wide enough for the quiet note of the first line, which a narrow list hides.
+    layout.list = 500;
+    try {
+      const t = draw([summary()]);
+      await unfold(t);
+      // The letter the plugin tags carries both the quiet note and the badge of a row.
+      expect(subs(t)[0].querySelector(".tag")?.textContent).toContain("Ждёт ответа");
+      expect(subs(t)[0].querySelector(".note")?.textContent).toContain("Напоминание");
+      // A letter the plugin does not tag carries neither.
+      expect(subs(t)[1].querySelector(".tag")).toBeNull();
+      expect(subs(t)[1].querySelector(".note")).toBeNull();
+    } finally {
+      layout.list = list;
+      registry.removeOwner("probe");
+    }
   });
 
   it("unfolds and folds by a click on the counter, which is not a stop of the keyboard", async () => {

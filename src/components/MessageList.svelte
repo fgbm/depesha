@@ -330,6 +330,7 @@
       {#each visible as r (r.sub ? `s${r.m.id}` : `r${r.m.id}`)}
         {@const m = r.m}
         {#if r.sub}
+          {@const tags = tagsOf(m)}
           <!-- A letter of an unfolded thread (#179): indented, its own date and, when it is not
                in the folder shown, its folder (разбор №8). No ground of its own (3.1 А). -->
           <div
@@ -353,7 +354,17 @@
                  in the strip at the left, and the ground (#179, 2.5 Б). -->
             {#if chosen(m.id)}<span class="pick" aria-hidden="true"><Check size={10} strokeWidth={3} /></span>{/if}
             <span class="subfrom">{who(m)}</span>
+            <!-- The plugin badges of a letter of a thread are the ones of an ordinary row (#179):
+                 the quiet note of the first line, then the tag of the second. -->
+            {#if notes}
+              {#each tags as tag, ti (ti)}
+                {#if tag.note}<span class="note" title={tag.title}>{#if tag.note.icon}<tag.note.icon size={11} />{/if}<span class="note-text">{tag.note.text}</span></span>{/if}
+              {/each}
+            {/if}
             <span class="subtext">{m.snippet || m.subject || t("noSubject")}</span>
+            {#each tags as tag, ti (ti)}
+              <span class="tag" class:due={tag.alert} class:good={tag.good} class:info={tag.info} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
+            {/each}
             {#if folderLabel(m)}<span class="subfolder">{folderLabel(m)}</span>{/if}
             <span class="subdate">{listDate(m.date)}</span>
           </div>
