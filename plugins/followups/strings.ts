@@ -22,7 +22,7 @@ export const S = {
   },
   closedCmd: { en: "Waiting for reply: closed", ru: "Ждут ответа: закрытые" },
 
-  // The compose window.
+  // Strings of the compose window.
   remindHint: { en: "Remind me if nobody replies", ru: "Напомнить, если не ответят" },
   remind0: { en: "No reminder", ru: "Без напоминания" },
   remind1: { en: "Remind in a day without a reply", ru: "Напомнить через день без ответа" },
@@ -74,7 +74,7 @@ export const S = {
     { en: "Saturday", ru: "суббота" },
   ],
 
-  // The banner over a letter.
+  // Strings of the banner over a letter.
   waiting: { en: "You are waiting for a reply.", ru: "Вы ждёте ответа." },
   waitingBy: { en: "A reply is needed by {when}.", ru: "Ответ нужен к {when}." },
   willRemind: { en: "I will remind you {when} if none comes.", ru: "Напомню {when}, если его не будет." },
@@ -106,7 +106,7 @@ export const S = {
   neverReminded: { en: "Reminded", ru: "Напоминали" },
   notYet: { en: "not yet", ru: "ещё нет" },
 
-  // The row of a list.
+  // Strings of a list row.
   answeredTag: { en: "replied: {who}, {when}", ru: "ответ: {who}, {when}" },
   answeredTagAnon: { en: "replied {when}", ru: "ответили {when}" },
   closedTag: { en: "closed by hand {when}", ru: "закрыто вручную {when}" },
@@ -131,7 +131,7 @@ export const S = {
     ru: "Убираются только письма из «Входящих». Это письмо останется в папке «{folder}».",
   },
 
-  // The notification.
+  // Strings of the due notification.
   due: { en: "No answer yet: {subject}", ru: "Нет ответа: {subject}" },
   noSubject: { en: "(no subject)", ru: "(без темы)" },
   openConversation: { en: "Open the conversation", ru: "Открыть переписку" },
@@ -229,7 +229,7 @@ export const NEXT_DAY = [
   { en: "Remind next Saturday at {time}", ru: "Напомнить в ближайшую субботу в {time}" },
 ];
 
-/** "Remind 2 days before the deadline". */
+/** Days ahead of the deadline, for example two. */
 export const BEFORE = {
   days: {
     en: { one: "Remind {n} day before the deadline", other: "Remind {n} days before the deadline" },

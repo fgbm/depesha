@@ -36,7 +36,7 @@ export function atClock(d: Date, c: Clock): Date {
   return x;
 }
 
-/** The same calendar day. */
+/** True when both fall on one calendar day. */
 export function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }

@@ -94,7 +94,7 @@ function digitOf(code: string): number | null {
 }
 
 export class SnoozeMenu {
-  /** The line. */
+  /** The line typed into the snooze field. */
   q = $state("");
   /** The lit row of `rows`; -1 when none is lit. */
   cur = $state(0);

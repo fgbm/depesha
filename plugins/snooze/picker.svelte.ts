@@ -21,9 +21,9 @@ export function moveMonth(d: Date, n: number): Date {
 }
 
 export class Picker {
-  /** The day under the cursor. */
+  /** Which day the calendar shows. */
   day = $state<Date>(new Date());
-  /** The time as typed. */
+  /** The time text the user typed. */
   time = $state("");
   focus = $state<PickerFocus>("cal");
 

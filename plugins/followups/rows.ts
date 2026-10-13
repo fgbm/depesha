@@ -18,7 +18,7 @@ import { LATE, LEFT, S } from "./strings";
 import { stateOf, waitOf } from "./wait";
 
 /**
- * The tag of `row` at `now`. Answered and closed waits are tagged only in the view itself
+ * The tag a row carries at `now`. Answered and closed waits are tagged only in the view itself
  * (`inView`): Sent does not fill up with old waits.
  */
 export function rowTag(row: MessageRow, now: number, say: Say, inView: boolean): RowTag | null {
