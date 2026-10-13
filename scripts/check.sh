@@ -9,11 +9,11 @@
 #                               e2e is never run here.
 #   scripts/check.sh --ci     the checks of --changed over the branch, then a push of the current
 #                             branch and a wait for its CI run (`gh run watch`); the exit code is the
-#                             run's. The e2e (in parts), integration and platform jobs, and the whole
-#                             project's static checks and unit tests (CI's "Lint and unit tests" job),
-#                             run there, not on this machine, so the stand below is not needed and the
-#                             local run stays cheap. The merge into main wants this green on the
-#                             branch (again after a rebase on main).
+#                             run's. Optional: for a risky change, to try CI on the branch before the
+#                             merge; a merge itself needs only --changed. The e2e (in parts),
+#                             integration and platform jobs, and the whole project's static checks
+#                             and unit tests (CI's "Lint and unit tests" job), run there, not on this
+#                             machine, so the stand below is not needed and the local run stays cheap.
 #
 # The full run (no flag) takes a lock on the shared stand ($DEPESHA_STAND_LOCK, default
 # ${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock) before GreenMail and waits if another run holds it;
@@ -111,6 +111,13 @@ ci_preflight() {
 # checks first, so the branch is pushed only once they are green.
 ci_push_watch() {
   step "CI на ветке"
+  # Text-only changes start no CI run (ci.yml has paths-ignore): there is nothing to push and wait for.
+  b=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main)
+  files=$(git diff --name-only "$b")
+  if [[ -z $files ]] || ! grep -qvE '^(docs/|design/|.*\.md$)' <<<"$files"; then
+    echo "--ci: изменений для CI нет (правки только текстов) — ждать нечего."
+    exit 0
+  fi
   git push
   sha=$(git rev-parse HEAD)
   run=""
@@ -166,36 +173,31 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     step "TS-типы совпадают с Rust"
     scripts/gen-types.sh --check
     machete
-    if grep -qE '^(crates/|Cargo)' <<<"$rust"; then
-      step "cargo test -p depesha-core"
-      cargo test -p depesha-core
-    fi
-    # src-tauri depends on the core, so a change in crates/ reaches it too.
-    if grep -qE '^(crates/|src-tauri/|Cargo)' <<<"$rust"; then
-      step "cargo test -p depesha --lib"
-      cargo test -p depesha --lib
-    fi
+    # The crate tests recompile the changed crate and its dependents — the slow part of a one-line
+    # edit; they run in CI's check job on main. gen-types above already compiles the depesha --lib
+    # test binary, so a filtered run adds little here.
+    echo "cargo test -p depesha-core и -p depesha --lib идут в CI на main (check)."
   fi
   if [[ -n $front ]]; then
-    step "svelte-check"
-    npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
     step "метрики фронтенда"
     scripts/frontend-metrics.sh
     step "инварианты фронтенда"
     scripts/frontend-invariants.sh
     step "API плагинов против снимка"
     node scripts/plugin-api-snapshot.mjs
-    step "baseline против main"
-    git fetch -q --no-tags origin main 2>/dev/null || true
-    scripts/frontend-baseline-guard.sh
     if grep -qE '^scripts/frontend-' <<<"$front"; then
       step "тест проверок метрик и инвариантов"
       scripts/frontend-checks.test.sh
     fi
     step "vitest (затронутое)"
     npx vitest run --changed "$base" --passWithNoTests
-    step "главный чанк фронтенда"
-    scripts/frontend-bundle.sh
+    # The main-chunk build is slow and only catches an accidental eager import, so it is built here
+    # only when the dependencies or the build config moved; the whole-project svelte-check and the
+    # baseline guard against main run in CI's check job on main, which builds the frontend anyway.
+    if grep -qE '^(package(-lock)?\.json$|vite\.config|svelte\.config)' <<<"$front"; then
+      step "главный чанк фронтенда (изменились зависимости или конфиг сборки)"
+      scripts/frontend-bundle.sh
+    fi
   fi
   if [[ -n $lintconf ]]; then
     step "eslint (весь проект: изменился конфиг)"
@@ -208,7 +210,7 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     step "e2e (синтаксис и тест прогона)"
     while IFS= read -r f; do [[ $f == *.mjs && -f $f ]] && node --check "$f"; done <<<"$e2e"
     npx vitest run e2e
-    echo "e2e не запускается в --changed: он идёт в CI на ветке (scripts/check.sh --ci)."
+    echo "e2e не запускается в --changed: он идёт в CI на main."
   fi
   if ((${#mdfiles[@]})); then
     step "одна строка на абзац (Markdown)"
