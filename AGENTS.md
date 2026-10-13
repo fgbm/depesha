@@ -24,6 +24,21 @@ What this means when you work:
 
 When a plugin is added, removed, or changes what it does or whether it ships switched on, update the wiki page that lists them. The page is at https://github.com/fgbm/depesha/wiki/Плагины (the wiki is a git repo of its own: `git clone https://github.com/fgbm/depesha.wiki.git`). It is written for the people who use Depesha, not for developers; the contract itself stays in `plugins/README.md`.
 
+## Code rules
+
+<!-- ste -->
+
+- A comment explains only what the code cannot say. It gives a non-obvious reason, a security invariant, a constraint with its issue or decision ID, a unit, format or range.
+- Do not restate a name or the code. Do not narrate steps.
+- Do not refer to review findings or change history in comments (`N2`, "per review", "after the fix"). History lives in git and issues.
+- Doc comments (`///`, `//!`, `/** */`) only for public API of a library crate and the plugin contract `src/plugin-api/`. One sentence, unless the contract is subtle.
+- The first line of a doc comment never restates the item name.
+- No doc comment on a field or function whose name says everything.
+- Code comments are not STE: plain short technical English, one idea per sentence, pronouns allowed. Reason: STE in comments gives repetitive prose.
+- `scripts/check-comments.sh` checks these rules in CI. The escape hatch `comment-check: allow` is rare; the script reports each use.
+
+<!-- /ste -->
+
 ## Work through subagents — you are the orchestrator
 
 This section is for the main session only. **If you were invoked as a subagent (`explore`, `coder`, `general`), ignore it: do the work you were given yourself and don't delegate further.** A subagent that re-delegates loses the context it was handed and spends tokens on nothing.
