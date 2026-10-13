@@ -60,6 +60,15 @@ vale_check() {
   fi
 }
 
+# Правила комментариев в коде (AGENTS.md, раздел Code rules). Тест на fixture обязателен; находки на
+# дереве пока не роняют прогон — их разбирают коммитами чистки, как и job comments в CI.
+comment_check() {
+  step "правила комментариев в коде (тест)"
+  scripts/check-comments.test.sh
+  step "правила комментариев в коде"
+  scripts/check-comments.sh || echo "нарушения ждут разбора (AGENTS.md, раздел Code rules): до чистки прогон не роняем"
+}
+
 # One compile cache for every worktree, only where sccache is installed. It does not cache
 # incremental crates, hence CARGO_INCREMENTAL=0. It also hashes every CARGO_* variable of the
 # environment, CARGO_TARGET_DIR included: a per-worktree value would make every key unique,
@@ -224,6 +233,7 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     step "тест проверки STE"
     npx vitest run scripts/ste-lint.test.mjs
   fi
+  comment_check
   step "хук персональных данных"
   scripts/hooks/pre-commit.test.sh
   [[ "${1:-}" == "--ci" ]] && ci_push_watch
@@ -252,6 +262,7 @@ step "правила письма (STE)"
 node scripts/ste-lint.mjs
 step "тест проверки STE"
 npx vitest run scripts/ste-lint.test.mjs
+comment_check
 step "хук персональных данных"
 scripts/hooks/pre-commit.test.sh
 step "метрики фронтенда"

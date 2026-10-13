@@ -198,6 +198,26 @@ jobs:
       - name: ste-lint
         run: node scripts/ste-lint.mjs
 
+  # Comment rules (AGENTS.md, section Code rules): the fixture self-test must fire every rule,
+  # and the tree is checked for the rules. The second step is not blocking until the cleanup
+  # commits land; then the `continue-on-error` line goes.
+  comments:
+    needs: reuse
+    # always(): on a branch `reuse` is skipped, and a skipped need would otherwise skip this job too.
+    if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
+    name: Style (comments)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+      - name: Comment rules self-test
+        run: scripts/check-comments.test.sh
+      - name: Check comments
+        # until the cleanup commits land
+        continue-on-error: true
+        run: scripts/check-comments.sh
+
   integration:
     needs: reuse
     if: ${{ always() && !inputs.windows_only && needs.reuse.outputs.skip != 'true' }}
