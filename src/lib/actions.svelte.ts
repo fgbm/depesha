@@ -34,7 +34,7 @@ export interface Undoable {
 export interface ActionHost {
   readonly mailboxes: Pick<MailboxController, "folders">;
   readonly settingsCtl: Pick<SettingsController, "settings">;
-  readonly reader: Pick<Reader, "opened" | "saw">;
+  readonly reader: Pick<Reader, "dropFromConversation" | "opened" | "saw">;
   readonly ui: Pick<UiController, "fail" | "toast" | "track">;
   readonly selection: Pick<SelectionController, "reload" | "selectedIds" | "takeOut">;
   /** The letter of a separate message window; null in the main window. */
@@ -50,39 +50,51 @@ export class ActionRunner {
 
   constructor(private host: ActionHost) {}
 
-  /** Takes messages out of the list and runs `run`; the moves it returns can be undone. */
-  async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
+  /**
+   * Takes messages out of the list and runs `run`; the moves it returns can be undone.
+   * `single`: the action is about these letters alone — a letter unfolded in the conversation
+   * (0.8.4, #180) is dealt with on its own, its thread is not carried along with it.
+   */
+  async perform(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false) {
     if (!ids.length) return;
-    const p = this.host.ui.track(this.act(text, ids, run, failText));
+    const p = this.host.ui.track(this.act(text, ids, run, failText, single));
     this.pending = p;
     await p;
     if (this.pending === p) this.pending = null;
   }
 
-  private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string) {
+  private async act(text: Text, ids: number[], run: (ids: number[], own: number[]) => Promise<Moved[]>, failText: string, single = false) {
     const { list } = this.host;
     // "z" always means the latest action, never an older one.
     this.lastUndo = null;
     // The rows as they were: their conversations are looked up, and they come back on a failure.
     const before = list.messages;
-    const rows = ids.map((id) => before.find((m) => m.id === id) ?? (this.host.reader.opened?.row.id === id ? this.host.reader.opened.row : undefined));
+    const opened = this.host.reader.opened;
+    const rows = ids.map((id) => before.find((m) => m.id === id) ?? (opened?.row.id === id ? opened.row : undefined));
+    // A letter unfolded in the conversation, not open in the pane (0.8.4, #180): the pane keeps
+    // the letter it shows — no "take out", no next row, and a window of a letter of its own stays
+    // open. The row goes (a list is not always grouped), and the letter leaves the conversation.
+    const threadLetter = single && !ids.includes(opened?.row.id ?? -1);
     const hidden = new Set(ids);
     // A letter being dealt with is read now, not after the wait (#71). Locally only:
     // the move sets `\Seen` for these letters only, and a flag between moves would split the series.
     this.host.reader.saw(ids, false);
     for (const id of ids) list.leaving.add(id);
     // Out of sight at once; the server is asked afterwards.
-    this.host.selection.takeOut(ids);
+    if (threadLetter) list.remove(ids);
+    else this.host.selection.takeOut(ids);
     let failed = false;
     try {
-      const all = await this.withConversation(ids, rows);
+      const all = single ? ids : await this.withConversation(ids, rows);
       for (const id of all) {
         hidden.add(id);
         list.leaving.add(id);
       }
       const moved = (await run(all, ids)).filter((m) => m.message_ids.length);
       const said = typeof text === "function" ? text(moved) : text;
-      if (this.host.windowOf !== null) {
+      // The letter is gone: it leaves the shown conversation with the cache (0.8.4, #180).
+      if (threadLetter) this.host.reader.dropFromConversation(ids);
+      if (this.host.windowOf !== null && !threadLetter) {
         // The letter is done with: its window closes, the main window offers the undo.
         if (moved.length) await emitTo("main", "window-moved", { moved, text: said });
         await getCurrentWindow().close();
@@ -158,9 +170,9 @@ export class ActionRunner {
     return [...out];
   }
 
-  /** Without `ids`: the selected rows. */
-  remove(ids = this.host.selection.selectedIds()) {
-    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"));
+  /** Without `ids`: the selected rows; `single` deals with the given letters alone (#180). */
+  remove(ids = this.host.selection.selectedIds(), single = false) {
+    return this.perform(tn("done.deleted", ids.length), ids, api.remove, t("err.delete"), single);
   }
 
   moveTo(folder: string, ids = this.host.selection.selectedIds()) {
@@ -168,9 +180,9 @@ export class ActionRunner {
     return this.perform(t("done.moved", { folder: name }), ids, (all) => api.move(all, folder), t("err.move"));
   }
 
-  /** "Done": out of the inbox, into the archive. */
-  archive(ids = this.host.selection.selectedIds()) {
-    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"));
+  /** "Done": out of the inbox, into the archive; `single` deals with the given letters alone (#180). */
+  archive(ids = this.host.selection.selectedIds(), single = false) {
+    return this.perform(tn("done.archived", ids.length), ids, api.archive, t("err.archive"), single);
   }
 
   spam(ids = this.host.selection.selectedIds()) {

@@ -64,6 +64,41 @@ describe("reading a conversation letter by letter (0.8.4, #180)", () => {
   });
 });
 
+describe("the read mark of a conversation read letter by letter (0.8.4, #180)", () => {
+  it("keeps the row in the view it was read from, as opening it does (#71)", async () => {
+    api.messages.mockResolvedValue(rows(1, 3));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+    const mark = vi.spyOn(s.list, "mark");
+
+    // A letter unfolded in the thread is read at once (Conversation.svelte calls `saw`).
+    s.reader.saw([1]);
+    // Its row holds its place: a letter read does not vanish from «Непрочитанные» by itself.
+    expect(mark).toHaveBeenCalledWith(1, expect.objectContaining({ id: 1 }));
+  });
+
+  it("a read flag on another letter does not cancel the mark the open letter waits for", async () => {
+    api.messages.mockResolvedValue(rows(1, 3));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    api.thread.mockResolvedValue([]);
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    vi.useFakeTimers();
+    void s.reader.open(1);
+    await flush();
+    vi.advanceTimersByTime(200);
+    // The user marks another letter read while the open one waits for its own mark.
+    await s.selection.flag("seen", true, [2]);
+    vi.advanceTimersByTime(1200);
+    await flush();
+    // The open letter is marked all the same: only its own read state is the last word (#71).
+    expect(markedSeen()).toEqual([2, 1]);
+  });
+});
+
 describe("acting on a letter", () => {
   it("marks it read at once, not after the wait", async () => {
     api.messages.mockResolvedValue(rows(1, 3));

@@ -222,9 +222,12 @@ export class SelectionController {
 
   async flag(change: "seen" | "flagged", value: boolean, ids = this.selectedIds()) {
     if (!ids.length) return;
+    const opened = this.host.reader.opened;
     // A change of the read flag by hand stays the last word; tagging a letter is not a
     // change of read state, so it does not cancel the read mark the window is about to make.
-    if (change === "seen") this.host.reader.flagEpoch++;
+    // Only the open letter's own read state is that last word: a change on another letter
+    // does not cancel the mark the open one waits for (#71, 0.8.4, #180).
+    if (change === "seen" && opened && ids.includes(opened.row.id)) this.host.reader.flagEpoch++;
     for (const id of ids) {
       // A letter of an unfolded thread is a row on screen, but no row of its conversation was
       // acted on: keeping it would hold that conversation in "Unread"/"Flagged" (#179).
@@ -232,7 +235,9 @@ export class SelectionController {
     }
     // The rows the list shows now, the letters of an unfolded thread among them (#179).
     for (const r of this.host.list.placed()) if (ids.includes(r.m.id)) r.m.flags[change] = value;
-    if (this.host.reader.opened && ids.includes(this.host.reader.opened.row.id)) this.host.reader.opened.row.flags[change] = value;
+    // A letter unfolded in the conversation (0.8.4, #180): its row there follows its flags too.
+    for (const m of this.host.reader.conversation) if (ids.includes(m.id)) m.flags[change] = value;
+    if (opened && ids.includes(opened.row.id)) opened.row.flags[change] = value;
     try {
       await this.host.ui.track(api.setFlag(ids, { flag: change, value }));
     } catch (e) {

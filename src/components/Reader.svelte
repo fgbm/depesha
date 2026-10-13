@@ -112,8 +112,8 @@
   }
 
   // The conversation reads top to bottom around the open letter (0.8.4, #180): the letter the
-  // list opened is the one unfolded, earlier letters are folded rows above it, later ones below,
-  // and the far (earliest) history of each side folds into its own «Ещё N писем».
+  // list opened is the one unfolded, earlier letters are folded rows above it, later ones below.
+  // Each side keeps the letters nearest it and folds its far end — the earliest above, the latest below — into «Ещё N писем».
   const at = $derived(msg ? app.reader.conversation.findIndex((m) => m.id === msg.row.id) : -1);
   const before = $derived(at > 0 ? app.reader.conversation.slice(0, at) : []);
   const after = $derived(at >= 0 ? app.reader.conversation.slice(at + 1) : []);
@@ -223,7 +223,7 @@
 
       {#if after.length && !viewing}
         <div class="thread after" aria-label={t("conv.label")}>
-          <Conversation messages={after} folded={foldedAfter} onShowAll={() => (showAllAfter = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
+          <Conversation messages={after} folded={foldedAfter} foldAt="bottom" onShowAll={() => (showAllAfter = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
         </div>
       {/if}
     </div>

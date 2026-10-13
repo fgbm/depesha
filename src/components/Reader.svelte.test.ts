@@ -70,14 +70,38 @@ describe("reading a conversation (0.8.4, #180)", () => {
     expect(document.querySelector(".reader h1")!.textContent).toContain("Тема 7");
   });
 
-  it("opens the last letter of the thread by date, not another one (4.1 Б)", () => {
-    // Opening an older letter of the thread makes it the unfolded one, nothing else.
-    app.reader.opened = opened(3);
+  it("unfolds the last letter of the thread by date, not by id (4.1 Б)", () => {
+    // Dates out of step with the ids: the newest letter (id 1) is the one the pane has open.
+    const chain = [7, 6, 5, 4, 3, 2, 1].map((id) => ({ ...row(id), date: 2000 - id }));
+    app.reader.conversation = chain;
+    app.reader.opened = opened(1);
     flushSync();
-    expect(document.querySelector(".reader h1")!.textContent).toContain("Тема 3");
+    const newest = chain.reduce((a, b) => (b.date > a.date ? b : a));
+    expect(newest.id).toBe(1);
+    expect(app.reader.opened?.row.id).toBe(newest.id);
+    expect(document.querySelector(".reader h1")!.textContent).toContain(`Тема ${newest.id}`);
     expect(unfolded()).toBe(0);
+    // The letters above it are the older ones, nearest first: 3 and 2 show, 7–4 fold away.
+    expect(heads().map((h) => h.textContent)).toEqual([expect.stringContaining("Автор 3"), expect.stringContaining("Автор 2")]);
   });
 
+  it("the lower «ещё N писем» folds the letters far from the open one (4.0 Б)", () => {
+    // The oldest letter is open: the newer ones sit below it, the far end folded away.
+    app.reader.opened = opened(1);
+    flushSync();
+    const after = document.querySelector<HTMLElement>(".thread.after");
+    expect(after).not.toBeNull();
+    const names = [...after!.querySelectorAll(".letter .head")].map((h) => h.textContent ?? "");
+    // The letters nearest the open one show; the far ones fold away.
+    expect(names).toHaveLength(2);
+    expect(names[0]).toContain("Автор 2");
+    expect(names[1]).toContain("Автор 3");
+    // The fold row stands at the far end, after the letters it does not hide.
+    expect(after!.lastElementChild!.classList.contains("more")).toBe(true);
+  });
+});
+
+describe("the folds of a conversation (0.8.4, #180)", () => {
   it("unfolds the far history by «Ещё N писем» and folds it back", () => {
     document.querySelector<HTMLButtonElement>(".thread .more")!.click();
     flushSync();
@@ -127,6 +151,33 @@ describe("reading a conversation (0.8.4, #180)", () => {
 });
 
 describe("a letter unfolded in the conversation (0.8.4, #180)", () => {
+  it("its row follows its own read state and its own flags", async () => {
+    app.reader.conversation = app.reader.conversation.map((m) => ({ ...m, flags: { ...m.flags, seen: false } }));
+    flushSync();
+    heads()[0].click();
+    await flush();
+    flushSync();
+    // Unfolded: the row it was unfolded from shows it as read.
+    expect(document.querySelector(".thread .letter")!.classList.contains("unread")).toBe(false);
+
+    // The flag item of its own menu follows the letter.
+    const menu = async () => {
+      document.querySelector<HTMLButtonElement>(".thread .letter .acts .anchor button")!.click();
+      await flush();
+      flushSync();
+      return [...document.querySelectorAll<HTMLButtonElement>(".pop button.mi")];
+    };
+    let items = await menu();
+    expect(items[0].textContent).toContain("Поставить флаг");
+    items[0].click();
+    await flush();
+    flushSync();
+    items = await menu();
+    expect(items[0].textContent).toContain("Снять флаг");
+  });
+});
+
+describe("the buttons of a letter unfolded in the conversation (0.8.4, #180)", () => {
   it("unfolding a letter marks it read, the folded ones stay unread", async () => {
     app.reader.conversation = app.reader.conversation.map((m) => ({ ...m, flags: { ...m.flags, seen: false } }));
     flushSync();

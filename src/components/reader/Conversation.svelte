@@ -15,6 +15,7 @@
   let {
     messages,
     folded = 0,
+    foldAt = "top",
     onShowAll,
     focusId,
     onReply,
@@ -22,9 +23,12 @@
   }: {
     /** The letters of this group, oldest first. */
     messages: MessageRow[];
-    /** How many of the far (earliest) letters «Ещё N писем» hides; 0 shows every row. */
+    /** How many letters at the far end of the group «Ещё N писем» hides; 0 shows every row. */
     folded?: number;
-    /** «Ещё N писем» unfolds the far history. */
+    /** Where the far end is: the top of the group above the open letter, the bottom below it.
+     *  Each side shows the letters nearest the open one and folds the far ones away. */
+    foldAt?: "top" | "bottom";
+    /** «Ещё N писем» unfolds the far letters. */
     onShowAll?: () => void;
     /** The letter the pane has open: the one that is unfolded by default (4.1 Б). */
     focusId: number;
@@ -52,7 +56,8 @@
     });
   });
 
-  const shown = $derived(folded ? messages.slice(folded) : messages);
+  // The far letters fold away; the ones nearest the open letter show.
+  const shown = $derived(!folded ? messages : foldAt === "bottom" ? messages.slice(0, messages.length - folded) : messages.slice(folded));
 
   /** Unfolds a letter here, or folds it back; a letter unfolded is a letter read (4.0 Б). */
   function toggle(m: MessageRow) {
@@ -83,7 +88,7 @@
   }
 </script>
 
-{#if folded}
+{#if folded && foldAt === "top"}
   <button class="more" onclick={onShowAll}><ChevronDown size={14} /> {tn("conv.more", folded)}</button>
 {/if}
 
@@ -91,8 +96,12 @@
   <ThreadLetter {m} open={unfolded.has(m.id)} body={bodies.get(m.id)} onToggle={() => toggle(m)} onReply={(all) => void reply(m, all)} onForward={() => void forward(m)} />
 {/each}
 
+{#if folded && foldAt === "bottom"}
+  <button class="more" onclick={onShowAll}><ChevronDown size={14} /> {tn("conv.more", folded)}</button>
+{/if}
+
 <style>
-  /* «Ещё N писем»: the far history folded into one row above the letters that show. */
+  /* «Ещё N писем»: the far letters of this side folded into one row at their end. */
   .more {
     display: flex;
     align-items: center;
@@ -105,6 +114,12 @@
     background: none;
     color: var(--muted);
     font-size: 13px;
+  }
+
+  /* Below the open letter the far end is the bottom: the row closes the group from there. */
+  .more:last-child {
+    border-bottom: none;
+    border-top: 1px solid var(--line);
   }
 
   .more:hover {

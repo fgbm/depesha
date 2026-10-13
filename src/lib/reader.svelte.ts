@@ -158,8 +158,21 @@ export class Reader {
     if (server) api.setFlag(unread, { flag: "seen", value: true }).catch((e) => this.host.ui.fail(e));
     for (const id of unread) {
       const r = row(id);
-      if (r) r.flags.seen = true;
+      if (!r) continue;
+      // The row holds its place in the view it was read from, as opening it does (#71): a
+      // letter read does not vanish from «Непрочитанные» under the user's hands (0.8.4, #180).
+      this.host.list.mark(id, { ...r, flags: { ...r.flags, seen: false } });
+      r.flags.seen = true;
     }
+  }
+
+  /**
+   * Letters dealt with leave the shown conversation at once (0.8.4, #180): the pane keeps the
+   * letter it shows, and the thread does not wait for the next open to lose the ones gone.
+   */
+  dropFromConversation(ids: number[]) {
+    if (!ids.length || !this.conversation.some((m) => ids.includes(m.id))) return;
+    this.conversation = this.conversation.filter((m) => !ids.includes(m.id));
   }
 
   /** A letter joined the open conversation (an answer, a forward, new mail): show it, flags untouched. */

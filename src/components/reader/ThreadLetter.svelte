@@ -100,7 +100,7 @@
     <div class="acts">
       <button class="btn ghost" onclick={() => onReply(false)}><Reply size={14} /> {t("act.reply")}</button>
       <button class="btn ghost" onclick={onForward}><Forward size={14} /> {t("act.forward")}</button>
-      <button class="btn ghost" onclick={() => app.actions.remove([m.id])}><Trash size={14} /> {t("act.delete")}</button>
+      <button class="btn ghost" onclick={() => app.actions.remove([m.id], true)}><Trash size={14} /> {t("act.delete")}</button>
       <span class="anchor">
         <button class="btn ghost icon" onclick={() => (menuOpen = !menuOpen)} title={t("act.more")} aria-label={t("act.more")}><Ellipsis size={14} /></button>
         <Popover bind:open={menuOpen} align="left">
@@ -110,7 +110,7 @@
           <button class="mi" onclick={() => { menuOpen = false; app.selection.flag("seen", !m.flags.seen, [m.id]); }}>
             {#if m.flags.seen}<Mail size={15} /> {t("act.markUnread")}{:else}<MailOpen size={15} /> {t("act.markRead")}{/if}
           </button>
-          <button class="mi" onclick={() => { menuOpen = false; app.actions.archive([m.id]); }}><Archive size={15} /> {t("act.done")}</button>
+          <button class="mi" onclick={() => { menuOpen = false; app.actions.archive([m.id], true); }}><Archive size={15} /> {t("act.done")}</button>
           <button class="mi" onclick={() => { menuOpen = false; printRow(m.id); }}><Printer size={15} /> {t("act.print")}</button>
         </Popover>
       </span>
@@ -123,7 +123,8 @@
     border-bottom: 1px solid var(--line);
   }
 
-  .letter:last-child {
+  /* The last letter of a side closes it, whether «Ещё N писем» stands above or below it. */
+  .letter:last-of-type {
     border-bottom: none;
   }
 
