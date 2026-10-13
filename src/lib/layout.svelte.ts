@@ -9,7 +9,7 @@ export type Size = "wide" | "medium" | "narrow";
 export const WIDE_FROM = 1100;
 /** Strip 56 + list 300 + letter 400. */
 export const MEDIUM_FROM = 760;
-/** The folded sidebar. */
+/** Width in px of the folded sidebar. */
 export const STRIP = 56;
 /** A sidebar dragged narrower than this snaps into the strip, as in VS Code. */
 export const SNAP = 150;
@@ -18,7 +18,7 @@ const SIDE = { min: 180, max: 420, initial: 248 };
 const LIST = { min: 280, max: 760, initial: 380 };
 /** What the letter keeps beside the list before the list gives up its width. */
 const READER_MIN = 400;
-/** The hairlines between columns. */
+/** Width in px of the hairlines between columns. */
 const GUTTER = 1;
 
 export function sizeOf(width: number): Size {

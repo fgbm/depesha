@@ -451,7 +451,7 @@ const theme = EditorView.theme({
   ".md-table-drop": { position: "absolute", background: "var(--accent)", pointerEvents: "none", zIndex: "3" },
 });
 
-/** Pictures on the clipboard, as files. */
+/** Clipboard images, as files. */
 function pictures(data: DataTransfer | null): Blob[] {
   return [...(data?.items ?? [])].filter((i) => i.kind === "file" && i.type.startsWith("image/")).flatMap((i) => i.getAsFile() ?? []);
 }

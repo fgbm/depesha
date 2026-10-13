@@ -17,7 +17,7 @@ export interface MarkdownField {
   scrollTop: number;
   /** An edit of the formatting row, undone in one step. */
   apply(edit: Edit): void;
-  /** The formatting under the caret. */
+  /** Formatting in force where the caret is. */
   formats(): Set<FormatId>;
   /** A heading of a level on the line under the caret; the same level again takes it off. */
   heading(level: number): void;

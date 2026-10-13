@@ -55,7 +55,7 @@ describe("whether a hint may be shown", () => {
     }
     expect(shownToday(states, NOW)).toBe(3);
     expect(mayShow(hintAbout(spec, "four@x", "Четвёртый"), states, ctx())).toBe(false);
-    // The next day starts over.
+    // A new day starts the count over.
     expect(mayShow(hintAbout(spec, "four@x", "Четвёртый"), states, ctx({ now: NOW + DAY }))).toBe(true);
   });
 

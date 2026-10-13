@@ -6,7 +6,7 @@ import type { Banner } from "../plugin-api";
 type Action = NonNullable<Banner["actions"]>[number];
 
 export interface Folded {
-  /** The "⋯" menu is there. */
+  /** True while the "⋯" menu is open. */
   folded: boolean;
   buttons: Action[];
   menu: Action[];

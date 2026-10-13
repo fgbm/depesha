@@ -32,7 +32,7 @@ export interface SearchEntry {
   group: string;
   /** The section of the page, shown beside the group. */
   section: string;
-  /** The field or row found. */
+  /** What the field is called in the page. */
   label: string;
   /** Words that also find it («markdown» finds the format field). */
   synonyms?: string;

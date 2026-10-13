@@ -44,7 +44,7 @@ export const win = { close: vi.fn(async () => {}), setFocus: vi.fn(async () => {
 export const windowModule = { getCurrentWindow: () => win };
 export const appModule = { getVersion: vi.fn(async () => "0.0.0") };
 
-/** The backend sends an event. */
+/** Pushes one to the handlers, as the backend does. */
 export function emit(name: string, payload: unknown = null) {
   const h = handlers.get(name);
   if (!h) throw new Error(`nobody listens to ${name}`);
@@ -131,7 +131,7 @@ export const rowDefaults = {
   thread_voices: [],
 };
 
-/** The same for a summary. */
+/** Filled in for a summary's missing fields. */
 export const summaryDefaults = { importance: "normal" as const, thread_index: null, dmarc: false };
 
 export function row(id: number, extra: Partial<MessageRow> = {}): MessageRow {

@@ -11,7 +11,7 @@ export interface FoundPicture {
 
 /** A picture made small enough for the text, ready to go in. */
 export interface ReadyPicture extends Picture {
-  /** The shrunk `data:` URL. */
+  /** The shrunk picture as a `data:` URL. */
   dataUrl: string;
   /** Its width after shrinking, for "по ширине текста" or its own size. */
   width: number;

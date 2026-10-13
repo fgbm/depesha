@@ -6,7 +6,7 @@ import type { BodyView, LetterViewPref, MessageView, ViewRule } from "./types";
 
 type Forms = Pick<MessageView, "html" | "text" | "markdown" | "views">;
 
-/** The switch's order, whatever the letter's. */
+/** How the view switch steps, whatever the letter's own order. */
 export const SWITCH_ORDER: readonly BodyView[] = ["html", "markdown", "text"];
 
 /** The letter has this form, and something to show in it. */

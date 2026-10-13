@@ -145,7 +145,7 @@ function inTextField(e: KeyboardEvent): boolean {
 /**
  * The print key in a window's key handler. The browser's own accelerator prints the whole
  * interface (WebView2 and WebKitGTK alike), so it is cancelled wherever the focus is, a text
- * field and a composition included, and whatever the key of «Print» is set to. The letter
+ * field and a composition included, and whatever the key of «Print» is set to. A letter
  * prints only where there is one to print (`blocked`: not here). On macOS the browser's key is
  * Cmd+P; Ctrl+P there is passed untouched only in a text field, where it moves the cursor, and
  * is an ordinary key of the commands elsewhere.

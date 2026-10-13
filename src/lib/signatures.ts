@@ -56,7 +56,7 @@ export function previewLine(sig: Signature): string {
     .join(" · ");
 }
 
-// The list in the settings.
+// The signatures list of the settings page.
 
 /** An id not used in the list yet. */
 export function newSignatureId(list: Signature[]): string {
@@ -101,7 +101,7 @@ export function moveSignature(list: Signature[], id: string, delta: -1 | 1): Sig
   return out;
 }
 
-// The signature in a letter.
+// The signature standing under the letter.
 
 /** A plain letter's signature: after the standard "-- " separator (RFC 3676), or nothing. */
 export function sigBlock(sig: Pick<Signature, "text"> | null | undefined): string {

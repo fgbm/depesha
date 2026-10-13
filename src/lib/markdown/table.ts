@@ -149,7 +149,7 @@ export function moveColumn(t: Table, at: number, to: number): Table {
   return next;
 }
 
-/** The alignment of a column. */
+/** Writes the alignment into the column. */
 export function setAlign(t: Table, at: number, align: Align): Table {
   const next = copy(t);
   next.aligns[at] = align;

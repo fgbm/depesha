@@ -34,7 +34,7 @@ export interface HintState {
 export interface Hint {
   /** The entry of the registry: one per kind of suggestion. */
   id: string;
-  /** The address it is about. */
+  /** The address the hint is shown for. */
   subject: string;
   /** The key of the question; `who` is filled in when it is drawn. */
   text: Key;

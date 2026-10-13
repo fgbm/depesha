@@ -8,7 +8,7 @@
 import type { BodyFormat, LetterViewPref, MessageView, ViewRule } from "./types";
 export type { ViewRule } from "./types";
 
-/** One address of a person. */
+/** One entry of the book, with its own name and use count. */
 export interface PersonAddress {
   email: string;
   /** The one shown in the list and offered first in completion; one per person. */
@@ -23,7 +23,7 @@ export interface PersonAddress {
 export interface Person {
   /** The record's key; 0 for a person without a record. */
   id: number;
-  /** The primary address. */
+  /** The address the person is mostly reached at; `emails` holds all of them. */
   email: string;
   /** Every address, the primary one first. */
   emails: PersonAddress[];
@@ -67,7 +67,7 @@ export interface Merged {
 export interface Split {
   /** The address that left, now a person of its own. */
   person: Person;
-  /** The person it left. */
+  /** Where the address came from. */
   origin: Person;
   undo: Snapshot;
 }
@@ -217,7 +217,7 @@ export function senderEmail(view: Pick<MessageView, "summary">): string {
 
 // ---- Finding one's way in the book (#66, frame 10) ----
 
-/** A filter over the list. */
+/** Which part of the book the list shows. */
 export type PeopleFilter = "all" | "ruled" | "manual" | "hidden";
 
 /** Whether a person matches the search over their name, address and note. */

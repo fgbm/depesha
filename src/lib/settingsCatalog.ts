@@ -495,7 +495,7 @@ export function resolvePage(id: string): string {
   return LEGACY[id] ?? id;
 }
 
-/** The pages in the menu's order. */
+/** The page keys, top to bottom. */
 export function menuPages(): string[] {
   return MENU.flatMap((g) => g.pages);
 }

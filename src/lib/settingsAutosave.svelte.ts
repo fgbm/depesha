@@ -6,7 +6,7 @@
 import { t } from "./i18n.svelte";
 
 export interface AutosaveHost {
-  /** The settings as saved now. */
+  /** What is on disk at this moment. */
   settings(): Record<string, unknown>;
   /** Writes only these keys over what is saved; answers the keys the backend refused, when it can tell. */
   patch(patch: Record<string, unknown>): Promise<void | string[]>;

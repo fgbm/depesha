@@ -6,7 +6,7 @@ const pictures = new SvelteMap<string, string | null>();
 const asked = new Set<string>();
 
 /**
- * The picture of a sender once it is known, initials until then. The first call
+ * The picture of a sender once it is known, initials until then. Its first call
  * asks the backend, which keeps them for a week: a colleague's photo from
  * Exchange, or with `logoOf` (the cached letter that passed DMARC) the company's BIMI logo.
  * The backend checks the letter's verdict and folder itself; `null` asks for no logo. One

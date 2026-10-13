@@ -22,7 +22,7 @@ export interface KeyPress {
 
 /** `main`: the main window outside text fields; `compose`: the composition window; `all`: both. */
 export type Scope = "main" | "compose" | "all";
-/** The group on the «Keys» page. */
+/** Which area of the «Keys» page the command sits in. */
 export type Group = "everywhere" | "list" | "compose" | "other";
 
 export interface KeyCommand {
@@ -155,7 +155,7 @@ function partName(p: string, lang: string, mac: boolean): string {
 }
 
 /**
- * The key caps of a key. A single key and Shift+key get the Russian letter of the same
+ * A single key and Shift+key get the Russian letter of the same
  * key as a second label (`e у`); with Ctrl or Alt it would only be noise.
  */
 export function caps(key: string, lang: string, mac = isMac()): Cap[] {
