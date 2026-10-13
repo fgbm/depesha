@@ -203,12 +203,12 @@ fn reads_effective_rights_of_a_folder() {
     let resp = single(&doc).unwrap();
     let folders = child(resp, "Folders").unwrap();
     let list: Vec<_> = folders.children().filter(Node::is_element).collect();
-    // The reviewer: read only.
+    // list[0] is a read-only reviewer.
     let ro = effective_rights(list[0]).unwrap();
     assert!(ro.read && ro.read_only(), "{ro:?}");
     assert!(!ro.allows(crate::acl::Action::Write));
     assert!(!ro.allows(crate::acl::Action::Delete));
-    // The owner: everything.
+    // list[1] is the owner, with every right.
     let all = effective_rights(list[1]).unwrap();
     assert!(all.read && all.write && all.insert && all.allows(crate::acl::Action::Delete));
     assert!(!all.read_only());
@@ -228,7 +228,7 @@ fn writes_an_exchange_category_on_a_letter() {
     assert!(add.contains("<t:AppendToItemField>"), "{add}");
     assert!(add.contains(r#"FieldURI="message:Categories""#), "{add}");
     assert!(add.contains("Проект «Север»"), "{add}");
-    // An empty name changes nothing.
+    // Blank names are dropped.
     assert!(categories_add("  ").is_none());
 
     // Removing one: the whole list is set again without it.

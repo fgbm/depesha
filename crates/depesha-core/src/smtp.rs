@@ -1216,7 +1216,7 @@ mod tests {
         assert!(html.contains("<ul>") && html.contains("<li>раз</li>"), "{html}");
         // A task keeps its box as a character: mail programs drop form fields.
         assert!(html.contains("<li>☑ готово</li>"), "{html}");
-        // The signature keeps its lines.
+        // The signature keeps its line breaks.
         assert!(html.contains("--<br>"), "{html}");
         // Our own letter reads back with its Markdown, which is no attachment.
         use crate::message::BodyView;

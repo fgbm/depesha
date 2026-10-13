@@ -158,7 +158,7 @@ mod tests {
             !out.is_empty() && !out.contains('\u{fffd}'),
             "no half-decoded tail: {out}"
         );
-        // The whole text decodes exactly.
+        // The whole text decodes, not only the tail.
         assert_eq!(
             from_part(full.as_bytes(), Encoding::Base64, Some("utf-8"), false),
             "Привет, мир!"
@@ -184,7 +184,7 @@ mod tests {
             from_part(at_eq, Encoding::QuotedPrintable, Some("windows-1251"), false),
             "Привет, ми"
         );
-        // The whole sequence decodes exactly.
+        // The whole sequence decodes, not only the tail.
         assert_eq!(
             from_part(full.as_bytes(), Encoding::QuotedPrintable, Some("windows-1251"), false),
             "Привет, мир"

@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, Local, Months, NaiveDate, NaiveDateTime, TimeZo
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchQuery {
-    /// Free words: subject, addresses and body.
+    /// Subject, addresses and body.
     pub words: Vec<String>,
     pub from: Vec<String>,
     pub to: Vec<String>,
@@ -23,7 +23,7 @@ pub struct SearchQuery {
     pub before: Option<i64>,
     /// Folder name or role word (`inbox`, `входящие`, `sent`...).
     pub folder: Option<String>,
-    /// The folder's subfolders too: `in:Work/*`.
+    /// Includes the folder's subfolders, as `in:Work/*` does.
     pub subfolders: bool,
     /// Size bounds in bytes, both exclusive like IMAP LARGER and SMALLER.
     pub larger: Option<u64>,

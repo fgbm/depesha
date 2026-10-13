@@ -141,7 +141,7 @@ pub struct Grant {
     pub tokens: Tokens,
 }
 
-/// PKCE verifier and its S256 challenge.
+/// The verifier and its S256 challenge.
 fn pkce() -> (String, String) {
     let verifier = URL_SAFE_NO_PAD.encode(random_bytes::<32>());
     (verifier.clone(), challenge_of(&verifier))
@@ -207,8 +207,8 @@ pub fn authorize_url(
     format!("{}?{query}", ep.auth)
 }
 
-/// Signs in through the system browser. `open` shows the URL to the user; the call
-/// ends when the browser comes back, `cancel` completes, or after ten minutes.
+/// Opens the system browser for the user. `open` shows the URL; the call ends when
+/// the browser comes back, `cancel` completes, or after ten minutes.
 pub async fn sign_in(
     provider: OAuthProvider,
     client: &OAuthClient,

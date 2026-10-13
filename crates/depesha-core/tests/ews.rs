@@ -48,7 +48,7 @@ struct Mailbox {
     /// Throttling: the next requests get `ErrorServerBusy` as a SOAP fault, with
     /// `BackOffMilliseconds` when given.
     busy: Vec<Option<u64>>,
-    /// TCP connections accepted.
+    /// How many sockets the server took.
     connections: usize,
     /// FindItem requests answered, to check a lookup batches them.
     find_items: usize,

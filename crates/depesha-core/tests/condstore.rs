@@ -33,7 +33,7 @@ struct Mailbox {
     msgs: Vec<Msg>,
     /// Expunged UIDs with the mod-sequence of their expunge, for VANISHED (EARLIER).
     expunged: Vec<(u32, u64)>,
-    /// Answers SELECT (CONDSTORE) with NOMODSEQ.
+    /// True when SELECT carries no MODSEQ.
     nomodseq: bool,
     /// Answers UID FETCH … (CHANGEDSINCE …) with BAD.
     refuse_changedsince: bool,
@@ -306,7 +306,7 @@ impl Fixture {
         f(self.server.lock().unwrap().folders.get_mut(folder).unwrap())
     }
 
-    /// Commands since the last call.
+    /// Takes the log, leaving it empty for the next call.
     fn commands(&self) -> Vec<String> {
         std::mem::take(&mut self.server.lock().unwrap().log)
     }

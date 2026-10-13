@@ -617,7 +617,7 @@ pub struct OutboxItem {
     pub created: i64,
     /// Remind about a missing answer this long after sending; 0 for no reminder.
     pub followup_secs: i64,
-    /// The rest of that wait.
+    /// Remaining fields of the wait plan.
     pub followup: FollowupPlan,
 }
 
@@ -792,7 +792,7 @@ fn pinned(pins: &[Pin], state: fn(&Pin) -> bool, now: &str) -> String {
     sql
 }
 
-/// The ORDER BY of a list. `expr` gives each key's SQL; the newest first and the id
+/// `expr` gives each key's SQL; the newest first and the id
 /// break ties, so pages follow each other without gaps or repeats.
 fn order_by(sort: &[SortKey], expr: impl Fn(SortField) -> Option<String>, date: &str, id: &str) -> String {
     let mut parts = Vec::new();
@@ -5239,7 +5239,7 @@ mod tests {
             ("v0", Box::new(v0), 0),
             ("v1", Box::new(tables_of(1)), 1),
             ("v2 (0.5.6)", Box::new(tables_of(2)), 2),
-            // Step 3 changes nothing a cache of 0.5.6 lacks: the same tables, numbered 3.
+            // The 0.5.6 tables again, this time numbered 3.
             ("v3", Box::new(tables_of(2)), 3),
             ("v4", Box::new(v4), 4),
             ("v5 (0.5.7)", Box::new(v5), 5),
@@ -5306,7 +5306,7 @@ mod tests {
         }
     }
 
-    /// Step 12 first shipped without `label_check`; intermediate builds and CI left caches
+    /// The first v12 shipped without `label_check`; intermediate builds and CI left caches
     /// numbered 12 that lack the column. A later step must add it, and a fresh cache must
     /// already have it.
     #[test]
@@ -6391,7 +6391,7 @@ mod tests {
             .update_flags("a", "INBOX", &[(4, read), (5, read), (6, read)])
             .unwrap();
         lookups_hold(&store);
-        // A folder changes its role.
+        // A folder can change its role.
         let renamed: Vec<Folder> = BUSY_FOLDERS
             .iter()
             .map(|&(n, r)| match n {

@@ -20,7 +20,7 @@ const BODY: &str = "List-Unsubscribe=One-Click";
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "UnsubscribeWay"))]
 pub enum Way {
-    /// A POST to `host`.
+    /// One click: a POST to `host`.
     OneClick { host: String },
     /// A letter from the user's mailbox, exactly this one.
     Mail { to: String, subject: String, text: String },

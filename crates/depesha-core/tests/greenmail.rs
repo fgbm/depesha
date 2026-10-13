@@ -67,7 +67,7 @@ async fn send_sync_read_flag_move() {
 
     // Keep a copy in Alice's Sent, as the GUI does after sending.
     let mut alice_conn = imap::connect(&imap_server(), &alice).await.expect("alice login");
-    // The folder may exist already.
+    // best_effort: the folder may exist already.
     depesha_core::best_effort("create Sent", alice_conn.session.create("Sent").await);
     imap::append(&mut alice_conn, "Sent", &raw_sent, "(\\Seen)")
         .await
@@ -84,7 +84,7 @@ async fn send_sync_read_flag_move() {
 
     let store = Store::open_in_memory().unwrap();
     let mut conn = imap::connect(&imap_server(), &bob).await.expect("bob login");
-    // The folders may exist already.
+    // best_effort: the folders may exist already.
     depesha_core::best_effort("create Trash", conn.session.create("Trash").await);
     depesha_core::best_effort("create Calendar", conn.session.create("Calendar").await);
     let folders = sync::sync_folder_list(&mut conn, &store, "bob").await.unwrap();

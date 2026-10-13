@@ -60,7 +60,7 @@ pub enum FollowupStatus {
     Waiting,
     /// An answer came: when and from whom is kept.
     Answered,
-    /// The user stopped waiting.
+    /// Closed by the user, not by an answer.
     Closed,
 }
 
@@ -82,7 +82,7 @@ pub enum FollowupFilter {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FollowupInfo {
     pub status: FollowupStatus,
-    /// The next reminder.
+    /// When the next reminder goes out.
     pub due: i64,
     pub deadline: i64,
     /// The deadline was given apart from the reminder ("a day before the deadline").
@@ -202,7 +202,7 @@ pub struct Followup {
     pub subject: String,
     pub recipients: String,
     pub sent: i64,
-    /// The next reminder.
+    /// When the next reminder goes out.
     pub due: i64,
     /// When the answer is expected by; 0: by the first reminder.
     pub deadline: i64,
@@ -696,7 +696,7 @@ mod tests {
         assert_eq!(f.reminded.len(), REMINDED_KEPT as usize);
         assert_eq!(f.reminded.first(), Some(&(at - 300 * REMINDED_KEPT)));
         assert_eq!(f.reminded.last(), Some(&(at - 300)));
-        // An answer stops the repeats.
+        // After the answer the repeats stop.
         put(
             &store,
             "INBOX",
@@ -988,7 +988,7 @@ mod tests {
         assert_eq!(store.followups_prune(now, 90).unwrap(), 1);
         assert_eq!(subjects(&store, FollowupFilter::Closed), ["recent@x"]);
         assert_eq!(subjects(&store, FollowupFilter::Active), ["open@x"]);
-        // A shorter retention takes more.
+        // A shorter retention prunes more of them.
         assert_eq!(store.followups_prune(now, 30).unwrap(), 1);
         assert_eq!(
             store.followups_count().unwrap(),

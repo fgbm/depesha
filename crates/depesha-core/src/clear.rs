@@ -102,7 +102,6 @@ pub struct Request<B> {
     /// (`Clearing`). Read when the erasing begins, not when it is asked for: the queue may
     /// hold the run back, and a draft opened meanwhile must stay.
     pub keep_ids: Vec<i64>,
-    /// Drafts: the open ones stay.
     pub drafts: bool,
 }
 

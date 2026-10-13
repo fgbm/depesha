@@ -43,7 +43,7 @@ pub struct Person {
     /// The record's key; 0 for an address seen only in the correspondence, which has no
     /// record yet.
     pub id: i64,
-    /// The primary address.
+    /// The primary one; `emails` holds the rest.
     pub email: String,
     /// Every address, the primary one first.
     pub emails: Vec<PersonAddress>,

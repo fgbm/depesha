@@ -220,7 +220,7 @@ async fn ntlm_login(
     Ok(Ok(format!("{scheme} {}", BASE64.encode(auth))))
 }
 
-/// The authentication schemes of `WWW-Authenticate` headers.
+/// Taken from the `WWW-Authenticate` headers of a 401 response.
 fn schemes(challenges: &[String]) -> Vec<String> {
     challenges
         .iter()
@@ -532,9 +532,8 @@ fn may_sign_in(host: &str, domain: &str) -> bool {
     host.ends_with(&format!(".{domain}"))
 }
 
-/// POX Autodiscover (`autodiscover.xml`); follows one redirect. The first request of
-/// every host goes without credentials: they go only when the server asks for
-/// them and `may_sign_in` allows it.
+/// The first request of every host goes without credentials: they go only when the server
+/// asks for them and `may_sign_in` allows it. It reads `autodiscover.xml` and follows one redirect.
 async fn autodiscover(host: &str, email: &str, creds: &Credentials, domain: &str) -> Result<Option<String>> {
     let body = format!(
         r#"<?xml version="1.0" encoding="utf-8"?><Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006"><Request><EMailAddress>{}</EMailAddress><AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema></Request></Autodiscover>"#,

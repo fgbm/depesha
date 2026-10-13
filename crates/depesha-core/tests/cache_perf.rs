@@ -1,5 +1,5 @@
 //! Cache timings on a large mailbox, without a server: the operations that once went
-//! over every message of the folder or the account (issue #31).
+//! over every message of the folder or the account (#31).
 //!
 //!   cargo test --release -p depesha-core --test cache_perf -- --ignored --nocapture
 //!

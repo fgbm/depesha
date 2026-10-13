@@ -240,7 +240,7 @@ async fn a_resumed_move_does_not_copy_again() {
         return;
     }
     let mut conn = connect("resume").await;
-    // The folder may exist already.
+    // best_effort: the folder may exist already.
     depesha_core::best_effort("create Trash", imap::create_folder(&mut conn, "Trash").await);
     let raw = mail("Resume", 7);
     let mid = "7.Resume@example.org";
@@ -277,7 +277,7 @@ async fn a_resumed_move_copies_when_the_target_holds_another_letter() {
         return;
     }
     let mut conn = connect("resume-cross").await;
-    // The folder may exist already.
+    // best_effort: the folder may exist already.
     depesha_core::best_effort("create Trash", imap::create_folder(&mut conn, "Trash").await);
     let raw = mail("Cross", 8);
     let mid = "8.Cross@example.org";

@@ -2,7 +2,7 @@
 //! pause after a failure, the copy in «Sent», the letters a sleeping machine missed. The queue
 //! is the store's (`Store::outbox`); the SMTP or Exchange send is the port's (`port::Sender`),
 //! and so is the copy's upload (`port::MailQueue`). The app only runs the rounds and shows the
-//! outcomes. The clock is the caller's: the rules take `now`.
+//! outcomes. Its clock is the caller's: the rules take `now`.
 //!
 //! The order is what keeps a letter from being sent twice or lost: it is marked as sending
 //! before it leaves (`Store::outbox_sending`), so a quit in between leaves a mark and the next
@@ -38,7 +38,7 @@ pub fn missed(item: &OutboxItem, now: i64, awake_since: i64) -> bool {
 /// The words the rules store for the user in the cache (`last_error` of a letter, of a copy):
 /// the core has no language, so whoever runs the rules brings them.
 pub trait Words: Sync {
-    /// A failure, in the user's words.
+    /// What the user is told.
     fn failure(&self, e: &crate::Error) -> String;
     /// A letter that may have left: the user looks in «Sent».
     fn possibly_sent(&self) -> String;
@@ -253,7 +253,7 @@ pub async fn attempt<S: Sender>(
     settled
 }
 
-/// The letter left: its row is removed, and its copy kept. The client-side copy is work of its
+/// The letter left: its row is removed, and its copy kept. Its client-side copy is work of its
 /// own: the send round does not wait for it (a slow Sent folder would hold the whole round up).
 /// The bytes are kept in the cache in the very step that removes the outbox row, so a quit, a
 /// dead network or a paused mailbox cannot lose them; `deliver_copy` files them.
@@ -891,7 +891,7 @@ mod tests {
         assert!(row.failed, "it waits for the user");
         assert!(row.last_error.unwrap().contains("Sent"), "who is asked to look in Sent");
         assert_eq!(store.outbox().unwrap().len(), 1, "and not lost");
-        // The mailbox was removed meanwhile.
+        // The account went away between the queue and the send.
         let store = self::store();
         let item = queued(&store, 5, 0);
         let got = go(&store, &mut sender, &item, None, false, 100).await;

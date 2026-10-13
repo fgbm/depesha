@@ -160,8 +160,8 @@ impl Account {
 pub struct Signature {
     pub id: String,
     pub name: String,
-    /// The signature in an HTML letter. Its pictures are inside as `data:` images: they
-    /// live here, with the mailbox's settings, and the file one came from is not needed.
+    /// The pictures are inside as `data:` images: they live here, with the mailbox's
+    /// settings, and the file one came from is not needed.
     pub html: String,
     /// What a letter in plain text or Markdown gets under "-- ": the text and the links
     /// with their addresses, no pictures. Made from `html` when the signature is saved.
@@ -202,7 +202,6 @@ fn is_zero(v: &u64) -> bool {
 #[serde(tag = "kind", rename_all = "lowercase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum AuthMethod {
-    /// The keyring holds the password.
     #[default]
     Password,
     /// The keyring holds the provider's refresh token; IMAP and SMTP log in with XOAUTH2.
@@ -536,7 +535,6 @@ mod tests {
         assert_eq!(a.signatures.len(), 1);
         assert_eq!(a.signatures[0].id, "x");
         assert!(a.default_signature.is_none());
-        // An empty one moves nothing.
         let mut b = a.clone();
         b.signatures.clear();
         b.signature = "  \n".into();

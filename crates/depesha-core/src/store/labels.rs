@@ -366,7 +366,7 @@ impl Store {
         Ok(n)
     }
 
-    /// A message's own keywords (labels).
+    /// Writes the message's own keywords (labels) into the cache.
     pub fn set_keywords(&self, account_id: &str, folder: &str, uid: u32, keywords: &[String]) -> Result<()> {
         let json = serde_json::to_string(keywords).unwrap_or_else(|_| "[]".into());
         self.conn().execute(

@@ -54,7 +54,7 @@ pub async fn connect(account: &Account, creds: &Credentials) -> Result<Conn> {
     })
 }
 
-/// Checks the login without changing anything. The error says which protocol failed.
+/// Without changing anything: the error names which protocol failed.
 pub async fn check(account: &Account, creds: &Credentials) -> Result<(), (&'static str, Error)> {
     if let Some(cfg) = &account.ews {
         ews::connect(cfg, creds, &account.email).await.map_err(|e| ("EWS", e))?;
@@ -750,9 +750,9 @@ impl ProtocolNames {
 }
 
 /// The whole path of a folder `name` made under `parent` (a folder name as the cache keeps it),
-/// as the server's create wants it. The delimiter is the parent's, a slash when the cache does
-/// not know the parent. The names of the cache are the adapters' business: callers say which
-/// folder they mean, not how the protocol spells it.
+/// as the server's create wants it. Its delimiter is the parent's, a slash when the cache does
+/// not know the parent. Names come from the cache, not from the protocol: callers say which
+/// folder they mean, not how the server spells it.
 fn child_path(store: &Store, account_id: &str, names: ProtocolNames, parent: &str, name: &str) -> Result<String> {
     let delimiter = store
         .folders(Some(account_id))?
@@ -842,7 +842,6 @@ pub struct IdleDrop {
     pub cause: DropCause,
     /// Since the last thing the client wrote (the start of this wait).
     pub since_wait: Duration,
-    /// Since the connect.
     pub since_connect: Duration,
     /// The renewal this IDLE was held under; `None` for a transport that takes none (EWS).
     pub renew: Option<Duration>,

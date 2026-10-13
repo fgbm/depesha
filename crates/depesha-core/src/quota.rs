@@ -88,7 +88,7 @@ impl Roots {
     }
 }
 
-/// The quota of INBOX's root (GETQUOTAROOT). `None` when the server has no QUOTA or
+/// The INBOX root's own limit (GETQUOTAROOT). `None` when the server has no QUOTA or
 /// names no root: such a mailbox has no quota to show, which is not a full one. A refusal
 /// (NO, BAD) is an error: it says nothing of the quota, and the last one known stays.
 /// A server silent for `QUOTA_TIMEOUT` gives `Error::Timeout`: drop the connection, its

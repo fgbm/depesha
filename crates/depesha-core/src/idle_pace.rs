@@ -75,7 +75,6 @@ pub struct DropInfo {
     pub cause: DropCause,
     /// Since the last thing the client wrote (the start of the IDLE that failed).
     pub since_wait: Duration,
-    /// Since the connect.
     pub since_connect: Duration,
     /// The renewal this IDLE was held under; `None` when the transport takes none (EWS).
     pub renew: Option<Duration>,
@@ -147,7 +146,6 @@ pub struct Dropped {
     pub log: bool,
     /// The drop came on a longer renewal tried on purpose: logged quietly, not counted in the series.
     pub probe: bool,
-    /// The renewal this drop shortened to.
     pub shortened: Option<Duration>,
     /// This drop showed that the cut comes by the age of the connection: set once per series.
     pub by_age: bool,

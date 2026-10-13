@@ -96,9 +96,8 @@ impl Rights {
         .collect()
     }
 
-    /// Whether `action` is allowed. `Delete` asks for both `t` and `e`: a move out of a
-    /// folder is a delete plus an expunge on a server without MOVE, which is the
-    /// fallback here.
+    /// `Delete` asks for both `t` and `e`: a move out of a folder is a delete plus an
+    /// expunge on a server without MOVE, which is the fallback here.
     pub fn allows(&self, action: Action) -> bool {
         match action {
             Action::Read => self.read,
@@ -175,7 +174,6 @@ pub struct Namespace {
 #[serde(rename_all = "snake_case", tag = "kind", content = "name")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Owner {
-    /// The user's own mailbox folders.
     Mine,
     /// A folder from the shared namespace (`shared/`).
     Shared,

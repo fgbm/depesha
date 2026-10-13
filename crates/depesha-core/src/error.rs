@@ -302,7 +302,6 @@ impl ErrorKind {
         Self::Superseded,
     ];
 
-    /// The code the interface receives.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Certificate => "certificate",

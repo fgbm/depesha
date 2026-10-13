@@ -3,7 +3,7 @@
 //! "Waiting for reply" until the reply brings it back, or to the archive. The state of a wait
 //! (its time, stopping it, the undo of a stop) is the store's (`store::waiting`); here are the
 //! decisions and the moves they ask of the mailbox's queue (`port::MailQueue`). The app only
-//! shows the outcomes. The clock is the caller's: the rules take `now`.
+//! shows the outcomes. Its clock is the caller's: the rules take `now`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -95,7 +95,7 @@ impl Archivals {
     }
 }
 
-/// An archival under way.
+/// The state of one move to the archive, while it runs.
 pub struct Archival {
     archivals: Arc<Archivals>,
     id: u64,
@@ -240,7 +240,7 @@ pub struct Archiving {
 /// A letter of the outbox that has gone out.
 pub struct Dispatched<'a> {
     pub item: &'a OutboxItem,
-    /// The `Message-ID` it left as.
+    /// As the sent letter carries it, not the item's own id.
     pub message_id: Option<String>,
     /// The letter is in the cache, which a reminder needs.
     pub letter_cached: bool,
@@ -555,7 +555,7 @@ pub enum Archived {
     NoArchive,
     /// The mailbox is not running: nothing was tried.
     NoQueue,
-    /// The conversation was not read.
+    /// Reading the conversation failed.
     NotRead(crate::Error),
     /// No letter was found to move.
     NothingFound,
@@ -886,7 +886,7 @@ mod tests {
         );
         assert!(will_park(&by_deadline));
         assert!(!will_archive(&by_deadline));
-        // The box off: neither.
+        // With the queue off, neither move happens.
         let off = answer(
             0,
             FollowupPlan {

@@ -84,7 +84,7 @@ pub struct ParkJob {
     pub since: i64,
 }
 
-/// The folder letters wait in.
+/// Where a waiting conversation is parked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WaitFolder {
     Existing(String),
@@ -823,7 +823,7 @@ mod tests {
     #[test]
     fn a_letter_naming_the_anchor_does_not_drag_its_own_neighbours() {
         let store = mailbox();
-        // The letter I answered.
+        // The letter the answer replied to.
         put(
             &store,
             "INBOX",
@@ -973,7 +973,7 @@ mod tests {
         // Without a reminder it never reminds.
         assert!(store.followups_due(SENT * 100).unwrap().is_empty());
 
-        // The server moved them.
+        // Moved by the server, so no park job is left.
         store.followup_parked("a", "r@x", WAIT, NOW).unwrap();
         moved(&store, "INBOX", &[2], WAIT, &[(2, &second)]);
         assert!(store.park_jobs().unwrap().is_empty());
@@ -1572,7 +1572,7 @@ mod tests {
         // It waited only to be moved.
         assert_eq!(store.followups_count().unwrap().active, 0);
 
-        // A reminder still reminds.
+        // The reminder goes out as it should.
         store
             .followup_start(&answer("r@x", SENT, SENT + 500), Some("q1@x"), Some(&park))
             .unwrap();
