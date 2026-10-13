@@ -1,9 +1,9 @@
 <!-- CODEGRAPH_START -->
 ## CodeGraph
 
-In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files. Do that when you need to understand or locate code:
 
-- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
+- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call. It returns the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
 - **Shell** (always works): `codegraph explore "<symbol names or question>"` prints the same output.
 
 If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
@@ -13,16 +13,16 @@ If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is 
 
 Depesha is a mail client. It receives mail and it sends mail. That is the whole product.
 
-Everything else is a plugin. Snoozing, follow-ups, templates, preflight checks, accent colours — none of that is mail, so none of it belongs in the core. This is the product's philosophy, not a cleanup rule: the core stays something you can hold in your head, and the interesting parts live behind a contract.
+Everything else is a plugin. Snoozing, follow-ups, templates, preflight checks, accent colours — none of that is mail, so none of it belongs in the core. This is the product's philosophy, not a cleanup rule. The core stays something you can hold in your head, and the interesting parts live behind a contract.
 
 What this means when you work:
 
 - A new feature starts with one question: **is this receiving or sending mail?** If no, it is a plugin, and the work is to find or add the point of extension it needs — not to grow the core.
-- When a plugin needs something the core doesn't expose, extend the contract (`src/plugin-api/`), keep the addition as small as the plugin actually requires, and leave the core's own behaviour unchanged when no plugin is loaded.
+- When a plugin needs something the core doesn't expose, extend the contract (`src/plugin-api/`). Keep the addition as small as the plugin actually requires, and leave the core's own behaviour unchanged when no plugin is loaded.
 - A plugin that is a matter of taste ships switched off (`defaultOff`). A plugin that stops the user making a real mistake can ship switched on — the distinction is harm, not preference.
 - Pushing something into a plugin is not a way to dodge the work. If the feature is worth doing, the plugin does it properly, including its point of extension in the core.
 
-When a plugin is added, removed, or changes what it does or whether it ships switched on, update the wiki page that lists them — https://github.com/fgbm/depesha/wiki/Плагины (the wiki is a git repo of its own: `git clone https://github.com/fgbm/depesha.wiki.git`). It is written for the people who use Depesha, not for developers; the contract itself stays in `plugins/README.md`.
+When a plugin is added, removed, or changes what it does or whether it ships switched on, update the wiki page that lists them. The page is at https://github.com/fgbm/depesha/wiki/Плагины (the wiki is a git repo of its own: `git clone https://github.com/fgbm/depesha.wiki.git`). It is written for the people who use Depesha, not for developers; the contract itself stays in `plugins/README.md`.
 
 ## Живые макеты
 
@@ -79,19 +79,43 @@ Subagents start with no context. Every call carries:
 4. **Acceptance criteria** — what must pass: `npm run check`, `cargo clippy`, specific tests, UI behaviour.
 5. **Scope fence** — "no refactors beyond the listed files, no dependency changes, no version bumps."
 
-Don't trust a subagent's report at face value: verify the claims (diff, build, tests) in the main session or hand the diff to `general` for review. If a subagent reports something that contradicts what you know, re-check before acting on it.
+Don't trust a subagent's report at face value. Verify the claims (diff, build, tests) in the main session or hand the diff to `general` for review. If a subagent reports something that contradicts what you know, re-check before acting on it.
 
 ### Review on `general`
 
-Give the reviewer the diff (`git diff`, or the file list), the original spec and the acceptance criteria, and ask for concrete findings: correctness, missed call sites, conventions, i18n and accessibility, tests. Feed findings back into a follow-up `coder` slice rather than fixing them ad hoc in the main session.
+Give the reviewer the diff (`git diff`, or the file list), the original spec and the acceptance criteria. Ask for concrete findings: correctness, missed call sites, conventions, i18n and accessibility, tests. Feed findings back into a follow-up `coder` slice rather than fixing them ad hoc in the main session.
 
 ### When to do it yourself
 
 One-line fixes, a quick file read, running a build or test, committing, answering a question from context you already have. Delegation overhead isn't worth it there.
 
+## Интерфейс: как оператор его оценивает
+
+<!-- ste -->
+- Доводи действие с клавиатуры до конца. Почему: если после клавиши человек тянется к мыши, это ошибка.
+- Открывай меню, вызванное клавишей, у курсора списка, а не у далёкой кнопки.
+- Открывай подменю рядом и не закрывай им родительское меню.
+- Делай похожие действия одинаково: те же места, вид, клавиша и тост с отменой.
+- Не добавляй пункты ради полноты. Почему: оператор назвал «±день/неделя» и «Очистить дату» в меню «Отложить» бредом.
+- Держи у настройки одну цель и разноси разные цели по разным настройкам. Почему: вид и сеть с приватностью — разные цели.
+- Задавай времена и рабочие дни в настройках, не в коде.
+- Не прячь побочное действие. Почему: «Без напоминания» значит «не ждать», а «убрать из входящих» — архив, а не «Ждут ответа».
+- Пиши термин «Контакт(ы)», а не «Люди», в интерфейсе, документах и новых именах кода. Почему: так решено 2026-10-10.
+<!-- /ste -->
+
 ## Работа в репозитории: грабли
 
 Стенд и прогон — в `e2e/README.md`, библиотеки и протоколы — в `docs/dev-notes.md`. Здесь — как не наступить на грабли самого репозитория.
+
+### Память машины
+
+<!-- ste -->
+- Запускай одну тяжёлую работу за раз: сборку Rust, e2e, стенд, Playwright, большие базы. Почему: на машине 14 ГБ RAM, и три параллельные сборки уронили её 2026-10-12.
+- Ставь `CARGO_BUILD_JOBS=2` в заданиях со сборкой. Почему: параллельные rustc душат память.
+- Делай тестовые базы не больше ~20 тыс. писем. Почему: большая база съедает память и время.
+- Закрывай Chromium после кадров. Почему: открытый браузер держит память.
+- Смотри `free -h` перед тяжёлой командой. Почему: так видно, хватает ли памяти.
+<!-- /ste -->
 
 ### Запреты
 
@@ -145,7 +169,7 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 
 ### Проверки фронтенда
 
-- Метрики размера и инварианты — ориентир, не закон. Проверка падает только на ухудшении: рост размера компонента или функции (`scripts/frontend-metrics.sh`), новый компонент больше максимума baseline или суммы исчезнувших (перенос с раздуванием), новый член `app.*`, пропавшие имена `aria-*` и значения `role=`, уменьшение счётчиков `aria_attrs`/`role_attrs`, пропавший вид `data-*`, который читает e2e (`scripts/frontend-invariants.sh`). Уменьшение и удаление остального проходят без пересборки. **`--save` не запускай; рост — только строкой с причиной в `docs/frontend-metrics-exceptions.txt` или `docs/frontend-invariants/exceptions.txt`.** `scripts/frontend-baseline-guard.sh` (в `check.sh` и в CI) сверяет baseline ветки с `origin/main` и ловит подъём baseline в обход исключений, в том числе конфликт, разрешённый вверх.
+- Метрики размера и инварианты — ориентир, не закон. Проверка падает только на ухудшении. Это рост размера компонента или функции (`scripts/frontend-metrics.sh`), новый компонент больше максимума baseline или суммы исчезнувших (перенос с раздуванием), новый член `app.*`. Ещё пропавшие имена `aria-*` и значения `role=`, уменьшение счётчиков `aria_attrs`/`role_attrs`, пропавший вид `data-*`, который читает e2e (`scripts/frontend-invariants.sh`). Уменьшение и удаление остального проходят без пересборки. **`--save` не запускай; рост — только строкой с причиной в `docs/frontend-metrics-exceptions.txt` или `docs/frontend-invariants/exceptions.txt`.** `scripts/frontend-baseline-guard.sh` (в `check.sh` и в CI) сверяет baseline ветки с `origin/main` и ловит подъём baseline в обход исключений, в том числе конфликт, разрешённый вверх.
 - Baseline второго уровня (`docs/frontend-invariants/app-nested.txt`) пересобирается только вместе с изменением определения `app_nested()`, в одном коммите: `frontend-baseline-guard.sh` принимает подъём, только если эта функция изменилась против main.
 - `scripts/frontend-metrics.sh --tighten` и `scripts/frontend-invariants.sh --tighten` подтягивают baseline вниз и запускаются один раз при слиянии (после rebase на main), не в ветке. При конфликте в baseline бери версию из main. Главный чанк по-прежнему сверяется по `scripts/frontend-bundle.sh` (`--save` отдельным коммитом, если рост оправдан).
 - Баланс: дробить код ради цифры нельзя — прокси-объекты, хосты с десятками колбэков, обёртки-пробросы без своей логики только прячут размер. Длинная функция, которая читается целиком, лучше десяти обёрток; рост с обоснованием лучше искусственной структуры. Ревьюер отдельно ищет обёртки ради обёрток и новые члены `app.*`, которые завели ради обхода лимита.
@@ -160,8 +184,8 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 - Пуш ветки без ожидания CI допустим. Почему: `--ci` ждёт CI один раз, перед слиянием, и не нужен на каждом круге.
 - Считай файлы от `git merge-base HEAD origin/main` плюс незакоммиченные, без поиска переименований. Почему: перенос `src/x` в `e2e/x` виден и как удаление, и как добавление.
 - После правки `crates/` или `src-tauri/` гоняй fmt, clippy, `cargo test -p depesha-core` (только для `crates/`) и `cargo test -p depesha --lib`.
-- После правки фронтенда (`src/`, `plugins/`, `public/`, конфиги, `docs/frontend-*`, `scripts/frontend-*`, `scripts/check.sh`) гоняй svelte-check, метрики, инварианты, `vitest --changed` и бандл.
-- После правки конфигов eslint, `package*.json`, `tsconfig*`, `vite.config*` гоняй полный `npm run lint`, а не список файлов.
+- После правки фронтенда (`src/`, `plugins/`, `public/`, файлы настроек, `docs/frontend-*`, `scripts/frontend-*`, `scripts/check.sh`) гоняй svelte-check, метрики, инварианты, `vitest --changed` и бандл.
+- После правки файлов настроек eslint, `package*.json`, `tsconfig*`, `vite.config*` гоняй полный `npm run lint`, а не список файлов.
 - После правки `e2e/` гоняй eslint, `node --check` и `vitest run e2e` (тест раннера шагов).
 - Сам e2e в `--changed` не запускается, скрипт пишет это строкой.
 - Гоняй для правок только docs и design хук персональных данных.
@@ -180,7 +204,7 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 - Пуши `main` без force.
 - Ставь `npm ci` в новом worktree первым делом. Почему: без `node_modules` проверки падают.
 <!-- /ste -->
-- CI запускается на push любой ветки; новый push в ветку отменяет её прошлый запуск (`main` и `release/**` доигрываются). Тяжёлые платформенные задачи (`e2e-windows`, сборки Windows и macOS, печать на macOS, если она есть) на ветке идут, только если она трогает `crates/`, `src-tauri/` (с его `tauri.conf.json` и иконками), корневые `Cargo.toml` и `Cargo.lock`, `package.json`, `package-lock.json`, `vite.config.*`, `src/lib/drops.ts`, `e2e/drops.mjs`, `e2e/drop-steps.mjs`, `e2e/native-drop.ps1`, `e2e/windows-display.ps1` или `ci.yml`; на `release/**` и `workflow_dispatch` — всегда. На push в `main` ранний джоб `reuse` ищет через API зелёный прогон того же коммита на ветке (`head_sha=$SHA&status=success`): если он есть и в нём прошли платформенные задачи, остальные задачи `main` пропускаются, а прогон зелёный со строкой в summary «тот же коммит проверен в run N»; иначе `main` гоняет всё. Так что после ff в `main` прогон обычно пропускается — это успех, а не ошибка. Новая платформенная задача цепляется к `changes` (`needs: changes`) и к `reuse` (`needs: [changes, reuse]`, `if: ${{ always() && … && needs.reuse.outputs.skip != 'true' }}` — `always()` нужен, иначе пропущенный на ветке `reuse` пропустит и её). e2e Linux в CI разделён на три части (`DEPESHA_E2E_SHARD=1/3…3/3`, разделы в `e2e/shard.mjs`), у каждой свой стенд и профиль; новый раздел сценария заведи файлом `e2e/sections/<имя>.mjs`, отметь его `section("…")` и впиши в `SECTIONS` (`e2e/shard.mjs`).
+- CI запускается на push любой ветки; новый push в ветку отменяет её прошлый запуск (`main` и `release/**` доигрываются). Тяжёлые платформенные задачи (`e2e-windows`, сборки Windows и macOS, печать на macOS, если она есть) на ветке идут только при правке отдельных путей. Это `crates/`, `src-tauri/` (с его `tauri.conf.json` и иконками), корневые `Cargo.toml` и `Cargo.lock`, `package.json`, `package-lock.json`, `vite.config.*`, `src/lib/drops.ts`, `e2e/drops.mjs`, `e2e/drop-steps.mjs`, `e2e/native-drop.ps1`, `e2e/windows-display.ps1` или `ci.yml`. На `release/**` и `workflow_dispatch` задачи идут всегда. На push в `main` ранний джоб `reuse` ищет через API зелёный прогон того же коммита на ветке (`head_sha=$SHA&status=success`). Если он есть и в нём прошли платформенные задачи, остальные задачи `main` пропускаются. Тогда прогон зелёный со строкой в summary «тот же коммит проверен в run N»; иначе `main` гоняет всё. Так что после ff в `main` прогон обычно пропускается — это успех, а не ошибка. Новая платформенная задача цепляется к `changes` (`needs: changes`) и к `reuse` (`needs: [changes, reuse]`, `if: ${{ always() && … && needs.reuse.outputs.skip != 'true' }}` — `always()` нужен, иначе пропущенный на ветке `reuse` пропустит и её). e2e Linux в CI разделён на три части (`DEPESHA_E2E_SHARD=1/3…3/3`, разделы в `e2e/shard.mjs`), у каждой свой стенд и профиль. Новый раздел сценария заведи файлом `e2e/sections/<имя>.mjs`, отметь его `section("…")` и впиши в `SECTIONS` (`e2e/shard.mjs`).
 - Полный локальный `scripts/check.sh` остаётся для тех, кому он нужен. Часть со стендом (GreenMail, интеграция, e2e) берёт замок `${XDG_RUNTIME_DIR:-/tmp}/depesha-e2e.lock` и, если стенд занят, пишет «стенд занят, жду…» и ждёт. Замок один для всех (`scripts/stand-lock.sh`): `e2e/run.mjs`, `perf.mjs`, `scripts/shots.sh`, `scripts/release-shots.sh`, `scripts/test-update.py` берут его сами, под `check.sh` он уже держится (`DEPESHA_STAND_LOCKED=1`). Своё, что трогает стенд вручную, запускай как `scripts/stand-lock.sh <команда>`, не через внешний `flock`. `--fast`, `--changed` и `--ci` замок не берут. Стенд один, второй прогон рядом ломает оба, поэтому замок не обходи. После `docker compose up` скрипт ждёт не порта, а настоящего входа по IMAP и TLS (`scripts/wait-stand.py`): Dovecot открывает порт раньше, чем отвечает по TLS.
 - e2e — в CI на ветке перед слиянием и перед выпуском. Перезапускается один раз только шаг с явной пометкой `{ retry: true }` в шагах `e2e/sections/*.mjs`: это шаги, которые лишь читают и ходят по интерфейсу. Шаги с отправкой, перемещением, удалением, черновиками и проверками по времени не помечай: повтор выполнит действие заново или спрячет медленный ответ. Перезапущенные шаги перечислены в итоговой сводке, в `results.json` у них `retried` и `firstError`; упавший дважды — провал.
 - Reviewer смотрит дифф ветки до слияния: одна попытка исправления по ревью, затем повторное ревью правок. Некритичное уходит в заявку на следующую версию, а не в новый круг.
@@ -190,6 +214,14 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 - Пересобирай baseline бандла один раз, при слиянии.
 - Подтягивай метрики и инварианты через `--tighten` один раз при слиянии.
 - Веди рост метрик и инвариантов через файл исключений.
+<!-- /ste -->
+
+### Платформенные ошибки
+
+<!-- ste -->
+- Не чини ошибку, видимую только на Windows или macOS, по догадкам.
+- Сначала воспроизведи её автотестом на этой ОС в CI, потом правь до зелёного прогона.
+- Отдавай оператору сборку только после зелёного теста; честно говори, что не проверено.
 <!-- /ste -->
 
 ### Коммиты test → fix
@@ -217,9 +249,9 @@ One-line fixes, a quick file read, running a build or test, committing, answerin
 ### Выпуск
 
 - Имена картинок к релизу — латиницей (`01-background.png`). Кириллицу GitHub вырезает из имён, остаются точки (`01-.-.-.png`), и ссылки в описании приходится переписывать.
-- В конфиге Tauri `category` — `Productivity` (`Office` не из списка, `invalid category`), `productName` — латиницей (`Depesha`): кириллица даёт пакет `Package: депеша`, который dpkg не установит. Русское имя — через свой `desktopTemplate`.
+- В настройках Tauri `category` — `Productivity` (`Office` не из списка, `invalid category`), `productName` — латиницей (`Depesha`): кириллица даёт пакет `Package: депеша`, который dpkg не установит. Русское имя — через свой `desktopTemplate`.
 - У tauri-action параметр называется `uploadUpdaterJson`, не `includeUpdaterJson`. Ссылки в `latest.json` из черновика ведут на API-адреса ассетов и работают только с `Accept: application/octet-stream` (плагин updater ставит его сам). Проверяй скачиванием с этим заголовком.
 
 ### Документация
 
-- Каждый абзац и каждый пункт списка — одна строка, какой бы длинной она ни была; перенос допустим только между блоками (внутри блока кода, таблицы и строк цитаты со своим `>` — можно). Проверяет `scripts/md-onelines.mjs` (идёт в `check.sh`, `--changed` и CI, а также в pre-commit), режим `--fix` склеивает перенос одним пробелом.
+- Каждый абзац и каждый пункт списка — одна строка, какой бы длинной она ни была. Перенос допустим только между блоками (внутри блока кода, таблицы и строк цитаты со своим `>` — можно). Проверяет `scripts/md-onelines.mjs` (идёт в `check.sh`, `--changed` и CI, а также в pre-commit), режим `--fix` склеивает перенос одним пробелом.
