@@ -27,7 +27,7 @@ export interface Text {
   ru: string;
 }
 
-/** Plural forms by Intl.PluralRules category; `other` is required. */
+/** Forms by Intl.PluralRules category; `other` is required. */
 export interface PluralForms {
   one?: string;
   few?: string;

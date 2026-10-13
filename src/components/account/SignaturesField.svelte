@@ -17,7 +17,7 @@
 
   /** The signature open in its editor. */
   let editing = $state<string | null>(null);
-  /** The signature whose menu is open. */
+  /** The id of the signature whose ⋯ menu is open. */
   let menu = $state<string | null>(null);
   let box = $state<HTMLElement | null>(null);
 

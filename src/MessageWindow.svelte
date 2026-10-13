@@ -67,7 +67,7 @@
 
   $effect(() => {
     const subject = app.reader.opened?.view.summary.subject;
-    // The window title is cosmetic.
+    // Cosmetic only, so a failure to set it is swallowed.
     if (subject !== undefined) win.setTitle(subject || t("noSubject")).catch(() => {});
   });
 

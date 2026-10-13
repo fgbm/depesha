@@ -13,7 +13,7 @@
   let doc = $state<PDFDocumentProxy | null>(null);
   /** Size of each page at scale 1, to lay them out before they are drawn. */
   let sizes = $state<{ w: number; h: number }[]>([]);
-  /** Zoom; null fits the page width. */
+  /** Null fits the page width. */
   let zoom = $state<number | null>(null);
   let width = $state(0);
   let current = $state(1);

@@ -41,7 +41,7 @@ export interface KeysProps {
 }
 
 export interface LaterMenuProps {
-  /** The heading over the moments. */
+  /** The heading shown above the moments. */
   title: string;
   presets: Preset[];
   /** The label of the button that takes the moment typed by hand. */

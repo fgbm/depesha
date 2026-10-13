@@ -6,7 +6,7 @@
   let { file }: { file: ViewedFile } = $props();
 
   let url = $state("");
-  /** Zoom; null fits the view. */
+  /** Null fits the picture to the view. */
   let zoom = $state<number | null>(null);
   let natural = $state({ w: 0, h: 0 });
 
