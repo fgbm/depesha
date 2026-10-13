@@ -60,13 +60,12 @@ vale_check() {
   fi
 }
 
-# Правила комментариев в коде (AGENTS.md, раздел Code rules). Тест на fixture обязателен; находки на
-# дереве пока не роняют прогон — их разбирают коммитами чистки, как и job comments в CI.
+# Правила комментариев в коде (AGENTS.md, раздел Code rules): тест на fixture и дерево.
 comment_check() {
   step "правила комментариев в коде (тест)"
   scripts/check-comments.test.sh
   step "правила комментариев в коде"
-  scripts/check-comments.sh || echo "нарушения ждут разбора (AGENTS.md, раздел Code rules): до чистки прогон не роняем"
+  scripts/check-comments.sh
 }
 
 # One compile cache for every worktree, only where sccache is installed. It does not cache
