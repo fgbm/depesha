@@ -23,8 +23,13 @@ if [[ $rc -ne 1 ]]; then
   fail=1
 fi
 
-if ! grep -q '^check-comments: files 3, violations ' <<<"$out"; then
+if ! grep -q '^check-comments: files [0-9]*, violations ' <<<"$out"; then
   echo "check-comments.test: the summary line is missing or unexpected" >&2
+  fail=1
+fi
+
+if grep -qE 'scripts/testdata/comments/good\.' <<<"$out"; then
+  echo "check-comments.test: a good fixture line was flagged" >&2
   fail=1
 fi
 

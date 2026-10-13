@@ -67,6 +67,37 @@ for file in "${files[@]}"; do
       if (n > 2 && w ~ /s$/)   return substr(w, 1, n - 1)
       return w
     }
+    # True when the '.' at i ends a sentence: a '.' between non-spaces is inside a token
+    # (a.b, query.rs, Intl.PluralRules, 7.2.2, E.2); an abbreviation does not end one.
+    function is_end(t, i,   j, tok, after) {
+      after = substr(t, i + 1, 1)
+      if (after != "" && after != " ") return 0
+      j = i - 1
+      while (j >= 1 && substr(t, j, 1) != " ") j--
+      tok = substr(t, j + 1, i - j - 1)
+      if (tok ~ /^(e\.g|i\.e|etc|vs)$/) return 0
+      if (length(tok) == 1) return 0
+      return 1
+    }
+    # Sentences of a block, split on the periods that end one (see is_end). Fills out, returns the count.
+    function split_sentences(text, out,   n, i, len, start, s) {
+      n = 0; start = 1; len = length(text)
+      for (i = 1; i <= len; i++) {
+        if (substr(text, i, 1) == "." && is_end(text, i)) {
+          n++; out[n] = trim(substr(text, start, i - start + 1)); start = i + 1
+        }
+      }
+      if (start <= len) { s = trim(substr(text, start)); if (s != "") { n++; out[n] = s } }
+      return n
+    }
+    # The subject of a sentence: its first word after an article or a determiner.
+    function subject_of(sent,   n, w, k) {
+      n = split(trim(sent), w, /[ \t]+/)
+      k = 1
+      while (k <= n && tolower(clean(w[k])) ~ /^(the|a|an|this|that|these|its|their)$/) k++
+      if (k <= n) return tolower(clean(w[k]))
+      return ""
+    }
     # The name of the item a comment block documents, empty when the next line is not an item.
     function is_item(line,   rest) {
       if (ext == "rs") {
@@ -99,13 +130,13 @@ for file in "${files[@]}"; do
       if ((text ~ /(^|[^A-Za-z0-9_])[NHMLD][0-9]+([^A-Za-z0-9_]|$)/ && text !~ /[NHMLD][0-9]+[-–]/) || text ~ /(per (the )?review|review finding|after review|issue #[0-9]+)/) emit(n, "review-ref", text)
     }
     # A doc block (/// | //! run, or /** ... */) checked against the item it documents.
-    function docblock(n, text, nxt,   item, s, p, nw, k, m, sw, np, cnt, nm, w, hit, all, rest, sent, run, prev, subj, w2, n2, q, c, prevc) {
+    function docblock(n, text, nxt,   item, s, p, nw, k, m, sw, np, cnt, nm, w, hit, all, run, prev, subj, q, c, prevc, ns, sq, SEN) {
       if (text == "") return
       linerules(n, text)
+      ns = split_sentences(text, SEN)
       item = (nxt <= NR) ? is_item(L[nxt]) : ""
-      if (item != "") {
-        s = text; p = index(s, ".")
-        s = (p > 0) ? substr(s, 1, p - 1) : ""
+      if (item != "" && ns > 0) {
+        s = SEN[1]; sub(/\.$/, "", s); s = trim(s)
         if (s != "") {
           nw = split(s, sw, /[ \t]+/)
           if (nw <= 6) {
@@ -127,13 +158,10 @@ for file in "${files[@]}"; do
           }
         }
       }
-      # Three or more sentences in a row that start with the same subject.
-      rest = text; run = 0; prev = ""
-      while (rest != "") {
-        p = index(rest, ".")
-        if (p == 0) { sent = rest; rest = "" } else { sent = substr(rest, 1, p - 1); rest = substr(rest, p + 1) }
-        n2 = split(trim(sent), w2, /[ \t]+/)
-        subj = (n2 > 0) ? tolower(clean(w2[1])) : ""
+      # Three or more sentences in a row with one subject; the article or determiner is not the subject.
+      run = 0; prev = ""
+      for (sq = 1; sq <= ns; sq++) {
+        subj = subject_of(SEN[sq])
         if (subj != "" && subj == prev) run++; else { run = 1; prev = subj }
         if (run >= 3) { emit(n, "same-subject", text); break }
       }
