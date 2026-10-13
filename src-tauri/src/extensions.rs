@@ -109,7 +109,7 @@ fn valid_id(id: &str) -> bool {
         && !id.contains("..")
 }
 
-/// A public internet host by name. No IP address in any form the URL parser reads as one
+/// A host name for the public internet, never an IP address in any form the URL parser reads as one
 /// (`127.1`, `0x7f.0.0.1`: a last label of digits or `0x…` makes it IPv4), no `localhost`,
 /// no internal or reserved zone, no trailing dot.
 fn public_host(host: &str) -> bool {

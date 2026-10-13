@@ -131,7 +131,7 @@ fn all(cfg: &Config) -> Decls {
     out
 }
 
-/// The generated file.
+/// The whole generated file, as one string.
 pub fn render() -> String {
     // `i64` timestamps travel as JSON numbers: they are far below 2^53.
     let cfg = Config::new().with_large_int("number");

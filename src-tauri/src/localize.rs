@@ -11,7 +11,7 @@ use depesha_core::{Class, Error, EwsMeaning, ImapFault, Say, SmtpMeaning, Xoauth
 
 use crate::lang::{self, Lang};
 
-/// An error in the user's words.
+/// What the user is told, in the picked language.
 pub fn error(err: &Error, lang: Lang) -> String {
     match lang {
         Lang::En => err.to_string(),

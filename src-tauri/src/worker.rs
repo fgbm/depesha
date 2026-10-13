@@ -1244,8 +1244,8 @@ impl Ops {
         result
     }
 
-    /// A user action. A busy server's short pause is waited out; with a longer one
-    /// the user hears at once how long it is, instead of a silent wait.
+    /// A person asked for it just now: a busy server's short pause is waited out; with a
+    /// longer one the user hears at once how long it is, instead of a silent wait.
     async fn user(&mut self, work: &Work) -> Result<Output> {
         self.serve(work, true).await
     }
@@ -1299,7 +1299,7 @@ impl Ops {
         self.start_pass(Some(reply)).await;
     }
 
-    /// Background work. After "server busy" it is queued again and waits the pause out.
+    /// Work with no one waiting: after "server busy" it is queued again and waits the pause out.
     async fn background(&mut self, work: Work) {
         if matches!(work, Work::SyncAll) {
             return self.start_pass(None).await;
@@ -2807,7 +2807,7 @@ mod tests {
             ),
             Some(42)
         );
-        // Then the moves are taken in the order they were sent.
+        // The moves are taken in the order they were sent.
         assert!(matches!(
             next(
                 &mut reads,

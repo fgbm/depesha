@@ -771,7 +771,7 @@ mod tests {
         assert_eq!(badge_text(4321).as_deref(), Some("9+"));
     }
 
-    /// A plain red square, opaque.
+    /// Bytes of a plain red square, opaque.
     fn base(size: u32) -> Vec<u8> {
         (0..size * size).flat_map(|_| [200u8, 30, 30, 255]).collect()
     }

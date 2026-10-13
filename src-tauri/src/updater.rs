@@ -263,7 +263,7 @@ fn reason(e: &tauri_plugin_updater::Error) -> String {
     }
 }
 
-/// The user's "Install": downloads if needed. deb/rpm ask for the root password here.
+/// Downloads if needed; deb/rpm ask for the root password here. The "Install" button runs this.
 pub async fn install(state: &AppState) -> Result<UpdateStatus, String> {
     if state.updates.busy.swap(true, Ordering::SeqCst) {
         return Ok(state.updates.status());
@@ -282,7 +282,7 @@ pub async fn install(state: &AppState) -> Result<UpdateStatus, String> {
     r.map(|()| state.updates.status())
 }
 
-/// Restarts into the new version. A staged Windows installer runs now and restarts the app.
+/// Into the new version: a staged Windows installer runs now and restarts the app.
 pub fn restart(state: &AppState) -> ! {
     apply_staged(state);
     state.app.restart()

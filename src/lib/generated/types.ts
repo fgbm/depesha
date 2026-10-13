@@ -421,7 +421,7 @@ export type FollowupFilter = "active" | "closed";
 
 export type FollowupInfo = { status: FollowupStatus, 
 /**
- * The next reminder.
+ * When the next reminder goes out.
  */
 due: number, deadline: number, 
 /**
@@ -737,7 +737,7 @@ sending_started: number, created: number,
  */
 followup_secs: number, 
 /**
- * The rest of that wait.
+ * Remaining fields of the wait plan.
  */
 followup: FollowupPlan, };
 
@@ -1019,8 +1019,8 @@ work_days: Array<number>, };
 
 export type Signature = { id: string, name: string, 
 /**
- * The signature in an HTML letter. Its pictures are inside as `data:` images: they
- * live here, with the mailbox's settings, and the file one came from is not needed.
+ * The pictures are inside as `data:` images: they live here, with the mailbox's
+ * settings, and the file one came from is not needed.
  */
 html: string, 
 /**

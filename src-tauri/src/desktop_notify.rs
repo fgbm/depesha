@@ -204,7 +204,7 @@ pub fn worth(letters: Vec<Letter>) -> (Vec<Letter>, bool) {
     }
 }
 
-/// A notification ready to show.
+/// One ready to hand to the platform.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shown {
     /// The mailbox it is about, or `*` for several: a fresh one replaces the one with its key.
@@ -363,7 +363,7 @@ pub struct Merge {
     pub key: String,
     /// Fresh first, then the ones still on screen.
     pub letters: Vec<Letter>,
-    /// The notification it replaces.
+    /// The slot this one takes over, if any.
     pub replaces: Option<usize>,
     /// Notifications the summary takes over: they go.
     pub absorbs: Vec<usize>,

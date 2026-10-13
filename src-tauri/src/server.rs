@@ -30,7 +30,7 @@ pub(crate) fn changed(state: &AppState, account_id: &str) {
     state.emit("server-changed", json!({ "account_id": account_id }));
 }
 
-/// Keeps the capabilities a login found.
+/// The capabilities of this login, kept.
 pub fn keep_login(state: &AppState, account_id: &str, conn: &imap::Conn) {
     let caps = ServerCaps {
         greeting: conn.greeting.clone().unwrap_or_default(),

@@ -266,9 +266,9 @@ pub fn tray_click(app: &AppHandle) {
 /// this long to finish, so it is not sent twice after a restart.
 pub const QUIT_WAIT: Duration = Duration::from_secs(5);
 
-/// Quits for real. Letters due within a day would not leave: the window asks first
-/// (frame 9A), unless `force`. Windows with letters being written are asked too, and the
-/// round of sending under way is waited for.
+/// The real quit, not the close-to-tray: letters due within a day would not leave, so the
+/// window asks first (frame 9A), unless `force`. Windows with letters being written are
+/// asked too, and the round of sending under way is waited for.
 pub fn quit(app: &AppHandle, force: bool) {
     if !force && let Some(state) = app.try_state::<Arc<AppState>>() {
         let items = state.store.outbox().unwrap_or_default();
