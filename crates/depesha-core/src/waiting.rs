@@ -3,7 +3,7 @@
 //! "Waiting for reply" until the reply brings it back, or to the archive. The state of a wait
 //! (its time, stopping it, the undo of a stop) is the store's (`store::waiting`); here are the
 //! decisions and the moves they ask of the mailbox's queue (`port::MailQueue`). The app only
-//! shows the outcomes. Its clock is the caller's: the rules take `now`.
+//! shows the outcomes. The clock is the caller's: the rules take `now`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};

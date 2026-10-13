@@ -6,7 +6,7 @@ import { size } from "./format";
 import { locale, t, tn, type Lang } from "./i18n.svelte";
 import { folderOperator, recentYears } from "./largeMail";
 
-/** As the cheat sheet and completion offer them (query.rs). */
+/** Operators of the search (query.rs) as the cheat sheet and completion offer them. */
 export const OPERATORS: Record<Lang, string[]> = {
   en: ["from:", "to:", "subject:", "has:attachment", "after:", "before:", "in:", "larger:", "smaller:", "older:", "newer:", "year:", "account:", "label:"],
   ru: ["от:", "кому:", "тема:", "есть:вложение", "после:", "до:", "в:", "больше:", "меньше:", "старше:", "новее:", "год:", "ящик:", "метка:"],

@@ -67,10 +67,10 @@ pub struct Caps {
 impl Caps {
     /// What Depesha uses out of a CAPABILITY list; names are compared ignoring case.
     /// IMAP4rev2 (RFC 9051) folds IDLE, MOVE, UIDPLUS, SPECIAL-USE and STATUS=SIZE into
-    /// the base protocol. A server of that version has them without naming them
-    /// (RFC 9051, 7.2.2 and Appendix E). CONDSTORE and QRESYNC are not implied: they
-    /// stay recommended extensions (Appendix F.1). A server listing IMAP4rev1 too speaks
-    /// rev1 until the client sends ENABLE IMAP4rev2 (RFC 9051, Appendix E), which Depesha
+    /// the base protocol (RFC 9051, 7.2.2 and Appendix E.2), so a server of that version
+    /// has them without naming them. CONDSTORE and QRESYNC are not implied: they stay
+    /// recommended extensions (Appendix F.1). A server listing IMAP4rev1 too speaks rev1
+    /// until the client sends ENABLE IMAP4rev2 (RFC 9051, Appendix E), which Depesha
     /// does not, so only a rev2-only server gets the base set.
     pub fn from_names<S: AsRef<str>>(names: &[S]) -> Self {
         let has = |name: &str| names.iter().any(|n| n.as_ref().eq_ignore_ascii_case(name));

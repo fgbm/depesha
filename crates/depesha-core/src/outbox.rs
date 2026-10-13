@@ -2,7 +2,7 @@
 //! pause after a failure, the copy in «Sent», the letters a sleeping machine missed. The queue
 //! is the store's (`Store::outbox`); the SMTP or Exchange send is the port's (`port::Sender`),
 //! and so is the copy's upload (`port::MailQueue`). The app only runs the rounds and shows the
-//! outcomes. Its clock is the caller's: the rules take `now`.
+//! outcomes. The clock is the caller's: the rules take `now`.
 //!
 //! The order is what keeps a letter from being sent twice or lost: it is marked as sending
 //! before it leaves (`Store::outbox_sending`), so a quit in between leaves a mark and the next
@@ -253,7 +253,7 @@ pub async fn attempt<S: Sender>(
     settled
 }
 
-/// The letter left: its row is removed, and its copy kept. Its client-side copy is work of its
+/// The letter left: its row is removed, and its copy kept. The client-side copy is work of its
 /// own: the send round does not wait for it (a slow Sent folder would hold the whole round up).
 /// The bytes are kept in the cache in the very step that removes the outbox row, so a quit, a
 /// dead network or a paused mailbox cannot lose them; `deliver_copy` files them.

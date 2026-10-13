@@ -1,7 +1,7 @@
 // English interface text. Its keys define what every language must translate:
 // a key missing from another dictionary is a type error.
 
-/** Forms by Intl.PluralRules category; `other` is required. */
+/** Plural forms by Intl.PluralRules category; `other` is required. */
 export interface Plural {
   one?: string;
   few?: string;
