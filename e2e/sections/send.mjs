@@ -180,29 +180,34 @@ export async function run() {
       Number(await d.exec("return [...document.querySelectorAll('nav.side .item')].find((b) => b.querySelector('.name')?.innerText.trim() === 'Черновики')?.querySelector('.count')?.innerText ?? 0")) >= 1);
   });
 
-  await step("4.9.1", "цепочка: три письма — одна строка, в письме видна вся переписка", async () => {
+  await step("4.9.1", "чтение цепочки: три письма — одна строка, последнее раскрыто, прежние свёрнуты (4.0 Б, 4.1 Б)", async () => {
     await d.button("Входящие");
     const threadRow = () =>
       d.exec(`return [...document.querySelectorAll('.row')].filter(r => r.innerText.includes('Бюджет на ноябрь')).map(r => r.querySelector('.count')?.innerText.trim() ?? '1')`);
     await d.until("one row with 3", async () => JSON.stringify(await threadRow()) === '["3"]', 15000);
     await openBySubject("Бюджет на ноябрь");
-    // The newest letter is opened; the two before it fold into cards above.
-    await d.until("conversation cards", async () => (await d.findAll(".thread .card")).length === 2);
+    // The last letter by date is the one unfolded (the pane); the two before it are folded rows.
+    await d.until("two folded rows", async () => (await d.findAll(".thread .letter .head")).length === 2);
+    if ((await d.findAll(".thread .letter .head[aria-expanded='true']")).length !== 0) throw new Error("в цепочке раскрыто лишнее письмо");
     const t = await textOf(".thread");
     if (!t.includes("Мария Соколова")) throw new Error(`цепочка: ${t}`);
     await screenshot("conversation");
   }, { retry: true });
 
-  await step("4.9.2", "письмо, открытое из карточки беседы, не закрывается, когда список обновляется", async () => {
-    // The first letter of the conversation: not a row of the grouped list.
-    await d.click((await d.findAll(".thread .card"))[0]);
-    await d.until("older letter open", async () => (await textOf(".reader .body")).includes("Предлагаю обсудить"));
+  await step("4.9.2", "письмо, раскрытое в цепочке, не сворачивается, когда список обновляется", async () => {
+    // The earliest letter of the conversation: a folded row above the open one, not a row of the list.
+    const first = (await d.findAll(".thread .letter .head"))[0];
+    await d.click(first);
+    await d.until("older letter unfolded", async () => (await textOf(".reader .letter-body")).includes("Предлагаю обсудить"));
     // Any change reloads the list: a flag set and taken off on another letter.
     const other = await idOf("Скидки недели");
     await invoke("set_flag", { ids: [other], change: { flag: "flagged", value: true } });
     await invoke("set_flag", { ids: [other], change: { flag: "flagged", value: false } });
     await new Promise((r) => setTimeout(r, 1500));
-    if (!(await textOf(".reader .body")).includes("Предлагаю обсудить")) throw new Error("письмо закрылось после обновления списка");
+    if (!(await textOf(".reader .letter-body")).includes("Предлагаю обсудить")) throw new Error("письмо свернулось после обновления списка");
+    // A click folds it back.
+    await d.click((await d.findAll(".thread .letter .head"))[0]);
+    await d.until("older letter folded", async () => (await d.findAll(".reader .letter-body")).length === 0);
   });
 
   await step("13.1, 13.2", "люди и рассылки отдельно, у каждого списка свой выбор; отписка письмом", async () => {

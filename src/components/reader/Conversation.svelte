@@ -1,131 +1,114 @@
 <script lang="ts">
-  // The folded letters of the conversation around the opened one: one line per letter, a
-  // card above and below the letter read, the middle of a long conversation into "N more".
-  // The pane (Reader.svelte) frames the group and decides what "N more" opens.
+  // One side of the conversation read as an accordion (0.8.4, #180; decision 4.0 Б): the far
+  // history folds into «Ещё N писем», and every letter is drawn by ThreadLetter — a folded row or
+  // an unfolded one with its own header and buttons. The pane (Reader.svelte) frames the group and
+  // keeps the letter that is open; this holds which letters of its own side are unfolded, and asks
+  // the backend for a letter's body when it unfolds.
+  import { untrack } from "svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ThreadLetter from "./ThreadLetter.svelte";
+  import { api } from "../../lib/api";
   import { app } from "../../lib/store.svelte";
-  import { avatarColor, initials, listDate } from "../../lib/format";
-  import { t, tn } from "../../lib/i18n.svelte";
-  import { avatarOf } from "../../lib/avatars.svelte";
-  import type { MessageRow } from "../../lib/types";
+  import { tn } from "../../lib/i18n.svelte";
+  import type { MessageRow, OpenedMessage } from "../../lib/types";
 
   let {
     messages,
     folded = 0,
     onShowAll,
+    focusId,
+    onReply,
+    onForward,
   }: {
     /** The letters of this group, oldest first. */
     messages: MessageRow[];
-    /** How many letters the middle hides; 0 shows every card. */
+    /** How many of the far (earliest) letters «Ещё N писем» hides; 0 shows every row. */
     folded?: number;
-    /** "N more" unfolds the middle. */
+    /** «Ещё N писем» unfolds the far history. */
     onShowAll?: () => void;
+    /** The letter the pane has open: the one that is unfolded by default (4.1 Б). */
+    focusId: number;
+    /** Answering a letter unfolded here: the pane replies for the letter it has open. */
+    onReply: (all: boolean) => void;
+    onForward: () => void;
   } = $props();
 
-  function isMine(m: MessageRow): boolean {
-    const mine = app.mailboxes.accounts.map((a) => a.email.toLowerCase());
-    return !!m.from && mine.includes(m.from.email.toLowerCase());
+  /** The letters unfolded here; the letter the pane has open is not among them. */
+  let unfolded = $state<Set<number>>(new Set());
+  /** The bodies of the unfolded letters, asked of the backend as they unfold. */
+  let bodies = $state<Map<number, OpenedMessage>>(new Map());
+  /** The letter the accordion was unfolded around: another one closes it again. */
+  let openedFor = $state<number | null>(null);
+
+  // The unfolded letters close again when another letter becomes the one open, as the pane's own
+  // folds do: the accordion is about the letter read now.
+  $effect(() => {
+    const id = focusId;
+    untrack(() => {
+      if (openedFor === id) return;
+      openedFor = id;
+      unfolded = new Set();
+      bodies = new Map();
+    });
+  });
+
+  const shown = $derived(folded ? messages.slice(folded) : messages);
+
+  /** Unfolds a letter here, or folds it back; a letter unfolded is a letter read (4.0 Б). */
+  function toggle(m: MessageRow) {
+    if (unfolded.has(m.id)) {
+      const next = new Set(unfolded);
+      next.delete(m.id);
+      unfolded = next;
+      return;
+    }
+    unfolded = new Set(unfolded).add(m.id);
+    app.reader.saw([m.id]);
+    if (bodies.has(m.id)) return;
+    void api.open(m.id, false)
+      .then((o) => (bodies = new Map(bodies).set(m.id, o)))
+      .catch((e) => app.ui.fail(e));
   }
 
-  function roleOf(m: MessageRow) {
-    return app.mailboxes.folder(m.account_id, m.folder)?.role;
+  /** Answering a letter unfolded here: it becomes the letter the pane has open, and the pane
+   *  answers for it (4.3 А — the quick reply stays with one letter). */
+  async function reply(m: MessageRow, all: boolean) {
+    if (m.id !== focusId) await app.reader.open(m.id);
+    onReply(all);
+  }
+
+  async function forward(m: MessageRow) {
+    if (m.id !== focusId) await app.reader.open(m.id);
+    onForward();
   }
 </script>
 
-{#snippet card(m: MessageRow)}
-  {@const pic = avatarOf(m.account_id, m.from?.email, null)}
-  <button class="card" class:unread={!m.flags.seen} onclick={() => app.reader.open(m.id)}>
-    <span class="mini" class:pic style:background={pic ? null : avatarColor(m.from?.email ?? "")}>
-      {#if pic}<img src={pic} alt="" />{:else}{initials(m.from)}{/if}
-    </span>
-    <span class="who">{isMine(m) ? t("list.me") : (m.from?.name ?? m.from?.email ?? "")}</span>
-    {#if roleOf(m) === "drafts"}<span class="draft-tag">{t("conv.draft")}</span>
-    {:else if roleOf(m) === "sent" && !isMine(m)}<span class="muted">· {t("conv.youReplied")}</span>{/if}
-    <span class="when muted">{listDate(m.date)}</span>
-  </button>
-{/snippet}
-
 {#if folded}
-  {@render card(messages[0])}
-  <button class="card more" onclick={onShowAll}><span class="more-line"></span>{tn("conv.more", folded)}<span class="more-line"></span></button>
-  {#each messages.slice(-1) as m (m.id)}{@render card(m)}{/each}
-{:else}
-  {#each messages as m (m.id)}{@render card(m)}{/each}
+  <button class="more" onclick={onShowAll}><ChevronDown size={14} /> {tn("conv.more", folded)}</button>
 {/if}
 
+{#each shown as m (m.id)}
+  <ThreadLetter {m} open={unfolded.has(m.id)} body={bodies.get(m.id)} onToggle={() => toggle(m)} onReply={(all) => void reply(m, all)} onForward={() => void forward(m)} />
+{/each}
+
 <style>
-  .card {
+  /* «Ещё N писем»: the far history folded into one row above the letters that show. */
+  .more {
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    gap: 6px;
     width: 100%;
-    padding: 9px 12px;
+    padding: 7px 12px;
     border: none;
     border-bottom: 1px solid var(--line);
     background: none;
-    text-align: left;
+    color: var(--muted);
     font-size: 13px;
   }
 
-  .card:last-child {
-    border-bottom: none;
-  }
-
-  .card:hover {
+  .more:hover {
     background: var(--hover);
-  }
-
-  .card.unread .who {
-    font-weight: 650;
-  }
-
-  .card .when {
-    margin-left: auto;
-    font-size: 12px;
-  }
-
-  .card.more {
-    justify-content: center;
-    color: var(--muted);
-    font-size: 12px;
-    padding: 6px 12px;
-  }
-
-  .more-line {
-    flex: 1;
-    height: 1px;
-    background: var(--line);
-  }
-
-  .draft-tag {
-    color: var(--accent);
-    font-weight: 600;
-    font-size: 12px;
-  }
-
-  .mini {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    color: #fff;
-    font-size: 9px;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-  }
-
-  /* A photo fills the circle; logos are drawn for a white ground. */
-  .mini.pic {
-    background: #fff;
-    overflow: hidden;
-    box-shadow: inset 0 0 0 1px var(--line);
-  }
-
-  .mini.pic img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+    color: var(--ink);
   }
 </style>

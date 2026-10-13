@@ -162,7 +162,7 @@ try {
   await d.button("Входящие");
   await openBySubject("Re: Смета на монтаж");
   await d.click(await d.find(".reader .thread"));
-  await d.until("conversation", async () => (await d.findAll(".reader .thread .card")).length >= 2, 10000);
+  await d.until("conversation", async () => (await d.findAll(".reader .thread .letter .head")).length >= 2, 10000);
   await sleep(300);
   await shot("dark");
   await press("Escape");

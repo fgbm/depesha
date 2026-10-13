@@ -111,9 +111,9 @@
     app.reader.open(msg.row.id, true);
   }
 
-  // The conversation reads top to bottom around the opened letter, as in Gmail:
-  // earlier letters fold into cards above it, later ones below, the middle of
-  // each long side into its own "N more".
+  // The conversation reads top to bottom around the open letter (0.8.4, #180): the letter the
+  // list opened is the one unfolded, earlier letters are folded rows above it, later ones below,
+  // and the far (earliest) history of each side folds into its own «Ещё N писем».
   const at = $derived(msg ? app.reader.conversation.findIndex((m) => m.id === msg.row.id) : -1);
   const before = $derived(at > 0 ? app.reader.conversation.slice(0, at) : []);
   const after = $derived(at >= 0 ? app.reader.conversation.slice(at + 1) : []);
@@ -165,7 +165,7 @@
     <div class="scroll" class:viewing bind:this={viewer.scrollBox}>
       {#if before.length && !viewing}
         <div class="thread" aria-label={t("conv.label")}>
-          <Conversation messages={before} folded={folded} onShowAll={() => (showAll = true)} />
+          <Conversation messages={before} folded={folded} onShowAll={() => (showAll = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
         </div>
       {/if}
 
@@ -223,7 +223,7 @@
 
       {#if after.length && !viewing}
         <div class="thread after" aria-label={t("conv.label")}>
-          <Conversation messages={after} folded={foldedAfter} onShowAll={() => (showAllAfter = true)} />
+          <Conversation messages={after} folded={foldedAfter} onShowAll={() => (showAllAfter = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
         </div>
       {/if}
     </div>

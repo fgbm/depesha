@@ -44,6 +44,26 @@ describe("marking a letter read", () => {
   });
 });
 
+describe("reading a conversation letter by letter (0.8.4, #180)", () => {
+  it("marks the opened letter read, not the whole conversation around it", async () => {
+    api.messages.mockResolvedValue(rows(1, 5));
+    api.open.mockImplementation(async (id: number) => opened(row(id)));
+    // A conversation of three unread letters; the newest (3) is the one opened.
+    api.thread.mockImplementation(async (id: number) => (id === 3 ? [row(1), row(2), row(3)] : []));
+    const s = new AppStore();
+    await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
+
+    vi.useFakeTimers();
+    void s.reader.open(3);
+    await flush();
+    expect(s.reader.conversation.map((m) => m.id).sort()).toEqual([1, 2, 3]);
+    vi.advanceTimersByTime(1200);
+    await flush();
+    // Only the letter that was unfolded by default is marked; the folded ones stay unread.
+    expect(markedSeen()).toEqual([3]);
+  });
+});
+
 describe("acting on a letter", () => {
   it("marks it read at once, not after the wait", async () => {
     api.messages.mockResolvedValue(rows(1, 3));
