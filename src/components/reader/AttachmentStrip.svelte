@@ -2,14 +2,13 @@
   // The attachments of an opened letter: chips in at most two rows, the rest behind «+N more ›»
   // in the same list as the composition window's (AttachmentMenu). The rows are counted by the
   // pane's real width and the chips' real widths, and again whenever the pane is resized.
-  import Paperclip from "@lucide/svelte/icons/paperclip";
   import Download from "@lucide/svelte/icons/download";
   import FolderOutput from "@lucide/svelte/icons/folder-output";
-  import { size } from "../../lib/format";
   import { i18n, t } from "../../lib/i18n.svelte";
   import { onMount, tick } from "svelte";
   import { foldChips, keepFit } from "../../lib/attachFold";
   import type { AttachmentInfo } from "../../lib/types";
+  import AttachmentChip from "./AttachmentChip.svelte";
   import AttachmentMenu, { type RowAction } from "../AttachmentMenu.svelte";
 
   let {
@@ -82,15 +81,7 @@
 </script>
 
 {#snippet chip(a: AttachmentInfo, measuring: boolean)}
-  {@const current = !measuring && viewing && files[viewingAt] === a}
-  <div class="file" class:current inert={measuring}>
-    <button class="file-name" onclick={() => onViewAttachment(a)} title={current ? t("viewer.close") : `${t("file.open")}: ${a.name}`} aria-pressed={current}><Paperclip size={13} /><span class="fname">{a.name}</span></button>
-    <span class="fsize muted">{size(a.size)}</span>
-    <button class="btn ghost small-btn" onclick={() => onSaveAttachment(a)} title={saveDir ? t("file.saveIn", { dir: saveDir }) : t("file.save")} aria-label={t("file.save")}><Download size={14} /></button>
-    {#if saveDir}
-      <button class="btn ghost small-btn" onclick={() => onSaveAttachmentAs(a)} title={t("file.saveAs")} aria-label={t("file.saveAs")}><FolderOutput size={14} /></button>
-    {/if}
-  </div>
+  <AttachmentChip {a} current={!measuring && viewing && files[viewingAt] === a} {measuring} onView={onViewAttachment} onSave={onSaveAttachment} onSaveAs={onSaveAttachmentAs} {saveDir} />
 {/snippet}
 
 {#if files.length}
@@ -154,73 +145,9 @@
     display: inline-flex;
   }
 
-  .file {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    max-width: min(340px, 100%);
-    height: 32px;
-    border: 1px solid var(--line);
-    background: var(--paper);
-    border-radius: 6px;
-    padding: 0 2px 0 8px;
-  }
-
-  /* The name shrinks with an ellipsis; the icon, size and button keep their room. */
-  .file-name {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    background: none;
-    border: none;
-    padding: 0;
-    color: var(--link);
-  }
-
-  .file-name :global(svg) {
-    flex: none;
-  }
-
-  .fname {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .fname:hover {
-    text-decoration: underline;
-  }
-
-  .fsize {
-    flex: none;
-    font-size: 12px;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .file .small-btn {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-  }
-
   .small-btn {
     padding: 2px 6px;
     font-size: 12px;
-  }
-
-  .file.current {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, var(--paper));
   }
 
   /* «+N more ›»: the composition window's look; it takes the shown file's frame when that file is folded. */

@@ -163,6 +163,9 @@
     {#if !toolbarInBar}<ReaderToolbar {msg} {account} {isDraft} {message} {nav} inactive={!showsLetter} />{/if}
 
     <div class="scroll" class:viewing bind:this={viewer.scrollBox}>
+      <!-- The subject of the conversation stands once, above all its letters (4.5): a letter of
+           the thread carries no heading of its own. -->
+      <h1 class="subject selectable">{msg.view.summary.subject || t("noSubject")}</h1>
       {#if before.length && !viewing}
         <div class="thread" aria-label={t("conv.label")}>
           <Conversation messages={before} folded={folded} onShowAll={() => (showAll = true)} focusId={msg.row.id} onReply={reply} onForward={onForward} />
@@ -251,6 +254,15 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+  }
+
+  /* The subject of the conversation, once, above its letters (4.5). */
+  .subject {
+    margin: 0;
+    padding: 4px 22px 12px;
+    font-size: 20px;
+    font-weight: 650;
+    line-height: 1.3;
   }
 
   /* Folded letters of the conversation: one line each, the opened letter between them.

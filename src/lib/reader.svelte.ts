@@ -104,13 +104,12 @@ export class Reader {
     if (seq !== this.openSeq) return;
     this.conversation = shownConversation(conversation, id, folder);
     extensions.showing(this.showing());
-    // A conversation is read letter by letter (0.8.4, #180): a letter counts as read when it is
-    // unfolded in the reader (Conversation.svelte), not because the thread around it opened. The
-    // letter that is open now is the one unfolded by default, and it waits to be marked (#71).
-    if (wasUnread) this.scheduleSeen(id, seq, epoch, wasUnread);
+    // Reading a conversation reads all of it — once the letter stayed on screen (#71).
+    for (const m of this.conversation) if (!m.flags.seen && m.id !== id) this.host.list.mark(m.id, m);
+    if (wasUnread || conversation.some((m) => !m.flags.seen && m.id !== id)) this.scheduleSeen(id, seq, epoch, wasUnread);
   }
 
-  /** Marks the shown letter read once it stayed on screen (its conversation is read as it unfolds). */
+  /** Marks the shown letter (and its conversation) read once it stayed on screen. */
   private scheduleSeen(id: number, seq: number, epoch: number, wasUnread: boolean) {
     this.cancelSeen();
     this.seenTimer = setTimeout(() => {
@@ -128,12 +127,14 @@ export class Reader {
     // Another letter opened, or the user changed flags by hand meanwhile: nothing to mark.
     if (seq !== this.openSeq || epoch !== this.flagEpoch) return;
     const opened = this.opened;
-    if (!opened || opened.row.id !== id || !wasUnread) return;
+    if (!opened || opened.row.id !== id) return;
     const { list } = this.host;
-    // The unfolded letter alone: its conversation is read as it unfolds, letter by letter (#180).
-    api.setFlag([id], { flag: "seen", value: true }).catch((e) => this.host.ui.fail(e));
-    for (const m of this.conversation) if (m.id === id) m.flags.seen = true;
-    for (const m of list.messages) if (m.id === id) m.flags.seen = true;
+    const unread = this.conversation.filter((m) => !m.flags.seen && m.id !== id).map((m) => m.id);
+    const ids = [...(wasUnread ? [id] : []), ...unread];
+    if (!ids.length) return;
+    api.setFlag(ids, { flag: "seen", value: true }).catch((e) => this.host.ui.fail(e));
+    for (const m of this.conversation) if (ids.includes(m.id)) m.flags.seen = true;
+    for (const m of list.messages) if (ids.includes(m.id)) m.flags.seen = true;
   }
 
   /**

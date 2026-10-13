@@ -44,11 +44,11 @@ describe("marking a letter read", () => {
   });
 });
 
-describe("reading a conversation letter by letter (0.8.4, #180)", () => {
-  it("marks the opened letter read, not the whole conversation around it", async () => {
+describe("opening a conversation reads it whole (#71, 0.8.4, #180)", () => {
+  it("marks the whole conversation read once the opened letter stayed on screen", async () => {
     api.messages.mockResolvedValue(rows(1, 5));
     api.open.mockImplementation(async (id: number) => opened(row(id)));
-    // A conversation of three unread letters; the newest (3) is the one opened.
+    // A conversation of three unread letters; the letter 3 is the one opened.
     api.thread.mockImplementation(async (id: number) => (id === 3 ? [row(1), row(2), row(3)] : []));
     const s = new AppStore();
     await s.selection.setView({ kind: "folder", account_id: "a", folder: "INBOX" });
@@ -59,8 +59,9 @@ describe("reading a conversation letter by letter (0.8.4, #180)", () => {
     expect(s.reader.conversation.map((m) => m.id).sort()).toEqual([1, 2, 3]);
     vi.advanceTimersByTime(1200);
     await flush();
-    // Only the letter that was unfolded by default is marked; the folded ones stay unread.
-    expect(markedSeen()).toEqual([3]);
+    // Opening the thread reads all of it, as it did before the branch (#71): the opened letter
+    // first, then the letters of the conversation that were still unread, oldest first.
+    expect(markedSeen()).toEqual([3, 2, 1]);
   });
 });
 

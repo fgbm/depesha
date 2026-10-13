@@ -49,7 +49,8 @@ describe("the importance in the header of a letter (#72, 2.1 Б)", () => {
   it("is a line in the block of marks and nothing at the subject", () => {
     const t = draw(opened("high"));
     expect(t.querySelector(".marks .important")?.textContent?.trim()).toBe("! Отправитель отметил как важное");
-    expect(t.querySelector("h1")?.textContent).toBe("Срочно");
+    // The subject is the pane's, once above all letters (4.5): the header carries none.
+    expect(t.querySelector("h1")).toBeNull();
   });
 
   it("is absent for a normal letter and for a low one", () => {

@@ -70,6 +70,15 @@ describe("reading a conversation (0.8.4, #180)", () => {
     expect(document.querySelector(".reader h1")!.textContent).toContain("Тема 7");
   });
 
+  it("shows the subject once, above all the letters, and no letter carries one (4.5)", () => {
+    const h1s = [...document.querySelectorAll<HTMLElement>(".reader h1")];
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0].textContent).toContain("Тема 7");
+    // The heading stands above the thread, not inside a letter of it.
+    expect(document.querySelector(".reader .scroll > h1.subject")).not.toBeNull();
+    expect(document.querySelector(".thread h1")).toBeNull();
+  });
+
   it("unfolds the last letter of the thread by date, not by id (4.1 Б)", () => {
     // Dates out of step with the ids: the newest letter (id 1) is the one the pane has open.
     const chain = [7, 6, 5, 4, 3, 2, 1].map((id) => ({ ...row(id), date: 2000 - id }));
@@ -220,6 +229,45 @@ describe("the buttons of a letter unfolded in the conversation (0.8.4, #180)", (
     acts[2].click();
     await flush();
     expect(api.remove.mock.calls[0][0]).toEqual([5]);
+  });
+});
+
+describe("the header of a letter unfolded in the conversation (4.6)", () => {
+  it("shows only the name, the address on hover", async () => {
+    const h = heads()[0];
+    // Folded and unfolded alike: no address line, only the name.
+    expect(h.textContent).not.toContain("u5@x.example");
+    expect(h.querySelector(".who")?.getAttribute("title")).toBe("u5@x.example");
+    h.click();
+    await flush();
+    flushSync();
+    expect(h.textContent).toContain("Автор 5");
+    expect(h.textContent).not.toContain("u5@x.example");
+  });
+});
+
+describe("the files of a letter unfolded in the conversation (4.8)", () => {
+  it("shows the letter's files — name, size, a button that saves each — and no viewer", async () => {
+    app.settingsCtl.settings = { ...settings(), attachments_dir: "/tmp/att" };
+    api.attachmentSaveIn.mockResolvedValue("/tmp/att/отчёт.pdf");
+    const withFiles = (id: number) => {
+      const o = opened(id);
+      return { ...o, view: { ...o.view, attachments: [{ index: 0, name: "отчёт.pdf", size: 2048, inline: false, content_id: null }] } } as unknown as OpenedMessage;
+    };
+    api.open.mockImplementation(async (id: number) => withFiles(id));
+    heads()[0].click();
+    await flush();
+    flushSync();
+    const files = [...document.querySelectorAll<HTMLElement>(".thread .letter .files .file")];
+    expect(files).toHaveLength(1);
+    expect(files[0].textContent).toContain("отчёт.pdf");
+    expect(files[0].textContent).toContain("2 КБ");
+    // No viewer here: the name is plain text, not a button that shows the file.
+    expect(files[0].querySelector("button.file-name")).toBeNull();
+    // The button saves the letter's own file, by the letter's id.
+    [...files[0].querySelectorAll<HTMLButtonElement>("button")][0].click();
+    await flush();
+    expect(api.attachmentSaveIn).toHaveBeenCalledWith(5, 0);
   });
 });
 

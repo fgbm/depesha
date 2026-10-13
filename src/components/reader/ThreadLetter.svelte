@@ -18,12 +18,14 @@
   import Forward from "@lucide/svelte/icons/forward";
   import Popover from "../Popover.svelte";
   import ReaderBody from "./ReaderBody.svelte";
+  import AttachmentChip from "./AttachmentChip.svelte";
+  import { api } from "../../lib/api";
   import { app } from "../../lib/store.svelte";
   import { addrName, avatarColor, initials, listDate } from "../../lib/format";
   import { t } from "../../lib/i18n.svelte";
   import { avatarOf } from "../../lib/avatars.svelte";
   import { printRow } from "../../lib/print";
-  import type { MessageRow, OpenedMessage } from "../../lib/types";
+  import type { AttachmentInfo, MessageRow, OpenedMessage } from "../../lib/types";
 
   let {
     m,
@@ -67,6 +69,34 @@
 
   const pic = $derived(avatarOf(m.account_id, m.from?.email, null));
 
+  /** The letter's files, minus the pictures drawn in its text: the reader's list (4.8). */
+  const attachments = $derived((body?.view.attachments ?? []).filter((a) => !(a.inline && a.content_id)));
+  /** The folder the files go to without asking; the pane's viewer reads the same. */
+  const saveDir = $derived(app.mailboxes.account(m.account_id)?.attachments_dir?.trim() || app.settingsCtl.settings.attachments_dir?.trim() || "");
+
+  /** Saving a file of a letter unfolded here: the pane's viewer saves for the open letter, this
+   *  saves for the letter's own id (4.8). No viewer: the name is not a button. */
+  async function saveAttachment(a: AttachmentInfo) {
+    if (!saveDir) return saveAttachmentAs(a);
+    try {
+      const path = await app.ui.track(api.attachmentSaveIn(m.id, a.index));
+      app.ui.toast(t("file.savedTo", { name: path.split(/[\\/]/).pop() ?? a.name, dir: saveDir }));
+    } catch (e) {
+      app.ui.fail(e);
+    }
+  }
+
+  async function saveAttachmentAs(a: AttachmentInfo) {
+    try {
+      const path = await api.pickSaveFile(t("file.saveTitle"), a.name);
+      if (!path) return;
+      await app.ui.track(api.attachmentSave(m.id, a.index, path));
+      app.ui.toast(t("file.saved", { name: a.name }));
+    } catch (e) {
+      app.ui.fail(e);
+    }
+  }
+
   /** The keyboard does what a click does; the button's own activation is taken over, so the
    *  letter is not unfolded twice. */
   function headKey(e: KeyboardEvent) {
@@ -81,8 +111,8 @@
     <span class="mini" class:pic style:background={pic ? null : avatarColor(m.from?.email ?? "")}>
       {#if pic}<img src={pic} alt="" />{:else}{initials(m.from)}{/if}
     </span>
-    <span class="who">{isMine(m) ? t("list.me") : addrName(m.from) || t("list.noSender")}</span>
-    {#if open && m.from?.name}<span class="addr muted">&lt;{m.from.email}&gt;</span>{/if}
+    <!-- Only the name stands here; the address is on hover (4.6). -->
+    <span class="who" title={m.from?.email || undefined}>{isMine(m) ? t("list.me") : addrName(m.from) || t("list.noSender")}</span>
     {#if roleOf(m) === "drafts"}<span class="draft-tag">{t("conv.draft")}</span>
     {:else if roleOf(m) === "sent" && !isMine(m)}<span class="muted">· {t("conv.youReplied")}</span>{/if}
     {#if !open && m.snippet}<span class="peek muted">{m.snippet}</span>{/if}
@@ -96,6 +126,14 @@
       <div class="letter-body"><ReaderBody msg={body} viewing={false} /></div>
     {:else}
       <p class="loading muted">{t("loading")}</p>
+    {/if}
+    <!-- The letter's files: name, size, a button that saves each (4.8). No viewer here. -->
+    {#if attachments.length}
+      <div class="files">
+        {#each attachments as a (a.index)}
+          <AttachmentChip {a} {saveDir} onSave={saveAttachment} onSaveAs={saveAttachmentAs} />
+        {/each}
+      </div>
     {/if}
     <div class="acts">
       <button class="btn ghost" onclick={() => onReply(false)}><Reply size={14} /> {t("act.reply")}</button>
@@ -183,14 +221,6 @@
     white-space: nowrap;
   }
 
-  .addr {
-    flex: none;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 40%;
-  }
-
   /* The preview of a folded letter takes the rest of the row and is cut to it. */
   .peek {
     flex: 1;
@@ -235,6 +265,15 @@
   /* The letter's own card is the pane's (ReaderBody): inside the row it keeps the row's margins. */
   .letter-body :global(.body) {
     margin: 0;
+  }
+
+  /* The letter's files, as the pane's strip shows them (4.8): the same chips, wrapped. */
+  .files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 12px 10px;
+    align-items: center;
   }
 
   .loading {
