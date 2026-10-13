@@ -6,9 +6,9 @@
 
 - NO/BAD от `async-imap` приходит строкой `code: None, info: Some("...")`, пользователю её показывать нельзя. Текст сервера вытаскивает `imap::server_text`.
 - До логина у `async_imap::Client` нет `capabilities()`, а `run_command` закрыт (`pub(crate)`), поэтому `AUTH=` до входа так не прочитать. CAPABILITY — через `run_command_and_check_ok("CAPABILITY", Some(tx))` и разбор `UnsolicitedResponse::Other` из канала.
-- NAMESPACE imap-proto не разбирает: `Response::parse` (0.17) возвращает `Err(TakeWhile1)`, и непрочитанная строка в `read_response` рвёт соединение `io::Error`. Команду пиши через `run_command` (тег библиотеки), ответ дочитывай сырыми байтами из `session.get_mut()` до строки с тегом и разбирай своей регуляркой. MYRIGHTS, ACL и PERMANENTFLAGS imap-proto разбирает штатно.
+- NAMESPACE imap-proto не разбирает: `Response::parse` (0.17) возвращает `Err(TakeWhile1)`, и непрочитанная строка в `read_response` рвёт соединение `io::Error`. Команду пиши через `run_command` (`tag` библиотеки), ответ дочитывай сырыми байтами из `session.get_mut()` до строки с `tag` и разбирай своей регуляркой. MYRIGHTS, ACL и PERMANENTFLAGS imap-proto разбирает штатно.
 - Свойства папки читай через SELECT, не EXAMINE. EXAMINE отдаёт `[PERMANENTFLAGS ()]`, SELECT — полный список с `\*`; иначе свои метки всегда выглядят запрещёнными.
-- STORE в read-only папке Dovecot молча отвечает OK: `UID STORE -FLAGS.SILENT` не снимает флаг и не отвечает NO. Перед снятием сверяй MYRIGHTS (`imap::folder_props`) и read-only считай отказом, иначе кэш теряет метку, а на сервере она остаётся.
+- STORE в read-only папке Dovecot молча отвечает OK. Команда `UID STORE -FLAGS.SILENT` не снимает флаг и не отвечает NO. Перед снятием сверяй MYRIGHTS (`imap::folder_props`); read-only считай отказом. Иначе кэш теряет метку, а на сервере она остаётся.
 
 ## SMTP
 
@@ -36,4 +36,4 @@
 ## Графика
 
 - SVG логотипа растеризуй только через `npx tauri icon` (resvg) из корня проекта. ImageMagick (`magick seal.svg`) молча теряет обводку дуги (`A` в path) и `fill="none"`, обрезает `rotate`; из `/tmp` npx не находит tauri, а с `>/dev/null` этого не видно.
-- Логотип Google — плоский `Google_"G"_logo.svg` с Wikimedia Commons. В официальном `signin-assets.zip` только кнопки целиком, а «G» в них — экспорт из Figma с конусным градиентом через `foreignObject` и JSON в `fill`: ImageMagick рисует его сиреневым, на WebKitGTK тоже ненадёжно.
+- Логотип Google — плоский `Google_"G"_logo.svg` с Wikimedia Commons. В официальном `signin-assets.zip` только кнопки целиком, а «G» в них — экспорт из Figma с конусным градиентом через `foreignObject` и JSON в `fill`. ImageMagick рисует его сиреневым, на WebKitGTK тоже ненадёжно.
