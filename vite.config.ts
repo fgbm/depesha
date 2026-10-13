@@ -1,5 +1,5 @@
 import { defaultClientConditions, type Plugin } from "vite";
-import { defineConfig, configDefaults } from "vitest/config";
+import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { fileURLToPath } from "node:url";
 
@@ -88,10 +88,6 @@ export default defineConfig(({ mode }) => {
           rollupOptions: { output: { format: "iife", inlineDynamicImports: true } },
         }
       : { target: "es2022", sourcemap: false, outDir: "dist" },
-    test: {
-      include: ["src/**/*.test.ts", "plugins/**/*.test.ts", "e2e/**/*.test.mjs", "scripts/**/*.test.mjs"],
-      // scripts/ste-lint.test.mjs runs on node:test (`node --test`), not vitest: CI and scripts/check.sh call it that way.
-      exclude: [...configDefaults.exclude, "scripts/ste-lint.test.mjs"],
-    },
+    test: { include: ["src/**/*.test.ts", "plugins/**/*.test.ts", "e2e/**/*.test.mjs", "scripts/**/*.test.mjs"] },
   };
 });

@@ -177,7 +177,7 @@ export function lintFile(text, rules, file) {
   return lintLines(content, numbers, rules, file);
 }
 
-/** Файлы по умолчанию: русские документы из охвата styles/DepeshaRU (mirror .vale.ini). */
+/** Файлы по умолчанию: русские документы из охвата styles/DepeshaRU (mirror .vale.ini), кроме самого словаря. */
 export function defaultTargets(root = ROOT) {
   const targets = [
     join(root, AGENTS),
@@ -186,10 +186,12 @@ export function defaultTargets(root = ROOT) {
     join(root, "design", "mockups", "README.md"),
     join(root, "docs", "style", "ru-technical.md"),
   ];
+  // docs/glossary.md — сам словарь: он перечисляет запрещённые слова и синонимы, проверять его этими же словами нельзя.
+  const skip = new Set(["glossary.md"]);
   for (const dir of [join(root, "docs"), join(root, "docs", "agents"), join(root, "design", "references")]) {
     try {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (entry.isFile() && entry.name.endsWith(".md")) targets.push(join(dir, entry.name));
+        if (entry.isFile() && entry.name.endsWith(".md") && !skip.has(entry.name)) targets.push(join(dir, entry.name));
       }
     } catch {
       // Каталога нет: проверять нечего.

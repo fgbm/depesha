@@ -199,8 +199,6 @@ jobs:
         run: vale --minAlertLevel=error $STYLE_PATHS
       - name: ste-lint
         run: node scripts/ste-lint.mjs
-      - name: ste-lint test
-        run: node --test scripts/ste-lint.test.mjs
 
   integration:
     needs: reuse

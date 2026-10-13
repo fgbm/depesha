@@ -224,7 +224,7 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     step "правила письма (STE)"
     if ((${#ruChanged[@]})); then node scripts/ste-lint.mjs "${ruChanged[@]}"; else node scripts/ste-lint.mjs; fi
     step "тест проверки STE"
-    node --test scripts/ste-lint.test.mjs
+    npx vitest run scripts/ste-lint.test.mjs
   fi
   step "хук персональных данных"
   scripts/hooks/pre-commit.test.sh
@@ -253,7 +253,7 @@ vale_check "${styledocs[@]}"
 step "правила письма (STE)"
 node scripts/ste-lint.mjs
 step "тест проверки STE"
-node --test scripts/ste-lint.test.mjs
+npx vitest run scripts/ste-lint.test.mjs
 step "хук персональных данных"
 scripts/hooks/pre-commit.test.sh
 step "метрики фронтенда"
