@@ -1,14 +1,15 @@
 // Screenshots for a release's description (docs/releases/<version>.md): the real app (debug
 // build) on a virtual display, driven over WebDriver, over the tidy demo mail seeded by
-// imap_helper.py demo-seed. SHOTS_SET=0.8.0 shoots the set of 0.8 and SHOTS_SET=0.8.2 the set
-// of 0.8.2 (the scenes are in scenes-080.mjs, shared with shots.mjs, over the demo mail seeded
-// with the same SHOTS_SET); without it, the set of 0.7 below. For another release adapt the
-// shots and the seeded ids.
+// imap_helper.py demo-seed. SHOTS_SET=0.8.0 shoots the set of 0.8, SHOTS_SET=0.8.2 the set of
+// 0.8.2 and SHOTS_SET=0.8.3 the set of 0.8.3 (the scenes are in scenes-080.mjs and
+// scenes-083.mjs, over the demo mail seeded with the same SHOTS_SET); without it, the set of
+// 0.7 below. For another release adapt the shots and the seeded ids.
 //
 //   scripts/release-shots.sh                 the whole thing (servers, demo mail, build, shoot)
 //   DEPESHA_APP=… scripts/release-shots.sh   an already built binary, no build
 //   SHOTS_SET=0.8.0 scripts/release-shots.sh the set of 0.8.0
 //   SHOTS_SET=0.8.2 scripts/release-shots.sh the set of 0.8.2
+//   SHOTS_SET=0.8.3 scripts/release-shots.sh the set of 0.8.3
 //
 // Writes ${SHOTS_OUT}/NN-*.png (default /tmp/depesha-release-shots). Demo data is tidy
 // (example.com), the labels and reply marks are seeded before the shooting session so the
@@ -17,11 +18,13 @@
 import { createKit } from "./shot-kit.mjs";
 import { ensureStandLock } from "./stand-lock.mjs";
 import { clearConfirm, composeWithFiles, importanceReader, listAvatars, peopleBook, readerAttachments, seed080, settingsPage, settingsSearch } from "./scenes-080.mjs";
+import { listPanel, viewFilterCount } from "./scenes-083.mjs";
 
 ensureStandLock();
 const set = process.env.SHOTS_SET ?? "0.7.0";
-const v8 = set === "0.8.0" || set === "0.8.2";
+const v8 = set === "0.8.0" || set === "0.8.2" || set === "0.8.3";
 const v82 = set === "0.8.2";
+const v83 = set === "0.8.3";
 const kit = createKit({ out: process.env.SHOTS_OUT ?? "/tmp/depesha-release-shots", tag: "depesha-rel-", v8 });
 const { d, sleep, db, shot, textOf, setInput, press, invoke, openFolder, openBySubject, menuItem, closeSettings, discardCompose } = kit;
 
@@ -42,7 +45,12 @@ try {
   });
   const account = (await invoke("accounts"))[0].id;
 
-  if (v82) {
+  if (v83) {
+    // The view of 0.8.3: the one panel of actions over the list and the reader with the
+    // previews in the rows (#176, #177), and the count of unread newsletters (#182).
+    await listPanel(kit, "01-list-panel");
+    await viewFilterCount(kit, "02-newsletters");
+  } else if (v82) {
     // The view of 0.8.2: the current letter is marked by its background, the plugin settings
     // are back on the «Plugins» page.
     await listAvatars(kit, "01-list-cursor");
