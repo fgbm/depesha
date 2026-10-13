@@ -6,6 +6,8 @@
   import ReplyAll from "@lucide/svelte/icons/reply-all";
   import Eraser from "@lucide/svelte/icons/eraser";
   import Check from "@lucide/svelte/icons/check";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronUp from "@lucide/svelte/icons/chevron-up";
   import { tick } from "svelte";
   import { shortcuts } from "../lib/shortcuts.svelte";
   import { followFocus } from "../lib/listFocus";
@@ -28,6 +30,7 @@
   import { cursorId } from "../lib/cursor";
   import { labelChips, readOnly } from "../lib/labels";
   import { labels as labelsCtl } from "../lib/labels.svelte";
+  import { ROW } from "../lib/list.svelte";
   import type { Addr, MessageRow } from "../lib/types";
 
   let {
@@ -52,16 +55,30 @@
 
   /** Account colour stripe in lists that mix accounts. */
 
-  const ROW = 64;
   const OVERSCAN = 8;
 
   let viewport = $state<HTMLDivElement | null>(null);
   let scrollTop = $state(0);
   let height = $state(600);
 
-  const start = $derived(Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN));
-  const end = $derived(Math.min(app.list.messages.length, Math.ceil((scrollTop + height) / ROW) + OVERSCAN));
-  const visible = $derived(app.list.messages.slice(start, end));
+  /** The rows the list draws now, in order: the summary rows and the letters of the threads
+   *  unfolded among them (#179). The list is virtualized by these places, not by an index. */
+  const placed = $derived(app.list.placed());
+  const spacerHeight = $derived(placed.reduce((sum, r) => sum + r.height, 0));
+  /** A little beyond the viewport, so a row is ready before it scrolls in. */
+  const OVER = OVERSCAN * ROW;
+  const visible = $derived(placed.filter((r) => r.top + r.height > scrollTop - OVER && r.top < scrollTop + height + OVER));
+
+  /** The folder of a letter of a thread, when it is not the folder the list shows (разбор №8). */
+  function folderLabel(m: MessageRow): string | null {
+    const f = app.mailboxes.folder(m.account_id, m.folder);
+    const here = app.list.view.kind === "folder" ? app.list.view.folder : null;
+    if (here === m.folder) return null;
+    // A view that is not one folder (all inboxes, a search) names the folders of the letters
+    // that are not in the inbox; inside one folder it names every other one.
+    if (here === null && (f?.role ?? "") === "inbox") return null;
+    return f?.display_name ?? m.folder;
+  }
 
   const title = $derived(viewTitle(app.list.view));
 
@@ -190,13 +207,13 @@
     const id = cursor;
     if (!viewport || id === null) return;
     // Read first, so that the row arriving later (a page loaded) runs this again.
-    const i = app.list.messages.findIndex((m) => m.id === id);
-    if (i < 0) return;
+    const at = placed.find((r) => r.m.id === id);
+    if (!at) return;
     // The list refreshing under the same cursor, or a choice by the mouse, is no reason to jump.
     const fresh = id !== followed;
     followed = id;
     if (!fresh || byMouse) return;
-    const top = i * ROW;
+    const top = at.top;
     if (top < viewport.scrollTop) viewport.scrollTop = top;
     else if (top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top + ROW - viewport.clientHeight;
     // The system focus frame goes with the selection, not stays on the row left behind (#94).
@@ -208,9 +225,9 @@
   $effect(() => {
     const id = arrivals.focus;
     if (id === null || !viewport) return;
-    const i = app.list.messages.findIndex((m) => m.id === id);
-    if (i < 0) return;
-    const top = i * ROW;
+    const at = placed.find((r) => r.m.id === id);
+    if (!at) return;
+    const top = at.top;
     if (top < viewport.scrollTop || top + ROW > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = top;
     scrollTop = viewport.scrollTop;
     tick().then(() => {
@@ -219,9 +236,20 @@
     });
   });
 
-  /** Enter on a row that has the keyboard opens it. */
-  function rowKey(e: KeyboardEvent, m: MessageRow) {
-    if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || app.reader.opened?.row.id === m.id) return;
+  /** The keys of a row that has the keyboard: →/← unfold and fold its thread, Enter opens it.
+   *  A letter of an unfolded thread (`sub`) carries no counter of its own: the arrows leave it alone. */
+  function rowKey(e: KeyboardEvent, m: MessageRow, sub = false) {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    // → unfolds the thread of the row, ← folds it (0.8.3, 3.1 А); a row without a counter is deaf to them.
+    if (!sub && (e.key === "ArrowRight" || e.key === "ArrowLeft") && m.thread_count > 1) {
+      const open = app.list.threadOpen(m.thread);
+      if ((e.key === "ArrowRight" && !open) || (e.key === "ArrowLeft" && open)) {
+        e.preventDefault();
+        void app.list.toggleThread(m);
+      }
+      return;
+    }
+    if (e.key !== "Enter" || app.reader.opened?.row.id === m.id) return;
     e.preventDefault();
     layout.showLetter();
     app.selection.select(m.id);
@@ -298,68 +326,111 @@
         {/if}
       </div>
     {/if}
-    <div class="spacer" style:height="{app.list.messages.length * ROW}px">
-      {#each visible as m, i (m.id)}
-        {@const tags = tagsOf(m)}
-        <div
-          class="row"
-          class:unread={!m.flags.seen}
-          class:selected={chosen(m.id)}
-          class:cursor={cursor === m.id}
-          class:avatars
-          class:flash={arrivals.flash === m.id}
-          class:fresh={arrivals.isFresh(app.list.view, m.id)}
-          style:top="{(start + i) * ROW}px"
-          style:--acct={showAccount ? app.mailboxes.accountColor(m.account_id) : "transparent"}
-          role="option"
-          aria-selected={app.selection.selected.has(m.id)}
-          tabindex="-1"
-          onclick={(e) => click(e, m)}
-          ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
-          oncontextmenu={(e) => context(e, m)}
-          onkeydown={(e) => rowKey(e, m)}
-        >
-          <!-- Without the dot the unread state would live in the look alone: the name says it (#108). -->
-          {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
-          {#if chosen(m.id)}
-            <!-- A chosen row: a tick in the place of the picture, and the ground (#108, 2.5 Б). -->
-            <span class="pick" class:round={avatars} aria-hidden="true"><Check size={avatars ? 18 : 10} strokeWidth={3} /></span>
-          {:else if avatars}
-            {@const pic = pictureOf(m)}
-            <span class="pic"><Avatar addr={pic.addr} accountId={m.account_id} logoOf={pic.logoOf} /></span>
-          {/if}
-          <div class="line1">
-            <span class="from">{who(m)}</span>
-            {#if notes}
-              {#each tags as tag, ti (ti)}
-                {#if tag.note}<span class="note" title={tag.title}>{#if tag.note.icon}<tag.note.icon size={11} />{/if}<span class="note-text">{tag.note.text}</span></span>{/if}
-              {/each}
+    <div class="spacer" style:height="{spacerHeight}px">
+      {#each visible as r (r.sub ? `s${r.m.id}` : `r${r.m.id}`)}
+        {@const m = r.m}
+        {#if r.sub}
+          <!-- A letter of an unfolded thread (#179): indented, its own date and, when it is not
+               in the folder shown, its folder (разбор №8). No ground of its own (3.1 А). -->
+          <div
+            class="row sub"
+            class:avatars
+            class:unread={!m.flags.seen}
+            class:cursor={cursor === m.id}
+            style:top="{r.top}px"
+            style:height="{r.height}px"
+            role="option"
+            aria-selected={app.selection.selected.has(m.id)}
+            tabindex="-1"
+            onclick={(e) => click(e, m)}
+            oncontextmenu={(e) => context(e, m)}
+            onkeydown={(e) => rowKey(e, m, true)}
+          >
+            {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
+            <span class="subfrom">{who(m)}</span>
+            <span class="subtext">{m.snippet || m.subject || t("noSubject")}</span>
+            {#if folderLabel(m)}<span class="subfolder">{folderLabel(m)}</span>{/if}
+            <span class="subdate">{listDate(m.date)}</span>
+          </div>
+        {:else}
+          {@const tags = tagsOf(m)}
+          <div
+            class="row"
+            class:unread={!m.flags.seen}
+            class:selected={chosen(m.id)}
+            class:cursor={cursor === m.id}
+            class:avatars
+            class:flash={arrivals.flash === m.id}
+            class:fresh={arrivals.isFresh(app.list.view, m.id)}
+            style:top="{r.top}px"
+            style:height="{r.height}px"
+            style:--acct={showAccount ? app.mailboxes.accountColor(m.account_id) : "transparent"}
+            role="option"
+            aria-selected={app.selection.selected.has(m.id)}
+            tabindex="-1"
+            onclick={(e) => click(e, m)}
+            ondblclick={(e) => !e.shiftKey && !e.ctrlKey && !e.metaKey && app.selection.openWindow(m)}
+            oncontextmenu={(e) => context(e, m)}
+            onkeydown={(e) => rowKey(e, m)}
+          >
+            <!-- Without the dot the unread state would live in the look alone: the name says it (#108). -->
+            {#if !m.flags.seen}<span class="sr">{t("list.unreadSr")}</span>{/if}
+            {#if chosen(m.id)}
+              <!-- A chosen row: a tick in the place of the picture, and the ground (#108, 2.5 Б). -->
+              <span class="pick" class:round={avatars} aria-hidden="true"><Check size={avatars ? 18 : 10} strokeWidth={3} /></span>
+            {:else if avatars}
+              {@const pic = pictureOf(m)}
+              <span class="pic"><Avatar addr={pic.addr} accountId={m.account_id} logoOf={pic.logoOf} /></span>
             {/if}
-            {#if m.thread_count > 1}<span class="count" title={t("list.inThread")}>{m.thread_count}</span>{/if}
-            {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
-            <!-- Asked to be read first (#72): the first of the marks before the date, in amber. -->
-            {#if m.importance === "high"}<span class="imp" title={t("list.important")} aria-label={t("list.important")} role="img">!</span>{/if}
-            {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
-            {#if m.has_attachments}<span class="clip" title={t("list.hasFiles")}><Paperclip size={13} /></span>{/if}
-            <!-- What was done with it: last before the date, like the clip (#55). -->
-            {#each rowMarks(m.marks) as mark (mark.act)}{@const Icon = MARK_ICON[mark.act]}<span class="mark" title={mark.title} aria-label={mark.label} role="img"><Icon size={13} /></span>{/each}
-            <span class="date">{listDate(m.thread_date || m.date)}</span>
+            <div class="line1">
+              <span class="from">{who(m)}</span>
+              {#if notes}
+                {#each tags as tag, ti (ti)}
+                  {#if tag.note}<span class="note" title={tag.title}>{#if tag.note.icon}<tag.note.icon size={11} />{/if}<span class="note-text">{tag.note.text}</span></span>{/if}
+                {/each}
+              {/if}
+              {#if m.thread_count > 1}
+                <!-- The counter is a button: it unfolds the thread right in the list (#179, разбор №6).
+                     Not a stop of the keyboard: the row stays one role="option" (3.1 А). -->
+                <button
+                  class="count"
+                  type="button"
+                  tabindex="-1"
+                  title={t("list.inThread")}
+                  aria-label={t("list.inThread")}
+                  aria-expanded={app.list.threadOpen(m.thread)}
+                  onmousedown={(e) => e.preventDefault()}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    void app.list.toggleThread(m);
+                  }}
+                >{m.thread_count}<span class="chev" aria-hidden="true">{#if app.list.threadOpen(m.thread)}<ChevronUp size={12} />{:else}<ChevronDown size={12} />{/if}</span></button>
+              {/if}
+              {#if m.thread_draft}<span class="draft">{t("list.draft")}</span>{/if}
+              <!-- Asked to be read first (#72): the first of the marks before the date, in amber. -->
+              {#if m.importance === "high"}<span class="imp" title={t("list.important")} aria-label={t("list.important")} role="img">!</span>{/if}
+              {#if m.flags.flagged}<span class="flag" title={t("nav.flagged")}><Flag size={13} /></span>{/if}
+              {#if m.has_attachments}<span class="clip" title={t("list.hasFiles")}><Paperclip size={13} /></span>{/if}
+              <!-- What was done with it: last before the date, like the clip (#55). -->
+              {#each rowMarks(m.marks) as mark (mark.act)}{@const Icon = MARK_ICON[mark.act]}<span class="mark" title={mark.title} aria-label={mark.label} role="img"><Icon size={13} /></span>{/each}
+              <span class="date">{listDate(m.thread_date || m.date)}</span>
+            </div>
+            <div class="line2">
+              <span class="subject">{m.subject || t("noSubject")}</span>
+              <!-- The beginning of the letter's text (#177): grey, one line, cut to the row. -->
+              {#if m.snippet}<span class="preview">{m.snippet}</span>{/if}
+              <!-- Labels after the subject (#42, frame 10А): at most two, then "+n". -->
+              {#each chipsOf(m).slice(0, 2) as chip (chip.name)}
+                <span class="lbl" class:local={chip.local} style:--c={chip.color} title={chip.local ? t("label.localHint", { name: chip.name }) : chip.name}>{chip.name}</span>
+              {/each}
+              {#if chipsOf(m).length > 2}<span class="lbl more" title={chipsOf(m).slice(2).map((c) => c.name).join(", ")}>+{chipsOf(m).length - 2}</span>{/if}
+              {#each tags as tag, ti (ti)}
+                <span class="tag" class:due={tag.alert} class:good={tag.good} class:info={tag.info} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
+              {/each}
+              <span class="size" class:strong={bySize} title={t("list.size")}>{size(m.thread_size ?? m.size)}</span>
+            </div>
           </div>
-          <div class="line2">
-            <span class="subject">{m.subject || t("noSubject")}</span>
-            <!-- The beginning of the letter's text (#177): grey, one line, cut to the row. -->
-            {#if m.snippet}<span class="preview">{m.snippet}</span>{/if}
-            <!-- Labels after the subject (#42, frame 10А): at most two, then "+n". -->
-            {#each chipsOf(m).slice(0, 2) as chip (chip.name)}
-              <span class="lbl" class:local={chip.local} style:--c={chip.color} title={chip.local ? t("label.localHint", { name: chip.name }) : chip.name}>{chip.name}</span>
-            {/each}
-            {#if chipsOf(m).length > 2}<span class="lbl more" title={chipsOf(m).slice(2).map((c) => c.name).join(", ")}>+{chipsOf(m).length - 2}</span>{/if}
-            {#each tags as tag, ti (ti)}
-              <span class="tag" class:due={tag.alert} class:good={tag.good} class:info={tag.info} title={tag.title}>{#if tag.icon}<tag.icon size={12} />{/if} {tag.text}</span>
-            {/each}
-            <span class="size" class:strong={bySize} title={t("list.size")}>{size(m.thread_size ?? m.size)}</span>
-          </div>
-        </div>
+        {/if}
       {/each}
     </div>
     {#if app.list.loadingMore}<div class="more muted">{t("loading")}</div>{/if}
@@ -600,6 +671,49 @@
     white-space: nowrap;
   }
 
+  /* A letter of an unfolded thread (#179): indented under its row, no ground of its own
+     (3.1 А) — the indent alone tells it from the row of the thread. */
+  .row.sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px 0 32px;
+    font-size: 13px;
+  }
+
+  .row.sub.avatars {
+    padding-left: 76px;
+  }
+
+  .row.sub .subfrom {
+    flex: none;
+    max-width: 38%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row.sub.unread .subfrom {
+    font-weight: 650;
+  }
+
+  .row.sub .subtext {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+
+  .row.sub .subfolder,
+  .row.sub .subdate {
+    flex: none;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
   /* The row a notification led to: a frame that fades in a moment. */
   .row.flash {
     box-shadow: inset 0 0 0 2px var(--accent);
@@ -714,12 +828,29 @@
   }
 
   .count {
-    font-size: 11px;
-    color: var(--muted);
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 5px;
     border: 1px solid var(--line);
     border-radius: 8px;
-    padding: 0 5px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
     line-height: 15px;
+    cursor: pointer;
+  }
+
+  .count:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+
+  .count .chev {
+    display: inline-flex;
+    color: var(--muted);
   }
 
   /* Gmail's red "Draft": an answer was started and waits. */

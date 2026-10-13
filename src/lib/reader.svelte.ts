@@ -197,7 +197,7 @@ export class Reader {
 }
 
 /** One entry per letter, oldest first: a copy in the folder of the opened one wins over the one in Sent. */
-function shownConversation(conversation: MessageRow[], id: number, folder: string): MessageRow[] {
+export function shownConversation(conversation: MessageRow[], id: number, folder: string): MessageRow[] {
   const shown = new Map<string, MessageRow>();
   for (const m of conversation) {
     const key = m.message_id ?? `#${m.id}`;

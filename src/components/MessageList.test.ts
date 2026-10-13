@@ -45,16 +45,38 @@ function draw(rows: MessageRow[], over: object = {}) {
   return target;
 }
 
+// The thread of #179: a summary row and the letters behind it, one of them in another folder.
+const letters = [
+  row(11, "ann@x.example", { thread: "t9", folder: "Sent", date: 900, subject: "Re: Счёт" }),
+  row(12, "peter@x.example", { thread: "t9", folder: "Archive", date: 950, subject: "Re: Счёт" }),
+];
+const summary = (over: Partial<MessageRow> = {}) => row(1, "ann@x.example", { thread: "t9", thread_count: 3, subject: "Re: Счёт", ...over });
+const subs = (t: HTMLElement) => [...t.querySelectorAll<HTMLElement>(".row.sub")];
+/** Sends → to the first row of the list, as the keyboard does. */
+function unfoldByArrow(t: HTMLElement) {
+  t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  flushSync();
+}
+/** Unfolds the thread of the first row by → and lets its letters arrive. */
+async function unfold(t: HTMLElement) {
+  api.thread.mockResolvedValue(letters);
+  unfoldByArrow(t);
+  await tick();
+  flushSync();
+}
+
 beforeEach(() => {
   i18n.lang = "ru";
   api.avatar.mockReset();
   api.avatar.mockResolvedValue(null);
   app.selection.selected = new Set();
+  app.list.clearThreads();
 });
 afterEach(() => {
   if (view) unmount(view);
   view = null;
   layout.width = 1280;
+  app.list.view = { kind: "unified", role: "inbox" };
   document.body.innerHTML = "";
 });
 
@@ -386,5 +408,125 @@ describe("the beginning of the letter's text in the row (#177)", () => {
     const t = draw([row(1, "a@x.example")]);
     expect(t.querySelector(".row .preview")).toBeNull();
     expect(t.querySelector(".row .subject")?.textContent).toBe("Тема 1");
+  });
+});
+
+describe("the thread unfolded in the list (#179, decisions 0.8.3, screen 3)", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+  afterEach(() => unstyle());
+
+  it("unfolds the thread by → and folds it back by ←", async () => {
+    const t = draw([summary()]);
+    expect(subs(t)).toHaveLength(0);
+    await unfold(t);
+    expect(api.thread).toHaveBeenCalledWith(1);
+    expect(subs(t)).toHaveLength(2);
+    expect(subs(t)[0].textContent).toContain("ann@x.example");
+    expect(subs(t)[1].textContent).toContain("peter@x.example");
+    t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    flushSync();
+    expect(subs(t)).toHaveLength(0);
+  });
+
+  it("does not unfold a row without a thread: the arrows are deaf to it", () => {
+    const t = draw([row(1, "a@x.example")]);
+    t.querySelector<HTMLElement>(".row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    flushSync();
+    expect(api.thread).not.toHaveBeenCalled();
+    expect(subs(t)).toHaveLength(0);
+  });
+
+  it("unfolds and folds by a click on the counter, which is not a stop of the keyboard", async () => {
+    const t = draw([summary()]);
+    const count = t.querySelector<HTMLButtonElement>(".count")!;
+    expect(count).not.toBeNull();
+    expect(count.getAttribute("tabindex")).toBe("-1");
+    expect(t.querySelectorAll("[role='option']")).toHaveLength(1);
+    count.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    flushSync();
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(2);
+    expect(t.querySelectorAll("[role='option']")).toHaveLength(3);
+    t.querySelector<HTMLButtonElement>(".count")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    flushSync();
+    expect(subs(t)).toHaveLength(0);
+  });
+});
+
+describe("a long thread and the ground of its letters (#179)", () => {
+  let unstyle = () => {};
+  beforeEach(() => (unstyle = useStyles(import.meta.url, "./MessageList.svelte")));
+  afterEach(() => unstyle());
+
+  it("unfolds a long thread whole, without folding the far history (3.2 А)", async () => {
+    const many = Array.from({ length: 8 }, (_, i) => row(20 + i, `p${i}@x.example`, { thread: "t9", date: 800 + i }));
+    api.thread.mockResolvedValue(many);
+    const t = draw([summary({ thread_count: 9 })]);
+    unfoldByArrow(t);
+    await tick();
+    flushSync();
+    expect(subs(t)).toHaveLength(8);
+  });
+
+  it("gives the letters of a thread no ground of their own (3.1 А): only the indent", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    const [rule] = rulesFor(".row.sub");
+    expect(rule.style.getPropertyValue("background")).toBe("");
+    expect(rule.style.getPropertyValue("padding")).not.toBe("");
+    expect(subs(t).every((r) => !r.classList.contains("selected"))).toBe(true);
+  });
+});
+
+describe("the cursor and the actions of a thread letter in the list (#179)", () => {
+  it("moves the cursor over the letters of an unfolded thread", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([1]);
+    flushSync();
+    app.selection.move(1);
+    flushSync();
+    expect([...app.selection.selected]).toEqual([11]);
+    app.selection.move(1);
+    flushSync();
+    expect([...app.selection.selected]).toEqual([12]);
+    expect(subs(t)[1].classList.contains("cursor")).toBe(true);
+  });
+
+  it("acts on a letter of a thread: the action takes the letter itself", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selected = new Set([11]);
+    flushSync();
+    await app.selection.toggleFlagged();
+    expect(api.setFlag).toHaveBeenCalledWith([11], { flag: "flagged", value: true });
+    expect(app.list.threadRow(11)?.flags.flagged).toBe(true);
+    flushSync();
+    expect(subs(t)[0].classList.contains("cursor")).toBe(true);
+  });
+
+  it("leaves the arrows of a letter of a thread to the row with the counter", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    subs(t)[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    flushSync();
+    expect(subs(t)).toHaveLength(2);
+  });
+
+  it("shows the folder of a letter of a thread that is not the folder shown", async () => {
+    app.list.view = { kind: "folder", account_id: "a", folder: "INBOX" };
+    const t = draw([summary()]);
+    api.thread.mockResolvedValue([
+      row(11, "ann@x.example", { thread: "t9", folder: "INBOX", date: 900 }),
+      row(12, "peter@x.example", { thread: "t9", folder: "Archive", date: 950 }),
+    ]);
+    unfoldByArrow(t);
+    await tick();
+    flushSync();
+    const [inFolder, inArchive] = subs(t);
+    expect(inFolder.querySelector(".subfolder")).toBeNull();
+    expect(inArchive.querySelector(".subfolder")?.textContent).toBe("Archive");
   });
 });

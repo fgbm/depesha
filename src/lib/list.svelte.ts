@@ -11,9 +11,24 @@ import { t } from "./i18n.svelte";
 import { debounce } from "./debounce";
 import { compareRows } from "./sort";
 import { LARGEST_FIRST, asksLarge } from "./largeMail";
+import { shownConversation } from "./reader.svelte";
 import { registry } from "../plugin-host/registry.svelte";
 import type { ListFilter, ListScope } from "../plugin-api";
 import type { FolderRole, ListQuery, MessageRow, Pin, SearchTotals, SortKey } from "./types";
+
+/** The step between the rows of the list: the 62 px row and its 2 px of air (#177). */
+export const ROW = 64;
+/** A letter of an unfolded thread (#179): a little shorter, the group reads as one block. */
+export const SUB = 58;
+
+/** A row of the list as it is drawn (#179): a summary row, or a letter of an unfolded thread. */
+export interface PlacedRow {
+  m: MessageRow;
+  /** A letter of an unfolded thread, drawn indented under its summary row. */
+  sub: boolean;
+  top: number;
+  height: number;
+}
 
 export type View =
   | { kind: "unified"; role: FolderRole; unread?: boolean; flagged?: boolean }
@@ -46,6 +61,12 @@ export interface ListHost {
 export class ListController {
   view = $state<View>({ kind: "unified", role: "inbox" });
   messages = $state<MessageRow[]>([]);
+  /** The threads unfolded in the list, by thread key (#179). */
+  expandedThreads = $state<Set<string>>(new Set());
+  /** The letters of an unfolded thread, by thread key: asked of the backend once. */
+  threadLetters = $state<Map<string, MessageRow[]>>(new Map());
+  /** A thread whose letters are on their way: a second click does not ask twice. */
+  private askingThreads = new Set<string>();
   /** All cached messages of the view are loaded; for folders, older ones may still be on the server. */
   exhausted = $state(false);
   loadingMore = $state(false);
@@ -126,6 +147,73 @@ export class ListController {
   mark(id: number, row?: MessageRow) {
     this.keep.add(id);
     if (row && !this.pins.has(row.id)) this.pins.set(row.id, { id: row.id, unread: !row.flags.seen, flagged: row.flags.flagged });
+  }
+
+  /** Whether the thread of a row is unfolded in the list (#179). */
+  threadOpen(key: string): boolean {
+    return this.expandedThreads.has(key);
+  }
+
+  /** The letters of an unfolded thread with this id, if they are loaded. */
+  threadRow(id: number): MessageRow | undefined {
+    for (const list of this.threadLetters.values()) {
+      const m = list.find((r) => r.id === id);
+      if (m) return m;
+    }
+    return undefined;
+  }
+
+  /** Folds every thread: a new view starts with none unfolded. */
+  clearThreads() {
+    this.expandedThreads = new Set();
+    this.threadLetters = new Map();
+    this.askingThreads.clear();
+  }
+
+  /**
+   * Unfolds or folds the thread of a row right in the list (#179, decisions 0.8.3, 3.1 А);
+   * the letters are asked of the backend once and kept, so folding and unfolding is instant.
+   */
+  async toggleThread(m: MessageRow) {
+    const key = m.thread;
+    if (this.expandedThreads.has(key)) {
+      const next = new Set(this.expandedThreads);
+      next.delete(key);
+      this.expandedThreads = next;
+      return;
+    }
+    this.expandedThreads = new Set(this.expandedThreads).add(key);
+    if (this.threadLetters.has(key) || this.askingThreads.has(key)) return;
+    this.askingThreads.add(key);
+    try {
+      const rows = await api.thread(m.id);
+      // The same letters the reader shows: the copy in the row's own folder wins (#179, разбор №8).
+      this.threadLetters = new Map(this.threadLetters).set(key, shownConversation(rows, m.id, m.folder));
+    } catch (e) {
+      this.host.ui.fail(e, t("reader.conversationFailed"));
+    } finally {
+      this.askingThreads.delete(key);
+    }
+  }
+
+  /**
+   * The rows the list shows now, in order, with their places (#179): the summary rows and,
+   * under each unfolded thread, its letters. The list is virtualized by these places.
+   */
+  placed(): PlacedRow[] {
+    const rows: PlacedRow[] = [];
+    let top = 0;
+    for (const m of this.messages) {
+      rows.push({ m, sub: false, top, height: ROW });
+      top += ROW;
+      if (m.thread_count > 1 && this.expandedThreads.has(m.thread)) {
+        for (const l of this.threadLetters.get(m.thread) ?? []) {
+          rows.push({ m: l, sub: true, top, height: SUB });
+          top += SUB;
+        }
+      }
+    }
+    return rows;
   }
 
   /** Rows left the view (moved, deleted): nothing of theirs is kept. */
@@ -364,12 +452,20 @@ export class ListController {
     this.filterCounts = {};
     this.messages = [];
     this.exhausted = false;
+    // Unfolded threads belong to the list left behind (#179).
+    this.clearThreads();
   }
 
   /** Takes rows out of the list; returns where the first of them was, or -1. */
   remove(ids: number[]): number {
     const index = this.messages.findIndex((m) => ids.includes(m.id));
     if (index >= 0) this.messages = this.messages.filter((m) => !ids.includes(m.id));
+    // A letter of an unfolded thread taken out goes too, not only the row of its thread (#179).
+    if (this.threadLetters.size && [...this.threadLetters.values()].some((list) => list.some((m) => ids.includes(m.id)))) {
+      const next = new Map<string, MessageRow[]>();
+      for (const [key, list] of this.threadLetters) next.set(key, list.filter((m) => !ids.includes(m.id)));
+      this.threadLetters = next;
+    }
     return index;
   }
 

@@ -21,3 +21,6 @@ app-nested	actions.remove	был app.remove на AppStore (значение по
 app-nested	actions.spam	был app.spam на AppStore (значение по умолчанию — выделение — теперь в ActionRunner через хост); обращение прямое (#140)
 app-nested	list.filterCounts	счётчик у пункта фильтра плагина (#182): число рядом с «Рассылки» берётся из list.filterCounts в ViewMenu
 app-nested	reader.showsLetter	общий геттер «письмо с действиями на экране» для панели и тулбара читалки: кнопки уходящего письма не показываются, пока открывается следующее (#176)
+app-nested	list.toggleThread	раскрытие и свёртка цепочки прямо в списке (#179): счётчик строки — кнопка, →/← на строке зовут list.toggleThread
+app-nested	list.threadOpen	состояние раскрытия цепочки строки (#179): им помечены счётчик и его chevron, им же решает ветка стрелок в rowKey
+app-nested	list.placed	раскладка списка по местам вместо индекса строки (#179): строка письма цепочки меняет число и высоту видимых строк, поэтому компонент рисует app.list.placed()
