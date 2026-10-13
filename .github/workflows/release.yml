@@ -5,7 +5,40 @@ on:
     tags: ["v*"]
 
 jobs:
+  # A release is built only from a commit whose CI was green: this is the gate the fast merge into
+  # main skipped. The version commit touches code, so main has a ci.yml run for it (a text-only
+  # commit starts none, and tagging one is refused here).
+  ci-green:
+    name: The tagged commit passed CI
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: ci.yml is green for this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          runs=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&status=success&per_page=100" \
+            | jq -r '.workflow_runs[] | select(.name == "CI") | .id')
+          for id in $runs; do
+            jobs=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100")
+            # A skipped job is not a failure (main's `reuse` skips everything when the same commit
+            # is already green on a branch).
+            bad=$(jq '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")] | length' <<<"$jobs")
+            if [[ $bad -eq 0 ]]; then
+              echo "commit ${SHA:0:9} has a green CI run $id: releasing"
+              exit 0
+            fi
+          done
+          echo "no green ci.yml run for ${SHA:0:9}: wait for CI on main (or fix it) before tagging" >&2
+          exit 1
+
   release:
+    needs: ci-green
     permissions:
       contents: write
     strategy:

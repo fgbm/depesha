@@ -1,9 +1,17 @@
 name: CI
 
 on:
-  # Every branch: the green run on the branch is what a merge needs (scripts/check.sh --ci).
+  # main and every branch. A merge into main needs only the fast local scripts/check.sh --changed;
+  # the full CI then runs here on main, and nobody waits for it. A branch push is optional
+  # (scripts/check.sh --ci, for a risky change).
   push:
     branches: ["**"]
+    # Text-only changes (docs, design, Markdown, the agent rules) start no CI run: their checks are
+    # fast locally (the hook, scripts/check.sh --changed) and a slow run on main would only queue.
+    paths-ignore:
+      - "docs/**"
+      - "design/**"
+      - "**/*.md"
   # A branch is tried before it is merged: gh workflow run ci.yml --ref <branch> -f windows_only=true
   workflow_dispatch:
     inputs:
@@ -61,11 +69,12 @@ jobs:
           fi
           echo "platform jobs: $platform"
 
-  # A push to main of a commit that is already green on a branch — the fast-forward case — does
-  # not check it again: the branch run for the same head_sha already did. Only a fully green run
-  # whose platform jobs (Windows, macOS) actually ran counts; if the branch skipped them (it did
-  # not touch a platform path), main runs the full CI. Tags and a manual run always run in full
-  # (this job is skipped there, and its empty output leaves every other job running).
+  # A push to main of a commit already green on a branch (scripts/check.sh --ci) is not checked
+  # again: the branch run for the same head_sha already did. A branch is usually not pushed now, so
+  # main normally runs the full CI and this job finds nothing. Only a fully green run whose platform
+  # jobs (Windows, macOS) actually ran counts; if the branch skipped them (it did not touch a
+  # platform path), main runs the full CI. Tags and a manual run always run in full (this job is
+  # skipped there, and its empty output leaves every other job running).
   reuse:
     name: Already verified
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -147,6 +156,8 @@ jobs:
       - run: scripts/lock-guard.test.sh
       - run: cargo fmt --all --check
       - run: npm run build
+      - name: Main chunk against its baseline
+        run: scripts/frontend-bundle.sh
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: TypeScript types against the Rust types
         run: scripts/gen-types.sh --check
