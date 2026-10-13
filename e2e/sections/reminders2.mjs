@@ -206,7 +206,7 @@ export async function run() {
     await d.until("note back", async () => (await invoke("settings_get")).markdown_parts_note === true);
     await closeSettings();
 
-    // The same window at night.
+    // Same window, night theme.
     const theme = (await invoke("settings_get")).theme;
     await invoke("settings_patch", { patch: { theme: "night" } });
     await d.until("night", async () => (await d.exec("return document.documentElement.dataset.theme ?? ''")) === "night");

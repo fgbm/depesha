@@ -140,7 +140,7 @@ export class Driver {
     return this.req("POST", this.s("/execute/sync"), { script, args });
   }
 
-  /** The window's size and place. */
+  /** Where the window sits and how big it is. */
   async rect() {
     return this.req("GET", this.s("/window/rect"));
   }

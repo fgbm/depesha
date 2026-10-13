@@ -106,7 +106,7 @@ export async function zonesStayInView(d, fix) {
 }
 
 /**
- * The names of the attachments. The strip shows the files that fit one line and «+N ещё» for
+ * What the attachments are called. The strip shows the files that fit one line and «+N ещё» for
  * the rest (#103): in a narrow window, as the browser at scale 2 is, the others are read from
  * the list that button opens.
  */

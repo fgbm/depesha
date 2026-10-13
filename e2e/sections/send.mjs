@@ -230,7 +230,7 @@ export async function run() {
     await invoke("set_flag", { ids: [other], change: { flag: "flagged", value: false } });
     await new Promise((r) => setTimeout(r, 1500));
     if (!(await textOf(".reader .letter-body")).includes("Согласен")) throw new Error("письмо свернулось после обновления списка");
-    // A click folds it back.
+    // A second click folds it back.
     await d.click((await d.findAll(".thread .letter .head"))[1]);
     await d.until("older letter folded", async () => (await d.findAll(".reader .letter-body")).length === 0);
   });
