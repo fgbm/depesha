@@ -668,6 +668,16 @@ describe("the choice over the letters of a thread (#179)", () => {
     expect(subs(t)[0]!.classList.contains("selected")).toBe(true);
     expect(subs(t)[0]!.querySelector(".pick")).not.toBeNull();
   });
+
+  it("Select all and the chosen size count the letters of an unfolded thread too", async () => {
+    const t = draw([summary()]);
+    await unfold(t);
+    app.selection.selectAll();
+    flushSync();
+    expect([...app.selection.selected].sort((a, b) => a - b)).toEqual([1, 11, 12]);
+    // Every row says 10 bytes; the letters of the thread count as well.
+    expect(app.selection.selectedSize()).toBe(30);
+  });
 });
 
 describe("a letter of a thread in a window of its own, and its accessibility (#179)", () => {
