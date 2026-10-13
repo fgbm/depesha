@@ -227,7 +227,7 @@ if [[ "${1:-}" == "--changed" || "${1:-}" == "--ci" ]]; then
     scripts/stand-lock.test.sh
   fi
   # Ste-lint — только изменённые русские документы из охвата: на английском он ложно ругается русским словарём.
-  mapfile -t ruChanged < <(comm -12 <(printf '%s\n' "${mdfiles[@]:-}" | grep . | sort -u) <(ru_docs | sort -u))
+  mapfile -t ruChanged < <(comm -12 <(printf '%s\n' "${mdfiles[@]:-}" | grep . | sort -u) <(ru_docs | sort -u) | grep -v '^docs/glossary\.md$')
   if ((${#ruChanged[@]})) || grep -qE '^scripts/ste-lint' <<<"$changed"; then
     step "правила письма (STE)"
     if ((${#ruChanged[@]})); then node scripts/ste-lint.mjs "${ruChanged[@]}"; else node scripts/ste-lint.mjs; fi
