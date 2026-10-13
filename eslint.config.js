@@ -24,6 +24,8 @@ export default tseslint.config(
       "e2e/**",
       // Макеты и их набор — рабочие материалы дизайна, не код приложения.
       "design/**",
+      // Образцы для проверок стиля (scripts/check-comments.*): намеренно плохой код, не приложение.
+      "scripts/testdata/**",
       "**/*.min.js",
     ],
   },
