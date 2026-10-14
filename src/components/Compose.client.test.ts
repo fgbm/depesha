@@ -62,39 +62,40 @@ describe("the composition window on the channel", () => {
   });
 });
 
-describe("the composition window's quote and copy fields", () => {
-  const QUOTE = "Иван писал(а):\n> Пришлите акт сверки.";
+const QUOTE = "Иван писал(а):\n> Пришлите акт сверки.";
 
-  beforeEach(() => {
-    api.people.mockResolvedValue([]);
-    api.hints.mockResolvedValue([]);
-    peopleBook.list = [];
-  });
+beforeEach(() => {
+  api.people.mockResolvedValue([]);
+  api.hints.mockResolvedValue([]);
+  peopleBook.list = [];
+});
 
-  function open(reply: boolean) {
-    const draft = emptyDraft({ name: "Me", email: "me@example.com" });
-    draft.to = [{ name: "Иван", email: "ivan@example.com" }];
-    draft.subject = "Re: Акт";
-    draft.text = reply ? `\n\n${QUOTE}` : "";
-    const id = app.compose.open({ account_id: "a", draft, draft_id: null, unsaved: true });
-    const win = app.compose.windows.find((w) => w.id === id)!;
-    const target = document.createElement("div");
-    document.body.append(target);
-    view = mount(Compose, { target, props: { c: win } });
-    flushSync();
-    return { win, target };
-  }
+function open(reply: boolean) {
+  const draft = emptyDraft({ name: "Me", email: "me@example.com" });
+  draft.to = [{ name: "Иван", email: "ivan@example.com" }];
+  draft.subject = "Re: Акт";
+  draft.text = reply ? `\n\n${QUOTE}` : "";
+  const id = app.compose.open({ account_id: "a", draft, draft_id: null, unsaved: true });
+  const win = app.compose.windows.find((w) => w.id === id)!;
+  const target = document.createElement("div");
+  document.body.append(target);
+  view = mount(Compose, { target, props: { c: win } });
+  flushSync();
+  return { win, target };
+}
 
-  const dots = (t: HTMLElement) => t.querySelector<HTMLButtonElement>("button.dots");
-  const quote = (t: HTMLElement) => t.querySelector<HTMLTextAreaElement>("textarea.quote-text");
-  const labels = (t: HTMLElement) => [...t.querySelectorAll(".fields .label")].map((l) => l.textContent);
-  const links = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>(".fields .lnk")];
-  const focused = () => document.activeElement?.closest(".row")?.querySelector(".label")?.textContent;
-  const altKey = (t: HTMLElement, k: string) => {
-    t.querySelector(".compose")!.dispatchEvent(new KeyboardEvent("keydown", { key: k, code: `Key${k.toUpperCase()}`, altKey: true, bubbles: true, cancelable: true }));
-    flushSync();
-  };
+const dots = (t: HTMLElement) => t.querySelector<HTMLButtonElement>("button.dots");
+const quote = (t: HTMLElement) => t.querySelector<HTMLTextAreaElement>("textarea.quote-text");
+const labels = (t: HTMLElement) => [...t.querySelectorAll(".fields .label")].map((l) => l.textContent);
+const links = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>(".fields .lnk")];
+const focused = () => document.activeElement?.closest(".row")?.querySelector(".label")?.textContent;
+const altKey = (t: HTMLElement, k: string) => {
+  t.querySelector(".compose")!.dispatchEvent(new KeyboardEvent("keydown", { key: k, code: `Key${k.toUpperCase()}`, altKey: true, bubbles: true, cancelable: true }));
+  flushSync();
+};
 
+
+describe("the quote of a reply", () => {
   it("folds the quote of a reply behind the dots, which open it by click, Alt+Q and as a button", async () => {
     const { target } = open(true);
     expect(dots(target)).not.toBeNull();
@@ -121,6 +122,9 @@ describe("the composition window's quote and copy fields", () => {
     expect(target.querySelector(".quote-chip")).toBeNull();
   });
 
+});
+
+describe("the fields of the letter", () => {
   it("opens Cc and Bcc by the words and by the keys, and the caret goes into the new field", async () => {
     const { target } = open(false);
     expect(links(target).map((b) => b.textContent?.trim())).toEqual(["Копия", "Скрытая копия"]);
@@ -140,6 +144,9 @@ describe("the composition window's quote and copy fields", () => {
     expect(labels(target)).toEqual(["К:", "Тема:"]);
   });
 
+});
+
+describe("the letter with a folded quote", () => {
   it("sends the quote with the letter when it is folded", async () => {
     const send = vi.spyOn(app.compose, "send").mockResolvedValue(undefined as never);
     const { win, target } = open(true);
